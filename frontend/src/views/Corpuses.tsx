@@ -1248,7 +1248,25 @@ export const Corpuses = () => {
         icon: <Brain />,
         badge: stats.totalChats,
         component: opened_corpus?.id ? (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          // Bound the chat tab to viewport-minus-navbar so MessagesArea's
+          // internal overflow-y:auto kicks in and the input stays pinned to
+          // the bottom. The surrounding shell (root, CorpusViewContainer,
+          // MainContentArea) all use min-height for natural document flow,
+          // so without an explicit bound here the chat would expand to fit
+          // every message instead of scrolling. CardLayout's outer padding
+          // is zeroed above for this tab, so we don't have to subtract it.
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height:
+                "calc(var(--oc-visible-viewport-height, 100vh) - var(--oc-navbar-height, 4.5rem))",
+              maxHeight:
+                "calc(var(--oc-visible-viewport-height, 100vh) - var(--oc-navbar-height, 4.5rem))",
+              minHeight: 0,
+              overflow: "hidden",
+            }}
+          >
             {/* Only show parent header when CorpusChat is in list view */}
             {/* When in conversation view, CorpusChat renders its own navigation */}
             {!chatInConversation && (
@@ -1270,7 +1288,14 @@ export const Corpuses = () => {
                 </MobileKebabButton>
               </TabNavigationHeader>
             )}
-            <div>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
               <CorpusChat
                 corpusId={opened_corpus.id}
                 showLoad={true}
@@ -1634,6 +1659,11 @@ export const Corpuses = () => {
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
+        // The chats tab owns a viewport-bounded layout (input pinned to
+        // bottom, messages scroll internally). CardLayout's default outer
+        // padding would push the chat past the viewport and shrink-wrap
+        // the input area awkwardly, so we drop the padding for this tab.
+        ...(currentView?.id === "chats" ? { padding: 0 } : {}),
       }}
       Modals={
         <>
@@ -1734,7 +1764,11 @@ export const Corpuses = () => {
       }
       SearchBar={
         opened_corpus === null ||
-        currentView?.id === "home" ? null : currentView?.id === "documents" ? (
+        currentView?.id === "home" ||
+        // Chats own their viewport-bounded layout; rendering a search bar
+        // above adds vertical overhead that pushes the chat past the
+        // viewport and forces the page navbar offscreen.
+        currentView?.id === "chats" ? null : currentView?.id === "documents" ? (
           <SearchBarWithNav>
             <MobileBackButton
               onClick={() => {

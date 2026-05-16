@@ -145,7 +145,7 @@ class DocxodusServiceParser(BaseParser):
         }
 
         try:
-            headers: dict[str, str] = {"Content-Type": "application/json"}
+            headers: dict[str, str | bytes] = {"Content-Type": "application/json"}
             headers = maybe_add_cloud_run_auth(
                 self.service_url, headers, force=self.use_cloud_run_iam_auth
             )
@@ -153,7 +153,10 @@ class DocxodusServiceParser(BaseParser):
             response = requests.post(
                 self.service_url,
                 json=cast(Any, payload),
-                headers=headers,
+                # ``requests`` annotates headers as
+                # ``MutableMapping[str, str | bytes]``; cast widens our
+                # narrower ``dict[str, str]`` for the call.
+                headers=cast(Any, headers),
                 timeout=self.request_timeout,
             )
             response.raise_for_status()

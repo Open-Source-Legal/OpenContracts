@@ -9,15 +9,28 @@ from __future__ import annotations
 
 import json as _json
 import logging
+from collections.abc import Callable
 from typing import Any, NamedTuple
 from uuid import uuid4
 
 from django.db import transaction
+from plasmapdf.models.types import SpanAnnotation, TextSpan
 
+from opencontractserver.annotations.compact_json import (
+    compact_annotation_json,
+    is_compact_format,
+    is_span_format,
+)
 from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL, Annotation
-from opencontractserver.constants.document_processing import TEXT_MIMETYPES
+from opencontractserver.constants.document_processing import (
+    PII_ANNOTATION_BULK_BATCH_SIZE,
+    TEXT_MIMETYPES,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.tasks.embeddings_task import (
+    calculate_embedding_for_annotation_text,
+)
 
 from ._helpers import _db_sync_to_async
 from ._privacy_filter_client import Detection, adetect_pii
@@ -111,6 +124,26 @@ def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
     )
 
 
+def _queue_embed(pk: int, cid: int) -> Callable[[], None]:
+    """Return a no-arg ``transaction.on_commit`` callback bound to ``(pk, cid)``.
+
+    Closure factory used by ``_persist_annotations_sync`` to schedule a
+    ``calculate_embedding_for_annotation_text`` Celery task once the
+    surrounding atomic block commits. The factory + named inner ``_fire``
+    fixes a ``Cannot infer type of lambda`` mypy error we hit when
+    registering this inline, and also rebinds ``pk`` / ``cid`` per call so
+    the classic late-binding-in-loop bug can't fire. Lives at module scope
+    so it isn't redefined on every ``_persist_annotations_sync`` invocation.
+    """
+
+    def _fire() -> None:
+        calculate_embedding_for_annotation_text.si(
+            annotation_id=pk, corpus_id=cid
+        ).apply_async(task_id=f"embed-annot-{pk}")
+
+    return _fire
+
+
 def _persist_annotations_sync(
     *,
     doc: Any,
@@ -130,12 +163,7 @@ def _persist_annotations_sync(
     than ``detections`` — callers derive ``detection_count`` and
     ``by_entity_group`` from this list to keep the response self-consistent.
     """
-    if file_type == "application/pdf":
-        from plasmapdf.models.types import SpanAnnotation, TextSpan
-
-        label_type_const = TOKEN_LABEL
-    else:
-        label_type_const = SPAN_LABEL
+    label_type_const = TOKEN_LABEL if file_type == "application/pdf" else SPAN_LABEL
 
     # Pre-create every label the upcoming detections need *outside* the
     # ``transaction.atomic()`` block below. ``ensure_label_and_labelset``
@@ -152,7 +180,9 @@ def _persist_annotations_sync(
     # bigger Annotation insert batch isn't rolled back. The inner
     # atomic block only inserts ``Annotation`` rows, which carry no
     # cross-row uniqueness, so it can never fail for a reason caused
-    # by a peer scan racing with us.
+    # by a peer scan racing with us. See
+    # ``test_persist_annotations_sync_duplicate_label_race`` for the
+    # regression guard that documents this accepted-duplicate behavior.
     needed_groups = {
         det["entity_group"]
         for det in detections
@@ -169,65 +199,114 @@ def _persist_annotations_sync(
             icon=icon,
         )
 
-    persisted: list[tuple[int, Detection]] = []
+    # Build all Annotation instances first, then bulk_create. bulk_create
+    # skips the ``post_save`` signal that normally queues embedding work
+    # (see ``annotations/signals.py:process_annot_on_create_atomic``), so
+    # we queue embeddings manually below — mirroring the established
+    # pattern in ``annotations/models.py`` for duplicated annotation sets.
+    pending: list[tuple[Annotation, Detection]] = []
+    for det in detections:
+        start, end = det["start"], det["end"]
+        if start < 0 or end > len(doc_text) or start >= end:
+            logger.warning(
+                "scan_and_annotate_pii: skipping invalid detection "
+                "start=%s end=%s len=%s",
+                start,
+                end,
+                len(doc_text),
+            )
+            continue
+        group = det["entity_group"]
+        if group not in ENTITY_GROUP_LABELS:
+            logger.warning(
+                "scan_and_annotate_pii: unknown entity_group=%r from privacy-filter; skipping",
+                group,
+            )
+            continue
+        label_obj = label_cache[group]
+        if file_type == "application/pdf":
+            span = TextSpan(
+                id=str(uuid4()), start=start, end=end, text=doc_text[start:end]
+            )
+            span_annotation = SpanAnnotation(span=span, annotation_label=label_obj.text)
+            oc_ann = pdf_layer.create_opencontract_annotation_from_span(span_annotation)
+            # ``Annotation.save()`` normally auto-compacts TOKEN_LABEL JSON
+            # to v2 format; ``bulk_create`` skips ``save()`` so we run the
+            # compaction explicitly here (idempotent — v2 in == v2 out).
+            ann_json = oc_ann["annotation_json"]
+            if (
+                isinstance(ann_json, dict)
+                and ann_json
+                and not is_compact_format(ann_json)
+                and not is_span_format(ann_json)
+            ):
+                try:
+                    ann_json = compact_annotation_json(ann_json)
+                except (ValueError, KeyError, TypeError):
+                    # Narrow on malformed input only. Other errors
+                    # (memory, runtime bugs) propagate so we don't
+                    # silently mask real failures.
+                    logger.exception(
+                        "scan_and_annotate_pii: failed to compact annotation JSON; storing as-is"
+                    )
+            ann = Annotation(
+                raw_text=oc_ann["rawText"],
+                page=oc_ann.get("page", 1),
+                json=ann_json,
+                annotation_label=label_obj,
+                document=doc,
+                corpus=corpus,
+                creator_id=creator_id,
+                corpus_action_id=corpus_action_id,
+                annotation_type=TOKEN_LABEL,
+                structural=False,
+            )
+        else:
+            ann = Annotation(
+                raw_text=doc_text[start:end],
+                page=1,
+                json={"start": start, "end": end},
+                annotation_label=label_obj,
+                document=doc,
+                corpus=corpus,
+                creator_id=creator_id,
+                corpus_action_id=corpus_action_id,
+                annotation_type=SPAN_LABEL,
+                structural=False,
+            )
+        pending.append((ann, det))
+
+    if not pending:
+        return []
+
+    annotations = [ann for ann, _ in pending]
+    corpus_pk = corpus.pk
     with transaction.atomic():
-        for det in detections:
-            start, end = det["start"], det["end"]
-            if start < 0 or end > len(doc_text) or start >= end:
-                logger.warning(
-                    "scan_and_annotate_pii: skipping invalid detection "
-                    "start=%s end=%s len=%s",
-                    start,
-                    end,
-                    len(doc_text),
+        # bulk_create returns the same instances with ``pk`` populated
+        # (PostgreSQL ``RETURNING``).
+        Annotation.objects.bulk_create(
+            annotations, batch_size=PII_ANNOTATION_BULK_BATCH_SIZE
+        )
+
+        # Queue embeddings on commit so workers never read rows that haven't
+        # been committed yet. Registered inside the atomic block so the
+        # callbacks are dropped if bulk_create rolls back. Keeps the same
+        # task-id-based dedup the post_save signal handler used. The
+        # ``_queue_embed`` factory lives at module scope (see above) so it
+        # isn't redefined on every call into ``_persist_annotations_sync``.
+        for ann in annotations:
+            # Explicit raise instead of ``assert`` so the invariant survives
+            # production interpreters launched with ``-O`` (which strip
+            # asserts). A missing pk would silently collapse every embedding
+            # task into a single dedup-key and lose embeddings.
+            if ann.pk is None:
+                raise RuntimeError(
+                    "bulk_create did not populate annotation.pk — "
+                    "the database backend must support RETURNING"
                 )
-                continue
-            group = det["entity_group"]
-            if group not in ENTITY_GROUP_LABELS:
-                logger.warning(
-                    "scan_and_annotate_pii: unknown entity_group=%r from privacy-filter; skipping",
-                    group,
-                )
-                continue
-            label_obj = label_cache[group]
-            if file_type == "application/pdf":
-                span = TextSpan(
-                    id=str(uuid4()), start=start, end=end, text=doc_text[start:end]
-                )
-                span_annotation = SpanAnnotation(
-                    span=span, annotation_label=label_obj.text
-                )
-                oc_ann = pdf_layer.create_opencontract_annotation_from_span(
-                    span_annotation
-                )
-                ann = Annotation(
-                    raw_text=oc_ann["rawText"],
-                    page=oc_ann.get("page", 1),
-                    json=oc_ann["annotation_json"],
-                    annotation_label=label_obj,
-                    document=doc,
-                    corpus=corpus,
-                    creator_id=creator_id,
-                    corpus_action_id=corpus_action_id,
-                    annotation_type=TOKEN_LABEL,
-                    structural=False,
-                )
-            else:
-                ann = Annotation(
-                    raw_text=doc_text[start:end],
-                    page=1,
-                    json={"start": start, "end": end},
-                    annotation_label=label_obj,
-                    document=doc,
-                    corpus=corpus,
-                    creator_id=creator_id,
-                    corpus_action_id=corpus_action_id,
-                    annotation_type=SPAN_LABEL,
-                    structural=False,
-                )
-            ann.save()
-            persisted.append((ann.pk, det))
-    return persisted
+            transaction.on_commit(_queue_embed(ann.pk, corpus_pk))
+
+    return [(ann.pk, det) for ann, det in pending]
 
 
 async def ascan_and_annotate_pii(

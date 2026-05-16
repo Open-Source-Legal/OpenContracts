@@ -628,3 +628,85 @@ export const FilterContainer = styled.div`
   border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
   z-index: 10;
 `;
+
+/* ---------------------------------------------------------------------------
+ * Empty-state for a freshly-opened (zero-message) chat conversation.
+ *
+ * Used by both ChatTray (document-scope) and CorpusChat (corpus-scope) so the
+ * blank space between the header and the textarea gets a friendly orientation
+ * cue instead of a yawning void. Palette matches the rest of the chat surface
+ * (OS Legal blue accents) and the icon chip echoes the conversation-list
+ * "No chats yet" empty state.
+ * ------------------------------------------------------------------------- */
+export const ChatEmptyState = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+`;
+
+export const ChatEmptyStateIcon = styled.div`
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    ${OS_LEGAL_COLORS.blueSurface} 0%,
+    ${OS_LEGAL_COLORS.blueBorder} 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+
+  svg {
+    width: 26px;
+    height: 26px;
+    color: ${OS_LEGAL_COLORS.primaryBlueHover};
+  }
+`;
+
+export const ChatEmptyStateTitle = styled.h4`
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+`;
+
+export const ChatEmptyStateDescription = styled.p`
+  margin: 0;
+  max-width: 280px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+`;
+
+export const ChatEmptyStateHint = styled.div`
+  margin-top: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  border-radius: 999px;
+  background: ${OS_LEGAL_COLORS.blueSurface};
+  border: 1px solid ${OS_LEGAL_COLORS.blueBorder};
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: ${OS_LEGAL_COLORS.blueDark};
+  max-width: 100%;
+  text-align: left;
+  line-height: 1.3;
+
+  svg {
+    color: ${OS_LEGAL_COLORS.primaryBlueHover};
+    flex-shrink: 0;
+  }
+`;

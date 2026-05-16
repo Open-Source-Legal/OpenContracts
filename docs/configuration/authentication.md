@@ -215,7 +215,7 @@ exports.onExecutePostLogin = async (event, api) => {
     (`opencontracts` vs `contracts`), a missing trailing slash, or `http` vs
     `https` — the backend will not find the claims, will treat them as missing,
     and will **set `is_staff` / `is_superuser` to `False` on the user on each
-    sync cycle** (fail-closed sync; cached for 5 minutes per user via
+    sync cycle** (fail-closed sync; cached for 30 seconds per user via
     `_sync_admin_claims_cached`, so freshly logged-in users may have a brief
     window of elevated privileges before the next cache miss).
     See `sync_admin_claims_from_payload()` in
@@ -230,9 +230,21 @@ exports.onExecutePostLogin = async (event, api) => {
     `AUTH0_ADMIN_CLAIM_NAMESPACE` in the backend env to match the Action.
     To verify, decode your access token at jwt.io and confirm the claim keys
     are byte-for-byte identical to `AUTH0_ADMIN_CLAIM_NAMESPACE` + `is_staff` /
-    `is_superuser`. After the fix, the 5-minute claim cache means it can take
-    up to that long for the change to propagate — clear the Django cache or
-    restart the worker to apply it immediately.
+    `is_superuser`. After the fix, the 30-second claim cache means propagation
+    is fast — clear the Django cache or restart the worker to apply it
+    immediately.
+
+!!! danger "Source admin claims from `app_metadata`, NEVER `user_metadata`"
+    Auth0 distinguishes `app_metadata` (admin-controlled, read-only to the
+    end user via the standard `/userinfo` endpoint) from `user_metadata`
+    (which the user can write through self-service flows). The Action above
+    correctly reads from `event.user.app_metadata`. **Sourcing
+    `is_superuser` from `event.user.user_metadata` is a privilege-escalation
+    bug**: any signed-up user can PATCH their own metadata to grant
+    themselves Django superuser. Even with the
+    `AUTH0_SUPERUSER_SUB_ALLOWLIST` defense-in-depth check below, do not
+    rely on the allowlist as the only barrier — keep claims in
+    `app_metadata`.
 
 #### Step 6: Grant Admin Access to Auth0 Users
 
@@ -256,6 +268,33 @@ To give an Auth0 user admin access:
 - Users without these flags can still use the main frontend application
 - Changes take effect on the user's next login (when a new token is issued)
 
+#### Step 7: Allow-list the Auth0 subs that may become Django superuser
+
+Even after Step 6 sets `app_metadata.is_superuser = true` and the Action
+injects the claim, the backend will refuse to flip `User.is_superuser`
+until the user's Auth0 `sub` (the value of the `sub` claim, e.g.
+`auth0|abc123…` or `google-oauth2|114688…`) appears in
+`AUTH0_SUPERUSER_SUB_ALLOWLIST`. This second gate is defense-in-depth:
+even if the Auth0 tenant is misconfigured to source admin claims from
+user-writable metadata, an attacker cannot self-promote without also
+forging a sub that appears in the deploy-time allowlist.
+
+```bash
+# Comma-separated list. Empty (the default) blocks ALL superuser elevation
+# via JWT claim sync — any user listed here also still needs the
+# {namespace}is_superuser=true claim from the Action above.
+AUTH0_SUPERUSER_SUB_ALLOWLIST=auth0|abc123,google-oauth2|114688
+```
+
+The allowlist applies to `is_superuser` only — `is_staff` (admin login
+without superuser powers) is still gated by the JWT claim alone. Existing
+Django superusers whose subs are not in the allowlist will be demoted on
+their next claim sync (within 30 seconds of their next API request);
+populate this BEFORE you deploy the upgrade.
+
+To find an Auth0 user's sub, decode their access token at jwt.io or use
+the Auth0 dashboard URL (the user's profile URL ends in their sub).
+
 ### Summary of Auth0 Entities
 
 | Auth0 Entity | Env Variable(s) | Purpose |
@@ -267,6 +306,7 @@ To give an Auth0 user admin access:
 | M2M Client Secret | `AUTH0_M2M_MANAGEMENT_API_SECRET` | Backend calls to Auth0 Management API |
 | Post-Login Action | `AUTH0_ADMIN_CLAIM_NAMESPACE` | Injects admin claims into tokens |
 | User app_metadata | -- | Controls `is_staff` / `is_superuser` in Django |
+| Sub allowlist | `AUTH0_SUPERUSER_SUB_ALLOWLIST` | Defense-in-depth gate for `is_superuser` elevation |
 
 ### Backend Configuration
 
@@ -293,7 +333,25 @@ AUTH0_M2M_MANAGEMENT_GRANT_TYPE=client_credentials
 # Optional: custom namespace for admin claims (default shown below)
 # Only change this if you use a different namespace in your Auth0 Action
 # AUTH0_ADMIN_CLAIM_NAMESPACE=https://contracts.opensource.legal/
+
+# Required for any user that should hold Django is_superuser. Empty
+# (default) blocks ALL superuser elevation via JWT. See "Step 7" above.
+# AUTH0_SUPERUSER_SUB_ALLOWLIST=auth0|abc123,google-oauth2|114688
+
+# Optional: when True (default) any valid Auth0 token from the configured
+# tenant auto-provisions a Django user the first time it is seen. If your
+# tenant allows public signups and you do NOT want every signed-up user to
+# get a Django account, set to False and provision users out of band via
+# the management command or admin UI.
+# AUTH0_CREATE_NEW_USERS=True
 ```
+
+!!! note "User.email is informational, not an identity field"
+    The Django `User.email` column has no `unique=True` constraint. The
+    only identity field is `User.username`, which holds the Auth0 `sub`.
+    Do not build sharing, invitation, or password-recovery flows that
+    treat email as a primary key — duplicate-email rows are possible
+    today and must be expected.
 
 ### Frontend Configuration
 
@@ -372,6 +430,9 @@ asynchronously within a few seconds of first login.
 | `AUTH0_M2M_MANAGEMENT_API_SECRET` | If Auth0 | -- | M2M application client secret |
 | `AUTH0_M2M_MANAGEMENT_GRANT_TYPE` | If Auth0 | -- | Always `client_credentials` |
 | `AUTH0_ADMIN_CLAIM_NAMESPACE` | No | `https://contracts.opensource.legal/` | Namespace prefix for admin claims in tokens |
+| `AUTH0_SUPERUSER_SUB_ALLOWLIST` | No | `[]` | Comma-separated Auth0 subs eligible for `is_superuser` elevation. Empty list blocks all JWT-driven superuser elevation (defense-in-depth). |
+| `AUTH0_CREATE_NEW_USERS` | No | `True` | When True, any valid Auth0 token from the configured tenant auto-provisions a Django user. Set False to require out-of-band provisioning. |
+| `AUTH0_ADMIN_CLAIMS_CACHE_TTL` | No | `30` | Seconds between automatic resyncs of `is_staff`/`is_superuser` from each verified token. Lower values give a tighter revocation SLA at the cost of slightly more frequent claim-sync writes on the per-request auth path. Admin login always bypasses this cache. |
 | `DJANGO_SUPERUSER_USERNAME` | No | `admin` | Initial admin username |
 | `DJANGO_SUPERUSER_PASSWORD` | No | `Openc0ntracts_def@ult` | Initial admin password |
 | `DJANGO_SUPERUSER_EMAIL` | No | `support@opensource.legal` | Initial admin email |
@@ -481,12 +542,17 @@ Django shell keeps flipping back to `False` after each sync cycle.
 4. **Stale token**: The claims are set at login time. If you added `app_metadata`
    after the user logged in, they need to log out and log back in to get a new
    token with the updated claims.
-5. **Stale 5-minute claim cache after fixing the namespace**: Sync results are
-   cached for `ADMIN_CLAIMS_CACHE_TTL` (300 seconds) per user via
+5. **Stale claim cache after fixing the namespace**: Sync results are cached
+   for `ADMIN_CLAIMS_CACHE_TTL` (30 seconds) per user via
    `_sync_admin_claims_cached()`. After correcting the namespace env var, the
-   fix won't propagate for users whose claims were synced in the last 5 minutes.
-   Clear the Django cache (`cache.clear()` in a management shell) or restart the
-   worker, then have the affected user log out and back in.
+   fix won't propagate for users whose claims were synced in the last 30
+   seconds. Clear the Django cache (`cache.clear()` in a management shell)
+   or restart the worker, then have the affected user log out and back in.
+6. **Sub not in the superuser allowlist**: For `is_superuser` only, the user's
+   Auth0 sub must be present in `AUTH0_SUPERUSER_SUB_ALLOWLIST` (see Step 7
+   above). Confirm in a management shell with
+   `from django.conf import settings; settings.AUTH0_SUPERUSER_SUB_ALLOWLIST`.
+   `is_staff` is unaffected by this allowlist.
 
 !!! tip "Diagnostic: confirm the namespace at runtime"
     Set the log level for `config.graphql_auth0_auth.utils` to `DEBUG`. The
@@ -500,7 +566,7 @@ Django shell keeps flipping back to `False` after each sync cycle.
     the current value differs, so cached writes are a no-op). This prevents
     privilege retention if a user is removed from Auth0 admin, but it also
     means a misconfigured namespace will silently strip admin on each sync
-    cycle (at most once every 5 minutes per user). See
+    cycle (at most once every 30 seconds per user). See
     `sync_admin_claims_from_payload()` in
     `config/graphql_auth0_auth/utils.py`.
 

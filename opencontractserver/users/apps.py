@@ -25,6 +25,9 @@ class UsersConfig(AppConfig):
         except ImportError:
             pass
 
+        # Register system checks (Auth0 superuser-allowlist warning, etc.)
+        from opencontractserver.users import checks  # noqa F401
+
         # Pre-warm the pipeline component registry at startup
         # This ensures the first GraphQL request is fast (~0ms instead of ~2s)
         self._warm_pipeline_registry()

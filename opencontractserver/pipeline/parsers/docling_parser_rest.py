@@ -332,7 +332,7 @@ class DoclingParser(BaseChunkedParser):
                 f"{self.service_url}"
             )
             try:
-                headers: dict[str, str] = {"Content-Type": "application/json"}
+                headers: dict[str, str | bytes] = {"Content-Type": "application/json"}
                 # Attach Cloud Run IAM id_token if applicable/forced
                 headers = maybe_add_cloud_run_auth(
                     self.service_url, headers, force=self.use_cloud_run_iam_auth
@@ -341,7 +341,8 @@ class DoclingParser(BaseChunkedParser):
                 response = requests.post(
                     self.service_url,
                     json=payload,
-                    headers=headers,
+                    # See cast rationale in ``docxodus_parser.py``.
+                    headers=cast(Any, headers),
                     timeout=self.request_timeout,
                 )
                 response.raise_for_status()  # Raise exception for 4XX/5XX responses

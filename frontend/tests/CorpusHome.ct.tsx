@@ -18,6 +18,7 @@ import {
 } from "../src/assets/configurations/constants";
 import { PermissionTypes } from "../src/components/types";
 import { docScreenshot } from "./utils/docScreenshot";
+import { buildMentionSearchMocks } from "./utils/mentionSearchMocks";
 
 /* --------------------------------------------------------------------------
  * Mock data & helpers
@@ -392,6 +393,16 @@ const mocks: MockedResponse[] = [
   // Conversations mock for RecentDiscussions
   conversationsMock,
   { ...conversationsMock },
+  // ``InlineChatBar`` now plumbs ``corpusId`` into ``useChatMentionPicker``
+  // → ``useUnifiedMentionSearch``, which fires ``searchAgentsForMention``
+  // with the empty fragment on mount (agents are special-cased to ignore
+  // the ``minChars`` gate so the picker is reachable on a bare ``@``).
+  // Without these mocks, MockedProvider logs "no more mocked responses"
+  // for every CorpusHome test that mounts the landing view. The other
+  // four category mocks in ``buildMentionSearchMocks`` are still gated by
+  // ``minChars`` and won't fire on the empty fragment, but bundling them
+  // here keeps the test setup symmetric with ChatTray/CorpusChat.
+  ...buildMentionSearchMocks("", dummyCorpus.id, []),
 ];
 
 /**
@@ -476,6 +487,62 @@ test("renders landing view with chat bar and quick actions", async ({
   await expect(chatBar.locator("text=Analyze")).toBeVisible();
 
   await docScreenshot(page, "readme--corpus-home--with-chat");
+});
+
+test("typing @ in landing chat input opens the agent picker", async ({
+  mount,
+  page,
+}) => {
+  // The landing chat input has data-testid="corpus-home-landing-chat-input"
+  // (testId composition: parent "corpus-home-landing-chat" + "-input").
+  // It uses the shared ``useChatMentionPicker`` hook with ``corpusId`` set
+  // to the landing corpus, so the rich-mention agent picker should work
+  // here exactly the same as it does in ChatTray and CorpusChat.
+  await mount(
+    <CorpusHomeTestWrapper
+      mocks={[
+        ...mocks.filter((m) => {
+          // Replace the default empty-fragment agent mock with one that
+          // surfaces a real agent so the popover has something to render.
+          const q = (m.request as any)?.query;
+          // Drop the empty-fragment ``searchAgentsForMention`` mock added
+          // above so we can re-add a populated one below.
+          if (
+            q &&
+            q.definitions?.[0]?.name?.value === "SearchAgentsForMention"
+          ) {
+            const vars = (m.request as any)?.variables || {};
+            return !(
+              vars.textSearch === "" && vars.corpusId === dummyCorpus.id
+            );
+          }
+          return true;
+        }),
+        ...buildMentionSearchMocks("", dummyCorpus.id, [
+          {
+            id: "agent-landing-1",
+            name: "Landing Research Bot",
+            slug: "landing-research-bot",
+            description: "Research from the landing bar",
+            scope: "GLOBAL",
+            mentionFormat: null,
+            corpus: null,
+          },
+        ]),
+      ]}
+      corpus={dummyCorpus}
+    />
+  );
+
+  const chatInput = page.getByTestId("corpus-home-landing-chat-input");
+  await expect(chatInput).toBeVisible();
+  await chatInput.focus();
+  await chatInput.pressSequentially("@", { delay: 30 });
+
+  await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText("Landing Research Bot")).toBeVisible();
 });
 
 test("renders landing view with description as subtitle", async ({

@@ -122,3 +122,63 @@ class DatacellMutationTestCase(TestCase):
 
         edited_datacell = Datacell.objects.get(id=self.datacell.id)
         self.assertEqual(edited_datacell.corrected_data, edited_data)
+
+    def test_approve_datacell_not_found(self):
+        """IDOR-safe: requesting an unknown datacell yields a generic
+        ``Datacell not found.`` message instead of leaking ORM error text."""
+        nonexistent_gid = to_global_id("DatacellType", 999_999)
+        mutation = """
+            mutation {{
+                approveDatacell(datacellId: "{}") {{ ok message }}
+            }}
+        """.format(nonexistent_gid)
+        result = self.client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["approveDatacell"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], "Datacell not found.")
+
+    def test_reject_datacell_not_found(self):
+        nonexistent_gid = to_global_id("DatacellType", 999_999)
+        mutation = """
+            mutation {{
+                rejectDatacell(datacellId: "{}") {{ ok message }}
+            }}
+        """.format(nonexistent_gid)
+        result = self.client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["rejectDatacell"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], "Datacell not found.")
+
+    def test_edit_datacell_not_found(self):
+        nonexistent_gid = to_global_id("DatacellType", 999_999)
+        mutation = """
+            mutation {{
+                editDatacell(datacellId: "{}", editedData: {{key: "value"}}) {{
+                    ok message
+                }}
+            }}
+        """.format(nonexistent_gid)
+        result = self.client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["editDatacell"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], "Datacell not found.")
+
+    def test_approve_datacell_owned_by_other_user_returns_not_found(self):
+        """IDOR-safe: a different user requesting a datacell they don't own
+        receives the same ``Datacell not found.`` message as for a missing id
+        (the queryset filters by creator, so DoesNotExist is raised)."""
+        other_user = User.objects.create_user(username="other", password="x")
+        other_client = Client(schema, context_value=TestContext(other_user))
+        mutation = """
+            mutation {{
+                approveDatacell(datacellId: "{}") {{ ok message }}
+            }}
+        """.format(to_global_id("DatacellType", self.datacell.id))
+        result = other_client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["approveDatacell"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], "Datacell not found.")

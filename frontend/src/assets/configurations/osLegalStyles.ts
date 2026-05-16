@@ -257,6 +257,17 @@ export const OS_LEGAL_COLORS = {
   /** Chat assistant avatar gradient end - darker blue (#1678c2). */
   chatAvatarAssistantEnd: "#1678c2",
 
+  // Agent attribution palette — used by every "this came from agent @X" chip
+  // (markdown @-mention pill in MarkdownMessageRenderer, the bubble-header
+  // SubAgentAttributionChip, the timeline TimelineAgentChip, and the approval
+  // attribution chip in RequestingAgentAttribution). Defined here so the
+  // four chip surfaces stay visually in lock-step. See `agentChipPaletteCss`
+  // below for the ready-to-use styled-components fragment.
+  /** Agent chip violet (#8b5cf6) — gradient stop A and border base. */
+  agentChipViolet: "#8b5cf6",
+  /** Agent chip text color — violet-700 (#7c3aed). */
+  agentChipText: "#7c3aed",
+
   // Extended Tailwind-style cool gray scale used by timeline/code blocks
   /** Cool gray-700 - timeline args & code block text (#374151). */
   coolGray700: "#374151",

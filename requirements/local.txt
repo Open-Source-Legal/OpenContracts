@@ -11,7 +11,7 @@ django-stubs==6.0.4  # https://github.com/typeddjango/django-stubs
 pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
-djangorestframework-stubs==3.16.9  # https://github.com/typeddjango/djangorestframework-stubs
+djangorestframework-stubs==3.17.0  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.26.0  # https://github.com/getsentry/responses
 vcrpy==8.1.1
 
@@ -55,7 +55,7 @@ pytesseract
 django==5.2.14  # https://www.djangoproject.com/
 twisted>=26.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
 ipython>=9.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
-requests>=2.34.0,<3 # not directly required, pinned by Snyk to avoid a vulnerability
+requests>=2.34.2,<3 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.5.5 # not directly required, pinned by Snyk to avoid a vulnerability

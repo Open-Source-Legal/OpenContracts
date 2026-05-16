@@ -102,3 +102,25 @@ class GetNewAuth0TokenTaskTests(TestCase):
 
         self.assertIsNone(token)
         self.assertEqual(Auth0APIToken.objects.count(), token_count_before)
+
+    @patch("opencontractserver.users.tasks.requests.get")
+    def test_get_user_details_async_returns_parsed_response(self, mock_get):
+        # ``get_user_details_async`` is defined inside the same
+        # ``if settings.USE_AUTH0:`` block as ``get_new_auth0_token``, so
+        # it only exists with USE_AUTH0=True. Exercise the header
+        # construction + Auth0 GET so the patch-coverage line that
+        # assembles the bearer-token headers is hit.
+        mock_response = MagicMock()
+        mock_response.text = json.dumps({"user_id": "auth0|abc", "email": "x@y.z"})
+        mock_get.return_value = mock_response
+
+        details = self.users_tasks.get_user_details_async(
+            "bearer-token-xyz", "auth0|abc"
+        )
+
+        self.assertEqual(details["user_id"], "auth0|abc")
+        mock_get.assert_called_once()
+        # The Authorization header must use the supplied bearer token.
+        _, kwargs = mock_get.call_args
+        headers = kwargs.get("headers", {})
+        self.assertEqual(headers.get("Authorization"), "Bearer bearer-token-xyz")

@@ -5,7 +5,7 @@ GraphQL mutations for annotation, relationship, and note operations.
 import logging
 
 import graphene
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
 from graphene.types.generic import GenericScalar
 from graphql_jwt.decorators import login_required
@@ -23,8 +23,16 @@ from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dyna
 from config.graphql.serializers import AnnotationSerializer
 from opencontractserver.annotations.models import (
     Annotation,
+    AnnotationLabel,
     Note,
     Relationship,
+    validate_link_url,
+)
+from opencontractserver.constants.annotations import (
+    OC_URL_LABEL,
+    OC_URL_LABEL_COLOR,
+    OC_URL_LABEL_DESCRIPTION,
+    OC_URL_LABEL_ICON,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
@@ -215,6 +223,21 @@ _ANNOTATION_PARENT_NOT_FOUND_MSG = (
 )
 
 
+def _format_link_url_error(exc: ValidationError) -> str:
+    """Surface a stable, human-readable link_url validation error.
+
+    ``str(ValidationError({"link_url": "..."}))`` returns a Python
+    ``[" {'link_url': ['...']} "]`` string that leaks internal structure.
+    Pull the first message off the dict so the user sees a clean sentence.
+    """
+    detail = getattr(exc, "message_dict", None)
+    if detail:
+        messages = detail.get("link_url", []) or []
+        if messages:
+            return str(messages[0])
+    return "link_url failed validation."
+
+
 def _resolve_annotation_parents(
     user, corpus_pk: int | str, document_pk: int | str
 ) -> tuple["Document", "Corpus"] | None:
@@ -278,6 +301,13 @@ class AddAnnotation(graphene.Mutation):
             required=False,
             description="Optional markdown description for this annotation.",
         )
+        link_url = graphene.String(
+            required=False,
+            description=(
+                "Optional URL opened on click. Restricted to http(s):// or "
+                "site-relative paths; intended for OC_URL annotations."
+            ),
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -296,12 +326,21 @@ class AddAnnotation(graphene.Mutation):
         annotation_label_id,
         annotation_type,
         long_description=None,
+        link_url=None,
     ) -> "AddAnnotation":
         corpus_pk = from_global_id(corpus_id)[1]
         document_pk = from_global_id(document_id)[1]
         label_pk = from_global_id(annotation_label_id)[1]
 
         user = info.context.user
+
+        if link_url:
+            try:
+                validate_link_url(link_url)
+            except ValidationError as exc:
+                return AddAnnotation(
+                    ok=False, annotation=None, message=_format_link_url_error(exc)
+                )
 
         parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
         if parents is None:
@@ -322,12 +361,123 @@ class AddAnnotation(graphene.Mutation):
             creator=user,
             json=json,
             annotation_type=annotation_type.value,
+            # Normalise empty string to None so the column ends up NULL
+            # (the ``if link_url:`` guard above only protects the validator
+            # call, not the persisted value).
+            link_url=link_url or None,
         )
         annotation.save()
         set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
 
         return AddAnnotation(
             ok=True, message="Annotation created", annotation=annotation
+        )
+
+
+class AddUrlAnnotation(graphene.Mutation):
+    """Create an annotation labelled ``OC_URL`` with a click-through URL.
+
+    Convenience wrapper over ``AddAnnotation``: ensures the corpus has an
+    ``OC_URL`` label (creating it if absent) and stamps ``link_url`` on the
+    resulting annotation so the frontend renders the highlighted text as a
+    clickable hyperlink.
+    """
+
+    class Arguments:
+        json = GenericScalar(
+            required=True, description="New-style JSON for multipage annotations."
+        )
+        page = graphene.Int(
+            required=True, description="What page is this annotation on (0-indexed)."
+        )
+        raw_text = graphene.String(
+            required=True, description="The raw text being linked."
+        )
+        corpus_id = graphene.String(
+            required=True, description="ID of the corpus this annotation is for."
+        )
+        document_id = graphene.String(
+            required=True, description="ID of the document this annotation is on."
+        )
+        annotation_type = graphene.Argument(
+            graphene.Enum.from_enum(LabelType),
+            required=True,
+            description="Annotation type: TOKEN_LABEL for PDFs, SPAN_LABEL for text.",
+        )
+        link_url = graphene.String(
+            required=True,
+            description="The target URL to open on click.",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    annotation = graphene.Field(AnnotationType)
+
+    @login_required
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))
+    def mutate(
+        root,
+        info,
+        json,
+        page,
+        raw_text,
+        corpus_id,
+        document_id,
+        annotation_type,
+        link_url,
+    ) -> "AddUrlAnnotation":
+        corpus_pk = from_global_id(corpus_id)[1]
+        document_pk = from_global_id(document_id)[1]
+
+        user = info.context.user
+
+        try:
+            validate_link_url(link_url)
+        except ValidationError as exc:
+            return AddUrlAnnotation(
+                ok=False, annotation=None, message=_format_link_url_error(exc)
+            )
+
+        parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
+        if parents is None:
+            return AddUrlAnnotation(
+                ok=False,
+                annotation=None,
+                message=_ANNOTATION_PARENT_NOT_FOUND_MSG,
+            )
+        document, corpus = parents
+
+        with transaction.atomic():
+            # ``ensure_label_and_labelset`` is idempotent per (text, label_type).
+            # PDF (TOKEN_LABEL) and text (SPAN_LABEL) documents each get their
+            # own OC_URL row — the lookup filters on both fields, so flipping
+            # types between calls cannot return a label of the wrong shape to
+            # the renderer.
+            label = corpus.ensure_label_and_labelset(
+                label_text=OC_URL_LABEL,
+                creator_id=user.pk,
+                label_type=annotation_type.value,
+                color=OC_URL_LABEL_COLOR,
+                icon=OC_URL_LABEL_ICON,
+                description=OC_URL_LABEL_DESCRIPTION,
+            )
+
+            annotation = Annotation(
+                page=page,
+                raw_text=raw_text,
+                corpus_id=corpus.pk,
+                document_id=document.pk,
+                annotation_label_id=label.pk,
+                creator=user,
+                json=json,
+                annotation_type=annotation_type.value,
+                link_url=link_url,
+            )
+            annotation.save()
+            set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
+
+        return AddUrlAnnotation(
+            ok=True, message="URL annotation created", annotation=annotation
         )
 
 
@@ -463,74 +613,113 @@ class AddRelationship(graphene.Mutation):
         corpus_id,
         document_id,
     ) -> "AddRelationship":
+        user = info.context.user
+        # Unified message blocks IDOR enumeration of corpora, documents, and
+        # annotations the caller cannot see. Both "does not exist" and "no
+        # permission" branches must collapse to this string.
+        not_found_msg = (
+            "Relationship target(s) not found or you do not have permission "
+            "to create a relationship here."
+        )
+
         try:
-            source_pks = list(
-                map(lambda graphene_id: from_global_id(graphene_id)[1], source_ids)
-            )
-            target_pks = list(
-                map(lambda graphene_id: from_global_id(graphene_id)[1], target_ids)
-            )
-            relationship_label_pk = from_global_id(relationship_label_id)[1]
-            corpus_pk = from_global_id(corpus_id)[1]
-            document_pk = from_global_id(document_id)[1]
+            # Cast each parsed pk to int so non-numeric payloads (a global ID
+            # of "BogusType:not-an-int" decodes successfully but yields a
+            # string pk) fail closed inside this try/except instead of later
+            # at the queryset boundary. This keeps the IDOR surface flat:
+            # every bad-input path collapses to ``not_found_msg``.
+            source_pks = [
+                int(from_global_id(graphene_id)[1]) for graphene_id in source_ids
+            ]
+            target_pks = [
+                int(from_global_id(graphene_id)[1]) for graphene_id in target_ids
+            ]
+            relationship_label_pk = int(from_global_id(relationship_label_id)[1])
+            corpus_pk = int(from_global_id(corpus_id)[1])
+            document_pk = int(from_global_id(document_id)[1])
+        except Exception:
+            # Bad / unparseable / non-integer global IDs are indistinguishable
+            # from not-found to keep the IDOR surface flat. ``Exception``
+            # catches ``binascii.Error`` from ``from_global_id`` on
+            # undecodable input AND ``ValueError`` from the ``int()`` cast.
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-            source_annotations = Annotation.objects.filter(id__in=source_pks)
-            target_annotations = Annotation.objects.filter(id__in=target_pks)
+        # Filter annotations through visible_to_user so unauthorized or
+        # non-existent IDs collapse into the same "missing" branch. Comparing
+        # counts catches both cases without echoing IDs back to the caller.
+        source_annotations = Annotation.objects.visible_to_user(user).filter(
+            id__in=source_pks
+        )
+        target_annotations = Annotation.objects.visible_to_user(user).filter(
+            id__in=target_pks
+        )
+        if source_annotations.count() != len(
+            set(source_pks)
+        ) or target_annotations.count() != len(set(target_pks)):
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-            # Check that user can see all source and target annotations
-            all_annotations = list(source_annotations) + list(target_annotations)
-            for annotation in all_annotations:
-                if not user_has_permission_for_obj(
-                    info.context.user,
-                    annotation,
-                    PermissionTypes.READ,
-                    include_group_permissions=True,
-                ):
-                    return AddRelationship(
-                        ok=False,
-                        relationship=None,
-                        message=f"You don't have permission to see annotation {annotation.id}",
-                    )
+        # Filter corpus through visible_to_user so a non-existent or
+        # inaccessible corpus pk yields the same not-found branch as a
+        # corpus the caller cannot CREATE in.
+        try:
+            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+        except Corpus.DoesNotExist:
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-            # Check that user has permission to create in the corpus
-            corpus = Corpus.objects.get(pk=corpus_pk)
-            if not user_has_permission_for_obj(
-                info.context.user,
-                corpus,
-                PermissionTypes.CREATE,
-                include_group_permissions=True,
-            ):
-                return AddRelationship(
-                    ok=False,
-                    relationship=None,
-                    message="You don't have permission to create relationships in this corpus",
-                )
+        if not user_has_permission_for_obj(
+            user,
+            corpus,
+            PermissionTypes.CREATE,
+            include_group_permissions=True,
+        ):
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
+        # Document visibility check: without this, a caller with CREATE on
+        # `corpus` could create a Relationship pointing at any document_id
+        # they happen to guess — including documents in a corpus they cannot
+        # see. Collapse the failure into the same not-found message to keep
+        # the IDOR surface flat with the source/target/corpus checks above.
+        if not Document.objects.visible_to_user(user).filter(pk=document_pk).exists():
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
+
+        # Relationship label visibility check: closes the residual oracle
+        # where a caller could probe private ``AnnotationLabel`` IDs by
+        # supplying them and observing whether the create succeeds vs.
+        # raises an FK constraint. Same not-found message.
+        if (
+            not AnnotationLabel.objects.visible_to_user(user)
+            .filter(pk=relationship_label_pk)
+            .exists()
+        ):
+            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
+
+        try:
             relationship = Relationship.objects.create(
-                creator=info.context.user,
+                creator=user,
                 relationship_label_id=relationship_label_pk,
                 corpus_id=corpus_pk,
                 document_id=document_pk,
             )
-            set_permissions_for_obj_to_user(
-                info.context.user, relationship, [PermissionTypes.CRUD]
-            )
+            set_permissions_for_obj_to_user(user, relationship, [PermissionTypes.CRUD])
             relationship.target_annotations.set(target_annotations)
             relationship.source_annotations.set(source_annotations)
-
-            return AddRelationship(
-                ok=True,
-                relationship=relationship,
-                message="Relationship created successfully",
-            )
-
-        except Exception as e:
-            logger.error(f"Error creating relationship: {e}")
+        except Exception:
+            # Don't surface ORM or constraint messages to the caller — they
+            # leak schema/existence information. Log server-side instead.
+            # ``logger.exception`` already appends the traceback + message,
+            # so we omit the redundant exception variable.
+            logger.exception("Error creating relationship")
             return AddRelationship(
                 ok=False,
                 relationship=None,
-                message=f"Error creating relationship: {str(e)}",
+                message="Error creating relationship.",
             )
+
+        return AddRelationship(
+            ok=True,
+            relationship=relationship,
+            message="Relationship created successfully",
+        )
 
 
 class RemoveRelationships(graphene.Mutation):
@@ -727,6 +916,14 @@ class UpdateAnnotation(DRFMutation):
         long_description = graphene.String()
         json = GenericScalar()
         annotation_label = graphene.String()
+        link_url = graphene.String(
+            required=False,
+            description=(
+                "Optional click-through URL for OC_URL annotations. Pass an "
+                "empty string to clear an existing URL. Restricted to "
+                "http(s):// or site-relative paths."
+            ),
+        )
 
 
 class UpdateRelations(graphene.Mutation):

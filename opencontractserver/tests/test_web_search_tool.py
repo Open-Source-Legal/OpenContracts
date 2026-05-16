@@ -543,11 +543,26 @@ class TestAwebSearch:
 class TestPipelineSettingsToolSecrets(TestCase):
     """Test PipelineSettings tool secret helpers."""
 
+    def setUp(self):
+        """Invalidate the singleton cache so each test sees fresh DB state.
+
+        Without this, parallel xdist workers can hand back a cached instance
+        whose ``modified_by`` FK references a User row deleted by a sibling
+        test, causing ``SET CONSTRAINTS ALL IMMEDIATE`` to fail at teardown.
+        """
+        from opencontractserver.documents.models import PipelineSettings
+
+        PipelineSettings._invalidate_cache()
+
     def tearDown(self):
         """Clean up tool settings to avoid leaking state to other tests."""
         from opencontractserver.documents.models import PipelineSettings
 
-        ps = PipelineSettings.get_instance()
+        # Bypass cache to read live DB state; null out any stale modified_by
+        # FK so the post-test ``SET CONSTRAINTS`` check doesn't fail when a
+        # previously-deleted user remains referenced.
+        ps = PipelineSettings.get_instance(use_cache=False)
+        ps.modified_by = None
         ps.delete_tool_settings(WEB_SEARCH_SETTINGS_KEY)
         ps.save()
 

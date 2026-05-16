@@ -17,7 +17,9 @@ import { useCorpusState } from "../../context/CorpusAtom";
 import { useAnnotationSelection } from "../../context/UISettingsAtom";
 import { useAtom, useAtomValue } from "jotai";
 import { isCreatingAnnotationAtom } from "../../context/UISettingsAtom";
-import { Copy, Tag, X, AlertCircle, Settings, Link } from "lucide-react";
+import { Copy, Tag, X, AlertCircle, Settings, Link, Link2 } from "lucide-react";
+import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
+import { LabelType } from "../../types/enums";
 import {
   SelectionActionMenu,
   ActionMenuItem,
@@ -34,6 +36,9 @@ import {
 } from "../../../../utils/textBlockEncoding";
 import { clampMenuPosition } from "../../../../utils/layout";
 import {
+  OC_URL_LABEL,
+  OC_URL_LABEL_COLOR,
+  PENDING_OC_URL_LABEL_ID,
   SELECTION_MENU_COOLDOWN_MS,
   Z_INDEX,
 } from "../../../../assets/configurations/constants";
@@ -43,6 +48,16 @@ interface SelectionLayerProps {
   read_only: boolean;
   activeSpanLabel: AnnotationLabelType | null;
   createAnnotation: (annotation: ServerTokenAnnotation) => void;
+  /**
+   * Optional handler that creates an OC_URL link annotation. When provided
+   * the action menu renders an "Add link…" item; otherwise the link UI is
+   * hidden.  Lifted as a prop (rather than calling the hook directly) so
+   * tests can render SelectionLayer without an Apollo provider.
+   */
+  createUrlAnnotation?: (
+    annotation: ServerTokenAnnotation,
+    url: string
+  ) => Promise<void>;
   pageNumber: number;
 }
 
@@ -51,6 +66,7 @@ const SelectionLayer = ({
   read_only,
   activeSpanLabel,
   createAnnotation,
+  createUrlAnnotation,
   pageNumber,
 }: SelectionLayerProps) => {
   const location = useLocation();
@@ -66,6 +82,10 @@ const SelectionLayer = ({
 
   const { setSelectedAnnotations } = useAnnotationSelection();
   const [, setIsCreatingAnnotation] = useAtom(isCreatingAnnotationAtom);
+  const [urlModalOpen, setUrlModalOpen] = useState(false);
+  const [urlPendingSelections, setUrlPendingSelections] = useState<{
+    [key: number]: BoundingBox[];
+  } | null>(null);
   const [localPageSelection, setLocalPageSelection] = useState<
     { pageNumber: number; bounds: BoundingBox } | undefined
   >();
@@ -253,6 +273,90 @@ const SelectionLayer = ({
     setShowActionMenu(false);
     setPendingSelections({});
   }, [activeSpanLabel, pendingSelections, handleCreateMultiPageAnnotation]);
+
+  /**
+   * Opens the URL prompt modal, capturing the current pending selection so
+   * the user can finish typing a URL without losing their bounds while the
+   * action menu closes.
+   */
+  const handleStartCreateLink = useCallback(() => {
+    setUrlPendingSelections(pendingSelections);
+    lastMenuInteractionTime.current = Date.now();
+    setShowActionMenu(false);
+    setUrlModalOpen(true);
+  }, [pendingSelections]);
+
+  /**
+   * Builds a ServerTokenAnnotation from the captured selections and calls
+   * ``addUrlAnnotation``. Mirrors ``handleCreateMultiPageAnnotation`` for
+   * the non-URL flow.
+   */
+  const handleConfirmCreateLink = useCallback(
+    async (url: string) => {
+      const selections = urlPendingSelections;
+      if (
+        !createUrlAnnotation ||
+        !selections ||
+        Object.keys(selections).length === 0
+      ) {
+        setUrlModalOpen(false);
+        return;
+      }
+
+      const pages = Object.keys(selections).map(Number);
+      const annotations: Record<number, SinglePageAnnotationJson> = {};
+      let combinedRawText = "";
+      for (const pageNum of pages) {
+        const pageAnnotation = pageInfo.getPageAnnotationJson(
+          selections[pageNum]
+        );
+        if (pageAnnotation) {
+          annotations[pageNum] = pageAnnotation;
+          combinedRawText += " " + pageAnnotation.rawText;
+        }
+      }
+
+      // ``createUrlAnnotation`` only consumes ``page``, ``json``, ``rawText``
+      // and the label-type marker, so a synthetic OC_URL label placeholder
+      // is sufficient — the backend resolves/creates the real label.
+      // Cast is required because ``AnnotationLabelType`` declares optional
+      // ``icon``/``description`` fields that we intentionally omit on this
+      // transient client-side placeholder (never persisted as-is).
+      const placeholder: AnnotationLabelType = {
+        id: PENDING_OC_URL_LABEL_ID,
+        text: OC_URL_LABEL,
+        color: OC_URL_LABEL_COLOR,
+        labelType: LabelType.TokenLabel,
+      } as AnnotationLabelType;
+
+      const annotation = new ServerTokenAnnotation(
+        pages[0],
+        placeholder,
+        combinedRawText.trim(),
+        false,
+        annotations,
+        [],
+        false,
+        false,
+        false
+      );
+
+      await createUrlAnnotation(annotation, url);
+
+      setUrlModalOpen(false);
+      setUrlPendingSelections(null);
+      setMultiSelections({});
+      setPendingSelections({});
+    },
+    [urlPendingSelections, pageInfo, createUrlAnnotation]
+  );
+
+  const handleCancelCreateLink = useCallback(() => {
+    setUrlModalOpen(false);
+    setUrlPendingSelections(null);
+    setMultiSelections({});
+    setPendingSelections({});
+  }, []);
 
   /**
    * Handles canceling the selection without any action.
@@ -891,6 +995,22 @@ const SelectionLayer = ({
             {!read_only && canUpdateCorpus && (
               <>
                 <MenuDivider />
+                {createUrlAnnotation && (
+                  <ActionMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleStartCreateLink();
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      lastMenuInteractionTime.current = Date.now();
+                    }}
+                    data-testid="create-link-button"
+                  >
+                    <Link2 size={16} />
+                    <span>Add link…</span>
+                  </ActionMenuItem>
+                )}
                 {activeSpanLabel ? (
                   <ActionMenuItem
                     onClick={(e) => {
@@ -976,6 +1096,29 @@ const SelectionLayer = ({
               <ShortcutHint>ESC</ShortcutHint>
             </ActionMenuItem>
           </SelectionActionMenu>,
+          document.body
+        )}
+
+      {urlModalOpen &&
+        createPortal(
+          <CreateUrlAnnotationModal
+            visible={urlModalOpen}
+            selectedText={
+              urlPendingSelections
+                ? Object.keys(urlPendingSelections)
+                    .map(Number)
+                    .map(
+                      (p) =>
+                        pageInfo.getPageAnnotationJson(urlPendingSelections[p])
+                          ?.rawText ?? ""
+                    )
+                    .join(" ")
+                    .trim()
+                : ""
+            }
+            onCancel={handleCancelCreateLink}
+            onConfirm={handleConfirmCreateLink}
+          />,
           document.body
         )}
     </div>

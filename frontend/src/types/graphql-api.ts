@@ -140,6 +140,11 @@ export type RawServerAnnotationType = Node & {
   annotationLabel: AnnotationLabelType;
   document?: DocumentType;
   structural?: boolean;
+  /**
+   * Target URL for clickable-link annotations (OC_URL label).
+   * Null/absent for all other annotations.
+   */
+  linkUrl?: Maybe<Scalars["String"]>;
   corpus?: Maybe<CorpusType>;
   creator?: UserType;
   created?: Scalars["DateTime"];
