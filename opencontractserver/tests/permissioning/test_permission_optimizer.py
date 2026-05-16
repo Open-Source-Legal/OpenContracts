@@ -175,7 +175,7 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         self.assertIn("permission_corpus", granted)
         # Cache attribute is now present under the keyed slot.
         cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
-        self.assertIsNotNone(cache)
+        assert cache is not None
         self.assertIn((admin.id, False), cache)
         # Second call returns a defensive copy of the same content.
         again = get_users_permissions_for_obj(user=admin, instance=corpus)
@@ -198,7 +198,7 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         # Simulate a prefetch attach: collect the reader's CorpusUserObjectPermissions
         # and stash them on the instance under the per-user prefetch attr.
         user_perms = list(
-            corpus.corpususerobjectpermission_set.filter(  # type: ignore[attr-defined]
+            corpus.corpususerobjectpermission_set.filter(
                 user=self.reader
             ).select_related("permission")
         )
@@ -210,7 +210,7 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
 
         # Cache populated under the keyed slot.
         cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
-        self.assertIsNotNone(cache)
+        assert cache is not None
         self.assertIn((self.reader.id, False), cache)
 
 
