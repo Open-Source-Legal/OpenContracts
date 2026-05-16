@@ -122,7 +122,7 @@ class CohereReranker(BaseReranker):
             # Cohere calls this ``top_n``.
             payload["top_n"] = int(top_k)
 
-        headers: dict[str, str] = {
+        headers: dict[str, str | bytes] = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }

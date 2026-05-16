@@ -112,6 +112,13 @@ export function useChatAgentMessageHandler({
               setPendingApproval({
                 messageId: data.message_id,
                 toolCall: data.pending_tool_call,
+                // Rich-mention agent delegation: when the conductor
+                // delegates to a sub-agent, the backend forwards the
+                // sub-agent's identity here so the approval modal can
+                // attribute the request to the right `@<slug>` chip.
+                // ``data.requesting_agent`` is the canonical wire shape
+                // (see ``components/chat/types.ts``).
+                requestingAgent: data.requesting_agent ?? null,
               });
               setShowApprovalModal(true);
 
@@ -153,6 +160,23 @@ export function useChatAgentMessageHandler({
             // additional state update is needed here.
             break;
           case "ASYNC_FINISH":
+            // Sub-agent persistence failure flag: backend sets
+            // ``persistence_failed: true`` on ASYNC_FINISH when the pinned
+            // sub-agent ``ChatMessage`` couldn't be written to the DB
+            // (rich-mention agent delegation). Surface as a console
+            // warning so developers see it; the bubble still renders for
+            // this session but will be gone after reload. Follow-up:
+            // promote to a non-blocking toast (tracked in PR description).
+            if (
+              (data as { persistence_failed?: boolean } | undefined)
+                ?.persistence_failed
+            ) {
+              console.warn(
+                "[ChatTray] Sub-agent reply rendered in-memory only — " +
+                  "persistence failed; the bubble will be missing after reload.",
+                { message_id: data?.message_id }
+              );
+            }
             // `data?.timeline` is intentionally not forwarded — the stream
             // handler's persistence target (ChatSourceAtom) does not store
             // timelines; thought entries are already accumulated on the

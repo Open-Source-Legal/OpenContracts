@@ -1075,6 +1075,7 @@ export const GET_ANNOTATIONS = gql`
           annotationType
           structural
           rawText
+          linkUrl
           isPublic
           myPermissions
           contentModalities
@@ -1192,6 +1193,7 @@ export const GET_ANNOTATIONS_FOR_CARDS = gql`
           annotationType
           structural
           rawText
+          linkUrl
           isPublic
           contentModalities
           __typename
@@ -1326,6 +1328,7 @@ export const SEMANTIC_SEARCH_ANNOTATIONS = gql`
         annotationType
         structural
         rawText
+        linkUrl
         isPublic
         myPermissions
         contentModalities
@@ -2500,6 +2503,7 @@ export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
 
         page
         rawText
+        linkUrl
 
         json
         userFeedback {
@@ -3333,6 +3337,7 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
         annotationType
         rawText
         json
+        linkUrl
         myPermissions
         structural
         contentModalities
@@ -3445,6 +3450,7 @@ export const GET_DOCUMENT_ANNOTATIONS_ONLY = gql`
         annotationType
         rawText
         json
+        linkUrl
         myPermissions
         structural
         contentModalities
@@ -3537,6 +3543,7 @@ export const GET_DOCUMENT_STRUCTURAL_ANNOTATIONS = gql`
         annotationType
         rawText
         json
+        linkUrl
         myPermissions
         structural
         contentModalities
@@ -3788,10 +3795,17 @@ export const GET_CHAT_MESSAGES = gql`
       agentType
       agentConfiguration {
         id
+        slug
         name
         description
+        scope
         badgeConfig
         avatarUrl
+        corpus {
+          id
+          slug
+          title
+        }
       }
       content
       state
@@ -3801,6 +3815,32 @@ export const GET_CHAT_MESSAGES = gql`
         slug
         username
         email
+      }
+
+      # Mentioned resources (Issue #623, #689) — rich-mention agent delegation
+      mentionedResources {
+        type
+        id
+        slug
+        title
+        url
+        corpus {
+          type
+          id
+          slug
+          title
+          url
+        }
+        # Annotation-specific fields (Issue #689)
+        rawText
+        annotationLabel
+        document {
+          type
+          id
+          slug
+          title
+          url
+        }
       }
     }
   }
@@ -4760,6 +4800,7 @@ export interface SearchAgentsForMentionOutput {
         mentionFormat: string | null;
         corpus: {
           id: string;
+          slug: string;
           title: string;
         } | null;
       };
@@ -4784,6 +4825,7 @@ export const SEARCH_AGENTS_FOR_MENTION = gql`
           mentionFormat
           corpus {
             id
+            slug
             title
           }
         }
@@ -5469,7 +5511,10 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
   }
 `;
 
-// Lightweight query for TOC - gets all documents in a corpus with minimal fields
+// Lightweight query for TOC - gets all documents in a corpus with minimal fields.
+// Intentionally omits `icon` (the TOC renders an icon derived from `fileType`
+// on the frontend) and `creator` (unused). Dropping these avoids one file-URL
+// resolver call per document plus an extra join on every page load.
 export interface GetCorpusDocumentsForTocInput {
   corpusId: string;
   first?: number;
@@ -5480,11 +5525,7 @@ export interface CorpusDocumentForToc {
   title: string;
   description: string | null;
   slug: string;
-  icon: string | null;
   fileType: string | null;
-  creator: {
-    slug: string;
-  };
 }
 
 export interface GetCorpusDocumentsForTocOutput {
@@ -5511,12 +5552,7 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
           title
           description
           slug
-          icon
           fileType
-          creator {
-            id
-            slug
-          }
         }
       }
       totalCount
@@ -5525,6 +5561,74 @@ export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
         hasPreviousPage
         startCursor
         endCursor
+      }
+    }
+  }
+`;
+
+// Ultra-lean relationships query for the corpus TOC tree.
+// Only source/target IDs and the relationship identity are needed to compute
+// parent/child edges; document metadata is supplied by GET_CORPUS_DOCUMENTS_FOR_TOC.
+// Server-side filtering on `relationshipType` and `annotationLabelText` keeps
+// the result set restricted to "parent"-labeled RELATIONSHIP rows.
+export interface GetCorpusDocumentTocEdgesInput {
+  corpusId: string;
+  first?: number;
+  relationshipType?: string;
+  annotationLabelText?: string;
+}
+
+export interface CorpusDocumentTocEdge {
+  id: string;
+  // `sourceDocument` and `targetDocument` are typed nullable because the
+  // GraphQL schema marks every relation field as nullable by default. At the
+  // database level the underlying FKs on `DocumentRelationship` are non-null,
+  // so in practice these are always present — but consumers must still null-
+  // guard on the unwrapped value to keep TypeScript happy (and to remain
+  // safe against any future permission-scoped scrubs of the related rows).
+  sourceDocument: { id: string } | null;
+  targetDocument: { id: string } | null;
+}
+
+export interface GetCorpusDocumentTocEdgesOutput {
+  documentRelationships: {
+    edges: Array<{
+      node: CorpusDocumentTocEdge;
+    }>;
+    totalCount: number;
+    pageInfo: {
+      hasNextPage: boolean;
+    };
+  };
+}
+
+export const GET_CORPUS_DOCUMENT_TOC_EDGES = gql`
+  query GetCorpusDocumentTocEdges(
+    $corpusId: ID
+    $first: Int
+    $relationshipType: String
+    $annotationLabelText: String
+  ) {
+    documentRelationships(
+      corpusId: $corpusId
+      first: $first
+      relationshipType: $relationshipType
+      annotationLabelText: $annotationLabelText
+    ) {
+      edges {
+        node {
+          id
+          sourceDocument {
+            id
+          }
+          targetDocument {
+            id
+          }
+        }
+      }
+      totalCount
+      pageInfo {
+        hasNextPage
       }
     }
   }

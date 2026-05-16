@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from django.test import TestCase, override_settings
 
+from opencontractserver.constants.document_processing import (
+    PRIVACY_FILTER_CHUNK_OVERLAP,
+    PRIVACY_FILTER_CHUNK_SIZE,
+)
 from opencontractserver.llms.tools.core_tools._privacy_filter_client import (
-    CHUNK_OVERLAP,
-    CHUNK_SIZE,
     adetect_pii,
 )
 
@@ -86,19 +88,22 @@ class PrivacyFilterClientSingleChunkTests(TestCase):
 )
 class PrivacyFilterClientMultiChunkTests(TestCase):
     async def test_multi_chunk_remaps_offsets_correctly(self) -> None:
-        # Build a text > CHUNK_SIZE so the client has to split.
-        # Place the target string at exactly index CHUNK_SIZE in the full text
-        # so it lands entirely in chunk #2 (which starts at CHUNK_SIZE - CHUNK_OVERLAP).
+        # Build a text > PRIVACY_FILTER_CHUNK_SIZE so the client has to split.
+        # Place the target string at exactly that index in the full text so it
+        # lands entirely in chunk #2 (which starts at
+        # PRIVACY_FILTER_CHUNK_SIZE - PRIVACY_FILTER_CHUNK_OVERLAP).
         target = "alice@example.com"
-        prefix = "x" * CHUNK_SIZE  # length == CHUNK_SIZE
+        prefix = "x" * PRIVACY_FILTER_CHUNK_SIZE  # length == PRIVACY_FILTER_CHUNK_SIZE
         text = prefix + target + "y" * 100
-        assert len(text) > CHUNK_SIZE
+        assert len(text) > PRIVACY_FILTER_CHUNK_SIZE
 
         # Mock returns nothing for chunk 1, returns the target for chunk 2.
         def _payload_for_call(call_idx: int) -> dict:
             if call_idx == 0:
                 return {"detections": [], "model": "m", "model_revision": "r"}
-            chunk_start_global = CHUNK_SIZE - CHUNK_OVERLAP
+            chunk_start_global = (
+                PRIVACY_FILTER_CHUNK_SIZE - PRIVACY_FILTER_CHUNK_OVERLAP
+            )
             local_start = len(prefix) - chunk_start_global
             return {
                 "detections": [
@@ -142,9 +147,12 @@ class PrivacyFilterClientMultiChunkTests(TestCase):
     async def test_dedup_when_overlap_returns_same_detection(self) -> None:
         # Force two chunks to both report the same global detection.
         target = "alice@example.com"
-        # Position target inside the overlap region (last CHUNK_OVERLAP chars
-        # of chunk 1 == first CHUNK_OVERLAP chars of chunk 2).
-        target_start_global = CHUNK_SIZE - CHUNK_OVERLAP + 50
+        # Position target inside the overlap region (last
+        # PRIVACY_FILTER_CHUNK_OVERLAP chars of chunk 1 == first
+        # PRIVACY_FILTER_CHUNK_OVERLAP chars of chunk 2).
+        target_start_global = (
+            PRIVACY_FILTER_CHUNK_SIZE - PRIVACY_FILTER_CHUNK_OVERLAP + 50
+        )
         prefix = "x" * target_start_global
         text = prefix + target + "y" * 1000
 
@@ -167,8 +175,10 @@ class PrivacyFilterClientMultiChunkTests(TestCase):
                     "model": "m",
                     "model_revision": "r",
                 }
-            # chunk 2 starts at CHUNK_SIZE - CHUNK_OVERLAP
-            chunk_start_global = CHUNK_SIZE - CHUNK_OVERLAP
+            # chunk 2 starts at PRIVACY_FILTER_CHUNK_SIZE - PRIVACY_FILTER_CHUNK_OVERLAP
+            chunk_start_global = (
+                PRIVACY_FILTER_CHUNK_SIZE - PRIVACY_FILTER_CHUNK_OVERLAP
+            )
             return {
                 "detections": [
                     {

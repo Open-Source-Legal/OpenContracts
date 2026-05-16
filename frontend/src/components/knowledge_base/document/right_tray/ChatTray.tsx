@@ -20,7 +20,13 @@ import {
   ErrorContainer,
 } from "../ChatContainers";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Send } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  AtSign,
+  MessageCircle,
+  Send,
+} from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -48,10 +54,19 @@ import {
   ConnectionStatus,
   ChatInputWrapper,
   CharacterCount,
+  ChatEmptyState,
+  ChatEmptyStateIcon,
+  ChatEmptyStateTitle,
+  ChatEmptyStateDescription,
+  ChatEmptyStateHint,
 } from "../ChatContainers";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import { TimelineEntry } from "../../../widgets/chat/ChatMessage";
+import {
+  buildTimelineEntryFromAsyncThought,
+  deriveTimelineEntryType,
+} from "../../../widgets/chat/timelineEntryFactory";
 import { useUISettings } from "../../../annotator/hooks/useUISettings";
 import { useLocation, useNavigate } from "react-router-dom";
 import { updateAnnotationSelectionParams } from "../../../../utils/navigationUtils";
@@ -69,6 +84,7 @@ import { adjustTextareaHeight } from "./chatUtils";
 import { useChatStreamHandlers } from "./useChatStreamHandlers";
 import { useChatAgentMessageHandler } from "./useChatAgentMessageHandler";
 import { useChatSendHandlers } from "./useChatSendHandlers";
+import { useChatMentionPicker } from "../../../../hooks/useChatMentionPicker";
 
 export type { WebSocketSources, MessageData } from "../../../chat/types";
 
@@ -251,6 +267,22 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     adjustTextareaHeightCb();
   }, [adjustTextareaHeightCb]);
 
+  // Rich-mention agent delegation (docs/architecture/rich_mentions.md):
+  // detect `@<fragment>` in the textarea, query agents visible in this
+  // document/corpus scope, and splice a markdown-link mention on select.
+  // The backend's `search_agents_for_mention` resolver already enforces
+  // scope (global + the provided corpus only when corpusId is passed), so
+  // we just forward corpusId here. Shared with CorpusChat via the
+  // useChatMentionPicker hook.
+  const {
+    handleValueChange: handleMentionValueChange,
+    popoverNode: mentionPopover,
+  } = useChatMentionPicker({
+    textareaRef,
+    corpusId,
+    onValueChange: setNewMessage,
+  });
+
   /**
    * On server data load, we map messages to local ChatMessageProps and
    * also store any 'sources' in the chatSourcesAtom (so pins and selection work).
@@ -283,8 +315,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       }
     });
 
-    console.log("messages", messages);
-
     // Then, map them for immediate display - NOW INCLUDING hasSources and hasTimeline FLAGS
     const mapped = messages.map((msg) => {
       // Type assertion for data field to include timeline and approval status
@@ -300,6 +330,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               arguments: any;
               tool_call_id?: string;
             };
+            // Single source of truth: ``PendingApproval.requestingAgent``
+            // (see ``components/chat/types.ts``). Keeps this persisted-message
+            // cast in lock-step with the live WebSocket frame shape so a
+            // future field addition on the canonical type flows through here.
+            requesting_agent?: PendingApproval["requestingAgent"];
           }
         | undefined;
 
@@ -331,6 +366,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         timeline: msgData?.timeline || [],
         approvalStatus,
         isComplete: isCompleteFlag,
+        // Rich-mention agent delegation: hand backend-resolved mention
+        // metadata + agent attribution down to ChatMessage so its
+        // MarkdownMessageRenderer can render styled chips with tooltips.
+        mentionedResources: msg.mentionedResources ?? [],
+        agentConfiguration: msg.agentConfiguration ?? null,
       } as any;
 
       // If this message is awaiting approval and we haven't already set
@@ -345,6 +385,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         setPendingApproval({
           messageId: msg.id.toString(),
           toolCall: msgData.pending_tool_call,
+          requestingAgent: msgData.requesting_agent ?? null,
         });
         setShowApprovalModal(true);
       }
@@ -794,6 +835,25 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 ref={messagesContainerRef}
                 onScroll={handlePersistedScroll}
               >
+                {combinedMessages.length === 0 &&
+                  !showWarmupTicker &&
+                  !isAssistantResponding && (
+                    <ChatEmptyState data-testid="chat-empty-state">
+                      <ChatEmptyStateIcon>
+                        <MessageCircle />
+                      </ChatEmptyStateIcon>
+                      <ChatEmptyStateTitle>
+                        Ask me about this document
+                      </ChatEmptyStateTitle>
+                      <ChatEmptyStateDescription>
+                        I can read it, find sections, and answer questions.
+                      </ChatEmptyStateDescription>
+                      <ChatEmptyStateHint>
+                        <AtSign size={14} />
+                        Try @-mentioning a specific agent for deeper analysis.
+                      </ChatEmptyStateHint>
+                    </ChatEmptyState>
+                  )}
                 {combinedMessages.map((msg, idx) => {
                   // Find if this message has sources in our sourced messages state
                   const sourcedMessage = sourcedMessages.find(
@@ -942,7 +1002,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 <div
                   data-testid="context-meter"
                   style={{
-                    padding: "0.25rem 1rem",
+                    padding: "0.375rem 1rem 0.625rem",
                     borderTop: "1px solid rgba(0, 0, 0, 0.06)",
                     background: "rgba(255, 255, 255, 0.95)",
                     display: "flex",
@@ -1060,6 +1120,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                     data-connected={wsReady}
                   />
                 )}
+                {mentionPopover}
                 <ChatInputWrapper>
                   <ChatInput
                     data-testid="chat-input"
@@ -1069,6 +1130,8 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                       const value = e.target.value;
                       const capped = value.slice(0, MAX_MESSAGE_LENGTH);
                       setNewMessage(capped);
+                      const caret = e.target.selectionStart ?? capped.length;
+                      handleMentionValueChange(capped, caret);
                       // Use setTimeout to ensure DOM updates before measuring
                       setTimeout(adjustTextareaHeightCb, 0);
                     }}

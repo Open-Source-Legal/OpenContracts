@@ -210,8 +210,24 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "creator_id",
             "parent",
             "parent_id",
+            "link_url",
         ]
         read_only_fields = ["id", "creator", "parent"]
+
+    def validate_link_url(self, value: str | None) -> str | None:
+        """Normalise empty strings to None and reject unsafe schemes.
+
+        The frontend sends `link_url=""` to clear an existing URL; convert
+        that to None so the column ends up NULL.  All non-empty values flow
+        through ``Annotation.validate_link_url`` to block ``javascript:``
+        and other dangerous schemes before reaching persistence.
+        """
+        from opencontractserver.annotations.models import validate_link_url as _validate
+
+        if not value:
+            return None
+        _validate(value)
+        return value
 
     def create(self, validated_data: dict) -> Annotation:
         """

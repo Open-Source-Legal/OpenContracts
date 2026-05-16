@@ -278,6 +278,10 @@ describe("useChatAgentMessageHandler", () => {
       expect(harness.pendingApproval).toEqual({
         messageId: "m1",
         toolCall,
+        // ``requesting_agent`` was not provided in the frame, so the
+        // handler defaults the field to ``null`` (rich-mention
+        // delegation contract — see useChatAgentMessageHandler.ts).
+        requestingAgent: null,
       });
       expect(harness.showApprovalModal).toBe(true);
       expect(harness.chat[0].approvalStatus).toBe("awaiting");

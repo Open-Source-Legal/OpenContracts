@@ -9,6 +9,7 @@ import {
   QuickActions,
   QuickActionChip,
 } from "./styles";
+import { useChatMentionPicker } from "../../../hooks/useChatMentionPicker";
 
 export interface InlineChatBarProps {
   /** Current query value */
@@ -27,6 +28,13 @@ export interface InlineChatBarProps {
   showQuickActions?: boolean;
   /** Test ID for the component */
   testId?: string;
+  /**
+   * Optional corpus the bar is bound to. When provided, typing ``@`` opens
+   * the rich-mention agent picker (same wiring as ChatTray / CorpusChat)
+   * scoped to global agents + this corpus's agents. Omit for chat bars
+   * that aren't anchored to a corpus context.
+   */
+  corpusId?: string;
 }
 
 /**
@@ -47,8 +55,24 @@ export const InlineChatBar: React.FC<InlineChatBarProps> = ({
   autoFocus = false,
   showQuickActions = true,
   testId = "inline-chat-bar",
+  corpusId,
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Rich-mention agent delegation: share the same wiring as ChatTray and
+  // CorpusChat so users can ``@<agent>`` from the corpus landing bar. The
+  // hook is a no-op when ``corpusId`` is undefined (no @ trigger fires
+  // because the popover gate also needs ``mention.isOpen``, but the
+  // agent search runs harmlessly with no results), so callers that don't
+  // pass a corpus don't pay a UX cost.
+  const {
+    handleValueChange: handleMentionValueChange,
+    popoverNode: mentionPopover,
+  } = useChatMentionPicker({
+    textareaRef: inputRef,
+    corpusId,
+    onValueChange: onChange,
+  });
 
   useEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -100,11 +124,20 @@ export const InlineChatBar: React.FC<InlineChatBarProps> = ({
       transition={{ duration: 0.3, delay: 0.2 }}
     >
       <form onSubmit={handleSubmit}>
+        {mentionPopover}
         <ChatBarWrapper>
           <ChatInput
             ref={inputRef}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              onChange(next);
+              // Forward caret + value to the mention trigger so ``@<word>``
+              // can open the agent picker. The hook is a no-op without an
+              // active trigger fragment, so non-mention typing is free.
+              const caret = e.target.selectionStart ?? next.length;
+              handleMentionValueChange(next, caret);
+            }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}

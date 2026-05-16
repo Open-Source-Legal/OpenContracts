@@ -19,6 +19,7 @@ import {
   SMALL_MOBILE_BREAKPOINT,
   TABLET_BREAKPOINT,
 } from "../../../assets/configurations/constants";
+import { agentChipPaletteCss } from "../../chat/agentChipStyles";
 
 export const MessageContainer = styled(motion.div)<{
   $isAssistant: boolean;
@@ -414,5 +415,40 @@ export const UserName = styled.div`
 
   @media (max-width: ${SMALL_MOBILE_BREAKPOINT}px) {
     font-size: 0.8rem;
+  }
+`;
+
+/**
+ * Attribution chip rendered in the assistant bubble header when the
+ * underlying ChatMessage has an `agentConfiguration` set — indicating
+ * the response was authored by a pinned sub-agent (rich-mention agent
+ * delegation, Issue #623 / #689) rather than the default conductor.
+ *
+ * Palette is shared via ``agentChipPaletteCss`` so the bubble-header,
+ * timeline, approval-modal, and markdown @-mention chips all reference
+ * one token set.
+ */
+export const SubAgentAttributionChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  ${agentChipPaletteCss};
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+
+  /* Soft glyph marker — visually distinct from the @-prefix text */
+  & > [aria-hidden="true"] {
+    opacity: 0.75;
+    font-weight: 600;
+  }
+
+  @media (max-width: ${SMALL_MOBILE_BREAKPOINT}px) {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
   }
 `;

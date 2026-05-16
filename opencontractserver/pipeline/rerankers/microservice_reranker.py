@@ -131,7 +131,7 @@ class MicroserviceReranker(BaseReranker):
         )
         timeout = int(all_kwargs.get("timeout_seconds", s.timeout_seconds))
 
-        headers: dict[str, str] = {"Content-Type": "application/json"}
+        headers: dict[str, str | bytes] = {"Content-Type": "application/json"}
         if api_key:
             headers["X-API-Key"] = api_key
         headers = maybe_add_cloud_run_auth(

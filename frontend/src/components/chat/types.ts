@@ -61,6 +61,27 @@ export interface MessageData {
       tokens_after: number;
       context_window: number;
     };
+    /**
+     * Rich-mention agent delegation (Task 13): when an ASYNC_THOUGHT frame
+     * describes a tool_call / tool_result that handed off to a sub-agent,
+     * the backend ``StreamRelay`` attaches the resolved ``AgentConfiguration``
+     * id and slug so the frontend timeline can surface an ``@<slug>`` chip
+     * instead of the raw ``delegate_to_<slug>`` tool name.
+     */
+    agent_id?: number | string;
+    agent_slug?: string;
+    /**
+     * Rich-mention agent delegation (Task 14): when an ASYNC_APPROVAL_NEEDED
+     * frame originates inside a sub-agent invocation (a pinned or unpinned
+     * delegation), the backend (see ``unified_agent_conversation.py`` Task 7)
+     * attaches the sub-agent's ``AgentConfiguration`` so the approval modal
+     * can attribute the request to ``@<slug>`` instead of the conductor.
+     * Absent on top-level approvals — modal falls back to ``Tool: <name>``.
+     */
+    requesting_agent?: {
+      slug: string;
+      name: string;
+    } | null;
   };
 }
 
@@ -81,4 +102,28 @@ export interface CompactionNotice {
   tokensBefore: number;
   tokensAfter: number;
   contextWindow: number;
+}
+
+/**
+ * Shape of a pending approval surfaced to the user when an agent tool call
+ * requires human confirmation. Shared between ``ChatTray`` (document chat) and
+ * ``CorpusChat`` (corpus chat) so the approval modal/overlay component, the
+ * attribution chip, and the chat-level state share one source of truth.
+ *
+ * ``requestingAgent`` is populated when the approval was raised inside a
+ * sub-agent invocation (rich-mention agent delegation, Task 14). It is
+ * ``undefined`` / ``null`` for top-level approvals, in which case the modal
+ * falls back to rendering the plain ``Tool: <name>`` header.
+ */
+export interface PendingApproval {
+  messageId: string;
+  toolCall: {
+    name: string;
+    arguments?: Record<string, unknown>;
+    tool_call_id?: string;
+  };
+  requestingAgent?: {
+    slug: string;
+    name: string;
+  } | null;
 }

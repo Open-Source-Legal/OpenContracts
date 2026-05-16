@@ -1131,6 +1131,35 @@ class CoreCorpusAgentFactory:
         return context
 
 
+async def _aget_conversation_visible_to_user(
+    cid: int, user_id: Optional[int]
+) -> Optional[Conversation]:
+    """Resolve a conversation row only if it is visible to ``user_id``.
+
+    Returns None if the row doesn't exist OR belongs to a different user the
+    caller cannot see — both cases collapse to the same observable outcome so
+    a caller can't enumerate other users' conversation ids by id-only probing.
+
+    Anonymous callers (``user_id is None``) cannot load existing
+    conversations through this helper; create_for_* funnels them into the
+    ephemeral path before reaching this code.
+    """
+    if user_id is None:
+        return None
+
+    def _lookup() -> Optional[Conversation]:
+        from django.contrib.auth import get_user_model
+
+        user_model = get_user_model()
+        try:
+            user = user_model.objects.get(pk=user_id)
+        except user_model.DoesNotExist:
+            return None
+        return Conversation.objects.visible_to_user(user).filter(id=cid).first()
+
+    return await sync_to_async(_lookup)()
+
+
 class CoreConversationManager:
     """Enhanced conversation manager with full message lifecycle support and atomic operations."""
 
@@ -1216,10 +1245,18 @@ class CoreConversationManager:
                     "internal invariant violated: conversation_id resolved to None "
                     "after truthy `conversation_id or config.conversation_id` check"
                 )
-            try:
-                conversation = await Conversation.objects.aget(id=cid)
-            except Conversation.DoesNotExist:
-                logger.warning(f"Conversation {cid} not found, creating new one")
+            # Visibility-gated lookup prevents conversation-id IDOR: a caller
+            # can supply any integer via the WebSocket query param, so resolve
+            # the row only through ``visible_to_user`` rather than ``aget`` by
+            # primary key. Falls back to "create new" if the id is unknown to
+            # this user — same observable behaviour as DoesNotExist, so
+            # callers can't distinguish "doesn't exist" from "not yours".
+            conversation = await _aget_conversation_visible_to_user(cid, user_id)
+            if conversation is None:
+                logger.warning(
+                    f"Conversation {cid} not visible to user {user_id}, "
+                    "creating new one"
+                )
 
         if not conversation:
             # Create new conversation for authenticated user
@@ -1290,10 +1327,13 @@ class CoreConversationManager:
                     "internal invariant violated: conversation_id resolved to None "
                     "after truthy `conversation_id or config.conversation_id` check"
                 )
-            try:
-                conversation = await Conversation.objects.aget(id=cid)
-            except Conversation.DoesNotExist:
-                logger.warning(f"Conversation {cid} not found, creating new one")
+            # See create_for_document for rationale on the visibility gate.
+            conversation = await _aget_conversation_visible_to_user(cid, user_id)
+            if conversation is None:
+                logger.warning(
+                    f"Conversation {cid} not visible to user {user_id}, "
+                    "creating new one"
+                )
 
         if not conversation:
             # Create new conversation for authenticated user

@@ -9,7 +9,28 @@ model state while the management command uses the live registry.
 
 import logging
 
+from django.utils.text import slugify
+
 logger = logging.getLogger(__name__)
+
+
+def _build_unique_agent_slug(AgentConfiguration, name: str) -> str:
+    """Generate a unique slug for an ``AgentConfiguration`` named ``name``.
+
+    Mirrors the algorithm in ``AgentConfiguration.save()``, but is callable
+    from migration context where ``apps.get_model()`` returns a historical
+    model class WITHOUT the custom ``save()`` override. Without this helper,
+    seeded agents end up with ``slug=NULL`` and crash any UI that assumes
+    non-null slugs (e.g. the @mention picker).
+    """
+    base_slug = slugify(name) or "agent"
+    slug = base_slug
+    counter = 1
+    while AgentConfiguration.objects.filter(slug=slug).exists():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    return slug
+
 
 # Raw trigger values matching CorpusActionTrigger choices in
 # opencontractserver.corpuses.models.  Using strings instead of the enum
@@ -545,8 +566,13 @@ def create_default_action_templates(apps, schema_editor):
         if CorpusActionTemplate.objects.filter(name=tmpl_def["name"]).exists():
             continue
 
+        agent_name = f"{tmpl_def['name']} Agent"
+        # Slug MUST be set here because ``apps.get_model`` returns a historical
+        # model class in migration context — no custom ``save()`` override is
+        # available to auto-generate it. See ``_build_unique_agent_slug``.
         agent_config = AgentConfiguration.objects.create(
-            name=f"{tmpl_def['name']} Agent",
+            name=agent_name,
+            slug=_build_unique_agent_slug(AgentConfiguration, agent_name),
             description=tmpl_def["description"],
             system_instructions=tmpl_def.get(
                 "system_instructions", default_system_instructions

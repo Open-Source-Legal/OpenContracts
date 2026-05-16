@@ -18,6 +18,7 @@ import {
   primaryBlueAlpha,
   whiteAlpha,
 } from "../../../assets/configurations/osLegalStyles";
+import { agentChipPaletteCss } from "../../chat/agentChipStyles";
 import type { TimelineEntry } from "./types";
 
 // Timeline styled components
@@ -329,4 +330,35 @@ export const StreamingThoughtText = styled(motion.span)`
   text-overflow: ellipsis;
   display: inline-block;
   max-width: 100%;
+`;
+
+/**
+ * Inline chip surfaced in a TimelineItemTitle whenever a tool_call /
+ * tool_result entry can be attributed to a sub-agent — either via an
+ * explicit ``agentSlug`` field forwarded from the WebSocket frame
+ * (StreamRelay, delegation_tools.py) OR derived from a
+ * ``delegate_to_<snake_slug>`` tool name on the persisted timeline.
+ *
+ * Palette is shared via ``agentChipPaletteCss`` so the timeline chip stays
+ * visually in lock-step with the bubble-header, approval-modal, and
+ * markdown @-mention chips ("one shape for agent identity").
+ */
+export const TimelineAgentChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.125rem;
+  border-radius: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  ${agentChipPaletteCss};
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+
+  & > [aria-hidden="true"] {
+    opacity: 0.75;
+  }
 `;
