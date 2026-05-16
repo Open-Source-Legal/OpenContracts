@@ -417,13 +417,13 @@ def _default_user_can(
             return True
         return False
 
-    if isinstance(user_val, (str, int)):
-        try:
-            user = User.objects.get(id=user_val)
-        except User.DoesNotExist:
-            return False
-    else:
-        user = user_val
+    # Centralised int/str → User resolver, also used by the per-model
+    # ``user_can`` overrides (PR #1663 DRY cleanup).
+    from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
+
+    user = resolve_user_for_user_can(user_val)
+    if user is None:
+        return False
 
     # Defensive guard for exotic user-like objects that aren't AnonymousUser
     # but still report ``is_authenticated == False`` (e.g. a test double, an
@@ -578,8 +578,16 @@ def user_has_permission_for_obj(
     an unknown id is replaced with a defensive ``False`` return (the
     legacy code raised; no caller catches ``DoesNotExist`` around this
     function in the production paths).
+
+    If the instance's ``_default_manager`` doesn't implement ``user_can``
+    (i.e. the model hasn't yet been migrated to the Phase A surface), the
+    shim raises ``TypeError`` with an actionable message instead of letting
+    the call fall through and surface as a confusing ``AttributeError``
+    deep inside the resolver. Addresses Claude review on PR #1663.
     """
     import warnings
+
+    from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
 
     warnings.warn(
         "user_has_permission_for_obj is deprecated; use "
@@ -589,22 +597,23 @@ def user_has_permission_for_obj(
         stacklevel=2,
     )
 
-    # Resolve int/str user_val to a User. The legacy function raised
-    # User.DoesNotExist on unknown ids; the shim returns False since
-    # no production caller catches that exception around this entrypoint.
-    if isinstance(user_val, (str, int)):
-        try:
-            user = User.objects.get(id=user_val)
-        except User.DoesNotExist:
-            return False
-    else:
-        user = user_val
+    # ``resolve_user_for_user_can`` returns ``None`` for both ``None``
+    # input and a missing-id lookup; both deny under the legacy contract.
+    user = resolve_user_for_user_can(user_val)
+    if user is None:
+        return False
 
     manager = type(instance)._default_manager
-    # Every Manager in this project that subclasses ``BaseVisibilityManager``
-    # exposes ``user_can``; mypy sees the generic ``Manager[Model]`` type and
-    # can't statically verify the attribute exists.
-    return manager.user_can(  # type: ignore[attr-defined]
+    if not hasattr(manager, "user_can"):
+        raise TypeError(
+            f"{type(instance).__name__}._default_manager "
+            f"({type(manager).__name__}) does not implement user_can(). "
+            "Migrate the model's manager to BaseVisibilityManager / "
+            "UserCanMixin (Phase A) before calling user_has_permission_for_obj."
+        )
+    # ``manager`` is statically typed as ``Manager[Model]`` here — the
+    # ``hasattr`` guard above makes ``user_can`` safe at runtime.
+    return manager.user_can(
         user,
         instance,
         permission,

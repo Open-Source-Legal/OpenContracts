@@ -648,20 +648,15 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         """
         from django.contrib.auth.models import AnonymousUser
 
+        from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
         from opencontractserver.types.enums import PermissionTypes
 
+        # Single shared int/str → User resolver (PR #1663 DRY cleanup).
+        # ``None`` covers both an explicit ``None`` argument AND an
+        # unresolvable id; both deny under the legacy contract.
+        user = resolve_user_for_user_can(user)
         if user is None:
             return False
-
-        # Resolve int/str user ids and pass AnonymousUser through.
-        if isinstance(user, (str, int)):
-            from django.contrib.auth import get_user_model
-
-            UserCls = get_user_model()
-            try:
-                user = UserCls.objects.get(id=user)
-            except UserCls.DoesNotExist:
-                return False
 
         if isinstance(user, AnonymousUser) or not getattr(
             user, "is_authenticated", False
@@ -695,7 +690,11 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         # Analysis or Extract, gate the requested permission on that
         # source object (in addition to doc+corpus). Skip for the
         # structural-READ case (structural rows are always READable when
-        # the parent doc is).
+        # the parent doc is). At this point step 5 above has already
+        # denied non-READ structural calls, so ``structural and READ``
+        # is the only structural state we can still be in — but we keep
+        # the explicit ``and permission == READ`` for readability rather
+        # than relying on the flow-sensitive equivalence.
         is_structural_read = (
             getattr(instance, "structural", False)
             and permission == PermissionTypes.READ
@@ -829,19 +828,12 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         """
         from django.contrib.auth.models import AnonymousUser
 
+        from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
         from opencontractserver.types.enums import PermissionTypes
 
+        user = resolve_user_for_user_can(user)
         if user is None:
             return False
-
-        if isinstance(user, (str, int)):
-            from django.contrib.auth import get_user_model
-
-            UserCls = get_user_model()
-            try:
-                user = UserCls.objects.get(id=user)
-            except UserCls.DoesNotExist:
-                return False
 
         if isinstance(user, AnonymousUser) or not getattr(
             user, "is_authenticated", False
@@ -1000,19 +992,12 @@ class RelationshipManager(BaseVisibilityManager):
         """
         from django.contrib.auth.models import AnonymousUser
 
+        from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
         from opencontractserver.types.enums import PermissionTypes
 
+        user = resolve_user_for_user_can(user)
         if user is None:
             return False
-
-        if isinstance(user, (str, int)):
-            from django.contrib.auth import get_user_model
-
-            UserCls = get_user_model()
-            try:
-                user = UserCls.objects.get(id=user)
-            except UserCls.DoesNotExist:
-                return False
 
         if isinstance(user, AnonymousUser) or not getattr(
             user, "is_authenticated", False

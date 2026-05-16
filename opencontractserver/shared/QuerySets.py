@@ -225,7 +225,7 @@ class PermissionQuerySet(models.QuerySet):
         ``test_authorization_invariants``.
 
         Logic:
-          - Superuser → all rows (ordered).
+          - Superuser → all rows (DB-default ordering preserved).
           - Anonymous → ``is_public=True`` only.
           - Authenticated non-superuser → ``creator | is_public |
             guardian read codename``.
@@ -241,7 +241,11 @@ class PermissionQuerySet(models.QuerySet):
             user = AnonymousUser()
 
         if hasattr(user, "is_superuser") and user.is_superuser:
-            return self.all().order_by("created")
+            # Preserve the legacy DB-default ordering — not every model
+            # that uses ``PermissionManager`` has a ``created`` column
+            # (PR #1663 review: avoid surprise ``FieldError`` on
+            # ``PermissionQuerySet`` consumers).
+            return self.all()
 
         if user.is_anonymous:
             return self.filter(is_public=True).distinct()
