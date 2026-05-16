@@ -566,7 +566,10 @@ class AnalysisCallbackViewHappyPathTests(TransactionTestCase):
         token = self.analysis.rotate_callback_token()
         # Body conforms to ``OpenContractsGeneratedCorpusPythonType`` —
         # both ``annotated_docs`` and ``label_lookup`` are required keys.
-        body = {"annotated_docs": {}, "label_lookup": {}}
+        body: dict[str, dict[Any, Any]] = {
+            "annotated_docs": {},
+            "label_lookup": {},
+        }
 
         with patch(
             "opencontractserver.analyzer.views.import_analysis"

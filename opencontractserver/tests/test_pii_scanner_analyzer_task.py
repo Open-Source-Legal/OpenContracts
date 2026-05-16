@@ -139,8 +139,11 @@ class _BasePiiScannerAnalyzerTestCase(TransactionTestCase):
             pii_scanner_privacy_filter,
         )
 
+        # ``pii_scanner_privacy_filter`` is wrapped by ``@async_doc_analyzer_task``
+        # which returns a Celery task whose ``.si`` is dynamically attached;
+        # mypy can't see it through the decorator's ``Callable[..., Any]`` typing.
         return (
-            pii_scanner_privacy_filter.si(
+            pii_scanner_privacy_filter.si(  # type: ignore[attr-defined]
                 doc_id=doc_id,
                 analysis_id=analysis_id,
                 corpus_id=self.corpus.id,
