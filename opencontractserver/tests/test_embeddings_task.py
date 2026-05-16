@@ -1637,7 +1637,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
 
         mock_get_component.side_effect = ImportError("bad embedder")
         # Relationship.objects.filter(...).prefetch_related(...) chain.
-        mock_rel_model.objects.filter.return_value.prefetch_related.return_value = []
+        mock_rel_model.objects.filter.return_value = []
 
         result = calculate_embeddings_for_relationship_batch.apply(
             args=[[1, 2, 3]],
@@ -1659,7 +1659,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
 
         rel1, rel2, rel3 = MagicMock(pk=1), MagicMock(pk=2), MagicMock(pk=3)
         # rel4 is missing from the DB → counts as "skipped".
-        mock_rel_model.objects.filter.return_value.prefetch_related.return_value = [
+        mock_rel_model.objects.filter.return_value = [
             rel1,
             rel2,
             rel3,
@@ -1700,7 +1700,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         )
 
         rel1, rel2 = MagicMock(pk=1, id=1), MagicMock(pk=2, id=2)
-        mock_rel_model.objects.filter.return_value.prefetch_related.return_value = [
+        mock_rel_model.objects.filter.return_value = [
             rel1,
             rel2,
         ]
@@ -1731,7 +1731,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         )
 
         rel1, rel2 = MagicMock(pk=1, id=1), MagicMock(pk=2, id=2)
-        mock_rel_model.objects.filter.return_value.prefetch_related.return_value = [
+        mock_rel_model.objects.filter.return_value = [
             rel1,
             rel2,
         ]

@@ -1075,24 +1075,16 @@ def calculate_embeddings_for_relationship_batch(
         embedder_path,
     )
 
-    # Pre-order the M2M prefetches by id so they share their cache with
-    # the ``order_by("id")`` querysets inside ``synthesize_relationship_block_text``.
-    # Without this match the helper re-fetches both M2M sides per call —
-    # 2 extra queries × N relationships in one Celery task.
-    from django.db.models import Prefetch
-
-    relationships = list(
-        Relationship.objects.filter(pk__in=relationship_ids).prefetch_related(
-            Prefetch(
-                "source_annotations",
-                queryset=Annotation.objects.order_by("id"),
-            ),
-            Prefetch(
-                "target_annotations",
-                queryset=Annotation.objects.order_by("id"),
-            ),
-        )
-    )
+    # ``synthesize_relationship_block_text`` uses ``values_list()`` on the
+    # M2M managers, which bypasses Django's prefetch cache (it stores model
+    # instances, not raw column tuples). Prefetching here would be dead
+    # weight — issue 2N extra wire round-trips for nothing. We accept the
+    # 2-queries-per-relationship cost; subtree-group cardinality is small
+    # (one row per non-leaf node) so the extra round-trips per batch stay
+    # bounded. If batches ever grow large enough to matter, the cleaner
+    # fix is to teach the helper to accept a pre-fetched list of raw_text
+    # strings, not to add prefetches that do nothing.
+    relationships = list(Relationship.objects.filter(pk__in=relationship_ids))
     rel_map = {r.pk: r for r in relationships}
 
     if embedder_path:
@@ -1127,10 +1119,12 @@ def calculate_embeddings_for_relationship_batch(
         return result
 
     # Dual-embedding strategy: default embedder is mandatory; the corpus's
-    # preferred embedder is best-effort. Mirrors ``_apply_dual_embedding_strategy``
-    # but inlined because the source dict is keyed on Relationship rather
-    # than HasEmbeddingMixin-but-with-creator semantics — Relationship has
-    # ``creator`` already so the same store_embedding plumbing works fine.
+    # preferred embedder is best-effort. Delegates to
+    # ``_apply_dual_embedding_strategy`` — Relationship satisfies the same
+    # ``HasEmbeddingMixin``-with-``creator`` shape that the annotation path
+    # uses, so the existing store_embedding plumbing works without
+    # reimplementation. ``precomputed_text`` keeps text synthesis to one
+    # call per relationship across both embedder passes.
     for rid in relationship_ids:
         rel = rel_map.get(rid)
         if rel is None:
