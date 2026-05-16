@@ -913,9 +913,14 @@ class TestAdminLoginView(TestCase):
         self.assertLess(load_idx, insert_idx)
         self.assertLess(err_idx, insert_idx)
 
-        # The synchronous initAuth0() invocation at the end of the old
-        # second script tag was the race trigger and must not return.
-        self.assertNotIn("\n        initAuth0();\n", body)
+        # The synchronous ``initAuth0();`` call at the end of the old
+        # second script tag was the race trigger and must not appear.
+        # ``initAuth0`` legitimately shows up as ``async function
+        # initAuth0()`` and as ``addEventListener('load', initAuth0)``;
+        # only the bare invocation form (parens + semicolon, no args)
+        # signals a synchronous call site. Whitespace-insensitive so
+        # the test survives template re-indentation.
+        self.assertNotIn("initAuth0();", body)
 
     def test_open_redirect_blocked_external_url(self):
         """External URL in next parameter should be blocked."""
