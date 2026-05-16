@@ -73,13 +73,13 @@ DOCLING_ENABLE_OCR = True
 
 ## Microservice Setup
 
-The Docling microservice runs in a separate Docker container:
+The Docling microservice runs in a separate Docker container. The image used in the project's `local.yml` and `production.yml` is `jscrudato/docsling-local`:
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml (matches local.yml / production.yml)
 services:
   docling-parser:
-    image: opencontracts/docling-parser:latest
+    image: jscrudato/docsling-local
     ports:
       - "8000:8000"
     environment:

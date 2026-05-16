@@ -219,10 +219,11 @@ OpenContracts collects anonymous usage data to guide development priorities: ins
 
 ## Supported Formats
 
-- PDF (full layout and annotation support)
-- Text-based formats (plaintext, Markdown)
+- PDF (full layout and annotation support, via the Docling microservice)
+- DOCX (Word documents, via the [Docxodus](https://github.com/JSv4/Docxodus) microservice — character-offset annotations aligned with WASM rendering)
+- Plain text (`.txt`, split into sentence annotations via spaCy)
 
-**Coming soon:** DOCX viewing and annotation powered by [Docxodus](https://github.com/JSv4/Docxodus).
+See [Supported File Formats](docs/upload_methods/supported_formats.md) for parser details and the `supportedMimeTypes` GraphQL query that exposes the live list to the frontend.
 
 ---
 
