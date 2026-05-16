@@ -906,6 +906,13 @@ class TestPydanticAIVectorSearchResponseAsync(TestCase):
     through.
     """
 
+    user: Any
+    doc: Any
+    corpus: Any
+    label: Any
+    annotation: Any
+    unlabeled_annotation: Any
+
     @classmethod
     def setUpTestData(cls) -> None:
         from opencontractserver.annotations.models import (
@@ -918,9 +925,7 @@ class TestPydanticAIVectorSearchResponseAsync(TestCase):
         )
         cls.doc = Document.objects.create(title="resp doc", creator=cls.user)
         cls.corpus = Corpus.objects.create(title="resp corpus", creator=cls.user)
-        cls.label = AnnotationLabel.objects.create(
-            text="Clause", creator=cls.user
-        )
+        cls.label = AnnotationLabel.objects.create(text="Clause", creator=cls.user)
         cls.annotation = Annotation.objects.create(
             document=cls.doc,
             corpus=cls.corpus,
@@ -1014,6 +1019,4 @@ class TestPydanticAIVectorSearchResponseAsync(TestCase):
         response = PydanticAIVectorSearchResponse.from_core_results(results)
 
         self.assertEqual(response.total_results, 1)
-        self.assertEqual(
-            response.results[0]["block_context"]["relationship_id"], 7
-        )
+        self.assertEqual(response.results[0]["block_context"]["relationship_id"], 7)
