@@ -20,6 +20,7 @@ from opencontractserver.shared.QuerySets import (
     UserFeedbackQuerySet,
 )
 from opencontractserver.shared.user_can_mixin import UserCanMixin
+from opencontractserver.types.enums import PermissionTypes as _PermissionTypes
 
 # Re-exported so callers receiving "a permissioned manager" can annotate
 # against ``PermissionedQueryManagerProtocol`` instead of any concrete
@@ -27,6 +28,25 @@ from opencontractserver.shared.user_can_mixin import UserCanMixin
 # ``visible_to_user(user) -> QuerySet`` contract.
 from opencontractserver.types.protocols import (  # noqa: F401
     PermissionedQueryManagerProtocol,
+)
+
+# Subset of permission codes Relationship recognises and that creators
+# are exempt from. PUBLISH/PERMISSION are intentionally excluded so they
+# still fall through to the terminal ``return False`` below
+# (Relationship doesn't model those codes; creators aren't exempt from
+# that fact). Module-level so the tuple isn't reallocated on every
+# ``RelationshipManager.user_can`` call.
+_RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS = frozenset(
+    {
+        _PermissionTypes.READ,
+        _PermissionTypes.CREATE,
+        _PermissionTypes.UPDATE,
+        _PermissionTypes.EDIT,
+        _PermissionTypes.DELETE,
+        _PermissionTypes.COMMENT,
+        _PermissionTypes.CRUD,
+        _PermissionTypes.ALL,
+    }
 )
 
 if TYPE_CHECKING:
@@ -645,6 +665,12 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         extra query per row. The ``AnnotationQueryOptimizer`` already
         batches the MIN(doc, corpus) computation; only the privacy
         recursion path is unbatched today.
+
+        Anonymous-path note: the ``visible_to_user(...).filter(pk=).exists()``
+        query for anonymous READ is also a per-call DB round-trip with
+        no batched alternative — bulk anonymous filtering should call
+        ``visible_to_user(anon).filter(pk__in=[...])`` directly rather
+        than looping ``user_can`` per row.
         """
         from django.contrib.auth.models import AnonymousUser
 
@@ -1035,25 +1061,12 @@ class RelationshipManager(BaseVisibilityManager):
         # queryset (creator OR doc-corpus visible) while ``user_can(READ)``
         # would return ``False`` (doc/corpus READ denied) — a latent
         # invariant violation surfaced by the Claude review on PR #1663.
-        #
-        # Restrict to the permission codes Relationship actually
-        # recognises: PUBLISH/PERMISSION must still fall through to the
-        # terminal ``return False`` (Relationship doesn't model those
-        # codes, and creators are not exempt from that fact).
-        _CREATOR_SHORT_CIRCUIT_PERMS = (
-            PermissionTypes.READ,
-            PermissionTypes.CREATE,
-            PermissionTypes.UPDATE,
-            PermissionTypes.EDIT,
-            PermissionTypes.DELETE,
-            PermissionTypes.COMMENT,
-            PermissionTypes.CRUD,
-            PermissionTypes.ALL,
-        )
+        # See ``_RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS`` (module-level)
+        # for the permission codes this short-circuit covers.
         if (
             getattr(instance, "creator_id", None) is not None
             and instance.creator_id == user.id
-            and permission in _CREATOR_SHORT_CIRCUIT_PERMS
+            and permission in _RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS
         ):
             return True
 

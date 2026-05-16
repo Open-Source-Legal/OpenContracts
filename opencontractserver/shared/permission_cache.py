@@ -58,6 +58,12 @@ _perm_cache: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 )
 
 
+# TODO(issue #1655): activate this scope in Phase B by wrapping the
+# GraphQL request/Celery-task/WebSocket entrypoints. Until that happens
+# this function has no production callers and the request-scoped cache
+# is dormant. The activation audit lives in the parent issue —
+# every wrap site must enter the scope *after* mutations land (see the
+# mutation-invalidation contract in the docstring below).
 @contextmanager
 def permission_cache_scope():
     """Enter a read-only request-scoped permission cache.

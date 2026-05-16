@@ -30,7 +30,10 @@ contract stays consistent across surfaces.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_user_for_user_can(user_val: Any) -> Any | None:
@@ -70,7 +73,23 @@ def resolve_user_for_user_can(user_val: Any) -> Any | None:
         user_cls = get_user_model()
         try:
             return user_cls.objects.get(id=user_val)
-        except (user_cls.DoesNotExist, ValueError):
+        except user_cls.DoesNotExist:
+            return None
+        except ValueError:
+            # ValueError on a user-id lookup usually signals a
+            # programming bug (a caller passing a base64 GraphQL global
+            # id like ``"VXNlcjox"`` instead of a raw PK, or some other
+            # type-coercion miss). The unified contract still maps
+            # this to a deny so the caller doesn't have to wrap every
+            # site in try/except, but we surface the defect in logs
+            # rather than swallowing it silently.
+            logger.warning(
+                "resolve_user_for_user_can: invalid user id %r — treating as deny. "
+                "If you see this in production, a caller is passing a non-integer "
+                "id (often a GraphQL global id from from_global_id missing) to "
+                "user_can or user_has_permission_for_obj.",
+                user_val,
+            )
             return None
     return user_val
 
