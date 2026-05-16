@@ -3219,8 +3219,8 @@ class MCPScopedASGIRoutingTest(TransactionTestCase):
         finally:
             loop.close()
 
-    def test_asgi_returns_404_for_private_corpus(self):
-        """Test ASGI app returns 404 for private corpus.
+    def test_asgi_returns_404_for_private_corpus_without_auth(self):
+        """Test ASGI app returns 404 for private corpus without auth.
 
         Mocks validate_corpus_slug to avoid database connection corruption
         when running with pytest-xdist. The sync_to_async database calls in
@@ -3272,7 +3272,7 @@ class MCPScopedASGIRoutingTest(TransactionTestCase):
             self.assertEqual(result[0]["type"], "http.response.start")
             self.assertEqual(result[0]["status"], 404)
             body = json.loads(result[1]["body"])
-            self.assertIn("not found or not public", body["error"])
+            self.assertIn("not found or not accessible", body["error"])
         finally:
             loop.close()
 
@@ -3325,7 +3325,61 @@ class MCPScopedASGIRoutingTest(TransactionTestCase):
             # Should get a 404 response
             self.assertEqual(result[0]["status"], 404)
             body = json.loads(result[1]["body"])
-            self.assertIn("not found or not public", body["error"])
+            self.assertIn("not found or not accessible", body["error"])
+        finally:
+            loop.close()
+
+    def test_asgi_routes_private_scoped_corpus_with_valid_bearer_token(self):
+        """Authenticated scoped endpoints can target private corpuses."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from opencontractserver.mcp.server import create_mcp_asgi_app
+
+        async def run_test():
+            received_messages = []
+
+            async def mock_receive():
+                return {"type": "http.request", "body": b"{}"}
+
+            async def mock_send(message):
+                received_messages.append(message)
+
+            mock_manager = AsyncMock()
+            mock_manager.handle_request = AsyncMock()
+
+            mock_lifespan = AsyncMock()
+            mock_lifespan.ensure_started = AsyncMock(return_value=mock_manager)
+
+            async def mock_get_lifespan(slug):
+                return mock_lifespan
+
+            scope = {
+                "type": "http",
+                "path": f"/mcp/corpus/{self.private_corpus.slug}/",
+                "method": "POST",
+                "query_string": b"",
+                "headers": [(b"authorization", b"Bearer valid-token")],
+                "client": ("127.0.0.1", 12345),
+            }
+
+            with patch(
+                "opencontractserver.mcp.server.get_user_from_jwt_token",
+                return_value=self.owner,
+            ), patch(
+                "opencontractserver.mcp.server.get_scoped_lifespan_manager",
+                side_effect=mock_get_lifespan,
+            ):
+                app = create_mcp_asgi_app()
+                await app(scope, mock_receive, mock_send)
+
+            mock_lifespan.ensure_started.assert_called_once()
+            mock_manager.handle_request.assert_called_once()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_test())
         finally:
             loop.close()
 
@@ -3926,11 +3980,11 @@ class MCPPermissionChangeTest(TransactionTestCase):
             ):
                 await app(scope, mock_receive, mock_send)
 
-            # Should get 404 (corpus not found/not public)
+            # Should get 404 (corpus not found/not accessible)
             self.assertEqual(received[0]["type"], "http.response.start")
             self.assertEqual(received[0]["status"], 404)
             body = json.loads(received[1]["body"])
-            self.assertIn("not found or not public", body["error"])
+            self.assertIn("not found or not accessible", body["error"])
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -5300,7 +5354,10 @@ class MCPAuthenticatedToolsTest(TestCase):
             )
 
     def test_create_thread_message_success_sets_creator(self):
-        from opencontractserver.conversations.models import ChatMessage
+        from opencontractserver.conversations.models import (
+            ChatMessage,
+            MessageTypeChoices,
+        )
         from opencontractserver.mcp.tools import create_thread_message
 
         result = create_thread_message(
@@ -5313,6 +5370,23 @@ class MCPAuthenticatedToolsTest(TestCase):
         self.assertEqual(message.creator, self.owner)
         self.assertEqual(message.conversation_id, self.private_thread.id)
         self.assertEqual(message.content, "Hello from owner")
+        self.assertEqual(message.msg_type, MessageTypeChoices.HUMAN)
+
+    def test_create_thread_message_rejects_locked_thread(self):
+        from django.core.exceptions import PermissionDenied
+
+        from opencontractserver.mcp.tools import create_thread_message
+
+        self.private_thread.is_locked = True
+        self.private_thread.save(update_fields=["is_locked"])
+
+        with self.assertRaises(PermissionDenied):
+            create_thread_message(
+                corpus_slug=self.private_corpus.slug,
+                thread_id=self.private_thread.id,
+                content="locked thread write",
+                user=self.owner,
+            )
 
     def test_create_thread_message_denies_unrelated_user(self):
         from opencontractserver.corpuses.models import Corpus
@@ -5703,6 +5777,58 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
             www_auth,
         )
 
+    def test_www_authenticate_rejects_malformed_forwarded_proto(self):
+        """Only http/https may appear as the advertised metadata scheme."""
+        from django.test import override_settings
+
+        from opencontractserver.mcp.server import _build_www_authenticate_header
+
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"host", b"opencontracts.test"),
+                (b"x-forwarded-proto", b'https"\r\nx-injected: y'),
+            ],
+            "scheme": "http",
+        }
+        with override_settings(USE_AUTH0=True):
+            header = _build_www_authenticate_header(scope).decode("ascii")
+
+        self.assertIn(
+            'resource_metadata="http://opencontracts.test/.well-known/oauth-protected-resource"',
+            header,
+        )
+        self.assertNotIn("\r", header)
+        self.assertNotIn("\n", header)
+        self.assertNotIn("x-injected", header)
+
+    def test_invalid_bearer_token_still_uses_global_rate_limit(self):
+        """Rate limiting runs before JWT validation."""
+        from unittest.mock import AsyncMock, patch
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer not-a-real-token"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+
+        with patch(
+            "opencontractserver.mcp.server.check_mcp_rate_limit",
+            new=AsyncMock(return_value=(True, "rate limited", 9)),
+        ), patch("opencontractserver.mcp.server.get_user_from_jwt_token") as verifier:
+            messages = self._run_app(scope)
+
+        verifier.assert_not_called()
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 429)
+
     def test_valid_bearer_token_authenticates_and_does_not_401(self):
         """A valid JWT must NOT trigger the 401 branch; the ASGI layer
         must continue past the auth check with ``_mcp_user`` populated.
@@ -5772,6 +5898,102 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         # error, but the auth layer must not 401. Anything else is fine.
         self.assertTrue(starts, "Expected a response from the ASGI app")
         self.assertNotEqual(starts[0]["status"], 401)
+
+
+class MCPResourceAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
+    """Resource reads consume the same request user as tool calls."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+
+        from opencontractserver.documents.models import Document, DocumentPath
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        self.owner = User.objects.create_user(
+            username="mcp_resource_owner",
+            email="mcpresource@test.com",
+            password="testpass123",
+        )
+        self.collaborator = User.objects.create_user(
+            username="mcp_resource_collaborator",
+            email="mcpresourcecollab@test.com",
+            password="testpass123",
+        )
+        self.private_corpus = Corpus.objects.create(
+            title="Private Resource Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+        self.private_document = Document.objects.create(
+            title="Private Resource Document",
+            creator=self.owner,
+            is_public=False,
+        )
+        self.private_document.txt_extract_file.save(
+            "private_resource.txt",
+            ContentFile(b"private document text"),
+        )
+        DocumentPath.objects.create(
+            document=self.private_document,
+            corpus=self.private_corpus,
+            path="/private-resource.txt",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.owner,
+        )
+        set_permissions_for_obj_to_user(
+            self.collaborator,
+            self.private_corpus,
+            [PermissionTypes.READ],
+        )
+
+    def tearDown(self):
+        from django import db
+
+        self._close_async_db_connections()
+        db.connections.close_all()
+
+    def test_read_resource_handler_uses_authenticated_user(self):
+        from opencontractserver.mcp.server import _mcp_user, read_resource_handler
+
+        async def run_test():
+            token = _mcp_user.set(self.owner)
+            try:
+                return await read_resource_handler(
+                    f"corpus://{self.private_corpus.slug}"
+                )
+            finally:
+                _mcp_user.reset(token)
+
+        payload = json.loads(self._run(run_test()))
+        self.assertEqual(payload["slug"], self.private_corpus.slug)
+
+    def test_document_resource_uses_authenticated_corpus_access(self):
+        from opencontractserver.mcp.server import _mcp_user, read_resource_handler
+
+        async def run_test():
+            token = _mcp_user.set(self.collaborator)
+            try:
+                return await read_resource_handler(
+                    f"document://{self.private_corpus.slug}/{self.private_document.slug}"
+                )
+            finally:
+                _mcp_user.reset(token)
+
+        payload = json.loads(self._run(run_test()))
+        self.assertEqual(payload["slug"], self.private_document.slug)
+        self.assertEqual(payload["full_text"], "private document text")
+
+    def test_read_resource_handler_preserves_anonymous_default(self):
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.mcp.server import read_resource_handler
+
+        with self.assertRaises(Corpus.DoesNotExist):
+            self._run(read_resource_handler(f"corpus://{self.private_corpus.slug}"))
 
 
 class MCPCallToolHandlerValidationErrorTest(_MCPAsyncRunMixin, TransactionTestCase):

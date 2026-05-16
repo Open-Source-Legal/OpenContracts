@@ -7,6 +7,7 @@ Supports both global mode (all public corpuses) and corpus-scoped mode
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 from django.contrib.auth.models import AnonymousUser
@@ -26,6 +27,8 @@ from .formatters import (
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.types import UserOrAnonymous
+
+logger = logging.getLogger(__name__)
 
 
 def list_public_corpuses(
@@ -464,8 +467,16 @@ def create_thread_message(
         ChatMessage,
         Conversation,
         ConversationTypeChoices,
+        MessageTypeChoices,
     )
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.tasks.agent_tasks import trigger_agent_responses_for_message
+    from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.utils.mention_parser import (
+        link_message_to_resources,
+        parse_mentions_from_content,
+    )
+    from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
     if user is None or isinstance(user, AnonymousUser):
         raise PermissionDenied("Authentication required for write tools")
@@ -490,6 +501,9 @@ def create_thread_message(
         conversation_type=ConversationTypeChoices.THREAD,
         chat_with_corpus=corpus,
     )
+    if thread.is_locked:
+        raise PermissionDenied("This thread is locked")
+
     parent = None
     if parent_message_id is not None:
         # visible_to_user + ``conversation=thread`` together protect against
@@ -502,10 +516,24 @@ def create_thread_message(
 
     message = ChatMessage.objects.create(
         conversation=thread,
+        msg_type=MessageTypeChoices.HUMAN,
         content=normalized,
         creator=user,
         parent_message=parent,
     )
+    set_permissions_for_obj_to_user(user, message, [PermissionTypes.CRUD])
+
+    try:
+        mentioned_ids = parse_mentions_from_content(normalized)
+        link_result = link_message_to_resources(message, mentioned_ids)
+        if link_result.get("agents_linked", 0) > 0:
+            trigger_agent_responses_for_message.delay(
+                message_id=message.pk,
+                user_id=user.pk,
+            )
+    except Exception as e:
+        logger.error("Error parsing mentions in MCP message: %s", e)
+
     return {
         "id": str(message.id),
         "thread_id": str(thread.id),

@@ -144,9 +144,12 @@ def _build_www_authenticate_header(scope: MutableMapping[str, Any]) -> bytes:
         # No Host header at all is unusual — punt on the resource_metadata
         # hint rather than emitting a malformed URL.
         return realm
-    scheme = forwarded_proto.decode("ascii", errors="ignore") or scope.get(
-        "scheme", "http"
+    raw_scheme = forwarded_proto.decode("ascii", errors="ignore") or str(
+        scope.get("scheme", "http")
     )
+    scheme = raw_scheme.split(",", 1)[0].strip().lower()
+    if scheme not in {"http", "https"}:
+        scheme = "http"
     # Defensive: a misconfigured reverse proxy could forward a ``Host``
     # carrying ``"``, ``\r``, or ``\n``. The HTTP spec disallows those in
     # an authority, but stripping them here keeps the ``WWW-Authenticate``
@@ -273,13 +276,14 @@ async def read_resource_handler(uri: str) -> str:
     resource_type = "unknown"
     _corpus_slug: str | None = None
     _document_slug: str | None = None
+    user = _mcp_user.get()
     try:
         # Try corpus URI
         corpus_slug = URIParser.parse_corpus(uri_str)
         if corpus_slug:
             resource_type = "corpus"
             _corpus_slug = corpus_slug
-            result = await sync_to_async(get_corpus_resource)(corpus_slug)
+            result = await sync_to_async(get_corpus_resource)(corpus_slug, user=user)
             await arecord_mcp_resource_read(
                 resource_type, success=True, corpus_slug=_corpus_slug
             )
@@ -293,7 +297,7 @@ async def read_resource_handler(uri: str) -> str:
             _corpus_slug = corpus_slug
             _document_slug = document_slug
             result = await sync_to_async(get_document_resource)(
-                corpus_slug, document_slug
+                corpus_slug, document_slug, user=user
             )
             await arecord_mcp_resource_read(
                 resource_type,
@@ -311,7 +315,7 @@ async def read_resource_handler(uri: str) -> str:
             _corpus_slug = corpus_slug
             _document_slug = document_slug
             result = await sync_to_async(get_annotation_resource)(
-                corpus_slug, document_slug, annotation_id
+                corpus_slug, document_slug, annotation_id, user=user
             )
             await arecord_mcp_resource_read(
                 resource_type,
@@ -327,7 +331,9 @@ async def read_resource_handler(uri: str) -> str:
             resource_type = "thread"
             corpus_slug, thread_id = thread_parts
             _corpus_slug = corpus_slug
-            result = await sync_to_async(get_thread_resource)(corpus_slug, thread_id)
+            result = await sync_to_async(get_thread_resource)(
+                corpus_slug, thread_id, user=user
+            )
             await arecord_mcp_resource_read(
                 resource_type, success=True, corpus_slug=_corpus_slug
             )
@@ -810,7 +816,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
 
 
 def get_scoped_resource_definitions(
-    corpus_slug: str, limit: int = 50
+    corpus_slug: str, limit: int = 50, user: UserOrAnonymous | None = None
 ) -> list[Resource]:
     """
     Get concrete resource definitions for a corpus-scoped MCP endpoint.
@@ -826,8 +832,6 @@ def get_scoped_resource_definitions(
     Returns:
         List of concrete Resource definitions
     """
-    from django.contrib.auth.models import AnonymousUser
-
     from opencontractserver.conversations.models import (
         Conversation,
         ConversationTypeChoices,
@@ -836,10 +840,12 @@ def get_scoped_resource_definitions(
     from opencontractserver.corpuses.models import Corpus
 
     resources: list[Resource] = []
-    anonymous = AnonymousUser()
+    from django.contrib.auth.models import AnonymousUser
+
+    effective_user = user or AnonymousUser()
 
     try:
-        corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+        corpus = Corpus.objects.visible_to_user(effective_user).get(slug=corpus_slug)
     except Corpus.DoesNotExist:
         return resources
 
@@ -855,7 +861,7 @@ def get_scoped_resource_definitions(
 
     # Add document resources using DocumentFolderService
     documents = DocumentFolderService.get_corpus_documents(
-        user=anonymous, corpus=corpus, include_deleted=False
+        user=effective_user, corpus=corpus, include_deleted=False
     )[:limit]
     for doc in documents:
         resources.append(
@@ -869,7 +875,7 @@ def get_scoped_resource_definitions(
 
     # Add thread resources
     threads = (
-        Conversation.objects.visible_to_user(anonymous)
+        Conversation.objects.visible_to_user(effective_user)
         .filter(
             conversation_type=ConversationTypeChoices.THREAD,
             chat_with_corpus=corpus,
@@ -963,7 +969,9 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
     async def list_resources() -> list[Resource]:
         """List available concrete resources for this scoped corpus."""
         # Use sync_to_async since this queries the database
-        return await sync_to_async(get_scoped_resource_definitions)(corpus_slug)
+        return await sync_to_async(get_scoped_resource_definitions)(
+            corpus_slug, user=_mcp_user.get()
+        )
 
     @scoped_server.list_resource_templates()
     async def list_resource_templates() -> list[ResourceTemplate]:
@@ -1292,24 +1300,29 @@ async def get_scoped_lifespan_manager(corpus_slug: str) -> ScopedMCPLifespanMana
     return manager
 
 
-async def validate_corpus_slug(corpus_slug: str) -> bool:
+async def validate_corpus_slug(
+    corpus_slug: str, user: UserOrAnonymous | None = None
+) -> bool:
     """
-    Validate that a corpus slug exists and is publicly accessible.
+    Validate that a corpus slug exists and is accessible to the caller.
 
     Args:
         corpus_slug: The corpus slug to validate
+        user: Optional authenticated user; None preserves anonymous behavior.
 
     Returns:
-        True if the corpus exists and is public, False otherwise
+        True if the corpus exists and is visible to the caller, False otherwise
     """
     from django.contrib.auth.models import AnonymousUser
 
     from opencontractserver.corpuses.models import Corpus
 
     def _check() -> bool:
-        anonymous = AnonymousUser()
+        effective_user = user or AnonymousUser()
         return (
-            Corpus.objects.visible_to_user(anonymous).filter(slug=corpus_slug).exists()
+            Corpus.objects.visible_to_user(effective_user)
+            .filter(slug=corpus_slug)
+            .exists()
         )
 
     return await sync_to_async(_check)()
@@ -1427,33 +1440,18 @@ def create_mcp_asgi_app() -> ASGIApp:
         # reset it in the finally block, preventing stale scope data
         # from leaking into subsequent requests on the same task.
         _scope_token = _mcp_asgi_scope.set(scope)
-        # Resolve the per-request user up-front so we can use a single
-        # _mcp_user.set() / .reset() pair.  Stacked sets are fragile —
-        # adding another set between the original .set(None) and .set(user)
-        # would silently break the reset chain.
-        user_for_request: UserOrAnonymous | None = None
-        token = _extract_bearer_token(scope)
-        if token:
-            try:
-                user_for_request = await sync_to_async(get_user_from_jwt_token)(token)
-                logger.info(
-                    "MCP: authenticated user pk=%s",
-                    getattr(user_for_request, "pk", None),
-                )
-            except (JSONWebTokenExpired, JSONWebTokenError) as exc:
-                logger.warning("MCP: rejected invalid JWT (%s)", exc.__class__.__name__)
-                www_authenticate = _build_www_authenticate_header(scope)
+        try:
+            # Rate limit before JWT validation so invalid-token traffic still
+            # consumes the same global MCP bucket as ordinary requests.
+            is_limited, error_msg, retry_after = await check_mcp_rate_limit(scope)
+            if is_limited:
                 await send(
                     {
                         "type": "http.response.start",
-                        "status": 401,
+                        "status": 429,
                         "headers": [
                             [b"content-type", b"application/json"],
-                            # RFC 6750 §3 + MCP 2025-06-18 Authorization §2.4:
-                            # always include WWW-Authenticate on a 401 from a
-                            # Bearer-protected resource so interactive clients
-                            # can discover the authorization server.
-                            [b"www-authenticate", www_authenticate],
+                            [b"retry-after", str(retry_after).encode()],
                         ],
                     }
                 )
@@ -1461,58 +1459,71 @@ def create_mcp_asgi_app() -> ASGIApp:
                     {
                         "type": "http.response.body",
                         "body": json.dumps(
-                            {"error": "Invalid or expired authentication token"}
+                            {
+                                "error": error_msg,
+                                "hint": "Please wait before making more requests",
+                                "retry_after": retry_after,
+                            }
                         ).encode(),
                     }
                 )
-                # 401 path: only ``_mcp_asgi_scope`` has been set; the
-                # ``_mcp_user`` ContextVar isn't touched until the line
-                # below, so there's nothing to reset for it here. If a
-                # third ContextVar is ever introduced between
-                # ``_mcp_asgi_scope.set`` (line ~1429) and
-                # ``_mcp_user.set`` (line ~1471), this early-return
-                # branch MUST grow a matching ``.reset`` for it — there
-                # is no try/finally encompassing the 401 path.
-                _mcp_asgi_scope.reset(_scope_token)
                 return
 
-        _user_token = _mcp_user.set(user_for_request)
-        try:
-            await _handle_mcp_request(scope, receive, send)
+            # Resolve the per-request user up-front so we can use a single
+            # _mcp_user.set() / .reset() pair.  Stacked sets are fragile —
+            # adding another set between the original .set(None) and .set(user)
+            # would silently break the reset chain.
+            user_for_request: UserOrAnonymous | None = None
+            token = _extract_bearer_token(scope)
+            if token:
+                try:
+                    user_for_request = await sync_to_async(get_user_from_jwt_token)(
+                        token
+                    )
+                    logger.info(
+                        "MCP: authenticated user pk=%s",
+                        getattr(user_for_request, "pk", None),
+                    )
+                except (JSONWebTokenExpired, JSONWebTokenError) as exc:
+                    logger.warning(
+                        "MCP: rejected invalid JWT (%s)", exc.__class__.__name__
+                    )
+                    www_authenticate = _build_www_authenticate_header(scope)
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 401,
+                            "headers": [
+                                [b"content-type", b"application/json"],
+                                # RFC 6750 §3 + MCP 2025-06-18 Authorization §2.4:
+                                # always include WWW-Authenticate on a 401 from a
+                                # Bearer-protected resource so interactive clients
+                                # can discover the authorization server.
+                                [b"www-authenticate", www_authenticate],
+                            ],
+                        }
+                    )
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": json.dumps(
+                                {"error": "Invalid or expired authentication token"}
+                            ).encode(),
+                        }
+                    )
+                    return
+
+            _user_token = _mcp_user.set(user_for_request)
+            try:
+                await _handle_mcp_request(scope, receive, send)
+            finally:
+                _mcp_user.reset(_user_token)
         finally:
             _mcp_asgi_scope.reset(_scope_token)
-            _mcp_user.reset(_user_token)
 
     async def _handle_mcp_request(
         scope: ASGIScope, receive: ASGIReceive, send: ASGISend
     ) -> None:
-        # Rate limiting check (global cap, before any path processing)
-        is_limited, error_msg, retry_after = await check_mcp_rate_limit(scope)
-        if is_limited:
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": 429,
-                    "headers": [
-                        [b"content-type", b"application/json"],
-                        [b"retry-after", str(retry_after).encode()],
-                    ],
-                }
-            )
-            await send(
-                {
-                    "type": "http.response.body",
-                    "body": json.dumps(
-                        {
-                            "error": error_msg,
-                            "hint": "Please wait before making more requests",
-                            "retry_after": retry_after,
-                        }
-                    ).encode(),
-                }
-            )
-            return
-
         path = scope.get("path", "")
 
         # Check for corpus-scoped endpoint: /mcp/corpus/{corpus_slug}/
@@ -1529,8 +1540,8 @@ def create_mcp_asgi_app() -> ASGIApp:
                 user_agent=user_agent,
             )
 
-            # Validate the corpus exists and is public
-            if not await validate_corpus_slug(corpus_slug):
+            # Validate the corpus exists and is visible to this request's user.
+            if not await validate_corpus_slug(corpus_slug, _mcp_user.get()):
                 try:
                     await send(
                         {
@@ -1544,8 +1555,8 @@ def create_mcp_asgi_app() -> ASGIApp:
                             "type": "http.response.body",
                             "body": json.dumps(
                                 {
-                                    "error": f"Corpus '{corpus_slug}' not found or not public",
-                                    "hint": "Use /mcp/corpus/{corpus_slug}/ with a valid public corpus slug",
+                                    "error": f"Corpus '{corpus_slug}' not found or not accessible",
+                                    "hint": "Use /mcp/corpus/{corpus_slug}/ with a valid accessible corpus slug",
                                 }
                             ).encode(),
                         }
