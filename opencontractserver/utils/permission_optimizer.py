@@ -73,7 +73,12 @@ class PermissionQueryOptimizer:
 
         The Tier 1 per-instance cache inside
         ``get_users_permissions_for_obj`` still runs on miss; both layers
-        compose without double-caching the same value.
+        compose correctly — a Tier 2 cold miss warms Tier 1 as a
+        side-effect, so the same ``frozenset`` ends up in both caches
+        (the Tier 1 instance attribute and this request-scoped dict).
+        That redundancy is intentional: it lets out-of-request callers
+        (Celery, management commands) still benefit from Tier 1 even
+        when no request is in scope to populate Tier 2.
         """
 
         # Lazy import to avoid pulling permissioning (which touches

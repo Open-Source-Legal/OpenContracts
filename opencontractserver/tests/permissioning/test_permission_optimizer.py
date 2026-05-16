@@ -154,6 +154,65 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         second = get_users_permissions_for_obj(user=self.reader, instance=corpus)
         self.assertNotIn("synthetic_marker", second)
 
+    def test_direct_call_with_superuser_warms_instance_cache(self):
+        """Superusers go through the guardian-superuser branch.
+
+        ``_default_user_can`` short-circuits for superusers before reaching
+        ``get_users_permissions_for_obj``, so the warming side-effect at
+        the superuser return path is only exercised when callers invoke
+        the helper directly (e.g. mutation resolvers checking compound
+        permissions). The cache must still populate so a subsequent
+        direct call short-circuits to the Tier 1 hit path.
+        """
+
+        admin = User.objects.create_superuser(
+            username="t1_warm_admin", email="t1_wa@test.test", password="x"
+        )
+        corpus = self._fresh_corpus()
+        granted = get_users_permissions_for_obj(user=admin, instance=corpus)
+        # Superuser on a guardian-enabled model gets the rich 7-perm set.
+        self.assertIn("create_corpus", granted)
+        self.assertIn("permission_corpus", granted)
+        # Cache attribute is now present under the keyed slot.
+        cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
+        self.assertIsNotNone(cache)
+        self.assertIn((admin.id, False), cache)
+        # Second call returns a defensive copy of the same content.
+        again = get_users_permissions_for_obj(user=admin, instance=corpus)
+        self.assertEqual(again, granted)
+
+    def test_direct_call_with_prefetched_guardian_perms_warms_cache(self):
+        """The fast-path return at the prefetched-perms branch also caches.
+
+        When a queryset has been hydrated with the per-user guardian
+        prefetches (``user_perm_attr``), ``get_users_permissions_for_obj``
+        builds the codename set from the prefetch and short-circuits
+        without a guardian query. That return must still warm Tier 1 so
+        a follow-up call on the same instance avoids re-walking the
+        prefetched perms.
+        """
+
+        from opencontractserver.shared.prefetch_attrs import user_perm_attr
+
+        corpus = self._fresh_corpus()
+        # Simulate a prefetch attach: collect the reader's CorpusUserObjectPermissions
+        # and stash them on the instance under the per-user prefetch attr.
+        user_perms = list(
+            corpus.corpususerobjectpermission_set.filter(  # type: ignore[attr-defined]
+                user=self.reader
+            ).select_related("permission")
+        )
+        setattr(corpus, user_perm_attr(self.reader.id), user_perms)
+
+        granted = get_users_permissions_for_obj(user=self.reader, instance=corpus)
+        # The grant from setUp is READ → only ``read_corpus``.
+        self.assertEqual(granted, {"read_corpus"})
+
+        # Cache populated under the keyed slot.
+        cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
+        self.assertIsNotNone(cache)
+        self.assertIn((self.reader.id, False), cache)
+
 
 class PermissionQueryOptimizerTestCase(TransactionTestCase):
     """Tier 2: request-scoped optimizer."""
