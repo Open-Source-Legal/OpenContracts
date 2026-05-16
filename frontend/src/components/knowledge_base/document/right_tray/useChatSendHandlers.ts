@@ -118,6 +118,12 @@ export function useChatSendHandlers({
     [wsReady, userEmail, wsSend, sendingLockRef, setChat, setWsError]
   );
 
+  // These three guards intentionally duplicate the checks inside
+  // sendTextOverSocket: this is the user-facing entry point, so it emits
+  // ``console.warn`` for observability when an interactive send is dropped.
+  // sendTextOverSocket is the authoritative (silent) guard — both code paths
+  // share the lock/empty/wsReady invariants, but only this caller surfaces
+  // them to the dev console.
   const sendMessageOverSocket = useCallback((): void => {
     const trimmed = newMessage.trim();
     if (!trimmed) return;

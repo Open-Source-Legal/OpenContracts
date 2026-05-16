@@ -13,7 +13,8 @@
  * WebSocket callback stays stable across renders.
  */
 
-import React, { useCallback } from "react";
+import { useCallback } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { ChatMessageProps } from "../../../widgets/chat/ChatMessage";
 import type {
   CompactionNotice,
@@ -29,18 +30,20 @@ export interface UseChatAgentMessageHandlerParams {
    * dispatcher closure so the callback stays stable while still reacting
    * to the most recent approval value.
    */
-  pendingApprovalRef: React.RefObject<PendingApproval | null>;
-  setPendingApproval: React.Dispatch<
-    React.SetStateAction<PendingApproval | null>
-  >;
-  setShowApprovalModal: React.Dispatch<React.SetStateAction<boolean>>;
-  setWsError: React.Dispatch<React.SetStateAction<string | null>>;
-  setChat: React.Dispatch<React.SetStateAction<ChatMessageProps[]>>;
-  setServerMessages: React.Dispatch<React.SetStateAction<ChatMessageProps[]>>;
-  setContextStatus: React.Dispatch<React.SetStateAction<ContextStatus | null>>;
-  setCompactionNotice: React.Dispatch<
-    React.SetStateAction<CompactionNotice | null>
-  >;
+  pendingApprovalRef: RefObject<PendingApproval | null>;
+  setPendingApproval: Dispatch<SetStateAction<PendingApproval | null>>;
+  setShowApprovalModal: Dispatch<SetStateAction<boolean>>;
+  setWsError: Dispatch<SetStateAction<string | null>>;
+  setChat: Dispatch<SetStateAction<ChatMessageProps[]>>;
+  setServerMessages: Dispatch<SetStateAction<ChatMessageProps[]>>;
+  setContextStatus: Dispatch<SetStateAction<ContextStatus | null>>;
+  /**
+   * Compaction-notice setter. Cleared on `ASYNC_FINISH` here; the
+   * complementary *write* path lives in `useChatStreamHandlers`'s
+   * `appendThoughtToMessage`, which inspects thought entries for a
+   * `compaction.notice` field and pushes new notices through this setter.
+   */
+  setCompactionNotice: Dispatch<SetStateAction<CompactionNotice | null>>;
   streamHandlers: UseChatStreamHandlersReturn;
 }
 
@@ -55,17 +58,20 @@ export function useChatAgentMessageHandler({
   setCompactionNotice,
   streamHandlers,
 }: UseChatAgentMessageHandlerParams): (event: MessageEvent) => void {
-  const {
-    updateMessageApprovalStatus,
-    appendStreamingTokenToChat,
-    appendThoughtToMessage,
-    mergeSourcesIntoMessage,
-    finalizeStreamingResponse,
-    handleCompleteMessage,
-  } = streamHandlers;
-
   return useCallback(
     (event: MessageEvent) => {
+      // Destructure inside the callback so the dep array can reference the
+      // memoized bundle (one dep) instead of six individual handler refs.
+      // ``streamHandlers`` is ``useMemo``-ed in its sibling hook, so this
+      // callback only rebinds when the bundle identity actually changes.
+      const {
+        updateMessageApprovalStatus,
+        appendStreamingTokenToChat,
+        appendThoughtToMessage,
+        mergeSourcesIntoMessage,
+        finalizeStreamingResponse,
+        handleCompleteMessage,
+      } = streamHandlers;
       // Server-controlled approval-decision values flow through three frames
       // (top-level frame, ASYNC_APPROVAL_RESULT, ASYNC_FINISH). The wire type
       // is loosely typed as a string, so we validate it once at the dispatch
@@ -266,12 +272,7 @@ export function useChatAgentMessageHandler({
       setServerMessages,
       setContextStatus,
       setCompactionNotice,
-      updateMessageApprovalStatus,
-      appendStreamingTokenToChat,
-      appendThoughtToMessage,
-      mergeSourcesIntoMessage,
-      finalizeStreamingResponse,
-      handleCompleteMessage,
+      streamHandlers,
     ]
   );
 }
