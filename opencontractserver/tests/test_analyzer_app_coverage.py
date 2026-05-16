@@ -27,7 +27,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, TransactionTestCase
-from rest_framework.test import APIClient
+from rest_framework.test import APIRequestFactory
 
 from opencontractserver.analyzer import checks as analyzer_checks
 from opencontractserver.analyzer import startup as analyzer_startup
@@ -525,7 +525,15 @@ class SyncDocAnalyzersCommandTests(TestCase):
 
 
 class AnalysisCallbackViewHappyPathTests(TransactionTestCase):
-    """Exercise the success path of the analysis callback endpoint."""
+    """Exercise the success path of the analysis callback endpoint.
+
+    ``USE_ANALYZER=False`` in default test settings means the
+    ``analysis/<int:analysis_id>/complete`` URL is unregistered, so we
+    invoke ``AnalysisCallbackView`` directly via ``RequestFactory`` rather
+    than relying on URL resolution. Without this approach the test client
+    would return 404 silently and the assertions below would pass against
+    a no-op.
+    """
 
     def setUp(self) -> None:
         super().setUp()
@@ -550,16 +558,24 @@ class AnalysisCallbackViewHappyPathTests(TransactionTestCase):
         )
 
     def _post_callback(self, body: dict, token: str | None) -> Any:
-        client = APIClient()
-        if token is not None:
-            client.credentials(HTTP_CALLBACK_TOKEN=token)
-        from django.conf import settings as dj_settings
+        # ``USE_ANALYZER=False`` in test settings unregisters the URL, so
+        # we drive the view directly via ``APIRequestFactory`` instead of
+        # going through the resolver. This matches what ``USE_ANALYZER=True``
+        # production traffic would land on without forcing every test
+        # to flip the feature flag.
+        from opencontractserver.analyzer.views import AnalysisCallbackView
 
-        url = (
-            f"{dj_settings.CALLBACK_ROOT_URL_FOR_ANALYZER}/"
-            f"analysis/{self.analysis.id}/complete"
+        factory = APIRequestFactory()
+        headers: dict[str, Any] = {}
+        if token is not None:
+            headers["HTTP_CALLBACK_TOKEN"] = token
+        request = factory.post(
+            f"/analysis/{self.analysis.id}/complete",
+            body,
+            format="json",
+            **headers,
         )
-        return client.post(url, body, format="json")
+        return AnalysisCallbackView.as_view()(request, analysis_id=self.analysis.id)
 
     def test_valid_callback_with_valid_body_succeeds(self) -> None:
         # Mint plaintext token + persist hash on the Analysis.
