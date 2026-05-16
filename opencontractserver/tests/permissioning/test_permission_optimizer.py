@@ -357,6 +357,20 @@ class PermissionQueryOptimizerTestCase(TransactionTestCase):
         with self.assertRaises(ValueError):
             optimizer.invalidate(instance=self.corpus_a, content_type_id=1)
 
+    def test_invalidate_rejects_pk_without_content_type(self):
+        """``invalidate(instance_pk=...)`` alone is ambiguous across model
+        types — without a ``content_type_id`` the wildcard match would
+        evict entries for every model whose PK collides. The guard
+        forces callers to either pair the pk with its content type or
+        use ``instance=``.
+        """
+
+        optimizer = PermissionQueryOptimizer()
+        with self.assertRaises(ValueError):
+            optimizer.invalidate(instance_pk=self.corpus_a.pk)
+        with self.assertRaises(ValueError):
+            optimizer.invalidate(user_id=self.alice.id, instance_pk=self.corpus_a.pk)
+
     def test_optimizer_skips_anonymous_user(self):
         """Anonymous users do not populate Tier 2."""
 

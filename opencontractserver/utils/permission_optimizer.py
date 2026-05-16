@@ -149,6 +149,19 @@ class PermissionQueryOptimizer:
             content_type_id = self._resolve_content_type_id(instance)
             instance_pk = instance.pk
 
+        # Guard against partial coordinates: ``instance_pk`` alone is
+        # ambiguous across model types, since a Corpus with pk=5 and a
+        # Document with pk=5 share the same PK. Without ``content_type_id``
+        # the wildcard match below would evict both. Callers must either
+        # pair the pk with its content type or use ``instance=`` (which
+        # resolves both atomically).
+        if instance_pk is not None and content_type_id is None:
+            raise ValueError(
+                "instance_pk requires content_type_id (or pass instance= instead) — "
+                "wildcarding content_type_id would evict entries for any model "
+                "whose PK collides with instance_pk."
+            )
+
         if user_id is None and content_type_id is None and instance_pk is None:
             self._cache.clear()
             return
