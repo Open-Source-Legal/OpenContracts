@@ -533,6 +533,39 @@ class ConversationManager(SoftDeleteManager):
         """
         return self.get_queryset().visible_to_user(user)
 
+    def user_can(
+        self,
+        user,
+        instance,
+        permission,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``Conversation``.
+
+        For **READ**, route through ``visible_to_user(user).filter(pk=...).
+        exists()`` so the CHAT/THREAD bifurcation
+        (``ConversationQuerySet.visible_to_user`` at lines 128-288) is the
+        single source of truth — anonymous-can-only-see-public-THREADs,
+        THREAD-context-inheritance, etc. all stay encoded in one place.
+
+        For **non-READ**, delegate to ``_default_user_can`` so the
+        is_public-grants-only-READ asymmetry holds: writing to a
+        conversation still requires creator status or explicit guardian
+        permission, and ``is_public=True`` does NOT grant writes.
+        """
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        if permission == PermissionTypes.READ:
+            return self.visible_to_user(user).filter(pk=instance.pk).exists()
+        return _default_user_can(
+            user,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
+
     def search_by_embedding(self, query_vector, embedder_path, top_k=10):
         """
         Convenience method to perform vector search:
@@ -566,6 +599,38 @@ class ChatMessageManager(SoftDeleteManager):
         underlying queryset has no heavy prefetches.
         """
         return self.get_queryset().visible_to_user(user)
+
+    def user_can(
+        self,
+        user,
+        instance,
+        permission,
+        *,
+        include_group_permissions: bool = True,
+    ) -> bool:
+        """Single-object authorization check for ``ChatMessage``.
+
+        For **READ**, defer to ``visible_to_user(user).filter(pk=...).
+        exists()`` so the moderator branch
+        (``ChatMessageQuerySet.visible_to_user`` lines 403-425 — corpus
+        owner / document owner / conversation creator) and the
+        conversation-inheritance branch are the single source of truth.
+
+        For **non-READ**, delegate to ``_default_user_can`` (creator OR
+        guardian; ChatMessage has no ``is_public`` field, so the default
+        branch correctly denies anonymous and non-grantee writes).
+        """
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        if permission == PermissionTypes.READ:
+            return self.visible_to_user(user).filter(pk=instance.pk).exists()
+        return _default_user_can(
+            user,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
+        )
 
     def search_by_embedding(self, query_vector, embedder_path, top_k=10):
         """

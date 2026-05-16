@@ -1,13 +1,17 @@
-"""
-Tests for ``opencontractserver.utils.permissioning.user_can_modify_corpus``.
+"""Tests for the canonical "can this user modify this corpus" matrix.
 
-The helper consolidates the inline
-``user.is_superuser or corpus.creator_id == user.id or
-user_has_permission_for_obj(user, corpus, UPDATE, ...)`` pattern from
-``badge_mutations`` and ``document_mutations``. These tests pin the
-contract so the helper stays a faithful drop-in replacement: superuser,
-creator, explicit guardian UPDATE (user- and group-level), and the
-no-access / anonymous denial branches.
+Historically this matrix was encoded in the ``user_can_modify_corpus`` helper
+(``opencontractserver.utils.permissioning``). Phase A of permission-
+centralization (issue #1655) deleted that helper and routes the same check
+through ``corpus.user_can(user, PermissionTypes.UPDATE)`` — a single source
+of truth that mirrors ``visible_to_user`` semantics and honors creator
+status (which the legacy helper did via an explicit shortcut, and which
+``_default_user_can`` now does as part of the standard rules).
+
+These tests pin the contract under the new API: superuser, creator,
+explicit guardian UPDATE (user- and group-level), and the no-access /
+anonymous denial branches. Same assertions as before — only the call
+site changed.
 """
 
 from django.contrib.auth import get_user_model
@@ -17,10 +21,7 @@ from guardian.shortcuts import assign_perm
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_can_modify_corpus,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -54,44 +55,47 @@ class UserCanModifyCorpusTests(TestCase):
         assign_perm("update_corpus", self.update_group, self.corpus)
 
     def test_superuser_can_modify(self) -> None:
-        self.assertTrue(user_can_modify_corpus(self.superuser, self.corpus))
+        self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.UPDATE))
 
     def test_creator_can_modify(self) -> None:
-        self.assertTrue(user_can_modify_corpus(self.owner, self.corpus))
+        self.assertTrue(self.corpus.user_can(self.owner, PermissionTypes.UPDATE))
 
     def test_user_with_explicit_update_can_modify(self) -> None:
-        self.assertTrue(user_can_modify_corpus(self.editor, self.corpus))
+        self.assertTrue(self.corpus.user_can(self.editor, PermissionTypes.UPDATE))
 
     def test_user_with_group_update_can_modify(self) -> None:
-        self.assertTrue(user_can_modify_corpus(self.group_member, self.corpus))
+        self.assertTrue(self.corpus.user_can(self.group_member, PermissionTypes.UPDATE))
 
     def test_group_perm_ignored_when_disabled(self) -> None:
         """``include_group_permissions=False`` must skip group grants."""
         self.assertFalse(
-            user_can_modify_corpus(
-                self.group_member, self.corpus, include_group_permissions=False
+            self.corpus.user_can(
+                self.group_member,
+                PermissionTypes.UPDATE,
+                include_group_permissions=False,
             )
         )
 
     def test_outsider_cannot_modify(self) -> None:
-        self.assertFalse(user_can_modify_corpus(self.outsider, self.corpus))
+        self.assertFalse(self.corpus.user_can(self.outsider, PermissionTypes.UPDATE))
 
     def test_anonymous_user_cannot_modify(self) -> None:
-        self.assertFalse(user_can_modify_corpus(AnonymousUser(), self.corpus))
+        self.assertFalse(self.corpus.user_can(AnonymousUser(), PermissionTypes.UPDATE))
 
     def test_none_user_cannot_modify(self) -> None:
-        self.assertFalse(user_can_modify_corpus(None, self.corpus))
+        self.assertFalse(self.corpus.user_can(None, PermissionTypes.UPDATE))
 
     def test_accepts_user_id(self) -> None:
-        """Helper accepts an integer/str id as well as a User instance."""
-        self.assertTrue(user_can_modify_corpus(self.owner.id, self.corpus))
-        self.assertTrue(user_can_modify_corpus(str(self.owner.id), self.corpus))
-        self.assertFalse(user_can_modify_corpus(self.outsider.id, self.corpus))
+        """API accepts an integer/str id as well as a User instance."""
+        self.assertTrue(self.corpus.user_can(self.owner.id, PermissionTypes.UPDATE))
+        self.assertTrue(
+            self.corpus.user_can(str(self.owner.id), PermissionTypes.UPDATE)
+        )
+        self.assertFalse(self.corpus.user_can(self.outsider.id, PermissionTypes.UPDATE))
 
     def test_dangling_id_returns_false(self) -> None:
         """Non-existent user ids must return False, not raise DoesNotExist."""
-        # Pick a high id unlikely to exist; assert it really doesn't.
         dangling_id = 99_999_999
         self.assertFalse(User.objects.filter(id=dangling_id).exists())
-        self.assertFalse(user_can_modify_corpus(dangling_id, self.corpus))
-        self.assertFalse(user_can_modify_corpus(str(dangling_id), self.corpus))
+        self.assertFalse(self.corpus.user_can(dangling_id, PermissionTypes.UPDATE))
+        self.assertFalse(self.corpus.user_can(str(dangling_id), PermissionTypes.UPDATE))

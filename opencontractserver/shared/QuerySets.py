@@ -167,84 +167,108 @@ class UserFeedbackQuerySet(models.QuerySet):
         return self.filter(creator=creator)
 
     def visible_to_user(self, user: Any) -> "UserFeedbackQuerySet":
+        """Filter feedback rows to those ``user`` may READ.
+
+        Aligned with ``UserFeedbackManager.user_can`` (Phase A invariant):
+        anonymous and authenticated users can read feedback when the
+        feedback itself is public OR when it comments on a public
+        annotation — the commented-annotation grant is symmetric across
+        the two branches. Authenticated users additionally get creator
+        short-circuit and explicit guardian READ grants on the feedback.
+        """
+        from django.apps import apps
+
         if user.is_superuser:
             return self.all()
 
+        # Both anonymous and authenticated users may READ a feedback row
+        # when its commented annotation is public — mirrors the same
+        # branch in ``UserFeedbackManager.user_can`` so the manager check
+        # and queryset filter agree.
+        public_commented = Q(commented_annotation__isnull=False) & Q(
+            commented_annotation__is_public=True
+        )
+
         if user.is_anonymous:
-            return self.filter(Q(is_public=True)).distinct()
+            return self.filter(Q(is_public=True) | public_commented).distinct()
 
-        # UserFeedback is visible if:
-        # 1. Created by the user, OR
-        # 2. Is public, OR
-        # 3. Has a commented_annotation that is public (handle NULL case)
-
-        result = self.filter(
-            Q(creator=user)
-            | Q(is_public=True)
-            | (
-                Q(commented_annotation__isnull=False)
-                & Q(commented_annotation__is_public=True)
+        # Authenticated: creator OR is_public OR public commented annotation
+        # OR an explicit guardian READ grant on the feedback row itself
+        # (matches ``_default_user_can``'s guardian branch).
+        guardian_q = Q()
+        try:
+            permission_model = apps.get_model(
+                "feedback", "userfeedbackuserobjectpermission"
             )
-        ).distinct()
+            permitted_ids = permission_model.objects.filter(
+                permission__codename="read_userfeedback", user_id=user.id
+            ).values_list("content_object_id", flat=True)
+            guardian_q = Q(id__in=permitted_ids)
+        except LookupError:
+            pass
 
-        return result
+        return self.filter(
+            Q(creator=user) | Q(is_public=True) | public_commented | guardian_q
+        ).distinct()
 
 
 class PermissionQuerySet(models.QuerySet):
     def visible_to_user(
         self, user: Any, perm: Optional[str] = None
     ) -> "PermissionQuerySet":
+        """Filter to rows visible to ``user`` honoring django-guardian.
 
-        if user.is_superuser:
+        Mirrors ``BaseVisibilityManager.visible_to_user`` so that
+        ``Model.objects.user_can`` (which routes through
+        ``_default_user_can`` and consults guardian) stays aligned with
+        the queryset filter — this is the invariant pinned by
+        ``test_authorization_invariants``.
+
+        Logic:
+          - Superuser → all rows (DB-default ordering preserved).
+          - Anonymous → ``is_public=True`` only.
+          - Authenticated non-superuser → ``creator | is_public |
+            guardian read codename``.
+
+        Concrete subclasses (``DocumentQuerySet``, ``AnnotationQuerySet``,
+        ``NoteQuerySet``) override with model-specific logic; this body
+        is the fallback for direct uses of ``PermissionManager``.
+        """
+        from django.apps import apps
+        from django.contrib.auth.models import AnonymousUser
+
+        if user is None:
+            user = AnonymousUser()
+
+        if hasattr(user, "is_superuser") and user.is_superuser:
+            # Preserve the legacy DB-default ordering — not every model
+            # that uses ``PermissionManager`` has a ``created`` column
+            # (PR #1663 review: avoid surprise ``FieldError`` on
+            # ``PermissionQuerySet`` consumers).
             return self.all()
 
-        # model = self.model
-        # content_type = ContentType.objects.get_for_model(model)
-        #
-        # # Determine the permission codename
-        # permission_codename = f'{perm}_{model._meta.model_name}'
-        #
-        # # User permission subquery
-        # user_perm = UserObjectPermission.objects.filter(
-        #     content_type=content_type,
-        #     user=user,
-        #     permission__codename=permission_codename,
-        #     object_pk=OuterRef('pk')
-        # )
-        #
-        # # Group permission subquery
-        # group_perm = GroupObjectPermission.objects.filter(
-        #     content_type=content_type,
-        #     group__user=user,
-        #     permission__codename=permission_codename,
-        #     object_pk=OuterRef('pk')
-        # )
+        if user.is_anonymous:
+            return self.filter(is_public=True).distinct()
 
-        # Construct the base queryset
-        # queryset = self.annotate(
-        #     has_user_perm=Exists(user_perm),
-        #     has_group_perm=Exists(group_perm)
-        # )
+        # Authenticated non-superuser: combine creator, is_public, and
+        # the user's explicit guardian READ grants. Mirrors
+        # BaseVisibilityManager.visible_to_user lines 217-228.
+        model_name = self.model._meta.model_name
+        app_label = self.model._meta.app_label
 
-        # Filter based on permissions and public status.
-        # NOTE(deferred): Instance-level sharing (django-guardian user/object
-        # permissions) is not yet wired here. Currently only creator and
-        # is_public are checked. See visible_to_user() on per-model managers
-        # for the full permission-aware pattern.
-        # permission_filter = Q(has_user_perm=True) | Q(has_group_perm=True) | Q(is_public=True)
-        permission_filter = Q(is_public=True)
-        if not user.is_anonymous:
-            permission_filter |= Q(creator=user)
-
-        # # Add extra conditions based on permission type
-        # if perm == 'read':
-        #     # For read permission, include objects created by the user
-        #     permission_filter |= Q(creator=user)
-        # elif perm == 'publish':
-        #     # For publish permission, only include objects created by the user
-        #     permission_filter &= Q(creator=user)
-
-        return self.filter(permission_filter).distinct()
+        try:
+            permission_model = apps.get_model(
+                app_label, f"{model_name}userobjectpermission"
+            )
+            permitted_ids = permission_model.objects.filter(
+                permission__codename=f"read_{model_name}", user_id=user.id
+            ).values_list("content_object_id", flat=True)
+            return self.filter(
+                Q(creator=user) | Q(is_public=True) | Q(id__in=permitted_ids)
+            ).distinct()
+        except LookupError:
+            # No guardian table for this model — degrade to creator/public.
+            return self.filter(Q(creator=user) | Q(is_public=True)).distinct()
 
 
 class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
@@ -484,13 +508,21 @@ class NoteQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
     """
 
     def visible_to_user(self, user: Any, perm: Optional[str] = None) -> "NoteQuerySet":
-        """
-        Notes inherit visibility from document + corpus.
-        A note is visible if:
-        1. User created it, OR
-        2. Document is visible AND corpus is visible (or null)
+        """Filter notes to those visible to ``user``.
+
+        Aligned with ``NoteManager.user_can`` (Phase A invariant): a note
+        is visible when the user created it OR they can see both the
+        parent document and the parent corpus (MIN logic). Document and
+        corpus visibility are evaluated via the same
+        ``Document.objects.visible_to_user`` / ``Corpus.objects.visible_to_user``
+        managers that ``user_can`` composes — so authenticated users
+        with explicit guardian READ grants on the parent doc + corpus
+        see their notes in list views, matching the manager check.
         """
         from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
 
         if user is None:
             user = AnonymousUser()
@@ -498,17 +530,24 @@ class NoteQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         if hasattr(user, "is_superuser") and user.is_superuser:
             return self.all()
 
-        if user.is_anonymous:
-            return self.filter(
-                Q(document__is_public=True)
-                & (Q(corpus__isnull=True) | Q(corpus__is_public=True))
-                & Q(is_public=True)
-            ).distinct()
-
-        # Authenticated: visible if creator OR (doc visible AND corpus visible)
-        doc_visible = Q(document__is_public=True) | Q(document__creator=user)
-        corpus_visible = (
-            Q(corpus__isnull=True) | Q(corpus__is_public=True) | Q(corpus__creator=user)
+        # Doc/corpus visibility delegated to the doc/corpus managers so the
+        # full creator/public/guardian rules apply (mirroring user_can's
+        # ``Document.objects.user_can`` / ``Corpus.objects.user_can`` composition).
+        visible_doc_ids = Document.objects.visible_to_user(user).values_list(
+            "pk", flat=True
         )
+        visible_corpus_ids = Corpus.objects.visible_to_user(user).values_list(
+            "pk", flat=True
+        )
+        doc_visible = Q(document_id__in=visible_doc_ids)
+        corpus_visible = Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids)
+
+        if user.is_anonymous:
+            # Anonymous additionally requires the note itself to be public —
+            # NoteManager.user_can's anonymous branch denies non-public notes
+            # outright.
+            return self.filter(
+                Q(is_public=True) & doc_visible & corpus_visible
+            ).distinct()
 
         return self.filter(Q(creator=user) | (doc_visible & corpus_visible)).distinct()
