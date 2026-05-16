@@ -36,6 +36,7 @@ from config.websocket.middleware import (
 )
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.conversations.models import Conversation
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.llms.agents.core_agents import (
     ContentEvent,
     FinalEvent,
@@ -353,6 +354,59 @@ class UnifiedAgentConsumerContextTestCase(WebsocketFixtureBaseTestCase):
         )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
+        await communicator.disconnect()
+
+    async def test_explicit_agent_id_invisible_to_user_rejected(self) -> None:
+        """Specifying a private agent the caller cannot see must reject the connection.
+
+        Regression test for the IDOR exposed by the WebSocket ``agent_id``
+        query param: the consumer previously resolved the row via
+        ``AgentConfiguration.objects.aget(pk=...)`` without filtering through
+        ``visible_to_user``, so a caller could load any user's private
+        CORPUS-scoped agent by guessing the pk. The fixed code path
+        resolves only through ``visible_to_user``, so an unauthorised
+        agent_id triggers the "agent not found" rejection path.
+        """
+        from django.contrib.auth import get_user_model
+
+        OtherUser = get_user_model()
+        other = await database_sync_to_async(OtherUser.objects.create_user)(
+            username="agent_owner_idor_consumer",
+            password="pw1234!",
+            email="aoidc@example.com",
+        )
+        # Private corpus owned by `other` — self.user cannot see it.
+        private_corpus = await database_sync_to_async(Corpus.objects.create)(
+            title="Other private corpus",
+            creator=other,
+            is_public=False,
+        )
+        private_agent = await database_sync_to_async(AgentConfiguration.objects.create)(
+            slug="private-corpus-agent",
+            name="Private Corpus Agent",
+            scope="CORPUS",
+            corpus=private_corpus,
+            is_active=True,
+            creator=other,
+            system_instructions="private",
+        )
+
+        corpus_gid = to_global_id("CorpusType", self.corpus.id)
+        agent_gid = to_global_id("AgentConfigurationType", private_agent.id)
+        ws_path = (
+            f"ws/agent-chat/?corpus_id={quote(corpus_gid)}"
+            f"&agent_id={quote(agent_gid)}"
+        )
+
+        communicator = WebsocketCommunicator(
+            self.application,
+            ws_path,
+            subprotocols=[WS_AUTH_SUBPROTOCOL, self.token],
+        )
+        connected, code = await communicator.connect()
+        # The agent is invisible to self.user, so _resolve_agent_config
+        # returns None and the consumer rejects the connection (code 4004).
+        self.assertFalse(connected)
         await communicator.disconnect()
 
 
@@ -767,7 +821,7 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
 
         stream_called = False
 
-        async def fake_stream_agent_response(user_query):
+        async def fake_stream_agent_response(user_query, **_kwargs):
             nonlocal stream_called
             stream_called = True
 
@@ -820,7 +874,7 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
 
         stream_called = False
 
-        async def fake_stream_agent_response(user_query):
+        async def fake_stream_agent_response(user_query, **_kwargs):
             nonlocal stream_called
             stream_called = True
 
@@ -854,7 +908,7 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
 
         stream_called = False
 
-        async def fake_stream_agent_response(user_query):
+        async def fake_stream_agent_response(user_query, **_kwargs):
             nonlocal stream_called
             stream_called = True
 

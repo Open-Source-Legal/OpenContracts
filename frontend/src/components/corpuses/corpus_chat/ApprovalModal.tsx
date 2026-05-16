@@ -3,18 +3,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle, X } from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import type { PendingApproval } from "../../chat/types";
+import { RequestingAgentAttribution } from "../../chat/RequestingAgentAttribution";
 
-/**
- * Shape of the pending approval data passed from the parent chat component.
- */
-export interface PendingApproval {
-  messageId: string;
-  toolCall: {
-    name: string;
-    arguments: any;
-    tool_call_id?: string;
-  };
-}
+// `PendingApproval` is re-exported for backwards compatibility with the
+// long-standing import path; new code should import from
+// `components/chat/types`.
+export type { PendingApproval };
 
 interface ApprovalModalProps {
   /** The pending approval data (tool call info). Null if no approval is pending. */
@@ -119,23 +114,31 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                 fontSize: "0.875rem",
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: "0.5rem" }}>
-                Tool: {pendingApproval.toolCall.name}
-              </div>
-              {Object.keys(pendingApproval.toolCall.arguments).length > 0 && (
-                <div>
-                  <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
-                    Arguments:
-                  </div>
-                  <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                    {JSON.stringify(
-                      pendingApproval.toolCall.arguments,
-                      null,
-                      2
-                    )}
-                  </pre>
+              {pendingApproval.requestingAgent ? (
+                <RequestingAgentAttribution
+                  requestingAgent={pendingApproval.requestingAgent}
+                  toolName={pendingApproval.toolCall.name}
+                />
+              ) : (
+                <div style={{ fontWeight: 600, marginBottom: "0.5rem" }}>
+                  Tool: {pendingApproval.toolCall.name}
                 </div>
               )}
+              {pendingApproval.toolCall.arguments &&
+                Object.keys(pendingApproval.toolCall.arguments).length > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+                      Arguments:
+                    </div>
+                    <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                      {JSON.stringify(
+                        pendingApproval.toolCall.arguments,
+                        null,
+                        2
+                      )}
+                    </pre>
+                  </div>
+                )}
             </div>
           </div>
 

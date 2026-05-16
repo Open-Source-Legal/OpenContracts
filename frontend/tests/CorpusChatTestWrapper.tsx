@@ -3,6 +3,7 @@ import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { Provider as JotaiProvider } from "jotai";
 import { MemoryRouter } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
 import { CorpusChat } from "../src/components/corpuses/CorpusChat";
 import { authToken, userObj } from "../src/graphql/cache";
 import { relayStylePagination } from "@apollo/client/utilities";
@@ -64,19 +65,21 @@ export const CorpusChatTestWrapper: React.FC<Props> = ({
     <MemoryRouter initialEntries={["/"]}>
       <JotaiProvider>
         <MockedProvider mocks={mocks} cache={createTestCache()} addTypename>
-          <div style={{ height: "600px", width: "400px", display: "flex" }}>
-            <CorpusChat
-              corpusId={corpusId}
-              showLoad={false}
-              setShowLoad={() => {}}
-              onMessageSelect={onMessageSelect}
-              forceNewChat={forceNewChat}
-              initialQuery={initialQuery}
-              onNavigateHome={onNavigateHome}
-              onViewModeChange={onViewModeChange}
-              hideListBackButton={hideListBackButton}
-            />
-          </div>
+          <MotionConfig reducedMotion="always">
+            <div style={{ height: "600px", width: "400px", display: "flex" }}>
+              <CorpusChat
+                corpusId={corpusId}
+                showLoad={false}
+                setShowLoad={() => {}}
+                onMessageSelect={onMessageSelect}
+                forceNewChat={forceNewChat}
+                initialQuery={initialQuery}
+                onNavigateHome={onNavigateHome}
+                onViewModeChange={onViewModeChange}
+                hideListBackButton={hideListBackButton}
+              />
+            </div>
+          </MotionConfig>
         </MockedProvider>
       </JotaiProvider>
     </MemoryRouter>

@@ -12,6 +12,15 @@
  * One entry in the agent's reasoning timeline. Drives the rendering of
  * thoughts, content chunks, tool calls/results, sources, status updates
  * and compaction notes.
+ *
+ * Rich-mention agent delegation (Task 13): when the conductor delegates a
+ * turn to a sub-agent (pinned OR unpinned), the conductor's timeline
+ * carries the standard ``tool_call``/``tool_result`` pair AND — when the
+ * backend has resolved the underlying ``AgentConfiguration`` — the new
+ * optional ``agentId`` / ``agentSlug`` fields. The Timeline renderer uses
+ * these to surface an ``@<slug>`` chip in place of the raw
+ * ``delegate_to_<slug>`` tool name so users can see WHO the conductor
+ * handed off to without parsing the tool string.
  */
 export interface TimelineEntry {
   type:
@@ -29,4 +38,13 @@ export interface TimelineEntry {
   count?: number;
   metadata?: Record<string, unknown>;
   msg?: string;
+  /**
+   * Optional ``AgentConfiguration`` pk attribution for delegated tool
+   * calls/results. Backend ``StreamRelay`` (delegation_tools.py) attaches
+   * these to ASYNC_THOUGHT frames; the consumer also persists them on the
+   * conductor's ``data.timeline`` list so they survive a page reload.
+   */
+  agentId?: number | string;
+  /** Slug of the delegated sub-agent (e.g. ``"research-bot"``). */
+  agentSlug?: string;
 }

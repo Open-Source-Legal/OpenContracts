@@ -281,6 +281,31 @@ class DefaultTemplatesMigrationTest(TestCase):
             _CAML_ARTICLE_SYSTEM_INSTRUCTIONS,
         )
 
+    def test_seeded_agent_configs_have_non_null_slugs(self):
+        """Every agent_config seeded by ``create_default_action_templates``
+        MUST have a non-empty slug.
+
+        Why this test exists: the seeder is invoked from migrations with
+        ``apps.get_model()``, which returns a historical model class that
+        lacks the ``save()`` override that auto-generates slugs. A previous
+        regression left these agents with ``slug=NULL`` and crashed the
+        @mention picker (``a.slug.toLowerCase()`` on null). The seeder now
+        sets ``slug`` explicitly; this test pins that contract.
+        """
+        for template in CorpusActionTemplate.objects.filter(
+            name__in=self.EXPECTED_NAMES
+        ):
+            agent_config = template.agent_config
+            self.assertIsNotNone(
+                agent_config.slug,
+                f"Seeded agent for '{template.name}' has NULL slug",
+            )
+            self.assertNotEqual(
+                agent_config.slug,
+                "",
+                f"Seeded agent for '{template.name}' has empty slug",
+            )
+
     def test_seeding_is_idempotent(self):
         """Calling create_default_action_templates twice doesn't duplicate records."""
         from django.apps import apps

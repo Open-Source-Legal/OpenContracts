@@ -45,25 +45,42 @@ def check_auth0_superuser_allowlist(
     # Defer ORM use until after Django is ready — system checks run during
     # AppConfig setup, but the DB may not be reachable in every context
     # (e.g. ``makemigrations``). Any failure falls back to the warning.
-    has_existing_superuser = False
+    existing_superusers: list[tuple[int, str, str]] = []
     try:
         from django.contrib.auth import get_user_model
 
-        has_existing_superuser = (
-            get_user_model().objects.filter(is_superuser=True).exists()
+        existing_superusers = list(
+            get_user_model()
+            .objects.filter(is_superuser=True)
+            .order_by("pk")
+            .values_list("pk", "username", "email")
         )
     except Exception:
         # DB not reachable — emit the warning, but skip the critical
         # severity escalation so makemigrations etc. keep working.
-        has_existing_superuser = False
+        existing_superusers = []
 
-    if has_existing_superuser:
+    if existing_superusers:
+        # Cap the rendered list so a pathological deploy with many
+        # superusers does not flood the check output. Identity is
+        # ``username`` (Auth0 sub for Auth0-provisioned accounts); email
+        # is informational only but useful for human recognition.
+        max_listed = 20
+        listed = existing_superusers[:max_listed]
+        rendered = ", ".join(
+            f"#{pk} {username!r}" + (f" <{email}>" if email else "")
+            for pk, username, email in listed
+        )
+        if len(existing_superusers) > max_listed:
+            rendered += f", … and {len(existing_superusers) - max_listed} more"
+
         issues.append(
             Critical(
                 "AUTH0_SUPERUSER_SUB_ALLOWLIST is empty while USE_AUTH0=True "
-                "AND at least one existing Django superuser will be demoted "
-                "on the next claim sync. Populate the allowlist BEFORE deploy "
-                "to retain superuser access.",
+                f"AND {len(existing_superusers)} existing Django superuser(s) "
+                "will be demoted on the next claim sync. Populate the "
+                "allowlist BEFORE deploy to retain superuser access. "
+                f"Eligible superusers (id, username, email): {rendered}.",
                 hint=hint,
                 id="users.E001",
             )

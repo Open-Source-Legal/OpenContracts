@@ -237,6 +237,82 @@ class TestCoreConversationManager(TestCoreAgentComponentsSetup):
         )
         self.assertIs(manager.conversation, self.conversation1)
 
+    async def test_create_for_document_hijack_conversation_id_falls_back_to_new(
+        self,
+    ):
+        """Supplying another user's conversation_id must NOT load that row.
+
+        Regression test for the IDOR exposed by the WebSocket query param
+        ``conversation_id``: a caller could previously pass any integer and
+        the consumer would resolve and use the row via a bare ``aget(id=cid)``.
+        The fixed code path resolves the row through ``visible_to_user`` and
+        silently creates a new conversation when the id is unknown to the
+        caller — same observable behaviour as DoesNotExist, so the caller
+        cannot enumerate other users' ids by probing.
+        """
+        # Hostile user owns the target conversation; victim must NOT be able to
+        # load it.
+        owner = await sync_to_async(User.objects.create_user)(
+            username="convo_owner_idor",
+            password="pw1234!",
+            email="owner_idor@test.com",
+        )
+        private_convo = await sync_to_async(Conversation.objects.create)(
+            title="Owner private",
+            creator=owner,
+        )
+        attacker = await sync_to_async(User.objects.create_user)(
+            username="convo_attacker_idor",
+            password="pw1234!",
+            email="attacker_idor@test.com",
+        )
+
+        config = AgentConfig(user_id=attacker.id)
+        manager = await CoreConversationManager.create_for_document(
+            self.corpus1,
+            self.doc1,
+            attacker.id,
+            config,
+            conversation_id=private_convo.id,
+        )
+
+        # A new conversation was created for the attacker; the owner's
+        # private conversation is NOT returned.
+        self.assertIsNotNone(manager.conversation)
+        self.assertNotEqual(manager.conversation.id, private_convo.id)
+        self.assertEqual(manager.conversation.creator_id, attacker.id)
+
+    async def test_create_for_corpus_hijack_conversation_id_falls_back_to_new(
+        self,
+    ):
+        """Same IDOR regression test as the document version, for corpus chats."""
+        owner = await sync_to_async(User.objects.create_user)(
+            username="corpus_convo_owner_idor",
+            password="pw1234!",
+            email="cowner_idor@test.com",
+        )
+        private_convo = await sync_to_async(Conversation.objects.create)(
+            title="Owner private corpus convo",
+            creator=owner,
+        )
+        attacker = await sync_to_async(User.objects.create_user)(
+            username="corpus_convo_attacker_idor",
+            password="pw1234!",
+            email="cattacker_idor@test.com",
+        )
+
+        config = AgentConfig(user_id=attacker.id)
+        manager = await CoreConversationManager.create_for_corpus(
+            self.corpus1,
+            attacker.id,
+            config,
+            conversation_id=private_convo.id,
+        )
+
+        self.assertIsNotNone(manager.conversation)
+        self.assertNotEqual(manager.conversation.id, private_convo.id)
+        self.assertEqual(manager.conversation.creator_id, attacker.id)
+
     async def test_store_user_message(self):
         config = AgentConfig(user_id=self.user.id)
         manager = CoreConversationManager(
@@ -736,3 +812,100 @@ class TestEphemeralConversationManager(TestCase):
         """AgentConfig.storage_backend defaults to 'db'."""
         config = AgentConfig(model_name="gpt-4o")
         self.assertEqual(config.storage_backend, "db")
+
+
+class TestAgetConversationVisibleToUser(TestCase):
+    """Direct IDOR coverage for `_aget_conversation_visible_to_user`.
+
+    The helper underpins `create_for_document` / `create_for_corpus`
+    permission gating: a caller cannot load another user's private
+    conversation by id-probing because the lookup is permission-filtered
+    through `Conversation.objects.visible_to_user(user)`.  These tests
+    pin that contract so a regression here can't silently re-introduce
+    the IDOR leak.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user_a = User.objects.create_user(
+            username="conv-visible-a",
+            password="x",
+            email="a@example.com",
+        )
+        cls.user_b = User.objects.create_user(
+            username="conv-visible-b",
+            password="x",
+            email="b@example.com",
+        )
+        # User B owns a private conversation. User A must not see it via
+        # the visibility-gated helper.
+        cls.user_b_conversation = Conversation.objects.create(
+            creator=cls.user_b,
+            title="B's secret",
+            is_public=False,
+        )
+        cls.user_a_conversation = Conversation.objects.create(
+            creator=cls.user_a,
+            title="A's own",
+            is_public=False,
+        )
+
+    async def test_returns_none_for_anonymous_caller(self):
+        """``user_id=None`` short-circuits to ``None`` before touching the ORM."""
+        from opencontractserver.llms.agents.core_agents import (
+            _aget_conversation_visible_to_user,
+        )
+
+        result = await _aget_conversation_visible_to_user(
+            self.user_a_conversation.id, None
+        )
+        self.assertIsNone(result)
+
+    async def test_returns_conversation_for_owner(self):
+        """The owner can see their own private conversation."""
+        from opencontractserver.llms.agents.core_agents import (
+            _aget_conversation_visible_to_user,
+        )
+
+        result = await _aget_conversation_visible_to_user(
+            self.user_a_conversation.id, self.user_a.id
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.id, self.user_a_conversation.id)
+
+    async def test_returns_none_for_other_users_private_conversation(self):
+        """IDOR guard: caller A cannot load caller B's private conversation."""
+        from opencontractserver.llms.agents.core_agents import (
+            _aget_conversation_visible_to_user,
+        )
+
+        result = await _aget_conversation_visible_to_user(
+            self.user_b_conversation.id, self.user_a.id
+        )
+        # The conversation exists in the DB but is not visible to user A —
+        # the helper must return ``None`` so the caller cannot distinguish
+        # "doesn't exist" from "exists but isn't yours".
+        self.assertIsNone(result)
+
+    async def test_returns_none_for_nonexistent_conversation(self):
+        """A bogus conversation id returns ``None`` (same outcome as no-permission)."""
+        from opencontractserver.llms.agents.core_agents import (
+            _aget_conversation_visible_to_user,
+        )
+
+        # Use an id deliberately larger than anything we've created.
+        bogus_id = self.user_b_conversation.id + 9999
+        result = await _aget_conversation_visible_to_user(bogus_id, self.user_a.id)
+        self.assertIsNone(result)
+
+    async def test_returns_none_for_unknown_user_id(self):
+        """A bogus user_id collapses to ``None`` without crashing."""
+        from opencontractserver.llms.agents.core_agents import (
+            _aget_conversation_visible_to_user,
+        )
+
+        bogus_user_id = self.user_b.id + 9999
+        result = await _aget_conversation_visible_to_user(
+            self.user_a_conversation.id, bogus_user_id
+        )
+        self.assertIsNone(result)

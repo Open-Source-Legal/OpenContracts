@@ -56,6 +56,15 @@ from opencontractserver.llms.agents.core_agents import (
     SourceEvent,
     ThoughtEvent,
 )
+from opencontractserver.llms.agents.mention_extractor import (
+    ExtractedMention,
+    extract_agent_mentions,
+)
+from opencontractserver.llms.tools.delegation_tools import (
+    StreamRelay,
+    build_delegation_tool,
+    filter_by_scope,
+)
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
@@ -88,6 +97,20 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         super().__init__(*args, **kwargs)
         self.consumer_id = uuid.uuid4()
         self._is_connected = False
+        # Pending approval futures keyed by
+        # ``(llm_message_id, requesting_agent_id_or_None)``.  The conductor's
+        # own approval uses ``None`` as the agent component; sub-agent
+        # approvals use the AgentConfiguration's pk.  Routing in
+        # ``_handle_approval_decision`` checks the future map first; on a hit
+        # it fulfils the future (resuming the sub-agent) and on a miss it
+        # falls through to the legacy ``self.agent.resume_with_approval``
+        # path.
+        self._pending_approvals: dict[tuple[int, int | None], asyncio.Future] = {}
+        # Tracks whether the conductor was built with ``delegate_to_<slug>``
+        # tools on the previous turn.  Used to force a clean rebuild on the
+        # next turn-without-mentions so stale delegation tools don't leak
+        # into a turn the user didn't intend them for.
+        self._had_delegation_tools_last_turn: bool = False
         logger.debug(f"[UnifiedAgent {self.consumer_id}] __init__ called.")
 
     # -------------------------------------------------------------------------
@@ -196,13 +219,23 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             await self.close(code=WS_CLOSE_UNAUTHENTICATED)
 
     async def disconnect(self, close_code: int) -> None:
-        """Clean up on socket close."""
+        """Clean up on socket close.
+
+        Cancels any in-flight sub-agent approval futures BEFORE clearing the
+        agent reference so awaiting delegation tool bodies unwind cleanly
+        instead of leaking asyncio tasks and leaving ``AWAITING_APPROVAL``
+        rows pinned forever.  ``on_approval``'s ``CancelledError`` handler
+        already pops each entry, so cancellation propagates without leaks.
+        """
         await self.cleanup_auth_handshake()
         self._is_connected = False
         logger.debug(
             f"[UnifiedAgent {self.consumer_id} | Session {self.session_id}] "
             f"disconnect() called. Code={close_code}"
         )
+        for future in list(self._pending_approvals.values()):
+            if not future.done():
+                future.cancel()
         self.agent = None
 
     # -------------------------------------------------------------------------
@@ -296,22 +329,34 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         Resolve which agent configuration to use.
 
         Priority:
-        1. Explicit agent_id → use that agent
+        1. Explicit agent_id → use that agent (gated by ``visible_to_user``)
         2. document_id present → default-document-agent
         3. corpus_id present → default-corpus-agent
+
+        The explicit-agent path uses ``visible_to_user`` rather than a bare
+        ``aget(pk=...)`` so a caller can't load another user's private agent
+        by guessing the pk. The default agents are GLOBAL/active so the
+        guard isn't load-bearing for paths 2/3.
         """
-        # Priority 1: Explicit agent_id
+        # Priority 1: Explicit agent_id (visibility-gated)
         if self.agent_config_id:
-            try:
-                return await AgentConfiguration.objects.aget(
-                    pk=self.agent_config_id, is_active=True
+            user = self.scope.get("user")
+
+            def _visible_agent_lookup() -> AgentConfiguration | None:
+                return (
+                    AgentConfiguration.objects.visible_to_user(user)
+                    .filter(pk=self.agent_config_id, is_active=True)
+                    .first()
                 )
-            except AgentConfiguration.DoesNotExist:
+
+            agent_config = await database_sync_to_async(_visible_agent_lookup)()
+            if agent_config is None:
                 logger.error(
                     f"[Session {self.session_id}] "
-                    f"Specified agent not found: {self.agent_config_id}"
+                    f"Specified agent not found or not visible: {self.agent_config_id}"
                 )
                 return None
+            return agent_config
 
         # Priority 2: Document context → default document agent
         if self.document_id:
@@ -440,10 +485,89 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 f"[Session {self.session_id}] Received query: '{user_query[:100]}...'"
             )
 
-            # Initialize agent if needed
+            # Resolve @-mentioned delegation targets BEFORE we touch the
+            # agent so the conductor can be rebuilt with the right tool set
+            # for this turn.  Silent fallback: invisible / out-of-scope
+            # mentions are dropped without surfacing to the user.
+            mentions = extract_agent_mentions(user_query)
+            delegation_targets: list[AgentConfiguration] = (
+                await self._resolve_delegation_targets(mentions) if mentions else []
+            )
+
+            # Track whether the conductor is being created fresh on this turn
+            # for downstream title-generation gating.
             is_new_conversation = self.agent is None and not self.conversation_id
-            if self.agent is None:
+
+            # Per-turn conductor (re)build whenever delegation tools are
+            # needed.  Even if the agent was created on a previous turn
+            # without delegation tools, we rebuild here so the conductor
+            # gets fresh ``delegate_to_<slug>`` tools wired in.  Conversation
+            # state is preserved because we pass ``conversation_id=``
+            # through ``_initialize_agent`` (cached after first build).
+            relay_factory: Any = None
+            parent_message_id_box: dict[str, int | None] | None = None
+            if delegation_targets:
+                # Allocate the shared one-slot ``parent_message_id`` box and
+                # pass it through the factory AND into ``_stream_agent_response``;
+                # the stream helper latches the conductor's message id into it
+                # on the first streamed event so sub-agent relay closures see
+                # the right ``parent_message_id`` for attribution.
+                parent_message_id_box = self._make_parent_message_id_box()
+                relay_factory = self._build_stream_relay_factory(
+                    parent_message_id_box=parent_message_id_box,
+                )
+                # Build the delegation tools.  Sub-agents do not share history
+                # with the conductor per the spec; the body builds an
+                # ephemeral sub-agent on invocation.
+                delegation_tools = [
+                    build_delegation_tool(
+                        agent,
+                        relay_factory=relay_factory,
+                        user=self.scope.get("user"),
+                        corpus=self.corpus,
+                        document=self.document,
+                    )
+                    for agent in delegation_targets
+                ]
+                # Snake-case normalization of slugs (``my-agent`` and
+                # ``my_agent`` both → ``delegate_to_my_agent``) means two
+                # in-scope agents could in principle produce the same tool
+                # name.  ``AgentConfiguration.slug`` is ``SlugField(unique=True)``
+                # and ``save()`` normalizes to ``-`` so the normal path can't
+                # produce a collision, but admin/fixture/management-command
+                # writes that bypass ``save()`` can.  Dedup defensively here so
+                # the conductor never sees two ``CoreTool`` instances with
+                # identical names (which would silently shadow each other in
+                # pydantic-ai's tool registry).  Keep the first; warn loud on
+                # the rest so the underlying data issue is visible.
+                seen_tool_names: dict[str, Any] = {}
+                for tool in delegation_tools:
+                    if tool.name in seen_tool_names:
+                        logger.warning(
+                            "[delegate] Duplicate delegation tool name %r — "
+                            "dropping later instance. This indicates two "
+                            "AgentConfiguration slugs collide after "
+                            "snake-case normalization (e.g. 'my-agent' and "
+                            "'my_agent'); fix the slug in the DB.",
+                            tool.name,
+                        )
+                        continue
+                    seen_tool_names[tool.name] = tool
+                delegation_tools = list(seen_tool_names.values())
+                # Recreate the conductor with the augmented tool list.  The
+                # cached ``self.conversation_id`` (set in ``_initialize_agent``)
+                # threads the existing chat state through so we don't fork a
+                # new conversation per turn.
+                await self._initialize_agent(extra_tools=delegation_tools)
+                self._had_delegation_tools_last_turn = True
+            elif self.agent is None or self._had_delegation_tools_last_turn:
+                # Rebuild clean if either (a) we have no agent yet, or
+                # (b) the previous turn attached ``delegate_to_<slug>`` tools.
+                # Without this, stale delegation tools would remain wired to
+                # the conductor across turns the user did NOT intend them for,
+                # letting the LLM silently invoke a previously-mentioned agent.
                 await self._initialize_agent()
+                self._had_delegation_tools_last_turn = False
 
             # Check for context exhaustion (anonymous ephemeral sessions only)
             if (
@@ -466,8 +590,14 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             if is_new_conversation and self.user_id:
                 asyncio.create_task(self._async_set_conversation_title(user_query))
 
-            # Stream the response
-            await self._stream_agent_response(user_query)
+            # Stream the response.  When delegation is active for this turn,
+            # ``parent_message_id_box`` is the shared one-slot box the stream
+            # helper latches the conductor's first ``llm_message_id`` into so
+            # sub-agent relay closures see the right ``parent_message_id`` for
+            # attribution. ``None`` otherwise — the helper is no-op for the box.
+            await self._stream_agent_response(
+                user_query, parent_message_id_box=parent_message_id_box
+            )
 
         except Exception as e:
             logger.error(
@@ -483,8 +613,30 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     #  Agent initialization
     # -------------------------------------------------------------------------
 
-    async def _initialize_agent(self) -> None:
-        """Create the agent instance based on context and agent configuration."""
+    async def _initialize_agent(
+        self,
+        *,
+        extra_tools: list[Any] | None = None,
+    ) -> None:
+        """Create the agent instance based on context and agent configuration.
+
+        Args:
+            extra_tools: Per-turn tools to append to the conductor's tool
+                list (used for ``delegate_to_<slug>`` injection).  The base
+                agent factory still resolves its standard tool set; these are
+                appended on top.  Tools must be ``CoreTool`` instances or
+                callables — strings are not supported here.
+
+        Note:
+            ``PydanticAIDocumentAgent.create`` / ``PydanticAICorpusAgent.create``
+            build the registry-derived "auto" tools (vector search,
+            note retrieval, custom budget-aware tools, etc.) into the agent's
+            ``effective_tools`` and then merge any caller-supplied ``tools``
+            via ``deduplicate_tools(effective_tools, tools, context="Caller")``.
+            That is — passing ``extra_tools=[...]`` here MERGES with the
+            default tool set, it does NOT replace it.  Document and corpus
+            retrieval tools remain available on delegation turns.
+        """
         logger.debug(f"[Session {self.session_id}] Initializing agent...")
 
         # Build kwargs for agent factory
@@ -500,6 +652,9 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             # Note: The agent factory methods don't currently accept custom instructions
             # This will be a future enhancement. For now, the default instructions apply.
             pass
+
+        if extra_tools:
+            agent_kwargs["tools"] = list(extra_tools)
 
         # Choose factory method based on context
         if self.document:
@@ -531,6 +686,16 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             )
         else:
             raise ValueError("No valid context for agent initialization")
+
+        # Cache the live conversation_id once so subsequent per-turn rebuilds
+        # (for delegation tool injection) reuse the same conversation
+        # without us having to re-thread it through the connect-time params.
+        try:
+            live_convo_id = self.agent.get_conversation_id()
+        except Exception:
+            live_convo_id = None
+        if live_convo_id and not self.conversation_id:
+            self.conversation_id = live_convo_id
 
         logger.debug(
             f"[Session {self.session_id}] Agent initialized. "
@@ -636,11 +801,308 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             )
 
     # -------------------------------------------------------------------------
+    #  Delegation: scope resolution + StreamRelay factory
+    # -------------------------------------------------------------------------
+
+    async def _resolve_delegation_targets(
+        self, mentions: list[ExtractedMention]
+    ) -> list[AgentConfiguration]:
+        """Filter mentions to the agents visible AND in-scope for this chat.
+
+        Silently drops any mention whose target is invisible to the current
+        user or out-of-scope for the chat (corpus-scoped agent referenced
+        from a different corpus, etc.).  Returns the AgentConfiguration
+        rows in the order their slugs appear in ``mentions``; duplicates
+        are removed.
+        """
+        slugs = [m.slug for m in mentions if m.slug]
+        if not slugs:
+            return []
+
+        user = self.scope.get("user")
+        corpus_id = self.corpus_id
+        document_id = self.document_id
+
+        def _lookup() -> list[AgentConfiguration]:
+            qs = AgentConfiguration.objects.visible_to_user(user).filter(
+                slug__in=slugs, is_active=True
+            )
+            scoped = filter_by_scope(qs, corpus_id=corpus_id, document_id=document_id)
+            by_slug = {a.slug: a for a in scoped}
+            ordered: list[AgentConfiguration] = []
+            seen: set[str] = set()
+            for slug in slugs:
+                if slug in by_slug and slug not in seen:
+                    seen.add(slug)
+                    ordered.append(by_slug[slug])
+            return ordered
+
+        return await database_sync_to_async(_lookup)()
+
+    def _make_parent_message_id_box(self) -> dict[str, int | None]:
+        """Allocate a one-slot dict used to share the conductor's message id
+        with the delegation tool's relay closure once the conductor starts
+        streaming.  ``_handle_agent_event`` fills this slot when it sees
+        the first event with an ``llm_message_id``.
+        """
+        return {"value": None}
+
+    def _build_stream_relay_factory(
+        self,
+        *,
+        parent_message_id_box: dict[str, int | None],
+    ):
+        """Return a callable that produces a ``StreamRelay`` per delegation.
+
+        The relay forwards sub-agent events through ``self._send_safe`` with
+        ``data.agent_id`` / ``data.parent_message_id`` /
+        ``data.requesting_agent`` enrichment so the frontend can attribute
+        sub-agent frames to the right pinned bubble (when ``pin=True``) or
+        timeline entry (when ``pin=False``).
+        """
+        consumer = self
+
+        def _factory(agent: AgentConfiguration, pin: bool) -> StreamRelay:
+            # ``slug`` + ``name`` only — the internal DB pk is intentionally not
+            # part of the wire chip; consumers attribute by slug.
+            agent_chip = {
+                "slug": agent.slug,
+                "name": agent.name,
+            }
+
+            async def on_token(text: str) -> None:
+                # Only pinned sub-agents emit ASYNC_CONTENT (their pinned
+                # bubble is the visual target).  Timeline-only delegations
+                # surface as the conductor's tool_call/tool_result and don't
+                # need a separate token stream.
+                if not pin or not text:
+                    return
+                await consumer._send_safe(
+                    msg_type="ASYNC_CONTENT",
+                    content=text,
+                    data={
+                        "agent_id": agent.pk,
+                        "parent_message_id": parent_message_id_box.get("value"),
+                    },
+                )
+
+            async def on_thought(thought_text: str, metadata: dict) -> None:
+                # Forward sub-agent thoughts only for pinned delegations
+                # (so the pinned bubble can show progress); unpinned
+                # delegations surface the conductor's own tool call
+                # via timeline, so we don't double-emit here.
+                if not pin:
+                    return
+                await consumer._send_safe(
+                    msg_type="ASYNC_THOUGHT",
+                    content=thought_text or "",
+                    data={
+                        "agent_id": agent.pk,
+                        "parent_message_id": parent_message_id_box.get("value"),
+                        **(metadata or {}),
+                    },
+                )
+
+            async def on_approval(pending_tool_call: dict) -> dict[str, Any]:
+                """Bridge sub-agent approval requests through the WebSocket.
+
+                Registers a future keyed by ``(parent_message_id, agent.pk)``
+                so ``_handle_approval_decision`` can resolve it when the user
+                responds.  Emits ``ASYNC_APPROVAL_NEEDED`` carrying
+                ``requesting_agent`` attribution and returns the decision
+                payload to the delegation tool body, which then drives
+                ``sub_agent.resume_with_approval(...)``.
+                """
+                parent_id = parent_message_id_box.get("value")
+                if parent_id is None:
+                    # Should not happen — conductor must have emitted at
+                    # least one event before its tool can fire — but guard
+                    # against a misuse where the relay is invoked too early.
+                    # Tag the decision with ``_error`` so the delegation
+                    # body's error guard surfaces this as a proper tool-call
+                    # failure (`Sub-agent error: ...`) rather than a silent
+                    # empty result that the conductor LLM could
+                    # mis-interpret as a successful no-op.
+                    logger.warning(
+                        "[Session %s] Sub-agent approval requested before "
+                        "conductor message id was known; aborting delegation.",
+                        consumer.session_id,
+                    )
+                    return {
+                        "approved": False,
+                        "llm_message_id": None,
+                        "_error": (
+                            "Sub-agent approval was requested before the "
+                            "conductor emitted its first event; cannot route "
+                            "the request to the user."
+                        ),
+                    }
+
+                future: asyncio.Future = asyncio.get_running_loop().create_future()
+                key = (parent_id, agent.pk)
+                # Invariant: two sub-agents of the same conductor turn cannot
+                # simultaneously hold the same ``(parent_message_id, agent.pk)``
+                # key — each sub-agent is built fresh per turn and ``key``
+                # collapses to one future at most.  Guard with an explicit
+                # check (rather than a comment-only assumption) so a future
+                # refactor that re-enters this path twice gets a loud error
+                # instead of silently leaking the previous pending future.
+                if key in consumer._pending_approvals:
+                    logger.error(
+                        "[Session %s] Duplicate approval future for "
+                        "(parent=%s, agent=%s); cancelling the previous one "
+                        "to avoid a leaked Future.",
+                        consumer.session_id,
+                        parent_id,
+                        agent.pk,
+                    )
+                    consumer._pending_approvals[key].cancel()
+                consumer._pending_approvals[key] = future
+
+                await consumer._send_safe(
+                    msg_type="ASYNC_APPROVAL_NEEDED",
+                    content="",
+                    data={
+                        "message_id": parent_id,
+                        "pending_tool_call": pending_tool_call,
+                        "tool_name": (pending_tool_call or {}).get("name"),
+                        "tool_arguments": (pending_tool_call or {}).get("arguments"),
+                        "requesting_agent": agent_chip,
+                    },
+                )
+
+                try:
+                    decision = await future
+                except asyncio.CancelledError:
+                    consumer._pending_approvals.pop(key, None)
+                    raise
+                finally:
+                    consumer._pending_approvals.pop(key, None)
+
+                return decision
+
+            async def on_finish(final_text: str) -> int | None:
+                """Persist the sub-agent's reply (pinned only) and emit ASYNC_FINISH.
+
+                Single control path keyed off ``pin``:
+                  - ``pin=False``: skip persistence AND skip the
+                    ASYNC_FINISH frame entirely — the conductor's own
+                    tool_call/tool_result pair already captures the
+                    delegation in the parent's timeline.
+                  - ``pin=True``: emit ASYNC_FINISH so the pinned bubble
+                    closes cleanly.  Persistence is attempted only when
+                    ``conversation_id`` AND ``user_id`` are set (i.e. an
+                    authenticated, conversation-backed turn).  Anonymous
+                    ephemeral sessions can't persist a ChatMessage row but
+                    the FINISH frame is still useful for the in-memory
+                    chat state on the client.
+                """
+                if not pin:
+                    return None
+
+                pinned_message_id: int | None = None
+                persistence_failed: bool = False
+                if consumer.conversation_id and consumer.user_id is not None:
+                    from opencontractserver.conversations.models import (
+                        ChatMessage as _ChatMessage,
+                    )
+                    from opencontractserver.conversations.models import (
+                        MessageStateChoices as _MessageStateChoices,
+                    )
+                    from opencontractserver.conversations.models import (
+                        MessageTypeChoices as _MessageTypeChoices,
+                    )
+
+                    conversation_id = consumer.conversation_id
+                    user_id = consumer.user_id
+                    parent_id = parent_message_id_box.get("value")
+
+                    def _persist() -> int | None:
+                        message = _ChatMessage.objects.create(
+                            conversation_id=conversation_id,
+                            msg_type=_MessageTypeChoices.LLM,
+                            content=final_text or "",
+                            agent_configuration=agent,
+                            parent_message_id=parent_id,
+                            creator_id=user_id,
+                            state=_MessageStateChoices.COMPLETED,
+                            data={
+                                "pinned": True,
+                                "delegated_from": parent_id,
+                                "agent_slug": agent.slug,
+                            },
+                        )
+                        return message.id
+
+                    try:
+                        pinned_message_id = await database_sync_to_async(_persist)()
+                    except Exception:  # pragma: no cover - defensive
+                        logger.warning(
+                            "[Session %s] Failed to persist pinned sub-agent "
+                            "ChatMessage for agent %s",
+                            consumer.session_id,
+                            agent.slug,
+                            exc_info=True,
+                        )
+                        pinned_message_id = None
+                        persistence_failed = True
+
+                # Surface persistence failure as a distinct flag so the UI can
+                # warn the user that the pinned bubble exists only in-memory
+                # for this session and will not survive a reload. Without
+                # this flag the frontend sees a complete-looking response
+                # and the discrepancy is only discovered on reload.
+                await consumer._send_safe(
+                    msg_type="ASYNC_FINISH",
+                    content=final_text or "",
+                    data={
+                        "agent_id": agent.pk,
+                        "parent_message_id": parent_message_id_box.get("value"),
+                        "pinned_message_id": pinned_message_id,
+                        "persistence_failed": persistence_failed,
+                        "sources": [],
+                        "timeline": [],
+                    },
+                )
+
+                return pinned_message_id
+
+            return StreamRelay(
+                agent=agent,
+                pin=pin,
+                on_token=on_token,
+                on_thought=on_thought,
+                on_approval=on_approval,
+                on_finish=on_finish,
+            )
+
+        return _factory
+
+    # -------------------------------------------------------------------------
     #  Response streaming
     # -------------------------------------------------------------------------
 
-    async def _stream_agent_response(self, user_query: str) -> None:
-        """Stream the agent's response to the client."""
+    async def _stream_agent_response(
+        self,
+        user_query: str,
+        *,
+        parent_message_id_box: dict[str, int | None] | None = None,
+    ) -> None:
+        """Stream the agent's response to the client.
+
+        Args:
+            user_query: The user's text query.
+            parent_message_id_box: Optional one-slot shared box (typically
+                produced by ``_make_parent_message_id_box`` and also passed
+                into ``_build_stream_relay_factory`` for the same turn).
+                When provided, the conductor's first streamed ``llm_message_id``
+                is latched into ``box["value"]`` so sub-agent relay closures
+                can attribute their frames to this ``parent_message_id``.
+                Passing this directly (rather than reading it back off the
+                relay factory) keeps the contract explicit and dodges the
+                fragile monkey-patch pattern that hid the box on a private
+                attribute of the factory callable.
+        """
         # When OC_LLM_VCR_MODE is set, wrap the LLM HTTP traffic in a vcr.py
         # cassette so the e2e websocket-auth workflow can replay a recorded
         # conversation rather than making real OpenAI/Anthropic calls.
@@ -659,6 +1121,16 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                             "stopping iteration."
                         )
                         break
+                    # Latch the conductor's id into the relay box on the
+                    # first event that carries one (typically the first
+                    # ContentEvent / ThoughtEvent).  Sub-agent frames are
+                    # then attributed to this parent_message_id.
+                    if (
+                        parent_message_id_box is not None
+                        and parent_message_id_box.get("value") is None
+                        and getattr(event, "llm_message_id", None) is not None
+                    ):
+                        parent_message_id_box["value"] = event.llm_message_id
                     await self._handle_agent_event(event)
 
             logger.debug(f"[Session {self.session_id}] Streaming complete.")
@@ -829,6 +1301,26 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             "approval_decision": true | false,
             "llm_message_id": 123
         }
+
+        The pending-approval map is keyed by ``(llm_message_id,
+        requesting_agent_id_or_None)``.  Conductor approvals use ``None`` for
+        the agent component; sub-agent approvals use the AgentConfiguration
+        pk.  We first look for ANY future keyed under the supplied message
+        id — a sub-agent future wins because its presence implies the
+        conductor is currently blocked inside a delegate_to_<slug> tool call
+        waiting on this decision — and fall through to
+        ``self.agent.resume_with_approval`` for the conductor path.
+
+        Safety: conductor + sub-agent approvals cannot collide under the
+        same ``llm_message_id``.  Sub-agent approvals are awaited inside
+        the delegation tool body (see
+        ``opencontractserver.llms.tools.delegation_tools.build_delegation_tool``);
+        because that body runs synchronously inside the conductor's tool
+        call, the conductor cannot proceed to its OWN approval-gated tool
+        call until all sub-agents have either resolved or errored.  Hence
+        the sub-agent future is always drained from
+        ``self._pending_approvals`` before the conductor can register one
+        of its own, making the routing unambiguous by construction.
         """
         approved: bool = bool(payload.get("approval_decision"))
         llm_msg_id = payload.get("llm_message_id")
@@ -838,6 +1330,41 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 msg_type="SYNC_CONTENT",
                 data={"error": "llm_message_id missing in approval payload"},
             )
+            return
+
+        # Sub-agent path: find any sub-agent future registered under this
+        # message id and fulfil it.  The delegation tool body is awaiting
+        # the resolved decision and will call
+        # ``sub_agent.resume_with_approval`` itself.
+        # The first-match break is sound under our asyncio single-threaded
+        # invariant: a sub-agent's ``relay.on_approval`` awaits the future
+        # synchronously inside the delegation tool body, which itself blocks
+        # the conductor's tool call. Two sub-agents from the same turn
+        # therefore can't both be awaiting approval simultaneously; only one
+        # entry will ever match ``(llm_msg_id, *)`` here.
+        sub_agent_key: tuple[int, int | None] | None = None
+        for key in list(self._pending_approvals.keys()):
+            if key[0] == llm_msg_id and key[1] is not None:
+                sub_agent_key = key
+                break
+
+        if sub_agent_key is not None:
+            future = self._pending_approvals.pop(sub_agent_key, None)
+            if future is not None and not future.done():
+                # Emit ASYNC_APPROVAL_RESULT so the UI can clear the
+                # pending state on the requesting agent's chip.  We don't
+                # know the real sub-agent message id, so we echo the
+                # conductor's parent id.
+                await self._send_safe(
+                    msg_type="ASYNC_APPROVAL_RESULT",
+                    content="",
+                    data={
+                        "message_id": llm_msg_id,
+                        "decision": "approved" if approved else "rejected",
+                        "requesting_agent_id": sub_agent_key[1],
+                    },
+                )
+                future.set_result({"approved": approved, "llm_message_id": llm_msg_id})
             return
 
         if self.agent is None:

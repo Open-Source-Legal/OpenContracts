@@ -401,6 +401,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
             autoFocus={true}
             showQuickActions={true}
             testId={`${testId}-chat`}
+            corpusId={corpus.id}
           />
         </ChatSection>
 

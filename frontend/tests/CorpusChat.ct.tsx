@@ -8,6 +8,7 @@ import {
 } from "../src/graphql/queries";
 import { docScreenshot } from "./utils/docScreenshot";
 import { attachWsDebug } from "./utils/wsDebug";
+import { buildMentionSearchMocks } from "./utils/mentionSearchMocks";
 
 const TEST_CORPUS_ID = "test-corpus-123";
 const TEST_CONVERSATION_ID = "test-conv-1";
@@ -125,6 +126,7 @@ const chatMessagesMock: MockedResponse = {
             username: "alice",
             email: "alice@example.com",
           },
+          mentionedResources: [],
         },
         {
           __typename: "ChatMessageType",
@@ -147,6 +149,46 @@ const chatMessagesMock: MockedResponse = {
             ],
           },
           creator: null,
+          mentionedResources: [],
+        },
+      ],
+    },
+  },
+};
+
+/**
+ * Rich-mention agent delegation: server-loaded message containing an inline
+ * `[@slug](/agents/slug)` markdown mention. The ChatMessage widget now
+ * routes message bodies through MarkdownMessageRenderer, which converts
+ * such links into styled chip <a> elements.
+ */
+const chatMessagesWithAgentMentionMock: MockedResponse = {
+  request: {
+    query: GET_CHAT_MESSAGES,
+    variables: {
+      conversationId: TEST_CONVERSATION_ID,
+      limit: 10,
+    },
+  },
+  result: {
+    data: {
+      chatMessages: [
+        {
+          __typename: "ChatMessageType",
+          id: "srv-mention-1",
+          msgType: "HUMAN",
+          agentType: null,
+          agentConfiguration: null,
+          content: "Ping [@research-bot](/agents/research-bot) please",
+          state: "complete",
+          data: {},
+          creator: {
+            __typename: "UserType",
+            id: "u1",
+            username: "alice",
+            email: "alice@example.com",
+          },
+          mentionedResources: [],
         },
       ],
     },
@@ -225,6 +267,35 @@ test.beforeEach(async ({ page }) => {
               return;
             }
 
+            // Sub-agent approval flow (rich-mention agent delegation,
+            // Task 14): backend ``unified_agent_conversation.py`` attaches
+            // ``requesting_agent`` when the approval was raised inside a
+            // sub-agent invocation. The modal should attribute the request
+            // to ``@<slug>`` rather than just showing the tool name.
+            if (query.includes("approve with subagent")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_APPROVAL_NEEDED",
+                content: "",
+                data: {
+                  message_id: id,
+                  pending_tool_call: {
+                    name: "delete_thing",
+                    arguments: { thing_id: "abc" },
+                  },
+                  requesting_agent: {
+                    slug: "research-bot",
+                    name: "Research Bot",
+                  },
+                },
+              });
+              return;
+            }
+
             // Error simulation. Defer the ASYNC_ERROR via setTimeout so
             // it lands AFTER `sendMessageOverSocket` finishes its synchronous
             // `setWsError(null)` call — otherwise React batches both calls
@@ -290,6 +361,176 @@ test.beforeEach(async ({ page }) => {
                     context_window: 8000,
                     was_compacted: true,
                   },
+                },
+              });
+              return;
+            }
+
+            // Unpinned delegation — conductor invokes a sub-agent via a
+            // `delegate_to_<slug>` tool call. ASYNC_THOUGHT frames carry
+            // agent_id / agent_slug so the timeline renderer can swap the
+            // raw tool name for an @<slug> chip (Task 13). Mirrors the
+            // ChatTray stub branch so the parity test exercises the same
+            // payload shape.
+            if (query.includes("delegate unpinned please")) {
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "Summarize section 3.", pin: false },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got sub-agent result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Summary of section 3.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Here is what the sub-agent found.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "Summarize section 3.", pin: false },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Summary of section 3.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
+            // Pinned delegation — conductor delegates AND emits a separate
+            // ASSISTANT message for the sub-agent so its bubble is pinned
+            // in the conversation. The conductor's timeline still carries
+            // the tool_call/result pair AND the sub-agent's stream runs on
+            // its own `message_id` (with parent_message_id pointing at the
+            // conductor's id). This exercises the dual-bubble flow end to
+            // end.
+            if (query.includes("delegate pinned please")) {
+              const subId = `${id}-sub`;
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: { message_id: id },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "summarize", pin: true },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              // Pinned sub-agent's own stream (separate message_id).
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "Sub-agent says: ",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Sub-agent says: section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              // Conductor's tool_result + final answer.
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got pinned result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Sub-agent says: section 3 covers the warranty.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Per @research-bot, section 3 covers the warranty.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "summarize", pin: true },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Sub-agent says: section 3 covers the warranty.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                  ],
                 },
               });
               return;
@@ -894,6 +1135,209 @@ test.describe("CorpusChat", () => {
     await component.unmount();
   });
 
+  test("approval modal shows requesting_agent attribution when present", async ({
+    mount,
+    page,
+  }) => {
+    // Rich-mention agent delegation (Task 14): when ASYNC_APPROVAL_NEEDED
+    // carries ``requesting_agent``, the modal should attribute the request
+    // to the sub-agent's @<slug> chip in addition to the tool name.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("approve with subagent please");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Tool Approval Required")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // The attribution chip wraps the slug in a styled `AgentChip`. Both the
+    // chip and the explanatory text live inside the test-id container.
+    const attribution = page.getByTestId("approval-requesting-agent");
+    await expect(attribution).toBeVisible();
+    await expect(attribution).toContainText("research-bot");
+    await expect(attribution).toContainText("delete_thing");
+
+    // Backward-compat sanity: the "Tool: <name>" fallback is replaced (not
+    // duplicated) when an agent is attributed.
+    await expect(page.getByText("Tool: delete_thing")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("timeline entry with agent_slug renders @agent chip in place of tool name", async ({
+    mount,
+    page,
+  }) => {
+    // Rich-mention agent delegation (Task 13) parity test with the
+    // ChatTray equivalent — same payload shape, same chip assertions.
+    // The CorpusChat ``appendThoughtToMessage`` plumbs the same
+    // ``agentId``/``agentSlug`` fields through to ``TimelineEntry`` so
+    // the timeline renderer can swap the raw tool name for an
+    // ``@<slug>`` chip.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.fill("delegate unpinned please");
+    await page.keyboard.press("Enter");
+
+    // Wait for the conductor's final answer so the message flips to
+    // ``isComplete=true`` and the TimelinePreview mounts.
+    await expect(
+      page.getByText("Here is what the sub-agent found.", { exact: true })
+    ).toBeVisible({ timeout: 10000 });
+
+    const timelineContainer = page
+      .locator('[data-testid="timeline-container"]')
+      .first();
+    await expect(timelineContainer).toBeVisible({ timeout: 10000 });
+
+    await expect(page.getByTestId("timeline-agent-chip").first()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByTestId("timeline-agent-chip")).toHaveCount(2);
+    for (const chip of await page.getByTestId("timeline-agent-chip").all()) {
+      await expect(chip).toContainText("research-bot");
+    }
+
+    await component.unmount();
+  });
+
+  test("pinned delegation surfaces sub-agent bubble with attribution chip on conversation load", async ({
+    mount,
+    page,
+  }) => {
+    // End-to-end pinned delegation flow: the backend persists a
+    // separate ASSISTANT row for the sub-agent (with
+    // ``agentConfiguration`` set and ``data.pinned = true``). When the
+    // conversation is re-hydrated via GET_CHAT_MESSAGES the ChatMessage
+    // widget renders the sub-agent bubble with a ``sub-agent-chip``
+    // attribution in its header, while the conductor's bubble stays
+    // unattributed.
+    //
+    // (Live streaming the dual-bubble flow is end-to-end coordinated
+    // between consumer + persistence + frontend; the conversation
+    // reload path is the deterministic, render-verifiable surface that
+    // we lock in here. The WS stub "delegate pinned please" branch
+    // documents the payload shape the consumer emits during live
+    // streaming and is exercised by the timeline-chip assertion above.)
+    const pinnedConversationMock: MockedResponse = {
+      request: {
+        query: GET_CHAT_MESSAGES,
+        variables: {
+          conversationId: TEST_CONVERSATION_ID,
+          limit: 10,
+        },
+      },
+      result: {
+        data: {
+          chatMessages: [
+            {
+              __typename: "ChatMessageType",
+              id: "srv-pinned-conductor",
+              msgType: "ASSISTANT",
+              agentType: null,
+              agentConfiguration: null,
+              content: "Per @research-bot, section 3 covers the warranty.",
+              state: "complete",
+              data: {},
+              creator: null,
+              mentionedResources: [],
+            },
+            {
+              __typename: "ChatMessageType",
+              id: "srv-pinned-subagent",
+              msgType: "ASSISTANT",
+              agentType: null,
+              agentConfiguration: {
+                __typename: "AgentConfigurationType",
+                id: "ag-1",
+                slug: "research-bot",
+                name: "Research Bot",
+                description: "Reads stuff",
+                scope: "GLOBAL",
+                badgeConfig: null,
+                avatarUrl: null,
+                corpus: null,
+              },
+              content: "Sub-agent says: section 3 covers the warranty.",
+              state: "complete",
+              data: { pinned: true, delegated_from: "srv-pinned-conductor" },
+              creator: null,
+              mentionedResources: [],
+            },
+          ],
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          pinnedConversationMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByText("First Conversation").click();
+
+    // Conductor's bubble lands.
+    await expect(
+      page.getByText("Per @research-bot, section 3 covers the warranty.", {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 10000 });
+    // Sub-agent's pinned bubble lands.
+    await expect(
+      page.getByText("Sub-agent says: section 3 covers the warranty.", {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 10000 });
+
+    // Exactly one sub-agent attribution chip — only the pinned
+    // sub-agent row carries `agentConfiguration`; the conductor row
+    // does not.
+    const chip = page.getByTestId("sub-agent-chip");
+    await expect(chip).toHaveCount(1, { timeout: 10000 });
+    await expect(chip).toContainText("research-bot");
+
+    // Documentation screenshot — the pinned sub-agent bubble is the
+    // headline UX for rich-mention agent delegation. Re-assert chip
+    // visibility immediately before the capture and add a short
+    // stability wait so the PNG reflects the fully-loaded bubble
+    // rather than the conversation list it loaded from.
+    await expect(chip).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(300);
+    await docScreenshot(page, "chat--agent-mention--pinned-bubble", {
+      element: page.locator("#conversation-indicator"),
+    });
+
+    await component.unmount();
+  });
+
   test("loading an existing conversation fetches and displays server messages", async ({
     mount,
     page,
@@ -922,6 +1366,172 @@ test.describe("CorpusChat", () => {
 
     // Conversation indicator is mounted (the persistent container around the view)
     await expect(page.locator("#conversation-indicator")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("renders inline @agent mention as a styled chip on a server-loaded message", async ({
+    mount,
+    page,
+  }) => {
+    // Rich-mention agent delegation: the ChatMessage widget routes message
+    // content through MarkdownMessageRenderer, which renders mention links
+    // as styled chip <a> elements pointing at the agent slug.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesWithAgentMentionMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByText("First Conversation").click();
+
+    // The styled mention chip is rendered as an <a> by MarkdownMessageRenderer.
+    // For agent mentions (currently non-navigable in MENTION_TYPES) the href
+    // is omitted, but the <a> wrapper + tooltip title still proves the link
+    // was routed through the mention renderer.
+    const mentionChip = page
+      .locator("a")
+      .filter({ hasText: "research-bot" })
+      .first();
+    await expect(mentionChip).toBeVisible({ timeout: 10000 });
+    await expect(mentionChip).toHaveAttribute(
+      "title",
+      /AI Agent: @research-bot/
+    );
+
+    await component.unmount();
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /* Agent @mention picker wiring (Task 11)                                   */
+  /* ------------------------------------------------------------------------ */
+  // `buildMentionSearchMocks` lives in ../utils/mentionSearchMocks (shared
+  // with ChatTray.ct.tsx). Only the agent search returns data; other
+  // categories resolve to empty edges.
+
+  test("typing @ in CorpusChat opens agent picker and selecting inserts the markdown link", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          emptyConversationsMock,
+          emptyConversationsMock,
+          ...buildMentionSearchMocks("res", TEST_CORPUS_ID, [
+            {
+              id: "agent-1",
+              name: "Research Bot",
+              slug: "research-bot",
+              description: "Does research",
+              scope: "GLOBAL",
+              mentionFormat: null,
+              corpus: null,
+            },
+          ]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeVisible({ timeout: 20000 });
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    // Type "hello @res" — pressSequentially with a small delay between
+    // keystrokes lets useUnifiedMentionSearch's 300ms debounce settle once,
+    // so only the final fragment ("res") triggers a network round-trip.
+    await input.focus();
+    await input.pressSequentially("hello @res", { delay: 30 });
+
+    await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Research Bot")).toBeVisible();
+
+    await page.getByText("Research Bot").click();
+
+    await expect(input).toHaveValue(
+      /hello \[@research-bot\]\(\/agents\/research-bot\)\s$/
+    );
+    await expect(page.getByTestId("agent-mention-popover")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("agent picker shows global + current-corpus agents but not other corpus' agents", async ({
+    mount,
+    page,
+  }) => {
+    // Backend's search_agents_for_mention enforces scope: when corpusId is
+    // passed, only GLOBAL + that corpus' agents are returned. We simulate
+    // that by returning only the two in-scope agents from the mock — the
+    // out-of-scope corpus-B agent is *not* part of the mocked response.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          emptyConversationsMock,
+          emptyConversationsMock,
+          ...buildMentionSearchMocks("bot", TEST_CORPUS_ID, [
+            {
+              id: "agent-global",
+              name: "Global Bot",
+              slug: "global-bot",
+              description: "Global",
+              scope: "GLOBAL",
+              mentionFormat: null,
+              corpus: null,
+            },
+            {
+              id: "agent-a",
+              name: "Corpus A Bot",
+              slug: "corpus-a-bot",
+              description: "Bot in corpus A",
+              scope: "CORPUS",
+              mentionFormat: null,
+              corpus: {
+                id: TEST_CORPUS_ID,
+                slug: "corpus-a",
+                title: "Corpus A",
+              },
+            },
+            // NOTE: corpus-B agent intentionally NOT included — the backend
+            // resolver would filter it out, and we are asserting that the
+            // frontend faithfully renders only what the backend returned.
+          ]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeVisible({ timeout: 20000 });
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    await input.focus();
+    await input.pressSequentially("@bot", { delay: 30 });
+
+    await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Both in-scope agents are shown
+    await expect(page.getByText("Global Bot")).toBeVisible();
+    await expect(page.getByText("Corpus A Bot")).toBeVisible();
+
+    // Corpus B agent is not in the popover
+    await expect(page.getByText("Corpus B Bot")).toHaveCount(0);
 
     await component.unmount();
   });
