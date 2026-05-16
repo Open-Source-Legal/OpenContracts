@@ -902,12 +902,8 @@ class TestAdminLoginView(TestCase):
 
         # Both listeners must be attached on the dynamically-created
         # SDK script element.
-        self.assertIn(
-            "sdkScript.addEventListener('load', initAuth0)", body
-        )
-        self.assertIn(
-            "sdkScript.addEventListener('error', handleScriptError)", body
-        )
+        self.assertIn("sdkScript.addEventListener('load', initAuth0)", body)
+        self.assertIn("sdkScript.addEventListener('error', handleScriptError)", body)
 
         # Both listener attachments must precede the insertBefore call,
         # otherwise a disk-cache hit could fire `load` before we listen.
