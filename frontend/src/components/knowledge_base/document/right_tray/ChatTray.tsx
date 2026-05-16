@@ -1,12 +1,15 @@
 /**
  * ChatTray Component - Vertical Alignment For Sidebar
  *
- * This component now connects to our websocket backend IF the user is logged in
- * and we have a valid auth token in the Apollo reactive vars.
- * It will:
+ * Thin composer that wires the chat WebSocket + ChatSourceAtom state to the
+ * three sibling hooks (`useChatStreamHandlers`, `useChatAgentMessageHandler`,
+ * `useChatSendHandlers`) and renders the chat UI.
+ *
+ * Behavior:
  *   1) Load existing conversation data from GraphQL (GET_CONVERSATIONS).
- *   2) If authenticated, open a WebSocket to stream new messages with partial updates
- *      (ASYNC_START, ASYNC_CONTENT, ASYNC_FINISH) or synchronous messages (SYNC_CONTENT).
+ *   2) If authenticated, open a WebSocket to stream new messages with partial
+ *      updates (ASYNC_START, ASYNC_CONTENT, ASYNC_FINISH) or synchronous
+ *      messages (SYNC_CONTENT).
  *   3) Display those messages in real time, appending them to the chat.
  *   4) Allow sending user queries through the socket.
  */
@@ -58,17 +61,13 @@ import {
   ChatEmptyStateHint,
 } from "../ChatContainers";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-import {
-  useChatSourceState,
-  mapWebSocketSourcesToChatMessageSources,
-} from "../../../annotator/context/ChatSourceAtom";
+import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import { TimelineEntry } from "../../../widgets/chat/ChatMessage";
 import {
   buildTimelineEntryFromAsyncThought,
   deriveTimelineEntryType,
 } from "../../../widgets/chat/timelineEntryFactory";
 import { useUISettings } from "../../../annotator/hooks/useUISettings";
-import useWindowDimensions from "../../../hooks/WindowDimensionHook";
 import { useLocation, useNavigate } from "react-router-dom";
 import { updateAnnotationSelectionParams } from "../../../../utils/navigationUtils";
 import { toGlobalId } from "../../../../utils/idValidation";
@@ -81,6 +80,10 @@ import type {
 import { ApprovalOverlay, ReopenApprovalButton } from "./ApprovalOverlay";
 import type { PendingApproval } from "./ApprovalOverlay";
 import { DocumentConversationListView } from "./ConversationListView";
+import { adjustTextareaHeight } from "./chatUtils";
+import { useChatStreamHandlers } from "./useChatStreamHandlers";
+import { useChatAgentMessageHandler } from "./useChatAgentMessageHandler";
+import { useChatSendHandlers } from "./useChatSendHandlers";
 import { useChatMentionPicker } from "../../../../hooks/useChatMentionPicker";
 
 export type { WebSocketSources, MessageData } from "../../../chat/types";
@@ -197,17 +200,10 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   });
 
   // Lazy query for loading messages of a specific conversation
-  const [
-    fetchChatMessages,
-    {
-      data: msgData,
-      fetchMore: fetchMoreMessages,
-      loading: loadingMessages,
-      error: messagesError,
-    },
-  ] = useLazyQuery<GetChatMessagesOutputs, GetChatMessagesInputs>(
-    GET_CHAT_MESSAGES
-  );
+  const [fetchChatMessages, { data: msgData }] = useLazyQuery<
+    GetChatMessagesOutputs,
+    GetChatMessagesInputs
+  >(GET_CHAT_MESSAGES);
 
   const { chatTrayState, setChatTrayState } = useUISettings();
 
@@ -226,63 +222,34 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   // Ref to manage auto-scrolling behaviour
   const autoScrollRef = useRef(true);
 
-  /**
-   * Update the approval status of a message in both serverMessages and chat arrays
-   */
-  const updateMessageApprovalStatus = useCallback(
-    (messageId: string, status: "approved" | "rejected") => {
-      // Clear pendingApproval if this is the message being updated
-      setPendingApproval((current) => {
-        if (current?.messageId === messageId) {
-          return null;
-        }
-        return current;
-      });
-
-      // Update serverMessages
-      setServerMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.messageId === messageId) {
-            return { ...msg, approvalStatus: status, isComplete: true };
-          }
-          return msg;
-        })
-      );
-
-      // Update chat messages
-      setChat((prev) =>
-        prev.map((msg) => {
-          if (msg.messageId === messageId) {
-            return { ...msg, approvalStatus: status, isComplete: true };
-          }
-          return msg;
-        })
-      );
-    },
-    []
-  );
-
   // Flag so we only run initial scroll restore once
   const initialRestoreDone = useRef(false);
-
-  const { width } = useWindowDimensions();
-  const isMobile = width < 768;
 
   // State for auto-resizing textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const MAX_MESSAGE_LENGTH = 4000;
 
-  // Auto-resize function
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
+  // Ref to the scrollable messages container — declared early so the stream
+  // handlers hook can attach inline auto-scroll on token append.
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-    // Reset height to auto to get the correct scrollHeight
-    textarea.style.height = "auto";
+  /* --------------------------------------------------------------------- */
+  /* Stream / agent / send handler hooks                                   */
+  /* --------------------------------------------------------------------- */
 
-    // Set new height based on content
-    const newHeight = Math.min(textarea.scrollHeight, 200); // Max 200px
-    textarea.style.height = `${newHeight}px`;
+  const streamHandlers = useChatStreamHandlers({
+    setChat,
+    setServerMessages,
+    setChatSourceState,
+    setCompactionNotice,
+    setPendingApproval,
+    messagesContainerRef,
+  });
+  const { updateMessageApprovalStatus, handleCompleteMessage } = streamHandlers;
+
+  // Auto-resize callback — wraps the pure DOM helper from chatUtils.
+  const adjustTextareaHeightCb = useCallback(() => {
+    adjustTextareaHeight(textareaRef.current);
   }, []);
 
   // Reset textarea height when message is cleared
@@ -297,8 +264,8 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
   // Initial textarea setup
   useEffect(() => {
-    adjustTextareaHeight();
-  }, [adjustTextareaHeight]);
+    adjustTextareaHeightCb();
+  }, [adjustTextareaHeightCb]);
 
   // Rich-mention agent delegation (docs/architecture/rich_mentions.md):
   // detect `@<fragment>` in the textarea, query agents visible in this
@@ -326,7 +293,10 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     }
     const messages = msgData.chatMessages;
 
-    // First, register them in our chatSourcesAtom if they have sources
+    // First, register them in our chatSourcesAtom if they have sources.
+    // `srvMsgData.timeline` is intentionally not forwarded — ChatSourceAtom
+    // does not persist timelines, and the live chat array carries them via
+    // the mapped `timeline` field on the assistant message below.
     messages.forEach((srvMsg) => {
       const srvMsgData = srvMsg.data as
         | {
@@ -340,8 +310,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
           srvMsg.content,
           srvMsgData.sources,
           srvMsg.id,
-          srvMsg.createdAt,
-          srvMsgData.timeline
+          srvMsg.createdAt
         );
       }
     });
@@ -516,9 +485,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     });
   }, [serverMessages, chat, pendingApproval]);
 
-  // Add ref for messages container
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-
   // Check if assistant is currently responding (streaming)
   const isAssistantResponding = useMemo(() => {
     const lastMessage = combinedMessages[combinedMessages.length - 1];
@@ -611,179 +577,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     autoScrollRef.current = distanceFromBottom < 100;
   }, [setChatTrayState]);
 
-  function appendStreamingTokenToChat(
-    token: string,
-    overrideMessageId?: string
-  ): string {
-    // Return the messageId
-    if (!token) return "";
-
-    let messageId = "";
-    setChat((prev) => {
-      const lastMessage = prev[prev.length - 1];
-
-      // If we were already streaming the assistant's last message, just append:
-      if (lastMessage && lastMessage.isAssistant) {
-        messageId = lastMessage.messageId || ""; // Capture existing ID
-        const updatedLast = {
-          ...lastMessage,
-          content: lastMessage.content + token,
-          isComplete: false,
-        };
-        return [...prev.slice(0, -1), updatedLast];
-      } else {
-        // Otherwise, create a fresh assistant message with a brand-new messageId
-        messageId =
-          overrideMessageId ||
-          `msg_${Date.now()}_${Math.random().toString(36).substr(2)}`;
-        return [
-          ...prev,
-          {
-            messageId, // Use the same ID we'll return
-            user: "Assistant",
-            content: token,
-            timestamp: new Date().toLocaleString(),
-            isAssistant: true,
-            hasTimeline: false,
-            timeline: [],
-            isComplete: false,
-          },
-        ];
-      }
-    });
-
-    // Auto-scroll to bottom only if user hasn't scrolled up
-    const container = messagesContainerRef.current;
-    if (container) {
-      const isScrolledUp =
-        container.scrollTop <
-        container.scrollHeight - container.clientHeight - 100;
-      if (!isScrolledUp) {
-        setTimeout(
-          () =>
-            container.scrollTo({
-              top: container.scrollHeight,
-              behavior: "smooth",
-            }),
-          0
-        );
-      }
-    }
-
-    return messageId;
-  }
-
-  /**
-   * Append an *agent thought* (or tool call/result) to the timeline of the
-   * streaming assistant message so the user can watch reasoning unfold.
-   */
-  const appendThoughtToMessage = (
-    thoughtText: string,
-    data: MessageData["data"] | undefined
-  ): void => {
-    const messageId = data?.message_id;
-    if (!messageId || !thoughtText) return;
-
-    const entryType = deriveTimelineEntryType(data);
-    if (entryType === "compaction" && data?.compaction) {
-      // Surface the compaction notice banner in addition to the timeline
-      // row; the timeline entry itself is built below via the shared
-      // factory.
-      setCompactionNotice({
-        tokensBefore: data.compaction.tokens_before,
-        tokensAfter: data.compaction.tokens_after,
-        contextWindow: data.compaction.context_window,
-      });
-    }
-    const newEntry = buildTimelineEntryFromAsyncThought(
-      thoughtText,
-      data,
-      entryType
-    );
-
-    // Update chat UI timeline
-    setChat((prev) => {
-      const idx = prev.findIndex((m) => m.messageId === messageId);
-      if (idx === -1) {
-        // No message yet (thought arrived very early) – create skeleton.
-        return [
-          ...prev,
-          {
-            messageId,
-            user: "Assistant",
-            content: "", // will be filled later
-            timestamp: new Date().toLocaleString(),
-            isAssistant: true,
-            hasTimeline: true,
-            timeline: [newEntry],
-            isComplete: false,
-          },
-        ];
-      }
-
-      const msg = prev[idx];
-      const timeline = msg.timeline ? [...msg.timeline, newEntry] : [newEntry];
-      const updated = {
-        ...msg,
-        hasTimeline: true,
-        timeline,
-        isComplete: false,
-      } as ChatMessageProps;
-
-      return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
-    });
-  };
-
-  /**
-   * Finalize a partially-streamed response by replacing the last chat entry
-   * with the final content (and calling `handleCompleteMessage` to store sources).
-   * @param content - the fully streamed final response
-   * @param sourcesData - optional array of WebSocketSources describing pinned info
-   * @param overrideId - optional message ID to use
-   * @param timelineData - optional timeline entries
-   */
-  const finalizeStreamingResponse = (
-    content: string,
-    sourcesData?: WebSocketSources[],
-    overrideId?: string,
-    timelineData?: TimelineEntry[]
-  ): void => {
-    let lastMsgId: string | undefined;
-    setChat((prev) => {
-      if (!prev.length) return prev;
-      // Determine which message to update: prefer overrideId match, else last assistant
-      let updateIdx = prev.findIndex((m) => m.messageId === overrideId);
-      if (updateIdx === -1) {
-        // Fallback: last assistant message
-        const lastIdxRev = [...prev].reverse().findIndex((m) => m.isAssistant);
-        if (lastIdxRev === -1) return prev;
-        updateIdx = prev.length - 1 - lastIdxRev;
-      }
-
-      const updatedMessages = [...prev];
-      const assistantMsg = updatedMessages[updateIdx];
-
-      lastMsgId = assistantMsg.messageId;
-
-      updatedMessages[updateIdx] = {
-        ...assistantMsg,
-        content,
-        isComplete: true,
-      };
-
-      // Now store the final content + sources in ChatSourceAtom with the same ID
-      handleCompleteMessage(
-        content,
-        sourcesData,
-        lastMsgId,
-        undefined,
-        timelineData
-      );
-
-      return updatedMessages;
-    });
-  };
-
   /**
    * Debounce the title filter input.
    *
@@ -800,200 +593,19 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     return () => clearTimeout(timer);
   }, [titleFilter]);
 
-  /**
-   * Handle non-auth WebSocket frames. Wrapped in useCallback so the
-   * useWebSocketAuth onmessage closure remains stable; reads transient
-   * approval state via pendingApprovalRef to avoid stale closures.
-   */
-  const handleAgentMessage = useCallback(
-    (event: MessageEvent) => {
-      try {
-        const messageData: MessageData = JSON.parse(event.data);
-        if (!messageData) return;
-        const { type: msgType, content, data } = messageData;
-        const currentApproval = pendingApprovalRef.current;
-
-        // Check if any message includes approval status update
-        if (data?.approval_decision && data?.message_id) {
-          updateMessageApprovalStatus(
-            data.message_id,
-            data.approval_decision as "approved" | "rejected"
-          );
-        }
-
-        switch (msgType) {
-          case "ASYNC_START":
-            appendStreamingTokenToChat(content, data?.message_id);
-            break;
-          case "ASYNC_CONTENT":
-            appendStreamingTokenToChat(content, data?.message_id);
-            // Clear pending approval if agent resumes after approval decision
-            if (
-              currentApproval &&
-              data?.message_id === currentApproval.messageId
-            ) {
-              setPendingApproval(null);
-              // Update the approval status of the message
-              updateMessageApprovalStatus(
-                currentApproval.messageId,
-                "approved"
-              );
-            }
-            break;
-          case "ASYNC_THOUGHT":
-            appendThoughtToMessage(content, data);
-            break;
-          case "ASYNC_SOURCES":
-            mergeSourcesIntoMessage(data?.sources, data?.message_id);
-            break;
-          case "ASYNC_APPROVAL_NEEDED":
-            // NOTE: No sub-tool unwrapping (_sub_tool_name) needed here.
-            // ChatTray handles document-level chat which talks to a document
-            // agent directly — it never goes through ask_document, so nested
-            // sub-agent approvals don't occur. Sub-tool unwrapping is only
-            // relevant in CorpusChat.
-            if (data?.pending_tool_call && data?.message_id) {
-              setPendingApproval({
-                messageId: data.message_id,
-                toolCall: data.pending_tool_call,
-                requestingAgent: data.requesting_agent ?? null,
-              });
-              setShowApprovalModal(true);
-
-              // Update the message to show awaiting status
-              setChat((prev) =>
-                prev.map((msg) =>
-                  msg.messageId === data.message_id
-                    ? { ...msg, approvalStatus: "awaiting" as const }
-                    : msg
-                )
-              );
-              setServerMessages((prev) =>
-                prev.map((msg) =>
-                  msg.messageId === data.message_id
-                    ? { ...msg, approvalStatus: "awaiting" as const }
-                    : msg
-                )
-              );
-            }
-            break;
-          case "ASYNC_APPROVAL_RESULT":
-            // Informational – backend echoes the user's decision.
-            if (
-              currentApproval &&
-              data?.message_id === currentApproval.messageId
-            ) {
-              setPendingApproval(null);
-              setShowApprovalModal(false);
-              if (data?.decision) {
-                updateMessageApprovalStatus(
-                  currentApproval.messageId,
-                  data.decision as "approved" | "rejected"
-                );
-              }
-            }
-            break;
-          case "ASYNC_RESUME":
-            // Agent is resuming after approval.  Unlike CorpusChat (which has
-            // an explicit isProcessing state), ChatTray derives its processing
-            // indicator from message state (isAssistantResponding), so no
-            // additional state update is needed here.
-            break;
-          case "ASYNC_FINISH":
-            // Sub-agent persistence failure flag: backend sets
-            // ``persistence_failed: true`` on ASYNC_FINISH when the pinned
-            // sub-agent ``ChatMessage`` couldn't be written to the DB
-            // (rich-mention agent delegation). Surface as a console
-            // warning so developers see it; the bubble still renders for
-            // this session but will be gone after reload. Follow-up:
-            // promote to a non-blocking toast (tracked in PR description).
-            if (
-              (data as { persistence_failed?: boolean } | undefined)
-                ?.persistence_failed
-            ) {
-              console.warn(
-                "[ChatTray] Sub-agent reply rendered in-memory only — " +
-                  "persistence failed; the bubble will be missing after reload.",
-                { message_id: data?.message_id }
-              );
-            }
-            finalizeStreamingResponse(
-              content,
-              data?.sources,
-              data?.message_id,
-              data?.timeline
-            );
-            setCompactionNotice(null);
-            if (data?.context_status) {
-              setContextStatus(data.context_status as ContextStatus);
-            }
-            // Clear pending approval when streaming finishes (covers both approval and rejection cases)
-            if (
-              currentApproval &&
-              data?.message_id === currentApproval.messageId
-            ) {
-              setPendingApproval(null);
-              // Update status based on the final content or metadata
-              if (data?.approval_decision) {
-                updateMessageApprovalStatus(
-                  currentApproval.messageId,
-                  data.approval_decision as "approved" | "rejected"
-                );
-              }
-            }
-            break;
-          case "ASYNC_ERROR":
-            // Set error state for the banner, but ALSO finalize the response
-            // with the error content so it appears as a chat message.
-            setWsError(data?.error || "Agent error");
-            finalizeStreamingResponse(
-              data?.error || "An unknown error occurred.",
-              [],
-              data?.message_id
-            );
-            break;
-          case "SYNC_CONTENT": {
-            // SYNC_CONTENT is for standalone messages that don't stream.
-            // Add it directly to the chat state.
-            setChat((prev) => [
-              ...prev,
-              {
-                messageId: data?.message_id || `asst_${Date.now()}`,
-                user: "Assistant",
-                content: content,
-                timestamp: new Date().toLocaleString(),
-                isAssistant: true,
-                isComplete: true,
-              },
-            ]);
-
-            const sourcesToPass =
-              data?.sources && Array.isArray(data.sources)
-                ? data.sources
-                : undefined;
-            const timelineToPass =
-              data?.timeline && Array.isArray(data.timeline)
-                ? data.timeline
-                : undefined;
-            handleCompleteMessage(
-              content,
-              sourcesToPass,
-              data?.message_id,
-              undefined,
-              timelineToPass
-            );
-            break;
-          }
-          default:
-            console.warn("Unknown message type:", msgType);
-            break;
-        }
-      } catch (err) {
-        console.error("Failed to parse WS message:", err);
-      }
-    },
-    [updateMessageApprovalStatus]
-  );
+  // WebSocket dispatcher hook — depends on streamHandlers above. Returns the
+  // stable `onMessage` callback consumed by useWebSocketAuth.
+  const handleAgentMessage = useChatAgentMessageHandler({
+    pendingApprovalRef,
+    setPendingApproval,
+    setShowApprovalModal,
+    setWsError,
+    setChat,
+    setServerMessages,
+    setContextStatus,
+    setCompactionNotice,
+    streamHandlers,
+  });
 
   const wsUrl = getWebSocketUrl(documentId, selectedConversationId, corpusId);
   const wsEnabled = !!(selectedConversationId || isNewChat);
@@ -1090,242 +702,23 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     }
   }, [loading, data, fetchMore, documentId]);
 
-  /**
-   * Send typed message over the WebSocket to the assistant, and add it locally.
-   */
-  const sendMessageOverSocket = useCallback((): void => {
-    const trimmed = newMessage.trim();
-    if (!trimmed) return;
-    if (!wsReady) {
-      console.warn("WebSocket not ready yet");
-      return;
-    }
-
-    // Check if a message is already being sent
-    if (sendingLockRef.current) {
-      console.warn("Message is already being sent, ignoring duplicate send.");
-      return;
-    }
-
-    // Lock sending to prevent duplicate sends
-    sendingLockRef.current = true;
-
-    try {
-      const ok = wsSend(JSON.stringify({ query: trimmed }));
-      if (!ok) {
-        setWsError("Failed to send message. Please try again.");
-        return;
-      }
-      setChat((prev) => [
-        ...prev,
-        {
-          messageId: `user_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2)}`,
-          user: user_obj?.email || "You",
-          content: trimmed,
-          timestamp: new Date().toLocaleString(),
-          isAssistant: false,
-          isComplete: false,
-        },
-      ]);
-      setNewMessage("");
-      setWsError(null);
-    } catch (err) {
-      console.error("Failed to send message:", err);
-      setWsError("Failed to send message. Please try again.");
-    } finally {
-      // Release the lock after a debounce interval (e.g., 300ms)
-      setTimeout(() => {
-        sendingLockRef.current = false;
-      }, 300);
-    }
-  }, [newMessage, user_obj?.email, wsReady, wsSend]);
-
-  /**
-   * Send approval decision back to the WebSocket.
-   */
-  const sendApprovalDecision = useCallback(
-    (approved: boolean): void => {
-      if (!pendingApproval || !wsReady) {
-        console.warn("Cannot send approval decision - missing requirements");
-        return;
-      }
-
-      try {
-        const messageData = {
-          approval_decision: approved,
-          llm_message_id: pendingApproval.messageId,
-        };
-
-        const ok = wsSend(JSON.stringify(messageData));
-        if (!ok) {
-          setWsError("Failed to send approval decision. Please try again.");
-          setShowApprovalModal(true);
-          return;
-        }
-
-        // Hide the modal immediately after sending the decision (optimistic UI)
-        setShowApprovalModal(false);
-
-        // Update the message status immediately (optimistic update)
-        updateMessageApprovalStatus(
-          pendingApproval.messageId,
-          approved ? "approved" : "rejected"
-        );
-
-        // Clear pendingApproval immediately since we've processed the decision
-        setPendingApproval(null);
-        setWsError(null);
-      } catch (err) {
-        console.error("Failed to send approval decision:", err);
-        setWsError("Failed to send approval decision. Please try again.");
-        // Re-show modal on error so user can try again
-        setShowApprovalModal(true);
-      }
-    },
-    [pendingApproval, wsReady, updateMessageApprovalStatus, wsSend]
-  );
-
-  // Render error if GraphQL query fails
-  if (error) {
-    return (
-      <ErrorContainer initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <AlertCircle size={24} />
-        Failed to load conversations
-      </ErrorContainer>
-    );
-  }
-
-  const handleCompleteMessage = (
-    content: string,
-    sourcesData?: Array<WebSocketSources>,
-    overrideId?: string,
-    overrideCreatedAt?: string,
-    timelineData?: TimelineEntry[]
-  ): void => {
-    if (!overrideId) {
-      console.warn(
-        "handleCompleteMessage called without an overrideId - sources may not display correctly"
-      );
-    }
-    const messageId = overrideId ?? `msg_${Date.now()}`; // Only fallback if really needed
-    const messageTimestamp = overrideCreatedAt
-      ? new Date(overrideCreatedAt).toISOString()
-      : new Date().toISOString();
-
-    const mappedSources = mapWebSocketSourcesToChatMessageSources(
-      sourcesData,
-      messageId
-    );
-
-    setChatSourceState((prev) => {
-      const existingIndex = prev.messages.findIndex(
-        (m) => m.messageId === messageId
-      );
-
-      if (existingIndex !== -1) {
-        const existingMsg = prev.messages[existingIndex];
-        const updatedMsg = {
-          ...existingMsg,
-          content,
-          timestamp: messageTimestamp,
-          sources: mappedSources.length ? mappedSources : existingMsg.sources,
-        } as typeof existingMsg;
-
-        const updatedMessages = [...prev.messages];
-        updatedMessages[existingIndex] = updatedMsg;
-
-        return {
-          ...prev,
-          messages: updatedMessages,
-        };
-      } else {
-        return {
-          ...prev,
-          messages: [
-            ...prev.messages,
-            {
-              messageId,
-              content,
-              timestamp: messageTimestamp,
-              sources: mappedSources,
-            },
-          ],
-          selectedMessageId: overrideId ? prev.selectedMessageId : messageId,
-        };
-      }
+  // Send handlers hook — depends on streamHandlers (for the shared approval
+  // mutator) plus the WebSocket connection from useWebSocketAuth above.
+  const { sendMessageOverSocket, sendApprovalDecision, sendTextImmediately } =
+    useChatSendHandlers({
+      wsSend,
+      wsReady,
+      userEmail: user_obj?.email,
+      newMessage,
+      pendingApproval,
+      sendingLockRef,
+      setChat,
+      setNewMessage,
+      setWsError,
+      setShowApprovalModal,
+      setPendingApproval,
+      updateMessageApprovalStatus,
     });
-  };
-
-  /**
-   * Merge *additional* sources arriving via ASYNC_SOURCES into the existing
-   * ChatSourceAtom + local chat message so the user can click pins while the
-   * answer is still streaming.
-   */
-  const mergeSourcesIntoMessage = (
-    sourcesData: WebSocketSources[] | undefined,
-    overrideId?: string
-  ): void => {
-    if (!sourcesData?.length || !overrideId) return;
-
-    // First convert incoming sources → ChatMessageSource objects.
-    const mappedSources = mapWebSocketSourcesToChatMessageSources(
-      sourcesData,
-      overrideId
-    );
-
-    // Update ChatSourceAtom – merge or append sources for the message.
-    setChatSourceState((prev) => {
-      const idx = prev.messages.findIndex((m) => m.messageId === overrideId);
-      if (idx === -1) {
-        // Message not yet in atom – create skeleton entry so pins work.
-        return {
-          ...prev,
-          messages: [
-            ...prev.messages,
-            {
-              messageId: overrideId,
-              content: "", // will be filled later by finalizeStreamingResponse
-              timestamp: new Date().toISOString(),
-              sources: mappedSources,
-              isComplete: false,
-            },
-          ],
-        };
-      }
-
-      // Merge with existing sources (avoid duplicates by annotation_id)
-      const existing = prev.messages[idx];
-      const mergedSources = [
-        ...existing.sources,
-        ...mappedSources.filter(
-          (ms) =>
-            !existing.sources.some(
-              (es) => es.annotation_id === ms.annotation_id
-            )
-        ),
-      ];
-
-      const updatedMessages = [...prev.messages];
-      const mergedMsg = { ...existing, sources: mergedSources };
-      updatedMessages[idx] = mergedMsg;
-
-      return { ...prev, messages: updatedMessages };
-    });
-
-    // Update transient chat UI so pin indicator appears immediately.
-    setChat((prev) => {
-      const idx = prev.findIndex((m) => m.messageId === overrideId);
-      if (idx === -1) return prev;
-      const msg = prev[idx];
-      return [
-        ...prev.slice(0, idx),
-        { ...msg, hasSources: true },
-        ...prev.slice(idx + 1),
-      ];
-    });
-  };
 
   /* ----------------------------------------------------------- */
   /* Handle initialMessage (from FloatingDocumentInput)          */
@@ -1345,49 +738,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     }
   }, [initialMessage]);
 
-  /**
-   * Helper to send a text message immediately (bypassing newMessage state).
-   */
-  const sendTextImmediately = useCallback(
-    (text: string): void => {
-      const trimmed = text.trim();
-      if (!trimmed || !wsReady) return;
-
-      if (sendingLockRef.current) return;
-      sendingLockRef.current = true;
-
-      try {
-        const ok = wsSend(JSON.stringify({ query: trimmed }));
-        if (!ok) {
-          setWsError("Failed to send message. Please try again.");
-          return;
-        }
-        setChat((prev) => [
-          ...prev,
-          {
-            messageId: `user_${Date.now()}_${Math.random()
-              .toString(36)
-              .substr(2)}`,
-            user: user_obj?.email || "You",
-            content: trimmed,
-            timestamp: new Date().toLocaleString(),
-            isAssistant: false,
-            isComplete: false,
-          },
-        ]);
-        setWsError(null);
-      } catch (err) {
-        console.error("Failed to send initial message:", err);
-        setWsError("Failed to send message. Please try again.");
-      } finally {
-        setTimeout(() => {
-          sendingLockRef.current = false;
-        }, 300);
-      }
-    },
-    [wsReady, user_obj?.email, wsSend]
-  );
-
   // Once the socket is ready, flush the pending initial message (if any)
   useEffect(() => {
     if (wsReady && pendingInitialRef.current) {
@@ -1395,6 +745,16 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       pendingInitialRef.current = undefined;
     }
   }, [wsReady, sendTextImmediately]);
+
+  // Render error if GraphQL query fails
+  if (error) {
+    return (
+      <ErrorContainer initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <AlertCircle size={24} />
+        Failed to load conversations
+      </ErrorContainer>
+    );
+  }
 
   /**
    * Main UI return
@@ -1773,7 +1133,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                       const caret = e.target.selectionStart ?? capped.length;
                       handleMentionValueChange(capped, caret);
                       // Use setTimeout to ensure DOM updates before measuring
-                      setTimeout(adjustTextareaHeight, 0);
+                      setTimeout(adjustTextareaHeightCb, 0);
                     }}
                     placeholder={
                       !wsReady
