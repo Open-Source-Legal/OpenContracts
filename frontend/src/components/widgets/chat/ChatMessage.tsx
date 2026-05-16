@@ -8,8 +8,6 @@ import {
   User,
   XCircle,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useSetAtom } from "jotai";
 
 import { isSpanBasedFileType } from "../../../utils/files";
@@ -17,6 +15,11 @@ import { chatSourcesAtom } from "../../annotator/context/ChatSourceAtom";
 import { useCreateAnnotation } from "../../annotator/hooks/AnnotationHooks";
 import { useCorpusState } from "../../annotator/context/CorpusAtom";
 import { useSelectedDocument } from "../../annotator/context/DocumentAtom";
+import { MarkdownMessageRenderer } from "../../threads/MarkdownMessageRenderer";
+import {
+  AgentConfigurationType,
+  MentionedResourceType,
+} from "../../../types/graphql-api";
 
 import {
   ApprovalIndicator,
@@ -26,6 +29,7 @@ import {
   MessageContent,
   MessageHeader,
   SourceIndicator,
+  SubAgentAttributionChip,
   TimelineIndicator,
   Timestamp,
   UserName,
@@ -62,6 +66,20 @@ export interface ChatMessageProps {
   timeline?: TimelineEntry[];
   approvalStatus?: "approved" | "rejected" | "awaiting";
   isComplete?: boolean;
+  /**
+   * Backend-resolved metadata for inline mentions (rich-mention agent
+   * delegation, Issue #689 / #623). Drives rich tooltips and chip styling
+   * inside the markdown body. Defaulted to `[]` when omitted so existing
+   * callers without mention support still render correctly.
+   */
+  mentionedResources?: MentionedResourceType[];
+  /**
+   * Agent configuration that authored an assistant message (when the
+   * response came from a corpus- or global-scoped agent). Reserved for
+   * downstream attribution chips; declared here so the prop flows through
+   * the spread call sites in ChatTray / CorpusChat without TS friction.
+   */
+  agentConfiguration?: AgentConfigurationType | null;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({
@@ -78,6 +96,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   onSelect,
   approvalStatus,
   isComplete = true,
+  mentionedResources,
+  agentConfiguration,
 }) => {
   const [selectedSourceIndex, setSelectedSourceIndex] = useState<
     number | undefined
@@ -201,6 +221,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       <ContentContainer>
         <MessageHeader>
           <UserName>{isAssistant ? "AI Assistant" : user}</UserName>
+          {/* Sub-agent attribution chip — surfaces when the conductor
+              delegated to a pinned sub-agent and the resulting ASSISTANT
+              row carries that agent's configuration. Conductor messages
+              (no agentConfiguration) intentionally omit the chip. */}
+          {isAssistant && agentConfiguration && (
+            <SubAgentAttributionChip
+              data-testid="sub-agent-chip"
+              role="note"
+              aria-label={`Authored by agent ${agentConfiguration.name}`}
+              title={`Authored by agent ${agentConfiguration.name}`}
+            >
+              <span aria-hidden="true">@</span>
+              {agentConfiguration.slug ?? agentConfiguration.name}
+            </SubAgentAttributionChip>
+          )}
           {isAssistant && hasToolUsage && (
             <ToolUsageIndicator timeline={timeline} />
           )}
@@ -211,7 +246,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             $isAssistant={isAssistant}
             data-testid="message-content"
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <MarkdownMessageRenderer
+              content={content}
+              mentionedResources={mentionedResources ?? []}
+            />
             {approvalStatus && (
               <div style={{ marginTop: "0.5rem" }}>
                 {getApprovalIcon(approvalStatus)}{" "}

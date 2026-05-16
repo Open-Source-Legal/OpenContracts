@@ -7,6 +7,7 @@ import { ConversationType, ChatMessageType } from "../src/types/graphql-api";
 import { WebSocketSources } from "../src/components/knowledge_base/document/right_tray/ChatTray";
 import { attachWsDebug } from "./utils/wsDebug";
 import { docScreenshot } from "./utils/docScreenshot";
+import { buildMentionSearchMocks } from "./utils/mentionSearchMocks";
 
 /* -------------------------------------------------------------------------- */
 /* Mock Data                                                                   */
@@ -129,6 +130,34 @@ const mockAwaitingApprovalMessage: any = {
       tool_call_id: "tool-123",
     },
     state: "awaiting_approval",
+  },
+  state: "awaiting_approval",
+  __typename: "ChatMessageType",
+};
+
+/**
+ * Variant of the awaiting-approval mock that simulates an approval raised
+ * inside a sub-agent invocation (rich-mention agent delegation, Task 14).
+ * The backend ``unified_agent_conversation.py`` attaches ``requesting_agent``
+ * to the persisted message data so the modal can attribute the request to
+ * the sub-agent's @<slug> chip when the conversation is re-hydrated.
+ */
+const mockSubAgentAwaitingApprovalMessage: any = {
+  id: "msg-approval-subagent",
+  content: "Tool execution paused: delete_thing",
+  msgType: "ASSISTANT",
+  createdAt: new Date().toISOString(),
+  data: {
+    pending_tool_call: {
+      name: "delete_thing",
+      arguments: { thing_id: "abc" },
+      tool_call_id: "tool-456",
+    },
+    state: "awaiting_approval",
+    requesting_agent: {
+      slug: "research-bot",
+      name: "Research Bot",
+    },
   },
   state: "awaiting_approval",
   __typename: "ChatMessageType",
@@ -286,6 +315,367 @@ test("loads messages when conversation is selected", async ({
 
   // Check back button
   await expect(page.getByText("Back to Conversations")).toBeVisible();
+});
+
+test("renders inline @agent mention as a styled chip on a server-loaded message", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation: backend resolves `[@slug](/agents/slug)`
+  // markdown links into MentionedResourceType entries on the chat message.
+  // The chat ChatMessage widget should now render these through
+  // MarkdownMessageRenderer so the link becomes an <a> chip.
+  const mentionMessages: any[] = [
+    {
+      id: "msg-mention-1",
+      content: "Ping [@research-bot](/agents/research-bot) please",
+      msgType: "HUMAN",
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      data: {},
+      state: "complete",
+      agentType: null,
+      agentConfiguration: null,
+      mentionedResources: [],
+      __typename: "ChatMessageType",
+    },
+  ];
+
+  const mocks = [
+    createConversationsMock(mockConversations),
+    createChatMessagesMock(TEST_CONVERSATION_ID, mentionMessages),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await expect(page.locator("#conversation-grid")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  await page.getByText("Test Conversation 1").click();
+
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  // The styled mention chip is rendered as an <a> by MarkdownMessageRenderer.
+  // For agent mentions (currently configured as non-navigable in
+  // MENTION_TYPES) the href is omitted, but the <a> + Bot icon + text
+  // wrapper still renders, distinguishing it from raw markdown.
+  const messageContent = page.locator('[data-testid="message-content"]');
+  await expect(messageContent).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+  const mentionChip = messageContent
+    .locator("a")
+    .filter({ hasText: "research-bot" });
+  await expect(mentionChip).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+  // Sanity-check that the tooltip surface (title attr) was populated,
+  // proving the link went through the mention renderer rather than the
+  // plain ReactMarkdown <a> fallback.
+  await expect(mentionChip).toHaveAttribute("title", /AI Agent: @research-bot/);
+});
+
+test("pinned sub-agent message renders attribution chip in bubble header", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation (Task 12): when the conductor delegates
+  // to a pinned sub-agent the backend persists a separate ASSISTANT row
+  // with `agentConfiguration` set. The ChatMessage widget should render
+  // a sub-agent attribution chip in the bubble header for that row,
+  // while conductor messages (agentConfiguration: null) keep the plain
+  // "AI Assistant" header. Both states are exercised here so the negative
+  // case is locked in alongside the positive case.
+  const pinnedMessages: any[] = [
+    {
+      id: "msg-conductor-1",
+      content: "I'll route this question to a specialist.",
+      msgType: "ASSISTANT",
+      createdAt: new Date(Date.now() - 2000).toISOString(),
+      data: {},
+      state: "complete",
+      agentType: null,
+      agentConfiguration: null,
+      mentionedResources: [],
+      __typename: "ChatMessageType",
+    },
+    {
+      id: "msg-pinned-sub-agent-1",
+      content: "Here is what I found in the research.",
+      msgType: "ASSISTANT",
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      data: { pinned: true, delegated_from: "msg-conductor-1" },
+      state: "complete",
+      agentType: null,
+      agentConfiguration: {
+        __typename: "AgentConfigurationType",
+        id: "ag-1",
+        slug: "research-bot",
+        name: "Research Bot",
+        description: "Reads stuff",
+        scope: "GLOBAL",
+        badgeConfig: null,
+        avatarUrl: null,
+        corpus: null,
+      },
+      mentionedResources: [],
+      __typename: "ChatMessageType",
+    },
+  ];
+
+  const mocks = [
+    createConversationsMock(mockConversations),
+    createChatMessagesMock(TEST_CONVERSATION_ID, pinnedMessages),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await expect(page.locator("#conversation-grid")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  await page.getByText("Test Conversation 1").click();
+
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  // Both ASSISTANT messages should render bubbles.
+  await expect(
+    page.getByText("I'll route this question to a specialist.", {
+      exact: true,
+    })
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+  await expect(
+    page.getByText("Here is what I found in the research.", { exact: true })
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // Positive: the pinned sub-agent message renders exactly one chip,
+  // wired with the slug + ARIA label so accessibility tooling can
+  // surface it.
+  const chip = page.getByTestId("sub-agent-chip");
+  await expect(chip).toHaveCount(1, { timeout: TIMEOUTS.MEDIUM });
+  await expect(chip).toBeVisible();
+  await expect(chip).toContainText("research-bot");
+  await expect(chip).toHaveAttribute(
+    "aria-label",
+    "Authored by agent Research Bot"
+  );
+
+  // Negative: the conductor message (no agentConfiguration) must NOT
+  // render a chip. Asserting count=1 above already covers this, but we
+  // assert it explicitly against the conductor bubble for clarity.
+  const conductorBubble = page
+    .locator('[data-testid="message-content"]')
+    .filter({ hasText: "I'll route this question to a specialist." });
+  await expect(conductorBubble.getByTestId("sub-agent-chip")).toHaveCount(0);
+});
+
+test("timeline entry with agent_slug renders @agent chip in place of tool name", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation (Task 13): when the conductor invokes a
+  // sub-agent via a `delegate_to_<slug>` tool call (whether pinned or
+  // unpinned), each tool_call / tool_result timeline row should display
+  // an `@<slug>` chip instead of the raw tool string.
+  //
+  // The WebSocket stub's "delegate unpinned please" branch emits two
+  // ASYNC_THOUGHT frames carrying `agent_id` + `agent_slug` (matching the
+  // payload shape the backend StreamRelay produces for unpinned
+  // delegations), then an ASYNC_FINISH that finalises the conductor's
+  // assistant bubble. After finalize the collapsible TimelinePreview
+  // renders inside the bubble and the chips become assertable.
+  const mocks = [createConversationsMock(mockConversations)];
+
+  await mountChatTray(mount, mocks);
+
+  await page.locator('[data-testid="new-chat-button"]').click();
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+  await chatInput.fill("delegate unpinned please");
+  await page.keyboard.press("Enter");
+
+  // Wait for the final conductor response to land — this is the gate
+  // that flips the message to `isComplete=true` and mounts the
+  // TimelinePreview panel where our chip lives.
+  await expect(
+    page.getByText("Here is what the sub-agent found.", { exact: true })
+  ).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // The post-completion TimelinePreview defaults to expanded for short
+  // timelines (<=2 entries) — both our entries land inside it. The
+  // collapsible-row state also defaults to expanded so the chip rendered
+  // inside TimelineItemTitle is in the DOM without further interaction.
+  const timelineContainer = page
+    .locator('[data-testid="timeline-container"]')
+    .first();
+  await expect(timelineContainer).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
+
+  // Two chip rows expected: one tool_call ("Delegating to @research-bot")
+  // and one tool_result ("Result from @research-bot").
+  await expect(page.getByTestId("timeline-agent-chip").first()).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await expect(page.getByTestId("timeline-agent-chip")).toHaveCount(2);
+  for (const chip of await page.getByTestId("timeline-agent-chip").all()) {
+    await expect(chip).toContainText("research-bot");
+  }
+
+  // ARIA labels carry the agent slug so assistive tech can announce
+  // the chip without parsing visible glyphs.
+  await expect(page.getByTestId("timeline-agent-chip").first()).toHaveAttribute(
+    "aria-label",
+    /agent research-bot/
+  );
+
+  // Documentation screenshot — captures the timeline entry chip on the
+  // document chat surface. The visibility assertion above gates DOM
+  // presence; the short stability wait lets any remaining transition
+  // settle so the PNG isn't captured mid-frame.
+  await expect(page.getByTestId("timeline-agent-chip").first()).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await page.waitForTimeout(300);
+  await docScreenshot(page, "chat--agent-mention--timeline-entry", {
+    element: page.locator("#conversation-indicator"),
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Agent @mention picker wiring (Task 11)                                     */
+/* -------------------------------------------------------------------------- */
+// `buildMentionSearchMocks` lives in ./utils/mentionSearchMocks (shared with
+// CorpusChat.ct.tsx). The hook debounces on `MENTION_SEARCH_DEBOUNCE_MS`
+// (300ms) and only dispatches when fragment.length >= MENTION_SEARCH_MIN_CHARS
+// (2), so the test types `@res` which produces fragment="res".
+
+test("typing @ in ChatTray opens agent picker and selecting inserts the markdown link", async ({
+  mount,
+  page,
+}) => {
+  const mocks: MockedResponse[] = [
+    createConversationsMock(mockConversations),
+    // useUnifiedMentionSearch fires with the typed fragment ("res") and the
+    // corpusId the chat is bound to. The MockedProvider must match these
+    // variables exactly, including the (test-level) corpusId.
+    ...buildMentionSearchMocks("res", TEST_CORPUS_ID, [
+      {
+        id: "agent-1",
+        name: "Research Bot",
+        slug: "research-bot",
+        description: "Does research",
+        scope: "GLOBAL",
+        mentionFormat: null,
+        corpus: null,
+      },
+    ]),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  // Start new chat to reveal the textarea
+  await page.locator('[data-testid="new-chat-button"]').click();
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+
+  // Type "hello @res" — `@res` triggers the fragment="res" search after
+  // the 300ms debounce. We pressSequentially so React's onChange handler
+  // fires for the `@` (opening the popover with fragment "") and then for
+  // each character of "res".
+  await chatInput.focus();
+  await chatInput.pressSequentially("hello @res", { delay: 30 });
+
+  // Wait for the picker — useUnifiedMentionSearch's debounce + roundtrip.
+  await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  await expect(page.getByText("Research Bot")).toBeVisible();
+
+  // Documentation screenshot — captures the @agent picker in its open
+  // state (a screenshot of the docs-quickstart "delegate to an agent"
+  // section).
+  await docScreenshot(page, "chat--agent-mention--popover-open");
+
+  // Pick the agent
+  await page.getByText("Research Bot").click();
+
+  // The textarea should now contain the markdown link
+  await expect(chatInput).toHaveValue(
+    /hello \[@research-bot\]\(\/agents\/research-bot\)\s$/
+  );
+
+  // Popover should close after selection
+  await expect(page.getByTestId("agent-mention-popover")).not.toBeVisible();
+});
+
+test("typing bare @ in ChatTray opens picker with full agent list (no minChars gate)", async ({
+  mount,
+  page,
+}) => {
+  // Regression: useUnifiedMentionSearch used to gate ALL category searches
+  // behind MENTION_SEARCH_MIN_CHARS (2), and useChatMentionPicker hid the
+  // popover until ``agentItems.length > 0``. The combination meant a bare
+  // ``@`` (or a 1-char fragment) never showed the picker — the user got no
+  // feedback that the trigger was even working. Agents are special-cased
+  // now: their search fires regardless of fragment length, so the popover
+  // shows the browsable list the instant ``@`` is typed.
+  const mocks: MockedResponse[] = [
+    createConversationsMock(mockConversations),
+    // Empty fragment ⇒ resolver returns the full visible-to-user agent set.
+    ...buildMentionSearchMocks("", TEST_CORPUS_ID, [
+      {
+        id: "agent-1",
+        name: "Research Bot",
+        slug: "research-bot",
+        description: "Does research",
+        scope: "GLOBAL",
+        mentionFormat: null,
+        corpus: null,
+      },
+      {
+        id: "agent-2",
+        name: "Summary Bot",
+        slug: "summary-bot",
+        description: "Summarises",
+        scope: "GLOBAL",
+        mentionFormat: null,
+        corpus: null,
+      },
+    ]),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await page.locator('[data-testid="new-chat-button"]').click();
+  const chatInput = page.locator('[data-testid="chat-input"]');
+  await expect(chatInput).toBeEnabled({ timeout: TIMEOUTS.MEDIUM });
+
+  await chatInput.focus();
+  // Single ``@`` keystroke — fragment="" but the picker must still appear.
+  await chatInput.pressSequentially("@", { delay: 30 });
+
+  await expect(page.getByTestId("agent-mention-popover")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+  // Both agents from the empty-fragment fetch surface in the list.
+  await expect(page.getByText("Research Bot")).toBeVisible();
+  await expect(page.getByText("Summary Bot")).toBeVisible();
+
+  // Regression pin: the picker is portalled to ``document.body``, which
+  // makes it a sibling of the DocumentKnowledgeBase's
+  // ``.fullscreen-modal-overlay`` (z-index 3000). The anchor MUST sit above
+  // that overlay or the popover renders invisibly behind it — the
+  // historical ``z-index: 1000`` did exactly that and made the picker
+  // appear "broken" in document context even though every other layer was
+  // working. Pin the computed z-index above APP_MODAL (3000) so a future
+  // refactor that drops it back down breaks the test, not the user.
+  const anchorZIndex = await page
+    .getByTestId("agent-mention-anchor")
+    .evaluate((el) => Number(getComputedStyle(el).zIndex));
+  expect(anchorZIndex).toBeGreaterThan(3000);
 });
 
 test("starts new chat and sends message via WebSocket", async ({
@@ -615,6 +1005,53 @@ test("shows character count when near limit", async ({ mount, page }) => {
   // Verify input is limited
   const actualValue = await chatInput.inputValue();
   expect(actualValue.length).toBe(4000);
+});
+
+test("approval modal shows requesting_agent attribution when present", async ({
+  mount,
+  page,
+}) => {
+  // Rich-mention agent delegation (Task 14): when the persisted approval
+  // message carries ``requesting_agent``, the priming useEffect in
+  // ChatTray should plumb that through to PendingApproval and the modal
+  // should render the @<slug> attribution chip instead of the plain
+  // "Tool: <name>" header.
+  const mocks = [
+    createConversationsMock(mockConversations),
+    createChatMessagesMock(TEST_CONVERSATION_ID, [
+      ...mockChatMessages,
+      mockSubAgentAwaitingApprovalMessage,
+    ]),
+  ];
+
+  await mountChatTray(mount, mocks);
+
+  await page.getByText("Test Conversation 1").click();
+  await expect(page.locator("#messages-container")).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  await expect(
+    page.getByText("Tool Approval Required", { exact: true })
+  ).toBeVisible({
+    timeout: TIMEOUTS.MEDIUM,
+  });
+
+  const attribution = page.getByTestId("approval-requesting-agent");
+  await expect(attribution).toBeVisible();
+  await expect(attribution).toContainText("research-bot");
+  await expect(attribution).toContainText("delete_thing");
+
+  // The plain "Tool: <name>" header should NOT appear when the modal is
+  // attributing the request to a sub-agent.
+  await expect(
+    page.getByText("Tool: delete_thing", { exact: true })
+  ).not.toBeVisible();
+
+  // Documentation screenshot — approval modal with sub-agent
+  // attribution. Mirrors the CorpusChat counterpart; the docs site
+  // alternates between the two surfaces.
+  await docScreenshot(page, "chat--agent-mention--approval-with-attribution");
 });
 
 test("handles tool rejection flow", async ({ mount, page }) => {
@@ -1509,6 +1946,166 @@ test.beforeEach(async ({ page }) => {
                     {
                       type: "thought",
                       text: "Searching for relevant information...",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
+            // 2c. Pinned delegation — conductor delegates AND emits a
+            //     separate ASSISTANT message for the sub-agent so its
+            //     bubble is pinned in the conversation. The conductor's
+            //     timeline still carries the tool_call/result pair AND
+            //     the sub-agent's stream runs on its own `message_id`
+            //     (with parent_message_id pointing at the conductor's
+            //     id). This exercises the dual-bubble flow end to end.
+            if (query === "delegate pinned please") {
+              const subId = `${id}-sub`;
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "summarize", pin: true },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              // Pinned sub-agent's own stream.
+              emit({
+                type: "ASYNC_START",
+                content: "",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "Sub-agent says: ",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_CONTENT",
+                content: "section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Sub-agent says: section 3 covers the warranty.",
+                data: {
+                  message_id: subId,
+                  agent_id: "ag-1",
+                  parent_message_id: id,
+                },
+              });
+              // Conductor's tool_result + final answer.
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got pinned result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Sub-agent says: section 3 covers the warranty.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Per @research-bot, section 3 covers the warranty.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "summarize", pin: true },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Sub-agent says: section 3 covers the warranty.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                  ],
+                },
+              });
+              return;
+            }
+
+            // 2b. Unpinned delegation — conductor invokes a sub-agent but
+            //     does NOT pin the resulting bubble. The frontend surfaces
+            //     the delegation purely through the conductor's timeline
+            //     entries. ASYNC_THOUGHT frames carry agent_id / agent_slug
+            //     so the timeline renderer can swap the raw tool name for
+            //     an @<slug> chip (Task 13).
+            if (query === "delegate unpinned please") {
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Delegating to @research-bot",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  args: { prompt: "Summarize section 3.", pin: false },
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_THOUGHT",
+                content: "Got sub-agent result",
+                data: {
+                  message_id: id,
+                  tool_name: "delegate_to_research_bot",
+                  tool_result: "Summary of section 3.",
+                  agent_id: "ag-1",
+                  agent_slug: "research-bot",
+                },
+              });
+              emit({
+                type: "ASYNC_FINISH",
+                content: "Here is what the sub-agent found.",
+                data: {
+                  message_id: id,
+                  context_status: {
+                    used_tokens: 100,
+                    context_window: 8000,
+                    was_compacted: false,
+                  },
+                  timeline: [
+                    {
+                      type: "tool_call",
+                      tool: "delegate_to_research_bot",
+                      args: { prompt: "Summarize section 3.", pin: false },
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
+                    },
+                    {
+                      type: "tool_result",
+                      tool: "delegate_to_research_bot",
+                      result: "Summary of section 3.",
+                      agentId: "ag-1",
+                      agentSlug: "research-bot",
                     },
                   ],
                 },
