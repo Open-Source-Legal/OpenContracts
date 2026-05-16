@@ -79,6 +79,7 @@ export interface UnifiedMentionResource {
     mentionFormat: string | null;
     corpus: {
       id: string;
+      slug: string;
       title: string;
     } | null;
   };
@@ -183,13 +184,29 @@ export function useUnifiedMentionSearch(
     return () => clearTimeout(timer);
   }, [query, debounceMs]);
 
-  // Execute all searches in parallel when debounced query changes
+  // Execute searches in parallel when debounced query changes.
+  //
+  // Agents are special-cased: the list is intentionally tiny (a handful
+  // of templates plus a few per corpus), and chat surfaces expect a
+  // browsable picker the moment the user hits ``@`` — gating it behind
+  // ``minChars`` makes the popover invisible until 2+ characters are
+  // typed, which reads as a broken feature (silent no-op on bare ``@``
+  // and on single-character fragments). Other mention types stay gated
+  // because their resolvers are open-ended and ``icontains`` over the
+  // user/corpus/document/annotation tables is expensive on short
+  // fragments.
   useEffect(() => {
+    searchAgents({
+      variables: {
+        textSearch: debouncedQuery,
+        corpusId, // Context-aware scoping for corpus agents
+      },
+    });
+
     if (debouncedQuery.length < minChars) {
       return;
     }
 
-    // Fire all 5 queries simultaneously for maximum performance
     searchUsers({ variables: { textSearch: debouncedQuery } });
     searchCorpuses({ variables: { textSearch: debouncedQuery } });
     searchDocuments({
@@ -202,12 +219,6 @@ export function useUnifiedMentionSearch(
       variables: {
         textSearch: debouncedQuery,
         corpusId, // Context-aware scoping
-      },
-    });
-    searchAgents({
-      variables: {
-        textSearch: debouncedQuery,
-        corpusId, // Context-aware scoping for corpus agents
       },
     });
   }, [

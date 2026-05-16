@@ -454,14 +454,21 @@ class TestAuth0SuperuserAllowlistSystemCheck(TestCase):
         out the only admin account."""
         from opencontractserver.users.checks import check_auth0_superuser_allowlist
 
-        User.objects.create_user(
+        super_user = User.objects.create_user(
             username="auth0|test_super",
+            email="super@example.com",
             is_superuser=True,
             is_staff=True,
         )
         issues = check_auth0_superuser_allowlist(None)
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].id, "users.E001")
+        # The eligible-superusers list must surface enough identity to
+        # let an operator populate AUTH0_SUPERUSER_SUB_ALLOWLIST without
+        # guessing — pk, username (Auth0 sub), and email if set.
+        self.assertIn("auth0|test_super", issues[0].msg)
+        self.assertIn(f"#{super_user.pk}", issues[0].msg)
+        self.assertIn("super@example.com", issues[0].msg)
 
 
 class TestBooleanClaimParsing(TestCase):

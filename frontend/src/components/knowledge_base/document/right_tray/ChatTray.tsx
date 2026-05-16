@@ -17,7 +17,13 @@ import {
   ErrorContainer,
 } from "../ChatContainers";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Send } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  AtSign,
+  MessageCircle,
+  Send,
+} from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -45,6 +51,11 @@ import {
   ConnectionStatus,
   ChatInputWrapper,
   CharacterCount,
+  ChatEmptyState,
+  ChatEmptyStateIcon,
+  ChatEmptyStateTitle,
+  ChatEmptyStateDescription,
+  ChatEmptyStateHint,
 } from "../ChatContainers";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import {
@@ -52,6 +63,10 @@ import {
   mapWebSocketSourcesToChatMessageSources,
 } from "../../../annotator/context/ChatSourceAtom";
 import { TimelineEntry } from "../../../widgets/chat/ChatMessage";
+import {
+  buildTimelineEntryFromAsyncThought,
+  deriveTimelineEntryType,
+} from "../../../widgets/chat/timelineEntryFactory";
 import { useUISettings } from "../../../annotator/hooks/useUISettings";
 import useWindowDimensions from "../../../hooks/WindowDimensionHook";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -66,6 +81,7 @@ import type {
 import { ApprovalOverlay, ReopenApprovalButton } from "./ApprovalOverlay";
 import type { PendingApproval } from "./ApprovalOverlay";
 import { DocumentConversationListView } from "./ConversationListView";
+import { useChatMentionPicker } from "../../../../hooks/useChatMentionPicker";
 
 export type { WebSocketSources, MessageData } from "../../../chat/types";
 
@@ -284,6 +300,22 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     adjustTextareaHeight();
   }, [adjustTextareaHeight]);
 
+  // Rich-mention agent delegation (docs/architecture/rich_mentions.md):
+  // detect `@<fragment>` in the textarea, query agents visible in this
+  // document/corpus scope, and splice a markdown-link mention on select.
+  // The backend's `search_agents_for_mention` resolver already enforces
+  // scope (global + the provided corpus only when corpusId is passed), so
+  // we just forward corpusId here. Shared with CorpusChat via the
+  // useChatMentionPicker hook.
+  const {
+    handleValueChange: handleMentionValueChange,
+    popoverNode: mentionPopover,
+  } = useChatMentionPicker({
+    textareaRef,
+    corpusId,
+    onValueChange: setNewMessage,
+  });
+
   /**
    * On server data load, we map messages to local ChatMessageProps and
    * also store any 'sources' in the chatSourcesAtom (so pins and selection work).
@@ -314,8 +346,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       }
     });
 
-    console.log("messages", messages);
-
     // Then, map them for immediate display - NOW INCLUDING hasSources and hasTimeline FLAGS
     const mapped = messages.map((msg) => {
       // Type assertion for data field to include timeline and approval status
@@ -331,6 +361,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               arguments: any;
               tool_call_id?: string;
             };
+            // Single source of truth: ``PendingApproval.requestingAgent``
+            // (see ``components/chat/types.ts``). Keeps this persisted-message
+            // cast in lock-step with the live WebSocket frame shape so a
+            // future field addition on the canonical type flows through here.
+            requesting_agent?: PendingApproval["requestingAgent"];
           }
         | undefined;
 
@@ -362,6 +397,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         timeline: msgData?.timeline || [],
         approvalStatus,
         isComplete: isCompleteFlag,
+        // Rich-mention agent delegation: hand backend-resolved mention
+        // metadata + agent attribution down to ChatMessage so its
+        // MarkdownMessageRenderer can render styled chips with tooltips.
+        mentionedResources: msg.mentionedResources ?? [],
+        agentConfiguration: msg.agentConfiguration ?? null,
       } as any;
 
       // If this message is awaiting approval and we haven't already set
@@ -376,6 +416,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         setPendingApproval({
           messageId: msg.id.toString(),
           toolCall: msgData.pending_tool_call,
+          requestingAgent: msgData.requesting_agent ?? null,
         });
         setShowApprovalModal(true);
       }
@@ -584,7 +625,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       // If we were already streaming the assistant's last message, just append:
       if (lastMessage && lastMessage.isAssistant) {
         messageId = lastMessage.messageId || ""; // Capture existing ID
-        console.log("append to existing messageId", messageId);
         const updatedLast = {
           ...lastMessage,
           content: lastMessage.content + token,
@@ -596,7 +636,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         messageId =
           overrideMessageId ||
           `msg_${Date.now()}_${Math.random().toString(36).substr(2)}`;
-        console.log("append to new messageId", messageId);
         return [
           ...prev,
           {
@@ -645,25 +684,22 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     const messageId = data?.message_id;
     if (!messageId || !thoughtText) return;
 
-    // Determine timeline entry type
-    let entryType: TimelineEntry["type"] = "thought";
-    if (data?.compaction) {
-      entryType = "compaction";
+    const entryType = deriveTimelineEntryType(data);
+    if (entryType === "compaction" && data?.compaction) {
+      // Surface the compaction notice banner in addition to the timeline
+      // row; the timeline entry itself is built below via the shared
+      // factory.
       setCompactionNotice({
         tokensBefore: data.compaction.tokens_before,
         tokensAfter: data.compaction.tokens_after,
         contextWindow: data.compaction.context_window,
       });
-    } else if (data?.tool_name && data?.args) entryType = "tool_call";
-    else if (data?.tool_name && !data?.args) entryType = "tool_result";
-
-    const newEntry: TimelineEntry = {
-      type: entryType,
-      text: thoughtText,
-      tool: data?.tool_name,
-      args: data?.args,
-      result: data?.tool_result,
-    };
+    }
+    const newEntry = buildTimelineEntryFromAsyncThought(
+      thoughtText,
+      data,
+      entryType
+    );
 
     // Update chat UI timeline
     setChat((prev) => {
@@ -712,12 +748,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
     overrideId?: string,
     timelineData?: TimelineEntry[]
   ): void => {
-    console.log("finalizeStreamingResponse", {
-      content,
-      sourcesData,
-      overrideId,
-    });
-
     let lastMsgId: string | undefined;
     setChat((prev) => {
       if (!prev.length) return prev;
@@ -732,10 +762,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
       const updatedMessages = [...prev];
       const assistantMsg = updatedMessages[updateIdx];
-      console.log("XOXO - Found assistant message to update:", {
-        messageId: assistantMsg.messageId,
-        oldContent: assistantMsg.content.substring(0, 50) + "...",
-      });
 
       lastMsgId = assistantMsg.messageId;
 
@@ -744,9 +770,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         content,
         isComplete: true,
       };
-      console.log("Updated message with final content:", {
-        messageId: lastMsgId,
-      });
 
       // Now store the final content + sources in ChatSourceAtom with the same ID
       handleCompleteMessage(
@@ -789,18 +812,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
         if (!messageData) return;
         const { type: msgType, content, data } = messageData;
         const currentApproval = pendingApprovalRef.current;
-
-        console.log("[ChatTray WebSocket] Received message:", {
-          type: msgType,
-          hasContent: !!content,
-          hasSources: !!data?.sources,
-          sourceCount: data?.sources?.length,
-          hasTimeline: !!data?.timeline,
-          timelineCount: data?.timeline?.length,
-          message_id: data?.message_id,
-          approval_decision: data?.approval_decision,
-          has_pending_tool_call: !!data?.pending_tool_call,
-        });
 
         // Check if any message includes approval status update
         if (data?.approval_decision && data?.message_id) {
@@ -845,6 +856,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               setPendingApproval({
                 messageId: data.message_id,
                 toolCall: data.pending_tool_call,
+                requestingAgent: data.requesting_agent ?? null,
               });
               setShowApprovalModal(true);
 
@@ -888,6 +900,23 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
             // additional state update is needed here.
             break;
           case "ASYNC_FINISH":
+            // Sub-agent persistence failure flag: backend sets
+            // ``persistence_failed: true`` on ASYNC_FINISH when the pinned
+            // sub-agent ``ChatMessage`` couldn't be written to the DB
+            // (rich-mention agent delegation). Surface as a console
+            // warning so developers see it; the bubble still renders for
+            // this session but will be gone after reload. Follow-up:
+            // promote to a non-blocking toast (tracked in PR description).
+            if (
+              (data as { persistence_failed?: boolean } | undefined)
+                ?.persistence_failed
+            ) {
+              console.warn(
+                "[ChatTray] Sub-agent reply rendered in-memory only — " +
+                  "persistence failed; the bubble will be missing after reload.",
+                { message_id: data?.message_id }
+              );
+            }
             finalizeStreamingResponse(
               content,
               data?.sources,
@@ -946,12 +975,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
               data?.timeline && Array.isArray(data.timeline)
                 ? data.timeline
                 : undefined;
-            console.log(
-              "[ChatTray WebSocket] SYNC_CONTENT sources:",
-              sourcesToPass,
-              "timeline:",
-              timelineToPass
-            );
             handleCompleteMessage(
               content,
               sourcesToPass,
@@ -1187,7 +1210,6 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
       );
     }
     const messageId = overrideId ?? `msg_${Date.now()}`; // Only fallback if really needed
-    console.log("XOXO - handleCompleteMessage messageId", messageId);
     const messageTimestamp = overrideCreatedAt
       ? new Date(overrideCreatedAt).toISOString()
       : new Date().toISOString();
@@ -1453,6 +1475,25 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 ref={messagesContainerRef}
                 onScroll={handlePersistedScroll}
               >
+                {combinedMessages.length === 0 &&
+                  !showWarmupTicker &&
+                  !isAssistantResponding && (
+                    <ChatEmptyState data-testid="chat-empty-state">
+                      <ChatEmptyStateIcon>
+                        <MessageCircle />
+                      </ChatEmptyStateIcon>
+                      <ChatEmptyStateTitle>
+                        Ask me about this document
+                      </ChatEmptyStateTitle>
+                      <ChatEmptyStateDescription>
+                        I can read it, find sections, and answer questions.
+                      </ChatEmptyStateDescription>
+                      <ChatEmptyStateHint>
+                        <AtSign size={14} />
+                        Try @-mentioning a specific agent for deeper analysis.
+                      </ChatEmptyStateHint>
+                    </ChatEmptyState>
+                  )}
                 {combinedMessages.map((msg, idx) => {
                   // Find if this message has sources in our sourced messages state
                   const sourcedMessage = sourcedMessages.find(
@@ -1601,7 +1642,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                 <div
                   data-testid="context-meter"
                   style={{
-                    padding: "0.25rem 1rem",
+                    padding: "0.375rem 1rem 0.625rem",
                     borderTop: "1px solid rgba(0, 0, 0, 0.06)",
                     background: "rgba(255, 255, 255, 0.95)",
                     display: "flex",
@@ -1719,6 +1760,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                     data-connected={wsReady}
                   />
                 )}
+                {mentionPopover}
                 <ChatInputWrapper>
                   <ChatInput
                     data-testid="chat-input"
@@ -1728,6 +1770,8 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
                       const value = e.target.value;
                       const capped = value.slice(0, MAX_MESSAGE_LENGTH);
                       setNewMessage(capped);
+                      const caret = e.target.selectionStart ?? capped.length;
+                      handleMentionValueChange(capped, caret);
                       // Use setTimeout to ensure DOM updates before measuring
                       setTimeout(adjustTextareaHeight, 0);
                     }}

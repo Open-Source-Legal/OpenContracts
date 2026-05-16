@@ -23,7 +23,14 @@ import React, {
 } from "react";
 import { useLazyQuery, useQuery, useReactiveVar } from "@apollo/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Send, Home } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  AtSign,
+  Home,
+  MessageCircle,
+  Send,
+} from "lucide-react";
 import { Button } from "@os-legal/ui";
 import {
   CONVERSATION_TYPE,
@@ -59,6 +66,10 @@ import {
   StreamingThoughtTicker,
   TimelineEntry,
 } from "../widgets/chat/ChatMessage";
+import {
+  buildTimelineEntryFromAsyncThought,
+  deriveTimelineEntryType,
+} from "../widgets/chat/timelineEntryFactory";
 import { getUnifiedAgentWebSocket } from "../chat/get_websockets";
 import { useWebSocketAuth } from "../../hooks/useWebSocketAuth";
 import type {
@@ -87,6 +98,14 @@ import {
 } from "./corpus_chat/styles";
 import { ApprovalModal, PendingApproval } from "./corpus_chat/ApprovalModal";
 import { CorpusConversationListView } from "./corpus_chat/ConversationListView";
+import { useChatMentionPicker } from "../../hooks/useChatMentionPicker";
+import {
+  ChatEmptyState,
+  ChatEmptyStateIcon,
+  ChatEmptyStateTitle,
+  ChatEmptyStateDescription,
+  ChatEmptyStateHint,
+} from "../knowledge_base/document/ChatContainers";
 
 /**
  * CorpusChat props definition.
@@ -281,6 +300,20 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     }
   }, [newMessage]);
 
+  // Rich-mention agent delegation (docs/architecture/rich_mentions.md):
+  // detect `@<fragment>` in the textarea, query agents scoped to this
+  // corpus (backend resolver returns global + corpus agents only), then
+  // splice a markdown-link mention on select. Shared with ChatTray via
+  // the useChatMentionPicker hook.
+  const {
+    handleValueChange: handleMentionValueChange,
+    popoverNode: mentionPopover,
+  } = useChatMentionPicker({
+    textareaRef: inputRef,
+    corpusId,
+    onValueChange: setNewMessage,
+  });
+
   /**
    * On server data load, map messages to local ChatMessageProps and store any 'sources' in chatSourcesAtom.
    */
@@ -317,6 +350,10 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
         hasTimeline: !!tArr?.length,
         timeline: tArr || [],
         isComplete: true,
+        // Rich-mention agent delegation: forward backend-resolved mention
+        // metadata + agent attribution to ChatMessage's MarkdownMessageRenderer.
+        mentionedResources: msg.mentionedResources ?? [],
+        agentConfiguration: msg.agentConfiguration ?? null,
       } as ChatMessageProps;
     });
     setServerMessages(mapped);
@@ -413,6 +450,10 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
               setPendingApproval({
                 messageId: data.message_id,
                 toolCall,
+                // Rich-mention agent delegation (Task 14): when the approval
+                // originates from a sub-agent invocation, surface its
+                // identity in the modal alongside the tool name.
+                requestingAgent: data.requesting_agent ?? null,
               });
               setShowApprovalModal(true);
 
@@ -442,6 +483,23 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
             setIsProcessing(true);
             break;
           case "ASYNC_FINISH":
+            // Sub-agent persistence failure flag: backend sets
+            // ``persistence_failed: true`` on ASYNC_FINISH when the pinned
+            // sub-agent ``ChatMessage`` couldn't be written to the DB
+            // (rich-mention agent delegation). Surface as a console
+            // warning so developers see it; the bubble still renders for
+            // this session but will be gone after reload. Follow-up:
+            // promote to a non-blocking toast (tracked in PR description).
+            if (
+              (data as { persistence_failed?: boolean } | undefined)
+                ?.persistence_failed
+            ) {
+              console.warn(
+                "[CorpusChat] Sub-agent reply rendered in-memory only — " +
+                  "persistence failed; the bubble will be missing after reload.",
+                { message_id: data?.message_id }
+              );
+            }
             finalizeStreamingResponse(
               content,
               data?.sources,
@@ -866,24 +924,21 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     const messageId = data?.message_id;
     if (!messageId || !thoughtText) return;
 
-    let entryType: TimelineEntry["type"] = "thought";
-    if (data?.compaction) {
-      entryType = "compaction";
+    const entryType = deriveTimelineEntryType(data);
+    if (entryType === "compaction" && data?.compaction) {
+      // Same dual-side-effect as ChatTray: timeline row + standalone
+      // compaction-notice banner.
       setCompactionNotice({
         tokensBefore: data.compaction.tokens_before,
         tokensAfter: data.compaction.tokens_after,
         contextWindow: data.compaction.context_window,
       });
-    } else if (data?.tool_name && data?.args) entryType = "tool_call";
-    else if (data?.tool_name && !data?.args) entryType = "tool_result";
-
-    const newEntry: TimelineEntry = {
-      type: entryType,
-      text: thoughtText,
-      tool: data?.tool_name,
-      args: data?.args,
-      result: data?.tool_result,
-    };
+    }
+    const newEntry = buildTimelineEntryFromAsyncThought(
+      thoughtText,
+      data,
+      entryType
+    );
 
     setChat((prev) => {
       const idx = prev.findIndex((m) => m.messageId === messageId);
@@ -1140,6 +1195,25 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                 ref={messagesContainerRef}
                 $isProcessing={isProcessing}
               >
+                {combinedMessages.length === 0 &&
+                  !showWarmupTicker &&
+                  !isProcessing && (
+                    <ChatEmptyState data-testid="chat-empty-state">
+                      <ChatEmptyStateIcon>
+                        <MessageCircle />
+                      </ChatEmptyStateIcon>
+                      <ChatEmptyStateTitle>
+                        Ask me about this corpus
+                      </ChatEmptyStateTitle>
+                      <ChatEmptyStateDescription>
+                        I can search across all documents and answer questions.
+                      </ChatEmptyStateDescription>
+                      <ChatEmptyStateHint>
+                        <AtSign size={14} />
+                        Try @-mentioning a specific agent for deeper analysis.
+                      </ChatEmptyStateHint>
+                    </ChatEmptyState>
+                  )}
                 {combinedMessages.map((msg, idx) => {
                   const sourcedMessage = sourcedMessages.find(
                     (m) => m.messageId === msg.messageId
@@ -1300,7 +1374,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                 <div
                   data-testid="context-meter"
                   style={{
-                    padding: "0.25rem 1.5rem",
+                    padding: "0.375rem 1.5rem 0.625rem",
                     borderTop: "1px solid rgba(0, 0, 0, 0.06)",
                     background: "rgba(255, 255, 255, 0.95)",
                     display: "flex",
@@ -1424,13 +1498,17 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       )
                     )}
                   </AnimatePresence>
+                  {mentionPopover}
                   <InputRow>
                     <EnhancedChatInput
                       ref={inputRef}
                       rows={1}
                       value={newMessage}
                       onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                        setNewMessage(e.target.value);
+                        const value = e.target.value;
+                        setNewMessage(value);
+                        const caret = e.target.selectionStart ?? value.length;
+                        handleMentionValueChange(value, caret);
                         // Defer measurement until after React commits the new
                         // value so scrollHeight reflects the typed content.
                         setTimeout(adjustInputHeight, 0);
@@ -1456,6 +1534,7 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       }}
                     />
                     <EnhancedSendButton
+                      $hasText={!!newMessage.trim()}
                       disabled={
                         !wsReady ||
                         !newMessage.trim() ||
@@ -1465,7 +1544,14 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
                       onClick={sendMessageOverSocket}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      animate={wsReady ? { y: [0, -2, 0] } : {}}
+                      animate={
+                        wsReady &&
+                        !!newMessage.trim() &&
+                        !isProcessing &&
+                        !contextExhausted
+                          ? { y: [0, -2, 0] }
+                          : {}
+                      }
                       transition={{ duration: 0.2 }}
                     >
                       <Send size={20} />
