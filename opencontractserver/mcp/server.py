@@ -147,7 +147,17 @@ def _build_www_authenticate_header(scope: MutableMapping[str, Any]) -> bytes:
     scheme = forwarded_proto.decode("ascii", errors="ignore") or scope.get(
         "scheme", "http"
     )
-    base_url = f"{scheme}://{host.decode('ascii', errors='ignore')}"
+    # Defensive: a misconfigured reverse proxy could forward a ``Host``
+    # carrying ``"``, ``\r``, or ``\n``. The HTTP spec disallows those in
+    # an authority, but stripping them here keeps the ``WWW-Authenticate``
+    # value well-formed and closes a header-injection vector cheaply.
+    raw_host = host.decode("ascii", errors="ignore")
+    safe_host = (
+        raw_host.replace('"', "").replace("\r", "").replace("\n", "").replace(" ", "")
+    )
+    if not safe_host:
+        return realm
+    base_url = f"{scheme}://{safe_host}"
     metadata_url = f"{base_url}/.well-known/oauth-protected-resource"
     return (f'Bearer realm="opencontracts", resource_metadata="{metadata_url}"').encode(
         "ascii", errors="ignore"
@@ -1455,6 +1465,14 @@ def create_mcp_asgi_app() -> ASGIApp:
                         ).encode(),
                     }
                 )
+                # 401 path: only ``_mcp_asgi_scope`` has been set; the
+                # ``_mcp_user`` ContextVar isn't touched until the line
+                # below, so there's nothing to reset for it here. If a
+                # third ContextVar is ever introduced between
+                # ``_mcp_asgi_scope.set`` (line ~1429) and
+                # ``_mcp_user.set`` (line ~1471), this early-return
+                # branch MUST grow a matching ``.reset`` for it — there
+                # is no try/finally encompassing the 401 path.
                 _mcp_asgi_scope.reset(_scope_token)
                 return
 
