@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { NavBar } from "@os-legal/ui";
 import type { NavItem, UserMenuItem } from "@os-legal/ui";
 import { useNavigate } from "react-router-dom";
@@ -245,6 +245,7 @@ export const NavMenu = () => {
     <>
       <style>{navbarCustomStyles}</style>
       <UserSettingsModal />
+      <NavbarHeightSync />
       <NavBar
         logo={logoNode}
         brandName="Open Contracts"
@@ -266,4 +267,56 @@ export const NavMenu = () => {
       />
     </>
   );
+};
+
+/**
+ * Keeps the global `--oc-navbar-height` CSS variable in sync with the
+ * actual rendered height of the `.oc-navbar` element. The variable is
+ * seeded in index.css with a static estimate (72px desktop / 60px mobile),
+ * but the real navbar uses `padding: 12px 24px; flex-wrap: wrap`, so the
+ * actual height shifts with content/wrapping and breakpoint.
+ *
+ * Consumers of viewport-bounded layouts (CorpusViewContainer min-height,
+ * CorpusChat tab height, CorpusQueryView's COMPOSER_MAX_HEIGHT, etc.)
+ * subtract this variable from 100vh — when it lags the real height by
+ * even a few pixels, the document gains a small scrollable strip below
+ * the viewport.
+ */
+const NavbarHeightSync: React.FC = () => {
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  useLayoutEffect(() => {
+    const navbar = document.querySelector<HTMLElement>(".oc-navbar");
+    if (!navbar) return;
+
+    const sync = () => {
+      const h = navbar.offsetHeight;
+      if (h > 0) {
+        document.documentElement.style.setProperty(
+          "--oc-navbar-height",
+          `${h}px`
+        );
+      }
+    };
+
+    sync();
+    observerRef.current = new ResizeObserver(sync);
+    observerRef.current.observe(navbar);
+
+    return () => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+    };
+  }, []);
+
+  // Reset the inline override on unmount so the index.css default
+  // re-applies if the desktop navbar disappears (e.g. on mobile resize).
+  useEffect(
+    () => () => {
+      document.documentElement.style.removeProperty("--oc-navbar-height");
+    },
+    []
+  );
+
+  return null;
 };

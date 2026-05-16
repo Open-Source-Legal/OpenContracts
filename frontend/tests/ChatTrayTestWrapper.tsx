@@ -3,6 +3,7 @@ import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { Provider as JotaiProvider } from "jotai";
 import { MemoryRouter } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
 import { ChatTray } from "../src/components/knowledge_base/document/right_tray/ChatTray";
 import { authToken, userObj } from "../src/graphql/cache";
 import { relayStylePagination } from "@apollo/client/utilities";
@@ -67,14 +68,16 @@ export const ChatTrayTestWrapper: React.FC<ChatTrayTestWrapperProps> = ({
     <MemoryRouter initialEntries={initialEntries}>
       <JotaiProvider>
         <MockedProvider mocks={mocks} cache={createCache()} addTypename={true}>
-          <div style={{ height: "100vh", width: "100%", display: "flex" }}>
-            <ChatTray
-              documentId={documentId}
-              corpusId={corpusId}
-              onMessageSelect={onMessageSelect}
-              initialMessage={initialMessage}
-            />
-          </div>
+          <MotionConfig reducedMotion="always">
+            <div style={{ height: "100vh", width: "100%", display: "flex" }}>
+              <ChatTray
+                documentId={documentId}
+                corpusId={corpusId}
+                onMessageSelect={onMessageSelect}
+                initialMessage={initialMessage}
+              />
+            </div>
+          </MotionConfig>
         </MockedProvider>
       </JotaiProvider>
     </MemoryRouter>
