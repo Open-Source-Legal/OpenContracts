@@ -951,41 +951,25 @@ def calculate_embedding_for_note_text(
 # --------------------------------------------------------------------------- #
 
 
-def synthesize_relationship_block_text(
-    relationship: Relationship,
+def join_block_text_parts(
+    chunks: list[str],
     *,
     max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
 ) -> str:
-    """Build the embedder-facing string for a ``Relationship``.
+    """Newline-join non-empty strings, truncated at ``max_chars``.
 
-    The string is ``source.raw_text`` followed by each target's ``raw_text``
-    on its own line, truncated to ``max_chars``. Target ordering is by ID so
-    re-embedding the same relationship produces a stable input string — that
-    way ``add_embedding``'s idempotent upsert short-circuits unchanged
-    inputs instead of overwriting equivalent vectors.
+    Shared by every code path that surfaces an OC_SUBTREE_GROUP's block
+    text — the embedder (so the vector reflects what we'll later show),
+    the relationship-vector-store result shaper, and the annotation
+    vector store's block-context attach. Centralising here keeps the
+    cap/truncation rules from drifting across three call sites.
 
-    Empty strings (e.g. when a structural annotation has no raw text yet
-    because the parser only attached page coordinates) are dropped before
-    joining so we don't pollute the embedding with stray newlines.
-
-    The same helper is used by the GraphQL-facing
-    ``CoreAnnotationVectorStore._attach_block_context_sync`` path; centralising
-    it here means the embedder and the surfaced "block text" never drift.
+    Empty strings are skipped so a partially-parsed structural annotation
+    with no raw text yet doesn't inject stray newlines.
     """
-    sources = list(
-        relationship.source_annotations.order_by("id").values_list(
-            "raw_text", flat=True
-        )
-    )
-    targets = list(
-        relationship.target_annotations.order_by("id").values_list(
-            "raw_text", flat=True
-        )
-    )
-
     parts: list[str] = []
     running = 0
-    for chunk in [*sources, *targets]:
+    for chunk in chunks:
         if not chunk:
             continue
         if running == 0:
@@ -1007,6 +991,49 @@ def synthesize_relationship_block_text(
         running += 1 + len(chunk)
 
     return "\n".join(parts)
+
+
+def synthesize_relationship_block_text(
+    relationship: Relationship,
+    *,
+    max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+) -> str:
+    """Build the embedder-facing string for a ``Relationship``.
+
+    The string is ``source.raw_text`` followed by each target's ``raw_text``
+    on its own line, truncated to ``max_chars``. Target ordering is by ID so
+    re-embedding the same relationship produces a stable input string — that
+    way ``add_embedding``'s idempotent upsert short-circuits unchanged
+    inputs instead of overwriting equivalent vectors.
+
+    Delegates the cap/truncation logic to :func:`join_block_text_parts`, which
+    is also called from the GraphQL-facing vector-store paths so all three
+    code paths produce byte-identical output for the same inputs.
+
+    When the caller has prefetched ``source_annotations`` /
+    ``target_annotations`` with ``Prefetch(queryset=Annotation.objects.order_by("id"))``,
+    we read ``raw_text`` from the prefetched objects directly so the
+    helper costs zero extra queries; otherwise the ``order_by("id")``
+    falls back to fresh DB hits with deterministic ordering.
+    """
+    src_qs = relationship.source_annotations
+    tgt_qs = relationship.target_annotations
+    prefetched = getattr(relationship, "_prefetched_objects_cache", None) or {}
+    if "source_annotations" in prefetched:
+        sources: list[str] = [a.raw_text or "" for a in src_qs.all()]
+    else:
+        sources = [
+            (text or "")
+            for text in src_qs.order_by("id").values_list("raw_text", flat=True)
+        ]
+    if "target_annotations" in prefetched:
+        targets: list[str] = [a.raw_text or "" for a in tgt_qs.all()]
+    else:
+        targets = [
+            (text or "")
+            for text in tgt_qs.order_by("id").values_list("raw_text", flat=True)
+        ]
+    return join_block_text_parts([*sources, *targets], max_chars=max_chars)
 
 
 def _embed_relationship(
@@ -1117,9 +1144,22 @@ def calculate_embeddings_for_relationship_batch(
         embedder_path,
     )
 
+    # Pre-order the M2M prefetches by id so they share their cache with
+    # the ``order_by("id")`` querysets inside ``synthesize_relationship_block_text``.
+    # Without this match the helper re-fetches both M2M sides per call —
+    # 2 extra queries × N relationships in one Celery task.
+    from django.db.models import Prefetch
+
     relationships = list(
         Relationship.objects.filter(pk__in=relationship_ids).prefetch_related(
-            "source_annotations", "target_annotations"
+            Prefetch(
+                "source_annotations",
+                queryset=Annotation.objects.order_by("id"),
+            ),
+            Prefetch(
+                "target_annotations",
+                queryset=Annotation.objects.order_by("id"),
+            ),
         )
     )
     rel_map = {r.pk: r for r in relationships}

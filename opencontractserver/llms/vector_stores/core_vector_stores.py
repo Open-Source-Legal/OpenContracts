@@ -7,7 +7,7 @@ from typing import Any, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q
+from django.db.models import Q
 
 from opencontractserver.annotations.models import (
     Annotation,
@@ -16,7 +16,6 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.constants.annotations import (
     OC_SUBTREE_GROUP_LABEL_NAME,
-    SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
 )
 from opencontractserver.constants.search import (
     FTS_CONFIG,
@@ -31,6 +30,7 @@ from opencontractserver.pipeline.base.reranker import (
     safe_rerank,
 )
 from opencontractserver.shared.QuerySets import AnnotationQuerySet
+from opencontractserver.tasks.embeddings_task import join_block_text_parts
 from opencontractserver.types.protocols import VectorStoreProtocol
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
@@ -670,7 +670,6 @@ class CoreAnnotationVectorStore:
                 structural=True,
                 target_annotations__in=hit_ids,
             )
-            .annotate(descendant_count=Count("target_annotations"))
             .prefetch_related("source_annotations", "target_annotations")
             .distinct()
         )
@@ -681,14 +680,17 @@ class CoreAnnotationVectorStore:
         # ``best_for_hit`` keys on annotation_id; value is (descendant_count,
         # relationship_obj). Tie-break on relationship pk for determinism so
         # snapshot tests don't flake when two groups share a descendant count.
+        #
+        # We deliberately compute ``descendant_count`` from the prefetched
+        # ``target_annotations`` rather than via ``Count("target_annotations")``
+        # in the queryset. With ``target_annotations__in=hit_ids`` already
+        # joined, Django's COUNT on the same M2M is restricted by the join
+        # and would return only the matching subset (i.e. always 1 here),
+        # collapsing the "smallest enclosing" tie-break to the lowest pk.
         best_for_hit: dict[int, tuple[int, Relationship]] = {}
         for group in groups:
-            descendant_count = getattr(group, "descendant_count", None)
-            if descendant_count is None:
-                # Defensive fallback: the annotation should always be set,
-                # but if Django ever drops the annotation we recompute here.
-                descendant_count = group.target_annotations.count()
             target_ids_in_group = {a.id for a in group.target_annotations.all()}
+            descendant_count = len(target_ids_in_group)
             for hit_id in hit_ids & target_ids_in_group:
                 existing = best_for_hit.get(hit_id)
                 if existing is None:
@@ -737,31 +739,14 @@ class CoreAnnotationVectorStore:
                 continue
             target_ann_ids = sorted(a.id for a in hit_group.target_annotations.all())
             source_text = ann_text_map.get(source_ann.id, "") or ""
-            # Concatenate source + targets newline-separated, bounded by
-            # SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS. Order targets by ID for
-            # deterministic snapshots; the materialiser doesn't preserve a
-            # semantic ordering so any stable choice is fine.
-            parts: list[str] = []
-            running = 0
-            if source_text:
-                parts.append(source_text)
-                running = len(source_text)
-            for tid in target_ann_ids:
-                t_text = ann_text_map.get(tid, "") or ""
-                if not t_text:
-                    continue
-                # +1 for the newline separator we'd add on join.
-                if running + 1 + len(t_text) > SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS:
-                    # Truncate the final piece so we land exactly on the cap
-                    # instead of dropping the tail wholesale — useful when
-                    # the last target carries the meaningful continuation.
-                    remaining = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS - running - 1
-                    if remaining > 0:
-                        parts.append(t_text[:remaining])
-                    break
-                parts.append(t_text)
-                running += 1 + len(t_text)
-            block_text = "\n".join(parts)
+            # Order targets by ID for deterministic snapshots; the
+            # materialiser doesn't preserve a semantic ordering so any
+            # stable choice is fine. ``join_block_text_parts`` enforces
+            # SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS identically to the
+            # embedder so block_text matches what was indexed.
+            chunks: list[str] = [source_text]
+            chunks.extend(ann_text_map.get(tid, "") or "" for tid in target_ann_ids)
+            block_text = join_block_text_parts(chunks)
 
             r.block_context = BlockContext(
                 relationship_id=hit_group.pk,

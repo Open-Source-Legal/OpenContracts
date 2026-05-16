@@ -26,13 +26,13 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.constants.annotations import (
     OC_SUBTREE_GROUP_LABEL_NAME,
-    SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
 )
 from opencontractserver.constants.search import (
     DIM_TO_FIELD_MAP,
     HNSW_MAX_INDEXED_DIM,
     VALID_EMBEDDING_DIMS,
 )
+from opencontractserver.tasks.embeddings_task import join_block_text_parts
 from opencontractserver.utils.embeddings import (
     agenerate_embeddings_from_text,
     generate_embeddings_from_text,
@@ -123,15 +123,8 @@ class CoreRelationshipVectorStore:
                 embedder_path=embedder_path
             )
         else:
-            if corpus_id is None:
-                # Belt-and-braces — the constructor check above already
-                # rules this out, but ``python -O`` would strip an
-                # ``assert`` and we'd silently pass None into
-                # get_embedder().
-                raise RuntimeError(
-                    "internal invariant violated: corpus_id is None on the "
-                    "embedder-path-absent branch"
-                )
+            # The constructor-level guard above rules out
+            # ``corpus_id is None`` here.
             embedder_class, detected_embedder_path = get_embedder(
                 corpus_id=corpus_id,
             )
@@ -353,35 +346,14 @@ class CoreRelationshipVectorStore:
             targets = list(r.target_annotations.all())
             source_id = sources[0].id if sources else None
             target_ids = sorted(t.id for t in targets)
-            # Build block_text the same way the embedder did so GraphQL
-            # clients always see a string that exactly matches the
-            # embedded payload (modulo target-ordering, which we already
-            # pinned to ``ORDER BY id``).
-            parts: list[str] = []
-            running = 0
-            ann_text = {}
-            for ann in [*sources, *targets]:
-                ann_text[ann.id] = ann.raw_text or ""
-            for ann_id in ([source_id] if source_id is not None else []) + target_ids:
-                t = ann_text.get(ann_id, "") or ""
-                if not t:
-                    continue
-                if running == 0:
-                    if len(t) >= SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS:
-                        parts.append(t[:SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS])
-                        running = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS
-                        break
-                    parts.append(t)
-                    running = len(t)
-                    continue
-                if running + 1 + len(t) > SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS:
-                    remaining = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS - running - 1
-                    if remaining > 0:
-                        parts.append(t[:remaining])
-                    break
-                parts.append(t)
-                running += 1 + len(t)
-            block_text = "\n".join(parts)
+            # Order: source(s) first then targets by id — matches
+            # ``synthesize_relationship_block_text`` so the surfaced
+            # block_text mirrors what the embedder saw exactly.
+            ann_text = {ann.id: (ann.raw_text or "") for ann in [*sources, *targets]}
+            ordered_ids = ([source_id] if source_id is not None else []) + target_ids
+            block_text = join_block_text_parts(
+                [ann_text.get(aid, "") or "" for aid in ordered_ids]
+            )
 
             # ``corpus_id`` may be NULL on structural relationships; we
             # do a best-effort lookup via the structural set so corpus-
@@ -397,7 +369,7 @@ class CoreRelationshipVectorStore:
             results.append(
                 RelationshipVectorSearchResult(
                     relationship=r,
-                    similarity_score=getattr(r, "similarity_score", 1.0),
+                    similarity_score=r.similarity_score,  # type: ignore[attr-defined]
                     source_annotation_id=source_id,
                     target_annotation_ids=target_ids,
                     block_text=block_text,
@@ -424,11 +396,11 @@ class CoreRelationshipVectorStore:
         """
         # Embedding embeddings are joined on ``Embedding.embedder_path``
         # so the visible-Relationship queryset doesn't need to know
-        # which embedder we're searching. Build it first to short-circuit
-        # the embedding lookup when permissions deny everything.
+        # which embedder we're searching. ``_build_visible_relationship_qs``
+        # already returns ``Relationship.objects.none()`` for every
+        # denial branch, so ``_run_vector_search`` will yield an empty
+        # list without us needing a separate COUNT.
         visible_qs = self._build_visible_relationship_qs(query.label_texts)
-        if not visible_qs.exists():
-            return []
 
         vector = query.query_embedding
         if vector is None and query.query_text is not None:

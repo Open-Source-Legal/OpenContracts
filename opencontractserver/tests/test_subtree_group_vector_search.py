@@ -173,13 +173,16 @@ class BlockContextAttachTestCase(TestCase):
 
     def test_block_text_is_bounded(self) -> None:
         """Block text truncates at the cap regardless of underlying length."""
-        # Inflate the LEAF text so concatenation exceeds the cap. The
-        # helper should produce exactly cap-char output, never more.
+        # Inflate the LEAF text so concatenation exceeds the cap. We
+        # mutate a fresh DB-refreshed instance so the shared
+        # ``cls.leaf`` in-memory object isn't dirtied for sibling tests.
+        # The TestCase transaction rolls back the DB write at teardown.
         big = "x" * (SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS + 100)
-        self.leaf.raw_text = big
-        self.leaf.save(update_fields=["raw_text"])
+        leaf = Annotation.objects.get(pk=self.leaf.pk)
+        leaf.raw_text = big
+        leaf.save(update_fields=["raw_text"])
         results = CoreAnnotationVectorStore._attach_block_context_sync(
-            [_fake_result(self.leaf)]
+            [_fake_result(leaf)]
         )
         bc = results[0].block_context
         self.assertIsNotNone(bc)
@@ -388,15 +391,20 @@ class SynthesizeBlockTextTestCase(TestCase):
         self.assertEqual(text, "HEAD\nT1\nT2")
 
     def test_synthesize_truncates_at_cap(self) -> None:
-        # Bloat HEAD so source alone exceeds the cap.
-        self.src.raw_text = "x" * (SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS + 50)
-        self.src.save(update_fields=["raw_text"])
+        # Bloat HEAD so source alone exceeds the cap. Mutate a refetched
+        # row so the shared in-memory ``cls.src`` isn't dirtied — the
+        # TestCase transaction rolls the DB change back at teardown.
+        src = Annotation.objects.get(pk=self.src.pk)
+        src.raw_text = "x" * (SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS + 50)
+        src.save(update_fields=["raw_text"])
         text = synthesize_relationship_block_text(self.rel)
         self.assertLessEqual(len(text), SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS)
 
     def test_synthesize_skips_empty_components(self) -> None:
         # Empty raw_text on T1 should be dropped (no blank line).
-        self.t1.raw_text = ""
-        self.t1.save(update_fields=["raw_text"])
+        # Mutate a refetched row so ``cls.t1`` isn't dirtied.
+        t1 = Annotation.objects.get(pk=self.t1.pk)
+        t1.raw_text = ""
+        t1.save(update_fields=["raw_text"])
         text = synthesize_relationship_block_text(self.rel)
         self.assertEqual(text, "HEAD\nT2")

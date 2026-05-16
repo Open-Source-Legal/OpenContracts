@@ -35,6 +35,7 @@ import {
 import { allRelationsAtom } from "../../../annotator/context/AnnotationAtoms";
 import { useAnnotationRefs } from "../../../annotator/hooks/useAnnotationRefs";
 import { RelationGroup } from "../../../annotator/types/annotations";
+import { getNumericIdFromGlobalId } from "../../../../utils/idValidation";
 
 export function useJumpToRelationship(): void {
   const relId = useReactiveVar(selectedRelationshipId);
@@ -53,9 +54,11 @@ export function useJumpToRelationship(): void {
       // ``rel=`` was cleared — drop any URL-driven selection so the
       // viewer reverts to the user's local interaction state. We don't
       // touch ``setSelectedAnnotations`` here because that's driven by
-      // the ``ann=`` param via its own routing path.
+      // the ``ann=`` param via its own routing path. Also clear the
+      // hover indicator since we set it when applying the jump.
       if (lastAppliedRef.current !== null) {
         setSelectedRelations([]);
+        setHoveredAnnotationId(null);
         lastAppliedRef.current = null;
       }
       return;
@@ -66,9 +69,21 @@ export function useJumpToRelationship(): void {
       return;
     }
 
-    const match: RelationGroup | undefined = allRelations.find(
-      (r) => r.id === relId
-    );
+    // ``relId`` is a raw Django PK (URL convention, see ``cache.ts``)
+    // but ``RelationGroup.id`` carries the Relay global ID from
+    // GraphQL. Compare on the numeric PK so the deep-link actually
+    // matches.
+    const relPk = parseInt(relId, 10);
+    if (Number.isNaN(relPk)) {
+      return;
+    }
+    const match: RelationGroup | undefined = allRelations.find((r) => {
+      try {
+        return getNumericIdFromGlobalId(r.id) === relPk;
+      } catch {
+        return false;
+      }
+    });
     if (!match) {
       // Relations not yet loaded for this document. Bail out — the
       // effect will re-run when ``allRelations`` populates (it's an
