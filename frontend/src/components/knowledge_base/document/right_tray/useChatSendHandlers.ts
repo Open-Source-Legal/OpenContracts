@@ -14,7 +14,7 @@
  * surface co-located.
  */
 
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { ChatMessageProps } from "../../../widgets/chat/ChatMessage";
 import { CHAT_SEND_LOCK_MS } from "../../../../assets/configurations/constants";
 import type { PendingApproval } from "./ApprovalOverlay";
@@ -185,9 +185,16 @@ export function useChatSendHandlers({
     [sendTextOverSocket]
   );
 
-  return {
-    sendMessageOverSocket,
-    sendApprovalDecision,
-    sendTextImmediately,
-  };
+  // Memoize the bundle so callers can safely include it (or one of its
+  // members) in a ``useCallback`` / ``useMemo`` dependency array without
+  // forcing a fresh closure on every render. Matches the contract of the
+  // sibling ``useChatStreamHandlers`` hook.
+  return useMemo(
+    () => ({
+      sendMessageOverSocket,
+      sendApprovalDecision,
+      sendTextImmediately,
+    }),
+    [sendMessageOverSocket, sendApprovalDecision, sendTextImmediately]
+  );
 }

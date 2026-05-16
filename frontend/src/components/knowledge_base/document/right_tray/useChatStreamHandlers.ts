@@ -27,6 +27,10 @@ import type {
   MessageData,
   WebSocketSources,
 } from "../../../chat/types";
+import {
+  buildTimelineEntryFromAsyncThought,
+  deriveTimelineEntryType,
+} from "../../../widgets/chat/timelineEntryFactory";
 import { CHAT_AUTOSCROLL_THRESHOLD_PX } from "../../../../assets/configurations/constants";
 import type { PendingApproval } from "./ApprovalOverlay";
 
@@ -275,24 +279,24 @@ export function useChatStreamHandlers({
       const messageId = data?.message_id;
       if (!messageId || !thoughtText) return;
 
-      let entryType: TimelineEntry["type"] = "thought";
-      if (data?.compaction) {
-        entryType = "compaction";
+      const entryType = deriveTimelineEntryType(data);
+      if (entryType === "compaction" && data?.compaction) {
         setCompactionNotice({
           tokensBefore: data.compaction.tokens_before,
           tokensAfter: data.compaction.tokens_after,
           contextWindow: data.compaction.context_window,
         });
-      } else if (data?.tool_name && data?.args) entryType = "tool_call";
-      else if (data?.tool_name && !data?.args) entryType = "tool_result";
-
-      const newEntry: TimelineEntry = {
-        type: entryType,
-        text: thoughtText,
-        tool: data?.tool_name,
-        args: data?.args,
-        result: data?.tool_result,
-      };
+      }
+      // Shared factory forwards the rich-mention agent delegation hints
+      // (``agent_id`` / ``agent_slug``) onto the timeline entry so the
+      // renderer can swap the raw ``delegate_to_<slug>`` tool name for a
+      // styled ``@<slug>`` chip. Inlining the projection here was the
+      // pre-extraction state and silently dropped those fields.
+      const newEntry: TimelineEntry = buildTimelineEntryFromAsyncThought(
+        thoughtText,
+        data,
+        entryType
+      );
 
       setChat((prev) => {
         const idx = prev.findIndex((m) => m.messageId === messageId);

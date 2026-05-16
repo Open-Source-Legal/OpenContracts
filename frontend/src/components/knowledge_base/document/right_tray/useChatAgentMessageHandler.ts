@@ -66,6 +66,18 @@ export function useChatAgentMessageHandler({
 
   return useCallback(
     (event: MessageEvent) => {
+      // Server-controlled approval-decision values flow through three frames
+      // (top-level frame, ASYNC_APPROVAL_RESULT, ASYNC_FINISH). The wire type
+      // is loosely typed as a string, so we validate it once at the dispatch
+      // boundary rather than scattering ``as "approved" | "rejected"`` casts
+      // through every branch — an unexpected value (e.g. a future "deferred"
+      // or a typo) would otherwise propagate silently into
+      // ``updateMessageApprovalStatus`` and the chat row's
+      // ``approvalStatus`` field, both of which only model the two-state
+      // shape.
+      const asApprovalDecision = (v: unknown): "approved" | "rejected" | null =>
+        v === "approved" || v === "rejected" ? v : null;
+
       try {
         const messageData: MessageData = JSON.parse(event.data);
         if (!messageData) return;
@@ -73,10 +85,10 @@ export function useChatAgentMessageHandler({
         const currentApproval = pendingApprovalRef.current;
 
         if (data?.approval_decision && data?.message_id) {
-          updateMessageApprovalStatus(
-            data.message_id,
-            data.approval_decision as "approved" | "rejected"
-          );
+          const decision = asApprovalDecision(data.approval_decision);
+          if (decision !== null) {
+            updateMessageApprovalStatus(data.message_id, decision);
+          }
         }
 
         switch (msgType) {
@@ -145,10 +157,11 @@ export function useChatAgentMessageHandler({
             ) {
               setPendingApproval(null);
               setShowApprovalModal(false);
-              if (data?.decision) {
+              const decision = asApprovalDecision(data?.decision);
+              if (decision !== null) {
                 updateMessageApprovalStatus(
                   currentApproval.messageId,
-                  data.decision as "approved" | "rejected"
+                  decision
                 );
               }
             }
@@ -191,10 +204,13 @@ export function useChatAgentMessageHandler({
               data?.message_id === currentApproval.messageId
             ) {
               setPendingApproval(null);
-              if (data?.approval_decision) {
+              const finishDecision = asApprovalDecision(
+                data?.approval_decision
+              );
+              if (finishDecision !== null) {
                 updateMessageApprovalStatus(
                   currentApproval.messageId,
-                  data.approval_decision as "approved" | "rejected"
+                  finishDecision
                 );
               }
             }
