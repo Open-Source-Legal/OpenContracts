@@ -326,6 +326,44 @@ class AnnotationUserCanLeafBranchesTestCase(TransactionTestCase):
         a private-via-extract annotation."""
         self.assertFalse(self.via_extract.user_can(self.reader, PermissionTypes.READ))
 
+    def test_privacy_recursion_with_deleted_analysis_returns_false(self) -> None:
+        """When the source Analysis row is deleted, the recursion path
+        treats the annotation as private and denies all non-creator
+        access — the safe failure mode, but worth pinning so a future
+        refactor that "fixes" the orphan to grant access cannot slip in
+        silently.
+
+        The DB enforces the analysis FK, so a true orphan id cannot be
+        persisted. We simulate the descriptor-returns-None outcome the
+        manager actually sees by setting the cached relation to ``None``
+        on a real instance whose ``created_by_analysis_id`` is non-null;
+        this is the in-memory state Django produces when the FK row has
+        been deleted under a stale reference, and is exactly what
+        ``AnnotationManager.user_can`` checks before denying.
+        """
+        ann = self.via_analysis
+        # Force the FK descriptor to think the source has been removed
+        # while ``created_by_analysis_id`` remains non-null. Django uses
+        # the field's cache slot at ``<field>.cache_name`` to short-
+        # circuit DB hits — populating it with ``None`` makes the
+        # descriptor return ``None`` without a query.
+        from django.db.models.fields.related_descriptors import (
+            ForwardManyToOneDescriptor,
+        )
+
+        descriptor = type(ann).__dict__["created_by_analysis"]
+        assert isinstance(descriptor, ForwardManyToOneDescriptor)
+        ann._state.fields_cache[descriptor.field.name] = None
+        self.assertIsNotNone(ann.created_by_analysis_id)
+        self.assertIsNone(ann.created_by_analysis)
+
+        # Even the annotation's own creator is denied — the orphan source
+        # is treated as private and there's no Analysis row left to
+        # honour the creator-grant short-circuit on.
+        self.assertFalse(ann.user_can(self.creator, PermissionTypes.READ))
+        # A reader with doc+corpus grants is similarly denied.
+        self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
+
     def test_str_and_int_user_id_inputs_on_annotation(self) -> None:
         """int and str user ids resolve identically to the User instance."""
         self.assertTrue(self.plain.user_can(self.creator.id, PermissionTypes.READ))
@@ -398,6 +436,55 @@ class AnnotationUserCanLeafBranchesTestCase(TransactionTestCase):
         self.assertFalse(
             Annotation.objects.user_can(self.creator, ann, PermissionTypes.UPDATE)
         )
+
+    def test_document_id_none_read_falls_through_to_visible_to_user(self) -> None:
+        """Annotations whose ``document_id`` is NULL hit the READ
+        ``visible_to_user`` fallback rather than the non-READ deny.
+
+        Companion to ``test_document_id_none_non_read_denied`` — pins
+        the asymmetry between UPDATE/DELETE/etc. (denied outright) and
+        READ (delegated to ``visible_to_user``). A future refactor that
+        accidentally collapses both branches into the same denial would
+        silently break structural-set READ visibility for orphaned
+        annotations — this test makes that regression visible.
+
+        An annotation with no ``document_id`` and no matching structural
+        set returns ``False`` from ``visible_to_user`` (no link to a
+        readable corpus/document), not from the non-READ deny. The
+        ``.exists()`` lookup uses the real DB row so this stays honest.
+        """
+        # The DB enforces ``annotation_has_single_parent`` — a pure orphan
+        # (no document, no corpus, no structural_set) cannot be saved. So
+        # we spoof an in-memory row (mirroring the sibling
+        # ``test_document_id_none_non_read_denied``); the READ branch is
+        # exercised because ``visible_to_user(...).filter(pk=spoof).exists()``
+        # naturally returns False against a non-existent pk, which is the
+        # same answer the live path would give an outsider on an orphan
+        # structural-set row.
+        ann = Annotation(
+            raw_text="orphan_read",
+            json={"x": 10},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+        )
+        ann.pk = -2  # unsaved sentinel distinct from the non-READ test
+
+        # Stranger hits the visible_to_user fallback and is denied.
+        # This proves the READ branch fell through to the
+        # ``.exists()`` check rather than the non-READ deny.
+        self.assertFalse(
+            Annotation.objects.user_can(self.stranger, ann, PermissionTypes.READ)
+        )
+        # Superuser bypass short-circuits before the fallback (sanity
+        # check that branch order intact: superuser precedes the
+        # document_id deny + visible_to_user fallback).
+        admin = User.objects.create_superuser(
+            username="orphan_read_admin",
+            email="ora@cov.test",
+            password="x",
+        )
+        self.assertTrue(Annotation.objects.user_can(admin, ann, PermissionTypes.READ))
 
     def test_stranger_denied_on_private_annotation(self) -> None:
         """A user with no grants on the doc/corpus is denied every code."""

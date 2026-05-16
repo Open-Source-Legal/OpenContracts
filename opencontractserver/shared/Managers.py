@@ -989,6 +989,12 @@ class RelationshipManager(BaseVisibilityManager):
         behavior widening beyond the scope of Phase A. If/when that
         widening is desired, mirror the annotation branch and pin a
         new invariant test.
+
+        TODO(Phase-C, issue #1655 follow-up): mirror the privacy
+        recursion already wired into ``AnnotationManager.user_can`` so
+        analysis-/extract-rooted relationships honour their source's
+        creator/grant semantics rather than only the doc+corpus MIN.
+        Until then this omission is intentional, not an oversight.
         """
         from django.contrib.auth.models import AnonymousUser
 

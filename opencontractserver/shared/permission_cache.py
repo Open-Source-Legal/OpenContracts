@@ -72,6 +72,20 @@ def permission_cache_scope():
     WebSocket message handler — entering before any permission check
     runs and exiting before any mutation.
 
+    **Mutation-invalidation contract (Phase B activation hazard).** The
+    cache does NOT invalidate on writes. Calling
+    ``set_permissions_for_obj_to_user``, guardian's ``assign_perm`` /
+    ``remove_perm``, or anything that adds the user to a group inside
+    the scope leaves stale boolean answers in the cache. Any subsequent
+    ``user_can`` check on the same ``(user, instance, permission)`` tuple
+    will return the pre-mutation value until the scope exits. The Phase B
+    wire-up MUST therefore enter the scope **after** all mutations land
+    (or split read- and write-phases of the request) — there is no
+    safety net here. This intentional simplicity is the reason the
+    scope ships dormant in Phase A: it gives us time to audit every
+    activation site for accidental mid-scope writes before flipping it
+    on.
+
     Nested scopes are supported (each ``set`` allocates a fresh dict
     bound to the outer scope's token); on exit, the previous scope's
     cache is restored. The default ``None`` is restored at the outermost
