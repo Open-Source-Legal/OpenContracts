@@ -6,6 +6,16 @@ Corpus Actions automate processing when specific events occur in a corpus. You c
 2. **Analyzer-based Analyses** - Run classification or annotation analyzers
 3. **Agent-based Actions** - Invoke AI agents with pre-authorized tools
 
+> **Tip:** Agent-based actions can now *delegate* to fieldset extracts and
+> analyzer runs through the
+> `start_extract` / `start_analysis` tools (see
+> [LLM tools docs](../architecture/llms/README.md#extract--analyzer-tools)).
+> This lets a single agent action read a new document, decide what it is,
+> and then queue the appropriate configured extract — without having to
+> hard-code one specific Fieldset on the action itself. Add the tools to
+> the action's `pre_authorized_tools` (e.g. `["start_extract"]`) to skip
+> approval prompts in the automation path.
+
 ## Trigger Types
 
 | Trigger | Event | Supported Actions |

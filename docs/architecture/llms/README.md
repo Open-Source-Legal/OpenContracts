@@ -598,6 +598,88 @@ agent = await agents.for_document(
 )
 ```
 
+#### Extract & Analyzer Tools
+
+Agents can also discover and dispatch **Extracts** (Fieldset-driven structured-data
+extractions) and **Analyses** (Gremlin or task-based analyzers) — the same actions a
+human triggers from the UI or a static `CorpusAction`. These tools live in
+[`tools/core_tools/extracts_and_analyzers.py`](../../../opencontractserver/llms/tools/core_tools/extracts_and_analyzers.py)
+and slot into the standard registry alongside notes, summaries, and annotations.
+
+| Tool | Category | Approval | Requires write | Purpose |
+|------|----------|----------|----------------|---------|
+| `list_fieldsets` | extracts | – | – | List Fieldsets visible to the user, with column metadata, so the agent can pick one |
+| `start_extract` | extracts | ✓ | ✓ | Create a new `Extract` from an existing `fieldset_id` and queue `run_extract` |
+| `list_recent_extracts` | extracts | – | – | Most recent Extracts on this corpus, with status |
+| `list_analyzers` | analyzers | – | – | List non-disabled Analyzers visible to the user |
+| `start_analysis` | analyzers | ✓ | ✓ | Run an existing Analyzer; mirrors `process_analyzer` |
+| `list_recent_analyses` | analyzers | – | – | Most recent Analyses on this corpus, with status |
+
+**Design rules:**
+
+- The agent **picks from configured Fieldsets/Analyzers** — it cannot invent
+  new column schemas or analyzers. This keeps the run surface aligned with
+  what the corpus admin has explicitly defined.
+- All six tools require corpus context (`requires_corpus=True`); they are
+  filtered out for standalone documents.
+- `start_extract` and `start_analysis` are gated by the standard approval
+  flow (`requires_approval=True`) and require WRITE permission on the
+  corpus (`requires_write_permission=True`). In an agent-based
+  `CorpusAction`, list them under `pre_authorized_tools` to skip the
+  approval prompt.
+- Document scope follows the agent context:
+    - **Corpus agent**: omitting `document_ids` runs on the full corpus.
+    - **Document agent**: omitting `document_ids` runs on the current
+      document only. Any `document_ids` the LLM passes are intersected
+      with `corpus.get_documents()` so the agent cannot reach documents
+      outside its scope.
+- Both run tools dispatch the same Celery pipeline as their GraphQL
+  counterparts (`StartExtract`, `StartDocumentAnalysisMutation`) — same
+  `Extract` / `Analysis` records, same permissions, same
+  `corpus_action_id` lineage tracking.
+
+**Example: discover and run an extract**
+
+```python
+from opencontractserver.llms import agents
+
+agent = await agents.for_corpus(
+    corpus=corpus_id,
+    user_id=user_id,
+    tools=[
+        "list_fieldsets",
+        "start_extract",
+        "list_recent_extracts",
+        "list_analyzers",
+        "start_analysis",
+        "list_recent_analyses",
+    ],
+)
+
+# The agent will call list_fieldsets to pick a Fieldset, then call
+# start_extract with the chosen fieldset_id. The approval modal surfaces
+# the tool name + arguments to the user before execution.
+async for event in agent.stream("Run the standard MSA extract on this corpus"):
+    ...
+```
+
+**Opt-in for CorpusActions**
+
+These tools are **not** added to `DEFAULT_DOCUMENT_ACTION_TOOLS`. To let
+an agent-based `CorpusAction` dispatch extracts/analyses automatically on
+new documents, list them on the `CorpusAction`:
+
+```python
+CorpusAction.objects.create(
+    corpus=corpus,
+    creator=user,
+    trigger=CorpusActionTrigger.ADD_DOCUMENT,
+    agent_config=my_agent_config,           # or task_instructions=...
+    task_instructions="If this is an MSA, run the MSA extract.",
+    pre_authorized_tools=["start_extract"], # skips approval for this tool
+)
+```
+
 #### Framework-Specific Tools
 
 The framework automatically converts tools to the appropriate format. `CoreTool` objects are converted to framework-specific wrappers via `UnifiedToolFactory.create_tool()` in [`tools/tool_factory.py`](../../../opencontractserver/llms/tools/tool_factory.py). For PydanticAI, this produces `PydanticAIToolWrapper` instances (see [`tools/pydantic_ai_tools.py`](../../../opencontractserver/llms/tools/pydantic_ai_tools.py)).

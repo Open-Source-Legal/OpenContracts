@@ -67,6 +67,20 @@ from .document_summaries import (  # noqa: F401
     update_document_summary,
 )
 from .documents import amove_document, move_document  # noqa: F401
+from .extracts_and_analyzers import (  # noqa: F401
+    alist_analyzers,
+    alist_fieldsets,
+    alist_recent_analyses,
+    alist_recent_extracts,
+    astart_analysis,
+    astart_extract,
+    list_analyzers,
+    list_fieldsets,
+    list_recent_analyses,
+    list_recent_extracts,
+    start_analysis,
+    start_extract,
+)
 from .links import acreate_markdown_link, create_markdown_link  # noqa: F401
 from .md_summaries import (  # noqa: F401
     aget_md_summary_token_length,
@@ -188,6 +202,19 @@ __all__ = [
     # Document movement
     "amove_document",
     "move_document",
+    # Extracts & analyzers
+    "alist_analyzers",
+    "alist_fieldsets",
+    "alist_recent_analyses",
+    "alist_recent_extracts",
+    "astart_analysis",
+    "astart_extract",
+    "list_analyzers",
+    "list_fieldsets",
+    "list_recent_analyses",
+    "list_recent_extracts",
+    "start_analysis",
+    "start_extract",
     # Corpus memory
     "aget_corpus_memory",
     "asuggest_memory_update",

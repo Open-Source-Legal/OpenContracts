@@ -15,6 +15,13 @@ Everything is orchestrated by two Celery tasks:
 - **`run_extract`** – creates individual cells and queues work
 - **`doc_extract_query_task`** – performs the actual extraction using our agent framework
 
+> **LLM agents can also dispatch extracts.** The
+> [`list_fieldsets` / `start_extract`](../architecture/llms/README.md#extract--analyzer-tools)
+> agent tools wrap the same `run_extract` pipeline — letting a chat agent
+> or an agent-based `CorpusAction` pick from configured Fieldsets and
+> queue an extract under the standard approval gate. The tools always
+> pick from existing Fieldsets; they never invent new column schemas.
+
 ## Data Models
 
 All models are defined in [`opencontractserver/extracts/models.py`](../../opencontractserver/extracts/models.py).
