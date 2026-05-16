@@ -1,3 +1,4 @@
+import functools
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Optional, TypeVar, Union, cast
@@ -958,14 +959,26 @@ def _embed_relationship(
     relationship: Relationship,
     embedder: BaseEmbedder,
     embedder_path: str,
+    *,
+    precomputed_text: str | None = None,
 ) -> bool:
     """Embed a single Relationship using ``synthesize_relationship_block_text``.
 
     Returns ``True`` on success, ``False`` on any failure. Mirrors the
     contract of ``_create_text_embedding`` for annotations so the dual-
     embedding helper can reuse the same call pattern.
+
+    ``precomputed_text`` lets callers thread a single text synthesis
+    through the dual-embedding strategy — without it the function
+    would re-synthesize the block text on every embedder pass
+    (default + corpus-preferred), which is wasted work when batches
+    grow.
     """
-    text = synthesize_relationship_block_text(relationship)
+    text = (
+        precomputed_text
+        if precomputed_text is not None
+        else synthesize_relationship_block_text(relationship)
+    )
     if not text.strip():
         logger.info(
             "Relationship %s has no text to embed (no non-empty source/target "
@@ -1124,13 +1137,21 @@ def calculate_embeddings_for_relationship_batch(
             result["skipped"] += 1
             continue
         try:
+            # Synthesize once per relationship and thread the result
+            # through both embedder passes (default + corpus-preferred)
+            # via a partial. Avoids re-running the source/target
+            # text assembly inside ``_embed_relationship`` for every
+            # embedder.
+            rel_text = synthesize_relationship_block_text(rel)
             _apply_dual_embedding_strategy(
                 obj=rel,
-                text=synthesize_relationship_block_text(rel),
+                text=rel_text,
                 corpus_id=int(corpus_id) if corpus_id else None,
                 obj_type="relationship",
                 obj_id=rel.id,
-                embed_func=_embed_relationship,
+                embed_func=functools.partial(
+                    _embed_relationship, precomputed_text=rel_text
+                ),
             )
             result["succeeded"] += 1
         except Exception as e:

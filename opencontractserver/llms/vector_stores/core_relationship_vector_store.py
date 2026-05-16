@@ -284,7 +284,7 @@ class CoreRelationshipVectorStore:
         visible_qs: Any,
         query_vector: list[float],
         top_k: int,
-    ) -> list[Relationship]:
+    ) -> list[tuple[Relationship, float]]:
         """Rank visible relationships by cosine distance.
 
         Implementation matches ``VectorSearchViaEmbeddingMixin`` but inlined
@@ -331,17 +331,22 @@ class CoreRelationshipVectorStore:
                 "source_annotations", "target_annotations"
             )[:top_k]
         )
-        for r in rows:
-            distance = getattr(r, "_cosine_distance", 0) or 0
-            r.similarity_score = max(0.0, min(1.0, 1.0 - distance))
-        return rows
+        # Pair each row with its computed similarity in a typed tuple
+        # rather than mutating the Django model instance (the previous
+        # ``r.similarity_score = ...`` dynamic-attribute pattern required
+        # a ``type: ignore[attr-defined]`` at the consumer site, which
+        # was a clear sign the design was leaking).
+        return [
+            (r, max(0.0, min(1.0, 1.0 - (getattr(r, "_cosine_distance", 0) or 0))))
+            for r in rows
+        ]
 
     def _shape_results(
-        self, rows: list[Relationship]
+        self, rows: list[tuple[Relationship, float]]
     ) -> list[RelationshipVectorSearchResult]:
         """Convert raw Relationship rows into the result dataclass."""
         results: list[RelationshipVectorSearchResult] = []
-        for r in rows:
+        for r, similarity_score in rows:
             sources = list(r.source_annotations.all())
             targets = list(r.target_annotations.all())
             source_id = sources[0].id if sources else None
@@ -369,7 +374,7 @@ class CoreRelationshipVectorStore:
             results.append(
                 RelationshipVectorSearchResult(
                     relationship=r,
-                    similarity_score=r.similarity_score,  # type: ignore[attr-defined]
+                    similarity_score=similarity_score,
                     source_annotation_id=source_id,
                     target_annotation_ids=target_ids,
                     block_text=block_text,

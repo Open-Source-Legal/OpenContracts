@@ -322,6 +322,67 @@ class RelationshipVectorStoreTestCase(TestCase):
         )
         self.assertEqual(results, [])
 
+    def test_async_search_delegates_to_sync_search(self) -> None:
+        """``async_search`` is a thin ``sync_to_async`` wrapper over
+        ``search``; pinning its delegation contract so any future
+        divergence (e.g. an async-specific code path that drops a
+        field) surfaces immediately. We mock ``search`` rather than
+        exercise the DB because ``TestCase`` + ``sync_to_async``
+        threads see a different connection than the test
+        transaction, so an end-to-end async DB query would
+        false-negative under TestCase. The DB happy path is already
+        pinned by ``test_vector_hit_returns_block_metadata``."""
+        import asyncio
+        from unittest.mock import patch
+
+        store = CoreRelationshipVectorStore(
+            user_id=self.user.id,
+            corpus_id=self.corpus.id,
+            embedder_path=get_default_embedder_path(),
+        )
+        query = RelationshipVectorSearchQuery(
+            query_embedding=constant_vector(384, 0.4),
+            similarity_top_k=5,
+        )
+        sentinel: list = ["sentinel-result"]
+        with patch.object(store, "search", return_value=sentinel) as mock_search:
+            result = asyncio.run(store.async_search(query))
+        mock_search.assert_called_once_with(query)
+        self.assertIs(result, sentinel)
+
+    def test_async_search_regenerates_query_embedding_for_text_only(self) -> None:
+        """When only ``query_text`` is supplied, ``async_search`` runs
+        the async embedding regeneration before delegating to
+        ``search``. Pinning that the regenerated vector flows through
+        on the rebuilt query keeps the text-only path honest."""
+        import asyncio
+        from unittest.mock import patch
+
+        store = CoreRelationshipVectorStore(
+            user_id=self.user.id,
+            corpus_id=self.corpus.id,
+            embedder_path=get_default_embedder_path(),
+        )
+        query = RelationshipVectorSearchQuery(
+            query_text="hello world",
+            similarity_top_k=3,
+        )
+        regenerated = constant_vector(384, 0.42)
+
+        async def _fake_embed(_text: str) -> list[float]:
+            return regenerated
+
+        with patch.object(
+            store, "_agenerate_query_embedding", side_effect=_fake_embed
+        ), patch.object(store, "search", return_value=[]) as mock_search:
+            asyncio.run(store.async_search(query))
+        # ``search`` is called with a rebuilt query carrying the
+        # regenerated embedding — not the original text-only query.
+        forwarded = mock_search.call_args.args[0]
+        self.assertEqual(forwarded.query_embedding, regenerated)
+        self.assertEqual(forwarded.query_text, "hello world")
+        self.assertEqual(forwarded.similarity_top_k, 3)
+
 
 def _fake_result(annotation: Annotation):
     """Build a VectorSearchResult for the attach helper to consume."""

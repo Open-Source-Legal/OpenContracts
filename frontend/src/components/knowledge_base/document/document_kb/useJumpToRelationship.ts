@@ -36,6 +36,7 @@ import { allRelationsAtom } from "../../../annotator/context/AnnotationAtoms";
 import { useAnnotationRefs } from "../../../annotator/hooks/useAnnotationRefs";
 import { RelationGroup } from "../../../annotator/types/annotations";
 import { getNumericIdFromGlobalId } from "../../../../utils/idValidation";
+import { JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS } from "../../../../assets/configurations/constants";
 
 export function useJumpToRelationship(): void {
   const relId = useReactiveVar(selectedRelationshipId);
@@ -110,7 +111,7 @@ export function useJumpToRelationship(): void {
     // virtualised renderer hasn't materialised). When no ref is
     // available we leave ``lastAppliedScrollRef`` unset so the effect
     // retries once the relevant page mounts.
-    if (lastAppliedScrollRef.current !== relId) {
+    const tryScroll = (): boolean => {
       const refs = annotationElementRefs?.current ?? {};
       const candidateIds = [...match.sourceIds, ...match.targetIds];
       const targetId = candidateIds.find((id) => refs[id]);
@@ -121,7 +122,27 @@ export function useJumpToRelationship(): void {
           setHoveredAnnotationId(match.sourceIds[0]);
         }
         lastAppliedScrollRef.current = relId;
+        return true;
       }
+      return false;
+    };
+
+    if (lastAppliedScrollRef.current !== relId && !tryScroll()) {
+      // Defensive fallback: when the deep-link lands on a page the
+      // virtualised PDF renderer hasn't materialised yet, refs register
+      // asynchronously as the page mounts. The atom-driven re-render
+      // path handles the common case, but a few render orderings (e.g.
+      // when ``allRelations`` re-emits before the page actually paints)
+      // can leave the effect waiting indefinitely. Schedule one delayed
+      // retry that re-reads the refs map and clear it if the effect re-
+      // runs first, so the timer never re-fires after the user has
+      // already navigated elsewhere.
+      const handle = window.setTimeout(() => {
+        if (lastAppliedScrollRef.current !== relId) {
+          tryScroll();
+        }
+      }, JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS);
+      return () => window.clearTimeout(handle);
     }
   }, [
     relId,
