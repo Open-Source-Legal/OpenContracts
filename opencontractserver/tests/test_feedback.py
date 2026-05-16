@@ -410,11 +410,24 @@ class TestUserFeedbackVisibility(TestCase):
         qs = UserFeedback.objects.visible_to_user(self.superuser)
         self.assertEqual(qs.count(), 4)
 
-    def test_anonymous_sees_only_public(self):
+    def test_anonymous_sees_public_or_on_public_annotation(self):
+        """Anonymous READ visibility mirrors ``UserFeedbackManager.user_can``
+        (Phase A invariant): a feedback is visible to anonymous when it
+        is itself public OR comments on a public annotation. The
+        commented-annotation grant is symmetric across the anonymous
+        and authenticated branches so the manager check and the
+        queryset filter answer the same question for the same user."""
         anon = AnonymousUser()
         qs = UserFeedback.objects.visible_to_user(anon)
-        self.assertEqual(qs.count(), 1)
-        self.assertEqual(qs.first(), self.public_feedback)
+        ids = set(qs.values_list("id", flat=True))
+        # Public feedback → visible.
+        self.assertIn(self.public_feedback.id, ids)
+        # Private feedback on a PUBLIC annotation → visible (new in Phase A,
+        # mirrors user_can's commented_annotation.is_public READ grant).
+        self.assertIn(self.private_feedback_public_ann.id, ids)
+        # Private feedback on a PRIVATE annotation → NOT visible.
+        self.assertNotIn(self.private_feedback_private_ann.id, ids)
+        self.assertNotIn(self.other_user_feedback.id, ids)
 
     def test_owner_sees_own_and_public(self):
         qs = UserFeedback.objects.visible_to_user(self.owner)

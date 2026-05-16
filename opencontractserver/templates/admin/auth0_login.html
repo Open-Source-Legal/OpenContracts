@@ -308,36 +308,27 @@
 
     {% if use_auth0 %}
     <!-- Auth0 SPA SDK v2.1.3 via jsDelivr CDN with Subresource Integrity.
-         Error handling uses addEventListener instead of an inline onerror
-         attribute because CSP script-src-attr blocks inline event handlers
-         and nonces do not apply to them. -->
+         CSP script-src-attr blocks inline onload/onerror handlers, so
+         listeners are attached via addEventListener on a programmatically-
+         created script element. Both listeners are wired BEFORE
+         insertBefore so a cached SDK cannot fire `load` before we are
+         listening, and initAuth0 runs from the load handler instead of
+         synchronously — the latter raced the async-by-default dynamic
+         script and surfaced a misleading "SRI check may have failed"
+         error on every page load. -->
     <script nonce="{{ csp_nonce }}">
+        var auth0Client = null;
+
         function handleScriptError() {
             var btn = document.getElementById('auth0-login-btn');
             if (btn) {
                 btn.disabled = true;
                 btn.textContent = 'Auth0 unavailable (security check failed)';
             }
-            console.error('Failed to load Auth0 SDK - SRI check may have failed');
+            console.error('Auth0 SDK failed to load (network or SRI check)');
         }
 
-        var sdkScript = document.createElement('script');
-        sdkScript.id = 'auth0-sdk';
-        sdkScript.src = 'https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.min.js';
-        sdkScript.integrity = 'sha384-Rm7o4Fw8223WH3gI6PLQ7HyUa90mzfyOcEcDMUpdhm8lU+drc1rkQDwzhxAjhZMb';
-        sdkScript.crossOrigin = 'anonymous';
-        sdkScript.addEventListener('error', handleScriptError);
-        document.currentScript.parentNode.insertBefore(sdkScript, document.currentScript.nextSibling);
-    </script>
-    <script nonce="{{ csp_nonce }}">
-        var auth0Client = null;
-
         async function initAuth0() {
-            if (typeof auth0 === 'undefined') {
-                console.error('Auth0 SDK failed to load');
-                handleScriptError();
-                return;
-            }
             try {
                 auth0Client = await auth0.createAuth0Client({
                     domain: '{{ auth0_domain|escapejs }}',
@@ -410,8 +401,14 @@
             auth0Btn.addEventListener('click', loginWithAuth0);
         }
 
-        // Initialize Auth0 when page loads
-        initAuth0();
+        var sdkScript = document.createElement('script');
+        sdkScript.id = 'auth0-sdk';
+        sdkScript.src = 'https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.min.js';
+        sdkScript.integrity = 'sha384-Rm7o4Fw8223WH3gI6PLQ7HyUa90mzfyOcEcDMUpdhm8lU+drc1rkQDwzhxAjhZMb';
+        sdkScript.crossOrigin = 'anonymous';
+        sdkScript.addEventListener('load', initAuth0);
+        sdkScript.addEventListener('error', handleScriptError);
+        document.currentScript.parentNode.insertBefore(sdkScript, document.currentScript.nextSibling);
     </script>
     {% endif %}
 </body>
