@@ -20,6 +20,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase, override_settings
 
@@ -201,7 +202,12 @@ class TestListFieldsets(BaseFixtureTestCase):
             list_fieldsets(corpus_id=999_999_999, user_id=self.user.id)
 
     async def test_async_variant_matches(self):
-        sync_result = list_fieldsets(corpus_id=self.corpus.id, user_id=self.user.id)
+        # ``list_fieldsets`` is sync and touches the ORM, so it must be
+        # called via ``sync_to_async`` from an async test method to avoid
+        # ``SynchronousOnlyOperation``.
+        sync_result = await sync_to_async(list_fieldsets, thread_sensitive=False)(
+            corpus_id=self.corpus.id, user_id=self.user.id
+        )
         async_result = await alist_fieldsets(
             corpus_id=self.corpus.id, user_id=self.user.id
         )
@@ -248,7 +254,9 @@ class TestListAnalyzers(BaseFixtureTestCase):
     async def test_async_variant_matches(self):
         sync_ids = {
             r["id"]
-            for r in list_analyzers(corpus_id=self.corpus.id, user_id=self.user.id)
+            for r in await sync_to_async(list_analyzers, thread_sensitive=False)(
+                corpus_id=self.corpus.id, user_id=self.user.id
+            )
         }
         async_ids = {
             r["id"]
@@ -305,9 +313,9 @@ class TestListRecentExtracts(BaseFixtureTestCase):
     async def test_async_variant_matches(self):
         sync_ids = {
             r["id"]
-            for r in list_recent_extracts(
-                corpus_id=self.corpus.id, user_id=self.user.id
-            )
+            for r in await sync_to_async(
+                list_recent_extracts, thread_sensitive=False
+            )(corpus_id=self.corpus.id, user_id=self.user.id)
         }
         async_ids = {
             r["id"]
@@ -355,9 +363,9 @@ class TestListRecentAnalyses(BaseFixtureTestCase):
     async def test_async_variant_matches(self):
         sync_ids = {
             r["id"]
-            for r in list_recent_analyses(
-                corpus_id=self.corpus.id, user_id=self.user.id
-            )
+            for r in await sync_to_async(
+                list_recent_analyses, thread_sensitive=False
+            )(corpus_id=self.corpus.id, user_id=self.user.id)
         }
         async_ids = {
             r["id"]
@@ -663,8 +671,13 @@ class TestApprovalGate(TransactionTestCase):
         )
         ctx.tool_call_id = "test-call"
 
+        # ``start_extract`` requires ``corpus_id``, ``fieldset_id``, and
+        # ``user_id``; the wrapper inspects the underlying signature in
+        # ``_maybe_raise`` and uses ``Signature.bind`` (not ``bind_partial``),
+        # so all required kwargs must be supplied even though the test is
+        # only checking that approval fires before execution.
         with self.assertRaises(ToolConfirmationRequired) as cm:
-            await callable_fn(ctx, fieldset_id=1)
+            await callable_fn(ctx, corpus_id=1, fieldset_id=1, user_id=1)
         self.assertEqual(cm.exception.tool_name, "start_extract")
         self.assertIn("fieldset_id", cm.exception.tool_args)
 
@@ -684,8 +697,12 @@ class TestApprovalGate(TransactionTestCase):
         )
         ctx.tool_call_id = "test-call"
 
+        # ``start_analysis`` requires ``corpus_id``, ``analyzer_id``, and
+        # ``user_id``; the wrapper inspects the underlying signature in
+        # ``_maybe_raise`` and uses ``Signature.bind`` (not ``bind_partial``),
+        # so all required kwargs must be supplied.
         with self.assertRaises(ToolConfirmationRequired) as cm:
-            await callable_fn(ctx, analyzer_id="x.y")
+            await callable_fn(ctx, corpus_id=1, analyzer_id="x.y", user_id=1)
         self.assertEqual(cm.exception.tool_name, "start_analysis")
 
     async def test_list_tools_do_not_require_approval(self):
