@@ -821,7 +821,7 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
 
         stream_called = False
 
-        async def fake_stream_agent_response(user_query):
+        async def fake_stream_agent_response(user_query, **_kwargs):
             nonlocal stream_called
             stream_called = True
 
@@ -874,7 +874,7 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
 
         stream_called = False
 
-        async def fake_stream_agent_response(user_query):
+        async def fake_stream_agent_response(user_query, **_kwargs):
             nonlocal stream_called
             stream_called = True
 
@@ -908,7 +908,7 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
 
         stream_called = False
 
-        async def fake_stream_agent_response(user_query):
+        async def fake_stream_agent_response(user_query, **_kwargs):
             nonlocal stream_called
             stream_called = True
 

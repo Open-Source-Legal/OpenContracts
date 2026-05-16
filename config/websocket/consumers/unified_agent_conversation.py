@@ -529,6 +529,31 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                     )
                     for agent in delegation_targets
                 ]
+                # Snake-case normalization of slugs (``my-agent`` and
+                # ``my_agent`` both → ``delegate_to_my_agent``) means two
+                # in-scope agents could in principle produce the same tool
+                # name.  ``AgentConfiguration.slug`` is ``SlugField(unique=True)``
+                # and ``save()`` normalizes to ``-`` so the normal path can't
+                # produce a collision, but admin/fixture/management-command
+                # writes that bypass ``save()`` can.  Dedup defensively here so
+                # the conductor never sees two ``CoreTool`` instances with
+                # identical names (which would silently shadow each other in
+                # pydantic-ai's tool registry).  Keep the first; warn loud on
+                # the rest so the underlying data issue is visible.
+                seen_tool_names: dict[str, Any] = {}
+                for tool in delegation_tools:
+                    if tool.name in seen_tool_names:
+                        logger.warning(
+                            "[delegate] Duplicate delegation tool name %r — "
+                            "dropping later instance. This indicates two "
+                            "AgentConfiguration slugs collide after "
+                            "snake-case normalization (e.g. 'my-agent' and "
+                            "'my_agent'); fix the slug in the DB.",
+                            tool.name,
+                        )
+                        continue
+                    seen_tool_names[tool.name] = tool
+                delegation_tools = list(seen_tool_names.values())
                 # Recreate the conductor with the augmented tool list.  The
                 # cached ``self.conversation_id`` (set in ``_initialize_agent``)
                 # threads the existing chat state through so we don't fork a
@@ -566,17 +591,13 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 asyncio.create_task(self._async_set_conversation_title(user_query))
 
             # Stream the response.  When delegation is active for this turn,
-            # forward the shared ``parent_message_id_box`` so the stream
-            # helper can latch the conductor's first ``llm_message_id`` for
-            # sub-agent attribution.  We only pass the kwarg when actually
-            # set so test doubles overriding ``_stream_agent_response`` with
-            # the old single-argument signature continue to work.
-            if parent_message_id_box is not None:
-                await self._stream_agent_response(
-                    user_query, parent_message_id_box=parent_message_id_box
-                )
-            else:
-                await self._stream_agent_response(user_query)
+            # ``parent_message_id_box`` is the shared one-slot box the stream
+            # helper latches the conductor's first ``llm_message_id`` into so
+            # sub-agent relay closures see the right ``parent_message_id`` for
+            # attribution. ``None`` otherwise — the helper is no-op for the box.
+            await self._stream_agent_response(
+                user_query, parent_message_id_box=parent_message_id_box
+            )
 
         except Exception as e:
             logger.error(

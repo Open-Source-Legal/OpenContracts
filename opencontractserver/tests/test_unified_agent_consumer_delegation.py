@@ -491,6 +491,90 @@ class UnifiedAgentConsumerDelegationTestCase(WebsocketFixtureBaseTestCase):
         delegate_names = sorted(n for n in tool_names if n and "delegate_to_" in n)
         self.assertEqual(delegate_names, ["delegate_to_a_one", "delegate_to_a_two"])
 
+    # ---- F.1 dedup: collision in delegate_to_<snake_slug> tool names ----
+    async def test_snake_case_slug_collision_dedupes_to_single_tool(self) -> None:
+        """Two agents whose slugs differ only in `-` vs `_` collide after
+        snake-case normalization (``a-one`` / ``a_one`` → ``delegate_to_a_one``).
+
+        ``AgentConfiguration.save()`` normalizes to `-`, so the normal write
+        path cannot produce this collision — but admin / fixture / management
+        commands that bypass ``save()`` (e.g. ``QuerySet.update(slug=...)``)
+        can land a literal `_` slug. The consumer must dedup defensively so
+        the conductor never receives two ``CoreTool`` instances with the same
+        name (pydantic-ai's tool registry would silently shadow one).
+        """
+        a1 = await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="A One",
+            slug="a-one",
+            description="dash slug",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="a1",
+        )
+        a2 = await database_sync_to_async(AgentConfiguration.objects.create)(
+            name="A Underscore",
+            # Distinct slug at creation time so unique=True passes; the
+            # ``filter(...).update(slug=...)`` below bypasses ``save()`` to
+            # land the literal underscore slug we actually need for the test.
+            slug="a-two",
+            description="underscore slug",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.user,
+            system_instructions="a2",
+        )
+        await database_sync_to_async(
+            AgentConfiguration.objects.filter(pk=a2.pk).update
+        )(slug="a_one")
+        # Sanity: both rows are present, both visible, but they snake-case
+        # to the same tool name.
+        self.assertNotEqual(a1.slug, "a_one")
+        self.assertEqual(
+            await database_sync_to_async(
+                AgentConfiguration.objects.filter(slug="a_one").count
+            )(),
+            1,
+        )
+
+        communicator = await self._connect()
+
+        captured_kwargs: dict = {}
+
+        async def _fake_factory(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _StubAgent(self._build_simple_stream_factory())
+
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus",
+            side_effect=_fake_factory,
+        ):
+            await communicator.send_to(
+                json.dumps(
+                    {
+                        "query": (
+                            "Ping [a1](/agents/a-one) and [a2](/agents/a_one) please"
+                        )
+                    }
+                )
+            )
+            await _consume_until_finish(communicator)
+
+        await communicator.disconnect()
+
+        tools = captured_kwargs.get("tools") or []
+        delegate_names = [
+            getattr(getattr(t, "metadata", None), "name", None) or ""
+            for t in tools
+            if "delegate_to_"
+            in (getattr(getattr(t, "metadata", None), "name", None) or "")
+        ]
+        # Exactly one ``delegate_to_a_one`` survives — the duplicate must
+        # have been dropped (with a warning) rather than silently shadowing.
+        self.assertEqual(delegate_names, ["delegate_to_a_one"])
+
     # ---- G. sub-agent approval bubbles requesting_agent through ASYNC_APPROVAL_NEEDED ----
     async def test_sub_agent_approval_bubbles_with_requesting_agent(self) -> None:
         """Sub-agent's ApprovalNeededEvent flows through relay.on_approval.

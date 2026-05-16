@@ -84,7 +84,7 @@ def filter_by_scope(
     # stripped under ``python -O`` and a stray ``None`` reaching the FK
     # lookup would raise an unhelpful ``TypeError`` deep in the sync ORM
     # thread.
-    if document_id is None:
+    if document_id is None:  # pragma: no cover - defensive: outer guard above
         return qs.filter(scope=AgentConfiguration.SCOPE_GLOBAL)
     doc_corpus_id = (
         DocumentPath.objects.filter(
@@ -430,7 +430,12 @@ def build_delegation_tool(
             # constant) to prevent pathological loops.
             cycle_count = 0
             while needs_resume and cycle_count < MAX_DELEGATION_APPROVAL_CYCLES:
-                if decision and decision.get("_error"):
+                # Defensive: ``_drain_stream`` returns ``needs_resume=False``
+                # on every ``_error`` path today, so this branch is currently
+                # unreachable. Kept so a future change that does return
+                # ``(True, {"_error": ...})`` still short-circuits cleanly
+                # instead of feeding a stale error into ``resume_with_approval``.
+                if decision and decision.get("_error"):  # pragma: no cover
                     return {
                         "result": decision["_error"],
                         "pinned_message_id": None,
