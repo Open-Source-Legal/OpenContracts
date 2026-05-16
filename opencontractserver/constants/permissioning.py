@@ -33,6 +33,14 @@ Known staleness boundaries (callers must scrub manually):
   ``set_permissions_for_obj_to_user`` either, so any cached entry
   computed with ``include_group_permissions=True`` becomes stale until
   the instance is discarded. Same manual ``delattr`` remedy applies.
+- Pickling survives this attribute. Django model instances passed as
+  Celery task arguments serialize ``_oc_granted_perms_cache`` with the
+  rest of ``__dict__``. If guardian rows are mutated between the
+  producer's ``apply_async`` and the worker's task body the worker
+  acts on a stale cache. Pass primary keys to tasks and re-fetch
+  inside the task body (the standard pattern) to avoid this — or
+  ``delattr`` the attribute before enqueueing if you must pass
+  instances.
 """
 
 REQUEST_OPTIMIZER_ATTR = "_permission_query_optimizer"
@@ -42,4 +50,11 @@ REQUEST_OPTIMIZER_ATTR = "_permission_query_optimizer"
 Tier 2 of the two-tier mitigation. Mirrors the
 ``_conversation_query_optimizer`` naming used by
 ``opencontractserver.conversations.query_optimizer.get_request_optimizer``.
+
+Non-HTTP staleness boundary: Tier 2 is *absent* (not stale) for callers
+outside the HTTP lifecycle — ``get_request_optimizer(None)`` returns a
+fresh one-shot optimizer that goes out of scope with the local block.
+Celery tasks, management commands, and signal handlers therefore rely
+on Tier 1 only; ``user_can(..., request=None)`` skips this tier
+entirely rather than reusing a stale dict from a previous task.
 """
