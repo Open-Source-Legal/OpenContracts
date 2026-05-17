@@ -170,29 +170,33 @@ class UserFeedbackQuerySet(models.QuerySet):
         """Filter feedback rows to those ``user`` may READ.
 
         Aligned with ``UserFeedbackManager.user_can`` (Phase A invariant):
-        anonymous and authenticated users can read feedback when the
-        feedback itself is public OR when it comments on a public
-        annotation — the commented-annotation grant is symmetric across
-        the two branches. Authenticated users additionally get creator
-        short-circuit and explicit guardian READ grants on the feedback.
+        a feedback row inherits READ visibility from the annotation it
+        comments on — if ``user`` can see the commented annotation via
+        ``Annotation.objects.visible_to_user``, they can read feedback
+        on it. The inherited grant is symmetric across the anonymous
+        and authenticated branches. Authenticated users additionally
+        get creator short-circuit, ``is_public=True`` on the feedback
+        row itself, and explicit guardian READ grants on the feedback.
         """
         from django.apps import apps
+
+        from opencontractserver.annotations.models import Annotation
 
         if user.is_superuser:
             return self.all()
 
         # Both anonymous and authenticated users may READ a feedback row
-        # when its commented annotation is public — mirrors the same
-        # branch in ``UserFeedbackManager.user_can`` so the manager check
-        # and queryset filter agree.
-        public_commented = Q(commented_annotation__isnull=False) & Q(
-            commented_annotation__is_public=True
-        )
+        # whose commented annotation is visible to them — mirrors the
+        # ``Annotation.objects.visible_to_user(user)``-based gate in
+        # ``UserFeedbackManager.user_can`` so the manager check and the
+        # queryset filter answer the same question for the same user.
+        visible_annotation_ids = Annotation.objects.visible_to_user(user).values("pk")
+        inherited_visibility = Q(commented_annotation_id__in=visible_annotation_ids)
 
         if user.is_anonymous:
-            return self.filter(Q(is_public=True) | public_commented).distinct()
+            return self.filter(Q(is_public=True) | inherited_visibility).distinct()
 
-        # Authenticated: creator OR is_public OR public commented annotation
+        # Authenticated: creator OR is_public OR commented-annotation-visible
         # OR an explicit guardian READ grant on the feedback row itself
         # (matches ``_default_user_can``'s guardian branch).
         guardian_q = Q()
@@ -208,7 +212,7 @@ class UserFeedbackQuerySet(models.QuerySet):
             pass
 
         return self.filter(
-            Q(creator=user) | Q(is_public=True) | public_commented | guardian_q
+            Q(creator=user) | Q(is_public=True) | inherited_visibility | guardian_q
         ).distinct()
 
 

@@ -32,6 +32,10 @@ import {
 import { ServerAnnotationType } from "../../types/graphql-api";
 import { getDocumentUrl } from "../../utils/navigationUtils";
 import { ANNOTATION_PAGINATION } from "../../assets/configurations/constants";
+import {
+  buildAnnotationClickQueryParams,
+  buildBlockRelationshipIdMap,
+} from "./corpusAnnotationCardsHelpers";
 
 export const CorpusAnnotationCards = ({
   opened_corpus_id,
@@ -346,6 +350,20 @@ export const CorpusAnnotationCards = ({
     return map;
   }, [isSemanticSearchActive, semanticSearchResults]);
 
+  // Map annotation id → containing OC_SUBTREE_GROUP relationship id, so a
+  // click can deep-link the doc viewer to the *block* (not just the leaf).
+  // Pulled from ``blockContext`` populated by ``semanticSearch`` results;
+  // empty when not in semantic mode — the click handler falls back to the
+  // leaf-only behaviour. Issue #1645.
+  const blockRelationshipIdMap = useMemo(
+    () =>
+      buildBlockRelationshipIdMap(
+        isSemanticSearchActive,
+        semanticSearchResults
+      ),
+    [isSemanticSearchActive, semanticSearchResults]
+  );
+
   // Handle annotation click - navigate to document
   const handleAnnotationClick = useCallback(
     (annotation: ServerAnnotationType) => {
@@ -354,16 +372,10 @@ export const CorpusAnnotationCards = ({
         return;
       }
 
-      const queryParams: {
-        annotationIds: string[];
-        analysisIds?: string[];
-      } = {
-        annotationIds: [annotation.id],
-      };
-
-      if (annotation.analysis?.id) {
-        queryParams.analysisIds = [annotation.analysis.id];
-      }
+      const queryParams = buildAnnotationClickQueryParams(
+        annotation,
+        blockRelationshipIdMap
+      );
 
       const url = getDocumentUrl(
         annotation.document,
@@ -379,7 +391,7 @@ export const CorpusAnnotationCards = ({
         );
       }
     },
-    [navigate]
+    [navigate, blockRelationshipIdMap]
   );
 
   // Handle search input change - triggers debounced semantic search

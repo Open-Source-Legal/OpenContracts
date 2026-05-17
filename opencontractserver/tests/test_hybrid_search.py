@@ -128,7 +128,7 @@ class TestHybridSearch(TestCase):
         )
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores"
+        "opencontractserver.llms.vector_stores.base_vector_store"
         ".generate_embeddings_from_text"
     )
     def test_hybrid_search_fuses_vector_and_text(self, mock_embed):
@@ -150,7 +150,7 @@ class TestHybridSearch(TestCase):
             self.assertIsInstance(r.similarity_score, float)
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores"
+        "opencontractserver.llms.vector_stores.base_vector_store"
         ".generate_embeddings_from_text"
     )
     def test_hybrid_search_vector_only_fallback(self, mock_embed):
@@ -169,7 +169,7 @@ class TestHybridSearch(TestCase):
         self.assertTrue(len(results) > 0, "Vector-only fallback should return results")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores"
+        "opencontractserver.llms.vector_stores.base_vector_store"
         ".generate_embeddings_from_text"
     )
     def test_hybrid_search_text_only_fallback(self, mock_embed):
@@ -185,7 +185,7 @@ class TestHybridSearch(TestCase):
         self.assertIsInstance(results, list)
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores"
+        "opencontractserver.llms.vector_stores.base_vector_store"
         ".agenerate_embeddings_from_text"
     )
     def test_async_hybrid_search_fuses_results(self, mock_aembed):
@@ -204,7 +204,7 @@ class TestHybridSearch(TestCase):
         self.assertTrue(len(results) > 0, "Async hybrid should return results")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores"
+        "opencontractserver.llms.vector_stores.base_vector_store"
         ".agenerate_embeddings_from_text"
     )
     def test_async_search_delegates_to_hybrid_for_text(self, mock_aembed):
@@ -226,7 +226,7 @@ class TestHybridSearch(TestCase):
         )
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores"
+        "opencontractserver.llms.vector_stores.base_vector_store"
         ".agenerate_embeddings_from_text"
     )
     def test_async_search_skips_hybrid_for_embedding_only(self, mock_aembed):
