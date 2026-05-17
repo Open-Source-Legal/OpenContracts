@@ -33,6 +33,7 @@ Both layers work together: the manager/queryset produces the base filtered set, 
 | `AnalysisQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:946-1148` | Analysis visibility with corpus checks |
 | `ExtractQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:1150-1349` | Extract visibility with corpus checks |
 | `ConversationQueryOptimizer` | `opencontractserver/conversations/query_optimizer.py:18-204` | Request-level caching for corpus/doc visibility |
+| `PermissionQueryOptimizer` | `opencontractserver/utils/permission_optimizer.py` | Per-request `user_can` cache for any visibility-managed model |
 | `DocumentActionsQueryOptimizer` | `opencontractserver/documents/query_optimizer.py:16-312` | Document action permissions |
 | `DocumentRelationshipQueryOptimizer` | `opencontractserver/documents/query_optimizer.py:314-668` | Document relationship permissions |
 | `MetadataQueryOptimizer` | `opencontractserver/extracts/query_optimizer.py:19-572` | Extract metadata permissions |
@@ -66,6 +67,78 @@ For models with direct guardian permissions, query the `{model}userobjectpermiss
 ### Request-Level Caching
 `ConversationQueryOptimizer` caches corpus and document visibility subqueries per request to avoid repeated permission checks.
 - Implementation: `opencontractserver/conversations/query_optimizer.py`
+
+### Two-Tier `user_can` Caching (issue #1640)
+Authorization checks via the centralized `Manager.user_can` / `obj.user_can` /
+`_default_user_can` API are cached at two layers so repeated checks within a
+single request collapse to one DB hit:
+
+- **Tier 1 — Per-instance memoization.** `get_users_permissions_for_obj`
+  caches its result on the instance as `_oc_granted_perms_cache: dict`,
+  keyed by `(user_id, include_group_permissions_bool) → frozenset[str]`.
+  Transparent to every caller of `user_can`. No plumbing needed.
+- **Tier 2 — Request-scoped optimizer.** `PermissionQueryOptimizer` lives
+  on the GraphQL request as `request._permission_query_optimizer` (key in
+  `opencontractserver/constants/permissioning.py`), keyed by
+  `(user_id, content_type_id, instance_pk, include_group_permissions)`.
+  Opt-in via the new `request=` kwarg threaded through `Manager.user_can`
+  / `obj.user_can` / `_default_user_can`. Lets multiple instances of the
+  same model in one request share a cache (e.g. paginated `my_permissions`
+  resolvers).
+
+Invalidation contract: `set_permissions_for_obj_to_user(..., request=...)`
+clears both tiers for the affected `(user, instance)` pair when called
+inside the HTTP lifecycle. The following changes flow around this hook
+and leave cached entries computed with `include_group_permissions=True`
+stale — callers must invalidate manually:
+
+- Out-of-band guardian perm changes (raw `assign_perm`/`remove_perm`,
+  migrations, Celery tasks reusing instances) → `delattr(instance,
+  INSTANCE_PERMS_CACHE_ATTR)` and/or
+  `get_request_optimizer(request).invalidate(user_id=..., instance=...)`.
+- Group-permission changes — `user.groups.add(group)`, `user.groups.remove(group)`,
+  or `assign_perm(perm, group, obj)` — same remedy.
+- `refresh_from_db()` reloads model fields but does not touch the
+  Tier 1 attribute; same remedy applies if the instance is reused.
+
+#### Operator note — group-level guardian usage in this codebase
+
+The Tier 1 / Tier 2 caches treat `include_group_permissions=True` as the
+default (the alignment that made the two layers a "one default, one answer"
+contract). Group-permission staleness is therefore valid for the entire
+request lifetime once a granted-set is cached. Two facts limit the actual
+exposure today, but neither is a guarantee for future installations:
+
+- **No production call site assigns guardian permissions to a `Group`.**
+  As of this writing, the only `assign_perm(...)` callers in
+  `opencontractserver/utils/permissioning.py:182-248` route through the
+  user-targeted form `assign_perm(perm, user, obj)`. The
+  `*GroupObjectPermission` tables (`DocumentGroupObjectPermission`,
+  `ConversationGroupObjectPermission`, etc.) are *defined* on every
+  visibility-managed model and *queried* on the read path
+  (`DocumentManager._prefetch_user_group_perm_attr` and the guardian
+  lookup inside `get_users_permissions_for_obj`), but no shipped code
+  writes to them.
+- **Tenants that wire guardian group permissions on their own — via the
+  Django admin, a custom mutation, or a data migration — own
+  invalidation.** After any `assign_perm(perm, group, obj)` /
+  `remove_perm(...)` or `user.groups.add(...)` /
+  `user.groups.remove(...)` performed mid-request, the caller must
+  `delattr(instance, INSTANCE_PERMS_CACHE_ATTR)` and/or
+  `get_request_optimizer(request).invalidate(user_id=..., instance=...)`
+  before the next `user_can` check on the affected `(user, instance)`
+  pair. The mutation-side hook in `set_permissions_for_obj_to_user`
+  only handles the user-targeted path it owns.
+
+If your deployment starts using group-targeted guardian permissions for
+the first time, audit every mutation that touches group membership or
+group perms and add the matching invalidate call. The caches will not
+flag the staleness for you.
+
+- Implementation: `opencontractserver/utils/permission_optimizer.py`,
+  `opencontractserver/utils/permissioning.py:get_users_permissions_for_obj`,
+  `opencontractserver/utils/permissioning.py:_default_user_can`
+- Tests: `opencontractserver/tests/permissioning/test_permission_optimizer.py`
 
 ### Analysis/Extract Privacy Filtering
 Annotations created by analyses or extracts inherit visibility from those parent objects. If a user cannot see the analysis/extract, they cannot see its annotations.

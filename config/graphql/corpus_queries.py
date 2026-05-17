@@ -222,7 +222,9 @@ class CorpusQueryMixin:
 
         _, corpus_pk = from_global_id(corpus_id)
         return DocumentFolderService.get_visible_folders(
-            user=info.context.user, corpus_id=int(corpus_pk)
+            user=info.context.user,
+            corpus_id=int(corpus_pk),
+            request=info.context,
         )
 
     corpus_folder = graphene.Field(
@@ -243,7 +245,9 @@ class CorpusQueryMixin:
 
         _, folder_pk = from_global_id(id)
         return DocumentFolderService.get_folder_by_id(
-            user=info.context.user, folder_id=int(folder_pk)
+            user=info.context.user,
+            folder_id=int(folder_pk),
+            request=info.context,
         )
 
     deleted_documents_in_corpus = graphene.List(
@@ -264,7 +268,9 @@ class CorpusQueryMixin:
 
         _, corpus_pk = from_global_id(corpus_id)
         return DocumentFolderService.get_deleted_documents(
-            user=info.context.user, corpus_id=int(corpus_pk)
+            user=info.context.user,
+            corpus_id=int(corpus_pk),
+            request=info.context,
         )
 
     # CORPUS STATS RESOLVERS #####################################
