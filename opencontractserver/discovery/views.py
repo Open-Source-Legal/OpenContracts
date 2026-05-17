@@ -794,9 +794,9 @@ def _search_within_corpus(
     # Text search fallback — corpus access already verified above,
     # so query documents directly via corpus membership
     documents = list(
-        corpus_docs.filter(
-            Q(title__icontains=query) | Q(description__icontains=query)
-        )[:limit]
+        corpus_docs.filter(Q(title__icontains=query) | Q(description__icontains=query))[
+            :limit
+        ]
     )
     for doc in documents:
         results.append(

@@ -1246,9 +1246,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
         return deleted_paths
 
-    def _get_active_documents(
-        self, include_caml: bool = False
-    ) -> QuerySet[Document]:
+    def _get_active_documents(self, include_caml: bool = False) -> QuerySet[Document]:
         """
         INTERNAL: corpus documents with no permission check.
 

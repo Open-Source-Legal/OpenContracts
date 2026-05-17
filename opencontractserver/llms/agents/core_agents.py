@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator, Awaitable
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Literal,
@@ -16,6 +17,9 @@ from typing import (
     cast,
     runtime_checkable,
 )
+
+if TYPE_CHECKING:
+    from opencontractserver.users.types import UserOrAnonymous
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -369,18 +373,17 @@ class CorpusAgentContext:
                 CorpusObjsService,
             )
 
-            user_or_anon = (
-                self.config.user_id
-                if self.config.user_id is not None
-                else AnonymousUser()
-            )
-            self.documents = await sync_to_async(
-                lambda: list(
+            user_id = self.config.user_id
+            corpus = self.corpus
+
+            def _load_corpus_documents() -> list[Document]:
+                return list(
                     CorpusObjsService.get_corpus_documents(
-                        user=user_or_anon, corpus=self.corpus
+                        user=_resolve_user_or_anon(user_id), corpus=corpus
                     )
                 )
-            )()
+
+            self.documents = await sync_to_async(_load_corpus_documents)()
 
 
 @runtime_checkable
@@ -1135,16 +1138,16 @@ class CoreCorpusAgentFactory:
             CorpusObjsService,
         )
 
-        user_or_anon = (
-            config.user_id if config.user_id is not None else AnonymousUser()
-        )
-        documents: list[Document] = await sync_to_async(
-            lambda: list(
+        user_id = config.user_id
+
+        def _load_corpus_documents() -> list[Document]:
+            return list(
                 CorpusObjsService.get_corpus_documents(
-                    user=user_or_anon, corpus=corpus_obj
+                    user=_resolve_user_or_anon(user_id), corpus=corpus_obj
                 )
             )
-        )()
+
+        documents: list[Document] = await sync_to_async(_load_corpus_documents)()
 
         # Set default system prompt if not provided
         if config.system_prompt is None:
@@ -1834,3 +1837,18 @@ def _assert_access(obj: Any, user_id: int | None) -> None:  # noqa: ANN401
         raise PermissionError(
             "Access denied – private resource requires authentication."
         )
+
+
+def _resolve_user_or_anon(user_id: Optional[int]) -> "UserOrAnonymous":
+    """Resolve an ``AgentConfig.user_id`` to a model instance.
+
+    ``CorpusObjsService`` (and most service-layer entry points) require an
+    actual ``User`` / ``AnonymousUser`` instance, not a raw id. Call this
+    inside the same ``sync_to_async`` block as the ORM query so the lookup
+    runs on the worker thread.
+    """
+    if user_id is None:
+        return AnonymousUser()
+    from django.contrib.auth import get_user_model
+
+    return get_user_model().objects.get(pk=user_id)

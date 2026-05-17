@@ -62,7 +62,9 @@ class TestCorpusGetDocumentsDeprecation(CorpusDeprecationTestBase):
             warnings.simplefilter("always")
             self.corpus.get_documents()
 
-        deprecation_hits = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        deprecation_hits = [
+            w for w in caught if issubclass(w.category, DeprecationWarning)
+        ]
         self.assertEqual(
             len(deprecation_hits),
             1,
@@ -80,7 +82,9 @@ class TestCorpusGetDocumentsDeprecation(CorpusDeprecationTestBase):
             warnings.simplefilter("always")
             self.corpus._get_active_documents()
 
-        deprecation_hits = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        deprecation_hits = [
+            w for w in caught if issubclass(w.category, DeprecationWarning)
+        ]
         self.assertEqual(
             len(deprecation_hits),
             0,
@@ -104,9 +108,7 @@ class TestCorpusGetDocumentsParity(CorpusDeprecationTestBase):
             # Suppress the wrapper's warning so this test doesn't fail when
             # ``filterwarnings = error::DeprecationWarning`` is configured.
             warnings.simplefilter("ignore", DeprecationWarning)
-            from_wrapper = set(
-                self.corpus.get_documents().values_list("pk", flat=True)
-            )
+            from_wrapper = set(self.corpus.get_documents().values_list("pk", flat=True))
         from_internal = set(
             self.corpus._get_active_documents().values_list("pk", flat=True)
         )
@@ -122,7 +124,9 @@ class TestCorpusGetDocumentsParity(CorpusDeprecationTestBase):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             from_wrapper = set(
-                self.corpus.get_documents(include_caml=True).values_list("pk", flat=True)
+                self.corpus.get_documents(include_caml=True).values_list(
+                    "pk", flat=True
+                )
             )
         from_internal = set(
             self.corpus._get_active_documents(include_caml=True).values_list(
