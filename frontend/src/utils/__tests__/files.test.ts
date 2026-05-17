@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { isTextFileType, isPdfFileType, downloadFile } from "../files";
+import {
+  isTextFileType,
+  isPdfFileType,
+  isDocxFileType,
+  isSpanBasedFileType,
+  getDocumentTypeBadge,
+  downloadFile,
+  formatFileSize,
+} from "../files";
+import { DOCX_MIME_TYPE } from "../../assets/configurations/constants";
 
 // --- Shared Axios mock -----------------------------------------------------
 // Mock at module scope so downloadFile uses a test-controlled client. We
@@ -142,5 +151,125 @@ describe("downloadFile", () => {
         (call[0] as string).includes("Downloading file failed")
     );
     expect(logged).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers extracted out of Documents.tsx in PR #1677
+// ---------------------------------------------------------------------------
+
+describe("getDocumentTypeBadge", () => {
+  it("returns 'PDF' for the canonical pdf fileType (any case)", () => {
+    expect(getDocumentTypeBadge("pdf", "doc.pdf")).toBe("PDF");
+    expect(getDocumentTypeBadge("PDF", "doc.PDF")).toBe("PDF");
+  });
+
+  it("returns 'DOCX' for both docx and legacy doc fileTypes", () => {
+    expect(getDocumentTypeBadge("docx", "doc.docx")).toBe("DOCX");
+    expect(getDocumentTypeBadge("doc", "doc.doc")).toBe("DOCX");
+  });
+
+  it("returns 'TXT' for the txt fileType", () => {
+    expect(getDocumentTypeBadge("txt", "notes.txt")).toBe("TXT");
+  });
+
+  it("uppercases any other fileType the system might surface", () => {
+    expect(getDocumentTypeBadge("html", "page.html")).toBe("HTML");
+    expect(getDocumentTypeBadge("md", "doc.md")).toBe("MD");
+  });
+
+  it("falls back to the title extension when fileType is missing", () => {
+    expect(getDocumentTypeBadge(null, "untitled.pdf")).toBe("PDF");
+    expect(getDocumentTypeBadge(undefined, "memo.docx")).toBe("DOCX");
+    expect(getDocumentTypeBadge(null, "memo.doc")).toBe("DOCX");
+    expect(getDocumentTypeBadge(null, "memo.txt")).toBe("TXT");
+    // An unusual extension still upper-cases rather than crashing.
+    expect(getDocumentTypeBadge(null, "x.rtf")).toBe("RTF");
+  });
+
+  it("falls back to 'PDF' when neither fileType nor an extension can be derived", () => {
+    expect(getDocumentTypeBadge(null, null)).toBe("PDF");
+    expect(getDocumentTypeBadge(null, "")).toBe("PDF");
+    expect(getDocumentTypeBadge(null, "no-extension")).toBe("PDF");
+  });
+
+  // Live backend payload — Django's Document.file_type stores full MIME
+  // types, not bare extensions. The badge has to recognise those too or
+  // the UI lights up with "APPLICATION/PDF" / DOCX_MIME_TYPE-uppercased.
+  it("returns 'PDF' for the application/pdf MIME type", () => {
+    expect(getDocumentTypeBadge("application/pdf", null)).toBe("PDF");
+  });
+
+  it("returns 'DOCX' for the DOCX MIME type", () => {
+    expect(getDocumentTypeBadge(DOCX_MIME_TYPE, null)).toBe("DOCX");
+  });
+
+  it("returns 'TXT' for text/plain and the legacy application/txt", () => {
+    expect(getDocumentTypeBadge("text/plain", null)).toBe("TXT");
+    expect(getDocumentTypeBadge("application/txt", null)).toBe("TXT");
+  });
+
+  it("strips the MIME prefix for unknown application/* and text/* types", () => {
+    expect(getDocumentTypeBadge("application/json", null)).toBe("JSON");
+    expect(getDocumentTypeBadge("image/png", null)).toBe("PNG");
+  });
+});
+
+describe("isDocxFileType", () => {
+  it("matches the DOCX MIME exactly", () => {
+    expect(isDocxFileType(DOCX_MIME_TYPE)).toBe(true);
+  });
+
+  it("rejects the bare 'docx' string and nullish input", () => {
+    expect(isDocxFileType("docx")).toBe(false);
+    expect(isDocxFileType(null)).toBe(false);
+    expect(isDocxFileType(undefined)).toBe(false);
+  });
+});
+
+describe("isSpanBasedFileType", () => {
+  it("is true for text MIMEs (text/* and the legacy application/txt)", () => {
+    expect(isSpanBasedFileType("text/plain")).toBe(true);
+    expect(isSpanBasedFileType("text/html")).toBe(true);
+    expect(isSpanBasedFileType("application/txt")).toBe(true);
+  });
+
+  it("is true for DOCX MIMEs", () => {
+    expect(isSpanBasedFileType(DOCX_MIME_TYPE)).toBe(true);
+  });
+
+  it("is false for PDF (token-based annotations)", () => {
+    expect(isSpanBasedFileType("application/pdf")).toBe(false);
+  });
+
+  it("is false for unrelated types and nullish input", () => {
+    expect(isSpanBasedFileType("image/png")).toBe(false);
+    expect(isSpanBasedFileType(null)).toBe(false);
+    expect(isSpanBasedFileType(undefined)).toBe(false);
+  });
+});
+
+describe("formatFileSize (utils/files.ts)", () => {
+  // utils/files.ts has its own ``formatFileSize`` with output formatting
+  // distinct from the formatter in ``utils/formatters.ts`` — pin the
+  // contract here too.
+  it("returns the canonical zero-bytes string when given 0", () => {
+    expect(formatFileSize(0)).toBe("0 Bytes");
+  });
+
+  it("formats bytes below 1 KB without unit conversion", () => {
+    expect(formatFileSize(512)).toBe("512 Bytes");
+    expect(formatFileSize(1023)).toBe("1023 Bytes");
+  });
+
+  it("formats kilobyte, megabyte, and gigabyte boundaries", () => {
+    expect(formatFileSize(1024)).toBe("1 KB");
+    expect(formatFileSize(1024 * 1024)).toBe("1 MB");
+    expect(formatFileSize(1024 * 1024 * 1024)).toBe("1 GB");
+  });
+
+  it("formats fractional sizes with two decimals where present", () => {
+    expect(formatFileSize(1536)).toBe("1.5 KB");
+    expect(formatFileSize(1024 * 1024 * 2.5)).toBe("2.5 MB");
   });
 });

@@ -32,6 +32,45 @@ export const isSpanBasedFileType = (
   fileType: string | null | undefined
 ): boolean => isTextFileType(fileType) || isDocxFileType(fileType);
 
+/**
+ * Normalize a document's fileType + title into a short badge label
+ * (e.g. "PDF" / "DOCX" / "TXT"). Handles both bare extension strings
+ * ("pdf", "docx") and the full MIME types that the Django backend's
+ * ``file_type`` field actually stores ("application/pdf",
+ * DOCX_MIME_TYPE, "text/plain"). Falls back to the title extension and
+ * finally "PDF" so the badge is never empty.
+ */
+export const getDocumentTypeBadge = (
+  fileType: string | null | undefined,
+  title: string | null | undefined
+): string => {
+  if (fileType) {
+    const ft = fileType.toLowerCase();
+    // Bare extension form (older fixtures, some upload paths).
+    if (ft === "pdf") return "PDF";
+    if (ft === "docx" || ft === "doc") return "DOCX";
+    if (ft === "txt") return "TXT";
+    // MIME-type form (live backend payload — see the helpers above
+    // (isPdfFileType / isDocxFileType / isTextFileType) for the same
+    // mappings expressed as predicates).
+    if (isPdfFileType(ft)) return "PDF";
+    if (isDocxFileType(ft) || ft.includes("wordprocessingml")) return "DOCX";
+    if (isTextFileType(ft)) return "TXT";
+    // Generic MIME (e.g. "application/json") -> trim prefix for display.
+    const sub = ft.includes("/") ? ft.split("/").pop()! : ft;
+    return sub.toUpperCase();
+  }
+  const parts = (title || "").split(".");
+  if (parts.length > 1) {
+    const ext = parts.pop()?.toLowerCase();
+    if (ext === "pdf") return "PDF";
+    if (ext === "docx" || ext === "doc") return "DOCX";
+    if (ext === "txt") return "TXT";
+    if (ext) return ext.toUpperCase();
+  }
+  return "PDF";
+};
+
 export const downloadFile = async (url: string): Promise<void> => {
   try {
     const res = await Axios.get(url, {
