@@ -102,7 +102,7 @@ class CorpusObjsService:
     # =========================================================================
 
     @classmethod
-    def check_document_in_corpus(
+    def _check_document_in_corpus(
         cls,
         document: Document,
         corpus: Corpus,
@@ -118,11 +118,10 @@ class CorpusObjsService:
         equivalent ``user_can(... READ)`` check) BEFORE calling this.
 
         Used as a low-level post-condition inside service methods that
-        have already enforced READ; exposed publicly (no underscore) so
-        the GraphQL surface can compose it with already-checked corpus
-        / document instances. If you find yourself calling this in a
-        new resolver, ask whether ``get_corpus_document_by_id`` (which
-        gates corpus READ for you) is the better entry point.
+        have already enforced READ. The leading underscore marks the
+        method as service-internal — new resolvers should reach for
+        ``get_corpus_document_by_id`` (which gates corpus READ for you)
+        instead.
 
         Args:
             document: The document to check
@@ -938,7 +937,7 @@ class CorpusObjsService:
             )
 
         # Validate document belongs to corpus
-        if not cls.check_document_in_corpus(document, corpus):
+        if not cls._check_document_in_corpus(document, corpus):
             return False, "Document does not belong to this corpus"
 
         # Validate folder belongs to corpus
@@ -1067,7 +1066,7 @@ class CorpusObjsService:
             - All documents belong to corpus
             - Folder (if provided) belongs to corpus
         """
-        from opencontractserver.documents.models import Document, DocumentPath
+        from opencontractserver.documents.models import DocumentPath
 
         # Permission check
         if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
@@ -1076,14 +1075,6 @@ class CorpusObjsService:
         # Validate folder belongs to corpus
         if folder is not None and folder.corpus_id != corpus.id:
             return 0, "Target folder does not belong to this corpus"
-
-        # Get documents
-        documents = Document.objects.filter(id__in=document_ids)
-
-        # Validate all documents belong to corpus
-        for doc in documents:
-            if not cls.check_document_in_corpus(doc, corpus):
-                return 0, f"Document {doc.id} does not belong to this corpus"
 
         target_folder_id = folder.id if folder else None
 
@@ -1109,6 +1100,19 @@ class CorpusObjsService:
                     )
                     .order_by("pk")
                 )
+
+                # Validate corpus membership in a single comparison against the
+                # query we just ran — the filter above already proves membership
+                # for each document_id present. Folded into the locked atomic
+                # block so the membership check and the move are TOCTOU-coherent.
+                found_doc_ids = {p.document_id for p in current_paths}
+                missing = set(document_ids) - found_doc_ids
+                if missing:
+                    return (
+                        0,
+                        "The following documents do not belong to this corpus: "
+                        + ", ".join(str(pk) for pk in sorted(missing)),
+                    )
 
                 # Filter to only paths that need moving
                 paths_to_move = [
@@ -1793,7 +1797,7 @@ class CorpusObjsService:
             )
 
         # Validate document belongs to corpus
-        if not cls.check_document_in_corpus(document, corpus):
+        if not cls._check_document_in_corpus(document, corpus):
             return False, "Document does not belong to this corpus"
 
         with transaction.atomic():
@@ -1935,7 +1939,7 @@ class CorpusObjsService:
             )
 
         # Validate document belongs to corpus (has any path record)
-        if not cls.check_document_in_corpus(document, corpus):
+        if not cls._check_document_in_corpus(document, corpus):
             return False, "Document does not belong to this corpus"
 
         # Delegate to versioning module

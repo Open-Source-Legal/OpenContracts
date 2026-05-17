@@ -212,7 +212,13 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.documents.models import Document
 
         user = getattr(info.context, "user", None)
-        corpus_doc_ids = self.get_documents(include_caml=True).values_list(
+        # Corpus READ is already gated by the parent query that resolved
+        # ``self`` (CorpusType only renders for corpora the user can see), so
+        # the underscore-private internal helper is the correct entry point
+        # — the deprecated user-facing ``get_documents()`` alias would warn on
+        # every doc list render otherwise. Document-level visibility is
+        # applied below.
+        corpus_doc_ids = self._get_active_documents(include_caml=True).values_list(
             "id", flat=True
         )
         return Document.objects.visible_to_user(user).filter(id__in=corpus_doc_ids)
@@ -229,8 +235,11 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         user = getattr(info.context, "user", None)
 
-        # Get all document IDs in this corpus via DocumentPath
-        document_ids = self.get_documents().values_list("id", flat=True)
+        # Get all document IDs in this corpus via DocumentPath. Corpus READ is
+        # already gated by the parent query that resolved ``self`` — see the
+        # equivalent note in ``resolve_documents`` above. The internal helper
+        # avoids the deprecated user-facing wrapper's runtime warning.
+        document_ids = self._get_active_documents().values_list("id", flat=True)
 
         # Collect annotations for all documents with proper permission computation
         all_annotations = Annotation.objects.none()

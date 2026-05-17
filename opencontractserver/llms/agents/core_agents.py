@@ -30,6 +30,7 @@ from opencontractserver.conversations.models import (
     MessageStateChoices,
     MessageTypeChoices,
 )
+from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.context_guardrails import (
@@ -365,10 +366,6 @@ class CorpusAgentContext:
             # so public corpuses remain readable in anonymous sessions
             # (matches the ``_assert_access`` semantic invoked at context
             # creation).
-            from opencontractserver.corpuses.corpus_objs_service import (
-                CorpusObjsService,
-            )
-
             user_id = self.config.user_id
             corpus = self.corpus
 
@@ -1130,10 +1127,6 @@ class CoreCorpusAgentFactory:
         # uniformly. ``_assert_access`` already ran above, so the user is
         # known to satisfy the gate; we still pass an AnonymousUser sentinel
         # for ``user_id is None`` to keep the public-corpus path working.
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
-
         user_id = config.user_id
 
         def _load_corpus_documents() -> list[Document]:
