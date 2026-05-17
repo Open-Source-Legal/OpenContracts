@@ -32,6 +32,10 @@ import {
 import { ServerAnnotationType } from "../../types/graphql-api";
 import { getDocumentUrl } from "../../utils/navigationUtils";
 import { ANNOTATION_PAGINATION } from "../../assets/configurations/constants";
+import {
+  buildAnnotationClickQueryParams,
+  buildBlockRelationshipIdMap,
+} from "./corpusAnnotationCardsHelpers";
 
 export const CorpusAnnotationCards = ({
   opened_corpus_id,
@@ -351,17 +355,14 @@ export const CorpusAnnotationCards = ({
   // Pulled from ``blockContext`` populated by ``semanticSearch`` results;
   // empty when not in semantic mode — the click handler falls back to the
   // leaf-only behaviour. Issue #1645.
-  const blockRelationshipIdMap = useMemo(() => {
-    const map = new Map<string, string>();
-    if (isSemanticSearchActive) {
-      semanticSearchResults.forEach((result) => {
-        if (result.blockContext?.relationshipId) {
-          map.set(result.annotation.id, result.blockContext.relationshipId);
-        }
-      });
-    }
-    return map;
-  }, [isSemanticSearchActive, semanticSearchResults]);
+  const blockRelationshipIdMap = useMemo(
+    () =>
+      buildBlockRelationshipIdMap(
+        isSemanticSearchActive,
+        semanticSearchResults
+      ),
+    [isSemanticSearchActive, semanticSearchResults]
+  );
 
   // Handle annotation click - navigate to document
   const handleAnnotationClick = useCallback(
@@ -371,25 +372,10 @@ export const CorpusAnnotationCards = ({
         return;
       }
 
-      const queryParams: {
-        annotationIds: string[];
-        analysisIds?: string[];
-        relationshipId?: string;
-      } = {
-        annotationIds: [annotation.id],
-      };
-
-      if (annotation.analysis?.id) {
-        queryParams.analysisIds = [annotation.analysis.id];
-      }
-
-      // If the search result carried a containing OC_SUBTREE_GROUP, deep-
-      // link to it as well so the viewer renders the block as selected
-      // instead of just the leaf annotation. Issue #1645.
-      const blockRelationshipId = blockRelationshipIdMap.get(annotation.id);
-      if (blockRelationshipId) {
-        queryParams.relationshipId = blockRelationshipId;
-      }
+      const queryParams = buildAnnotationClickQueryParams(
+        annotation,
+        blockRelationshipIdMap
+      );
 
       const url = getDocumentUrl(
         annotation.document,

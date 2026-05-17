@@ -9,7 +9,21 @@
 
 import * as React from "react";
 import { Provider as JotaiProvider, createStore } from "jotai";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// useJumpToRelationship reads ``annotationElementRefs`` from
+// ``useAnnotationRefs`` to drive scrollIntoView. The default test does not
+// have a virtualised PDF mounted, so we surface a controllable refs map.
+// ``annotationRefsForTests`` is mutated by individual tests below.
+const annotationRefsForTests: {
+  current: Record<string, { scrollIntoView: ReturnType<typeof vi.fn> } | null>;
+} = { current: {} };
+
+vi.mock("../../../../annotator/hooks/useAnnotationRefs", () => ({
+  useAnnotationRefs: () => ({
+    annotationElementRefs: annotationRefsForTests,
+  }),
+}));
 
 import { renderHook, waitFor } from "../../../../../test-utils/renderHook";
 import { useJumpToRelationship } from "../useJumpToRelationship";
@@ -21,6 +35,7 @@ import {
 } from "../../../../annotator/context/UISettingsAtom";
 import { RelationGroup } from "../../../../annotator/types/annotations";
 import { AnnotationLabelType } from "../../../../../types/graphql-api";
+import { JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS } from "../../../../../assets/configurations/constants";
 
 const RELAY_PK = 42;
 // btoa("Relationship:42") — what the GraphQL query actually returns.
@@ -47,20 +62,36 @@ function createWrapper(store: ReturnType<typeof createStore>) {
 
 describe("useJumpToRelationship", () => {
   let store: ReturnType<typeof createStore>;
+  const cleanups: Array<() => void> = [];
+
+  function renderJumpHook() {
+    const result = renderHook(() => useJumpToRelationship(), {
+      wrapper: createWrapper(store),
+    });
+    cleanups.push(result.unmount);
+    return result;
+  }
 
   beforeEach(() => {
     store = createStore();
     selectedRelationshipId(null);
+    annotationRefsForTests.current = {};
   });
 
   afterEach(() => {
+    // Unmount any hook instances before resetting the reactive var, so a
+    // pending effect on the OLD store doesn't re-fire against the NEW
+    // store's atom state in the next test (causes shared-spy double-counts).
+    while (cleanups.length > 0) {
+      const dispose = cleanups.pop();
+      dispose?.();
+    }
     selectedRelationshipId(null);
+    annotationRefsForTests.current = {};
   });
 
   it("is a no-op when ?rel= is unset", () => {
-    renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    renderJumpHook();
     // Nothing should have been selected.
     expect(store.get(selectedRelationsAtom)).toEqual([]);
     expect(store.get(hoveredAnnotationIdAtom)).toBeNull();
@@ -68,9 +99,7 @@ describe("useJumpToRelationship", () => {
 
   it("does not match when relId is set but no relations are loaded yet", async () => {
     selectedRelationshipId(String(RELAY_PK));
-    renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    renderJumpHook();
     // Falling out cleanly — selection stays empty.
     expect(store.get(selectedRelationsAtom)).toEqual([]);
   });
@@ -83,9 +112,7 @@ describe("useJumpToRelationship", () => {
     ]);
     selectedRelationshipId(String(RELAY_PK));
 
-    renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    renderJumpHook();
 
     await waitFor(() => store.get(selectedRelationsAtom).length === 1);
     const selected = store.get(selectedRelationsAtom);
@@ -104,9 +131,7 @@ describe("useJumpToRelationship", () => {
     ]);
     selectedRelationshipId(String(RELAY_PK));
 
-    renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    renderJumpHook();
 
     await waitFor(() => store.get(selectedRelationsAtom).length === 1);
     expect(store.get(selectedRelationsAtom)).toHaveLength(1);
@@ -118,9 +143,7 @@ describe("useJumpToRelationship", () => {
     ]);
     selectedRelationshipId("not-a-number");
 
-    renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    renderJumpHook();
 
     expect(store.get(selectedRelationsAtom)).toEqual([]);
   });
@@ -132,9 +155,7 @@ describe("useJumpToRelationship", () => {
     ]);
     selectedRelationshipId(String(RELAY_PK));
 
-    const { rerender } = renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    const { rerender } = renderJumpHook();
     await waitFor(() => store.get(selectedRelationsAtom).length === 1);
 
     // Pre-seed a hover id to verify the hook clears it.
@@ -148,6 +169,88 @@ describe("useJumpToRelationship", () => {
     expect(store.get(hoveredAnnotationIdAtom)).toBeNull();
   });
 
+  it("calls scrollIntoView and sets hover on the source annotation when refs are ready", async () => {
+    // Seed the refs map BEFORE the hook runs so tryScroll succeeds on the
+    // first pass — exercises the happy-path branch of the effect.
+    const scrollSpy = vi.fn();
+    annotationRefsForTests.current = {
+      "ann-1": { scrollIntoView: scrollSpy },
+    };
+    store.set(structuralRelationshipsAtom, [
+      makeRelationGroup(RELAY_GLOBAL_ID),
+    ]);
+    selectedRelationshipId(String(RELAY_PK));
+
+    renderJumpHook();
+
+    await waitFor(() => scrollSpy.mock.calls.length > 0);
+    expect(scrollSpy).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+    });
+    expect(store.get(hoveredAnnotationIdAtom)).toBe("ann-1");
+  });
+
+  it("falls back to a target annotation ref when the source ref is not mounted", async () => {
+    // Source ann-1 is not in the refs map; first target ann-2 is. Hook
+    // should pick ann-2 to scroll but still set hover to the source.
+    const scrollSpy = vi.fn();
+    annotationRefsForTests.current = {
+      "ann-2": { scrollIntoView: scrollSpy },
+    };
+    store.set(structuralRelationshipsAtom, [
+      makeRelationGroup(RELAY_GLOBAL_ID),
+    ]);
+    selectedRelationshipId(String(RELAY_PK));
+
+    renderJumpHook();
+
+    await waitFor(() => scrollSpy.mock.calls.length > 0);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(store.get(hoveredAnnotationIdAtom)).toBe("ann-1");
+  });
+
+  it("retries scrollIntoView after JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS when refs aren't ready", async () => {
+    // No refs yet → tryScroll returns false → setTimeout schedules a retry.
+    // Populating refs before the timer fires lets the retry succeed.
+    vi.useFakeTimers();
+    try {
+      const scrollSpy = vi.fn();
+      store.set(structuralRelationshipsAtom, [
+        makeRelationGroup(RELAY_GLOBAL_ID),
+      ]);
+      selectedRelationshipId(String(RELAY_PK));
+
+      renderJumpHook();
+
+      // Refs map populates AFTER the effect runs but BEFORE the retry timer.
+      annotationRefsForTests.current = {
+        "ann-1": { scrollIntoView: scrollSpy },
+      };
+      // Advance just past the retry interval to trigger the fallback.
+      vi.advanceTimersByTime(JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS + 1);
+
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a RelationGroup with a malformed global id as a non-match (catch branch)", async () => {
+    // ``getNumericIdFromGlobalId`` throws on non-base64 ids. The hook must
+    // swallow that and continue scanning rather than blowing up the effect.
+    store.set(structuralRelationshipsAtom, [
+      makeRelationGroup("not-a-valid-relay-id"),
+      makeRelationGroup(RELAY_GLOBAL_ID),
+    ]);
+    selectedRelationshipId(String(RELAY_PK));
+
+    renderJumpHook();
+
+    await waitFor(() => store.get(selectedRelationsAtom).length === 1);
+    expect(store.get(selectedRelationsAtom)[0].id).toBe(RELAY_GLOBAL_ID);
+  });
+
   it("does not re-apply selection on every allRelations mutation", async () => {
     // The lastAppliedRef guard prevents the hook from fighting user-driven
     // selection changes once the URL deep-link has been honoured.
@@ -156,9 +259,7 @@ describe("useJumpToRelationship", () => {
     ]);
     selectedRelationshipId(String(RELAY_PK));
 
-    const { rerender } = renderHook(() => useJumpToRelationship(), {
-      wrapper: createWrapper(store),
-    });
+    const { rerender } = renderJumpHook();
     await waitFor(() => store.get(selectedRelationsAtom).length === 1);
 
     // Simulate user clearing the selection through unrelated UI.

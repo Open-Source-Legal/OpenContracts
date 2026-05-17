@@ -20,6 +20,7 @@ import {
   selectedAnnotationIds,
   selectedAnalysesIds,
   selectedExtractIds,
+  selectedRelationshipId,
   routeLoading,
   routeError,
   authStatusVar,
@@ -54,6 +55,7 @@ describe("CentralRouteManager", () => {
     selectedAnnotationIds([]);
     selectedAnalysesIds([]);
     selectedExtractIds([]);
+    selectedRelationshipId(null);
     routeLoading(false);
     routeError(null);
 
@@ -368,6 +370,32 @@ describe("CentralRouteManager", () => {
 
       expect(selectedAnnotationIds()).toEqual([]);
       expect(selectedAnalysesIds()).toEqual([]);
+    });
+
+    it("should parse selectedRelationshipId from rel= URL param (issue #1645)", () => {
+      render(
+        <MockedProvider mocks={[]} addTypename={false}>
+          <MemoryRouter initialEntries={["/annotations?rel=42"]}>
+            <CentralRouteManager />
+          </MemoryRouter>
+        </MockedProvider>
+      );
+
+      expect(selectedRelationshipId()).toBe("42");
+    });
+
+    it("should clear selectedRelationshipId when rel= absent from URL", () => {
+      selectedRelationshipId("123");
+
+      render(
+        <MockedProvider mocks={[]} addTypename={false}>
+          <MemoryRouter initialEntries={["/annotations"]}>
+            <CentralRouteManager />
+          </MemoryRouter>
+        </MockedProvider>
+      );
+
+      expect(selectedRelationshipId()).toBeNull();
     });
   });
 
