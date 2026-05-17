@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import django
 from django.contrib.auth import get_user_model
@@ -540,7 +540,7 @@ class ConversationManager(SoftDeleteManager):
         permission,
         *,
         include_group_permissions: bool = True,
-        request=None,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Conversation``.
 
@@ -609,7 +609,7 @@ class ChatMessageManager(SoftDeleteManager):
         permission,
         *,
         include_group_permissions: bool = True,
-        request=None,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``ChatMessage``.
 

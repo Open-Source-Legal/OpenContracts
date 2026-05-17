@@ -14,10 +14,18 @@ INSTANCE_PERMS_CACHE_ATTR = "_oc_granted_perms_cache"
 of ``get_users_permissions_for_obj`` results, keyed by
 ``(user_id, include_group_permissions_bool)`` → ``frozenset[str]``.
 
-Tier 1 of the two-tier mitigation described in issue #1640. Transparent to
-all callers: any code that goes through ``get_users_permissions_for_obj``
-benefits automatically. Cache lifetime equals the instance lifetime; the
-only path that mutates underlying state mid-request is
+Backed by ``opencontractserver.utils.permissioning._InstancePermsCache``,
+a thread-safe ``dict`` subclass: individual reads/writes ride CPython's
+GIL but the per-user invalidate sweep
+(``_InstancePermsCache.drop_for_user``) holds an internal ``Lock`` so
+the compound iterate-then-delete operation cannot race a concurrent
+reader on the same instance under async views or any future code path
+that crosses thread / coroutine boundaries.
+
+Tier 1 of the two-tier mitigation. Transparent to all callers: any code
+that goes through ``get_users_permissions_for_obj`` benefits
+automatically. Cache lifetime equals the instance lifetime; the only
+path that mutates underlying state mid-request is
 ``set_permissions_for_obj_to_user``, which clears the relevant entries
 when given the active request.
 

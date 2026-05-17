@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from functools import reduce
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,65 @@ if TYPE_CHECKING:
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+class _InstancePermsCache(dict):
+    """Thread-safe Tier 1 cache for granted permission sets.
+
+    A ``dict`` subclass keyed by ``(user_id, include_group_permissions)``
+    → ``frozenset[str]``. Subclassing ``dict`` keeps the cache transparent
+    to direct callers and tests that perform membership checks, indexing,
+    or ``dict(cache)`` snapshots.
+
+    The ``_lock`` exists for *compound* operations only — namely the
+    invalidate-by-user sweep in
+    :func:`set_permissions_for_obj_to_user`, which iterates keys then
+    deletes them and would otherwise risk ``RuntimeError: dictionary
+    changed size during iteration`` under async views or any future
+    code path that crosses thread or coroutine boundaries on the same
+    instance. Individual ``cache[key]`` reads/writes are already atomic
+    under CPython's GIL; the lock-acquire/release cost on an uncontended
+    Lock is a few hundred nanoseconds on CPython — well below the cost
+    of the guardian queries this layer exists to elide. The matching
+    Tier 2 rationale lives in
+    ``opencontractserver/utils/permission_optimizer.py``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lock = threading.Lock()
+
+    def drop_for_user(self, user_id: int) -> None:
+        """Atomically drop every entry keyed by ``user_id``.
+
+        Holds ``_lock`` for the iterate-then-delete sweep so a concurrent
+        writer cannot trigger ``RuntimeError`` mid-iteration and so a
+        concurrent reader either sees the entry fully present or fully
+        gone, never a half-removed state.
+        """
+
+        with self._lock:
+            for key in [k for k in self if k[0] == user_id]:
+                del self[key]
+
+
+def _get_or_create_instance_perms_cache(
+    instance: django.db.models.Model,
+) -> _InstancePermsCache:
+    """Return ``instance``'s Tier 1 cache, creating one atomically if needed.
+
+    Uses ``instance.__dict__.setdefault`` so concurrent first-touches on
+    the same Python instance converge on a single cache object instead
+    of stomping each other via ``getattr`` + ``setattr``. On CPython
+    ``dict.setdefault`` is a single atomic operation under the GIL.
+    """
+
+    cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
+    if cache is None:
+        cache = instance.__dict__.setdefault(
+            INSTANCE_PERMS_CACHE_ATTR, _InstancePermsCache()
+        )
+    return cache
 
 
 def set_permissions_for_obj_to_user(
@@ -190,10 +250,20 @@ def set_permissions_for_obj_to_user(
     # Drop both Tier 1 (instance) and Tier 2 (request) cache entries for this
     # ``(user, instance)`` so later ``user_can`` checks in the same request
     # see the new grants. See ``constants/permissioning.py`` for caveats.
+    #
+    # ``_InstancePermsCache.drop_for_user`` holds the per-cache lock for the
+    # iterate-then-delete sweep so the invalidation is safe under ASGI /
+    # async-view code paths that may race a concurrent reader on the same
+    # Python instance. Legacy plain-``dict`` caches (instances pickled out
+    # by an older worker and loaded back in mid-rollout, or hand-attached
+    # test fixtures) still iterate via the same shape — we fall back to a
+    # snapshot pattern so ``RuntimeError`` cannot escape this helper.
     instance_cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
-    if instance_cache is not None:
+    if isinstance(instance_cache, _InstancePermsCache):
+        instance_cache.drop_for_user(user.id)
+    elif instance_cache is not None:
         for key in [k for k in instance_cache if k[0] == user.id]:
-            del instance_cache[key]
+            instance_cache.pop(key, None)
     if request is not None:
         from opencontractserver.utils.permission_optimizer import (
             get_request_optimizer,
@@ -265,10 +335,7 @@ def _store_granted_on_instance(
 
     if cache_key is None:
         return granted
-    cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
-    if cache is None:
-        cache = {}
-        setattr(instance, INSTANCE_PERMS_CACHE_ATTR, cache)
+    cache = _get_or_create_instance_perms_cache(instance)
     cache[cache_key] = frozenset(granted)
     return granted
 
@@ -531,8 +598,8 @@ def _default_user_can(
             return True
         return False
 
-    # Centralised int/str → User resolver, also used by the per-model
-    # ``user_can`` overrides (PR #1663 DRY cleanup).
+    # Centralised int/str → User resolver, shared with per-model
+    # ``user_can`` overrides so each branch resolves identically.
     from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
 
     user = resolve_user_for_user_can(user_val)
@@ -564,7 +631,7 @@ def _default_user_can(
     model_name = instance._meta.model_name
     app_label = instance._meta.app_label
 
-    # Request-scoped boolean cache lookup (PR #1663). Dormant outside
+    # Request-scoped boolean cache lookup. Dormant outside
     # ``permission_cache_scope`` (the default ``_perm_cache`` is ``None``
     # and ``cached_user_can`` returns ``MISS``). The early returns above
     # (None/anonymous, superuser, is_public+READ, creator) are already
@@ -724,7 +791,7 @@ def user_has_permission_for_obj(
     (i.e. the model hasn't yet been migrated to the Phase A surface), the
     shim raises ``TypeError`` with an actionable message instead of letting
     the call fall through and surface as a confusing ``AttributeError``
-    deep inside the resolver. Addresses Claude review on PR #1663.
+    deep inside the resolver.
     """
     import sys
     import warnings

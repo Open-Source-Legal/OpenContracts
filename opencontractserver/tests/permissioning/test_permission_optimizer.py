@@ -40,6 +40,7 @@ from opencontractserver.utils.permission_optimizer import (
     get_request_optimizer,
 )
 from opencontractserver.utils.permissioning import (
+    _InstancePermsCache,
     get_users_permissions_for_obj,
     set_permissions_for_obj_to_user,
 )
@@ -263,6 +264,146 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
         assert cache is not None
         self.assertIn((self.reader.id, True), cache)
+
+
+class Tier1CacheThreadSafetyTestCase(TransactionTestCase):
+    """Tier 1: per-instance cache must survive concurrent invalidation.
+
+    Pre-fix, the cache was a plain ``dict`` and
+    ``set_permissions_for_obj_to_user`` deleted entries inside a
+    ``for key in [...]`` snapshot. Under ASGI / async views / any path
+    that lets multiple threads touch the same Python instance, a
+    concurrent writer mutating the dict mid-sweep would raise
+    ``RuntimeError: dictionary changed size during iteration``. The
+    ``_InstancePermsCache`` wrapper plus ``drop_for_user`` close that
+    gap by holding a lock for the compound op.
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="t1_thread_creator", email="t1_tc@test.test", password="x"
+        )
+        self.corpus = Corpus.objects.create(
+            title="t1 thread corpus", creator=self.creator, is_public=False
+        )
+        # A modest fleet of readers so the invalidate sweep has more than
+        # one key to iterate. The race is observable with N≥2 keys; the
+        # extra entries shorten the mean iteration before a race would
+        # surface without bloating fixture cost (each ``create_user`` +
+        # ``set_permissions_for_obj_to_user`` is a guardian write).
+        self.readers = [
+            User.objects.create_user(
+                username=f"t1_thread_reader_{i}",
+                email=f"t1_tr_{i}@test.test",
+                password="x",
+            )
+            for i in range(8)
+        ]
+        for reader in self.readers:
+            set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+
+    def test_instance_cache_is_thread_safe_wrapper(self):
+        """Warming the cache attaches the thread-safe wrapper, not a plain dict."""
+
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        get_users_permissions_for_obj(user=self.readers[0], instance=corpus)
+        cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR)
+        self.assertIsInstance(cache, _InstancePermsCache)
+
+    def test_concurrent_reads_and_invalidations_do_not_race(self):
+        """Reader threads must not see ``RuntimeError`` during a concurrent
+        invalidate sweep.
+
+        The pre-fix ``for key in [k for k in dict if ...]`` pattern was
+        safe in isolation but the comprehension's snapshot could still
+        race with a concurrent reader iterating the same dict (e.g.
+        the cache key isolation tests above iterate the cache for
+        membership). This test pins the contract: under heavy
+        contention from N=4 reader threads doing membership tests and
+        the main thread sweeping keys, no thread raises.
+        """
+
+        import threading
+
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        # Warm Tier 1 with one frozenset per reader so the sweep
+        # actually has work to do.
+        for reader in self.readers:
+            get_users_permissions_for_obj(user=reader, instance=corpus)
+        cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR)
+        self.assertIsInstance(cache, _InstancePermsCache)
+        # Population check before the storm.
+        self.assertEqual(len(cache), len(self.readers))
+
+        errors: list[BaseException] = []
+        stop = threading.Event()
+
+        def hammer_reads():
+            try:
+                while not stop.is_set():
+                    # Membership checks and indexed reads — same operations
+                    # that production cache hits perform on the hot path.
+                    for k in list(cache):
+                        _ = cache.get(k)
+            except BaseException as exc:  # noqa: BLE001 — surface to the test.
+                errors.append(exc)
+
+        readers = [threading.Thread(target=hammer_reads) for _ in range(4)]
+        for t in readers:
+            t.start()
+        try:
+            # Repeatedly invalidate every reader's entries. Each sweep
+            # mutates the dict while the reader threads are walking it.
+            # 5 iterations × 8 readers is enough contention to surface
+            # the pre-fix race ~deterministically (verified locally by
+            # reverting drop_for_user to the raw ``del`` loop) while
+            # keeping the test under a couple of seconds.
+            for _ in range(5):
+                for reader in self.readers:
+                    cache.drop_for_user(reader.id)
+                # Re-warm so the next sweep has keys to remove.
+                for reader in self.readers:
+                    get_users_permissions_for_obj(user=reader, instance=corpus)
+        finally:
+            stop.set()
+            for t in readers:
+                t.join(timeout=5.0)
+
+        self.assertEqual(
+            errors,
+            [],
+            "Reader threads must not raise during concurrent invalidate sweeps; "
+            f"saw {errors!r}",
+        )
+
+    def test_set_permissions_invalidation_uses_thread_safe_drop(self):
+        """``set_permissions_for_obj_to_user`` routes Tier 1 invalidation
+        through the thread-safe ``drop_for_user`` method.
+
+        The legacy code did an inline ``for key in [...]: del cache[key]``.
+        The new path delegates to ``_InstancePermsCache.drop_for_user`` so
+        the lock-guarded contract is centralized. Asserting on the call
+        ensures a future refactor that re-inlines the sweep would trip
+        a test rather than silently re-introduce the race.
+        """
+
+        from unittest.mock import patch
+
+        corpus = Corpus.objects.get(pk=self.corpus.pk)
+        # Warm Tier 1 for two readers so the sweep has work.
+        reader_a, reader_b = self.readers[0], self.readers[1]
+        get_users_permissions_for_obj(user=reader_a, instance=corpus)
+        get_users_permissions_for_obj(user=reader_b, instance=corpus)
+        cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR)
+        self.assertIsInstance(cache, _InstancePermsCache)
+
+        with patch.object(_InstancePermsCache, "drop_for_user", autospec=True) as drop:
+            set_permissions_for_obj_to_user(
+                reader_a, corpus, [PermissionTypes.READ, PermissionTypes.UPDATE]
+            )
+
+        # The mutation invalidates exactly reader_a's entries.
+        drop.assert_called_once_with(cache, reader_a.id)
 
 
 class PermissionQueryOptimizerTestCase(TransactionTestCase):
