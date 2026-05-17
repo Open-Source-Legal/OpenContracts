@@ -19,17 +19,14 @@ Key Design Principles
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
 
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
@@ -144,6 +141,8 @@ class DocumentService:
         custom_meta: dict | None = None,
         is_public: bool = False,
         slug: str | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[Document | None, str]:
         """
         Create a standalone document (not attached to any corpus).
@@ -220,7 +219,12 @@ class DocumentService:
                     return None, f"Unsupported file type: {mime_type}"
 
                 # Set permissions for creator
-                set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
+                set_permissions_for_obj_to_user(
+                    user,
+                    document,
+                    [PermissionTypes.CRUD],
+                    request=request,
+                )
 
                 logger.info(
                     f"Created standalone document {document.id} "
@@ -242,6 +246,8 @@ class DocumentService:
         cls,
         user: User,
         document_id: int,
+        *,
+        request: Any = None,
     ) -> Document | None:
         """
         Get a document by ID if user has access.
@@ -261,18 +267,16 @@ class DocumentService:
 
         try:
             document = Document.objects.get(pk=document_id)
-
-            # Check access: owner, public, or has READ permission
-            if document.creator == user or document.is_public:
-                return document
-
-            if user_has_permission_for_obj(user, document, PermissionTypes.READ):
-                return document
-
-            return None
-
         except Document.DoesNotExist:
             return None
+
+        # Single centralised READ check — encapsulates superuser / creator /
+        # is_public / guardian rules and participates in the request-scoped
+        # permission cache when ``request`` is supplied.
+        if document.user_can(user, PermissionTypes.READ, request=request):
+            return document
+
+        return None
 
     # =========================================================================
     # DOCUMENT PERMISSIONS
@@ -285,6 +289,8 @@ class DocumentService:
         document: Document,
         target_user: User,
         permissions: list[PermissionTypes],
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Set permissions for a document.
@@ -301,18 +307,21 @@ class DocumentService:
         Permissions:
             Requires document ownership or PERMISSION permission
         """
-        # Check if user can set permissions (owner or has PERMISSION perm)
-        if document.creator != user:
-            if not user_has_permission_for_obj(
-                user, document, PermissionTypes.PERMISSION
-            ):
-                return (
-                    False,
-                    "Permission denied: Cannot modify permissions for this document",
-                )
+        # Single centralised PERMISSION check — encapsulates superuser / creator /
+        # guardian rules and participates in the request-scoped permission cache.
+        if not document.user_can(user, PermissionTypes.PERMISSION, request=request):
+            return (
+                False,
+                "Permission denied: Cannot modify permissions for this document",
+            )
 
         try:
-            set_permissions_for_obj_to_user(target_user, document, permissions)
+            set_permissions_for_obj_to_user(
+                target_user,
+                document,
+                permissions,
+                request=request,
+            )
             logger.info(
                 f"Set permissions {permissions} on document {document.id} "
                 f"for user {target_user.id} by user {user.id}"

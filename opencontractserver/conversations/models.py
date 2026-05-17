@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import django
 from django.contrib.auth import get_user_model
@@ -540,6 +540,7 @@ class ConversationManager(SoftDeleteManager):
         permission,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Conversation``.
 
@@ -564,6 +565,7 @@ class ConversationManager(SoftDeleteManager):
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def search_by_embedding(self, query_vector, embedder_path, top_k=10):
@@ -607,6 +609,7 @@ class ChatMessageManager(SoftDeleteManager):
         permission,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``ChatMessage``.
 
@@ -630,6 +633,7 @@ class ChatMessageManager(SoftDeleteManager):
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def search_by_embedding(self, query_vector, embedder_path, top_k=10):

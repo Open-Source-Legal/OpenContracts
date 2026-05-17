@@ -119,6 +119,7 @@ class UserCanMixin:
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         from opencontractserver.utils.permissioning import _default_user_can
 
@@ -127,6 +128,7 @@ class UserCanMixin:
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
 
@@ -144,12 +146,56 @@ class InstanceUserCanMixin:
     or fix the manager — never paper over the ``AttributeError``.
     """
 
+    def __getstate__(self) -> Any:
+        """Strip the Tier 1 permission cache before pickling.
+
+        ``get_users_permissions_for_obj`` stashes a ``frozenset`` cache
+        under ``INSTANCE_PERMS_CACHE_ATTR`` on the instance. If a model is
+        passed verbatim into a Celery task (the well-known anti-pattern
+        the project warns against in ``constants/permissioning.py``), the
+        default pickle would carry that cache to the worker, where it
+        could mask out-of-band guardian-row mutations made between
+        ``apply_async`` and the worker picking the task up. Dropping the
+        attribute at pickle time makes the footgun impossible rather than
+        merely documented — the worker always re-reads from the DB.
+
+        Calls ``super().__getstate__()`` so Django's
+        ``Model.__getstate__`` (which copies ``_state`` defensively)
+        still runs. The producer-side instance keeps the cache attribute
+        intact; only the serialised state is scrubbed. Return type is
+        ``Any`` because ``object.__getstate__`` may legitimately return
+        ``None`` for instances without ``__dict__`` — pickle handles that
+        case identically.
+
+        MRO assumption: ``super().__getstate__()`` resolves to
+        ``Model.__getstate__`` (Django 4.2+) or, failing that,
+        ``object.__getstate__`` (Python 3.11+). Both define the method,
+        so the call is safe as long as this mixin is composed with a
+        ``Model`` subclass — the project's only consumer pattern. If
+        anyone ever reuses ``InstanceUserCanMixin`` on a non-Model class
+        under Python ≤3.10, ``super().__getstate__()`` will raise
+        ``AttributeError`` and a fallback (``getattr(super(),
+        "__getstate__", lambda: self.__dict__.copy())()``) would be
+        required.
+        """
+        # Lazy import avoids pulling ``constants/permissioning`` into the
+        # shared.Models ⇄ users.models startup chain.
+        from opencontractserver.constants.permissioning import (
+            INSTANCE_PERMS_CACHE_ATTR,
+        )
+
+        state = super().__getstate__()
+        if isinstance(state, dict):
+            state.pop(INSTANCE_PERMS_CACHE_ATTR, None)
+        return state
+
     def user_can(
         self,
         user: Any,
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         # ``_default_manager`` is supplied by every concrete Django model
         # class this mixin is paired with — not by the mixin itself — so
@@ -168,4 +214,5 @@ class InstanceUserCanMixin:
             self,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )

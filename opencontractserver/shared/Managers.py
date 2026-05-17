@@ -357,6 +357,7 @@ class UserFeedbackManager(BaseVisibilityManager):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``UserFeedback``.
 
@@ -397,6 +398,7 @@ class UserFeedbackManager(BaseVisibilityManager):
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def get_or_none(self, *args: Any, **kwargs: Any) -> Any | None:
@@ -472,6 +474,7 @@ class DocumentManager(BaseVisibilityManager):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Document``.
 
@@ -491,6 +494,7 @@ class DocumentManager(BaseVisibilityManager):
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def search_by_embedding(
@@ -634,6 +638,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Annotation``.
 
@@ -712,7 +717,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
             return False
 
         if not self._check_annotation_privacy_recursion(
-            user, instance, permission, include_group_permissions
+            user, instance, permission, include_group_permissions, request=request
         ):
             return False
 
@@ -723,7 +728,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
             # document_id NULL) for READ; non-READ is denied.
             return self._read_only_via_visible_to_user(user, instance, permission)
 
-        return self._compute_annotation_effective_permission(user, instance, permission)
+        return self._compute_annotation_effective_permission(
+            user, instance, permission, request=request
+        )
 
     def _read_only_via_visible_to_user(
         self, user: Any, instance: Any, permission: Any
@@ -755,6 +762,8 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         instance: Any,
         permission: Any,
         include_group_permissions: bool,
+        *,
+        request: Any = None,
     ) -> bool:
         """Return whether the privacy-recursion gate passes.
 
@@ -798,6 +807,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
                 source_analysis,
                 permission,
                 include_group_permissions=include_group_permissions,
+                request=request,
             )
 
         extract_id = getattr(instance, "created_by_extract_id", None)
@@ -812,12 +822,13 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
                 source_extract,
                 permission,
                 include_group_permissions=include_group_permissions,
+                request=request,
             )
 
         return True
 
     def _compute_annotation_effective_permission(
-        self, user: Any, instance: Any, permission: Any
+        self, user: Any, instance: Any, permission: Any, *, request: Any = None
     ) -> bool:
         """Resolve ``permission`` against the MIN(doc, corpus) tuple.
 
@@ -832,11 +843,16 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         )
         from opencontractserver.types.enums import PermissionTypes
 
+        # Forward ``request`` as ``context`` so the optimizer's request-scoped
+        # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
+        # wired into the underlying Document/Corpus user_can calls) are shared
+        # across distinct annotation checks in this request.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
                 user=user,
                 document_id=instance.document_id,
                 corpus_id=instance.corpus_id,
+                context=request,
             )
         )
 
@@ -893,6 +909,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Note``.
 
@@ -959,6 +976,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
             doc,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         ):
             return False
 
@@ -973,6 +991,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
             corpus,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
 
@@ -1058,6 +1077,7 @@ class RelationshipManager(BaseVisibilityManager):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Relationship``.
 
@@ -1135,11 +1155,16 @@ class RelationshipManager(BaseVisibilityManager):
             AnnotationQueryOptimizer,
         )
 
+        # Forward ``request`` as ``context`` so the optimizer's request-scoped
+        # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
+        # wired into the underlying Document/Corpus user_can calls) are shared
+        # across distinct relationship checks in this request.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
                 user=user,
                 document_id=instance.document_id,
                 corpus_id=instance.corpus_id,
+                context=request,
             )
         )
 

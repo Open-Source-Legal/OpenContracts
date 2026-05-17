@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
@@ -45,10 +45,7 @@ from opencontractserver.constants.document_processing import (
     PATH_CONFLICT_MSG,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
@@ -152,6 +149,8 @@ class CorpusObjsService:
         user: User,
         corpus_id: int,
         parent_id: int | None = None,
+        *,
+        request: Any = None,
     ) -> QuerySet[CorpusFolder]:
         """
         Get folders visible to user in a corpus.
@@ -179,7 +178,7 @@ class CorpusObjsService:
         except Corpus.DoesNotExist:
             return CorpusFolder.objects.none()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return CorpusFolder.objects.none()
 
         # Build optimized query
@@ -200,6 +199,8 @@ class CorpusObjsService:
         cls,
         user: User,
         folder_id: int,
+        *,
+        request: Any = None,
     ) -> CorpusFolder | None:
         """
         Get single folder by ID with permission check.
@@ -224,7 +225,7 @@ class CorpusObjsService:
             return None
 
         # Check corpus permission (folders inherit from corpus)
-        if not folder.corpus.user_can(user, PermissionTypes.READ):
+        if not folder.corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
         return folder
@@ -234,6 +235,8 @@ class CorpusObjsService:
         cls,
         user: User,
         corpus_id: int,
+        *,
+        request: Any = None,
     ) -> list[dict]:
         """
         Get full folder tree for corpus as nested dictionary structure.
@@ -256,29 +259,60 @@ class CorpusObjsService:
                 }
             ]
         """
-        folders = cls.get_visible_folders(user, corpus_id)
+        from django.db.models import Count
 
-        # Build lookup dict
-        # TODO(#1685 follow-up): the ``get_path()`` and ``get_document_count()``
-        # calls inside this loop each run a query — ``get_path()`` is a
-        # recursive CTE (TreeNode) and ``get_document_count()`` is a per-folder
-        # COUNT. For corpora with many folders this is O(N) DB round-trips
-        # per tree fetch. The parent map is already in memory (every folder
-        # in ``folder_dict`` knows its ``parentId``); paths can be built up
-        # in Python once the dict is populated, and document counts could be
-        # aggregated via ``CorpusFolder.objects.filter(corpus_id=corpus_id)
-        # .annotate(doc_count=Count("documents"))`` ahead of the loop.
-        # Left as a follow-up rather than scope-creep on the service split.
+        from opencontractserver.documents.models import DocumentPath
+
+        folders = list(cls.get_visible_folders(user, corpus_id, request=request))
+
+        # Bulk-aggregate direct document counts per folder in a single GROUP BY
+        # query instead of one COUNT per folder (was the N+1 flagged for
+        # follow-up on PR #1685).
+        doc_count_rows = (
+            DocumentPath.objects.filter(
+                corpus_id=corpus_id, is_current=True, is_deleted=False
+            )
+            .values("folder_id")
+            .annotate(count=Count("id"))
+        )
+        doc_counts: dict[int | None, int] = {
+            row["folder_id"]: row["count"] for row in doc_count_rows
+        }
+
+        # Build per-folder dict; defer ``path`` until the parent map is fully
+        # populated so we can walk parent_id chains in Python and avoid the
+        # recursive CTE that ``CorpusFolder.get_path()`` would otherwise run
+        # per node.
         folder_dict: dict[int, dict] = {}
         for folder in folders:
             folder_dict[folder.id] = {
                 "id": folder.id,
                 "name": folder.name,
-                "path": folder.get_path(),
-                "documentCount": folder.get_document_count(),
+                "path": "",
+                "documentCount": doc_counts.get(folder.id, 0),
                 "parentId": folder.parent_id,
                 "children": [],
             }
+
+        # Resolve paths by walking parent ids — O(depth) per folder, fully in
+        # memory, no DB hits. Memoise so deep trees still cost O(N) overall.
+        path_cache: dict[int, str] = {}
+
+        def _resolve_path(folder_id: int) -> str:
+            cached = path_cache.get(folder_id)
+            if cached is not None:
+                return cached
+            entry = folder_dict[folder_id]
+            parent_id = entry["parentId"]
+            if parent_id and parent_id in folder_dict:
+                path = f"{_resolve_path(parent_id)}/{entry['name']}"
+            else:
+                path = entry["name"]
+            path_cache[folder_id] = path
+            return path
+
+        for folder_id, folder_data in folder_dict.items():
+            folder_data["path"] = _resolve_path(folder_id)
 
         # Build tree structure
         roots: list[dict] = []
@@ -302,6 +336,8 @@ class CorpusObjsService:
         corpus_id: int,
         folder_id: int | None = None,
         include_deleted: bool = False,
+        *,
+        request: Any = None,
     ) -> QuerySet[Document]:
         """
         Get documents in a specific folder with permission filtering.
@@ -328,7 +364,7 @@ class CorpusObjsService:
         except Corpus.DoesNotExist:
             return Document.objects.none()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return Document.objects.none()
 
         # Build filters for DocumentPath
@@ -355,6 +391,8 @@ class CorpusObjsService:
         user: User,
         corpus_id: int,
         folder_id: int | None = None,
+        *,
+        request: Any = None,
     ) -> set[int]:
         """
         Get document IDs in a folder (optimized for filtering).
@@ -379,7 +417,7 @@ class CorpusObjsService:
         except Corpus.DoesNotExist:
             return set()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return set()
 
         # Build filters for DocumentPath
@@ -400,6 +438,8 @@ class CorpusObjsService:
         cls,
         user: User,
         corpus_id: int,
+        *,
+        request: Any = None,
     ) -> QuerySet[DocumentPath]:
         """
         Get soft-deleted documents for "trash" view.
@@ -425,7 +465,7 @@ class CorpusObjsService:
         except Corpus.DoesNotExist:
             return DocumentPath.objects.none()
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return DocumentPath.objects.none()
 
         return (
@@ -444,6 +484,8 @@ class CorpusObjsService:
         user: User,
         folder: CorpusFolder,
         include_descendants: bool = False,
+        *,
+        request: Any = None,
     ) -> int:
         """
         Get count of documents in folder.
@@ -459,7 +501,7 @@ class CorpusObjsService:
         Returns:
             Document count, 0 if no access
         """
-        if not folder.corpus.user_can(user, PermissionTypes.READ):
+        if not folder.corpus.user_can(user, PermissionTypes.READ, request=request):
             return 0
 
         if include_descendants:
@@ -482,6 +524,8 @@ class CorpusObjsService:
         icon: str | None = None,
         tags: list[str] | None = None,
         is_public: bool = False,
+        *,
+        request: Any = None,
     ) -> tuple[CorpusFolder | None, str]:
         """
         Create a new folder in corpus.
@@ -518,7 +562,7 @@ class CorpusObjsService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 None,
                 "Permission denied: You do not have write access to this corpus",
@@ -565,6 +609,8 @@ class CorpusObjsService:
         color: str | None = None,
         icon: str | None = None,
         tags: list[str] | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Update folder properties.
@@ -588,7 +634,7 @@ class CorpusObjsService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not folder.corpus.user_can(user, PermissionTypes.UPDATE):
+        if not folder.corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -631,6 +677,8 @@ class CorpusObjsService:
         user: User,
         folder: CorpusFolder,
         new_parent: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Move folder to new parent.
@@ -650,7 +698,7 @@ class CorpusObjsService:
             - New parent must be in same corpus
         """
         # Permission check
-        if not folder.corpus.user_can(user, PermissionTypes.UPDATE):
+        if not folder.corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -685,6 +733,8 @@ class CorpusObjsService:
         user: User,
         folder: CorpusFolder,
         move_children_to_parent: bool = True,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Delete folder, atomically relocating all contained documents to root.
@@ -724,7 +774,7 @@ class CorpusObjsService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not folder.corpus.user_can(user, PermissionTypes.DELETE):
+        if not folder.corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -845,6 +895,8 @@ class CorpusObjsService:
         document: Document,
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Move single document to folder, creating a new DocumentPath history node.
@@ -879,7 +931,7 @@ class CorpusObjsService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -962,6 +1014,8 @@ class CorpusObjsService:
         document_ids: list[int],
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[int, str]:
         """
         Bulk move documents to folder, creating DocumentPath history nodes.
@@ -1016,7 +1070,7 @@ class CorpusObjsService:
         from opencontractserver.documents.models import Document, DocumentPath
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return 0, "Permission denied: You do not have write access to this corpus"
 
         # Validate folder belongs to corpus
@@ -1709,6 +1763,8 @@ class CorpusObjsService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Soft-delete document (move to trash).
@@ -1730,7 +1786,7 @@ class CorpusObjsService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.DELETE):
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1779,6 +1835,8 @@ class CorpusObjsService:
         cls,
         user: User,
         document_path: DocumentPath,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Restore soft-deleted document.
@@ -1798,7 +1856,9 @@ class CorpusObjsService:
         from opencontractserver.documents.models import DocumentPath
 
         # Permission check
-        if not document_path.corpus.user_can(user, PermissionTypes.UPDATE):
+        if not document_path.corpus.user_can(
+            user, PermissionTypes.UPDATE, request=request
+        ):
             return (
                 False,
                 "You do not have permission to restore documents in this corpus",
@@ -1841,6 +1901,8 @@ class CorpusObjsService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Permanently delete a soft-deleted document from corpus.
@@ -1866,7 +1928,7 @@ class CorpusObjsService:
         from opencontractserver.documents.versioning import permanently_delete_document
 
         # Permission check - same as soft delete
-        if not corpus.user_can(user, PermissionTypes.DELETE):
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 False,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1884,6 +1946,8 @@ class CorpusObjsService:
         cls,
         user: User,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[int, str]:
         """
         Permanently delete ALL soft-deleted documents in a corpus.
@@ -1906,7 +1970,7 @@ class CorpusObjsService:
         )
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.DELETE):
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
                 0,
                 "Permission denied: You do not have delete access to this corpus",
@@ -1933,6 +1997,8 @@ class CorpusObjsService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> CorpusFolder | None:
         """
         Get the current folder for a document in a corpus.
@@ -1947,7 +2013,7 @@ class CorpusObjsService:
         """
         from opencontractserver.documents.models import DocumentPath
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
         try:
@@ -1966,6 +2032,8 @@ class CorpusObjsService:
         cls,
         user: User,
         folder: CorpusFolder,
+        *,
+        request: Any = None,
     ) -> str | None:
         """
         Get the full path string for a folder.
@@ -1977,7 +2045,7 @@ class CorpusObjsService:
         Returns:
             Path string like "/Legal/Contracts/2024", None if no access
         """
-        if not folder.corpus.user_can(user, PermissionTypes.READ):
+        if not folder.corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
         return "/" + folder.get_path()
@@ -1988,6 +2056,8 @@ class CorpusObjsService:
         user: User,
         corpus_id: int,
         query: str,
+        *,
+        request: Any = None,
     ) -> QuerySet[CorpusFolder]:
         """
         Search folders by name within a corpus.
@@ -2000,7 +2070,7 @@ class CorpusObjsService:
         Returns:
             QuerySet of matching folders
         """
-        folders = cls.get_visible_folders(user, corpus_id)
+        folders = cls.get_visible_folders(user, corpus_id, request=request)
 
         if not query.strip():
             return folders
@@ -2014,6 +2084,8 @@ class CorpusObjsService:
         corpus: Corpus,
         folder_paths: list[str],
         target_folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[dict[str, CorpusFolder], int, int, str]:
         """
         Create all folders needed for a bulk import operation.
@@ -2057,7 +2129,7 @@ class CorpusObjsService:
         from opencontractserver.corpuses.models import CorpusFolder
 
         # Permission check
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 {},
                 0,
@@ -2171,6 +2243,8 @@ class CorpusObjsService:
         custom_meta: dict | None = None,
         is_public: bool = False,
         slug: str | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[Document | None, str, str]:
         """
         Upload a document to a corpus.
@@ -2206,7 +2280,7 @@ class CorpusObjsService:
         from opencontractserver.documents.document_service import DocumentService
 
         # Check corpus write permission first
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 None,
                 "",
@@ -2223,6 +2297,7 @@ class CorpusObjsService:
             custom_meta=custom_meta,
             is_public=is_public,
             slug=slug,
+            request=request,
         )
 
         if not standalone_doc:
@@ -2234,6 +2309,7 @@ class CorpusObjsService:
             document=standalone_doc,
             corpus=corpus,
             folder=folder,
+            request=request,
         )
 
         if not corpus_doc:
@@ -2258,6 +2334,8 @@ class CorpusObjsService:
         document: Document,
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[Document | None, str, str]:
         """
         Add an existing document to a corpus, creating a corpus-isolated copy.
@@ -2285,21 +2363,22 @@ class CorpusObjsService:
             Requires corpus UPDATE permission AND document READ permission
         """
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 None,
                 "",
                 "Permission denied: You do not have write access to this corpus",
             )
 
-        # Check document access (owner or public)
-        if document.creator != user and not document.is_public:
-            if not user_has_permission_for_obj(user, document, PermissionTypes.READ):
-                return (
-                    None,
-                    "",
-                    "Permission denied: You do not have access to this document",
-                )
+        # Single centralised READ check on the source document — encapsulates
+        # superuser / creator / is_public / guardian rules and participates in
+        # the request-scoped permission cache.
+        if not document.user_can(user, PermissionTypes.READ, request=request):
+            return (
+                None,
+                "",
+                "Permission denied: You do not have access to this document",
+            )
 
         try:
             # Use corpus.add_document for proper corpus isolation
@@ -2311,7 +2390,12 @@ class CorpusObjsService:
             )
 
             # Set permissions on the corpus-isolated copy
-            set_permissions_for_obj_to_user(user, corpus_doc, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                corpus_doc,
+                [PermissionTypes.CRUD],
+                request=request,
+            )
 
             logger.info(
                 f"Added document {document.id} to corpus {corpus.id} as {corpus_doc.id} "
@@ -2331,6 +2415,8 @@ class CorpusObjsService:
         document_ids: list[int],
         corpus: Corpus,
         folder: CorpusFolder | None = None,
+        *,
+        request: Any = None,
     ) -> tuple[int, list[int], str]:
         """
         Add multiple existing documents to a corpus.
@@ -2352,38 +2438,21 @@ class CorpusObjsService:
         from opencontractserver.documents.models import Document
 
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 0,
                 [],
                 "Permission denied: You do not have write access to this corpus",
             )
 
-        # Get accessible documents.
-        #
-        # The ``creator | is_public`` filter cheaply admits owned and public
-        # docs in a single query. Anything else (private docs the caller has
-        # been explicitly granted READ on) is admitted on the per-doc fallback
-        # below — those have to round-trip through guardian and aren't worth
-        # widening the SQL filter for. ``add_document_to_corpus`` runs the
-        # full permission check on each doc anyway (corpus UPDATE + doc READ
-        # or guardian), so the symmetry between the singular and bulk paths
-        # is preserved without duplicating the guardian-IDs subquery here.
-        accessible_docs: list[Document] = list(
-            Document.objects.filter(
-                Q(pk__in=document_ids) & (Q(creator=user) | Q(is_public=True))
-            )
+        # Get accessible documents in a single query — ``visible_to_user``
+        # encapsulates the creator / is_public / guardian-READ rules that the
+        # singular ``add_document_to_corpus`` runs per-doc, but in one
+        # ``Q(creator=user) | Q(is_public=True) | Q(id__in=permitted_ids)``
+        # filter. Closes the N+1 the previous per-doc shim loop introduced.
+        documents = list(
+            Document.objects.visible_to_user(user).filter(pk__in=document_ids)
         )
-        admitted_ids = {d.pk for d in accessible_docs}
-        # For the remainder, fall back to the singular ``user_has_permission_for_obj``
-        # check so an explicit READ grant on a private doc still admits it
-        # (matches the third arm of ``add_document_to_corpus``).
-        for doc in Document.objects.filter(
-            pk__in=[pk for pk in document_ids if pk not in admitted_ids]
-        ):
-            if user_has_permission_for_obj(user, doc, PermissionTypes.READ):
-                accessible_docs.append(doc)
-        documents = accessible_docs
 
         added_count = 0
         added_ids = []
@@ -2395,6 +2464,7 @@ class CorpusObjsService:
                 document=doc,
                 corpus=corpus,
                 folder=folder,
+                request=request,
             )
             if corpus_doc:
                 added_count += 1
@@ -2411,6 +2481,8 @@ class CorpusObjsService:
         user: User,
         document: Document,
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[bool, str]:
         """
         Remove a document from a corpus (soft delete).
@@ -2430,7 +2502,7 @@ class CorpusObjsService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
                 False,
                 "Permission denied: You do not have write access to this corpus",
@@ -2459,6 +2531,8 @@ class CorpusObjsService:
         user: User,
         document_ids: list[int],
         corpus: Corpus,
+        *,
+        request: Any = None,
     ) -> tuple[int, str]:
         """
         Remove multiple documents from a corpus (soft delete).
@@ -2475,7 +2549,7 @@ class CorpusObjsService:
             Requires corpus UPDATE permission
         """
         # Check corpus write permission
-        if not corpus.user_can(user, PermissionTypes.UPDATE):
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return 0, "Permission denied: You do not have write access to this corpus"
 
         # Get documents that are actually in this corpus.
@@ -2493,6 +2567,7 @@ class CorpusObjsService:
                 user=user,
                 document=doc,
                 corpus=corpus,
+                request=request,
             )
             if success:
                 removed_count += 1
@@ -2562,6 +2637,8 @@ class CorpusObjsService:
         corpus: Corpus,
         include_deleted: bool = False,
         include_caml: bool = False,
+        *,
+        request: Any = None,
     ) -> QuerySet[Document]:
         """
         Get all documents in a corpus.
@@ -2587,7 +2664,7 @@ class CorpusObjsService:
         """
         from opencontractserver.documents.models import Document
 
-        if not corpus.user_can(user, PermissionTypes.READ):
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return Document.objects.none()
 
         return cls._build_corpus_documents_queryset(
@@ -2603,6 +2680,8 @@ class CorpusObjsService:
         corpus: Corpus,
         slug: str,
         include_deleted: bool = False,
+        *,
+        request: Any = None,
     ) -> Document:
         """
         Single corpus-scoped document lookup by slug.
@@ -2622,7 +2701,10 @@ class CorpusObjsService:
                 exception fires for all three cases — IDOR-safe.
         """
         return cls.get_corpus_documents(
-            user=user, corpus=corpus, include_deleted=include_deleted
+            user=user,
+            corpus=corpus,
+            include_deleted=include_deleted,
+            request=request,
         ).get(slug=slug)
 
     @classmethod
@@ -2632,6 +2714,8 @@ class CorpusObjsService:
         corpus: Corpus,
         document_id: int,
         include_deleted: bool = False,
+        *,
+        request: Any = None,
     ) -> Document:
         """
         Single corpus-scoped document lookup by primary key.
@@ -2651,7 +2735,10 @@ class CorpusObjsService:
                 same exception fires for all three cases — IDOR-safe.
         """
         return cls.get_corpus_documents(
-            user=user, corpus=corpus, include_deleted=include_deleted
+            user=user,
+            corpus=corpus,
+            include_deleted=include_deleted,
+            request=request,
         ).get(pk=document_id)
 
     @classmethod
@@ -2661,6 +2748,8 @@ class CorpusObjsService:
         corpus: Corpus,
         document_id: int,
         include_deleted: bool = False,
+        *,
+        request: Any = None,
     ) -> bool:
         """
         Corpus-membership check that also enforces corpus READ.
@@ -2680,7 +2769,10 @@ class CorpusObjsService:
         """
         return (
             cls.get_corpus_documents(
-                user=user, corpus=corpus, include_deleted=include_deleted
+                user=user,
+                corpus=corpus,
+                include_deleted=include_deleted,
+                request=request,
             )
             .filter(pk=document_id)
             .exists()
