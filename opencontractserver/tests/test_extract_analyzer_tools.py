@@ -34,6 +34,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Extract, Fieldset
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.core_tools.extracts_and_analyzers import (
+    _clamp_limit,
     alist_analyzers,
     alist_fieldsets,
     alist_recent_analyses,
@@ -99,6 +100,28 @@ def _make_task_analyzer(*, user, analyzer_id: str = "noop.analyzer") -> Analyzer
     )
     set_permissions_for_obj_to_user(user, analyzer, [PermissionTypes.CRUD])
     return analyzer
+
+
+# =========================================================================== #
+# Internal helpers
+# =========================================================================== #
+
+
+@pytest.mark.parametrize(
+    "limit,default,expected",
+    [
+        (None, 20, 20),
+        (0, 20, 20),
+        (-5, 20, 20),
+        (5, 20, 5),
+        (150, 20, 100),  # capped at MAX_LIST_LIMIT=100
+        ("bad", 20, 20),
+        ("7", 20, 7),  # numeric strings are accepted
+    ],
+)
+def test_clamp_limit(limit, default, expected):
+    """A misbehaving LLM can pass 0, negative, oversized, or non-numeric limits."""
+    assert _clamp_limit(limit, default) == expected
 
 
 # =========================================================================== #
@@ -470,7 +493,15 @@ class TestStartExtract(BaseFixtureTestCase):
         self.assertEqual(extract.corpus_action_id, action.id)
 
     def test_user_must_be_authenticated(self):
-        with self.assertRaises(PermissionError):
+        with self.assertRaisesRegex(PermissionError, "authenticated user"):
+            start_extract(
+                corpus_id=self.corpus.id,
+                fieldset_id=self.fieldset.id,
+                user_id=None,  # type: ignore[arg-type]
+            )
+
+    def test_nonexistent_user_id_distinguished_from_unauthenticated(self):
+        with self.assertRaisesRegex(PermissionError, "not found"):
             start_extract(
                 corpus_id=self.corpus.id,
                 fieldset_id=self.fieldset.id,
@@ -613,11 +644,10 @@ class TestStartAnalysis(BaseFixtureTestCase):
         """Stub process_analyzer to avoid hitting real Celery tasks.
 
         ``start_analysis`` imports ``process_analyzer`` at module load time,
-        so the canonical point-of-use patch target would be
-        ``opencontractserver.llms.tools.core_tools.extracts_and_analyzers.process_analyzer``.
-        We patch the source module instead because both names point at the
-        same function object and the source path is more discoverable when
-        scanning the test for "what's being mocked".
+        so we patch it at the import site
+        (``opencontractserver.llms.tools.core_tools.extracts_and_analyzers.process_analyzer``)
+        rather than at its definition in ``corpus_tasks``. That is the
+        correct Python mock target for an already-imported function.
         """
 
         def fake_process_analyzer(

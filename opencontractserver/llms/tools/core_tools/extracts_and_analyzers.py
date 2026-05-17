@@ -248,9 +248,11 @@ def start_extract(
     transaction commit.
     """
 
+    if user_id is None:
+        raise PermissionError("start_extract requires an authenticated user.")
     user = _get_user_or_none(user_id)
     if user is None:
-        raise PermissionError("start_extract requires an authenticated user.")
+        raise PermissionError(f"User {user_id} not found.")
 
     corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
     if corpus is None:
@@ -474,9 +476,11 @@ def start_analysis(
     Analysis records.
     """
 
+    if user_id is None:
+        raise PermissionError("start_analysis requires an authenticated user.")
     user = _get_user_or_none(user_id)
     if user is None:
-        raise PermissionError("start_analysis requires an authenticated user.")
+        raise PermissionError(f"User {user_id} not found.")
 
     corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
     if corpus is None:
@@ -514,6 +518,10 @@ def start_analysis(
 
     # widened for process_analyzer's list[str | int] param (list[int] is invariant)
     widened_ids: list[str | int] = list(target_ids)
+    # No explicit transaction.atomic() here: process_analyzer manages its
+    # own transaction (creates Analysis + grants permissions + dispatches
+    # Celery). Asymmetric with start_extract by design — kept identical to
+    # the human GraphQL/CorpusAction dispatch path.
     analysis = process_analyzer(
         user_id=user.id,
         analyzer=analyzer,
