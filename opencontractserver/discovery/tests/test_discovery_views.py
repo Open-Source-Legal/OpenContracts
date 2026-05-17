@@ -362,6 +362,69 @@ class WellKnownMcpTest(TestCase):
         response = self.client.post("/.well-known/mcp.json")
         self.assertEqual(response.status_code, 405)
 
+    def test_authentication_advertised_when_auth0_enabled(self):
+        """When USE_AUTH0 is on, mcp.json must point clients at the
+        OAuth protected-resource metadata URL so interactive MCP clients
+        (Claude Desktop, Cursor) can discover Auth0 as the AS."""
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            response = self.client.get("/.well-known/mcp.json")
+        data = json.loads(response.content)
+        global_server = data["mcpServers"]["opencontracts"]
+        self.assertIsNotNone(global_server["authentication"])
+        self.assertEqual(global_server["authentication"]["type"], "oauth2")
+        self.assertIn(
+            "/.well-known/oauth-protected-resource",
+            global_server["authentication"]["metadataUrl"],
+        )
+        # The same auth block must be attached to corpus-scoped server entries
+        # so clients discover auth uniformly whichever endpoint they pick.
+        slug = self.corpus.slug
+        scoped_server = data["mcpServers"][f"opencontracts-{slug}"]
+        self.assertEqual(
+            scoped_server["authentication"], global_server["authentication"]
+        )
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
+)
+class WellKnownOAuthProtectedResourceTest(TestCase):
+    """Tests for the RFC 9728 /.well-known/oauth-protected-resource endpoint."""
+
+    def test_returns_404_when_auth0_disabled(self):
+        """Non-Auth0 deployments have no spec-compliant AS to advertise;
+        the endpoint must 404 rather than emit a metadata document with
+        an empty ``authorization_servers`` list that would loop clients."""
+        with override_settings(USE_AUTH0=False):
+            response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, 404)
+
+    def test_returns_404_when_auth0_domain_missing(self):
+        """USE_AUTH0=True with no AUTH0_DOMAIN is a misconfiguration —
+        prefer a clean 404 over emitting ``https:///`` to clients."""
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN=""):
+            response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, 404)
+
+    def test_returns_metadata_when_auth0_enabled(self):
+        """Per RFC 9728: clients fetch this document to discover where to
+        send the user for interactive sign-in."""
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/json", response["Content-Type"])
+        data = json.loads(response.content)
+        self.assertIn("http://testserver/mcp", data["resource"])
+        self.assertEqual(data["authorization_servers"], ["https://example.auth0.com/"])
+        self.assertEqual(data["bearer_methods_supported"], ["header"])
+        self.assertIn("openid", data["scopes_supported"])
+        self.assertIn("/.well-known/mcp.json", data["resource_documentation"])
+
+    def test_only_get_allowed(self):
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            response = self.client.post("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, 405)
+
 
 @override_settings(
     CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
