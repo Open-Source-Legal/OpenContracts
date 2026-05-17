@@ -37,8 +37,18 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Count, Q
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
+from opencontractserver.constants.tools import (
+    EXTRACT_ANALYZER_TOOL_DEFAULT_LIST_LIMIT as DEFAULT_LIST_LIMIT,
+)
+from opencontractserver.constants.tools import (
+    EXTRACT_ANALYZER_TOOL_DEFAULT_RECENT_LIMIT as DEFAULT_RECENT_LIMIT,
+)
+from opencontractserver.constants.tools import (
+    EXTRACT_ANALYZER_TOOL_MAX_LIST_LIMIT as MAX_LIST_LIMIT,
+)
 from opencontractserver.corpuses.models import Corpus, CorpusAction
 from opencontractserver.extracts.models import Extract, Fieldset
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
@@ -53,15 +63,6 @@ from ._helpers import _db_sync_to_async
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
-
-
-# --------------------------------------------------------------------------- #
-# Constants                                                                   #
-# --------------------------------------------------------------------------- #
-
-MAX_LIST_LIMIT = 100
-DEFAULT_LIST_LIMIT = 20
-DEFAULT_RECENT_LIMIT = 10
 
 
 # --------------------------------------------------------------------------- #
@@ -149,20 +150,23 @@ def list_fieldsets(
 
     Returns each fieldset's name, description, and column definitions so the
     agent can pick one. Fieldsets pinned as the metadata schema of another
-    corpus (via ``Fieldset.corpus``) are excluded.
+    corpus (via ``Fieldset.corpus``) are excluded; fieldsets pinned to *this*
+    corpus are included so the agent sees the same set ``start_extract``
+    accepts.
     """
 
-    try:
-        Corpus.objects.get(pk=corpus_id)
-    except Corpus.DoesNotExist as exc:
-        raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
-
     user = _get_user_or_none(user_id)
+    # Use visible_to_user instead of bare ``get`` so we don't leak the
+    # existence of private corpus IDs to callers (CLAUDE.md IDOR rule —
+    # same message whether the corpus is missing or hidden).
+    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+        raise ValueError(f"Corpus with id={corpus_id} does not exist.")
+
     capped_limit = _clamp_limit(limit, DEFAULT_LIST_LIMIT)
 
     queryset = (
         Fieldset.objects.visible_to_user(user)
-        .filter(corpus__isnull=True)
+        .filter(Q(corpus__isnull=True) | Q(corpus_id=corpus_id))
         .prefetch_related("columns")
         .order_by("-modified")[:capped_limit]
     )
@@ -233,16 +237,12 @@ def start_extract(
     transaction commit.
     """
 
-    try:
-        corpus = Corpus.objects.get(pk=corpus_id)
-    except Corpus.DoesNotExist as exc:
-        raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
-
     user = _get_user_or_none(user_id)
     if user is None:
         raise PermissionError("start_extract requires an authenticated user.")
 
-    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+    corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
+    if corpus is None:
         raise PermissionError(f"User {user_id} cannot access corpus {corpus_id}.")
 
     if not user_has_permission_for_obj(
@@ -252,10 +252,11 @@ def start_extract(
             f"User {user_id} lacks UPDATE permission on corpus {corpus_id}."
         )
 
-    if not Fieldset.objects.visible_to_user(user).filter(pk=fieldset_id).exists():
+    # Single-query visibility-and-fetch — the prior two-step ``exists()`` +
+    # ``get()`` pattern was a needless round trip.
+    fieldset = Fieldset.objects.visible_to_user(user).filter(pk=fieldset_id).first()
+    if fieldset is None:
         raise PermissionError(f"User {user_id} cannot access fieldset {fieldset_id}.")
-
-    fieldset = Fieldset.objects.get(pk=fieldset_id)
 
     # Block fieldsets that are pinned as another corpus's metadata schema —
     # they are private to that corpus by design.
@@ -362,18 +363,19 @@ def list_recent_extracts(
 ) -> list[dict[str, Any]]:
     """Return the most recent Extracts on this corpus visible to the user."""
 
-    try:
-        Corpus.objects.get(pk=corpus_id)
-    except Corpus.DoesNotExist as exc:
-        raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
-
     user = _get_user_or_none(user_id)
+    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+        raise ValueError(f"Corpus with id={corpus_id} does not exist.")
+
     capped_limit = _clamp_limit(limit, DEFAULT_RECENT_LIMIT)
 
+    # ``annotate(Count(...))`` folds the per-extract M2M count into the
+    # single SELECT so the loop below is O(1) queries instead of O(N).
     queryset = (
         Extract.objects.visible_to_user(user)
         .filter(corpus_id=corpus_id)
         .select_related("fieldset")
+        .annotate(document_count=Count("documents"))
         .order_by("-created")[:capped_limit]
     )
 
@@ -390,7 +392,7 @@ def list_recent_extracts(
                 "finished": (
                     extract.finished.isoformat() if extract.finished else None
                 ),
-                "document_count": extract.documents.count(),
+                "document_count": extract.document_count,
                 "status": _extract_status(extract),
             }
         )
@@ -423,12 +425,10 @@ def list_analyzers(
 ) -> list[dict[str, Any]]:
     """List Analyzers visible to the user that can be applied to this corpus."""
 
-    try:
-        Corpus.objects.get(pk=corpus_id)
-    except Corpus.DoesNotExist as exc:
-        raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
-
     user = _get_user_or_none(user_id)
+    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+        raise ValueError(f"Corpus with id={corpus_id} does not exist.")
+
     capped_limit = _clamp_limit(limit, DEFAULT_LIST_LIMIT)
 
     queryset = (
@@ -491,16 +491,12 @@ def start_analysis(
     # task graph is being refactored.
     from opencontractserver.tasks.corpus_tasks import process_analyzer
 
-    try:
-        corpus = Corpus.objects.get(pk=corpus_id)
-    except Corpus.DoesNotExist as exc:
-        raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
-
     user = _get_user_or_none(user_id)
     if user is None:
         raise PermissionError("start_analysis requires an authenticated user.")
 
-    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+    corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
+    if corpus is None:
         raise PermissionError(f"User {user_id} cannot access corpus {corpus_id}.")
 
     if not user_has_permission_for_obj(
@@ -510,10 +506,12 @@ def start_analysis(
             f"User {user_id} lacks UPDATE permission on corpus {corpus_id}."
         )
 
-    if not Analyzer.objects.visible_to_user(user).filter(pk=analyzer_id).exists():
+    # Single-query visibility-and-fetch — the prior two-step ``exists()`` +
+    # ``get()`` pattern was a needless round trip.
+    analyzer = Analyzer.objects.visible_to_user(user).filter(pk=analyzer_id).first()
+    if analyzer is None:
         raise PermissionError(f"User {user_id} cannot access analyzer {analyzer_id}.")
 
-    analyzer = Analyzer.objects.get(pk=analyzer_id)
     if analyzer.disabled:
         raise ValueError(f"Analyzer {analyzer_id} is disabled.")
 
@@ -597,18 +595,19 @@ def list_recent_analyses(
 ) -> list[dict[str, Any]]:
     """Return the most recent Analyses on this corpus visible to the user."""
 
-    try:
-        Corpus.objects.get(pk=corpus_id)
-    except Corpus.DoesNotExist as exc:
-        raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
-
     user = _get_user_or_none(user_id)
+    if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
+        raise ValueError(f"Corpus with id={corpus_id} does not exist.")
+
     capped_limit = _clamp_limit(limit, DEFAULT_RECENT_LIMIT)
 
+    # ``annotate(Count(...))`` folds the per-analysis M2M count into the
+    # single SELECT so the loop below is O(1) queries instead of O(N).
     queryset = (
         Analysis.objects.visible_to_user(user)
         .filter(analyzed_corpus_id=corpus_id)
         .select_related("analyzer")
+        .annotate(document_count=Count("analyzed_documents"))
         .order_by("-created")[:capped_limit]
     )
 
@@ -632,7 +631,7 @@ def list_recent_analyses(
                     if analysis.analysis_completed
                     else None
                 ),
-                "document_count": analysis.analyzed_documents.count(),
+                "document_count": analysis.document_count,
                 "error_message": analysis.error_message,
             }
         )

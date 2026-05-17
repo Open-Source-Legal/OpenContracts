@@ -17,6 +17,7 @@ registry integration, and that the approval gate fires on the
 
 from __future__ import annotations
 
+import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,7 +25,7 @@ from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase, override_settings
 
-from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
+from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.corpuses.models import (
     CorpusAction,
     CorpusActionTrigger,
@@ -138,8 +139,6 @@ class TestExtractAnalyzerRegistryIntegration(TransactionTestCase):
         for name in self.EXPECTED_TOOLS:
             core_tool = registry.to_core_tool(name)
             self.assertIsNotNone(core_tool, f"to_core_tool({name!r}) returned None")
-            import inspect
-
             assert core_tool is not None
             self.assertTrue(
                 inspect.iscoroutinefunction(core_tool.function),
@@ -331,9 +330,6 @@ class TestListRecentAnalyses(BaseFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_user(username="other_user", password="pw")
-        self.gremlin = GremlinEngine.objects.create(
-            url="http://example.invalid", creator=self.user
-        )
         self.analyzer = _make_task_analyzer(user=self.user)
 
         self.analysis_visible = Analysis.objects.create(
