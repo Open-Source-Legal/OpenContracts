@@ -535,7 +535,11 @@ def create_thread_message(
                 user_id=user.pk,
             )
     except Exception as e:
-        logger.error("Error parsing mentions in MCP message: %s", e)
+        # Fire-and-forget: the message row is already saved, so a broker
+        # hiccup or mention-parser hiccup must not fail the write. Log at
+        # ``warning`` rather than ``error`` so a temporarily-unavailable
+        # broker doesn't pollute error dashboards on every send.
+        logger.warning("Error parsing mentions in MCP message: %s", e)
 
     return {
         "id": str(message.id),

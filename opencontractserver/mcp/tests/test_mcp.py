@@ -5381,15 +5381,30 @@ class MCPAuthenticatedToolsTest(TestCase):
     def test_create_thread_message_rejects_locked_thread(self):
         from django.core.exceptions import PermissionDenied
 
+        from opencontractserver.conversations.models import (
+            Conversation,
+            ConversationTypeChoices,
+        )
         from opencontractserver.mcp.tools import create_thread_message
 
-        self.private_thread.is_locked = True
-        self.private_thread.save(update_fields=["is_locked"])
+        # Use a per-test thread rather than mutating the ``setUpTestData``
+        # cached object: ``TestCase`` rolls back the DB row but the cached
+        # Python instance retains ``is_locked = True`` for the rest of the
+        # run, which would silently corrupt any later test that reads the
+        # attribute without a fresh DB query.
+        locked_thread = Conversation.objects.create(
+            title="Locked Thread",
+            creator=self.owner,
+            is_public=False,
+            is_locked=True,
+            conversation_type=ConversationTypeChoices.THREAD,
+            chat_with_corpus=self.private_corpus,
+        )
 
         with self.assertRaises(PermissionDenied):
             create_thread_message(
                 corpus_slug=self.private_corpus.slug,
-                thread_id=self.private_thread.id,
+                thread_id=locked_thread.id,
                 content="locked thread write",
                 user=self.owner,
             )
