@@ -2510,7 +2510,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         )
         self.assertEqual(current.path, "/summary.pdf")
 
-    @patch("opencontractserver.corpuses.folder_service.post_save")
+    @patch("opencontractserver.corpuses.corpus_objs_service.post_save")
     def test_delete_folder_dispatches_post_save_for_each_created_path(
         self, mock_signal
     ):
@@ -2653,7 +2653,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             DocumentPath.objects.filter(document=doc2, corpus=self.corpus).count(), 1
         )
 
-    @patch("opencontractserver.corpuses.folder_service.post_save")
+    @patch("opencontractserver.corpuses.corpus_objs_service.post_save")
     def test_bulk_move_dispatches_post_save_for_each_created_path(self, mock_signal):
         """bulk_create bypasses Django signals; verify manual dispatch fires once per doc."""
         doc1, _ = self._create_doc_at_root("Doc 1", "doc1.pdf")

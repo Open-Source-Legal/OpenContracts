@@ -2483,11 +2483,50 @@ class CorpusObjsService:
     # =========================================================================
 
     @classmethod
+    def _build_corpus_documents_queryset(
+        cls,
+        corpus: Corpus,
+        *,
+        include_deleted: bool = False,
+        include_caml: bool = False,
+    ) -> QuerySet[Document]:
+        """Single source of truth for the corpus → document path query.
+
+        Centralises the join across ``DocumentPath`` so the soft-delete
+        and CAML toggles compose cleanly. The pre-fix split where
+        ``include_deleted=True`` used a hand-written ``DocumentPath``
+        filter and ``include_deleted=False`` delegated to
+        ``Corpus._get_active_documents`` would have drifted the moment
+        one branch added (e.g.) ``select_related`` or refined the CAML
+        exclusion — and pre-fix, the True branch silently bypassed CAML
+        filtering altogether.
+
+        Reserved for use by service methods that have already checked
+        corpus READ. No permission gate here — the caller owns that.
+        """
+
+        from opencontractserver.constants.document_processing import (
+            MARKDOWN_MIME_TYPE,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        path_qs = DocumentPath.objects.filter(corpus=corpus, is_current=True)
+        if not include_deleted:
+            path_qs = path_qs.filter(is_deleted=False)
+
+        doc_ids = path_qs.values_list("document_id", flat=True)
+        qs = Document.objects.filter(pk__in=doc_ids).distinct()
+        if not include_caml:
+            qs = qs.exclude(file_type=MARKDOWN_MIME_TYPE)
+        return qs
+
+    @classmethod
     def get_corpus_documents(
         cls,
         user: UserOrAnonymous,
         corpus: Corpus,
         include_deleted: bool = False,
+        include_caml: bool = False,
     ) -> QuerySet[Document]:
         """
         Get all documents in a corpus.
@@ -2496,6 +2535,12 @@ class CorpusObjsService:
             user: Requesting user
             corpus: Corpus to get documents from
             include_deleted: Whether to include soft-deleted documents
+            include_caml: Whether to include CAML / markdown documents.
+                Defaults to False so extractors, analyzers, and other
+                downstream consumers skip CAML articles by default —
+                mirroring ``Corpus._get_active_documents`` so the two
+                surfaces stay aligned regardless of which branch the
+                caller takes.
 
         Returns:
             QuerySet of documents (empty if no access)
@@ -2510,19 +2555,11 @@ class CorpusObjsService:
         if not corpus.user_can(user, PermissionTypes.READ):
             return Document.objects.none()
 
-        if include_deleted:
-            # Get all documents with any path (current or deleted)
-            from opencontractserver.documents.models import DocumentPath
-
-            doc_ids = DocumentPath.objects.filter(
-                corpus=corpus, is_current=True
-            ).values_list("document_id", flat=True)
-            return Document.objects.filter(pk__in=doc_ids)
-        else:
-            # Internal helper — the user-context wrapper would emit a
-            # DeprecationWarning. The service is the canonical entry point,
-            # so it calls the underscored variant directly.
-            return corpus._get_active_documents()
+        return cls._build_corpus_documents_queryset(
+            corpus,
+            include_deleted=include_deleted,
+            include_caml=include_caml,
+        )
 
     @classmethod
     def get_corpus_document_by_slug(

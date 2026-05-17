@@ -379,3 +379,147 @@ class TestIsDocumentInCorpus_SoftDeleted(TransactionTestCase):
                 corpus=self.corpus,
                 slug="deleted-slug",
             )
+
+
+class TestGetCorpusDocuments_CamlAndDeleted(TransactionTestCase):
+    """
+    SCENARIO: ``get_corpus_documents`` composes the ``include_deleted`` and
+    ``include_caml`` toggles via the shared
+    :meth:`CorpusObjsService._build_corpus_documents_queryset` helper.
+
+    BUSINESS RULE: CAML / markdown documents are excluded by default on
+    BOTH branches (active-only and include-deleted) so downstream
+    consumers — extractors, analyzers, agent contexts — never see CAML
+    articles unless the caller explicitly opts in. The pre-fix split
+    where ``include_deleted=True`` bypassed CAML filtering altogether
+    is the regression this fixture is here to pin.
+    """
+
+    def setUp(self):
+        from opencontractserver.constants.document_processing import (
+            MARKDOWN_MIME_TYPE,
+        )
+
+        self.MARKDOWN_MIME_TYPE = MARKDOWN_MIME_TYPE
+
+        self.owner = User.objects.create_user(
+            username="caml_owner", email="caml@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="CAML Corpus", creator=self.owner, is_public=False
+        )
+
+        # Three docs: one regular PDF, one CAML article, one soft-deleted
+        # PDF (so the include_deleted branch has something to surface).
+        self.pdf = Document.objects.create(
+            title="Regular PDF",
+            creator=self.owner,
+            pdf_file="regular.pdf",
+            slug="regular-slug",
+            file_type="application/pdf",
+        )
+        DocumentPath.objects.create(
+            document=self.pdf,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/regular.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        self.caml = Document.objects.create(
+            title="CAML Article",
+            creator=self.owner,
+            pdf_file="article.md",
+            slug="caml-slug",
+            file_type=MARKDOWN_MIME_TYPE,
+        )
+        DocumentPath.objects.create(
+            document=self.caml,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/article.md",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        self.soft_deleted = Document.objects.create(
+            title="Soft-Deleted PDF",
+            creator=self.owner,
+            pdf_file="trash.pdf",
+            slug="trash-slug",
+            file_type="application/pdf",
+        )
+        DocumentPath.objects.create(
+            document=self.soft_deleted,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/trash.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=True,
+        )
+
+    def test_default_excludes_caml_and_deleted(self):
+        """Default flags drop CAML and soft-deleted; only the PDF remains."""
+        qs = CorpusObjsService.get_corpus_documents(
+            user=self.owner, corpus=self.corpus
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertEqual(ids, {self.pdf.id})
+
+    def test_include_deleted_still_excludes_caml(self):
+        """The include-deleted branch must keep filtering CAML —
+        pre-fix this branch leaked CAML rows."""
+        qs = CorpusObjsService.get_corpus_documents(
+            user=self.owner, corpus=self.corpus, include_deleted=True
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertIn(self.pdf.id, ids)
+        self.assertIn(self.soft_deleted.id, ids)
+        self.assertNotIn(
+            self.caml.id,
+            ids,
+            "CAML documents must be excluded even on the include_deleted=True "
+            "branch — both code paths now share _build_corpus_documents_queryset.",
+        )
+
+    def test_include_caml_surfaces_caml_but_not_deleted_by_default(self):
+        """``include_caml=True`` on its own surfaces CAML but still
+        keeps soft-deleted off the list."""
+        qs = CorpusObjsService.get_corpus_documents(
+            user=self.owner, corpus=self.corpus, include_caml=True
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertEqual(ids, {self.pdf.id, self.caml.id})
+
+    def test_both_flags_surface_everything(self):
+        qs = CorpusObjsService.get_corpus_documents(
+            user=self.owner,
+            corpus=self.corpus,
+            include_deleted=True,
+            include_caml=True,
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertEqual(ids, {self.pdf.id, self.caml.id, self.soft_deleted.id})
+
+    def test_read_gate_returns_empty_for_stranger(self):
+        """A user without corpus READ gets an empty queryset regardless
+        of the toggles — the permission check stays load-bearing."""
+        stranger = User.objects.create_user(
+            username="caml_stranger",
+            email="cs@test.com",
+            password="test",
+        )
+        qs = CorpusObjsService.get_corpus_documents(
+            user=stranger,
+            corpus=self.corpus,
+            include_deleted=True,
+            include_caml=True,
+        )
+        self.assertEqual(qs.count(), 0)
