@@ -142,18 +142,24 @@ class DocumentAnalysisRowTestCase(TestCase):
             duplicate_row.full_clean()
 
     def test_document_analysis_row_permissions(self):
+        # Phase A semantics (PR #1663): the row's creator auto-receives all
+        # permissions. Exercise partial-grant semantics against a second
+        # user who is NOT the creator — otherwise the creator short-circuit
+        # in ``_default_user_can`` masks whatever ``set_permissions_for_obj_to_user``
+        # writes.
+        other_user = User.objects.create_user(username="other", password="otherpw")
         set_permissions_for_obj_to_user(
-            self.user, self.row, [PermissionTypes.READ, PermissionTypes.UPDATE]
+            other_user, self.row, [PermissionTypes.READ, PermissionTypes.UPDATE]
         )
 
         self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.READ)
+            user_has_permission_for_obj(other_user, self.row, PermissionTypes.READ)
         )
         self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.UPDATE)
+            user_has_permission_for_obj(other_user, self.row, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.DELETE)
+            user_has_permission_for_obj(other_user, self.row, PermissionTypes.DELETE)
         )
 
     def test_document_analysis_row_crud_permissions(self):

@@ -1,10 +1,10 @@
 site_name: OpenContracts
 site_description: Open, Extensible Document Analytics Platform
 site_author: John Scrudato IV
-site_url: https://jsv4.github.io/OpenContracts/
-repo_name: JSv4/OpenContracts
-repo_url: https://github.com/JSv4/OpenContracts
-edit_uri: blob/master/docs
+site_url: https://open-source-legal.github.io/OpenContracts/
+repo_name: Open-Source-Legal/OpenContracts
+repo_url: https://github.com/Open-Source-Legal/OpenContracts
+edit_uri: blob/main/docs
 copyright: 'Copyright &copy; John Scrudato 2022-present'
 
 docs_dir: docs
@@ -43,22 +43,15 @@ theme:
 
 nav:
   - Home:
-    - About: index.md
-    - Philosophy: philosophy.md
-    - Quick Start: quick_start.md
-    - System Requirements: requirements.md
-    - How It Works:
-        - System Architecture: architecture/components/Data-flow-diagram.md
-        - PDF Data Layer: architecture/PDF-data-layer.md
-        - Asynchronous Processing: architecture/asynchronous-processing.md
-        - Document Analyzers: architecture/analyzers.md
-        - Automatic Corpus Actions: architecture/opencontract-corpus-actions.md
-        - Annotator Component: architecture/components/annotator/current-state/overview.md
-        - Annotation Creation Logic: architecture/components/annotator/current-state/how-annotations-are-created.md
-        - State Management: architecture/components/annotator/current-state/state-management.md
-        - Virtualized Rendering: architecture/components/annotator/current-state/virtualized-rendering.md
-        - User Handles: architecture/user_handles.md
-    - Acknowledgements: acknowledgements.md
+      - About: index.md
+      - Philosophy: philosophy.md
+      - Quick Start: quick_start.md
+      - System Requirements: requirements.md
+      - Acknowledgements: acknowledgements.md
+  - Releases:
+      - v3.0.0.b4: releases/v3.0.0.b4.md
+      - v3.0.0.b3: releases/v3.0.0.b3.md
+      - v3 Upgrade Guide: migrations/v3_upgrade_guide.md
   - Walkthrough:
       - Key Concepts: walkthrough/key-concepts.md
       - Step 1 - Add Documents: walkthrough/step-1-add-documents.md
@@ -70,6 +63,7 @@ nav:
       - Step 7 - Query a Corpus: walkthrough/step-7-query-corpus.md
       - Step 8 - Data Extract: walkthrough/step-8-data-extract.md
       - Step 9 - Automatic Corpus Actions: walkthrough/step-9-corpus-actions.md
+      - Notes - Add and Edit: walkthrough/add-and-edit-notes.md
       - Advanced:
           - Extraction Tutorial: walkthrough/advanced/extraction_tutorial.md
           - Write Document Analyzers: walkthrough/advanced/register-doc-analyzer.md
@@ -79,49 +73,152 @@ nav:
           - Import and Export Corpuses: walkthrough/advanced/export-import-corpuses.md
           - Generate GraphQL Schema Files: walkthrough/advanced/generate-graphql-schema-files.md
           - PAWLS Token Format: walkthrough/advanced/pawls-token-format.md
+  - Upload Methods:
+      - Overview: upload_methods/index.md
+      - Supported File Formats: upload_methods/supported_formats.md
+      - Single Upload: upload_methods/single_upload.md
+      - Bulk Zip Import: upload_methods/bulk_zip_import.md
+      - Worker Uploads (REST): upload_methods/worker_uploads.md
+      - Annotated Document Import: upload_methods/annotated_document_import.md
+      - Corpus Export / Import: upload_methods/corpus_export_import.md
+      - Annotation Side Effects: upload_methods/annotation_side_effects.md
+      - Worker Uploads Walkthrough: worker_uploads/walkthrough.md
+  - Architecture:
+      - System Data Flow: architecture/components/Data-flow-diagram.md
+      - PDF Data Layer (PAWLs): architecture/PDF-data-layer.md
+      - PAWLs Format Spec: architecture/pawls-format.md
+      - Data Model:
+          - Documents and Annotations: architecture/data_model/documents_and_annotations.md
+          - Annotation JSON: architecture/data_model/annotation_json.md
+      - Asynchronous Processing: architecture/asynchronous-processing.md
+      - Bulk Import: architecture/bulk-import.md
+      - Document Analyzers: architecture/analyzers.md
+      - Discovery System (llms.txt, MCP, robots.txt): architecture/discovery_system.md
+      - Corpus Actions: architecture/opencontract-corpus-actions.md
+      - Agent Corpus Actions: architecture/agent_corpus_actions_design.md
+      - Document Versioning: architecture/document_versioning.md
+      - Querying Annotations on Versioned Docs: architecture/querying_annotations_on_versioned_docs.md
+      - Corpus Forking: architecture/corpus_forking.md
+      - Corpus Export Format Spec: architecture/corpus-export-format-spec.md
+      - Corpus Export/Import V2: architecture/corpus_export_import_v2.md
+      - Document & Corpus Lifecycle: architecture/document_corpus_lifecycle.md
+      - Document Folder Service: architecture/document_folder_service.md
+      - Document Annotation Index: architecture/document_annotation_index.md
+      - Structural vs Non-Structural: architecture/structural_vs_non_structural_annotations.md
+      - Embeddings Creation & Retrieval: architecture/embeddings_creation_and_retrieval.md
+      - Multimodal Embeddings: architecture/multimodal-embeddings.md
+      - Query Permission Patterns: architecture/query_permission_patterns.md
+      - Sharing: architecture/sharing.md
+      - Rich Mentions: architecture/rich_mentions.md
+      - User Handles: architecture/user_handles.md
+      - Deep Linking: architecture/deep-linking.md
+      - Social Media Previews: architecture/social-media-previews.md
+      - Annotator Component:
+          - Overview: architecture/components/annotator/current-state/overview.md
+          - How Annotations Are Created: architecture/components/annotator/current-state/how-annotations-are-created.md
+          - State Management: architecture/components/annotator/current-state/state-management.md
+          - Virtualized Rendering: architecture/components/annotator/current-state/virtualized-rendering.md
+          - How Search Works: architecture/components/annotator/current-state/how-search-works.md
+          - Scroll-to-Annotation Flow: architecture/components/annotator/current-state/scroll-to-annotation-flow.md
+          - Sidebar and Zoom: architecture/components/annotator/current-state/sidebar-and-zoom.md
+          - Extract Selection Flow: architecture/components/annotator/current-state/extract-selection-flow.md
+          - Document Knowledge Base Features: architecture/components/annotator/current-state/document-knowledge-base-features.md
+      - LLM Framework:
+          - Overview: architecture/llms/README.md
+      - WebSockets:
+          - Overview: architecture/websocket/README.md
+          - Protocol: architecture/websocket/protocol.md
+          - Backend: architecture/websocket/backend.md
+          - Frontend: architecture/websocket/frontend.md
+  - Pipelines:
+      - Pipeline Overview: pipelines/pipeline_overview.md
+      - Pipeline Configuration: pipelines/pipeline_configuration.md
+      - Docling Parser: pipelines/docling_parser.md
+      - LlamaParse Parser: pipelines/llamaparse_parser.md
+      - Multimodal Embedder: pipelines/multimodal_embedder.md
   - Extract & Retrieval:
       - Overview: extract_and_retrieval/README.md
       - API Reference: extract_and_retrieval/api_reference.md
       - Vector Stores: extract_and_retrieval/vector_stores.md
       - Corpus Queries: extract_and_retrieval/corpus_queries.md
       - Data Extraction: extract_and_retrieval/data_extraction.md
+      - Benchmarking: extract_and_retrieval/benchmarking.md
+      - LegalBench RAG Results: benchmarks/legalbench_rag_results.md
+  - Discussions & Community:
+      - Overview: commenting_system/README.md
+      - Backend Architecture: commenting_system/backend_architecture.md
+      - GraphQL API: commenting_system/graphql_api.md
+      - Notifications: commenting_system/notifications.md
+      - Moderation: commenting_system/moderation.md
+      - Voting & Reputation: commenting_system/voting_and_reputation.md
+      - Leaderboard: commenting_system/LEADERBOARD_IMPLEMENTATION.md
+      - Implementation Guide: commenting_system/IMPLEMENTATION_GUIDE.md
+      - Testing: commenting_system/testing.md
   - Metadata System:
       - Overview: metadata/metadata_overview.md
       - Metadata Fields: metadata/metadata_fields.md
       - API Examples: metadata/metadata_api_examples.md
       - Frontend Requirements: metadata/metadata_frontend_requirements.md
+  - Features:
+      - Badge System: features/badge_system.md
+      - Document Versioning: features/document_versioning.md
+      - Corpus Folders: features/corpus_folders_implementation.md
+      - Corpus Folders API: features/corpus_folders_api_reference.md
+      - Agent Mentions (Plan): features/agent_mentions_implementation_plan.md
+  - MCP:
+      - Overview: mcp/README.md
+  - Corpus Actions:
+      - Introduction: corpus_actions/intro_to_corpus_actions.md
   - Configuration:
       - Choose Docker Stack: configuration/choose-and-configure-docker-stack.md
       - Authentication: configuration/authentication.md
       - Frontend Configuration: configuration/frontend-configuration.md
       - Storage Backend: configuration/choose-storage-backend.md
-  - Pipelines:
-      - Pipeline Overview: pipelines/pipeline_overview.md
-      - Docling Parser: pipelines/docling_parser.md
-  - Frontend:
-      - Routing System: frontend/routing_system.md
-      - Document Rendering: frontend/document_rendering_and_annotation.md
-      - Search Rendering: frontend/search_rendering.md
-      - Read Only Mode: frontend/read_only_mode_inventory.md
-      - Corpus Selection: frontend/corpus-and-document-selection.md
-      - DataGrid:
-          - Custom Cell Rendering: frontend/datagrid/rendering_custom_cells.md
+      - GCP Storage Setup: GCP_STORAGE_SETUP.md
   - Permissions:
       - Overview: permissioning/README.md
       - Consolidated Guide: permissioning/consolidated_permissioning_guide.md
+      - Remediation Guide: permissioning/REMEDIATION_GUIDE.md
       - Read Only Mode: permissioning/read_only_mode.md
       - Corpus Optional Features: permissioning/corpus_optional_features.md
+      - Mention Permissioning Spec: permissioning/mention_permissioning_spec.md
       - Testing Permissions: permissioning/testing_permissions.md
-  - Corpus Actions:
-      - Introduction: corpus_actions/intro_to_corpus_actions.md
+  - Frontend:
+      - Routing System: frontend/routing_system.md
+      - Auth Flow: frontend/auth_flow.md
+      - Layout Architecture: frontend/layout-architecture.md
+      - Document Rendering: frontend/document_rendering_and_annotation.md
+      - Search Rendering: frontend/search_rendering.md
+      - Discussions: frontend/discussions.md
+      - Real-Time Notifications: frontend/real-time-notifications.md
+      - Corpus Selection: frontend/corpus-and-document-selection.md
+      - Corpus Optional Features: frontend/corpus-optional-features.md
+      - Doc Data Query Optimizations: frontend/doc-data-query-optimizations.md
+      - Read Only Mode Inventory: frontend/read_only_mode_inventory.md
+      - '"any" Baseline': frontend/any-baseline.md
+      - OS-Legal Style Migration: frontend/os-legal-style-migration-guide.md
+      - DataGrid:
+          - Custom Cell Rendering: frontend/datagrid/rendering_custom_cells.md
   - API Documentation:
       - Smart Label Mutations: api/smart-label-mutations.md
+  - Telemetry:
+      - Backend: telemetry/Backend.md
+      - Frontend: telemetry/Frontend.md
   - Development:
       - Dev Environment: development/environment.md
       - Test Suite: development/test-suite.md
       - Frontend Notes: development/frontend-notes.md
       - Documentation: development/documentation.md
       - Generating GraphQL Schema: development/generating-new-graphql-schema.md
+      - Screenshots: development/screenshots.md
+      - Rate Limiting: development/rate-limiting.md
+      - Rate Limiting Summary: development/rate-limiting-summary.md
+      - E2E VCR: development/e2e_vcr.md
+  - Typing:
+      - Overview: typing/README.md
+  - Analyzer Framework:
+      - Backend: analyzer_framework/backend.md
+      - Frontend: analyzer_framework/frontend.md
 
 plugins:
   # Built-in
@@ -184,7 +281,7 @@ markdown_extensions:
       social_url_shorthand: true
       normalize_issue_symbols: true
       provider: github
-      user: jsv4
+      user: Open-Source-Legal
       repo: OpenContracts
   - pymdownx.mark:
   - pymdownx.progressbar:

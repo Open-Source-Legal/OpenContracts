@@ -1041,39 +1041,49 @@ class SetPermissionsIsNewTests(TestCase):
         Load-bearing semantic for sharing flows where a user is being
         downgraded from CRUD to READ-only: old UPDATE/DELETE perms
         must be removed.
+
+        Uses a non-creator ``shared_user`` because the Phase A
+        ``user_has_permission_for_obj`` shim routes through
+        ``Manager.user_can``, which applies the creator short-circuit —
+        if we tested the corpus creator, UPDATE/DELETE would remain
+        True even after explicit guardian perms are cleared, masking
+        the behaviour this test pins (the actual guardian clearance).
         """
+        shared_user = User.objects.create_user(
+            username="downgrade_test_user", password="pw"
+        )
         existing_corpus = Corpus.objects.create(
             title="will be downgraded", creator=self.user
         )
         # Grant ALL first.
         set_permissions_for_obj_to_user(
-            self.user, existing_corpus, [PermissionTypes.ALL]
+            shared_user, existing_corpus, [PermissionTypes.ALL]
         )
         self.assertTrue(
             user_has_permission_for_obj(
-                self.user, existing_corpus, PermissionTypes.UPDATE
+                shared_user, existing_corpus, PermissionTypes.UPDATE
             )
         )
 
         # Downgrade to READ-only via the default (replace) path.
         set_permissions_for_obj_to_user(
-            self.user, existing_corpus, [PermissionTypes.READ]
+            shared_user, existing_corpus, [PermissionTypes.READ]
         )
 
         self.assertTrue(
             user_has_permission_for_obj(
-                self.user, existing_corpus, PermissionTypes.READ
+                shared_user, existing_corpus, PermissionTypes.READ
             )
         )
         self.assertFalse(
             user_has_permission_for_obj(
-                self.user, existing_corpus, PermissionTypes.UPDATE
+                shared_user, existing_corpus, PermissionTypes.UPDATE
             ),
             "Default path must clear UPDATE when downgrading to READ-only",
         )
         self.assertFalse(
             user_has_permission_for_obj(
-                self.user, existing_corpus, PermissionTypes.DELETE
+                shared_user, existing_corpus, PermissionTypes.DELETE
             )
         )
 

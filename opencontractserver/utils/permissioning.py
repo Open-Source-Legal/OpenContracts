@@ -19,7 +19,6 @@ from opencontractserver.shared.prefetch_attrs import (
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
-    from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.models import User as UserModel
 
 User = get_user_model()
@@ -418,13 +417,13 @@ def _default_user_can(
             return True
         return False
 
-    if isinstance(user_val, (str, int)):
-        try:
-            user = User.objects.get(id=user_val)
-        except User.DoesNotExist:
-            return False
-    else:
-        user = user_val
+    # Centralised int/str → User resolver, also used by the per-model
+    # ``user_can`` overrides (PR #1663 DRY cleanup).
+    from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
+
+    user = resolve_user_for_user_can(user_val)
+    if user is None:
+        return False
 
     # Defensive guard for exotic user-like objects that aren't AnonymousUser
     # but still report ``is_authenticated == False`` (e.g. a test double, an
@@ -449,26 +448,68 @@ def _default_user_can(
         return True
 
     model_name = instance._meta.model_name
+    app_label = instance._meta.app_label
+
+    # Request-scoped cache lookup. Dormant outside ``permission_cache_scope``
+    # (the default ``_perm_cache`` is ``None`` and ``cached_user_can``
+    # returns ``MISS``). The early returns above (None/anonymous,
+    # superuser, is_public+READ, creator) are already O(1) and bypass the
+    # cache — only the guardian-derived answer is worth caching.
+    from opencontractserver.shared.permission_cache import (
+        MISS,
+        cached_user_can,
+        store_user_can,
+    )
+
+    # ``_meta.model_name`` / ``_meta.app_label`` are typed as ``str | None`` in
+    # the Django stubs but are always populated on concrete model instances —
+    # cast to ``str`` to satisfy the cache function signatures.
+    app_label_str: str = str(app_label)
+    model_name_str: str = str(model_name)
+
+    cached = cached_user_can(
+        user.id,
+        app_label_str,
+        model_name_str,
+        instance.pk,
+        permission.value,
+        include_group_permissions,
+    )
+    if cached is not MISS:
+        return cached
+
     granted = get_users_permissions_for_obj(
         user=user,
         instance=instance,
         include_group_permissions=include_group_permissions,
     )
 
+    def _cache_and_return(result: bool) -> bool:
+        store_user_can(
+            user.id,
+            app_label_str,
+            model_name_str,
+            instance.pk,
+            permission.value,
+            include_group_permissions,
+            result,
+        )
+        return result
+
     if permission == PermissionTypes.READ:
-        return f"read_{model_name}" in granted
+        return _cache_and_return(f"read_{model_name}" in granted)
     if permission == PermissionTypes.CREATE:
-        return f"create_{model_name}" in granted
+        return _cache_and_return(f"create_{model_name}" in granted)
     if permission in (PermissionTypes.UPDATE, PermissionTypes.EDIT):
-        return f"update_{model_name}" in granted
+        return _cache_and_return(f"update_{model_name}" in granted)
     if permission == PermissionTypes.DELETE:
-        return f"remove_{model_name}" in granted
+        return _cache_and_return(f"remove_{model_name}" in granted)
     if permission == PermissionTypes.COMMENT:
-        return f"comment_{model_name}" in granted
+        return _cache_and_return(f"comment_{model_name}" in granted)
     if permission == PermissionTypes.PUBLISH:
-        return f"publish_{model_name}" in granted
+        return _cache_and_return(f"publish_{model_name}" in granted)
     if permission == PermissionTypes.PERMISSION:
-        return f"permission_{model_name}" in granted
+        return _cache_and_return(f"permission_{model_name}" in granted)
     if permission in (PermissionTypes.CRUD, PermissionTypes.ALL):
         # Belt-and-suspenders: ``get_users_permissions_for_obj`` *already*
         # injects ``read_<model>`` into ``granted`` when ``is_public=True``
@@ -498,8 +539,19 @@ def _default_user_can(
                 f"publish_{model_name}",
                 f"permission_{model_name}",
             }
-        return required.issubset(granted)
+        return _cache_and_return(required.issubset(granted))
     return False
+
+
+# Per-call-site dedup for the deprecation warning emitted by
+# ``user_has_permission_for_obj``. With ~170 legacy call sites each
+# potentially fired many times per request, an unthrottled
+# ``warnings.warn`` would flood logs during the Phase B migration window.
+# We track (filename, lineno) tuples for each unique caller frame and
+# emit at most once per site per process. Tests that need to assert
+# specific call sites still issue warnings can clear this set via
+# ``_user_has_permission_for_obj_warned.clear()``.
+_user_has_permission_for_obj_warned: set[tuple[str, int]] = set()
 
 
 def user_has_permission_for_obj(
@@ -508,372 +560,83 @@ def user_has_permission_for_obj(
     permission: PermissionTypes,
     include_group_permissions: bool = False,
 ) -> bool:
+    """Deprecation shim — delegates to ``Manager.user_can``.
+
+    .. deprecated:: Phase A of permission-centralization (issue #1655)
+
+        Every call emits a ``DeprecationWarning``. New code MUST use
+        ``Model.objects.user_can(user, instance, permission)`` or the
+        ergonomic ``instance.user_can(user, permission)``. Per-model
+        overrides on ``DocumentManager``, ``AnnotationManager``,
+        ``RelationshipManager``, ``NoteManager``, ``UserFeedbackManager``,
+        ``ConversationManager``, ``ChatMessageManager`` (and others
+        inheriting from ``BaseVisibilityManager``) now encode the
+        structural / privacy / inheritance / moderator rules this
+        function used to. The ``user_can`` API is the single source of
+        truth that stays aligned with ``visible_to_user`` filters.
+
+        Migration of the ~170 existing call sites is tracked in Phases
+        B/C of issue #1655.
+
+    Implementation: route the call through the instance's
+    ``_default_manager.user_can``. The kwarg defaults preserve the old
+    behavior — ``include_group_permissions=False`` (the legacy default,
+    DIFFERENT from ``_default_user_can``'s ``True``) is forwarded
+    verbatim so callers that don't pass the kwarg keep getting the same
+    answer.
+
+    ``User.objects.get(id=user_val)`` raising ``User.DoesNotExist`` for
+    an unknown id is replaced with a defensive ``False`` return (the
+    legacy code raised; no caller catches ``DoesNotExist`` around this
+    function in the production paths).
+
+    If the instance's ``_default_manager`` doesn't implement ``user_can``
+    (i.e. the model hasn't yet been migrated to the Phase A surface), the
+    shim raises ``TypeError`` with an actionable message instead of letting
+    the call fall through and surface as a confusing ``AttributeError``
+    deep inside the resolver. Addresses Claude review on PR #1663.
     """
-    Check if user has a specific permission on an object via django-guardian.
+    import sys
+    import warnings
 
-    .. deprecated:: superseded by ``Manager.user_can(user, instance, permission)``
-        for standard-rule models. **New code MUST prefer**
-        ``Model.objects.user_can(user, instance, perm)`` (or the equivalent
-        ``instance.user_can(user, perm)``) for any model whose default
-        manager extends ``BaseVisibilityManager`` — i.e. Corpus, Document,
-        Analysis, Extract, etc. The ``user_can`` API is the single source
-        of truth that mirrors ``visible_to_user`` semantics and correctly
-        honors creator status (which this function deliberately ignores).
+    from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
 
-        This helper is kept for two reasons:
-          1. It contains structural / privacy / inheritance handling for
-             ``Annotation`` and ``Relationship`` that ``_default_user_can``
-             does NOT replicate. Those models will get per-manager
-             ``user_can`` overrides in a later migration phase; until then,
-             the annotation/relationship branches below remain the
-             canonical check for those types.
-          2. ~170 existing call sites (mutations, optimizers, services,
-             tasks, imports) still use it. They will be migrated
-             incrementally. No runtime ``DeprecationWarning`` is raised
-             because firing it on every call would drown signal in noise
-             during that migration window — the docstring is the contract.
-
-        For new call sites: if ``instance`` is a Corpus/Document/Analysis/
-        Extract (or any model with ``Manager.user_can``), USE ``user_can``.
-
-    ⚠️  IMPORTANT LIMITATION - READ THIS BEFORE USING ⚠️
-
-    This function checks ONLY for explicit object-level permissions:
-    - Django-guardian user/group permissions on the object
-    - is_public flag (grants READ)
-    - Superuser status
-
-    It does NOT consider:
-    - Creator status (for models with guardian permissions)
-    - Corpus context / inherited permissions
-    - Complex visibility rules from query resolvers
-
-    FOR CORPUS-SCOPED OBJECTS (documents in a corpus, metadata, etc.):
-    Do NOT use this function for READ/visibility checks. Instead use:
-        Model.objects.visible_to_user(user).filter(id=obj_id).exists()
-
-    The visible_to_user() pattern handles the full permission model including
-    creator access, corpus membership, and other context-dependent rules.
-
-    USE THIS FUNCTION ONLY FOR:
-    - Annotation/Relationship permission checks (has special handling built-in
-      that ``_default_user_can`` does not yet replicate).
-    - Legacy call sites pending migration to ``Manager.user_can``.
-
-    Special handling for Annotations:
-    - Annotations with created_by_analysis or created_by_extract fields require permission
-      to the source object (analysis/extract) in addition to document+corpus permissions.
-    - Uses AnnotationQueryOptimizer for computing effective permissions.
-    """
-    # Provides some flexibility to use ids where passing object is not practical
-    if isinstance(user_val, str) or isinstance(user_val, int):
-        user = User.objects.get(id=user_val)
-    else:
-        user = user_val
-
-    model_name = instance._meta.model_name
-    app_label = instance._meta.app_label
-    logger.debug(
-        "user_has_permission_for_obj() - check %s on %s.%s for %s",
-        permission,
-        app_label,
-        model_name,
-        user.username,
-    )
-
-    # Special handling for annotations with privacy fields
-    if model_name == "annotation" and app_label == "annotations":
-        from opencontractserver.annotations.models import Annotation
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
+    # Throttle to one warning per unique call site per process. Identify
+    # the caller via its frame's (filename, lineno) — cheap to compute and
+    # stable for the lifetime of the process. ``sys._getframe(1)`` mirrors
+    # what ``warnings.warn(stacklevel=2)`` reports, so the dedup key
+    # always matches the line that actually appears in the warning text.
+    caller = sys._getframe(1)
+    site = (caller.f_code.co_filename, caller.f_lineno)
+    if site not in _user_has_permission_for_obj_warned:
+        _user_has_permission_for_obj_warned.add(site)
+        warnings.warn(
+            "user_has_permission_for_obj is deprecated; use "
+            "Model.objects.user_can(user, instance, permission) instead "
+            "(or instance.user_can(user, permission)). See issue #1655.",
+            DeprecationWarning,
+            stacklevel=2,
         )
 
-        if isinstance(instance, Annotation):
-            # Superusers always have permission
-            if user.is_superuser:
-                return True
-
-            # Structural annotations are always read-only if document is readable
-            # Check this BEFORE privacy checks so structural annotations are always visible
-            if instance.structural and permission != PermissionTypes.READ:
-                logger.info(
-                    f"User {user.username} denied write access to structural annotation {instance.id}"
-                )
-                return False
-
-            # Check if this is a private annotation (but not if it's structural and we're just reading)
-            if (
-                instance.created_by_analysis_id or instance.created_by_extract_id
-            ) and not (instance.structural and permission == PermissionTypes.READ):
-                # For private annotations, permissions are limited by BOTH the source object AND doc+corpus
-                # We need to check the source object permissions match or exceed what's being requested
-                if instance.created_by_analysis_id:
-                    source_analysis = instance.created_by_analysis
-                    if source_analysis is None or not user_has_permission_for_obj(
-                        user,
-                        source_analysis,
-                        permission,  # Check for the same permission level being requested
-                        include_group_permissions=include_group_permissions,
-                    ):
-                        logger.info(
-                            f"User {user.username} denied {permission} access to annotation {instance.id} - "
-                            f"insufficient permission on analysis {instance.created_by_analysis_id}"
-                        )
-                        return False
-                elif instance.created_by_extract_id:
-                    source_extract = instance.created_by_extract
-                    if source_extract is None or not user_has_permission_for_obj(
-                        user,
-                        source_extract,
-                        permission,  # Check for the same permission level being requested
-                        include_group_permissions=include_group_permissions,
-                    ):
-                        logger.info(
-                            f"User {user.username} denied {permission} access to annotation {instance.id} - "
-                            f"insufficient permission on extract {instance.created_by_extract_id}"
-                        )
-                        return False
-
-            # Now check document+corpus permissions using the query optimizer.
-            # An annotation without a parent document has no inheritable scope,
-            # so non-superuser access is denied (the superuser branch is above).
-            if instance.document_id is None:
-                return False
-            can_read, can_create, can_update, can_delete, can_comment = (
-                AnnotationQueryOptimizer._compute_effective_permissions(
-                    user=user,
-                    document_id=instance.document_id,
-                    corpus_id=instance.corpus_id,
-                )
-            )
-
-            # Map the requested permission to the computed permissions
-            if permission == PermissionTypes.READ:
-                return can_read
-            elif permission == PermissionTypes.CREATE:
-                return can_create
-            elif (
-                permission == PermissionTypes.UPDATE
-                or permission == PermissionTypes.EDIT
-            ):
-                return can_update
-            elif permission == PermissionTypes.DELETE:
-                return can_delete
-            elif permission == PermissionTypes.COMMENT:
-                return can_comment
-            elif permission == PermissionTypes.CRUD:
-                return can_read and can_create and can_update and can_delete
-            elif permission == PermissionTypes.ALL:
-                # For annotations, ALL includes COMMENT but not publish/permission
-                return (
-                    can_read
-                    and can_create
-                    and can_update
-                    and can_delete
-                    and can_comment
-                )
-            else:
-                # Annotations don't support PUBLISH or PERMISSION
-                return False
-
-    # Special handling for relationships (similar to annotations)
-    if model_name == "relationship" and app_label == "annotations":
-        from opencontractserver.annotations.models import Relationship
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
-
-        if isinstance(instance, Relationship):
-            # Superusers always have permission
-            if user.is_superuser:
-                return True
-
-            # Structural relationships are ALWAYS read-only (only superusers can modify)
-            # Check this FIRST before any other permission checks
-            if instance.structural and permission != PermissionTypes.READ:
-                logger.info(
-                    f"User {user.username} denied write access to structural relationship {instance.id}"
-                )
-                return False
-
-            # Relationships inherit permissions from document+corpus.
-            # Relationships without a document have no inheritable scope, so
-            # we deny all non-superuser access (the superuser short-circuit
-            # above is the only escape).
-            if instance.document_id is None:
-                return False
-            can_read, can_create, can_update, can_delete, can_comment = (
-                AnnotationQueryOptimizer._compute_effective_permissions(
-                    user=user,
-                    document_id=instance.document_id,
-                    corpus_id=instance.corpus_id,
-                )
-            )
-
-            # Map the requested permission to the computed permissions
-            if permission == PermissionTypes.READ:
-                return can_read
-            elif permission == PermissionTypes.CREATE:
-                return can_create
-            elif (
-                permission == PermissionTypes.UPDATE
-                or permission == PermissionTypes.EDIT
-            ):
-                return can_update
-            elif permission == PermissionTypes.DELETE:
-                return can_delete
-            elif permission == PermissionTypes.COMMENT:
-                return can_comment
-            elif permission == PermissionTypes.CRUD:
-                return can_read and can_create and can_update and can_delete
-            elif permission == PermissionTypes.ALL:
-                # For relationships, ALL includes COMMENT but not publish/permission
-                return (
-                    can_read
-                    and can_create
-                    and can_update
-                    and can_delete
-                    and can_comment
-                )
-            else:
-                # Relationships don't support PUBLISH or PERMISSION
-                return False
-
-    # Standard permission checking for all other models
-    model_permissions_for_user = get_users_permissions_for_obj(
-        user=user,
-        instance=instance,
-        include_group_permissions=include_group_permissions,
-    )
-    logger.debug(
-        f"user_has_permission_for_obj - user {user} has model_permissions: {model_permissions_for_user}"
-    )
-    logger.debug(f"user_has_permission_for_obj - permission: {permission}")
-
-    if permission == PermissionTypes.READ:
-        return len(model_permissions_for_user.intersection({f"read_{model_name}"})) > 0
-    elif permission == PermissionTypes.CREATE:
-        return (
-            len(model_permissions_for_user.intersection({f"create_{model_name}"})) > 0
-        )
-    elif permission == PermissionTypes.UPDATE or permission == PermissionTypes.EDIT:
-        return (
-            len(model_permissions_for_user.intersection({f"update_{model_name}"})) > 0
-        )
-    elif permission == PermissionTypes.DELETE:
-        return (
-            len(model_permissions_for_user.intersection({f"remove_{model_name}"})) > 0
-        )
-    elif permission == PermissionTypes.COMMENT:
-        return (
-            len(model_permissions_for_user.intersection({f"comment_{model_name}"})) > 0
-        )
-    elif permission == PermissionTypes.PUBLISH:
-        return (
-            len(model_permissions_for_user.intersection({f"publish_{model_name}"})) > 0
-        )
-    elif permission == PermissionTypes.PERMISSION:
-        return (
-            len(model_permissions_for_user.intersection({f"permission_{model_name}"}))
-            > 0
-        )
-    elif permission == PermissionTypes.CRUD:
-        return (
-            len(
-                model_permissions_for_user.intersection(
-                    {
-                        f"create_{model_name}",
-                        f"read_{model_name}",
-                        f"update_{model_name}",
-                        f"remove_{model_name}",
-                    }
-                )
-            )
-            == 4
-        )
-    elif permission == PermissionTypes.ALL:
-        return (
-            len(
-                model_permissions_for_user.intersection(
-                    {
-                        f"create_{model_name}",
-                        f"read_{model_name}",
-                        f"update_{model_name}",
-                        f"remove_{model_name}",
-                        f"comment_{model_name}",
-                        f"publish_{model_name}",
-                        f"permission_{model_name}",
-                    }
-                )
-            )
-            == 7
-        )
-    else:
+    # ``resolve_user_for_user_can`` returns ``None`` for both ``None``
+    # input and a missing-id lookup; both deny under the legacy contract.
+    user = resolve_user_for_user_can(user_val)
+    if user is None:
         return False
 
-
-def user_can_modify_corpus(
-    user_val: int | str | UserModel | AnonymousUser | None,
-    corpus: Corpus,
-    *,
-    include_group_permissions: bool = True,
-) -> bool:
-    """
-    Single-source-of-truth check for "can this user modify this corpus".
-
-    Canonical pattern, replacing inline
-    ``user.is_superuser or corpus.creator_id == user.id or
-    user_has_permission_for_obj(user, corpus, UPDATE, ...)`` checks
-    scattered across mutations. Centralizing keeps mutation paths
-    consistent as the permission model evolves (sharing, group
-    inheritance, MIN(doc, corpus)).
-
-    Returns True iff:
-        - user is a superuser, OR
-        - user is the corpus creator, OR
-        - user has explicit guardian UPDATE on the corpus (optionally
-          via group permissions).
-
-    Anonymous / unauthenticated users always get False. A non-existent
-    user id is also rejected with ``False`` (rather than raising) so
-    callers can hand-resolve dangling/external ids without a try/except.
-
-    Args:
-        user_val: A user id (int or string-encoded int), a User
-            instance, ``AnonymousUser``, or ``None``. ``None`` and
-            unauthenticated users are rejected.
-        corpus: The Corpus instance to check against.
-        include_group_permissions: Whether to consult group-level
-            guardian permissions in addition to user-level ones.
-            Defaults to True, matching the call sites this helper
-            replaces.
-    """
-    if user_val is None:
-        return False
-
-    if isinstance(user_val, AnonymousUser):
-        return False
-
-    if isinstance(user_val, (str, int)):
-        try:
-            user = User.objects.get(id=user_val)
-        except User.DoesNotExist:
-            return False
-    else:
-        user = user_val
-
-    if not getattr(user, "is_authenticated", False):
-        return False
-
-    if user.is_superuser:
-        return True
-
-    if getattr(corpus, "creator_id", None) == user.id:
-        return True
-
-    return user_has_permission_for_obj(
+    manager = type(instance)._default_manager
+    if not hasattr(manager, "user_can"):
+        raise TypeError(
+            f"{type(instance).__name__}._default_manager "
+            f"({type(manager).__name__}) does not implement user_can(). "
+            "Migrate the model's manager to BaseVisibilityManager / "
+            "UserCanMixin (Phase A) before calling user_has_permission_for_obj."
+        )
+    # ``manager`` is statically typed as ``Manager[Model]`` here — the
+    # ``hasattr`` guard above makes ``user_can`` safe at runtime.
+    return manager.user_can(
         user,
-        corpus,
-        PermissionTypes.UPDATE,
+        instance,
+        permission,
         include_group_permissions=include_group_permissions,
     )

@@ -17,7 +17,6 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
-    user_can_modify_corpus,
     user_has_permission_for_obj,
 )
 
@@ -89,7 +88,7 @@ class CreateBadgeMutation(graphene.Mutation):
                     )
 
                 # Check if user can manage this corpus (creator or has UPDATE permission)
-                if not user_can_modify_corpus(user, corpus):
+                if not corpus.user_can(user, PermissionTypes.UPDATE):
                     return CreateBadgeMutation(
                         ok=False,
                         message="Corpus not found",
@@ -209,7 +208,7 @@ class UpdateBadgeMutation(graphene.Mutation):
             # For global badges, must be superuser
             if badge.corpus:
                 # Corpus badge - check if creator or has UPDATE permission
-                if not user_can_modify_corpus(user, badge.corpus):
+                if not badge.corpus.user_can(user, PermissionTypes.UPDATE):
                     return UpdateBadgeMutation(
                         ok=False,
                         message="Badge not found",
@@ -326,7 +325,7 @@ class DeleteBadgeMutation(graphene.Mutation):
             # For global badges, must be superuser
             if badge.corpus:
                 # Corpus badge - check if creator or has UPDATE permission
-                if not user_can_modify_corpus(user, badge.corpus):
+                if not badge.corpus.user_can(user, PermissionTypes.UPDATE):
                     return DeleteBadgeMutation(
                         ok=False,
                         message="Badge not found",

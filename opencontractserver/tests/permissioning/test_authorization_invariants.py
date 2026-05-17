@@ -12,9 +12,22 @@ cover Document, Annotation, Relationship, Note, Conversation, ChatMessage,
 Extract, Analysis, etc.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TransactionTestCase
+
+# Inherit the mixin from ``TransactionTestCase`` for the type checker only so
+# ``self.assertEqual`` / ``self.assertTrue`` resolve; at runtime the mixin is a
+# plain ``object`` and gets the assert helpers from the concrete subclass's
+# MRO. This avoids the MRO conflict that direct ``TransactionTestCase``
+# inheritance would create when paired with a concrete ``TransactionTestCase``
+# subclass.
+if TYPE_CHECKING:
+    _MixinBase = TransactionTestCase
+else:
+    _MixinBase = object
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
@@ -563,3 +576,752 @@ class CorpusFolderDelegatesUserCanToCorpusTestCase(TransactionTestCase):
                     f"delegation mismatch user={getattr(user, 'username', 'anon')} "
                     f"perm={perm}: folder={folder_answer}, corpus={corpus_answer}",
                 )
+
+
+class _UserCanInvariantsMixin(_MixinBase):
+    """Shared assertions for per-model ``user_can`` / ``visible_to_user``
+    invariants. Each subclass populates ``self._matrix_users`` and
+    ``self._matrix_instances`` in setUp, then calls the inherited
+    helpers below.
+
+    Lives in this module so the test classes for every visibility-managed
+    model share a single regression guard. Adding a new model? Subclass
+    this mixin, set the two matrices, and the equivalence and surface
+    tests come for free.
+    """
+
+    # Subclasses populate these in ``setUp``. Declared here so mypy treats
+    # the mixin's ``self.<attr>`` references as defined. ``model_cls`` is
+    # typed as ``Any`` (not ``type[Model]``) because mypy's Django stubs
+    # don't expose the ``objects`` manager on the abstract base ``Model``
+    # class — and the assertions below reach for ``model_cls.objects``.
+    model_cls: Any
+    _matrix_users: list[Any]
+    _matrix_instances: list[Any]
+    _superuser: Any
+
+    def _all_matrix_pairs(self):
+        for user in self._matrix_users:
+            for instance in self._matrix_instances:
+                yield user, instance
+
+    def test_read_equivalence_across_user_matrix(self):
+        """``user_can(READ) == visible_to_user.filter(pk=).exists()`` for every (user, instance)."""
+        for user, instance in self._all_matrix_pairs():
+            check = self.model_cls.objects.user_can(
+                user, instance, PermissionTypes.READ
+            )
+            in_filter = (
+                self.model_cls.objects.visible_to_user(user)
+                .filter(pk=instance.pk)
+                .exists()
+            )
+            self.assertEqual(
+                check,
+                in_filter,
+                f"{self.model_cls.__name__} user_can/visible_to_user disagree for "
+                f"user={getattr(user, 'username', 'anon')}, pk={instance.pk}: "
+                f"check={check}, filter={in_filter}",
+            )
+
+    def test_manager_and_instance_surfaces_agree(self):
+        """``Model.objects.user_can(...)`` and ``instance.user_can(...)`` agree."""
+        for user, instance in self._all_matrix_pairs():
+            for perm in (
+                PermissionTypes.READ,
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+            ):
+                via_manager = self.model_cls.objects.user_can(user, instance, perm)
+                via_instance = instance.user_can(user, perm)
+                self.assertEqual(
+                    via_manager,
+                    via_instance,
+                    f"{self.model_cls.__name__} manager/instance disagree for "
+                    f"user={getattr(user, 'username', 'anon')}, pk={instance.pk}, perm={perm}",
+                )
+
+    def test_superuser_bypass_all_permissions(self):
+        """Superuser passes every permission on every instance in the matrix."""
+        for instance in self._matrix_instances:
+            for perm in PermissionTypes:
+                self.assertTrue(
+                    self.model_cls.objects.user_can(self._superuser, instance, perm),
+                    f"superuser denied {perm} on {self.model_cls.__name__} pk={instance.pk}",
+                )
+
+
+class DocumentAuthorizationInvariantsTestCase(
+    _UserCanInvariantsMixin, TransactionTestCase
+):
+    """Pin filter/check equivalence for ``Document``."""
+
+    def setUp(self):
+        from opencontractserver.documents.models import Document
+
+        self.model_cls = Document
+
+        self.creator = User.objects.create_user(
+            username="doc_creator", email="dc@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="doc_reader", email="dr@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="doc_stranger", email="ds@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="doc_admin", email="da@inv.test", password="x"
+        )
+
+        self.private_doc = Document.objects.create(
+            title="Private Doc", creator=self.creator, is_public=False
+        )
+        self.public_doc = Document.objects.create(
+            title="Public Doc", creator=self.creator, is_public=True
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.private_doc, [PermissionTypes.READ]
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.private_doc, self.public_doc]
+
+    def test_is_public_grants_only_read(self):
+        """``is_public=True`` grants READ but not UPDATE/DELETE."""
+        self.assertTrue(self.public_doc.user_can(self.stranger, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(self.public_doc.user_can(self.stranger, perm))
+
+
+class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TransactionTestCase):
+    """Pin filter/check equivalence for ``Note`` (MIN of doc+corpus)."""
+
+    def setUp(self):
+        from opencontractserver.annotations.models import Note
+        from opencontractserver.documents.models import Document
+
+        self.model_cls = Note
+
+        self.creator = User.objects.create_user(
+            username="note_creator", email="nc@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="note_reader", email="nr@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="note_stranger", email="ns@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="note_admin", email="na@inv.test", password="x"
+        )
+
+        self.private_corpus = Corpus.objects.create(
+            title="Note Corpus", creator=self.creator, is_public=False
+        )
+        self.private_doc = Document.objects.create(
+            title="Note Doc", creator=self.creator, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.private_corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.private_doc, [PermissionTypes.READ]
+        )
+
+        self.private_note = Note.objects.create(
+            title="Note 1",
+            content="x",
+            creator=self.creator,
+            document=self.private_doc,
+            corpus=self.private_corpus,
+            is_public=False,
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.private_note]
+
+    def test_doc_visible_corpus_invisible_means_note_invisible(self):
+        """MIN: if corpus visibility fails, note is invisible even when doc visible."""
+        # Stranger has no access to either. Strip shared_reader's corpus access.
+        set_permissions_for_obj_to_user(self.shared_reader, self.private_corpus, [])
+        self.assertFalse(
+            self.private_note.user_can(self.shared_reader, PermissionTypes.READ)
+        )
+
+
+class RelationshipAuthorizationInvariantsTestCase(
+    _UserCanInvariantsMixin, TransactionTestCase
+):
+    """Pin filter/check equivalence for ``Relationship`` (MIN + structural-write-deny)."""
+
+    def setUp(self):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+            Relationship,
+        )
+        from opencontractserver.documents.models import Document
+
+        self.model_cls = Relationship
+
+        self.creator = User.objects.create_user(
+            username="rel_creator", email="rc@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="rel_reader", email="rr@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="rel_stranger", email="rs@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="rel_admin", email="ra@inv.test", password="x"
+        )
+
+        self.corpus = Corpus.objects.create(
+            title="Rel Corpus", creator=self.creator, is_public=False
+        )
+        self.document = Document.objects.create(
+            title="Rel Doc", creator=self.creator, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.document, [PermissionTypes.READ]
+        )
+
+        self.rel_label = AnnotationLabel.objects.create(
+            text="rel_label", label_type="RELATIONSHIP_LABEL", creator=self.creator
+        )
+        # First create source/target annotations
+        self.token_label = AnnotationLabel.objects.create(
+            text="t", label_type="TOKEN_LABEL", creator=self.creator
+        )
+        self.source_ann = Annotation.objects.create(
+            raw_text="src",
+            json={"x": 1},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+        )
+        self.target_ann = Annotation.objects.create(
+            raw_text="tgt",
+            json={"x": 2},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+        )
+
+        self.relationship = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            structural=False,
+        )
+        self.relationship.source_annotations.add(self.source_ann)
+        self.relationship.target_annotations.add(self.target_ann)
+
+        self.structural_rel = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            structural=True,
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.relationship, self.structural_rel]
+
+    def test_structural_relationships_are_read_only_for_non_superuser(self):
+        """Structural relationships can only be READ by non-superusers."""
+        for user in (self.creator, self.shared_reader, self.stranger):
+            for perm in (
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+                PermissionTypes.CREATE,
+            ):
+                self.assertFalse(
+                    self.structural_rel.user_can(user, perm),
+                    f"non-superuser {getattr(user, 'username', 'anon')} got {perm} "
+                    f"on structural relationship — leak!",
+                )
+        # Superuser still passes.
+        self.assertTrue(
+            self.structural_rel.user_can(self._superuser, PermissionTypes.UPDATE)
+        )
+
+    def test_no_privacy_widening_via_created_by_analysis(self):
+        """RelationshipManager.user_can does NOT consult ``created_by_analysis``.
+
+        The legacy ``user_has_permission_for_obj`` Relationship branch
+        does not check that field; this test pins that the new manager
+        path preserves that behavior. Adding a privacy check would
+        require its own explicit invariant.
+        """
+        # No fixture mutation needed — the relationship has no created_by_analysis
+        # set, and the matrix-level READ-equivalence test already
+        # exercises the standard MIN(doc, corpus) path. This sentinel
+        # test documents the contract.
+        self.assertIsNone(self.relationship.created_by_analysis_id)
+        self.assertIsNone(self.relationship.created_by_extract_id)
+
+
+class AnnotationAuthorizationInvariantsTestCase(
+    _UserCanInvariantsMixin, TransactionTestCase
+):
+    """Pin filter/check equivalence for ``Annotation``.
+
+    Covers: structural-write-deny, MIN(doc, corpus), and the bug-fix
+    posture for privacy recursion via ``Analysis.objects.user_can`` /
+    ``Extract.objects.user_can`` (creator status now honored).
+    """
+
+    def setUp(self):
+        from opencontractserver.analyzer.models import Analyzer
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+        )
+        from opencontractserver.documents.models import Document
+
+        self.model_cls = Annotation
+
+        self.creator = User.objects.create_user(
+            username="ann_creator", email="ac@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="ann_reader", email="ar@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="ann_stranger", email="as@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="ann_admin", email="aa@inv.test", password="x"
+        )
+
+        self.corpus = Corpus.objects.create(
+            title="Ann Corpus", creator=self.creator, is_public=False
+        )
+        self.document = Document.objects.create(
+            title="Ann Doc", creator=self.creator, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.document, [PermissionTypes.READ]
+        )
+
+        self.token_label = AnnotationLabel.objects.create(
+            text="t", label_type="TOKEN_LABEL", creator=self.creator
+        )
+
+        self.public_ann = Annotation.objects.create(
+            raw_text="public_ann",
+            json={"x": 1},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            is_public=True,
+        )
+        self.private_ann = Annotation.objects.create(
+            raw_text="private_ann",
+            json={"x": 2},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            is_public=False,
+        )
+        self.structural_ann = Annotation.objects.create(
+            raw_text="structural",
+            json={"x": 3},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            structural=True,
+        )
+
+        # An Analysis owned by the creator. The privacy recursion
+        # bug-fix means the creator's user_can on the source analysis
+        # returns True via creator-shortcut. ``Analyzer`` has a check
+        # constraint requiring exactly one of ``host_gremlin`` /
+        # ``task_name`` to be set.
+        self.analyzer = Analyzer.objects.create(
+            id="test_analyzer_invariant",
+            description="x",
+            creator=self.creator,
+            task_name="opencontractserver.tasks.noop",
+        )
+        from opencontractserver.analyzer.models import Analysis
+
+        self.analysis = Analysis.objects.create(
+            analyzer=self.analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.creator,
+        )
+        self.private_via_analysis = Annotation.objects.create(
+            raw_text="via_analysis",
+            json={"x": 4},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            created_by_analysis=self.analysis,
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [
+            self.public_ann,
+            self.private_ann,
+            self.structural_ann,
+            self.private_via_analysis,
+        ]
+
+    def test_structural_annotations_are_read_only_for_non_superuser(self):
+        for user in (self.creator, self.shared_reader, self.stranger):
+            for perm in (
+                PermissionTypes.UPDATE,
+                PermissionTypes.DELETE,
+                PermissionTypes.CREATE,
+            ):
+                self.assertFalse(
+                    self.structural_ann.user_can(user, perm),
+                    f"non-superuser {getattr(user, 'username', 'anon')} got {perm} "
+                    f"on structural annotation — leak!",
+                )
+        self.assertTrue(
+            self.structural_ann.user_can(self._superuser, PermissionTypes.UPDATE)
+        )
+
+    def test_privacy_recursion_honors_creator_on_source_analysis(self):
+        """BUG-FIX POSTURE: the recursive privacy check now uses
+        ``Analysis.objects.user_can`` which honors creator status.
+        Previously the recursion used the creator-blind
+        ``user_has_permission_for_obj`` and could deny the analysis
+        creator access to their own private annotation.
+        """
+        # The creator owns both the analysis AND the annotation. The new
+        # path returns True via the creator short-circuit on Analysis.
+        self.assertTrue(
+            self.private_via_analysis.user_can(self.creator, PermissionTypes.READ)
+        )
+
+    def test_privacy_recursion_blocks_user_without_analysis_access(self):
+        """A user with doc+corpus READ but no analysis access cannot
+        READ a private-via-analysis annotation.
+        """
+        self.assertFalse(
+            self.private_via_analysis.user_can(self.shared_reader, PermissionTypes.READ)
+        )
+
+
+class ConversationAuthorizationInvariantsTestCase(
+    _UserCanInvariantsMixin, TransactionTestCase
+):
+    """Pin filter/check equivalence for ``Conversation`` (CHAT/THREAD bifurcation)."""
+
+    def setUp(self):
+        from opencontractserver.conversations.models import (
+            Conversation,
+            ConversationTypeChoices,
+        )
+        from opencontractserver.documents.models import Document
+
+        self.model_cls = Conversation
+
+        self.creator = User.objects.create_user(
+            username="conv_creator", email="cc@inv.test", password="x"
+        )
+        self.corpus_reader = User.objects.create_user(
+            username="conv_corpus_reader", email="ccr@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="conv_stranger", email="cs@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="conv_admin", email="ca@inv.test", password="x"
+        )
+
+        self.corpus = Corpus.objects.create(
+            title="Conv Corpus", creator=self.creator, is_public=False
+        )
+        self.document = Document.objects.create(
+            title="Conv Doc", creator=self.creator, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.corpus_reader, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.corpus_reader, self.document, [PermissionTypes.READ]
+        )
+
+        # CHAT type — restrictive (no context inheritance)
+        self.private_chat = Conversation.objects.create(
+            title="Private CHAT",
+            chat_with_corpus=self.corpus,
+            creator=self.creator,
+            conversation_type=ConversationTypeChoices.CHAT,
+            is_public=False,
+        )
+        # THREAD type — context inheritance from corpus
+        self.thread_on_corpus = Conversation.objects.create(
+            title="Thread on Corpus",
+            chat_with_corpus=self.corpus,
+            creator=self.creator,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=False,
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.corpus_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.private_chat, self.thread_on_corpus]
+
+    def test_chat_does_not_inherit_corpus_context(self):
+        """CHAT is restrictive: corpus reader cannot see another user's CHAT."""
+        self.assertFalse(
+            self.private_chat.user_can(self.corpus_reader, PermissionTypes.READ)
+        )
+
+    def test_thread_inherits_corpus_read(self):
+        """THREAD inherits READ from corpus context."""
+        self.assertTrue(
+            self.thread_on_corpus.user_can(self.corpus_reader, PermissionTypes.READ)
+        )
+
+    def test_anonymous_cannot_see_chats(self):
+        """Anonymous users can NEVER see CHAT conversations."""
+        self.assertFalse(
+            self.private_chat.user_can(AnonymousUser(), PermissionTypes.READ)
+        )
+
+
+class ChatMessageAuthorizationInvariantsTestCase(
+    _UserCanInvariantsMixin, TransactionTestCase
+):
+    """Pin filter/check equivalence for ``ChatMessage`` (moderator branch)."""
+
+    def setUp(self):
+        from opencontractserver.conversations.models import (
+            ChatMessage,
+            Conversation,
+            ConversationTypeChoices,
+        )
+        from opencontractserver.documents.models import Document
+
+        self.model_cls = ChatMessage
+
+        self.corpus_owner = User.objects.create_user(
+            username="msg_corpus_owner", email="mco@inv.test", password="x"
+        )
+        self.thread_creator = User.objects.create_user(
+            username="msg_thread_creator", email="mtc@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="msg_stranger", email="ms@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="msg_admin", email="ma@inv.test", password="x"
+        )
+
+        # corpus_owner owns the corpus; thread_creator runs a thread on it.
+        # corpus_owner is a moderator (corpus owner branch).
+        self.corpus = Corpus.objects.create(
+            title="Msg Corpus", creator=self.corpus_owner, is_public=False
+        )
+        self.document = Document.objects.create(
+            title="Msg Doc", creator=self.corpus_owner, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.thread_creator, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.thread_creator, self.document, [PermissionTypes.READ]
+        )
+        self.thread = Conversation.objects.create(
+            title="Mod Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.thread_creator,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=False,
+        )
+        self.msg = ChatMessage.objects.create(
+            conversation=self.thread,
+            creator=self.thread_creator,
+            content="hi",
+            msg_type="HUMAN",
+        )
+
+        self._matrix_users = [
+            self.corpus_owner,
+            self.thread_creator,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.msg]
+
+    def test_moderator_sees_message_via_corpus_ownership(self):
+        """Corpus owner can READ messages in threads on their corpus
+        (moderator branch), even if they didn't create the thread."""
+        self.assertTrue(self.msg.user_can(self.corpus_owner, PermissionTypes.READ))
+
+
+class UserFeedbackAuthorizationInvariantsTestCase(
+    _UserCanInvariantsMixin, TransactionTestCase
+):
+    """Pin filter/check equivalence for ``UserFeedback`` including the
+    ``commented_annotation.is_public`` READ branch."""
+
+    def setUp(self):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+        )
+        from opencontractserver.documents.models import Document
+        from opencontractserver.feedback.models import UserFeedback
+
+        self.model_cls = UserFeedback
+
+        self.creator = User.objects.create_user(
+            username="fb_creator", email="fbc@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="fb_reader", email="fbr@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="fb_stranger", email="fbs@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="fb_admin", email="fba@inv.test", password="x"
+        )
+
+        # Public annotation that the feedback comments on.
+        self.doc = Document.objects.create(
+            title="FB Doc", creator=self.creator, is_public=True
+        )
+        self.label = AnnotationLabel.objects.create(
+            text="fblbl", label_type="TOKEN_LABEL", creator=self.creator
+        )
+        self.public_ann = Annotation.objects.create(
+            raw_text="public_for_fb",
+            json={"x": 1},
+            page=1,
+            annotation_label=self.label,
+            creator=self.creator,
+            document=self.doc,
+            is_public=True,
+        )
+
+        # Feedback that's private but comments on a public annotation:
+        # the special ``commented_annotation.is_public`` branch grants READ.
+        self.fb_on_public = UserFeedback.objects.create(
+            creator=self.creator,
+            commented_annotation=self.public_ann,
+            is_public=False,
+            comment="x",
+        )
+        # Plain feedback with no commented annotation — only creator/grantee
+        # can read.
+        self.fb_plain = UserFeedback.objects.create(
+            creator=self.creator,
+            is_public=False,
+            comment="y",
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.fb_on_public, self.fb_plain]
+
+    def test_public_commented_annotation_grants_read(self):
+        """``commented_annotation.is_public=True`` grants READ even when
+        feedback is private and user has no other grants."""
+        self.assertTrue(self.fb_on_public.user_can(self.stranger, PermissionTypes.READ))
+
+    def test_public_commented_annotation_does_not_grant_writes(self):
+        """``commented_annotation.is_public`` is READ-only — does not bleed
+        into UPDATE/DELETE."""
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                self.fb_on_public.user_can(self.stranger, perm),
+                f"stranger gained {perm} on private feedback via public "
+                f"commented_annotation — leak!",
+            )
+
+
+class ShimDeprecationWarningTestCase(TransactionTestCase):
+    """Pin that ``user_has_permission_for_obj`` emits ``DeprecationWarning``
+    and routes through ``Manager.user_can`` per Phase A's shim contract."""
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="shim_creator", email="sc@inv.test", password="x"
+        )
+        self.private_corpus = Corpus.objects.create(
+            title="Shim Corpus", creator=self.creator, is_public=False
+        )
+
+    def test_shim_emits_deprecation_warning_and_delegates(self):
+        import warnings
+
+        from opencontractserver.utils.permissioning import user_has_permission_for_obj
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            result = user_has_permission_for_obj(
+                self.creator, self.private_corpus, PermissionTypes.READ
+            )
+
+        # The shim must emit at least one DeprecationWarning.
+        self.assertTrue(
+            any(issubclass(w.category, DeprecationWarning) for w in captured),
+            "user_has_permission_for_obj did not emit DeprecationWarning",
+        )
+        # The delegated answer (creator → READ) must be True.
+        self.assertTrue(result)
