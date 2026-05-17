@@ -110,15 +110,15 @@ class PermissionQueryOptimizer:
         when no request is in scope to populate Tier 2.
         """
 
-        # Lazy import to avoid pulling permissioning (which touches
-        # ``get_user_model()`` at import time via the GraphQL middleware)
-        # into the early startup chain.
-        from opencontractserver.utils.permissioning import (
-            get_users_permissions_for_obj,
-        )
-
         user_id = getattr(user, "id", None)
         if user_id is None or not getattr(user, "is_authenticated", False):
+            # Lazy import to avoid pulling permissioning (which touches
+            # ``get_user_model()`` at import time via the GraphQL middleware)
+            # into the early startup chain.
+            from opencontractserver.utils.permissioning import (
+                get_users_permissions_for_obj,
+            )
+
             return get_users_permissions_for_obj(
                 user=user,
                 instance=instance,
@@ -135,6 +135,13 @@ class PermissionQueryOptimizer:
             cached = self._cache.get(key)
         if cached is not None:
             return set(cached)
+
+        # Lazy import (deferred past the cache hit path so warm requests
+        # skip even the sys.modules lookup) for the same startup-ordering
+        # reason as the anonymous branch above.
+        from opencontractserver.utils.permissioning import (
+            get_users_permissions_for_obj,
+        )
 
         # Compute outside the lock — ``get_users_permissions_for_obj`` may
         # run guardian queries, and we never want to serialise DB work on

@@ -430,6 +430,12 @@ def get_users_permissions_for_obj(
     # Superusers have all permissions on guardian-enabled models.
     # Guardian models support richer operations (comment, publish, permission)
     # beyond the basic CRUD set used for creator-based models above.
+    # NOTE: the cache key is (user_id, include_group_permissions) — it does
+    # NOT include is_superuser. If a test promotes a user to superuser
+    # mid-run and reuses the same Python instance, this branch's cached
+    # superuser set will be returned by later calls even after promotion is
+    # reverted (and vice versa). Refresh the instance from DB or
+    # ``delattr(instance, INSTANCE_PERMS_CACHE_ATTR)`` to scrub the cache.
     if user.is_superuser:
         return _store_granted_on_instance(
             instance,
