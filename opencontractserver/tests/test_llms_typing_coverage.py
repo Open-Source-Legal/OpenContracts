@@ -446,7 +446,7 @@ class TestCoreAnnotationVectorStoreCtor(TestCase):
         )
 
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.get_embedder",
+            "opencontractserver.llms.vector_stores.base_vector_store.get_embedder",
             return_value=(MagicMock(vector_size=768), "explicit/path"),
         ) as mock_get:
             store = CoreAnnotationVectorStore(embedder_path="explicit/path")
@@ -465,7 +465,7 @@ class TestCoreAnnotationVectorStoreCtor(TestCase):
         )
 
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.get_embedder",
+            "opencontractserver.llms.vector_stores.base_vector_store.get_embedder",
             return_value=(MagicMock(vector_size=768), "from/corpus"),
         ) as mock_get:
             store = CoreAnnotationVectorStore(corpus_id=42)
@@ -484,7 +484,7 @@ class TestCoreAnnotationVectorStoreCtor(TestCase):
         )
 
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.get_embedder",
+            "opencontractserver.llms.vector_stores.base_vector_store.get_embedder",
             return_value=(MagicMock(vector_size=768), None),
         ):
             with self.assertRaisesRegex(ValueError, "no embedder_path"):
@@ -894,3 +894,129 @@ class TestVectorStoreAPICreate(TestCase):
             self.assertEqual(kwargs["must_have_text"], "needle")
             self.assertEqual(kwargs["embed_dim"], 768)
             self.assertTrue(kwargs["extra_flag"])
+
+
+class TestPydanticAIVectorSearchResponseAsync(TestCase):
+    """Exercises ``PydanticAIVectorSearchResponse.async_from_core_results`` (#1645).
+
+    The async variant goes through ``database_sync_to_async`` to extract
+    annotation attributes, then attaches ``block_context`` when present.
+    Covers the new ``block_context`` dict-building branch so the
+    PydanticAI surface is wired correctly when subtree-group hits flow
+    through.
+    """
+
+    user: Any
+    doc: Any
+    corpus: Any
+    label: Any
+    annotation: Any
+    unlabeled_annotation: Any
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+        )
+
+        cls.user = get_user_model().objects.create_user(
+            username="pyd_resp_user", password="pw"
+        )
+        cls.doc = Document.objects.create(title="resp doc", creator=cls.user)
+        cls.corpus = Corpus.objects.create(title="resp corpus", creator=cls.user)
+        cls.label = AnnotationLabel.objects.create(text="Clause", creator=cls.user)
+        cls.annotation = Annotation.objects.create(
+            document=cls.doc,
+            corpus=cls.corpus,
+            annotation_label=cls.label,
+            raw_text="hit text",
+            page=2,
+            creator=cls.user,
+        )
+        cls.unlabeled_annotation = Annotation.objects.create(
+            document=cls.doc,
+            corpus=cls.corpus,
+            annotation_label=None,
+            raw_text="no label",
+            page=3,
+            creator=cls.user,
+        )
+
+    def test_async_from_core_results_with_block_context(self) -> None:
+        from opencontractserver.llms.vector_stores.core_vector_stores import (
+            BlockContext,
+            VectorSearchResult,
+        )
+        from opencontractserver.llms.vector_stores.pydantic_ai_vector_stores import (
+            PydanticAIVectorSearchResponse,
+        )
+
+        block = BlockContext(
+            relationship_id=10,
+            source_annotation_id=20,
+            source_text="src",
+            target_annotation_ids=[21, 22],
+            block_text="full block",
+        )
+        results = [
+            VectorSearchResult(
+                annotation=self.annotation,
+                similarity_score=0.81,
+                block_context=block,
+            ),
+            VectorSearchResult(
+                annotation=self.unlabeled_annotation,
+                similarity_score=0.42,
+                block_context=None,
+            ),
+        ]
+
+        response = async_to_sync(
+            PydanticAIVectorSearchResponse.async_from_core_results
+        )(results)
+
+        self.assertEqual(response.total_results, 2)
+        hit = response.results[0]
+        # Block context dict is built from the dataclass and target_ids
+        # are coerced to a list.
+        self.assertEqual(hit["block_context"]["relationship_id"], 10)
+        self.assertEqual(hit["block_context"]["target_annotation_ids"], [21, 22])
+        self.assertEqual(hit["block_context"]["block_text"], "full block")
+        self.assertEqual(hit["similarity_score"], 0.81)
+        self.assertEqual(hit["annotation_label"], "Clause")
+
+        # The second result has no block_context and no label.
+        miss = response.results[1]
+        self.assertNotIn("block_context", miss)
+        self.assertIsNone(miss["annotation_label"])
+        self.assertIsNone(miss["label_id"])
+
+    def test_sync_from_core_results_with_block_context(self) -> None:
+        from opencontractserver.llms.vector_stores.core_vector_stores import (
+            BlockContext,
+            VectorSearchResult,
+        )
+        from opencontractserver.llms.vector_stores.pydantic_ai_vector_stores import (
+            PydanticAIVectorSearchResponse,
+        )
+
+        block = BlockContext(
+            relationship_id=7,
+            source_annotation_id=8,
+            source_text="src",
+            target_annotation_ids=[9],
+            block_text="block",
+        )
+        results = [
+            VectorSearchResult(
+                annotation=self.annotation,
+                similarity_score=0.5,
+                block_context=block,
+            ),
+        ]
+
+        response = PydanticAIVectorSearchResponse.from_core_results(results)
+
+        self.assertEqual(response.total_results, 1)
+        self.assertEqual(response.results[0]["block_context"]["relationship_id"], 7)

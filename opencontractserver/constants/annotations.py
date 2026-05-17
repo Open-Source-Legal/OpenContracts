@@ -66,6 +66,17 @@ DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500
 # Maximum number of results returned by semantic search queries.
 SEMANTIC_SEARCH_MAX_RESULTS = 200
 
+# Character cap for the concatenated block-of-context text that
+# ``CoreAnnotationVectorStore`` attaches to a vector hit and that the
+# relationship-embedding pipeline feeds to the embedder. Capped well below
+# typical embedder token limits (most APIs accept ~8k tokens ≈ ~30k chars at
+# ~4 chars/token) so we never need to round-trip to a tokenizer just to
+# decide whether to truncate. Matches ``OPENAI_EMBEDDER_MAX_INPUT_CHARS``
+# upper bound but is kept independent so a future change to the embedder
+# input cap doesn't silently change the size of the block context exposed
+# to GraphQL clients.
+SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS = 16_000
+
 # ── Compact annotation JSON v2 safety limits ──
 # Maximum span for a single range segment (safety guard).
 COMPACT_JSON_MAX_RANGE_SPAN = 10_000
