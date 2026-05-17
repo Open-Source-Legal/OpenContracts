@@ -5,11 +5,12 @@ import io
 import json
 import logging
 import zipfile
+from typing import IO
 
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
+from django.core.files import File as DjangoFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
@@ -72,7 +73,7 @@ def _create_export_notification(export: UserExport, corpus_title: str) -> None:
 def finalize_export(
     export_id: int,
     filename: str,
-    output_bytes: io.BytesIO,
+    output_bytes: IO[bytes],
     corpus_title: str,
 ) -> None:
     """
@@ -80,15 +81,23 @@ def finalize_export(
 
     Shared finalization logic for all export formats (V1, V2, FUNSD).
 
+    Streams ``output_bytes`` to the configured storage backend via
+    :class:`django.core.files.File` rather than materialising the entire
+    buffer in heap via ``ContentFile``.  This matters for V2 exports
+    backed by :class:`tempfile.SpooledTemporaryFile`, which may already
+    have rolled over to disk — wrapping it in ``ContentFile`` would
+    re-buffer the whole archive in memory before the storage write.
+
     Args:
         export_id: The UserExport PK.
         filename: The filename for the saved ZIP.
-        output_bytes: The BytesIO buffer containing the ZIP data.
+        output_bytes: A seekable binary file-like buffer holding the ZIP
+            (``io.BytesIO``, ``SpooledTemporaryFile``, or any ``IO[bytes]``).
         corpus_title: The corpus title (used for the notification).
     """
     output_bytes.seek(io.SEEK_SET)
     export = UserExport.objects.get(pk=export_id)
-    export.file.save(filename, ContentFile(output_bytes.read()))
+    export.file.save(filename, DjangoFile(output_bytes, name=filename))
     export.finished = timezone.now()
     export.backend_lock = False
     export.save()

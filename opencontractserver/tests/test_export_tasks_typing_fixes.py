@@ -2,7 +2,8 @@
 Tests for fixes introduced during typing graduation of opencontractserver.tasks.*.
 
 Covers:
-- ``finalize_export``: ContentFile wrapper (saves correctly to storage)
+- ``finalize_export``: streams the ZIP buffer to storage via
+  ``django.core.files.File`` (no full-buffer re-copy via ``ContentFile``)
 - ``on_demand_post_processors``: RuntimeError when export.file is missing
 - ``package_funsd_exports``: int-keyed annotation_map lookup (regression test)
 - ``package_corpus_export_v2``: errors field (was incorrectly ``error``)
@@ -45,7 +46,7 @@ def _make_tiny_zip(data: dict | None = None) -> io.BytesIO:
 
 
 class FinalizeExportTestCase(TestCase):
-    """finalize_export must save the ZIP via ContentFile and set metadata."""
+    """finalize_export must save the ZIP via DjangoFile and set metadata."""
 
     def setUp(self):
         self.user = User.objects.create_user(username="finalize_user", password="pw")
@@ -78,6 +79,41 @@ class FinalizeExportTestCase(TestCase):
         finalize_export(self.export.id, "corpus_export.zip", buf, self.corpus.title)
 
         self.export.refresh_from_db()
+        self.assertTrue(bool(self.export.file.name))
+
+    def test_finalize_export_accepts_spooled_temporary_file(self):
+        """finalize_export must stream from a SpooledTemporaryFile, not just BytesIO.
+
+        The V2 export path (issue #1649 OOM fix) now hands ``finalize_export``
+        a ``SpooledTemporaryFile`` instead of an in-memory ``BytesIO`` so very
+        large archives don't double-buffer the whole ZIP in heap. This test
+        exercises the streaming-write branch by copying the tiny ZIP into a
+        spool that has already rolled over to disk (max_size=1 byte). It
+        guards against any future change that re-introduces a
+        ``.getvalue()``- or ``.read()``-into-bytes pattern, which would
+        regress the OOM fix back to its pre-PR-1676 shape.
+        """
+        from tempfile import SpooledTemporaryFile
+
+        tiny = _make_tiny_zip()
+        spool = SpooledTemporaryFile(max_size=1, suffix=".zip")
+        spool.write(tiny.getvalue())
+        # Sanity: max_size=1 forces a rollover on the first non-trivial write,
+        # so we know we're exercising the disk-backed file path here.
+        # ``_rolled`` is a private CPython attribute — there is no public API
+        # for the on-disk-spill state today, so accept the typeshed gap.
+        self.assertTrue(spool._rolled)  # type: ignore[attr-defined]
+        spool.seek(0)
+        try:
+            finalize_export(
+                self.export.id, "corpus_export.zip", spool, self.corpus.title
+            )
+        finally:
+            spool.close()
+
+        self.export.refresh_from_db()
+        self.assertFalse(self.export.backend_lock)
+        self.assertIsNotNone(self.export.finished)
         self.assertTrue(bool(self.export.file.name))
 
 
