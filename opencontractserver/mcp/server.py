@@ -151,14 +151,19 @@ def _build_www_authenticate_header(scope: MutableMapping[str, Any]) -> bytes:
     if scheme not in {"http", "https"}:
         scheme = "http"
     # Defensive: a misconfigured reverse proxy could forward a ``Host``
-    # carrying ``"``, ``\r``, or ``\n``. The HTTP spec disallows those in
-    # an authority, but stripping them here keeps the ``WWW-Authenticate``
-    # value well-formed and closes a header-injection vector cheaply.
+    # carrying characters that have semantic meaning inside the
+    # ``WWW-Authenticate`` value. The header is a comma-separated list of
+    # auth-params, so ``,`` and ``;`` are particularly dangerous —
+    # smuggling either into the embedded ``resource_metadata`` URL could
+    # let a crafted Host header inject a sibling auth-param. Strip a
+    # conservative set of characters and bail entirely if the result no
+    # longer matches a plain hostname (letters, digits, dot, dash, colon,
+    # square brackets for IPv6).
     raw_host = host.decode("ascii", errors="ignore")
-    safe_host = (
-        raw_host.replace('"', "").replace("\r", "").replace("\n", "").replace(" ", "")
-    )
-    if not safe_host:
+    safe_host = raw_host
+    for bad in ('"', "\r", "\n", " ", ",", ";", "\t"):
+        safe_host = safe_host.replace(bad, "")
+    if not safe_host or not re.fullmatch(r"[A-Za-z0-9.\-:\[\]]+", safe_host):
         return realm
     base_url = f"{scheme}://{safe_host}"
     metadata_url = f"{base_url}/.well-known/oauth-protected-resource"
@@ -832,6 +837,8 @@ def get_scoped_resource_definitions(
     Returns:
         List of concrete Resource definitions
     """
+    from django.contrib.auth.models import AnonymousUser
+
     from opencontractserver.conversations.models import (
         Conversation,
         ConversationTypeChoices,
@@ -840,8 +847,6 @@ def get_scoped_resource_definitions(
     from opencontractserver.corpuses.models import Corpus
 
     resources: list[Resource] = []
-    from django.contrib.auth.models import AnonymousUser
-
     effective_user = user or AnonymousUser()
 
     try:

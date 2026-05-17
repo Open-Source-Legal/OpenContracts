@@ -131,17 +131,18 @@ def get_document_text(
     Returns:
         Dict with document slug, page count, and full text
     """
+    from opencontractserver.corpuses.folder_service import DocumentFolderService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
 
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-    # Get document in corpus via DocumentPath, filtered by visibility and slug
-    corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-    document = Document.objects.visible_to_user(user).get(
-        id__in=corpus_doc_ids, slug=document_slug
-    )
+    # Route document lookup through DocumentFolderService so tools.py uses the
+    # same permission chain as resources.py (corpus READ gate + corpus
+    # membership), avoiding drift between the two access paths.
+    document = DocumentFolderService.get_corpus_documents(
+        user=user, corpus=corpus, include_deleted=False
+    ).get(slug=document_slug)
 
     full_text = ""
     if document.txt_extract_file:
@@ -182,18 +183,19 @@ def list_annotations(
         Dict with total_count and list of annotations
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+    from opencontractserver.corpuses.folder_service import DocumentFolderService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
 
     limit = min(limit, 100)
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-    # Get document in corpus via DocumentPath, filtered by visibility and slug
-    corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-    document = Document.objects.visible_to_user(user).get(
-        id__in=corpus_doc_ids, slug=document_slug
-    )
+    # Route document lookup through DocumentFolderService so tools.py uses the
+    # same permission chain as resources.py (corpus READ gate + corpus
+    # membership), avoiding drift between the two access paths.
+    document = DocumentFolderService.get_corpus_documents(
+        user=user, corpus=corpus, include_deleted=False
+    ).get(slug=document_slug)
 
     # Use query optimizer - eliminates N+1 permission queries
     qs = AnnotationQueryOptimizer.get_document_annotations(

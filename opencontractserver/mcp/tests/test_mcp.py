@@ -3330,7 +3330,15 @@ class MCPScopedASGIRoutingTest(TransactionTestCase):
             loop.close()
 
     def test_asgi_routes_private_scoped_corpus_with_valid_bearer_token(self):
-        """Authenticated scoped endpoints can target private corpuses."""
+        """Authenticated scoped endpoints can target private corpuses.
+
+        Uses ``asyncio.run`` (the pattern ``_MCPAsyncRunMixin`` was created
+        to encapsulate) so this test does not mutate the thread-global
+        event-loop state — the older
+        ``new_event_loop / set_event_loop / close`` dance would race if
+        xdist ever scheduled two async tests on the same OS thread.
+        Migrating the rest of this class is deliberate follow-up.
+        """
         import asyncio
         from unittest.mock import AsyncMock, patch
 
@@ -3376,12 +3384,7 @@ class MCPScopedASGIRoutingTest(TransactionTestCase):
             mock_lifespan.ensure_started.assert_called_once()
             mock_manager.handle_request.assert_called_once()
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_test())
-        finally:
-            loop.close()
+        asyncio.run(run_test())
 
     def test_asgi_handles_corpus_path_without_trailing_slash(self):
         """Test ASGI app handles /mcp/corpus/{slug} without trailing slash."""
