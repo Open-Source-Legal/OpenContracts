@@ -10,7 +10,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from celery import shared_task
 from celery.exceptions import Retry
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from plasmapdf.models.PdfDataLayer import build_translation_layer
 
 from opencontractserver.analyzer.models import Analysis
@@ -399,6 +399,28 @@ def async_doc_analyzer_task(
 
                 # Shutdown async generators
                 loop.run_until_complete(loop.shutdown_asyncgens())
+
+                # Refresh DB connections held by the ``sync_to_async``
+                # singleton worker thread before the loop goes away. Django's
+                # async ORM (``aget``/``acount``/``aexists``) dispatches via
+                # ``asgiref.sync_to_async`` with ``thread_sensitive=True``,
+                # which runs every call on a class-level singleton worker
+                # whose ``DatabaseWrapper`` is thread-local and outlives this
+                # loop. If Postgres ever closes that backend (idle timeout,
+                # restart, OOM, ``max_connections`` pressure), Django will
+                # NOT auto-reconnect — the next task hits a stale wrapper
+                # and fails with ``OperationalError: server closed the
+                # connection unexpectedly``, then cascades to
+                # ``InterfaceError: connection already closed``. Closing
+                # unusable/obsolete connections in that same worker (via
+                # ``sync_to_async``) makes the next task open a fresh one.
+                try:
+                    loop.run_until_complete(sync_to_async(close_old_connections)())
+                except Exception:
+                    logger.debug(
+                        "Post-task DB connection refresh failed",
+                        exc_info=True,
+                    )
 
                 # Finally close the loop
                 loop.close()
