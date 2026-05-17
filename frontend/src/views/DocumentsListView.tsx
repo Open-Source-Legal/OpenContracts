@@ -4,7 +4,7 @@ import { Avatar, Chip } from "@os-legal/ui";
 import { DocumentType } from "../types/graphql-api";
 import { formatRelativeTime } from "../utils/formatters";
 import { getCreatorInitials } from "../utils/userDisplay";
-import { getDocumentType } from "./documentsUtils";
+import { getDocumentTypeBadge } from "../utils/files";
 import {
   CardMenuButton,
   DocumentsListContainer,
@@ -84,7 +84,9 @@ export const DocumentsListView: React.FC<DocumentsListViewProps> = ({
           <ListItemName title={doc.title || "Untitled"}>
             {doc.title || "Untitled"}
           </ListItemName>
-          <ListItemType>{getDocumentType(doc)}</ListItemType>
+          <ListItemType>
+            {getDocumentTypeBadge(doc.fileType, doc.title)}
+          </ListItemType>
           <ListItemSize>
             {doc.pageCount ? `${doc.pageCount} pages` : ""}
           </ListItemSize>

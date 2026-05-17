@@ -244,6 +244,11 @@ test.describe("Documents View - View Mode Toggle", () => {
     // Initially in grid view - verify grid button is active
     const gridButton = page.locator('[aria-label="Grid view"]');
     await expect(gridButton).toHaveAttribute("aria-pressed", "true");
+    // Type badge ("PDF") is rendered by DocumentsGridView via
+    // getDocumentTypeBadge — confirm both rows are present in grid mode.
+    await expect(page.locator("text=Test Document 1.pdf")).toBeVisible();
+    await expect(page.locator("text=Test Document 2.docx")).toBeVisible();
+    await docScreenshot(page, "documents--grid-view--with-data");
 
     // Switch to list view
     const listButton = page.locator('[aria-label="List view"]');
@@ -252,11 +257,15 @@ test.describe("Documents View - View Mode Toggle", () => {
 
     // Verify list view elements are visible
     await expect(page.locator('[role="table"]')).toBeVisible();
+    // List view renders type via the same badge helper.
+    await expect(page.locator("text=PDF").first()).toBeVisible();
+    await docScreenshot(page, "documents--list-view--with-data");
 
     // Switch to compact view
     const compactButton = page.locator('[aria-label="Compact view"]');
     await compactButton.click();
     await expect(compactButton).toHaveAttribute("aria-pressed", "true");
+    await docScreenshot(page, "documents--compact-view--with-data");
 
     authToken(null);
     userObj(null);
@@ -608,7 +617,22 @@ test.describe("Documents View - Selection", () => {
 
     // Verify list header has the select all checkbox
     const listHeader = page.locator('[role="rowgroup"]');
-    await expect(listHeader.locator('input[type="checkbox"]')).toBeVisible();
+    const selectAllCheckbox = listHeader.locator('input[type="checkbox"]');
+    await expect(selectAllCheckbox).toBeVisible();
+
+    // Exercise the select-all handler in DocumentsListView.
+    await selectAllCheckbox.click();
+    await page.waitForTimeout(150);
+
+    // Exercise the per-row select handler — click stops propagation so the
+    // row doesn't navigate. This drives the onSelect prop and isSelected
+    // branch in DocumentsListView.
+    const rowCheckbox = page
+      .locator('[role="row"][data-testid="document-card"]')
+      .first()
+      .locator('input[type="checkbox"]');
+    await rowCheckbox.click();
+    await page.waitForTimeout(150);
 
     authToken(null);
     userObj(null);

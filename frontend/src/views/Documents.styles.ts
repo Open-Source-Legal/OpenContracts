@@ -213,8 +213,6 @@ export const ViewToggleButton = styled.button<{ $active?: boolean }>`
 `;
 
 // Outer wrapper for the entire documents section (header + view + fetch-more).
-// Renamed from ``DocumentsListContainer`` to free that name for the inner list-
-// view container below.
 export const DocumentsSection = styled.section`
   position: relative;
   min-height: 200px;
@@ -414,7 +412,6 @@ export const CardMenuButton = styled.button`
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Inner wrapper for the list view (table-shaped grid).
-// Renamed from ``DocumentsListView`` so the React component can use that name.
 export const DocumentsListContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -533,7 +530,6 @@ export const ListItemActions = styled.div`
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Inner wrapper for the compact view.
-// Renamed from ``DocumentsCompactView`` so the React component can use that name.
 export const DocumentsCompactContainer = styled.div`
   display: flex;
   flex-direction: column;

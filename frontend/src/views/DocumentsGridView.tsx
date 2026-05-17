@@ -4,7 +4,7 @@ import { Avatar, Chip } from "@os-legal/ui";
 import { DocumentType } from "../types/graphql-api";
 import { formatRelativeTime } from "../utils/formatters";
 import { getCreatorInitials } from "../utils/userDisplay";
-import { getDocumentType } from "./documentsUtils";
+import { getDocumentTypeBadge } from "../utils/files";
 import {
   CardBody,
   CardCheckbox,
@@ -92,7 +92,7 @@ export const DocumentsGridView: React.FC<DocumentsGridViewProps> = ({
 
             <TypeBadge>
               <Chip size="sm" variant="filled" color="default">
-                {getDocumentType(doc)}
+                {getDocumentTypeBadge(doc.fileType, doc.title)}
               </Chip>
             </TypeBadge>
 
