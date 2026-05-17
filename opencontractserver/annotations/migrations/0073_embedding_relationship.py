@@ -32,6 +32,15 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="embedding",
+            # Partial constraint (relationship IS NOT NULL): Embedding rows
+            # legally carry ``relationship=NULL`` when they belong to an
+            # annotation/note/message/document instead. A non-partial unique
+            # would collapse all those NULL rows under the same
+            # ``(embedder_path, NULL)`` key on backends that treat NULLs as
+            # equal, blocking legitimate inserts. Scoping to non-NULL rows
+            # only enforces uniqueness where it matters — one embedding per
+            # (embedder, relationship) — and leaves the other parent FKs
+            # alone.
             constraint=models.UniqueConstraint(
                 condition=models.Q(("relationship__isnull", False)),
                 fields=("embedder_path", "relationship"),

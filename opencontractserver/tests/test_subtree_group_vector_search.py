@@ -189,6 +189,43 @@ class BlockContextAttachTestCase(TestCase):
         assert bc is not None  # appease type checker
         self.assertLessEqual(len(bc.block_text), SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS)
 
+    def test_non_structural_group_relationship_is_ignored(self) -> None:
+        """Only ``structural=True`` OC_SUBTREE_GROUP rows contribute context.
+
+        Guards against an analyzer (or any other writer) copying the
+        OC_SUBTREE_GROUP label onto a non-structural relationship and
+        polluting block_context. The filter in
+        ``_attach_block_context_sync`` pins ``structural=True`` alongside
+        the label name; this test removes the genuine structural group
+        for LEAF and replaces it with a non-structural look-alike — the
+        helper must return ``block_context=None`` rather than fall back
+        to the imposter.
+        """
+        subtree_label = AnnotationLabel.objects.get(text=OC_SUBTREE_GROUP_LABEL_NAME)
+
+        # Drop every materialised group that covers LEAF so the structural
+        # path can't satisfy the request, leaving only the non-structural
+        # decoy as a candidate.
+        Relationship.objects.filter(
+            relationship_label=subtree_label,
+            structural=True,
+            target_annotations=self.leaf,
+        ).delete()
+
+        decoy = Relationship.objects.create(
+            relationship_label=subtree_label,
+            document=self.document,
+            structural=False,  # the bit the filter must enforce
+            creator=self.user,
+        )
+        decoy.source_annotations.add(self.para)
+        decoy.target_annotations.add(self.leaf)
+
+        results = CoreAnnotationVectorStore._attach_block_context_sync(
+            [_fake_result(self.leaf)]
+        )
+        self.assertIsNone(results[0].block_context)
+
 
 class RelationshipVectorStoreTestCase(TestCase):
     """End-to-end: embed a subtree group and retrieve it via vector search."""
