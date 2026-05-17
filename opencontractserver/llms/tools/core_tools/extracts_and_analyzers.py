@@ -49,6 +49,12 @@ from opencontractserver.constants.tools import (
 from opencontractserver.constants.tools import (
     EXTRACT_ANALYZER_TOOL_MAX_LIST_LIMIT as MAX_LIST_LIMIT,
 )
+from opencontractserver.constants.tools import (
+    EXTRACT_STATUS_COMPLETED,
+    EXTRACT_STATUS_FAILED,
+    EXTRACT_STATUS_QUEUED,
+    EXTRACT_STATUS_RUNNING,
+)
 from opencontractserver.corpuses.models import Corpus, CorpusAction
 from opencontractserver.extracts.models import Column, Extract, Fieldset
 from opencontractserver.tasks.corpus_tasks import process_analyzer
@@ -128,12 +134,12 @@ def _resolve_target_document_ids(
 
 def _extract_status(extract: Extract) -> str:
     if extract.error:
-        return "failed"
+        return EXTRACT_STATUS_FAILED
     if extract.finished:
-        return "completed"
+        return EXTRACT_STATUS_COMPLETED
     if extract.started:
-        return "running"
-    return "queued"
+        return EXTRACT_STATUS_RUNNING
+    return EXTRACT_STATUS_QUEUED
 
 
 def _resolve_corpus_action(
@@ -339,7 +345,7 @@ def start_extract(
         "fieldset_name": fieldset.name,
         "document_count": len(target_ids),
         "corpus_action_id": corpus_action.id if corpus_action else None,
-        "status": "queued",
+        "status": EXTRACT_STATUS_QUEUED,
     }
 
 
@@ -529,27 +535,35 @@ def start_analysis(
     widened_ids: list[str | int] = list(target_ids)
     # analysis_input_data is intentionally NOT validated here against
     # analyzer.input_schema. Validation is the per-analyzer task's
-    # responsibility (the schema is a freeform JSON-Schema sourced from
-    # the analyzer's Python decorator), and ``run_task_name_analyzer``
-    # spreads the payload directly into the task function call (see
-    # corpus_tasks.py line 89 — ``**(analysis_input_data if … else {})``)
-    # where TypeError on unknown kwargs becomes the validation surface.
-    # A malformed payload therefore fails at task execution, not at
-    # dispatch — keeping the agent path bug-compatible with the human
-    # GraphQL/CorpusAction path that also doesn't pre-validate.
+    # responsibility — the schema is a freeform JSON-Schema sourced from
+    # the analyzer's Python decorator, and ``run_task_name_analyzer``
+    # spreads the payload directly into the task function call as
+    # ``**(analysis_input_data or {})``. That spread is also a small
+    # privilege-escalation surface: a crafted payload can override
+    # internal kwargs the task expects (e.g. ``analysis_id``). The task
+    # function is therefore the security/validation boundary; this layer
+    # only ensures the agent's payload is a plain dict (the LLM schema
+    # already enforces that). A malformed payload fails at task execution
+    # so the agent path stays bug-compatible with the human GraphQL /
+    # CorpusAction path that also doesn't pre-validate.
     #
-    # No explicit transaction.atomic() here: process_analyzer manages its
-    # own transaction (creates Analysis + grants permissions + dispatches
-    # Celery). Asymmetric with start_extract by design — kept identical to
-    # the human GraphQL/CorpusAction dispatch path.
-    analysis = process_analyzer(
-        user_id=user.id,
-        analyzer=analyzer,
-        corpus_id=corpus.id,
-        document_ids=widened_ids,
-        corpus_action=corpus_action,
-        analysis_input_data=analysis_input_data,
-    )
+    # ``process_analyzer`` itself does NOT wrap its work in
+    # ``transaction.atomic()`` — it creates the Analysis row then
+    # registers a ``transaction.on_commit`` callback to dispatch Celery.
+    # In Django autocommit mode (Celery workers, ``manage.py shell``),
+    # ``on_commit`` fires immediately, so without an explicit outer
+    # ``atomic()`` an error after the call would still kick off the
+    # downstream task. Wrap in ``atomic()`` here for symmetry with
+    # ``start_extract`` and to give callers a clean rollback boundary.
+    with transaction.atomic():
+        analysis = process_analyzer(
+            user_id=user.id,
+            analyzer=analyzer,
+            corpus_id=corpus.id,
+            document_ids=widened_ids,
+            corpus_action=corpus_action,
+            analysis_input_data=analysis_input_data,
+        )
 
     return {
         "analysis_id": analysis.id,
@@ -557,7 +571,7 @@ def start_analysis(
         "analyzer_description": analyzer.description,
         "document_count": len(target_ids),
         "corpus_action_id": corpus_action.id if corpus_action else None,
-        "status": "queued",
+        "status": EXTRACT_STATUS_QUEUED,
     }
 
 

@@ -852,7 +852,13 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         requires_approval=True,
         requires_write_permission=True,
         parameters=(
-            ("fieldset_id", "ID of an existing Fieldset to apply", True),
+            (
+                "fieldset_id",
+                "Integer ID of an existing Fieldset to apply (Fieldset PKs "
+                "are auto-increment integers — pass the `id` value from "
+                "list_fieldsets, not the `name`).",
+                True,
+            ),
             ("name", "Optional name for the new Extract record", False),
             (
                 "document_ids",
@@ -880,8 +886,10 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
     ToolDefinition(
         name="list_analyzers",
         description=(
-            "List the Analyzers visible to the user that can run on this corpus. "
-            "Use this to pick an analyzer_id before calling start_analysis."
+            "List the Analyzers visible to the user that can run on this "
+            "corpus. Use this to pick an analyzer_id before calling "
+            "start_analysis. Note: Analyzer.id is a STRING (e.g. "
+            "'noop.analyzer'), unlike Fieldset.id which is an integer."
         ),
         category=ToolCategory.ANALYZERS,
         requires_corpus=True,
@@ -901,7 +909,13 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         requires_approval=True,
         requires_write_permission=True,
         parameters=(
-            ("analyzer_id", "ID of an existing Analyzer", True),
+            (
+                "analyzer_id",
+                "STRING ID of an existing Analyzer (Analyzer PKs are "
+                "CharFields like 'noop.analyzer' — pass the `id` value from "
+                "list_analyzers, not the `description`).",
+                True,
+            ),
             (
                 "document_ids",
                 "Optional list of Document IDs to scope the run. Omitted = "

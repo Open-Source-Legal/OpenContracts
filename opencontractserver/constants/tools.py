@@ -26,3 +26,18 @@ EXTRACT_ANALYZER_TOOL_DEFAULT_LIST_LIMIT = 20
 # ``list_recent_analyses``) — kept smaller than the discovery default
 # because the LLM typically only wants a handful of recent runs.
 EXTRACT_ANALYZER_TOOL_DEFAULT_RECENT_LIMIT = 10
+
+
+# ---------------------------------------------------------------------------
+# Extract status strings exposed to agents
+# ---------------------------------------------------------------------------
+# ``Extract`` has three timestamp fields (``started``, ``finished``,
+# ``error``) but no single ``status`` column, so ``_extract_status``
+# synthesises one of these strings from the row. Keep these in sync with
+# the human GraphQL surface — agents and humans should see the same
+# vocabulary. Analyses already have a model-sourced ``status`` field, so
+# ``list_recent_analyses`` passes it through unchanged.
+EXTRACT_STATUS_FAILED = "failed"
+EXTRACT_STATUS_COMPLETED = "completed"
+EXTRACT_STATUS_RUNNING = "running"
+EXTRACT_STATUS_QUEUED = "queued"
