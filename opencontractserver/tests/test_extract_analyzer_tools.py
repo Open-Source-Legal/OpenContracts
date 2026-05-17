@@ -963,10 +963,18 @@ class TestStartAnalysis(BaseFixtureTestCase):
 
 
 @pytest.mark.django_db
-@pytest.mark.asyncio
 class TestApprovalGate(TransactionTestCase):
-    """Confirm that the PydanticAIToolWrapper fires the approval gate."""
+    """Confirm that the PydanticAIToolWrapper fires the approval gate.
 
+    Async methods need ``@pytest.mark.asyncio`` individually rather than at
+    the class level: stacking the asyncio marker on a Django
+    ``TransactionTestCase`` confuses pytest-django's collector (it tries to
+    drive the test as a pytest-native coroutine while the base class wants
+    to run it through Django's sync test loop). Method-level markers keep
+    the existing Django setUp/tearDown semantics intact.
+    """
+
+    @pytest.mark.asyncio
     async def test_start_extract_requires_approval(self):
         registry = ToolFunctionRegistry.get()
         core_tool = registry.to_core_tool("start_extract")
@@ -993,6 +1001,7 @@ class TestApprovalGate(TransactionTestCase):
         self.assertEqual(cm.exception.tool_name, "start_extract")
         self.assertIn("fieldset_id", cm.exception.tool_args)
 
+    @pytest.mark.asyncio
     async def test_start_analysis_requires_approval(self):
         registry = ToolFunctionRegistry.get()
         core_tool = registry.to_core_tool("start_analysis")
@@ -1017,6 +1026,7 @@ class TestApprovalGate(TransactionTestCase):
             await callable_fn(ctx, corpus_id=1, analyzer_id="x.y", user_id=1)
         self.assertEqual(cm.exception.tool_name, "start_analysis")
 
+    @pytest.mark.asyncio
     async def test_list_tools_do_not_require_approval(self):
         registry = ToolFunctionRegistry.get()
         for name in (
