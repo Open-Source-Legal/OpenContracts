@@ -641,6 +641,85 @@ test.describe("Documents View - Selection", () => {
     await component.unmount();
   });
 
+  test("should exercise grid view selection and context menu", async ({
+    mount,
+    page,
+  }) => {
+    // Grid view is the default landing state. The other selection test
+    // switches to list view immediately, so the grid view's onSelect /
+    // onContextMenu / isSelected branches in DocumentsGridView were
+    // unexercised by the suite (codecov flagged the new file at 36%
+    // patch coverage). This test stays in grid mode and drives both
+    // the per-card checkbox and the kebab menu.
+    authToken("test-auth-token");
+    userObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+    } as any);
+    backendUserObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+      isUsageCapped: false,
+    } as any);
+    documentSearchTerm("");
+    selectedDocumentIds([]);
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          getDocumentsMock,
+          getDocumentsMock,
+          getDocumentStatsMock,
+          getDocumentStatsMock,
+        ]}
+        addTypename={false}
+      >
+        <MemoryRouter>
+          <JotaiProvider>
+            <Documents />
+          </JotaiProvider>
+        </MemoryRouter>
+      </MockedProvider>
+    );
+
+    await expect(page.locator("text=Test Document 1.pdf")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Confirm grid view is active (no view-mode toggle needed).
+    const gridButton = page.locator('[aria-label="Grid view"]');
+    await expect(gridButton).toHaveAttribute("aria-pressed", "true");
+
+    // First grid card. ``role="button"`` distinguishes the wrapper from
+    // any unrelated test-id matches elsewhere on the page.
+    const firstCard = page
+      .locator('[role="button"][data-testid="document-card"]')
+      .first();
+
+    // The per-card checkbox lives inside a stopPropagation wrapper so
+    // clicking it must not trigger the row's navigation. This drives
+    // DocumentsGridView's onSelect prop and the isSelected branch on
+    // the CardCheckbox visibility state.
+    const cardCheckbox = firstCard.locator('input[type="checkbox"]');
+    await cardCheckbox.click();
+    await page.waitForTimeout(150);
+    await expect(cardCheckbox).toBeChecked();
+
+    // Kebab menu inside the card footer exercises the second
+    // onContextMenu trigger path (the first is the row right-click).
+    const kebab = firstCard.locator('button[aria-label="Open menu"]');
+    await kebab.click();
+    await page.waitForTimeout(150);
+
+    authToken(null);
+    userObj(null);
+    backendUserObj(null);
+
+    await component.unmount();
+  });
+
   test("should exercise compact view selection and context menu", async ({
     mount,
     page,
