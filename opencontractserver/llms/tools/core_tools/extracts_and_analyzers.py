@@ -37,7 +37,7 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.constants.tools import (
@@ -50,7 +50,8 @@ from opencontractserver.constants.tools import (
     EXTRACT_ANALYZER_TOOL_MAX_LIST_LIMIT as MAX_LIST_LIMIT,
 )
 from opencontractserver.corpuses.models import Corpus, CorpusAction
-from opencontractserver.extracts.models import Extract, Fieldset
+from opencontractserver.extracts.models import Column, Extract, Fieldset
+from opencontractserver.tasks.corpus_tasks import process_analyzer
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
@@ -63,11 +64,6 @@ from ._helpers import _db_sync_to_async
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
-
-
-# --------------------------------------------------------------------------- #
-# Internal helpers                                                            #
-# --------------------------------------------------------------------------- #
 
 
 def _clamp_limit(limit: int | None, default: int) -> int:
@@ -109,13 +105,9 @@ def _resolve_target_document_ids(
         filtered = sorted(normalized & corpus_doc_ids)
         return filtered
 
-    # No explicit IDs from the LLM.
     if agent_document_id is not None:
         if int(agent_document_id) in corpus_doc_ids:
             return [int(agent_document_id)]
-        # The document agent is somehow scoped outside the corpus —
-        # fall through to corpus-wide scope rather than silently dropping
-        # the call (this shouldn't normally happen).
         logger.warning(
             "Document agent document_id=%s not in corpus %s; defaulting to "
             "full corpus scope.",
@@ -135,9 +127,32 @@ def _extract_status(extract: Extract) -> str:
     return "queued"
 
 
-# --------------------------------------------------------------------------- #
-# Fieldset discovery                                                          #
-# --------------------------------------------------------------------------- #
+def _resolve_corpus_action(
+    corpus_action_id: int | None,
+    *,
+    corpus_id: int,
+    tool_name: str,
+) -> CorpusAction | None:
+    """Resolve a ``corpus_action_id`` while pinning it to ``corpus_id``.
+
+    The parameter is normally framework-injected, but a direct caller of
+    ``start_extract`` / ``start_analysis`` could pass any ID. Restricting
+    the lookup to the action's parent corpus prevents cross-corpus
+    lineage attribution.
+    """
+    if corpus_action_id is None:
+        return None
+    try:
+        return CorpusAction.objects.get(pk=corpus_action_id, corpus_id=corpus_id)
+    except CorpusAction.DoesNotExist:
+        logger.warning(
+            "%s called with corpus_action_id=%s not attached to corpus %s; "
+            "proceeding without lineage link.",
+            tool_name,
+            corpus_action_id,
+            corpus_id,
+        )
+        return None
 
 
 def list_fieldsets(
@@ -156,9 +171,7 @@ def list_fieldsets(
     """
 
     user = _get_user_or_none(user_id)
-    # Use visible_to_user instead of bare ``get`` so we don't leak the
-    # existence of private corpus IDs to callers (CLAUDE.md IDOR rule —
-    # same message whether the corpus is missing or hidden).
+    # IDOR: same message whether the corpus is missing or hidden.
     if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
         raise ValueError(f"Corpus with id={corpus_id} does not exist.")
 
@@ -167,27 +180,30 @@ def list_fieldsets(
     queryset = (
         Fieldset.objects.visible_to_user(user)
         .filter(Q(corpus__isnull=True) | Q(corpus_id=corpus_id))
-        .prefetch_related("columns")
+        .prefetch_related(
+            Prefetch(
+                "columns",
+                queryset=Column.objects.filter(is_manual_entry=False),
+                to_attr="auto_columns",
+            )
+        )
         .order_by("-modified")[:capped_limit]
     )
 
     results: list[dict[str, Any]] = []
     for fieldset in queryset:
-        columns = []
-        for column in fieldset.columns.all():
-            if column.is_manual_entry:
-                continue
-            columns.append(
-                {
-                    "id": column.id,
-                    "name": column.name,
-                    "query": column.query,
-                    "match_text": column.match_text,
-                    "output_type": column.output_type,
-                    "instructions": column.instructions,
-                    "extract_is_list": column.extract_is_list,
-                }
-            )
+        columns = [
+            {
+                "id": column.id,
+                "name": column.name,
+                "query": column.query,
+                "match_text": column.match_text,
+                "output_type": column.output_type,
+                "instructions": column.instructions,
+                "extract_is_list": column.extract_is_list,
+            }
+            for column in fieldset.auto_columns
+        ]
         results.append(
             {
                 "id": fieldset.id,
@@ -211,11 +227,6 @@ async def alist_fieldsets(
     return await _db_sync_to_async(list_fieldsets)(
         corpus_id=corpus_id, user_id=user_id, limit=limit
     )
-
-
-# --------------------------------------------------------------------------- #
-# Extract dispatch                                                            #
-# --------------------------------------------------------------------------- #
 
 
 def start_extract(
@@ -252,33 +263,26 @@ def start_extract(
             f"User {user_id} lacks UPDATE permission on corpus {corpus_id}."
         )
 
-    # Single-query visibility-and-fetch — the prior two-step ``exists()`` +
-    # ``get()`` pattern was a needless round trip.
     fieldset = Fieldset.objects.visible_to_user(user).filter(pk=fieldset_id).first()
     if fieldset is None:
         raise PermissionError(f"User {user_id} cannot access fieldset {fieldset_id}.")
 
-    # Block fieldsets that are pinned as another corpus's metadata schema —
-    # they are private to that corpus by design.
+    # Fieldsets pinned as another corpus's metadata schema are private to that corpus.
     if fieldset.corpus_id is not None and fieldset.corpus_id != corpus_id:
         raise PermissionError(
             f"Fieldset {fieldset_id} is the metadata schema for corpus "
             f"{fieldset.corpus_id} and cannot be applied to corpus {corpus_id}."
         )
 
-    if not fieldset.columns.exists():
-        raise ValueError(f"Fieldset {fieldset_id} has no columns to extract.")
+    if not fieldset.columns.filter(is_manual_entry=False).exists():
+        raise ValueError(
+            f"Fieldset {fieldset_id} has no extractable columns "
+            "(empty or all manual-entry)."
+        )
 
-    corpus_action: CorpusAction | None = None
-    if corpus_action_id is not None:
-        try:
-            corpus_action = CorpusAction.objects.get(pk=corpus_action_id)
-        except CorpusAction.DoesNotExist:
-            logger.warning(
-                "start_extract called with unknown corpus_action_id=%s; "
-                "proceeding without lineage link.",
-                corpus_action_id,
-            )
+    corpus_action = _resolve_corpus_action(
+        corpus_action_id, corpus_id=corpus_id, tool_name="start_extract"
+    )
 
     target_ids = _resolve_target_document_ids(
         corpus,
@@ -350,11 +354,6 @@ async def astart_extract(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Recent extracts                                                             #
-# --------------------------------------------------------------------------- #
-
-
 def list_recent_extracts(
     *,
     corpus_id: int,
@@ -369,8 +368,6 @@ def list_recent_extracts(
 
     capped_limit = _clamp_limit(limit, DEFAULT_RECENT_LIMIT)
 
-    # ``annotate(Count(...))`` folds the per-extract M2M count into the
-    # single SELECT so the loop below is O(1) queries instead of O(N).
     queryset = (
         Extract.objects.visible_to_user(user)
         .filter(corpus_id=corpus_id)
@@ -410,11 +407,6 @@ async def alist_recent_extracts(
     return await _db_sync_to_async(list_recent_extracts)(
         corpus_id=corpus_id, user_id=user_id, limit=limit
     )
-
-
-# --------------------------------------------------------------------------- #
-# Analyzer discovery                                                          #
-# --------------------------------------------------------------------------- #
 
 
 def list_analyzers(
@@ -465,11 +457,6 @@ async def alist_analyzers(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Analysis dispatch                                                           #
-# --------------------------------------------------------------------------- #
-
-
 def start_analysis(
     *,
     corpus_id: int,
@@ -487,10 +474,6 @@ def start_analysis(
     Analysis records.
     """
 
-    # Local import to keep this module importable even when the analyzer
-    # task graph is being refactored.
-    from opencontractserver.tasks.corpus_tasks import process_analyzer
-
     user = _get_user_or_none(user_id)
     if user is None:
         raise PermissionError("start_analysis requires an authenticated user.")
@@ -506,8 +489,6 @@ def start_analysis(
             f"User {user_id} lacks UPDATE permission on corpus {corpus_id}."
         )
 
-    # Single-query visibility-and-fetch — the prior two-step ``exists()`` +
-    # ``get()`` pattern was a needless round trip.
     analyzer = Analyzer.objects.visible_to_user(user).filter(pk=analyzer_id).first()
     if analyzer is None:
         raise PermissionError(f"User {user_id} cannot access analyzer {analyzer_id}.")
@@ -515,16 +496,9 @@ def start_analysis(
     if analyzer.disabled:
         raise ValueError(f"Analyzer {analyzer_id} is disabled.")
 
-    corpus_action: CorpusAction | None = None
-    if corpus_action_id is not None:
-        try:
-            corpus_action = CorpusAction.objects.get(pk=corpus_action_id)
-        except CorpusAction.DoesNotExist:
-            logger.warning(
-                "start_analysis called with unknown corpus_action_id=%s; "
-                "proceeding without lineage link.",
-                corpus_action_id,
-            )
+    corpus_action = _resolve_corpus_action(
+        corpus_action_id, corpus_id=corpus_id, tool_name="start_analysis"
+    )
 
     target_ids = _resolve_target_document_ids(
         corpus,
@@ -538,8 +512,7 @@ def start_analysis(
             "(after permission and scope filtering)."
         )
 
-    # list[int] is invariant; ``process_analyzer`` declares the parameter
-    # as ``list[str | int]`` so we widen explicitly to keep mypy happy.
+    # widened for process_analyzer's list[str | int] param (list[int] is invariant)
     widened_ids: list[str | int] = list(target_ids)
     analysis = process_analyzer(
         user_id=user.id,
@@ -582,11 +555,6 @@ async def astart_analysis(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Recent analyses                                                             #
-# --------------------------------------------------------------------------- #
-
-
 def list_recent_analyses(
     *,
     corpus_id: int,
@@ -601,8 +569,6 @@ def list_recent_analyses(
 
     capped_limit = _clamp_limit(limit, DEFAULT_RECENT_LIMIT)
 
-    # ``annotate(Count(...))`` folds the per-analysis M2M count into the
-    # single SELECT so the loop below is O(1) queries instead of O(N).
     queryset = (
         Analysis.objects.visible_to_user(user)
         .filter(analyzed_corpus_id=corpus_id)

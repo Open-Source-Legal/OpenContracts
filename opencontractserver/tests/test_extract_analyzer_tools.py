@@ -64,7 +64,13 @@ User = get_user_model()
 # =========================================================================== #
 
 
-def _make_fieldset(*, name: str, user, with_column: bool = True) -> Fieldset:
+def _make_fieldset(
+    *,
+    name: str,
+    user,
+    with_column: bool = True,
+    manual_entry_only: bool = False,
+) -> Fieldset:
     fieldset = Fieldset.objects.create(
         name=name,
         description=f"{name} description",
@@ -78,6 +84,7 @@ def _make_fieldset(*, name: str, user, with_column: bool = True) -> Fieldset:
             query="What is the answer?",
             output_type="str",
             creator=user,
+            is_manual_entry=manual_entry_only,
         )
         set_permissions_for_obj_to_user(user, col, [PermissionTypes.CRUD])
     return fieldset
@@ -512,6 +519,73 @@ class TestStartExtract(BaseFixtureTestCase):
                 user_id=self.user.id,
             )
 
+    def test_manual_entry_only_fieldset_raises(self):
+        manual_fs = _make_fieldset(
+            name="ManualOnly", user=self.user, manual_entry_only=True
+        )
+        with self.assertRaises(ValueError):
+            start_extract(
+                corpus_id=self.corpus.id,
+                fieldset_id=manual_fs.id,
+                user_id=self.user.id,
+            )
+
+    def test_doc_agent_outside_corpus_falls_back_to_full_corpus(self):
+        # Document agent injecting a document_id that isn't in the corpus
+        # should warn and broaden scope to the full corpus rather than
+        # silently dispatching against an empty document set.
+        outside_doc = Document.objects.create(
+            title="Outside doc", creator=self.user, backend_lock=False
+        )
+        with self._patch_dispatch() as mock_run:
+            mock_run.s.return_value.apply_async.return_value = None
+            with self.assertLogs(
+                "opencontractserver.llms.tools.core_tools.extracts_and_analyzers",
+                level="WARNING",
+            ) as logs:
+                result = start_extract(
+                    corpus_id=self.corpus.id,
+                    fieldset_id=self.fieldset.id,
+                    user_id=self.user.id,
+                    document_id=outside_doc.id,
+                )
+
+        extract = Extract.objects.get(pk=result["extract_id"])
+        self.assertEqual(
+            set(extract.documents.values_list("id", flat=True)),
+            set(self.corpus.get_documents().values_list("id", flat=True)),
+        )
+        self.assertTrue(
+            any("not in corpus" in line for line in logs.output),
+            f"Expected outside-corpus warning, got: {logs.output}",
+        )
+
+    def test_cross_corpus_action_id_is_ignored(self):
+        # A CorpusAction belonging to a different corpus must not be linked.
+        from opencontractserver.corpuses.models import Corpus
+
+        other_corpus = Corpus.objects.create(
+            title="Other", creator=self.user, backend_lock=False
+        )
+        cross_action = CorpusAction.objects.create(
+            corpus=other_corpus,
+            fieldset=self.fieldset,
+            creator=self.user,
+            trigger=CorpusActionTrigger.ADD_DOCUMENT,
+        )
+        with self._patch_dispatch() as mock_run:
+            mock_run.s.return_value.apply_async.return_value = None
+            result = start_extract(
+                corpus_id=self.corpus.id,
+                fieldset_id=self.fieldset.id,
+                user_id=self.user.id,
+                corpus_action_id=cross_action.id,
+            )
+
+        extract = Extract.objects.get(pk=result["extract_id"])
+        self.assertIsNone(extract.corpus_action_id)
+        self.assertIsNone(result["corpus_action_id"])
+
     async def test_async_variant_dispatches(self):
         with self._patch_dispatch() as mock_run:
             mock_run.s.return_value.apply_async.return_value = None
@@ -536,7 +610,15 @@ class TestStartAnalysis(BaseFixtureTestCase):
         self.other_user = User.objects.create_user(username="other_user", password="pw")
 
     def _patch_process_analyzer(self):
-        """Stub process_analyzer to avoid hitting real Celery tasks."""
+        """Stub process_analyzer to avoid hitting real Celery tasks.
+
+        ``start_analysis`` imports ``process_analyzer`` at module load time,
+        so the canonical point-of-use patch target would be
+        ``opencontractserver.llms.tools.core_tools.extracts_and_analyzers.process_analyzer``.
+        We patch the source module instead because both names point at the
+        same function object and the source path is more discoverable when
+        scanning the test for "what's being mocked".
+        """
 
         def fake_process_analyzer(
             user_id,
@@ -557,7 +639,8 @@ class TestStartAnalysis(BaseFixtureTestCase):
             return analysis
 
         return patch(
-            "opencontractserver.tasks.corpus_tasks.process_analyzer",
+            "opencontractserver.llms.tools.core_tools."
+            "extracts_and_analyzers.process_analyzer",
             side_effect=fake_process_analyzer,
         )
 
@@ -630,6 +713,49 @@ class TestStartAnalysis(BaseFixtureTestCase):
                 analyzer_id="does.not.exist",
                 user_id=self.user.id,
             )
+
+    def test_corpus_action_id_links_analysis(self):
+        action = CorpusAction.objects.create(
+            corpus=self.corpus,
+            analyzer=self.analyzer,
+            creator=self.user,
+            trigger=CorpusActionTrigger.ADD_DOCUMENT,
+        )
+        with self._patch_process_analyzer():
+            result = start_analysis(
+                corpus_id=self.corpus.id,
+                analyzer_id=self.analyzer.id,
+                user_id=self.user.id,
+                corpus_action_id=action.id,
+            )
+
+        analysis = Analysis.objects.get(pk=result["analysis_id"])
+        self.assertEqual(analysis.corpus_action_id, action.id)
+        self.assertEqual(result["corpus_action_id"], action.id)
+
+    def test_cross_corpus_action_id_is_ignored(self):
+        from opencontractserver.corpuses.models import Corpus
+
+        other_corpus = Corpus.objects.create(
+            title="Other", creator=self.user, backend_lock=False
+        )
+        cross_action = CorpusAction.objects.create(
+            corpus=other_corpus,
+            analyzer=self.analyzer,
+            creator=self.user,
+            trigger=CorpusActionTrigger.ADD_DOCUMENT,
+        )
+        with self._patch_process_analyzer():
+            result = start_analysis(
+                corpus_id=self.corpus.id,
+                analyzer_id=self.analyzer.id,
+                user_id=self.user.id,
+                corpus_action_id=cross_action.id,
+            )
+
+        analysis = Analysis.objects.get(pk=result["analysis_id"])
+        self.assertIsNone(analysis.corpus_action_id)
+        self.assertIsNone(result["corpus_action_id"])
 
     async def test_async_variant_dispatches(self):
         with self._patch_process_analyzer():
