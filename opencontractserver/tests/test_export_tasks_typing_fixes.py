@@ -2,7 +2,8 @@
 Tests for fixes introduced during typing graduation of opencontractserver.tasks.*.
 
 Covers:
-- ``finalize_export``: ContentFile wrapper (saves correctly to storage)
+- ``finalize_export``: streams the ZIP buffer to storage via
+  ``django.core.files.File`` (no full-buffer re-copy via ``ContentFile``)
 - ``on_demand_post_processors``: RuntimeError when export.file is missing
 - ``package_funsd_exports``: int-keyed annotation_map lookup (regression test)
 - ``package_corpus_export_v2``: errors field (was incorrectly ``error``)
@@ -45,7 +46,7 @@ def _make_tiny_zip(data: dict | None = None) -> io.BytesIO:
 
 
 class FinalizeExportTestCase(TestCase):
-    """finalize_export must save the ZIP via ContentFile and set metadata."""
+    """finalize_export must save the ZIP via DjangoFile and set metadata."""
 
     def setUp(self):
         self.user = User.objects.create_user(username="finalize_user", password="pw")
