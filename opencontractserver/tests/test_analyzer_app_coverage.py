@@ -140,10 +140,12 @@ class HandleAnalysisCompletionTests(TestCase):
 
     def test_silent_when_status_is_completed_enum_value(self) -> None:
         # Documents the known mismatch above — handler doesn't react to the
-        # enum value ``"COMPLETED"`` that Analyses actually take.
+        # enum value ``"COMPLETED"`` that Analyses actually take. The sentinel
+        # must be emitted through the same logger ``assertLogs`` is watching,
+        # otherwise ``assertLogs`` raises because nothing landed on that logger.
+        signals_logger = logging.getLogger("opencontractserver.analyzer.signals")
         with self.assertLogs("opencontractserver.analyzer.signals", level="INFO") as cm:
-            # Emit a sentinel so assertLogs doesn't complain about no logs.
-            logger.info("sentinel")
+            signals_logger.info("sentinel")
             handle_analysis_completion(
                 sender=Analysis,
                 instance=MagicMock(id=8, status=JobStatus.COMPLETED.value),
@@ -580,11 +582,20 @@ class AnalysisCallbackViewHappyPathTests(TransactionTestCase):
     def test_valid_callback_with_valid_body_succeeds(self) -> None:
         # Mint plaintext token + persist hash on the Analysis.
         token = self.analysis.rotate_callback_token()
-        # Body conforms to ``OpenContractsGeneratedCorpusPythonType`` —
-        # both ``annotated_docs`` and ``label_lookup`` are required keys.
-        body: dict[str, dict[Any, Any]] = {
+        # Body must conform to ``OpenContractsGeneratedCorpusPythonType``:
+        # annotated_docs, doc_labels, text_labels, label_set (all required).
+        body: dict[str, Any] = {
             "annotated_docs": {},
-            "label_lookup": {},
+            "doc_labels": {},
+            "text_labels": {},
+            "label_set": {
+                "id": "callback-label-set",
+                "title": "Callback label set",
+                "description": "",
+                "icon_data": None,
+                "icon_name": "",
+                "creator": "callback@test.com",
+            },
         }
 
         with patch(
