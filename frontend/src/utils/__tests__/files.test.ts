@@ -192,6 +192,27 @@ describe("getDocumentTypeBadge", () => {
     expect(getDocumentTypeBadge(null, "")).toBe("PDF");
     expect(getDocumentTypeBadge(null, "no-extension")).toBe("PDF");
   });
+
+  // Live backend payload — Django's Document.file_type stores full MIME
+  // types, not bare extensions. The badge has to recognise those too or
+  // the UI lights up with "APPLICATION/PDF" / DOCX_MIME_TYPE-uppercased.
+  it("returns 'PDF' for the application/pdf MIME type", () => {
+    expect(getDocumentTypeBadge("application/pdf", null)).toBe("PDF");
+  });
+
+  it("returns 'DOCX' for the DOCX MIME type", () => {
+    expect(getDocumentTypeBadge(DOCX_MIME_TYPE, null)).toBe("DOCX");
+  });
+
+  it("returns 'TXT' for text/plain and the legacy application/txt", () => {
+    expect(getDocumentTypeBadge("text/plain", null)).toBe("TXT");
+    expect(getDocumentTypeBadge("application/txt", null)).toBe("TXT");
+  });
+
+  it("strips the MIME prefix for unknown application/* and text/* types", () => {
+    expect(getDocumentTypeBadge("application/json", null)).toBe("JSON");
+    expect(getDocumentTypeBadge("image/png", null)).toBe("PNG");
+  });
 });
 
 describe("isDocxFileType", () => {
