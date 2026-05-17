@@ -116,3 +116,29 @@ For complete implementation details, see the decorator source at [`opencontracts
 - Corpus-wide analysis integration
 - Automatic result storage
 - Error handling and retries
+
+## Annotation Review & User Feedback
+
+Analyzer-generated annotations can be reviewed and curated by humans through the
+`UserFeedback` system (`opencontractserver/feedback/models.py`).
+
+Each `UserFeedback` row links to a single `Annotation` and stores:
+
+- `approved` / `rejected` — mutually exclusive boolean flags (enforced via
+  `clean()`).
+- `comment` — free-text reviewer note.
+- `markdown` — long-form reviewer commentary.
+- `metadata` — JSON for tool-specific review data.
+
+The feedback layer is exposed via GraphQL:
+
+| Mutation / Query | Purpose |
+|---|---|
+| `approveAnnotation` | Mark an annotation as reviewer-approved; returns `UserFeedbackType`. |
+| `rejectAnnotation` | Mark an annotation as reviewer-rejected; returns `UserFeedbackType`. |
+| `userFeedback` | Connection of feedback rows visible to the requesting user. |
+
+`UserFeedback` carries its own object-level permissions (`approve`, `reject`,
+`comment`, etc.) and is filtered via the standard `visible_to_user` pattern.
+This makes it suitable both for analyst QA workflows on automated extractions
+and for crowd-sourced annotation review on public corpuses.

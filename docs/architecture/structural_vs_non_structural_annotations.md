@@ -297,6 +297,40 @@ These represent user-specific or analysis-specific interpretations and are natur
 - Document parsing may occur multiple times for same content
 - Mitigated by caching at upload layer when appropriate
 
+## Materialised Subtree Groups (`OC_SUBTREE_GROUP`)
+
+Structural parsing produces a hierarchy of annotations connected by
+`Annotation.parent` self-FKs and explicit `OC_PARENT_CHILD_LABEL_NAME`
+relationships. To make "give me the surrounding block of an annotation hit"
+queries cheap, every non-leaf node also gets a pre-materialised
+`OC_SUBTREE_GROUP` `Relationship` row whose **source** is that ancestor and
+whose **targets** are the ancestor's full transitive descendant set.
+
+Retrieval can then surface the larger block of an annotation hit with a single
+join instead of running a recursive CTE per result.
+
+### Where this happens
+
+`BaseParser.save_parsed_data` calls `build_subtree_groups_for_document` (in
+`opencontractserver/utils/subtree_groups.py`) between the relationship-import
+step and the structural-set migration. The system label `OC_SUBTREE_GROUP` is
+resolved by filter-first / create-as-fallback (ignoring `creator`), so the
+label never silently forks per-user.
+
+### Guardrails
+
+- Groups whose descendant set exceeds `SUBTREE_GROUP_MAX_DESCENDANTS` (default
+  500) are skipped with a warning.
+- The walker prunes branches deeper than `SUBTREE_GROUP_MAX_DEPTH` (default
+  32) and detects cycles defensively via on-stack tracking.
+
+### Re-parse safety
+
+Prior `OC_SUBTREE_GROUP` rows are deleted from both `document`-scoped and
+`structural_set`-scoped tables before re-materialisation, and newly created
+rows are attached directly to the existing `StructuralAnnotationSet` when one
+is already linked to the document — so re-parsing never leaves orphan rows.
+
 ## Migrations
 
 Key migrations implementing this architecture:
