@@ -75,12 +75,23 @@ class CorpusObjsServiceTestBase(TransactionTestCase):
         # This is the IDOR oracle: an anonymous lookup against the private
         # corpus must not leak the public doc, must not return the private
         # doc, must not raise anything other than ``DoesNotExist``.
+        #
+        # The ``uniq_document_slug_per_creator_cs`` constraint forbids two
+        # ``Document`` rows sharing ``(creator, slug)``, so the private
+        # twin uses a separate creator. The IDOR test exercises slug
+        # collisions across corpora, not across creators, so this is
+        # behaviourally equivalent.
+        self.private_doc_creator = User.objects.create_user(
+            username="private_doc_owner",
+            email="pdo@test.com",
+            password="test",
+        )
         self.private_corpus = Corpus.objects.create(
             title="Private Corpus", creator=self.owner, is_public=False
         )
         self.private_doc = Document.objects.create(
             title="Private Doc",
-            creator=self.owner,
+            creator=self.private_doc_creator,
             pdf_file="private.pdf",
             slug="shared-slug",
         )

@@ -2335,10 +2335,31 @@ class CorpusObjsService:
                 "Permission denied: You do not have write access to this corpus",
             )
 
-        # Get accessible documents (owned or public)
-        documents = Document.objects.filter(
-            Q(pk__in=document_ids) & (Q(creator=user) | Q(is_public=True))
+        # Get accessible documents.
+        #
+        # The ``creator | is_public`` filter cheaply admits owned and public
+        # docs in a single query. Anything else (private docs the caller has
+        # been explicitly granted READ on) is admitted on the per-doc fallback
+        # below — those have to round-trip through guardian and aren't worth
+        # widening the SQL filter for. ``add_document_to_corpus`` runs the
+        # full permission check on each doc anyway (corpus UPDATE + doc READ
+        # or guardian), so the symmetry between the singular and bulk paths
+        # is preserved without duplicating the guardian-IDs subquery here.
+        accessible_docs: list[Document] = list(
+            Document.objects.filter(
+                Q(pk__in=document_ids) & (Q(creator=user) | Q(is_public=True))
+            )
         )
+        admitted_ids = {d.pk for d in accessible_docs}
+        # For the remainder, fall back to the singular ``user_has_permission_for_obj``
+        # check so an explicit READ grant on a private doc still admits it
+        # (matches the third arm of ``add_document_to_corpus``).
+        for doc in Document.objects.filter(
+            pk__in=[pk for pk in document_ids if pk not in admitted_ids]
+        ):
+            if user_has_permission_for_obj(user, doc, PermissionTypes.READ):
+                accessible_docs.append(doc)
+        documents = accessible_docs
 
         added_count = 0
         added_ids = []
