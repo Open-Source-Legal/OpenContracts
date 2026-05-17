@@ -6,11 +6,15 @@ Resources provide static content for context windows, representing specific enti
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from django.contrib.auth.models import AnonymousUser
 
+if TYPE_CHECKING:
+    from opencontractserver.users.types import UserOrAnonymous
 
-def get_corpus_resource(corpus_slug: str) -> str:
+
+def get_corpus_resource(corpus_slug: str, user: UserOrAnonymous | None = None) -> str:
     """
     Get corpus resource content.
 
@@ -19,8 +23,8 @@ def get_corpus_resource(corpus_slug: str) -> str:
     """
     from opencontractserver.corpuses.models import Corpus
 
-    anonymous = AnonymousUser()
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    user = user or AnonymousUser()
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
     # Get label set info if available
     label_set_data = None
@@ -52,34 +56,32 @@ def get_corpus_resource(corpus_slug: str) -> str:
     )
 
 
-def get_document_resource(corpus_slug: str, document_slug: str) -> str:
+def get_document_resource(
+    corpus_slug: str, document_slug: str, user: UserOrAnonymous | None = None
+) -> str:
     """
     Get document resource content.
 
     URI: document://{corpus_slug}/{document_slug}
     Returns: JSON with document metadata and extracted text
 
-    Note: Documents are accessible if they're in a public corpus, even if the
-    document itself isn't marked public. The corpus visibility acts as the
-    permission gate.
+    Note: Document membership is resolved through DocumentFolderService so
+    corpus read access and current DocumentPath state are enforced consistently
+    with list_documents.
     """
     from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
 
-    anonymous = AnonymousUser()
+    user = user or AnonymousUser()
 
-    # Get corpus context - this validates corpus is visible to anonymous
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    try:
-        document = CorpusObjsService.get_corpus_document_by_slug(
-            user=anonymous, corpus=corpus, slug=document_slug
-        )
-    except Document.DoesNotExist:
-        raise Document.DoesNotExist(
-            f"Document '{document_slug}' not found in corpus '{corpus_slug}'"
-        )
+    # Source of truth for corpus-scoped document lookup; raises
+    # ``Document.DoesNotExist`` IDOR-safely when the slug isn't in the
+    # corpus or the user lacks corpus READ.
+    document = CorpusObjsService.get_corpus_document_by_slug(
+        user=user, corpus=corpus, slug=document_slug
+    )
 
     # Read extracted text
     full_text = ""
@@ -106,7 +108,10 @@ def get_document_resource(corpus_slug: str, document_slug: str) -> str:
 
 
 def get_annotation_resource(
-    corpus_slug: str, document_slug: str, annotation_id: int
+    corpus_slug: str,
+    document_slug: str,
+    annotation_id: int,
+    user: UserOrAnonymous | None = None,
 ) -> str:
     """
     Get annotation resource content.
@@ -114,31 +119,28 @@ def get_annotation_resource(
     URI: annotation://{corpus_slug}/{document_slug}/{annotation_id}
     Returns: JSON with annotation details including label and bounding box
 
-    Note: Annotations are accessible if they're in a document within a public
-    corpus. The corpus visibility acts as the permission gate.
+    Note: Document membership is resolved through DocumentFolderService, then
+    annotations are filtered through AnnotationQueryOptimizer's effective
+    permission checks.
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
     from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
 
-    anonymous = AnonymousUser()
+    user = user or AnonymousUser()
 
-    # Get corpus context - this validates corpus is visible to anonymous
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    try:
-        document = CorpusObjsService.get_corpus_document_by_slug(
-            user=anonymous, corpus=corpus, slug=document_slug
-        )
-    except Document.DoesNotExist:
-        raise Document.DoesNotExist(
-            f"Document '{document_slug}' not found in corpus '{corpus_slug}'"
-        )
+    # Source of truth for corpus-scoped document lookup; raises
+    # ``Document.DoesNotExist`` IDOR-safely when the slug isn't in the
+    # corpus or the user lacks corpus READ.
+    document = CorpusObjsService.get_corpus_document_by_slug(
+        user=user, corpus=corpus, slug=document_slug
+    )
 
     # Use query optimizer for efficient permission checking
     annotations = AnnotationQueryOptimizer.get_document_annotations(
-        document_id=document.id, user=anonymous, corpus_id=corpus.id
+        document_id=document.id, user=user, corpus_id=corpus.id
     )
 
     annotation = annotations.get(id=annotation_id)
@@ -166,7 +168,10 @@ def get_annotation_resource(
 
 
 def get_thread_resource(
-    corpus_slug: str, thread_id: int, include_messages: bool = True
+    corpus_slug: str,
+    thread_id: int,
+    include_messages: bool = True,
+    user: UserOrAnonymous | None = None,
 ) -> str:
     """
     Get thread resource content.
@@ -183,12 +188,11 @@ def get_thread_resource(
 
     from .formatters import format_message_with_replies
 
-    anonymous = AnonymousUser()
-    corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
+    user = user or AnonymousUser()
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    # Get public thread in this corpus
     thread = (
-        Conversation.objects.visible_to_user(anonymous)
+        Conversation.objects.visible_to_user(user)
         .filter(
             conversation_type=ConversationTypeChoices.THREAD,
             chat_with_corpus=corpus,
@@ -214,13 +218,11 @@ def get_thread_resource(
     if include_messages:
         # Build hierarchical message structure with prefetch
         messages = list(
-            ChatMessage.objects.visible_to_user(anonymous)
+            ChatMessage.objects.visible_to_user(user)
             .filter(conversation=thread, parent_message__isnull=True)
             .prefetch_related("replies__replies")
             .order_by("created_at")
         )
-        data["messages"] = [
-            format_message_with_replies(msg, anonymous) for msg in messages
-        ]
+        data["messages"] = [format_message_with_replies(msg, user) for msg in messages]
 
     return json.dumps(data)

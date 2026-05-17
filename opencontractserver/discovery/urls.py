@@ -7,6 +7,7 @@ from opencontractserver.discovery.views import (
     search_api,
     sitemap_xml,
     well_known_mcp,
+    well_known_oauth_protected_resource,
 )
 
 app_name = "discovery"
@@ -17,5 +18,10 @@ urlpatterns = [
     path("llms-full.txt", llms_full_txt, name="llms_full_txt"),
     path("sitemap.xml", sitemap_xml, name="sitemap_xml"),
     path(".well-known/mcp.json", well_known_mcp, name="well_known_mcp"),
+    path(
+        ".well-known/oauth-protected-resource",
+        well_known_oauth_protected_resource,
+        name="well_known_oauth_protected_resource",
+    ),
     path("api/search/", search_api, name="search_api"),
 ]

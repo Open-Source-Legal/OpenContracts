@@ -10,6 +10,7 @@ import json
 import logging
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -661,22 +662,44 @@ def sitemap_xml(request: HttpRequest) -> HttpResponse:
 # ---------------------------------------------------------------------------
 # .well-known/mcp.json
 # ---------------------------------------------------------------------------
+def _build_mcp_auth_metadata(base_url: str) -> dict | None:
+    """Return MCP-discovery ``authentication`` block, or ``None``.
+
+    When ``USE_AUTH0=True`` the block points clients at the OAuth 2.1
+    protected-resource metadata endpoint so interactive MCP clients
+    (Claude Desktop, Cursor) can discover Auth0 as the authorization
+    server without any preconfigured token. In non-Auth0 deployments
+    there is no spec-compliant OAuth flow to advertise, so the value
+    stays ``None`` — clients fall back to whatever bespoke token the
+    operator hands out.
+    """
+    if not getattr(settings, "USE_AUTH0", False):
+        return None
+    return {
+        "type": "oauth2",
+        "metadataUrl": f"{base_url}/.well-known/oauth-protected-resource",
+    }
+
+
 @require_GET
 @cache_page(DISCOVERY_CACHE_SECONDS)
 def well_known_mcp(request: HttpRequest) -> HttpResponse:
     """MCP server discovery endpoint per emerging .well-known convention."""
     base_url = _get_base_url(request)
     corpuses = _get_public_corpuses()
+    auth_meta = _build_mcp_auth_metadata(base_url)
 
     servers = {
         "opencontracts": {
             "url": f"{base_url}/mcp/",
             "description": (
-                "Read-only access to public document corpuses, annotations, "
-                "and discussion threads"
+                "Access to OpenContracts corpuses, annotations, and discussion "
+                "threads. Anonymous callers see only public, published resources; "
+                "authenticated callers also see private resources they own or are "
+                "shared on."
             ),
             "transport": "streamable-http",
-            "authentication": None,
+            "authentication": auth_meta,
             "rateLimit": RATE_LIMIT_DISPLAY,
         }
     }
@@ -689,12 +712,64 @@ def well_known_mcp(request: HttpRequest) -> HttpResponse:
             "url": f"{base_url}/mcp/corpus/{slug}/",
             "description": f"Scoped access to: {title}",
             "transport": "streamable-http",
-            "authentication": None,
+            "authentication": auth_meta,
         }
 
     data = {"mcpServers": servers}
 
     _record_discovery_event("well_known_mcp", request)
+    return HttpResponse(
+        json.dumps(data, indent=2),
+        content_type="application/json; charset=utf-8",
+    )
+
+
+# ---------------------------------------------------------------------------
+# .well-known/oauth-protected-resource  (RFC 9728)
+# ---------------------------------------------------------------------------
+@require_GET
+@cache_page(DISCOVERY_CACHE_SECONDS)
+def well_known_oauth_protected_resource(
+    request: HttpRequest,
+) -> HttpResponse:
+    """OAuth 2.0 Protected Resource Metadata for the MCP server.
+
+    Implements the discovery surface required by the MCP 2025-06-18
+    Authorization spec: when an interactive MCP client (Claude Desktop,
+    Cursor, etc.) hits ``/mcp/`` without a token, the 401 response
+    carries ``WWW-Authenticate: Bearer resource_metadata="<this URL>"``.
+    The client then fetches this document, pulls the
+    ``authorization_servers`` entry, fetches that AS's standard metadata
+    (``/.well-known/openid-configuration`` for Auth0), and drives the
+    full Authorization-Code + PKCE flow on the user's behalf.
+
+    Only emitted when ``USE_AUTH0=True``; non-Auth0 deployments have no
+    spec-compliant authorization server to advertise and so respond 404.
+    """
+    if not getattr(settings, "USE_AUTH0", False):
+        # No interactive authorization server is configured — there's
+        # nothing useful to put in the metadata document. Returning 404
+        # (rather than 200 with an empty ``authorization_servers``) keeps
+        # well-behaved clients from looping on a discovery endpoint that
+        # advertises no AS.
+        return HttpResponse(status=404)
+
+    auth0_domain = getattr(settings, "AUTH0_DOMAIN", "")
+    if not auth0_domain:
+        # USE_AUTH0 is on but the domain isn't configured — fail loudly
+        # rather than emitting metadata that points at "https:///".
+        return HttpResponse(status=404)
+
+    base_url = _get_base_url(request)
+    data = {
+        "resource": f"{base_url}/mcp",
+        "authorization_servers": [f"https://{auth0_domain}/"],
+        "bearer_methods_supported": ["header"],
+        "scopes_supported": ["openid", "profile", "email"],
+        "resource_documentation": f"{base_url}/.well-known/mcp.json",
+    }
+
+    _record_discovery_event("well_known_oauth_protected_resource", request)
     return HttpResponse(
         json.dumps(data, indent=2),
         content_type="application/json; charset=utf-8",
