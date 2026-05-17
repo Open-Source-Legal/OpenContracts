@@ -280,6 +280,43 @@ class TestListAnalyzers(BaseFixtureTestCase):
         self.assertNotIn("disabled.analyzer", ids)
         self.assertNotIn("other.analyzer", ids)
 
+    def test_oversized_input_schema_is_truncated(self):
+        """Listing tool replaces unbounded analyzer ``input_schema``
+        payloads with a placeholder so a misbehaving analyzer can't
+        inflate every LLM call's context window."""
+
+        from opencontractserver.constants.tools import (
+            ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS,
+        )
+
+        # A small schema rides through unchanged so the negative case
+        # alone wouldn't prove the cap is conditional rather than
+        # always-on.
+        self.analyzer_mine.input_schema = {"type": "object", "properties": {}}
+        self.analyzer_mine.save()
+
+        # An oversized schema (just past the cap) gets the truncation
+        # placeholder.
+        huge_payload = {f"k_{i}": "x" * 100 for i in range(60)}
+        self.analyzer_public.input_schema = huge_payload
+        self.analyzer_public.save()
+
+        results = {
+            r["id"]: r
+            for r in list_analyzers(corpus_id=self.corpus.id, user_id=self.user.id)
+        }
+
+        small = results["mine.analyzer"]["input_schema"]
+        self.assertEqual(small, {"type": "object", "properties": {}})
+
+        large = results["public.analyzer"]["input_schema"]
+        self.assertIsInstance(large, dict)
+        self.assertTrue(large.get("_truncated"))
+        self.assertIn(
+            str(ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS),
+            large.get("_reason", ""),
+        )
+
     async def test_async_variant_matches(self):
         sync_ids = {
             r["id"]
@@ -385,6 +422,33 @@ class TestListRecentAnalyses(BaseFixtureTestCase):
         ids = {r["id"] for r in results}
         self.assertIn(self.analysis_visible.id, ids)
         self.assertNotIn(self.analysis_other.id, ids)
+
+    def test_status_is_normalised_lowercase(self):
+        """The listing emits the same lowercase status vocabulary that
+        ``start_analysis`` returns immediately after dispatch.
+
+        Pre-fix the listing returned ``analysis.status`` verbatim
+        (``"QUEUED"`` from ``JobStatus.QUEUED.value``) while
+        ``start_analysis`` returned ``"queued"`` (the Extract constant).
+        An LLM polling the listing right after dispatch saw the status
+        appear to change without anything having happened.
+        """
+
+        from opencontractserver.types.enums import JobStatus
+
+        # Force a deterministic status on the visible analysis so the
+        # test doesn't depend on the post_save signal ordering.
+        self.analysis_visible.status = JobStatus.RUNNING.value
+        self.analysis_visible.save()
+
+        results = list_recent_analyses(corpus_id=self.corpus.id, user_id=self.user.id)
+        visible = next(r for r in results if r["id"] == self.analysis_visible.id)
+        self.assertEqual(
+            visible["status"],
+            "running",
+            "Listing must normalise model statuses to lowercase to match "
+            "start_analysis's return vocabulary.",
+        )
 
     async def test_async_variant_matches(self):
         sync_ids = {
@@ -566,10 +630,11 @@ class TestStartExtract(BaseFixtureTestCase):
 
         A fieldset whose only columns are ``is_manual_entry=True`` shows up
         in discovery with ``column_count=0`` (the listing prefetch filters
-        them out) but ``start_extract`` rejects it as ValueError. Documents
-        the deliberate two-step contract: agents can see "empty" fieldsets
-        but cannot dispatch them, so the failure mode is dispatch-time, not
-        listing-time.
+        them out) and an ``extractable=False`` flag so the LLM knows
+        ``start_extract`` will reject it. ``start_extract`` raises
+        ValueError. Documents the deliberate two-step contract: agents can
+        see "empty" fieldsets but cannot dispatch them, and the listing
+        tool surfaces that constraint up-front rather than only at dispatch.
         """
         manual_only = _make_fieldset(
             name="DiscoveryOnly", user=self.user, manual_entry_only=True
@@ -579,6 +644,18 @@ class TestStartExtract(BaseFixtureTestCase):
         listed = next(r for r in results if r["id"] == manual_only.id)
         self.assertEqual(listed["column_count"], 0)
         self.assertEqual(listed["columns"], [])
+        self.assertFalse(
+            listed["extractable"],
+            "Zero-column fieldsets must be flagged extractable=False so the "
+            "LLM can avoid an obvious failing dispatch.",
+        )
+
+        # A dispatchable fieldset must report extractable=True so the
+        # flag is actually informative (the negative case alone would
+        # leave the LLM unable to distinguish "no info" from "rejected").
+        dispatchable = next(r for r in results if r["id"] == self.fieldset.id)
+        self.assertTrue(dispatchable["extractable"])
+        self.assertGreater(dispatchable["column_count"], 0)
 
         with self.assertRaises(ValueError):
             start_extract(
@@ -821,6 +898,63 @@ class TestStartAnalysis(BaseFixtureTestCase):
                 user_id=self.user.id,
             )
         self.assertEqual(result["status"], "queued")
+
+    def test_reserved_input_data_keys_are_stripped(self):
+        """Adversarial keys cannot tunnel internal kwargs into the task.
+
+        ``run_task_name_analyzer`` spreads ``analysis_input_data`` into the
+        analyzer task call. A payload crafted to override
+        ``analysis_id`` / ``user_id`` / scoping IDs would shadow the
+        framework's own arguments — a privilege-escalation surface
+        unique to the agent path (the human GraphQL path doesn't
+        accept arbitrary input data from the client). The tool strips
+        the reserved key set before dispatch and logs a warning.
+        """
+
+        with self._patch_process_analyzer() as mock_process:
+            with self.assertLogs(
+                "opencontractserver.llms.tools.core_tools.extracts_and_analyzers",
+                level="WARNING",
+            ) as logs:
+                start_analysis(
+                    corpus_id=self.corpus.id,
+                    analyzer_id=self.analyzer.id,
+                    user_id=self.user.id,
+                    analysis_input_data={
+                        "analysis_id": 999_999,  # reserved
+                        "user_id": 0,  # reserved
+                        "corpus_id": -1,  # reserved
+                        "min_score": 0.7,  # legitimate analyzer param
+                    },
+                )
+
+        passed_payload = mock_process.call_args.kwargs["analysis_input_data"]
+        self.assertNotIn("analysis_id", passed_payload)
+        self.assertNotIn("user_id", passed_payload)
+        self.assertNotIn("corpus_id", passed_payload)
+        # Legitimate analyzer parameters survive the strip.
+        self.assertEqual(passed_payload.get("min_score"), 0.7)
+        # The strip is observable so production traces can flag attempts.
+        self.assertTrue(
+            any("stripped reserved keys" in line for line in logs.output),
+            f"Expected strip warning, got: {logs.output}",
+        )
+
+    def test_safe_input_data_passes_through_unchanged(self):
+        """No reserved keys → payload is forwarded verbatim (no false strip)."""
+
+        legitimate_payload = {"min_score": 0.5, "deep_scan": True}
+        with self._patch_process_analyzer() as mock_process:
+            start_analysis(
+                corpus_id=self.corpus.id,
+                analyzer_id=self.analyzer.id,
+                user_id=self.user.id,
+                analysis_input_data=dict(legitimate_payload),
+            )
+        self.assertEqual(
+            mock_process.call_args.kwargs["analysis_input_data"],
+            legitimate_payload,
+        )
 
 
 # =========================================================================== #

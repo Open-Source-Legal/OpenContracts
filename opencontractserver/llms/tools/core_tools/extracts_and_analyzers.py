@@ -32,6 +32,7 @@ auto-injected by the tool wrapper and hidden from the LLM's schema.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -40,6 +41,10 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
+from opencontractserver.constants.tools import (
+    ANALYSIS_INPUT_DATA_RESERVED_KEYS,
+    ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS,
+)
 from opencontractserver.constants.tools import (
     EXTRACT_ANALYZER_TOOL_DEFAULT_LIST_LIMIT as DEFAULT_LIST_LIMIT,
 )
@@ -59,7 +64,7 @@ from opencontractserver.corpuses.models import Corpus, CorpusAction
 from opencontractserver.extracts.models import Column, Extract, Fieldset
 from opencontractserver.tasks.corpus_tasks import process_analyzer
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
-from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.types.enums import JobStatus, PermissionTypes
 from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
     user_has_permission_for_obj,
@@ -101,35 +106,44 @@ def _resolve_target_document_ids(
 ) -> list[int]:
     """Resolve which document IDs an extract/analysis run should target.
 
-    Intersects with ``corpus.get_documents()`` so the agent can never
-    escape the corpus scope it was created in.
+    Intersects with the corpus's active document set in SQL so the agent
+    can never escape the corpus scope it was created in. The branches
+    avoid materialising the full corpus document list into Python:
 
-    Memory note: materialises every corpus document ID into a Python set so
-    the intersection can short-circuit cleanly in worker threads. Fine for
-    typical corpora (low thousands), but for corpora in the tens of
-    thousands of documents this synchronous load blocks the thread-pool
-    worker. If that becomes the hot path, push the intersection down into
-    SQL via ``Document.objects.filter(pk__in=requested_ids,
-    corpus_in_use=corpus)`` (or an EXISTS subquery on
-    ``corpus.documents.through``) instead of materialising the set here.
+    - ``requested_ids`` supplied → ``Document`` filter scoped by the
+      corpus + ``pk__in=requested_ids``. Cost is bounded by the
+      requested list size, not corpus cardinality.
+    - ``agent_document_id`` supplied (document-agent context) → a
+      single membership check via ``exists()``.
+    - Neither supplied (corpus-agent default scope) → returns the
+      whole corpus document set, which is unavoidable but at least
+      streamed via ``values_list(flat=True)`` rather than re-collected
+      from a Python set.
     """
-    corpus_doc_ids = set(corpus.get_documents().values_list("id", flat=True))
+
+    # The agent has already passed corpus-level visibility/UPDATE checks
+    # in the caller, so corpus-internal active-document filtering here
+    # is the only scope still owed.
+    corpus_doc_qs = corpus.get_documents()
 
     if requested_ids:
         normalized = {int(d) for d in requested_ids}
-        filtered = sorted(normalized & corpus_doc_ids)
-        return filtered
+        if not normalized:
+            return []
+        filtered = corpus_doc_qs.filter(pk__in=normalized).values_list("id", flat=True)
+        return sorted(filtered)
 
     if agent_document_id is not None:
-        if int(agent_document_id) in corpus_doc_ids:
-            return [int(agent_document_id)]
+        agent_doc_pk = int(agent_document_id)
+        if corpus_doc_qs.filter(pk=agent_doc_pk).exists():
+            return [agent_doc_pk]
         logger.warning(
             "Document agent document_id=%s not in corpus %s; defaulting to "
             "full corpus scope.",
             agent_document_id,
             corpus.id,
         )
-    return sorted(corpus_doc_ids)
+    return sorted(corpus_doc_qs.values_list("id", flat=True))
 
 
 def _extract_status(extract: Extract) -> str:
@@ -140,6 +154,111 @@ def _extract_status(extract: Extract) -> str:
     if extract.started:
         return EXTRACT_STATUS_RUNNING
     return EXTRACT_STATUS_QUEUED
+
+
+def _normalize_analysis_status(raw_status: str | None) -> str:
+    """Normalise ``Analysis.status`` for the agent surface.
+
+    Pre-fix, ``start_analysis`` returned ``"queued"`` (the Extract
+    constant) while ``list_recent_analyses`` passed the raw model value
+    (``JobStatus.QUEUED.value`` → ``"QUEUED"``). An LLM that
+    polled the listing after dispatching saw the status apparently
+    change without anything having happened.
+
+    Resolution: agents always see lowercase status strings, mirroring
+    the extract vocabulary (``queued`` / ``running`` / ``completed`` /
+    ``failed``). The model still stores uppercase values via
+    ``JobStatus`` — only the agent surface is normalised.
+
+    ``raw_status`` is permissive: ``None`` and unknown values pass
+    through (lower-cased if string) rather than raising, so a future
+    addition to ``JobStatus`` does not crash the listing tool.
+    """
+
+    if raw_status is None:
+        return ""
+    return str(raw_status).lower()
+
+
+# Default initial status agents see immediately after ``start_analysis``.
+# Sourced from ``JobStatus.QUEUED`` and normalised so the value matches
+# what ``list_recent_analyses`` would emit on a subsequent poll, closing
+# the vocabulary mismatch flagged in PR review.
+_ANALYSIS_STATUS_QUEUED = _normalize_analysis_status(JobStatus.QUEUED.value)
+
+
+def _strip_reserved_input_keys(
+    analysis_input_data: dict | None,
+    *,
+    tool_name: str,
+) -> dict | None:
+    """Return ``analysis_input_data`` with internal kwargs removed.
+
+    ``run_task_name_analyzer`` spreads the payload into the analyzer
+    task with ``**(analysis_input_data or {})``. An agent driven by
+    adversarial prompt injection (e.g. via document content) could
+    therefore override internal scoping kwargs the task expects.
+    Strip the reserved set defined in
+    :data:`ANALYSIS_INPUT_DATA_RESERVED_KEYS` and log a warning so the
+    override attempt is observable in production traces. The task
+    itself remains the canonical validation boundary — this is a
+    defense-in-depth shave on the agent-facing edge.
+    """
+
+    if not analysis_input_data:
+        return analysis_input_data
+
+    stripped = {
+        k: v
+        for k, v in analysis_input_data.items()
+        if k not in ANALYSIS_INPUT_DATA_RESERVED_KEYS
+    }
+    if len(stripped) != len(analysis_input_data):
+        removed = sorted(set(analysis_input_data) - set(stripped))
+        logger.warning(
+            "%s stripped reserved keys from analysis_input_data: %s",
+            tool_name,
+            removed,
+        )
+    return stripped
+
+
+def _summarise_input_schema(schema: Any) -> Any:
+    """Truncate over-large ``Analyzer.input_schema`` payloads for listing.
+
+    Analyzer authors can register arbitrarily large schemas in their
+    decorator. Returning them verbatim from ``list_analyzers``
+    inflates the LLM context window on every discovery call. When the
+    JSON-serialised schema exceeds
+    :data:`ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS`, replace it with a
+    placeholder pointer; ``start_analysis`` itself does not need the
+    schema (the task validates the payload), and the agent can still
+    discover the analyzer.
+    """
+
+    if schema is None:
+        return None
+    try:
+        serialized = json.dumps(schema)
+    except (TypeError, ValueError):
+        # Non-serialisable schema is itself a bug, but don't break the
+        # listing — surface a placeholder instead.
+        return {
+            "_truncated": True,
+            "_reason": "input_schema is not JSON-serialisable",
+        }
+    if len(serialized) <= ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS:
+        return schema
+    return {
+        "_truncated": True,
+        "_reason": (
+            "input_schema exceeds "
+            f"{ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS} chars; call "
+            "start_analysis with the analyzer_id to dispatch and let "
+            "the task validate the payload server-side."
+        ),
+        "_size_chars": len(serialized),
+    }
 
 
 def _resolve_corpus_action(
@@ -202,7 +321,11 @@ def list_fieldsets(
                 to_attr="auto_columns",
             )
         )
-        .order_by("-modified")[:capped_limit]
+        # ``-created`` matches ``list_recent_extracts`` so the agent
+        # sees a stable, time-ordered list across the two discovery
+        # tools. Pre-fix this used ``-modified``, which silently
+        # reshuffled positions whenever a fieldset was edited.
+        .order_by("-created")[:capped_limit]
     )
 
     results: list[dict[str, Any]] = []
@@ -225,6 +348,13 @@ def list_fieldsets(
                 "name": fieldset.name,
                 "description": fieldset.description,
                 "column_count": len(columns),
+                # ``extractable=False`` signals the LLM that
+                # ``start_extract`` will reject this fieldset (no
+                # auto-extract columns — every column is manual-entry,
+                # the fieldset is empty, etc.). Surfacing the flag in
+                # the listing avoids the LLM optimistically dispatching
+                # and discovering the constraint via a ``ValueError``.
+                "extractable": len(columns) > 0,
                 "columns": columns,
             }
         )
@@ -454,7 +584,10 @@ def list_analyzers(
                 "description": analyzer.description,
                 "host_gremlin_id": analyzer.host_gremlin_id,
                 "task_name": analyzer.task_name,
-                "input_schema": analyzer.input_schema,
+                # Schemas larger than the inline cap are truncated to a
+                # placeholder so a misbehaving analyzer can't blow up
+                # every agent's context window on a discovery call.
+                "input_schema": _summarise_input_schema(analyzer.input_schema),
                 "is_public": analyzer.is_public,
             }
         )
@@ -538,14 +671,17 @@ def start_analysis(
     # responsibility — the schema is a freeform JSON-Schema sourced from
     # the analyzer's Python decorator, and ``run_task_name_analyzer``
     # spreads the payload directly into the task function call as
-    # ``**(analysis_input_data or {})``. That spread is also a small
-    # privilege-escalation surface: a crafted payload can override
-    # internal kwargs the task expects (e.g. ``analysis_id``). The task
-    # function is therefore the security/validation boundary; this layer
-    # only ensures the agent's payload is a plain dict (the LLM schema
-    # already enforces that). A malformed payload fails at task execution
-    # so the agent path stays bug-compatible with the human GraphQL /
-    # CorpusAction path that also doesn't pre-validate.
+    # ``**(analysis_input_data or {})``. The task function is therefore
+    # the canonical validation boundary; a malformed payload fails at
+    # task execution so the agent path stays bug-compatible with the
+    # human GraphQL / CorpusAction path that also doesn't pre-validate.
+    #
+    # Defense in depth: ``_strip_reserved_input_keys`` removes a small
+    # set of internal kwargs (``analysis_id``, scoping IDs, etc.) that
+    # would otherwise shadow ``run_task_name_analyzer``'s own
+    # arguments. The agent path is uniquely exposed to adversarial
+    # prompt injection via document content, so closing this
+    # privilege-escalation vector on the way in is cheap and observable.
     #
     # ``process_analyzer`` itself does NOT wrap its work in
     # ``transaction.atomic()`` — it creates the Analysis row then
@@ -555,6 +691,9 @@ def start_analysis(
     # ``atomic()`` an error after the call would still kick off the
     # downstream task. Wrap in ``atomic()`` here for symmetry with
     # ``start_extract`` and to give callers a clean rollback boundary.
+    safe_input_data = _strip_reserved_input_keys(
+        analysis_input_data, tool_name="start_analysis"
+    )
     with transaction.atomic():
         analysis = process_analyzer(
             user_id=user.id,
@@ -562,7 +701,7 @@ def start_analysis(
             corpus_id=corpus.id,
             document_ids=widened_ids,
             corpus_action=corpus_action,
-            analysis_input_data=analysis_input_data,
+            analysis_input_data=safe_input_data,
         )
 
     return {
@@ -571,7 +710,10 @@ def start_analysis(
         "analyzer_description": analyzer.description,
         "document_count": len(target_ids),
         "corpus_action_id": corpus_action.id if corpus_action else None,
-        "status": EXTRACT_STATUS_QUEUED,
+        # Use the analysis-domain status constant (lowercase JobStatus
+        # value) so the listing tool's normalisation produces the same
+        # vocabulary on a subsequent poll. See ``_normalize_analysis_status``.
+        "status": _ANALYSIS_STATUS_QUEUED,
     }
 
 
@@ -628,7 +770,11 @@ def list_recent_analyses(
                 "analyzer_description": (
                     analysis.analyzer.description if analysis.analyzer else None
                 ),
-                "status": analysis.status,
+                # Normalise the model-sourced ``JobStatus`` to the same
+                # lowercase vocabulary ``start_analysis`` emits, so an
+                # agent polling immediately after dispatch sees a stable
+                # value rather than a case-shift mid-lifecycle.
+                "status": _normalize_analysis_status(analysis.status),
                 "analysis_started": (
                     analysis.analysis_started.isoformat()
                     if analysis.analysis_started

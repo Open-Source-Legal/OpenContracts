@@ -35,9 +35,51 @@ EXTRACT_ANALYZER_TOOL_DEFAULT_RECENT_LIMIT = 10
 # ``error``) but no single ``status`` column, so ``_extract_status``
 # synthesises one of these strings from the row. Keep these in sync with
 # the human GraphQL surface — agents and humans should see the same
-# vocabulary. Analyses already have a model-sourced ``status`` field, so
-# ``list_recent_analyses`` passes it through unchanged.
+# vocabulary.
 EXTRACT_STATUS_FAILED = "failed"
 EXTRACT_STATUS_COMPLETED = "completed"
 EXTRACT_STATUS_RUNNING = "running"
 EXTRACT_STATUS_QUEUED = "queued"
+
+
+# ---------------------------------------------------------------------------
+# Analyzer ``input_schema`` size cap (in characters of the JSON dump)
+# ---------------------------------------------------------------------------
+# ``Analyzer.input_schema`` is a freeform ``JSONField`` populated from the
+# analyzer's Python decorator and unbounded by the model. A poorly
+# implemented analyzer can therefore register a 100 KB schema that would
+# inflate the LLM's context window on every ``list_analyzers`` call.
+# Schemas larger than this cap (measured as the length of the
+# ``json.dumps`` output) are replaced with a placeholder; the LLM is
+# instructed to call ``start_analysis`` (whose dispatch path validates
+# the payload against the full schema task-side) to see them.
+ANALYZER_INPUT_SCHEMA_MAX_INLINE_CHARS = 4_000
+
+
+# ---------------------------------------------------------------------------
+# Keys that must NOT be tunnelled in via ``analysis_input_data``
+# ---------------------------------------------------------------------------
+# ``run_task_name_analyzer`` spreads ``analysis_input_data`` directly into
+# the analyzer task's keyword arguments via ``**(analysis_input_data or
+# {})``. A crafted payload (including one assembled from adversarial
+# document content via prompt injection) can therefore override the
+# internal kwargs the task expects — most importantly ``analysis_id``
+# and the corpus / document scoping. ``start_analysis`` strips these
+# before dispatch and logs a warning. The task itself is still the
+# canonical validation boundary; this is defense in depth on the
+# agent-facing path where the input may be attacker-controlled.
+ANALYSIS_INPUT_DATA_RESERVED_KEYS = frozenset(
+    {
+        "analysis_id",
+        "user_id",
+        "corpus_id",
+        "document_id",
+        "document_ids",
+        "analyzed_corpus_id",
+        "analyzed_documents",
+        "corpus_action",
+        "corpus_action_id",
+        "analyzer",
+        "analyzer_id",
+    }
+)
