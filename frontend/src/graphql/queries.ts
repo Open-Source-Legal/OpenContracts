@@ -1227,16 +1227,90 @@ export interface SemanticSearchInput {
   offset?: number;
 }
 
+export interface BlockContextPayload {
+  /**
+   * Raw Django PK (not a Relay global ID) of the OC_SUBTREE_GROUP
+   * relationship — used directly by the doc viewer's `rel=` deep-link
+   * parameter so the resolver can short-circuit `from_global_id`.
+   */
+  relationshipId: string;
+  sourceAnnotationId: string;
+  sourceText: string;
+  targetAnnotationIds: string[];
+  blockText: string;
+}
+
 export interface SemanticSearchResult {
   annotation: ServerAnnotationType;
   similarityScore: number;
   document: DocumentType | null;
   corpus: RawCorpusType | null;
+  blockContext: BlockContextPayload | null;
 }
 
 export interface SemanticSearchOutput {
   semanticSearch: SemanticSearchResult[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEMANTIC SEARCH — RELATIONSHIP TARGET
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Companion to ``semanticSearch`` that returns hits against the polymorphic
+// ``Embedding.relationship`` slot. Currently surfaces the materialised
+// OC_SUBTREE_GROUP rows; the resolver is structured so a future relationship
+// kind only needs a backend update.
+
+export interface SemanticSearchRelationshipsInput {
+  query: string;
+  corpusId?: string;
+  documentId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SemanticSearchRelationshipResult {
+  /** Raw Django PK (not Relay global ID); see BlockContextPayload note. */
+  relationshipId: string;
+  similarityScore: number;
+  label: string | null;
+  sourceAnnotationId: string | null;
+  targetAnnotationIds: string[];
+  blockText: string;
+  documentId: string | null;
+  corpusId: string | null;
+}
+
+export interface SemanticSearchRelationshipsOutput {
+  semanticSearchRelationships: SemanticSearchRelationshipResult[];
+}
+
+export const SEMANTIC_SEARCH_RELATIONSHIPS = gql`
+  query SemanticSearchRelationships(
+    $query: String!
+    $corpusId: ID
+    $documentId: ID
+    $limit: Int
+    $offset: Int
+  ) {
+    semanticSearchRelationships(
+      query: $query
+      corpusId: $corpusId
+      documentId: $documentId
+      limit: $limit
+      offset: $offset
+    ) {
+      relationshipId
+      similarityScore
+      label
+      sourceAnnotationId
+      targetAnnotationIds
+      blockText
+      documentId
+      corpusId
+    }
+  }
+`;
 
 export const SEMANTIC_SEARCH_ANNOTATIONS = gql`
   query SemanticSearchAnnotations(
@@ -1346,6 +1420,13 @@ export const SEMANTIC_SEARCH_ANNOTATIONS = gql`
         slug
         title
         __typename
+      }
+      blockContext {
+        relationshipId
+        sourceAnnotationId
+        sourceText
+        targetAnnotationIds
+        blockText
       }
     }
   }

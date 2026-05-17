@@ -1,13 +1,85 @@
 import logging
-from typing import Optional, Union, cast
+from typing import TYPE_CHECKING, Optional, Union, cast
 
 from channels.db import database_sync_to_async
 
+from opencontractserver.constants.annotations import (
+    SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+)
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 
+if TYPE_CHECKING:
+    from opencontractserver.annotations.models import Relationship
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+def join_block_text_parts(
+    chunks: list[str],
+    *,
+    max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+) -> str:
+    """Newline-join non-empty strings, truncated at ``max_chars``."""
+    # Shared by embedder + vector store + block-context attach so the
+    # cap/truncation logic never diverges. Empty strings are skipped so
+    # a partially-parsed annotation doesn't inject stray newlines.
+    parts: list[str] = []
+    running = 0
+    for chunk in chunks:
+        if not chunk:
+            continue
+        if running == 0:
+            if len(chunk) >= max_chars:
+                parts.append(chunk[:max_chars])
+                running = max_chars
+                break
+            parts.append(chunk)
+            running = len(chunk)
+            continue
+        # ``+1`` accounts for the newline separator the join below will
+        # insert between successive non-empty parts.
+        if running + 1 + len(chunk) > max_chars:
+            remaining = max_chars - running - 1
+            if remaining > 0:
+                parts.append(chunk[:remaining])
+            break
+        parts.append(chunk)
+        running += 1 + len(chunk)
+
+    return "\n".join(parts)
+
+
+def synthesize_relationship_block_text(
+    relationship: "Relationship",
+    *,
+    max_chars: int = SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS,
+) -> str:
+    """Build the embedder-facing string for a ``Relationship``."""
+    # Order by ID (not document position) so re-embedding produces a
+    # stable input string and ``add_embedding``'s upsert short-circuits
+    # unchanged inputs. Document-position ordering would be more
+    # semantically meaningful for the embedder but isn't available
+    # cheaply today — IDs are dense and roughly insertion-ordered, so
+    # the resulting text is usually close to document order anyway.
+    # values_list keeps the helper resilient to whether the caller
+    # prefetched these M2Ms — couples to a public API, not the private
+    # ``_prefetched_objects_cache`` whose shape has shifted across
+    # Django versions.
+    sources = [
+        (text or "")
+        for text in relationship.source_annotations.order_by("id").values_list(
+            "raw_text", flat=True
+        )
+    ]
+    targets = [
+        (text or "")
+        for text in relationship.target_annotations.order_by("id").values_list(
+            "raw_text", flat=True
+        )
+    ]
+    return join_block_text_parts([*sources, *targets], max_chars=max_chars)
 
 
 def get_embedder(

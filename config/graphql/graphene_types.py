@@ -92,6 +92,7 @@ from config.graphql.pipeline_types import (  # noqa: F401
 from config.graphql.social_types import (  # noqa: F401
     BadgeDistributionType,
     BadgeType,
+    BlockContextType,
     CommunityStatsType,
     CriteriaFieldType,
     CriteriaTypeDefinitionType,
@@ -100,6 +101,7 @@ from config.graphql.social_types import (  # noqa: F401
     LeaderboardScopeEnum,
     LeaderboardType,
     NotificationType,
+    SemanticSearchRelationshipResultType,
     SemanticSearchResultType,
     UserBadgeType,
 )

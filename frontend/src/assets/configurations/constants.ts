@@ -277,6 +277,12 @@ export const CORPUS_DOCUMENTS_TOC_LIMIT = 100;
 export const DOCUMENT_RELATIONSHIP_TYPE_RELATIONSHIP = "RELATIONSHIP";
 export const DOCUMENT_RELATIONSHIP_LABEL_PARENT = "parent";
 
+// Deep-link to relationship hook: defensive retry interval used when the
+// target annotation lives on a page the virtualised PDF renderer hasn't
+// materialised yet. Set just longer than a typical page-mount cycle so
+// the second pass reliably picks up the newly-registered ref.
+export const JUMP_TO_RELATIONSHIP_SCROLL_RETRY_MS = 300;
+
 // Document annotation index (within-document TOC)
 // Keep in sync with opencontractserver/constants/annotations.py
 export const DOCUMENT_ANNOTATION_INDEX_LIMIT = 500;

@@ -2,14 +2,22 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
 
-from opencontractserver.annotations.models import Annotation, StructuralAnnotationSet
+from opencontractserver.annotations.models import (
+    Annotation,
+    Relationship,
+    StructuralAnnotationSet,
+)
+from opencontractserver.constants.annotations import (
+    OC_SUBTREE_GROUP_LABEL_NAME,
+)
 from opencontractserver.constants.search import (
     FTS_CONFIG,
     HYBRID_SEARCH_OVERSAMPLE_FACTOR,
@@ -17,6 +25,7 @@ from opencontractserver.constants.search import (
     RERANK_OVERSAMPLE_FACTOR,
     VALID_EMBEDDING_DIMS,
 )
+from opencontractserver.llms.vector_stores.base_vector_store import BaseVectorStore
 from opencontractserver.pipeline.base.reranker import (
     BaseReranker,
     safe_arerank,
@@ -24,11 +33,7 @@ from opencontractserver.pipeline.base.reranker import (
 )
 from opencontractserver.shared.QuerySets import AnnotationQuerySet
 from opencontractserver.types.protocols import VectorStoreProtocol
-from opencontractserver.utils.embeddings import (
-    agenerate_embeddings_from_text,
-    generate_embeddings_from_text,
-    get_embedder,
-)
+from opencontractserver.utils.embeddings import join_block_text_parts
 from opencontractserver.utils.search import reciprocal_rank_fusion
 
 User = get_user_model()
@@ -119,14 +124,29 @@ class VectorSearchQuery:
 
 
 @dataclass
+class BlockContext:
+    """Smallest enclosing ``OC_SUBTREE_GROUP`` for a vector hit."""
+
+    relationship_id: int
+    source_annotation_id: int
+    source_text: str
+    target_annotation_ids: list[int] = field(default_factory=list)
+    # Same bounded string the embedder saw — consumers can render a
+    # snippet without re-fetching annotations.
+    block_text: str = ""
+
+
+@dataclass
 class VectorSearchResult:
     """Framework-agnostic vector search result."""
 
     annotation: Annotation
     similarity_score: float = 1.0
+    # None when the hit isn't inside a materialised OC_SUBTREE_GROUP.
+    block_context: Optional[BlockContext] = None
 
 
-class CoreAnnotationVectorStore:
+class CoreAnnotationVectorStore(BaseVectorStore):
     """Core annotation vector store functionality independent of agent frameworks.
 
     This class encapsulates the business logic for searching annotations using
@@ -159,20 +179,15 @@ class CoreAnnotationVectorStore:
         reranker: Optional[BaseReranker] = None,
         rerank_oversample_factor: int = RERANK_OVERSAMPLE_FACTOR,
     ):
-        # ------------------------------------------------------------------ #
-        # Validation – we need a corpus context unless the caller overrides
-        # the embedder explicitly.
-        # ------------------------------------------------------------------ #
-        if embedder_path is None and corpus_id is None:
-            raise ValueError(
-                "CoreAnnotationVectorStore requires either 'corpus_id' to "
-                "derive an embedder or an explicit 'embedder_path' override."
-            )
-        self.user_id = user_id
-        self.corpus_id = corpus_id
-        self.document_id = document_id
+        # Embedder resolution + corpus/embedder_path validation lives in BaseVectorStore.
+        super().__init__(
+            user_id=user_id,
+            corpus_id=corpus_id,
+            document_id=document_id,
+            embedder_path=embedder_path,
+            embed_dim=embed_dim,
+        )
         self.must_have_text = must_have_text
-        self.embed_dim = embed_dim
         self.only_current_versions = only_current_versions
         self.check_corpus_deletion = check_corpus_deletion
         self.modalities = modalities
@@ -182,38 +197,7 @@ class CoreAnnotationVectorStore:
         # cheap even on the hot path.
         self._reranker_override: Optional[BaseReranker] = reranker
         self.rerank_oversample_factor = max(1, int(rerank_oversample_factor))
-
-        # Auto-detect embedder configuration. The constructor invariant above
-        # guarantees that at least one of ``corpus_id`` / ``embedder_path`` is
-        # provided, so the call below is safe even though ``get_embedder``
-        # rejects ``None`` for ``corpus_id``.
-        if embedder_path is not None:
-            embedder_class, detected_embedder_path = get_embedder(
-                embedder_path=embedder_path,
-            )
-        else:
-            # Explicit check (not `assert`) so the guard survives `python -O`.
-            if corpus_id is None:
-                raise RuntimeError(
-                    "internal invariant violated: corpus_id is None in the "
-                    "embedder-path-absent branch (constructor requires at "
-                    "least one of corpus_id / embedder_path)"
-                )
-            embedder_class, detected_embedder_path = get_embedder(
-                corpus_id=corpus_id,
-            )
-        if detected_embedder_path is None:
-            raise ValueError(
-                "get_embedder() resolved no embedder_path; vector search "
-                "cannot proceed without one. Check corpus.preferred_embedder "
-                "or the global default."
-            )
-        self.embedder_path: str = detected_embedder_path
         _logger.debug(f"Configured embedder path: {self.embedder_path}")
-
-        # Validate or fallback dimension
-        if self.embed_dim not in VALID_EMBEDDING_DIMS:
-            self.embed_dim = getattr(embedder_class, "vector_size", 768)
 
     async def _build_base_queryset(self) -> AnnotationQuerySet:
         """Build the base annotation queryset applying the following rules.
@@ -237,51 +221,15 @@ class CoreAnnotationVectorStore:
         """
         _logger.debug("Building base queryset for vector search")
 
-        # -------------------------------------------------------------------------
-        # SECURITY: Verify user has access to requested document/corpus (IDOR prevention)
-        # This check ensures callers cannot access annotations from documents/corpuses
-        # they don't have permission to view. We use visible_to_user() which returns
-        # empty queryset for both "not found" and "no permission" cases to prevent
-        # enumeration attacks.
-        # -------------------------------------------------------------------------
-        from opencontractserver.corpuses.models import Corpus
+        # IDOR pre-check via BaseVectorStore: deny by empty result for both
+        # "user not found" and "no permission on document/corpus" cases.
         from opencontractserver.documents.models import Document, DocumentPath
 
-        user = None
-        if self.user_id:
-            try:
-                user = await sync_to_async(User.objects.get)(id=self.user_id)
-            except User.DoesNotExist:
-                _logger.warning(f"User ID {self.user_id} not found")
-                return Annotation.objects.none()
-
-        if self.document_id is not None:
-            # Check if user can access this document
-            has_access = await sync_to_async(
-                lambda: Document.objects.visible_to_user(user)
-                .filter(id=self.document_id)
-                .exists()
-            )()
-            if not has_access:
-                _logger.warning(
-                    f"User {self.user_id} denied access to document {self.document_id} "
-                    "in vector search (not found or no permission)"
-                )
-                return Annotation.objects.none()
-
-        if self.corpus_id is not None:
-            # Check if user can access this corpus
-            has_access = await sync_to_async(
-                lambda: Corpus.objects.visible_to_user(user)
-                .filter(id=self.corpus_id)
-                .exists()
-            )()
-            if not has_access:
-                _logger.warning(
-                    f"User {self.user_id} denied access to corpus {self.corpus_id} "
-                    "in vector search (not found or no permission)"
-                )
-                return Annotation.objects.none()
+        user, user_invalid = await self._aresolve_user()
+        if user_invalid:
+            return Annotation.objects.none()
+        if await self._acheck_idor(user):
+            return Annotation.objects.none()
 
         # Select related for fields directly on Annotation or accessed often.
         # Document's M2M to Corpus (corpus_set) is handled by JOINs in filters.
@@ -577,23 +525,150 @@ class CoreAnnotationVectorStore:
         _logger.debug(f"After metadata filters: {queryset.query}")
         return queryset
 
-    def _generate_query_embedding(self, query_text: str) -> Optional[list[float]]:
-        """Generate embeddings from query text synchronously."""
-        _logger.debug(f"Generating embeddings from query string: '{query_text}'")
-        _logger.debug(f"Using embedder path: {self.embedder_path}")
+    # ------------------------------------------------------------------ #
+    # Block-context (OC_SUBTREE_GROUP) augmentation
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _attach_block_context_sync(
+        results: list["VectorSearchResult"],
+        user_id: Union[str, int, None] = None,
+    ) -> list["VectorSearchResult"]:
+        """Populate ``result.block_context`` for hits inside a subtree group.
 
-        embedder_path, vector = generate_embeddings_from_text(
-            query_text,
-            embedder_path=self.embedder_path,
+        Security gate is mechanical: the relationship lookup runs through
+        ``Relationship.objects.visible_to_user`` using ``user_id`` (or
+        ``AnonymousUser`` when ``None``), so the helper cannot leak a
+        block whose parent doc/corpus the caller can't read — even if the
+        annotation-level filter upstream is later loosened or bypassed.
+        Defense in depth complementing the store's visibility queryset.
+        """
+        if not results:
+            return results
+
+        hit_ids = {r.annotation.id for r in results if r.annotation is not None}
+        if not hit_ids:
+            return results
+
+        # Resolve user up front so the manager can apply MIN(doc, corpus)
+        # visibility via ``Document``/``Corpus`` visible_to_user lookups.
+        # ``None`` → ``AnonymousUser`` matches the manager's normalisation.
+        if user_id is None:
+            user: Any = AnonymousUser()
+        else:
+            user = User.objects.filter(id=user_id).first() or AnonymousUser()
+
+        # ``OC_SUBTREE_GROUP`` rows are always structural; filter both on
+        # the label text AND ``structural=True`` so a hypothetical
+        # non-structural relationship with the same label text (e.g. an
+        # analyzer copying the label) cannot pollute block context. The
+        # ``target_annotations__in=hit_ids`` filter is the small side of
+        # the join — typical hit sets are <= ``similarity_top_k`` (≤200).
+        groups = (
+            Relationship.objects.visible_to_user(user)
+            .filter(
+                relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
+                structural=True,
+                target_annotations__in=hit_ids,
+            )
+            .prefetch_related("source_annotations", "target_annotations")
+            .distinct()
         )
 
-        _logger.debug(f"Generated embeddings using embedder: {embedder_path}")
-        if vector is not None:
-            _logger.debug(f"Vector dimension: {len(vector)}")
-        else:
-            _logger.warning("Failed to generate embeddings - vector is None")
+        # Two passes: build hit→best-group map, then fetch every annotation
+        # referenced by a winning group in a single query.
+        #
+        # ``best_for_hit`` keys on annotation_id; value is (descendant_count,
+        # relationship_obj). Tie-break on relationship pk for determinism so
+        # snapshot tests don't flake when two groups share a descendant count.
+        #
+        # We deliberately compute ``descendant_count`` from the prefetched
+        # ``target_annotations`` rather than via ``Count("target_annotations")``
+        # in the queryset. With ``target_annotations__in=hit_ids`` already
+        # joined, Django's COUNT on the same M2M is restricted by the join
+        # and would return only the matching subset (i.e. always 1 here),
+        # collapsing the "smallest enclosing" tie-break to the lowest pk.
+        best_for_hit: dict[int, tuple[int, Relationship]] = {}
+        for group in groups:
+            target_ids_in_group = {a.id for a in group.target_annotations.all()}
+            descendant_count = len(target_ids_in_group)
+            for hit_id in hit_ids & target_ids_in_group:
+                existing = best_for_hit.get(hit_id)
+                if existing is None:
+                    best_for_hit[hit_id] = (descendant_count, group)
+                    continue
+                existing_count, existing_group = existing
+                # Smaller descendant count wins (most-specific enclosing
+                # block). Tie-break by lower relationship pk for stable
+                # ordering across runs.
+                if descendant_count < existing_count or (
+                    descendant_count == existing_count and group.pk < existing_group.pk
+                ):
+                    best_for_hit[hit_id] = (descendant_count, group)
 
-        return vector
+        if not best_for_hit:
+            return results
+
+        # Single fetch for every annotation referenced by a winning group's
+        # source or target set — keyed by ID so block_text assembly is O(N).
+        referenced_ann_ids: set[int] = set()
+        for _, winner_group in best_for_hit.values():
+            referenced_ann_ids.update(
+                a.id for a in winner_group.source_annotations.all()
+            )
+            referenced_ann_ids.update(
+                a.id for a in winner_group.target_annotations.all()
+            )
+        ann_text_map = dict(
+            Annotation.objects.filter(id__in=referenced_ann_ids).values_list(
+                "id", "raw_text"
+            )
+        )
+
+        for r in results:
+            if r.annotation is None:
+                continue
+            winner = best_for_hit.get(r.annotation.id)
+            if winner is None:
+                continue
+            _, hit_group = winner
+            source_ann = next(iter(hit_group.source_annotations.all()), None)
+            if source_ann is None:
+                # An OC_SUBTREE_GROUP without a source annotation is
+                # malformed (the materialiser always sets one). Skip
+                # silently rather than fabricate a context.
+                continue
+            target_ann_ids = sorted(a.id for a in hit_group.target_annotations.all())
+            source_text = ann_text_map.get(source_ann.id, "") or ""
+            # Order targets by ID for deterministic snapshots; the
+            # materialiser doesn't preserve a semantic ordering so any
+            # stable choice is fine. ``join_block_text_parts`` enforces
+            # SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS identically to the
+            # embedder so block_text matches what was indexed.
+            chunks: list[str] = [source_text]
+            chunks.extend(ann_text_map.get(tid, "") or "" for tid in target_ann_ids)
+            block_text = join_block_text_parts(chunks)
+
+            r.block_context = BlockContext(
+                relationship_id=hit_group.pk,
+                source_annotation_id=source_ann.id,
+                source_text=source_text,
+                target_annotation_ids=target_ann_ids,
+                block_text=block_text,
+            )
+
+        return results
+
+    async def _aattach_block_context(
+        self, results: list["VectorSearchResult"]
+    ) -> list["VectorSearchResult"]:
+        """Async wrapper around :meth:`_attach_block_context_sync`."""
+        # One sync_to_async per call — the whole pass shares the same
+        # M2M joins, so splitting would buy nothing.
+        return await sync_to_async(self._attach_block_context_sync)(
+            results, self.user_id
+        )
+
+    # Sync + async query-embedding generation are inherited from BaseVectorStore.
 
     # ------------------------------------------------------------------ #
     # Reranker plumbing
@@ -691,26 +766,6 @@ class CoreAnnotationVectorStore:
                 VectorSearchResult(annotation=src.annotation, similarity_score=r.score)
             )
         return reordered
-
-    async def _agenerate_query_embedding(
-        self, query_text: str
-    ) -> Optional[list[float]]:
-        """Generate embeddings from query text asynchronously."""
-        _logger.debug(f"Async generating embeddings from query string: '{query_text}'")
-        _logger.debug(f"Using embedder path: {self.embedder_path}")
-
-        embedder_path, vector = await agenerate_embeddings_from_text(
-            query_text,
-            embedder_path=self.embedder_path,
-        )
-
-        _logger.debug(f"Generated embeddings using embedder: {embedder_path}")
-        if vector is not None:
-            _logger.debug(f"Vector dimension: {len(vector)}")
-        else:
-            _logger.warning("Failed to generate embeddings - vector is None")
-
-        return vector
 
     def search(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
         """Execute a vector search query and return results.
@@ -816,9 +871,13 @@ class CoreAnnotationVectorStore:
             )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
-        return self._apply_rerank(
+        reranked = self._apply_rerank(
             results, query.query_text, query.similarity_top_k, reranker
         )
+        # Attach containing-subtree block context AFTER reranking so the
+        # extra DB hop is bounded by the final top_k count rather than the
+        # oversampled first-stage pool.
+        return self._attach_block_context_sync(reranked, self.user_id)
 
     @staticmethod
     def _fuse_results(
@@ -967,9 +1026,10 @@ class CoreAnnotationVectorStore:
             _logger.debug(f"Hybrid: full-text arm returned {len(text_results)} results")
 
         fused = self._fuse_results(vector_results, text_results, fusion_top_k)
-        return self._apply_rerank(
+        reranked = self._apply_rerank(
             fused, query.query_text, query.similarity_top_k, reranker
         )
+        return self._attach_block_context_sync(reranked, self.user_id)
 
     async def async_hybrid_search(
         self, query: VectorSearchQuery
@@ -1037,9 +1097,10 @@ class CoreAnnotationVectorStore:
             _logger.debug(f"Hybrid: full-text arm returned {len(text_results)} results")
 
         fused = self._fuse_results(vector_results, text_results, fusion_top_k)
-        return await self._aapply_rerank(
+        reranked = await self._aapply_rerank(
             fused, query.query_text, query.similarity_top_k, reranker
         )
+        return await self._aattach_block_context(reranked)
 
     @classmethod
     def global_search(
@@ -1186,7 +1247,12 @@ class CoreAnnotationVectorStore:
             )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
-        return cls._rerank_results(results, query_text, top_k, reranker)
+        reranked = cls._rerank_results(results, query_text, top_k, reranker)
+        # Block-context attach is independent of the per-instance store
+        # state, so the classmethod path can call the @staticmethod helper
+        # directly. Pass user_id so the helper's mechanical visibility
+        # gate uses the same user as the global_search permission filter.
+        return cls._attach_block_context_sync(reranked, user_id)
 
     @classmethod
     async def async_global_search(
@@ -1315,9 +1381,10 @@ class CoreAnnotationVectorStore:
         # (the text path was intercepted above and routed to async_hybrid_search).
         # _aapply_rerank is still called so it can trim to top_k; it short-
         # circuits on empty query_text without invoking the reranker.
-        return await self._aapply_rerank(
+        reranked = await self._aapply_rerank(
             results, query.query_text, query.similarity_top_k, reranker
         )
+        return await self._aattach_block_context(reranked)
 
 
 # Re-exported so downstream callers can annotate against the protocol.

@@ -213,8 +213,20 @@ class AnnotationLabel(BaseOCModel):
         return super().save(*args, **kwargs)
 
 
-class Relationship(BaseOCModel):
+class Relationship(BaseOCModel, HasEmbeddingMixin):
+    """A directed relationship between annotations.
+
+    Inherits ``HasEmbeddingMixin`` so the materialised ``OC_SUBTREE_GROUP``
+    rows can be embedded and searched directly (issue #1645). The mixin
+    routes ``add_embedding(...)`` through ``Embedding.objects.store_embedding``
+    keyed on ``relationship_id=self.pk``.
+    """
+
     objects = RelationshipManager()  # type: ignore[misc]
+
+    def get_embedding_reference_kwargs(self) -> dict[str, Any]:
+        """Wire the polymorphic ``Embedding.relationship`` FK to this row."""
+        return {"relationship_id": self.pk}
 
     relationship_label = django.db.models.ForeignKey(
         "AnnotationLabel",
@@ -506,6 +518,19 @@ class Embedding(BaseOCModel):
         blank=True,
         help_text="References the ChatMessage that this embedding belongs to (if any).",
     )
+    # Polymorphic parent #6: Relationship. Currently populated only for
+    # ``OC_SUBTREE_GROUP`` rows materialised by
+    # ``opencontractserver/utils/subtree_groups.py`` so semantic search can
+    # surface containing blocks as first-class hits (issue #1645). Other
+    # relationship types are not embedded today.
+    relationship = django.db.models.ForeignKey(
+        "annotations.Relationship",
+        related_name="embedding_set",
+        on_delete=django.db.models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="References the Relationship this embedding belongs to (if any).",
+    )
 
     # Required: NULL would silently bypass the partial unique constraints below.
     embedder_path = django.db.models.CharField(
@@ -549,11 +574,13 @@ class Embedding(BaseOCModel):
                 bool(self.note),
                 bool(self.conversation),
                 bool(self.message),
+                bool(self.relationship),
             ]
         )
         if parent_references == 0:
             raise ValueError(
-                "Embedding must reference at least one of Document, Annotation, Note, Conversation, or ChatMessage."
+                "Embedding must reference at least one of Document, Annotation, "
+                "Note, Conversation, ChatMessage, or Relationship."
             )
         # If you want to enforce "exactly one," just check parent_references != 1
 
@@ -625,6 +652,11 @@ class Embedding(BaseOCModel):
                 fields=["embedder_path", "message"],
                 condition=django.db.models.Q(message__isnull=False),
                 name="unique_embedding_per_message_embedder",
+            ),
+            django.db.models.UniqueConstraint(
+                fields=["embedder_path", "relationship"],
+                condition=django.db.models.Q(relationship__isnull=False),
+                name="unique_embedding_per_relationship_embedder",
             ),
         ]
         verbose_name = "Embedding"
