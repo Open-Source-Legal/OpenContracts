@@ -1154,6 +1154,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 user=info.context.user,
                 document=self,
                 corpus=corpus,
+                request=info.context,
             )
         except Corpus.DoesNotExist:
             return None

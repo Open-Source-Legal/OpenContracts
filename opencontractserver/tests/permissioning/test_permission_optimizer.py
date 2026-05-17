@@ -181,6 +181,49 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         again = get_users_permissions_for_obj(user=admin, instance=corpus)
         self.assertEqual(again, granted)
 
+    def test_refresh_from_db_does_not_clear_tier1_cache(self):
+        """Negative regression guard: ``refresh_from_db()`` does NOT clear
+        Tier 1.
+
+        The cache is keyed by ``(user_id, include_group_permissions)`` and
+        attached to the instance under
+        ``_oc_granted_perms_cache``. Django's
+        ``refresh_from_db`` reloads field values from the row but does
+        not clear arbitrary instance attributes, so the cached frozenset
+        survives. This is by design (the contract pinned in
+        ``constants/permissioning.py``) — long-lived Celery instances or
+        any code that mutates guardian permissions out-of-band must
+        ``del instance._oc_granted_perms_cache`` to force a re-read.
+
+        We pin both sides of the contract:
+          1. ``refresh_from_db`` leaves the cache attribute attached.
+          2. ``delattr(instance, INSTANCE_PERMS_CACHE_ATTR)`` is the
+             documented workaround and causes the next call to re-hit
+             the DB.
+        """
+
+        corpus = self._fresh_corpus()
+        # Warm the cache.
+        self.assertTrue(corpus.user_can(self.reader, PermissionTypes.READ))
+        self.assertTrue(hasattr(corpus, INSTANCE_PERMS_CACHE_ATTR))
+
+        # refresh_from_db reloads model fields but leaves the cache
+        # attribute attached — this is the known footgun.
+        corpus.refresh_from_db()
+        self.assertTrue(
+            hasattr(corpus, INSTANCE_PERMS_CACHE_ATTR),
+            "refresh_from_db must NOT clear the perm cache — that contract "
+            "is documented in constants/permissioning.py and any change to "
+            "this behaviour needs a coordinated invalidation strategy.",
+        )
+
+        # The documented workaround: explicit delattr.
+        delattr(corpus, INSTANCE_PERMS_CACHE_ATTR)
+        self.assertFalse(hasattr(corpus, INSTANCE_PERMS_CACHE_ATTR))
+        # Next call re-warms from scratch (i.e. it ran the cold path).
+        self.assertTrue(corpus.user_can(self.reader, PermissionTypes.READ))
+        self.assertTrue(hasattr(corpus, INSTANCE_PERMS_CACHE_ATTR))
+
     def test_direct_call_with_prefetched_guardian_perms_warms_cache(self):
         """The fast-path return at the prefetched-perms branch also caches.
 

@@ -357,6 +357,7 @@ class UserFeedbackManager(BaseVisibilityManager):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``UserFeedback``.
 
@@ -389,6 +390,7 @@ class UserFeedbackManager(BaseVisibilityManager):
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def get_or_none(self, *args: Any, **kwargs: Any) -> Any | None:
@@ -464,6 +466,7 @@ class DocumentManager(BaseVisibilityManager):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Document``.
 
@@ -483,6 +486,7 @@ class DocumentManager(BaseVisibilityManager):
             instance,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
     def search_by_embedding(
@@ -626,6 +630,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Annotation``.
 
@@ -739,6 +744,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
                     source_analysis,
                     permission,
                     include_group_permissions=include_group_permissions,
+                    request=request,
                 ):
                     return False
             elif extract_id:
@@ -752,6 +758,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
                     source_extract,
                     permission,
                     include_group_permissions=include_group_permissions,
+                    request=request,
                 ):
                     return False
 
@@ -835,6 +842,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Note``.
 
@@ -901,6 +909,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
             doc,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         ):
             return False
 
@@ -915,6 +924,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
             corpus,
             permission,
             include_group_permissions=include_group_permissions,
+            request=request,
         )
 
 
@@ -1000,6 +1010,7 @@ class RelationshipManager(BaseVisibilityManager):
         permission: Any,
         *,
         include_group_permissions: bool = True,
+        request: Any = None,
     ) -> bool:
         """Single-object authorization check for ``Relationship``.
 
