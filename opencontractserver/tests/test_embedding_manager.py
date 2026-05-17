@@ -72,8 +72,24 @@ class EmbeddingManagerStoreEmbeddingTest(TestCase):
             )
 
         self.assertIn(
-            "Must provide one of document_id, annotation_id, note_id, "
-            "conversation_id, or message_id",
+            "Must provide exactly one of document_id, annotation_id, note_id, "
+            "conversation_id, message_id, or relationship_id",
+            str(context.exception),
+        )
+
+    def test_store_embedding_multiple_parent_ids_raises_value_error(self):
+        """Two parent FKs is just as wrong as zero — both must be rejected."""
+        with self.assertRaises(ValueError) as context:
+            Embedding.objects.store_embedding(
+                creator=self.user,
+                embedder_path="test.embedder",
+                vector=[0.1] * 384,
+                dimension=384,
+                document_id=self.document.id,
+                annotation_id=12345,
+            )
+        self.assertIn(
+            "Must provide exactly one of",
             str(context.exception),
         )
 

@@ -461,7 +461,7 @@ class TestPydanticAIAgents(TransactionTestCase):
         self.assertIn("query_text", params)
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     async def test_pydantic_ai_agent_with_vector_search_tool(
         self, mock_gen_embeds: MagicMock

@@ -487,3 +487,223 @@ class SemanticSearchPermissionTest(TestCase):
                 "Hidden annotation",
                 "Private annotation from inaccessible document should not be visible",
             )
+
+
+class SemanticSearchRelationshipsQueryTest(TestCase):
+    """Tests for the ``semantic_search_relationships`` GraphQL resolver
+    (issue #1645). Covers basic dispatch, scoping, the IDOR contract,
+    pagination/limit cap, and the anonymous-rejection path."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="rel-graphql-user", password="pw")
+        self.other_user = User.objects.create_user(
+            username="rel-graphql-other", password="pw"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Rel GraphQL Corpus",
+            creator=self.user,
+            preferred_embedder=get_default_embedder_path(),
+            is_public=True,
+        )
+        self.document = Document.objects.create(
+            title="Rel GraphQL Doc",
+            creator=self.user,
+            is_public=True,
+        )
+        self.client = Client(schema, context_value=TestContext(self.user))
+
+    def _query(self) -> str:
+        return """
+            query Q($q: String!, $corpusId: ID, $documentId: ID, $limit: Int, $offset: Int) {
+                semanticSearchRelationships(
+                    query: $q,
+                    corpusId: $corpusId,
+                    documentId: $documentId,
+                    limit: $limit,
+                    offset: $offset,
+                ) {
+                    relationshipId
+                    similarityScore
+                    label
+                    sourceAnnotationId
+                    targetAnnotationIds
+                    blockText
+                    documentId
+                    corpusId
+                }
+            }
+        """
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_basic_dispatch_returns_list(self, mock_get_embedder) -> None:
+        """Resolver returns a list (possibly empty) and never errors when
+        there are simply no embedded relationships yet."""
+        mock_get_embedder.return_value = MockEmbedder
+        result = self.client.execute(self._query(), variables={"q": "anything"})
+        self.assertIsNone(result.get("errors"))
+        self.assertIsInstance(result["data"]["semanticSearchRelationships"], list)
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_corpus_scoped_uses_global_id(self, mock_get_embedder) -> None:
+        """Passing a Relay global corpus_id is parsed back to a raw PK
+        before hitting the visibility filter, so the resolver doesn't
+        500 on the standard client payload."""
+        mock_get_embedder.return_value = MockEmbedder
+        cid = to_global_id("CorpusType", self.corpus.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "corpusId": cid}
+        )
+        self.assertIsNone(result.get("errors"))
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_document_scoped_uses_global_id(self, mock_get_embedder) -> None:
+        """Same Relay parse contract for document_id."""
+        mock_get_embedder.return_value = MockEmbedder
+        did = to_global_id("DocumentType", self.document.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "documentId": did}
+        )
+        self.assertIsNone(result.get("errors"))
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_idor_invisible_corpus_returns_empty_list(self, mock_get_embedder) -> None:
+        """Same-shaped empty list whether the corpus is missing OR
+        belongs to someone else — prevents enumeration via error or
+        timing differences."""
+        mock_get_embedder.return_value = MockEmbedder
+        private_corpus = Corpus.objects.create(
+            title="Private Corpus",
+            creator=self.other_user,
+            is_public=False,
+        )
+        cid = to_global_id("CorpusType", private_corpus.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "corpusId": cid}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(result["data"]["semanticSearchRelationships"], [])
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_idor_invisible_document_returns_empty_list(
+        self, mock_get_embedder
+    ) -> None:
+        """Same IDOR contract for document scoping."""
+        mock_get_embedder.return_value = MockEmbedder
+        private_doc = Document.objects.create(
+            title="Private Doc",
+            creator=self.other_user,
+            is_public=False,
+        )
+        did = to_global_id("DocumentType", private_doc.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "documentId": did}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(result["data"]["semanticSearchRelationships"], [])
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_limit_is_capped(self, mock_get_embedder) -> None:
+        """``limit`` above ``SEMANTIC_SEARCH_MAX_RESULTS`` is silently
+        clamped — never errors."""
+        mock_get_embedder.return_value = MockEmbedder
+        result = self.client.execute(self._query(), variables={"q": "x", "limit": 9999})
+        self.assertIsNone(result.get("errors"))
+
+    def test_anonymous_rejected(self) -> None:
+        """``@login_required`` must reject anonymous callers."""
+
+        class AnonymousContext:
+            user = None
+
+        anon = Client(schema, context_value=AnonymousContext())
+        result = anon.execute(self._query(), variables={"q": "x"})
+        self.assertIsNotNone(result.get("errors"))
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_both_corpus_and_document_dispatch_succeeds(
+        self, mock_get_embedder
+    ) -> None:
+        """Both filters set + both visible → resolver succeeds.
+
+        The store ANDs the two filters so a relationship must match both
+        scopes; this just guards the dispatch path against errors.
+        """
+        mock_get_embedder.return_value = MockEmbedder
+        cid = to_global_id("CorpusType", self.corpus.id)
+        did = to_global_id("DocumentType", self.document.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "corpusId": cid, "documentId": did}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertIsInstance(result["data"]["semanticSearchRelationships"], list)
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_both_corpus_and_document_unrelated_returns_empty(
+        self, mock_get_embedder
+    ) -> None:
+        """Both visible to the user but the document is NOT in the corpus.
+
+        Each IDOR check passes independently — combined filter must still
+        return ``[]`` because no relationship sits in both scopes.
+        """
+        mock_get_embedder.return_value = MockEmbedder
+        # Independent doc + corpus, both visible, no DocumentPath linking them.
+        other_doc = Document.objects.create(
+            title="Unrelated Doc",
+            creator=self.user,
+            is_public=True,
+        )
+        cid = to_global_id("CorpusType", self.corpus.id)
+        did = to_global_id("DocumentType", other_doc.id)
+        result = self.client.execute(
+            self._query(), variables={"q": "x", "corpusId": cid, "documentId": did}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(result["data"]["semanticSearchRelationships"], [])
+
+
+class SemanticSearchBlockContextFieldTest(TestCase):
+    """Covers the BlockContext mapping inside ``resolve_semantic_search``
+    (issue #1645). Even when the underlying store has no embedded subtree
+    groups to surface, exercising the field selection guards the GraphQL
+    type wiring against schema drift."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(
+            username="block-ctx-gql-user", password="pw"
+        )
+        self.corpus = Corpus.objects.create(
+            title="BC Corpus",
+            creator=self.user,
+            preferred_embedder=get_default_embedder_path(),
+            is_public=True,
+        )
+        self.document = Document.objects.create(
+            title="BC Doc", creator=self.user, is_public=True
+        )
+        self.client = Client(schema, context_value=TestContext(self.user))
+
+    @patch("opencontractserver.pipeline.utils.get_default_embedder")
+    def test_block_context_field_is_queryable(self, mock_get_embedder) -> None:
+        """Requesting the ``blockContext`` selection set on
+        ``semanticSearch`` should resolve cleanly (the mapping path is
+        exercised even when results are empty)."""
+        mock_get_embedder.return_value = MockEmbedder
+        query = """
+            query Q($q: String!) {
+                semanticSearch(query: $q) {
+                    annotation { id }
+                    similarityScore
+                    blockContext {
+                        relationshipId
+                        sourceAnnotationId
+                        sourceText
+                        targetAnnotationIds
+                        blockText
+                    }
+                }
+            }
+        """
+        result = self.client.execute(query, variables={"q": "anything"})
+        self.assertIsNone(result.get("errors"))
+        self.assertIn("semanticSearch", result["data"])

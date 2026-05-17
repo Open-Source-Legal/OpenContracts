@@ -320,6 +320,56 @@ class CommunityStatsType(graphene.ObjectType):
 
 
 # ---------------- Semantic Search Types ----------------
+class BlockContextType(graphene.ObjectType):
+    """The smallest enclosing ``OC_SUBTREE_GROUP`` block for a vector hit.
+
+    Lets clients deep-link directly to the materialised subtree relationship
+    (``Relationship.id``) instead of recursively walking ``parent_id`` —
+    used by the document viewer's "jump to surfaced block" affordance.
+    """
+
+    relationship_id = graphene.ID(
+        required=True,
+        description=(
+            "Database PK of the OC_SUBTREE_GROUP relationship. NOTE: this "
+            "is the raw Django PK (matching ``Relationship.id``), NOT a "
+            "global Relay ID — frontend deep-links pass it through directly."
+        ),
+    )
+    source_annotation_id = graphene.ID(
+        required=True,
+        description=(
+            "PK of the ancestor annotation that anchors this block. Useful "
+            "for highlighting the block root in the document viewer."
+        ),
+    )
+    source_text = graphene.String(
+        required=True,
+        description=(
+            "Raw text of the ancestor annotation. May be empty for "
+            "image-only structural rows; clients should treat empty as "
+            "valid rather than missing."
+        ),
+    )
+    target_annotation_ids = graphene.List(
+        graphene.NonNull(graphene.ID),
+        required=True,
+        description=(
+            "PKs of every annotation transitively under the block source — "
+            "i.e. the descendants the document viewer should also "
+            "highlight when jumping to this block."
+        ),
+    )
+    block_text = graphene.String(
+        required=True,
+        description=(
+            "Source + targets concatenated newline-separated, capped at "
+            "``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` characters. Safe to "
+            "render directly; no further truncation needed."
+        ),
+    )
+
+
 class SemanticSearchResultType(graphene.ObjectType):
     """
     Result type for semantic (vector) search across annotations.
@@ -350,6 +400,14 @@ class SemanticSearchResultType(graphene.ObjectType):
         lambda: _get_corpus_type(),
         description="The corpus containing this annotation, if any",
     )
+    block_context = graphene.Field(
+        BlockContextType,
+        description=(
+            "Smallest enclosing OC_SUBTREE_GROUP subtree for this hit, "
+            "or null when the annotation has no materialised containing "
+            "block (root structural rows, legacy documents)."
+        ),
+    )
 
     def resolve_document(self, info) -> Any:
         """Resolve the document from the annotation."""
@@ -362,6 +420,82 @@ class SemanticSearchResultType(graphene.ObjectType):
         if self.annotation:
             return self.annotation.corpus
         return None
+
+
+class SemanticSearchRelationshipResultType(graphene.ObjectType):
+    """Semantic search hit where the matched object is a *Relationship*.
+
+    Surfaces ``OC_SUBTREE_GROUP`` rows (or, in the future, any embedded
+    relationship type) ranked by vector similarity. The doc viewer uses
+    ``source_annotation_id`` + ``target_annotation_ids`` to scroll-and-select
+    the whole block in a single navigation, mirroring the existing
+    ``RelationGroup`` selection flow.
+
+    ID convention
+    -------------
+    ``relationship_id``, ``source_annotation_id``, ``target_annotation_ids``,
+    ``document_id``, and ``corpus_id`` are ALL raw Django PKs (not Relay
+    global IDs). The frontend deep-link path consumes them directly without
+    ``from_global_id``. Do NOT feed these values into resolvers that expect
+    a Relay global ID (e.g. ``node(id: $documentId)``) — they will silently
+    fail. Use the corresponding Relay-encoded type if you need that contract.
+    """
+
+    relationship_id = graphene.ID(
+        required=True,
+        description=(
+            "Database PK of the Relationship. NOTE: this is the raw Django "
+            "PK (matching ``Relationship.id``), NOT a global Relay ID — "
+            "frontend deep-links and selection setters pass it through "
+            "directly without ``from_global_id``."
+        ),
+    )
+    similarity_score = graphene.Float(
+        required=True,
+        description="Cosine similarity (0.0-1.0, higher is more similar).",
+    )
+    label = graphene.String(
+        description=(
+            "Relationship label text (e.g. ``OC_SUBTREE_GROUP``). Provided "
+            "so callers can filter or branch on the relationship kind "
+            "without a follow-up fetch."
+        ),
+    )
+    source_annotation_id = graphene.ID(
+        description=(
+            "PK of the (typically single) source annotation — the block's "
+            "root. Null only when the relationship has no source row, "
+            "which the materialiser does not produce but defensive "
+            "frontends should still handle."
+        ),
+    )
+    target_annotation_ids = graphene.List(
+        graphene.NonNull(graphene.ID),
+        required=True,
+        description="PKs of the relationship's target annotations.",
+    )
+    block_text = graphene.String(
+        required=True,
+        description=(
+            "Source + targets concatenated newline-separated, capped at "
+            "``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` — the same string the "
+            "embedder saw, suitable for snippet display."
+        ),
+    )
+    document_id = graphene.ID(
+        description=(
+            "PK of the document this relationship is anchored to (or that "
+            "shares the ``StructuralAnnotationSet`` for structural rows). "
+            "Null when the relationship is global and not tied to any "
+            "single document."
+        ),
+    )
+    corpus_id = graphene.ID(
+        description=(
+            "PK of the corpus this relationship belongs to. Null for "
+            "non-corpus relationships."
+        ),
+    )
 
 
 def _get_document_type() -> Any:

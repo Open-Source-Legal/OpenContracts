@@ -242,6 +242,18 @@ describe("getDocumentUrl()", () => {
       expect(url).toContain("extract=4");
     });
 
+    it("should append relationship id deep-link for semantic search jumps", () => {
+      // Issue #1645: ``rel=`` is consumed by ``useJumpToRelationship`` —
+      // the URL builder must emit it alongside ``ann=`` so the doc viewer
+      // can both scroll AND highlight the relation lines.
+      const url = getDocumentUrl(mockDocument, mockCorpus, {
+        annotationIds: ["1", "2", "3"],
+        relationshipId: "42",
+      });
+      expect(url).toContain("ann=1%2C2%2C3");
+      expect(url).toContain("rel=42");
+    });
+
     it("should return # with params when slugs missing", () => {
       const invalidDoc = { ...mockDocument, slug: "" };
       const url = getDocumentUrl(invalidDoc as DocumentType, null, {

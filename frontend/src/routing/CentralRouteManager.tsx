@@ -31,6 +31,7 @@ import {
   selectedTab,
   selectedMessageId,
   selectedNoteId,
+  selectedRelationshipId,
   selectedDocVersion,
   corpusHomeView,
   tocExpandAll,
@@ -896,6 +897,11 @@ export function CentralRouteManager() {
     const tab = searchParams.get("tab");
     const messageId = searchParams.get("message");
     const noteId = searchParams.get("note");
+    // URL-driven relationship selection — set by the "jump to surfaced
+    // relationship" navigation from semantic search results (issue #1645).
+    // The PK is passed through as-is because the backend resolver uses
+    // raw Django PKs for relationships rather than Relay global IDs.
+    const relationshipId = searchParams.get("rel");
     const homeViewParam = searchParams.get("homeView");
     const tocExpandedParam = searchParams.get("tocExpanded") === "true";
     const detailViewParam = searchParams.get("view");
@@ -946,6 +952,7 @@ export function CentralRouteManager() {
     const currentTab = selectedTab();
     const currentMessageId = selectedMessageId();
     const currentNoteId = selectedNoteId();
+    const currentRelationshipId = selectedRelationshipId();
     const currentHomeView = corpusHomeView();
     const currentTocExpandAll = tocExpandAll();
     const currentDetailView = corpusDetailView();
@@ -1008,6 +1015,9 @@ export function CentralRouteManager() {
     }
     if (currentNoteId !== noteId) {
       updates.push(() => selectedNoteId(noteId));
+    }
+    if (currentRelationshipId !== relationshipId) {
+      updates.push(() => selectedRelationshipId(relationshipId));
     }
     if (currentHomeView !== newHomeView) {
       updates.push(() => corpusHomeView(newHomeView));
