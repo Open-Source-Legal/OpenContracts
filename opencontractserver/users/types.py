@@ -33,6 +33,17 @@ def resolve_user_or_anon(user_id: int | None) -> UserOrAnonymous:
     invoke this from inside the same ``sync_to_async`` block as the ORM
     query that consumes the result; calling it bare from an async
     function will raise ``SynchronousOnlyOperation``.
+
+    **Caller contract — stale ``user_id``.** This function deliberately
+    propagates ``User.DoesNotExist`` when ``user_id`` doesn't match a
+    row, rather than silently demoting to :class:`AnonymousUser`. A stale
+    id usually means the persisted ``creator_id`` / ``AgentConfig.user_id``
+    points at a deleted account, and silent demotion would broaden access
+    (a deleted creator's private content would suddenly resolve through
+    the AnonymousUser visibility path). Callers that legitimately accept
+    "user has been deleted, treat as anonymous" — for example a public
+    summary view of an orphaned corpus — must catch ``User.DoesNotExist``
+    at their own boundary and choose the right fallback for their context.
     """
 
     if user_id is None:

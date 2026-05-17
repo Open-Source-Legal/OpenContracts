@@ -320,7 +320,7 @@ class TestDocumentService_CreateDocument(TestCase):
             description="from test",
             is_public=False,
         )
-        self.assertIsNotNone(doc, f"create_document failed: {err}")
+        assert doc is not None, f"create_document failed: {err}"
         self.assertEqual(err, "")
         self.assertEqual(doc.file_type, "application/pdf")
         self.assertTrue(doc.pdf_file)
@@ -345,7 +345,7 @@ class TestDocumentService_CreateDocument(TestCase):
             filename="notes.txt",
             title="Notes",
         )
-        self.assertIsNotNone(doc, f"create_document failed: {err}")
+        assert doc is not None, f"create_document failed: {err}"
         self.assertEqual(err, "")
         self.assertEqual(doc.file_type, "text/plain")
         self.assertTrue(doc.txt_extract_file)

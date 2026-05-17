@@ -24,6 +24,7 @@ from config.graphql.graphene_types import (
     FieldsetType,
 )
 from config.telemetry import record_event
+from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
@@ -798,10 +799,6 @@ class CreateExtract(graphene.Mutation):
             # against the requesting user before the mass-add (the create
             # mutation already gated on corpus access upstream; this just
             # keeps the data path through one entry point).
-            from opencontractserver.corpuses.corpus_objs_service import (
-                CorpusObjsService,
-            )
-
             extract.documents.add(
                 *CorpusObjsService.get_corpus_documents(
                     user=info.context.user, corpus=corpus

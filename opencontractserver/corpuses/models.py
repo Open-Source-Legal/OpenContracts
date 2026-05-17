@@ -1250,6 +1250,22 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         """
         INTERNAL: corpus documents with no permission check.
 
+        **API note on the underscore prefix.** Despite the leading
+        underscore, this method *is* the blessed cross-module API for
+        non-user-context callers — Celery tasks, signal handlers, badge
+        / corpus / analyzer task batches, and the LLM-tool helpers that
+        run without a request. The underscore is load-bearing on the
+        Manager/QuerySet contract: it signals "do not call from a
+        user-context resolver / view / mutation"; ``get_documents()``
+        is the deprecated public alias that emits a warning. Renaming
+        away from the underscore would require simultaneously renaming
+        the public alias and updating ~10 call sites; the current shape
+        is the trade-off between Python convention and reviewer
+        clarity. Cross-module callers (`badge_tasks`, `corpus_tasks`,
+        `sharing`, `analyzer`, the LLM-tool helpers, etc.) are
+        intentional and approved — see the deprecation notice on
+        ``get_documents()`` below.
+
         Returns all documents with an active, non-deleted ``DocumentPath`` in
         this corpus.  Reserved for Celery tasks, signal handlers, and the
         corpus-objs service itself, where the caller has already verified

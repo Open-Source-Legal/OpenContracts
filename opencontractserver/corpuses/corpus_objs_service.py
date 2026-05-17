@@ -113,6 +113,20 @@ class CorpusObjsService:
         """
         Verify that a document belongs to a corpus.
 
+        **NO PERMISSION CHECK.** This method is a raw membership query
+        against ``DocumentPath`` — it does NOT verify that the caller can
+        see the corpus or the document. Callers MUST gate corpus READ
+        (typically via ``CorpusObjsService.get_corpus_documents(...)``,
+        ``Corpus.objects.visible_to_user(...).get(pk=...)``, or an
+        equivalent ``user_can(... READ)`` check) BEFORE calling this.
+
+        Used as a low-level post-condition inside service methods that
+        have already enforced READ; exposed publicly (no underscore) so
+        the GraphQL surface can compose it with already-checked corpus
+        / document instances. If you find yourself calling this in a
+        new resolver, ask whether ``get_corpus_document_by_id`` (which
+        gates corpus READ for you) is the better entry point.
+
         Args:
             document: The document to check
             corpus: The corpus to check membership in
@@ -245,6 +259,16 @@ class CorpusObjsService:
         folders = cls.get_visible_folders(user, corpus_id)
 
         # Build lookup dict
+        # TODO(#1685 follow-up): the ``get_path()`` and ``get_document_count()``
+        # calls inside this loop each run a query — ``get_path()`` is a
+        # recursive CTE (TreeNode) and ``get_document_count()`` is a per-folder
+        # COUNT. For corpora with many folders this is O(N) DB round-trips
+        # per tree fetch. The parent map is already in memory (every folder
+        # in ``folder_dict`` knows its ``parentId``); paths can be built up
+        # in Python once the dict is populated, and document counts could be
+        # aggregated via ``CorpusFolder.objects.filter(corpus_id=corpus_id)
+        # .annotate(doc_count=Count("documents"))`` ahead of the loop.
+        # Left as a follow-up rather than scope-creep on the service split.
         folder_dict: dict[int, dict] = {}
         for folder in folders:
             folder_dict[folder.id] = {
@@ -2515,6 +2539,17 @@ class CorpusObjsService:
             path_qs = path_qs.filter(is_deleted=False)
 
         doc_ids = path_qs.values_list("document_id", flat=True)
+        # ``.distinct()`` is defensive, not load-bearing. ``DocumentPath`` has
+        # no DB constraint preventing multiple ``is_current=True`` rows for the
+        # same ``(corpus, document)`` pair — only ``unique_active_path_per_corpus``
+        # (``(corpus, path)`` where ``is_current=True AND is_deleted=False``).
+        # That means an aliased / renamed current path *or* an
+        # include_deleted=True query that picks up both a soft-deleted current
+        # path and a non-deleted current path could surface the same
+        # ``document_id`` twice. The distinct() collapses those defensively
+        # so the downstream service contract ("one document per row") holds
+        # regardless of whether the rare duplicate path arises. Cheap on PG
+        # against the small per-corpus working set.
         qs = Document.objects.filter(pk__in=doc_ids).distinct()
         if not include_caml:
             qs = qs.exclude(file_type=MARKDOWN_MIME_TYPE)
