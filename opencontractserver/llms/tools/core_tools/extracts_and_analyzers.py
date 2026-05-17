@@ -97,6 +97,15 @@ def _resolve_target_document_ids(
 
     Intersects with ``corpus.get_documents()`` so the agent can never
     escape the corpus scope it was created in.
+
+    Memory note: materialises every corpus document ID into a Python set so
+    the intersection can short-circuit cleanly in worker threads. Fine for
+    typical corpora (low thousands), but for corpora in the tens of
+    thousands of documents this synchronous load blocks the thread-pool
+    worker. If that becomes the hot path, push the intersection down into
+    SQL via ``Document.objects.filter(pk__in=requested_ids,
+    corpus_in_use=corpus)`` (or an EXISTS subquery on
+    ``corpus.documents.through``) instead of materialising the set here.
     """
     corpus_doc_ids = set(corpus.get_documents().values_list("id", flat=True))
 
@@ -518,6 +527,17 @@ def start_analysis(
 
     # widened for process_analyzer's list[str | int] param (list[int] is invariant)
     widened_ids: list[str | int] = list(target_ids)
+    # analysis_input_data is intentionally NOT validated here against
+    # analyzer.input_schema. Validation is the per-analyzer task's
+    # responsibility (the schema is a freeform JSON-Schema sourced from
+    # the analyzer's Python decorator), and ``run_task_name_analyzer``
+    # spreads the payload directly into the task function call (see
+    # corpus_tasks.py line 89 — ``**(analysis_input_data if … else {})``)
+    # where TypeError on unknown kwargs becomes the validation surface.
+    # A malformed payload therefore fails at task execution, not at
+    # dispatch — keeping the agent path bug-compatible with the human
+    # GraphQL/CorpusAction path that also doesn't pre-validate.
+    #
     # No explicit transaction.atomic() here: process_analyzer manages its
     # own transaction (creates Analysis + grants permissions + dispatches
     # Celery). Asymmetric with start_extract by design — kept identical to

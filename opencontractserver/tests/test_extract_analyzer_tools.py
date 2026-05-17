@@ -561,6 +561,32 @@ class TestStartExtract(BaseFixtureTestCase):
                 user_id=self.user.id,
             )
 
+    def test_listing_shows_zero_columns_then_start_rejects(self):
+        """``list_fieldsets`` surfaces auto-column count, ``start_extract`` enforces it.
+
+        A fieldset whose only columns are ``is_manual_entry=True`` shows up
+        in discovery with ``column_count=0`` (the listing prefetch filters
+        them out) but ``start_extract`` rejects it as ValueError. Documents
+        the deliberate two-step contract: agents can see "empty" fieldsets
+        but cannot dispatch them, so the failure mode is dispatch-time, not
+        listing-time.
+        """
+        manual_only = _make_fieldset(
+            name="DiscoveryOnly", user=self.user, manual_entry_only=True
+        )
+
+        results = list_fieldsets(corpus_id=self.corpus.id, user_id=self.user.id)
+        listed = next(r for r in results if r["id"] == manual_only.id)
+        self.assertEqual(listed["column_count"], 0)
+        self.assertEqual(listed["columns"], [])
+
+        with self.assertRaises(ValueError):
+            start_extract(
+                corpus_id=self.corpus.id,
+                fieldset_id=manual_only.id,
+                user_id=self.user.id,
+            )
+
     def test_doc_agent_outside_corpus_falls_back_to_full_corpus(self):
         # Document agent injecting a document_id that isn't in the corpus
         # should warn and broaden scope to the full corpus rather than
