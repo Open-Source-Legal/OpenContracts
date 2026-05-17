@@ -113,7 +113,6 @@ class _DummyStreamResult:
 
 
 @pytest.mark.serial
-@override_settings(DATABASES={"default": {"CONN_MAX_AGE": 0}})
 class TestPydanticAIAgents(TransactionTestCase):
     """Test suite for PydanticAI agent implementations.
 
@@ -718,7 +717,6 @@ class TestPydanticAIAgents(TransactionTestCase):
 
 
 @pytest.mark.serial
-@override_settings(DATABASES={"default": {"CONN_MAX_AGE": 0}})
 class TestPydanticAIAgentsCoverage(TransactionTestCase):
     """Additional tests to improve coverage of pydantic_ai_agents.py.
 

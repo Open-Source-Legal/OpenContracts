@@ -15,16 +15,17 @@ Handles comprehensive export including:
 from __future__ import annotations
 
 import base64
-import io
 import json
 import logging
 import zipfile
-from typing import TYPE_CHECKING, cast
+from tempfile import SpooledTemporaryFile
+from typing import IO, TYPE_CHECKING, cast
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
 
 from opencontractserver.annotations.models import StructuralAnnotationSet
+from opencontractserver.constants.zip_export import get_export_spool_max_size_bytes
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import DocumentPath
 from opencontractserver.tasks.export_tasks import finalize_export
@@ -75,14 +76,23 @@ def build_corpus_v2_zip(
     action_trail_limit: int = 1000,
     analysis_pk_list: list[int] | None = None,
     annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
-) -> io.BytesIO:
+) -> IO[bytes]:
     """
-    Build a V2 corpus export ZIP entirely in memory and return its bytes.
+    Build a V2 corpus export ZIP and return its bytes via a spooled buffer.
 
     No ``UserExport`` row is created or modified — callers that want to
     persist the archive should pair this with ``finalize_export``.  Fork
     uses this directly to round-trip a corpus through the import pipeline
     without touching ``UserExport`` at all.
+
+    Memory characteristic: the underlying buffer is a
+    :class:`tempfile.SpooledTemporaryFile` that keeps small archives entirely
+    in heap memory and transparently rolls over to an on-disk temp file once
+    it exceeds :data:`EXPORT_SPOOL_MAX_SIZE_BYTES`. This bounds peak heap
+    usage on large corpora (which embed every document's PDF bytes) without
+    forcing small exports to touch disk. **Caller owns the returned buffer's
+    lifetime** — close it (or use it as a context manager) once the
+    downstream consumer is done reading.
 
     Args:
         corpus_pk: Corpus to export.
@@ -95,7 +105,8 @@ def build_corpus_v2_zip(
             ``package_corpus_export_v2``.
 
     Returns:
-        ``io.BytesIO`` positioned at offset 0, ready to read.
+        A seekable binary file-like buffer positioned at offset 0, ready
+        to read.
 
     Raises:
         RuntimeError: if corpus or label set packaging fails.
@@ -117,7 +128,11 @@ def build_corpus_v2_zip(
     document_ids = [dp.document_id for dp in active_doc_paths]
     documents = [dp.document for dp in active_doc_paths]
 
-    output_bytes = io.BytesIO()
+    # Read the spool threshold at call time so ``@override_settings`` in
+    # tests (and any runtime settings change) actually takes effect.
+    output_bytes: IO[bytes] = SpooledTemporaryFile(
+        max_size=get_export_spool_max_size_bytes(), mode="w+b"
+    )
     zip_file = zipfile.ZipFile(output_bytes, mode="w", compression=zipfile.ZIP_DEFLATED)
 
     # ===== PART 1: Documents (V1 compatible) =====
@@ -313,7 +328,7 @@ def package_corpus_export_v2(
         corpus = Corpus.objects.get(pk=corpus_pk)
         export = UserExport.objects.get(pk=export_id)
 
-        output_bytes = build_corpus_v2_zip(
+        with build_corpus_v2_zip(
             corpus_pk=corpus_pk,
             user_for_visibility=export.creator,
             include_conversations=include_conversations,
@@ -321,14 +336,13 @@ def package_corpus_export_v2(
             action_trail_limit=action_trail_limit,
             analysis_pk_list=analysis_pk_list,
             annotation_filter_mode=annotation_filter_mode,
-        )
-
-        finalize_export(
-            export_id,
-            f"{only_alphanumeric_chars(corpus.title)}_EXPORT_V2.zip",
-            output_bytes,
-            corpus.title,
-        )
+        ) as output_bytes:
+            finalize_export(
+                export_id,
+                f"{only_alphanumeric_chars(corpus.title)}_EXPORT_V2.zip",
+                output_bytes,
+                corpus.title,
+            )
         logger.info("V2 export %s completed successfully", export_id)
 
     except Exception as e:

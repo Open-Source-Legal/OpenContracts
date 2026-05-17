@@ -2221,24 +2221,28 @@ class CorpusForkExportImportParityTest(TransactionTestCase):
 
     def _export_import(self, source: Corpus) -> Corpus:
         """Run a full V2 export+import cycle and return the new corpus."""
-        import io as _io
+        from tempfile import SpooledTemporaryFile
 
         from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
         from opencontractserver.tasks.import_tasks_v2 import (
             import_corpus_v2_from_bytes,
         )
 
-        zip_bytes = build_corpus_v2_zip(
+        # build_corpus_v2_zip returns a SpooledTemporaryFile (in-memory until
+        # the configured threshold, then spilled to disk) — the OOM fix for
+        # issue #1649. Use as a context manager so the temp file is released
+        # on either path through this helper.
+        with build_corpus_v2_zip(
             corpus_pk=source.id,
             user_for_visibility=None,
             include_conversations=True,
-        )
-        assert isinstance(zip_bytes, _io.BytesIO)
-        new_id = import_corpus_v2_from_bytes(
-            zip_source=zip_bytes,
-            user_id=self.user.id,
-            seed_corpus_id=None,
-        )
+        ) as zip_bytes:
+            self.assertIsInstance(zip_bytes, SpooledTemporaryFile)
+            new_id = import_corpus_v2_from_bytes(
+                zip_source=zip_bytes,
+                user_id=self.user.id,
+                seed_corpus_id=None,
+            )
         self.assertIsNotNone(new_id, "import_corpus_v2_from_bytes returned None")
         return Corpus.objects.get(pk=new_id)
 

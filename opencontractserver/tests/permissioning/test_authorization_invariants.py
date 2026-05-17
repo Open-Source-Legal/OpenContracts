@@ -1212,7 +1212,16 @@ class UserFeedbackAuthorizationInvariantsTestCase(
     _UserCanInvariantsMixin, TransactionTestCase
 ):
     """Pin filter/check equivalence for ``UserFeedback`` including the
-    ``commented_annotation.is_public`` READ branch."""
+    inherited-annotation-visibility READ branch.
+
+    Feedback follows the permissioning of the annotation it comments on
+    (see ``UserFeedbackQuerySet.visible_to_user``): a user can READ a
+    feedback row when they can READ the commented annotation via
+    ``Annotation.objects.visible_to_user(user)``. This test pins that
+    invariant: every row included by the queryset filter must answer
+    True for the same user's ``user_can(..., READ)`` check, and vice
+    versa.
+    """
 
     def setUp(self):
         from opencontractserver.annotations.models import (
@@ -1237,7 +1246,9 @@ class UserFeedbackAuthorizationInvariantsTestCase(
             username="fb_admin", email="fba@inv.test", password="x"
         )
 
-        # Public annotation that the feedback comments on.
+        # Annotation that the feedback comments on: lives on a PUBLIC
+        # document with no corpus, so it is visible to every
+        # authenticated user (and anonymous, since it's structural).
         self.doc = Document.objects.create(
             title="FB Doc", creator=self.creator, is_public=True
         )
@@ -1252,10 +1263,12 @@ class UserFeedbackAuthorizationInvariantsTestCase(
             creator=self.creator,
             document=self.doc,
             is_public=True,
+            structural=True,
         )
 
-        # Feedback that's private but comments on a public annotation:
-        # the special ``commented_annotation.is_public`` branch grants READ.
+        # Feedback that is itself private but comments on an annotation
+        # visible to every user — the inherited-annotation-visibility
+        # branch grants READ.
         self.fb_on_public = UserFeedback.objects.create(
             creator=self.creator,
             commented_annotation=self.public_ann,
@@ -1279,19 +1292,21 @@ class UserFeedbackAuthorizationInvariantsTestCase(
         ]
         self._matrix_instances = [self.fb_on_public, self.fb_plain]
 
-    def test_public_commented_annotation_grants_read(self):
-        """``commented_annotation.is_public=True`` grants READ even when
-        feedback is private and user has no other grants."""
+    def test_visible_commented_annotation_grants_read(self):
+        """A user who can see the commented annotation
+        (per ``Annotation.objects.visible_to_user``) inherits READ on
+        the feedback row even when the feedback itself is private and
+        the user has no direct grants."""
         self.assertTrue(self.fb_on_public.user_can(self.stranger, PermissionTypes.READ))
 
-    def test_public_commented_annotation_does_not_grant_writes(self):
-        """``commented_annotation.is_public`` is READ-only — does not bleed
+    def test_visible_commented_annotation_does_not_grant_writes(self):
+        """Inherited annotation visibility is READ-only — does not bleed
         into UPDATE/DELETE."""
         for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
             self.assertFalse(
                 self.fb_on_public.user_can(self.stranger, perm),
-                f"stranger gained {perm} on private feedback via public "
-                f"commented_annotation — leak!",
+                f"stranger gained {perm} on private feedback via inherited "
+                f"annotation visibility — leak!",
             )
 
 
@@ -1300,6 +1315,20 @@ class ShimDeprecationWarningTestCase(TransactionTestCase):
     and routes through ``Manager.user_can`` per Phase A's shim contract."""
 
     def setUp(self):
+        # The shim dedupes warnings by (filename, lineno) for the lifetime
+        # of the process. Under ``pytest --keepdb`` (or any multi-test
+        # run), a previous test that triggered the warning from this
+        # test's ``user_has_permission_for_obj`` line would leave the
+        # site already in the set, so ``catch_warnings`` here would
+        # record nothing and the assertion would fail silently. Clearing
+        # the dedup set before each test method makes the assertion
+        # robust regardless of run order.
+        from opencontractserver.utils.permissioning import (
+            _user_has_permission_for_obj_warned,
+        )
+
+        _user_has_permission_for_obj_warned.clear()
+
         self.creator = User.objects.create_user(
             username="shim_creator", email="sc@inv.test", password="x"
         )

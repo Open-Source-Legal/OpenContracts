@@ -115,13 +115,18 @@ def import_corpus_v2_from_bytes(
                 data_json, import_zip, user_obj, seed_corpus_id, version
             )
 
-    except Exception as e:
+    except Exception:
         # Log full traceback for Sentry / structured logs.  Callers (e.g.
         # ``fork_corpus``) may also need contextual error detail — they
         # can wrap the ``None`` return into a ``RuntimeError`` themselves
         # if they want to escalate, since this in-process entry point is
         # also called from a Celery task that prefers ``None`` returns.
-        logger.error("import_corpus_v2_from_bytes() - Exception: %s", e, exc_info=True)
+        #
+        # ``exc_info=True`` already attaches the formatted traceback to the
+        # log record; passing ``%s`` / ``e`` alongside would duplicate the
+        # exception summary into the message body (visible twice in
+        # structured-log aggregators).
+        logger.error("import_corpus_v2_from_bytes() failed", exc_info=True)
         return None
 
 
@@ -316,6 +321,24 @@ def _import_corpus(
     V1 imports: labels, corpus, documents with annotations.
     V2 imports: all of V1 plus structural sets, folders, relationships,
     agent config, markdown descriptions, and conversations.
+
+    Transaction / rollback contract:
+        This function performs many writes and uses nested
+        ``transaction.atomic()`` blocks internally (e.g.
+        :func:`_import_ingestion_sources`, :func:`import_metadata_schema`).
+        Django promotes those nested blocks to **savepoints**, not
+        autonomous transactions — so when an inner ``atomic`` raises and is
+        caught by this function's broad ``except`` clause (returning
+        ``None``), the savepoint is rolled back but any writes already
+        flushed to the outer connection's transaction remain pending until
+        the caller commits or rolls back.
+
+        Callers that want "all or nothing" import semantics (e.g.
+        :func:`fork_corpus`) must therefore wrap this call in their own
+        outer ``transaction.atomic()`` and react to a ``None`` return by
+        raising — the outer block then rolls back the entire savepoint
+        chain.  Callers that don't (the standalone Celery import task)
+        accept partial state on failure.
     """
     is_v2 = version == "2.0"
     logger.info("Using %s import format", "V2" if is_v2 else "V1")

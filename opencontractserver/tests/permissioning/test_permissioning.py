@@ -781,6 +781,16 @@ class PermissioningTestCase(TestCase):
         self.__test_actual_analysis_deletion()
 
     def test_user_feedback_visibility(self):
+        """Feedback visibility follows the commented annotation's
+        visibility (per ``UserFeedbackQuerySet.visible_to_user``):
+        creator OR ``is_public=True`` OR the user can see the
+        commented annotation via ``Annotation.objects.visible_to_user``.
+
+        In this fixture, ``self.user`` owns the corpus and documents,
+        so they inherit READ on every annotation attached to them —
+        whereas ``self.user_2`` has no grants and only sees
+        ``is_public=True`` feedback rows.
+        """
         logger.info("----- TEST USER FEEDBACK VISIBILITY -----")
 
         from opencontractserver.annotations.models import Annotation
@@ -798,8 +808,10 @@ class PermissioningTestCase(TestCase):
                 creator=self.user_2, comment="Feedback 2", is_public=True
             )
 
-            # Feedback with public annotation
-            public_annotation = Annotation.objects.create(
+            # Feedback whose commented annotation lives on user1's
+            # document — visible to user1 via inherited annotation
+            # visibility, NOT visible to user2 (no doc/corpus grants).
+            annotation_on_user1_doc_public = Annotation.objects.create(
                 creator=self.superuser,
                 document=self.corpus.get_documents().first(),
                 is_public=True,
@@ -808,11 +820,13 @@ class PermissioningTestCase(TestCase):
                 creator=self.superuser,
                 comment="Feedback 3",
                 is_public=False,
-                commented_annotation=public_annotation,
+                commented_annotation=annotation_on_user1_doc_public,
             )
 
-            # Feedback with private annotation
-            private_annotation = Annotation.objects.create(
+            # Second feedback on a different annotation on the same
+            # user1-owned document. user1 sees both annotations (doc
+            # creator); user2 sees neither (no grants).
+            annotation_on_user1_doc_private = Annotation.objects.create(
                 creator=self.superuser,
                 document=self.corpus.get_documents().first(),
                 is_public=False,
@@ -821,22 +835,27 @@ class PermissioningTestCase(TestCase):
                 creator=self.superuser,
                 comment="Feedback 4",
                 is_public=False,
-                commented_annotation=private_annotation,
+                commented_annotation=annotation_on_user1_doc_private,
             )
 
-        # Test visibility for user1
+        # Test visibility for user1 — owns the corpus and document, so
+        # inherits READ on every annotation attached. The annotation's
+        # ``is_public`` flag is no longer the deciding factor; ownership
+        # of the parent doc/corpus is.
         visible_feedback_user1 = UserFeedback.objects.visible_to_user(self.user)
         self.assertIn(feedback1, visible_feedback_user1)
         self.assertIn(feedback2, visible_feedback_user1)
         self.assertIn(feedback3, visible_feedback_user1)
-        self.assertNotIn(feedback4, visible_feedback_user1)
+        self.assertIn(feedback4, visible_feedback_user1)
         logger.info(f"User1 can see {visible_feedback_user1.count()} feedback items")
 
-        # Test visibility for user2
+        # Test visibility for user2 — no doc/corpus grants, so cannot
+        # see either annotation. Only ``is_public=True`` feedback is
+        # visible.
         visible_feedback_user2 = UserFeedback.objects.visible_to_user(self.user_2)
         self.assertNotIn(feedback1, visible_feedback_user2)
         self.assertIn(feedback2, visible_feedback_user2)
-        self.assertIn(feedback3, visible_feedback_user2)
+        self.assertNotIn(feedback3, visible_feedback_user2)
         self.assertNotIn(feedback4, visible_feedback_user2)
         logger.info(f"User2 can see {visible_feedback_user2.count()} feedback items")
 
@@ -867,7 +886,14 @@ class PermissioningTestCase(TestCase):
             f"Time taken for efficient filtering: {end_time - start_time} seconds"
         )
 
-        # Compare with a naive approach
+        # Compare with a naive approach matching the new model: a row
+        # is visible when the user created it OR it's public OR the
+        # user can see the commented annotation. Use
+        # ``Annotation.objects.visible_to_user`` for the annotation
+        # gate to exercise the same predicate the queryset uses.
+        visible_annotation_pks = set(
+            Annotation.objects.visible_to_user(self.user).values_list("pk", flat=True)
+        )
         start_time = time.time()
         all_feedback = UserFeedback.objects.all()
         naive_filtered = [
@@ -876,8 +902,8 @@ class PermissioningTestCase(TestCase):
             if feedback.creator == self.user
             or feedback.is_public
             or (
-                feedback.commented_annotation
-                and feedback.commented_annotation.is_public
+                feedback.commented_annotation_id is not None
+                and feedback.commented_annotation_id in visible_annotation_pks
             )
         ]
         end_time = time.time()
