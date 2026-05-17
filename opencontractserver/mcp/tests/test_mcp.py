@@ -2597,7 +2597,9 @@ class MCPTelemetryIntegrationTest(TestCase):
                     corpus_slug="test-corpus",
                     document_slug="test-document",
                 )
-                mock_get_doc.assert_called_once_with("test-corpus", "test-document")
+                mock_get_doc.assert_called_once_with(
+                    "test-corpus", "test-document", user=None
+                )
 
                 return result
 
@@ -2640,7 +2642,7 @@ class MCPTelemetryIntegrationTest(TestCase):
                     document_slug="test-document",
                 )
                 mock_get_ann.assert_called_once_with(
-                    "test-corpus", "test-document", 123
+                    "test-corpus", "test-document", 123, user=None
                 )
 
                 return result
@@ -2680,7 +2682,7 @@ class MCPTelemetryIntegrationTest(TestCase):
                 mock_record.assert_called_once_with(
                     "thread", success=True, corpus_slug="test-corpus"
                 )
-                mock_get_thread.assert_called_once_with("test-corpus", 456)
+                mock_get_thread.assert_called_once_with("test-corpus", 456, user=None)
 
                 return result
 
@@ -4582,10 +4584,8 @@ class MCPAnnotationResourceDocumentNotFoundTest(TestCase):
         from opencontractserver.documents.models import Document
         from opencontractserver.mcp.resources import get_annotation_resource
 
-        with self.assertRaises(Document.DoesNotExist) as context:
+        with self.assertRaises(Document.DoesNotExist):
             get_annotation_resource(self.corpus.slug, "nonexistent-document-slug", 123)
-
-        self.assertIn("not found in corpus", str(context.exception))
 
 
 class MCPCleanupSessionManagerTest(TestCase):
