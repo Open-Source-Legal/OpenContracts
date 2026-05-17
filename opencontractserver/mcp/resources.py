@@ -63,6 +63,7 @@ def get_document_resource(corpus_slug: str, document_slug: str) -> str:
     document itself isn't marked public. The corpus visibility acts as the
     permission gate.
     """
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
 
@@ -71,12 +72,11 @@ def get_document_resource(corpus_slug: str, document_slug: str) -> str:
     # Get corpus context - this validates corpus is visible to anonymous
     corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
 
-    # Get document in corpus via DocumentPath (source of truth)
-    # Since corpus is visible to anonymous, documents in it are accessible
-    # through the corpus relationship (corpus acts as permission gate)
-    document = corpus.get_documents().filter(slug=document_slug).first()
-
-    if not document:
+    try:
+        document = CorpusObjsService.get_corpus_document_by_slug(
+            user=anonymous, corpus=corpus, slug=document_slug
+        )
+    except Document.DoesNotExist:
         raise Document.DoesNotExist(
             f"Document '{document_slug}' not found in corpus '{corpus_slug}'"
         )
@@ -118,6 +118,7 @@ def get_annotation_resource(
     corpus. The corpus visibility acts as the permission gate.
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
 
@@ -126,11 +127,11 @@ def get_annotation_resource(
     # Get corpus context - this validates corpus is visible to anonymous
     corpus = Corpus.objects.visible_to_user(anonymous).get(slug=corpus_slug)
 
-    # Get document in corpus via DocumentPath (source of truth)
-    # Since corpus is visible to anonymous, documents in it are accessible
-    document = corpus.get_documents().filter(slug=document_slug).first()
-
-    if not document:
+    try:
+        document = CorpusObjsService.get_corpus_document_by_slug(
+            user=anonymous, corpus=corpus, slug=document_slug
+        )
+    except Document.DoesNotExist:
         raise Document.DoesNotExist(
             f"Document '{document_slug}' not found in corpus '{corpus_slug}'"
         )

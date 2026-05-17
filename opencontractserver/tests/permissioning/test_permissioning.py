@@ -801,7 +801,7 @@ class PermissioningTestCase(TestCase):
             # Feedback with public annotation
             public_annotation = Annotation.objects.create(
                 creator=self.superuser,
-                document=self.corpus.get_documents().first(),
+                document=self.corpus._get_active_documents().first(),
                 is_public=True,
             )
             feedback3 = UserFeedback.objects.create(
@@ -814,7 +814,7 @@ class PermissioningTestCase(TestCase):
             # Feedback with private annotation
             private_annotation = Annotation.objects.create(
                 creator=self.superuser,
-                document=self.corpus.get_documents().first(),
+                document=self.corpus._get_active_documents().first(),
                 is_public=False,
             )
             feedback4 = UserFeedback.objects.create(

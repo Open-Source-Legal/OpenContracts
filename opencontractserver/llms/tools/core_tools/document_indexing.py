@@ -94,7 +94,11 @@ def create_document_index(
     except Corpus.DoesNotExist as exc:
         raise ValueError(f"Corpus id={corpus_id} does not exist") from exc
 
-    if not corpus.get_documents().filter(pk=document_id).exists():
+    # Data-linkage check only — permission is gated upstream by the tool
+    # framework. Uses the internal helper to skip the deprecation warning;
+    # user-context callers should go through
+    # CorpusObjsService.is_document_in_corpus instead.
+    if not corpus._get_active_documents().filter(pk=document_id).exists():
         raise ValueError(
             f"Document id={document_id} is not linked to corpus id={corpus_id}."
         )

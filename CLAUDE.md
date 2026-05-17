@@ -117,6 +117,7 @@ docker compose -f production.yml up
    - Formula: `Effective Permission = MIN(document_permission, corpus_permission)`
    - **Structural items are ALWAYS read-only** except for superusers
    - Use `Model.objects.visible_to_user(user)` pattern (NOT `resolve_oc_model_queryset` - DEPRECATED)
+   - For corpus-scoped document access (the most common pattern), prefer `CorpusObjsService.get_corpus_documents(user, corpus)` over composing `visible_to_user` filters by hand — the service is the canonical entry point and prevents IDOR-prone copy-paste fusions of `corpus.get_documents()` + `Document.objects.visible_to_user(user)`.
 
 3. **AnnotatePermissionsForReadMixin**:
    - Most GraphQL types inherit this mixin (see `config/graphql/permissioning/permission_annotator/mixins.py`)
@@ -235,6 +236,13 @@ docker compose -f production.yml up
    - **When reviewing code**: If you find utility functions defined inline in components/views, check if they already exist in utility files. If not, consider whether they should be extracted there for reuse.
    - **Frontend utilities**: `frontend/src/utils/formatters.ts` (formatting), `frontend/src/utils/files.ts` (file operations), etc.
    - **Backend utilities**: `opencontractserver/utils/` contains permissioning, PDF processing, and other shared utilities
+7. **Corpus / document access — always via the service layer.** Code with a user context (request handlers, GraphQL resolvers, MCP tools, LLM tools, REST views, Celery tasks invoked with a user) **must** reach documents through a service:
+   - `DocumentService` (`opencontractserver/documents/document_service.py`) — single source of truth for document-level operations and permissioning (creation, quota, lifecycle, document-level permissions, standalone single-doc lookup). Use this when the document is the noun and corpus context is incidental.
+   - `CorpusObjsService` (`opencontractserver/corpuses/corpus_objs_service.py`) — single source of truth for corpus-scoped operations: "give me X inside corpus Y for user Z". Today this covers documents-in-corpus and folders; it will grow to annotations, notes, relationships, extracts, and analyses. New corpus-scoped patterns belong here.
+
+   Calling `corpus.get_documents()` directly emits a `DeprecationWarning`. Internal/task code without a user must call `corpus._get_active_documents()` explicitly to opt out. Never fuse `corpus.get_documents().values_list("id", flat=True)` with `Document.objects.visible_to_user(user)` — use `CorpusObjsService.get_corpus_document_by_slug` / `get_corpus_document_by_id` / `is_document_in_corpus` instead.
+
+   `DocumentFolderService` survives as a backwards-compat alias subclass and will be removed once all imports migrate (tracked via follow-up issue).
 
 ## Testing Patterns
 

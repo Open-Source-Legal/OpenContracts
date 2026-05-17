@@ -108,8 +108,10 @@ def make_corpus_public(corpus_id: int | str) -> MakePublicReturnType:
             corpus.save()
             logger.info(f"Locked and set corpus {corpus_id} as public")
 
-        # Make documents public
-        docs = corpus.get_documents()
+        # Make documents public. Privileged admin op (no user kwarg);
+        # uses the internal ``_get_active_documents()`` helper to skip the
+        # deprecation warning emitted by the user-context wrapper.
+        docs = corpus._get_active_documents()
         updated_docs = Document.objects.filter(id__in=docs).update(is_public=True)
         logger.info(f"Made {updated_docs} documents public")
 

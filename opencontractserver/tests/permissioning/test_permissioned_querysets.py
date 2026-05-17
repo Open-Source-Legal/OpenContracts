@@ -521,21 +521,21 @@ class CorpusGetDocumentsAndCountTest(TestCase):
         )
 
     def test_get_documents_excludes_caml_by_default(self):
-        """get_documents() without include_caml excludes markdown files."""
-        docs = self.corpus.get_documents()
+        """_get_active_documents() without include_caml excludes markdown files."""
+        docs = self.corpus._get_active_documents()
         self.assertIn(self.pdf_doc.pk, docs.values_list("pk", flat=True))
         self.assertNotIn(self.caml_doc.pk, docs.values_list("pk", flat=True))
 
     def test_get_documents_includes_caml_when_requested(self):
-        """get_documents(include_caml=True) includes markdown files."""
-        docs = self.corpus.get_documents(include_caml=True)
+        """_get_active_documents(include_caml=True) includes markdown files."""
+        docs = self.corpus._get_active_documents(include_caml=True)
         pks = set(docs.values_list("pk", flat=True))
         self.assertIn(self.pdf_doc.pk, pks)
         self.assertIn(self.caml_doc.pk, pks)
 
     def test_get_documents_explicit_false_excludes_caml(self):
-        """get_documents(include_caml=False) explicitly excludes markdown."""
-        docs = self.corpus.get_documents(include_caml=False)
+        """_get_active_documents(include_caml=False) explicitly excludes markdown."""
+        docs = self.corpus._get_active_documents(include_caml=False)
         self.assertNotIn(self.caml_doc.pk, docs.values_list("pk", flat=True))
 
     def test_document_count_excludes_caml(self):

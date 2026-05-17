@@ -157,13 +157,21 @@ class OGMetadataQueryMixin:
         Rate limited to 60 requests/minute per IP to prevent abuse.
         """
         from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 
         User = get_user_model()
         try:
             user = User.objects.get(slug=user_slug)
             corpus = Corpus.objects.get(creator=user, slug=corpus_slug, is_public=True)
+            # Anonymous access (public OG metadata, no auth) — corpus.is_public
+            # is already enforced above, and the ``is_public=True`` doc filter
+            # preserves the original document-level public gate.
             document = (
-                corpus.get_documents()
+                CorpusObjsService.get_corpus_documents(
+                    user=AnonymousUser(), corpus=corpus
+                )
                 .filter(slug=document_slug, is_public=True)
                 .first()
             )

@@ -19,6 +19,7 @@ from typing import (
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone
 
 from opencontractserver.constants.context_guardrails import (
@@ -359,9 +360,26 @@ class CorpusAgentContext:
         load-trigger now.
         """
         if not self.documents:
-            # Use DocumentPath-based method to get active documents
+            # Route through CorpusObjsService so corpus READ is enforced
+            # uniformly. ``config.user_id is None`` maps to AnonymousUser()
+            # so public corpuses remain readable in anonymous sessions
+            # (matches the ``_assert_access`` semantic invoked at context
+            # creation).
+            from opencontractserver.corpuses.corpus_objs_service import (
+                CorpusObjsService,
+            )
+
+            user_or_anon = (
+                self.config.user_id
+                if self.config.user_id is not None
+                else AnonymousUser()
+            )
             self.documents = await sync_to_async(
-                lambda: list(self.corpus.get_documents())
+                lambda: list(
+                    CorpusObjsService.get_corpus_documents(
+                        user=user_or_anon, corpus=self.corpus
+                    )
+                )
             )()
 
 
@@ -1109,9 +1127,23 @@ class CoreCorpusAgentFactory:
         # Permission check – anonymous sessions cannot access private corpuses
         _assert_access(corpus_obj, config.user_id)
 
-        # Use DocumentPath-based method to get active documents
+        # Route through CorpusObjsService so corpus READ is enforced
+        # uniformly. ``_assert_access`` already ran above, so the user is
+        # known to satisfy the gate; we still pass an AnonymousUser sentinel
+        # for ``user_id is None`` to keep the public-corpus path working.
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
+
+        user_or_anon = (
+            config.user_id if config.user_id is not None else AnonymousUser()
+        )
         documents: list[Document] = await sync_to_async(
-            lambda: list(corpus_obj.get_documents())
+            lambda: list(
+                CorpusObjsService.get_corpus_documents(
+                    user=user_or_anon, corpus=corpus_obj
+                )
+            )
         )()
 
         # Set default system prompt if not provided

@@ -229,9 +229,12 @@ def _check_badge_criteria(
                 )
                 return False
 
-            # Count documents uploaded to corpus
-            # Note: Uses DocumentPath-based source of truth via get_documents()
-            doc_count = corpus.get_documents().filter(creator=user).count()
+            # Count documents uploaded to corpus.
+            # Internal (no user-context permission gate); uses the private
+            # ``_get_active_documents()`` helper rather than the deprecated
+            # ``get_documents()`` wrapper. User-context callers should go
+            # through CorpusObjsService.get_corpus_documents instead.
+            doc_count = corpus._get_active_documents().filter(creator=user).count()
 
             # Count annotations in corpus
             from opencontractserver.annotations.models import Annotation

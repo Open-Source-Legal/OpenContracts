@@ -1246,19 +1246,28 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
         return deleted_paths
 
-    def get_documents(self, include_caml: bool = False) -> QuerySet[Document]:
+    def _get_active_documents(
+        self, include_caml: bool = False
+    ) -> QuerySet[Document]:
         """
-        Get all documents with active paths in this corpus.
+        INTERNAL: corpus documents with no permission check.
 
-        This method uses DocumentPath as the source of truth.
+        Returns all documents with an active, non-deleted ``DocumentPath`` in
+        this corpus.  Reserved for Celery tasks, signal handlers, and the
+        corpus-objs service itself, where the caller has already verified
+        permission (or no user is involved).
+
+        User-context code MUST go through
+        ``CorpusObjsService.get_corpus_documents(user, corpus)`` so that
+        corpus READ is enforced uniformly.
 
         Args:
-            include_caml: If True, include CAML/markdown documents in results.
-                Defaults to False so extractors, analyzers, and other
-                internal processes skip CAML articles automatically.
+            include_caml: If True, include CAML/markdown documents in
+                results.  Defaults to False so extractors, analyzers, and
+                other internal processes skip CAML articles automatically.
 
         Returns:
-            QuerySet of Document objects with active paths in this corpus
+            QuerySet of Document objects with active paths in this corpus.
         """
         from opencontractserver.documents.models import Document, DocumentPath
 
@@ -1270,6 +1279,36 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         if not include_caml:
             qs = qs.exclude(file_type=MARKDOWN_MIME_TYPE)
         return qs
+
+    def get_documents(self, include_caml: bool = False) -> QuerySet[Document]:
+        """
+        DEPRECATED user-facing wrapper around ``_get_active_documents``.
+
+        Use ``CorpusObjsService.get_corpus_documents(user, corpus)`` in any
+        user-context code (request handlers, MCP tools, LLM tools, GraphQL
+        resolvers).  For internal/task code without a user, call
+        ``corpus._get_active_documents()`` directly to opt out of the
+        deprecation warning.
+
+        Args:
+            include_caml: If True, include CAML/markdown documents in
+                results.
+
+        Returns:
+            QuerySet of Document objects with active paths in this corpus.
+        """
+        import warnings
+
+        warnings.warn(
+            "Corpus.get_documents() is deprecated. Use "
+            "CorpusObjsService.get_corpus_documents(user, corpus) in any "
+            "user-context code (request handlers, MCP tools, LLM tools, "
+            "GraphQL resolvers). For internal use (Celery tasks, signal "
+            "handlers), call corpus._get_active_documents() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._get_active_documents(include_caml=include_caml)
 
     def document_count(self) -> int:
         """
