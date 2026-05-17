@@ -87,7 +87,11 @@ class _BasePiiScannerAnalyzerTestCase(TransactionTestCase):
         )
 
     def _make_text_doc(self, content: bytes | None = None) -> Document:
-        body = content or SAMPLE_TXT_FILE_ONE_PATH.read_bytes()
+        # ``content or default`` falls through for empty bytes (b"" is
+        # falsy), which silently substituted the sample file when callers
+        # asked for an empty extract — defeating tests that rely on the
+        # empty-text short-circuit. Distinguish None from empty explicitly.
+        body = content if content is not None else SAMPLE_TXT_FILE_ONE_PATH.read_bytes()
         doc = Document.objects.create(
             creator=self.user,
             title="PII Text Doc",
@@ -110,11 +114,6 @@ class _BasePiiScannerAnalyzerTestCase(TransactionTestCase):
         doc.pawls_parse_file.save(
             SAMPLE_PAWLS_FILE_ONE_PATH.name, ContentFile(pawls_json.encode())
         )
-        # The decorator also reads txt_extract_file for the PDF branch when
-        # available, but the persistence path uses pawls. Save a sidecar
-        # txt extract so the decorator's preflight doesn't get None back.
-        doc.txt_extract_file.save("pdf.txt", ContentFile(b"placeholder"))
-        doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
 
         # Build the doc_text the decorator's PlasmaPDF layer will derive so
         # we can compute a valid detection range that maps to real tokens.
@@ -125,6 +124,15 @@ class _BasePiiScannerAnalyzerTestCase(TransactionTestCase):
         with doc.pawls_parse_file.open("r") as f:
             pawls_tokens = expand_pawls_pages(json.load(f))
         layer = build_translation_layer(pawls_tokens)
+
+        # Persist the PlasmaPDF-derived text as the txt extract so the task's
+        # offset validation (which is bounded by ``len(pdf_text_extract)``)
+        # accepts detections whose coords were computed against ``doc_text``.
+        # A "placeholder" sidecar would let preflight pass but cause every
+        # detection past 11 chars to be skipped silently.
+        doc.txt_extract_file.save("pdf.txt", ContentFile(layer.doc_text.encode()))
+        doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
+
         return doc, layer.doc_text
 
     def _make_analysis(self) -> Analysis:
