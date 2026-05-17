@@ -430,6 +430,15 @@ class SemanticSearchRelationshipResultType(graphene.ObjectType):
     ``source_annotation_id`` + ``target_annotation_ids`` to scroll-and-select
     the whole block in a single navigation, mirroring the existing
     ``RelationGroup`` selection flow.
+
+    ID convention
+    -------------
+    ``relationship_id``, ``source_annotation_id``, ``target_annotation_ids``,
+    ``document_id``, and ``corpus_id`` are ALL raw Django PKs (not Relay
+    global IDs). The frontend deep-link path consumes them directly without
+    ``from_global_id``. Do NOT feed these values into resolvers that expect
+    a Relay global ID (e.g. ``node(id: $documentId)``) — they will silently
+    fail. Use the corresponding Relay-encoded type if you need that contract.
     """
 
     relationship_id = graphene.ID(

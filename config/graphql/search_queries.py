@@ -818,8 +818,6 @@ class SearchQueryMixin:
         underlying store applies the same ``visible_to_user`` filters so
         IDOR rules are identical.
         """
-        # Lazy import keeps the GraphQL module light at import time and
-        # mirrors the pattern already used by ``resolve_semantic_search``.
         from opencontractserver.llms.vector_stores.core_relationship_vector_store import (  # noqa: E501
             CoreRelationshipVectorStore,
             RelationshipVectorSearchQuery,

@@ -531,7 +531,17 @@ class CoreAnnotationVectorStore(BaseVectorStore):
     def _attach_block_context_sync(
         results: list["VectorSearchResult"],
     ) -> list["VectorSearchResult"]:
-        """Populate ``result.block_context`` for hits inside a subtree group."""
+        """Populate ``result.block_context`` for hits inside a subtree group.
+
+        SECURITY CONTRACT: this helper queries ``Relationship.objects``
+        without applying any ``visible_to_user`` filter. Callers MUST pass
+        results that have already been permission-filtered (e.g. via
+        :meth:`_check_idor_sync` and the store's visibility queryset), or
+        an unauthorised user could observe block text whose source/target
+        annotations they cannot otherwise see. Today every call site is
+        downstream of the store's permission gate; new entry points must
+        preserve that invariant.
+        """
         if not results:
             return results
 
