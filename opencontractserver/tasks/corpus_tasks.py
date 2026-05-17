@@ -224,6 +224,19 @@ def process_corpus_action(
 
                 if created:
                     extract.finished = None
+                    # Mirror create_and_setup_extract: every Extract
+                    # spawned by a user-attributable flow gets guardian
+                    # CRUD on first creation so it surfaces in
+                    # ``my_permissions`` and the user's "my extracts"
+                    # filters. ``get_or_create`` doesn't go through the
+                    # helper because the dedup key is intentional on
+                    # this path, so the grant is inlined here.
+                    set_permissions_for_obj_to_user(
+                        int_user_id,
+                        extract,
+                        [PermissionTypes.CRUD],
+                        is_new=True,
+                    )
 
                 extract.save()
 

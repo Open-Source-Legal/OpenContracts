@@ -13,6 +13,20 @@ logger = logging.getLogger(__name__)
 def create_and_setup_analysis(
     analyzer, user_id, corpus_id=None, doc_ids=None, corpus_action=None
 ):
+    """Create an Analysis, mark it started, grant creator CRUD, link docs.
+
+    Canonical chokepoint for Analysis creation. Every user-facing
+    dispatch path (``process_analyzer`` → GraphQL mutations,
+    CorpusActions, the ``start_analysis`` agent tool) routes through
+    this helper. The guardian CRUD grant via
+    :func:`set_permissions_for_obj_to_user` is part of the contract —
+    implementers do not need to remember it. Removing or skipping the
+    grant will break GraphQL ``my_permissions`` / ``object_shared_with``
+    and the user's "my analyses" filters.
+
+    Mirrored by :func:`opencontractserver.utils.extract.create_and_setup_extract`
+    so the Extract and Analysis frameworks share one creation pattern.
+    """
 
     logger.info(
         f"create_and_setup_analysis called - analyzer: {analyzer.id if analyzer else None}, user_id: {user_id}"

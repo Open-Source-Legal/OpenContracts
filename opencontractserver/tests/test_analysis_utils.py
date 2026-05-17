@@ -10,7 +10,9 @@ from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
 from opencontractserver.corpuses.models import Corpus, CorpusAction
 from opencontractserver.documents.models import Document
 from opencontractserver.tests.fixtures import SAMPLE_GREMLIN_ENGINE_MANIFEST_PATH
+from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.analysis import create_and_setup_analysis
+from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,34 @@ class TestAnalysisUtils(TestCase):
         self.assertCountEqual(
             list(analysis.analyzed_documents.values_list("id", flat=True)), doc_ids
         )
+
+    def test_create_and_setup_analysis_grants_creator_crud(self):
+        """Pins the framework contract: every Analysis created through the
+        canonical chokepoint must have guardian CRUD for its creator.
+
+        Breaks if a refactor accidentally drops the
+        ``set_permissions_for_obj_to_user`` call — the agent-tool
+        ``start_analysis``, the GraphQL mutation, and every CorpusAction
+        delegation rely on this invariant.
+        """
+        analysis = create_and_setup_analysis(
+            self.analyzer_task, self.user.id, corpus_id=self.corpus.id
+        )
+        for permission in (
+            PermissionTypes.READ,
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+        ):
+            self.assertTrue(
+                user_has_permission_for_obj(
+                    self.user,
+                    analysis,
+                    permission,
+                    include_group_permissions=True,
+                ),
+                f"creator should have {permission.name} on Analysis "
+                f"created via the framework helper",
+            )
 
     def test_create_and_setup_analysis_invalid_analyzer(self):
         with self.assertRaises(ValidationError):

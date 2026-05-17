@@ -65,10 +65,8 @@ from opencontractserver.extracts.models import Column, Extract, Fieldset
 from opencontractserver.tasks.corpus_tasks import process_analyzer
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import JobStatus, PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.extract import create_and_setup_extract
+from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 from ._helpers import _db_sync_to_async
 
@@ -90,6 +88,12 @@ def _clamp_limit(limit: int | None, default: int) -> int:
 
 
 def _get_user_or_none(user_id: int | None):
+    """Return the User row for ``user_id`` or ``None`` if missing / unauth.
+
+    Return type is intentionally inferred — ``User`` here is the result of
+    ``get_user_model()`` (a runtime variable, not a type alias) so a
+    quoted annotation would still trip mypy's ``valid-type`` check.
+    """
     if user_id is None:
         return None
     try:
@@ -343,8 +347,21 @@ def list_fieldsets(
         # of 10 long-form columns each doesn't return a multi-page
         # payload on every discovery call. ``column_names`` keeps the
         # LLM able to decide which fieldset matches its intent.
+        row: dict[str, Any] = {
+            "id": fieldset.id,
+            "name": fieldset.name,
+            "description": fieldset.description,
+            "column_count": len(auto_columns),
+            # ``extractable=False`` signals the LLM that
+            # ``start_extract`` will reject this fieldset (no
+            # auto-extract columns — every column is manual-entry,
+            # the fieldset is empty, etc.). Surfacing the flag in
+            # the listing avoids the LLM optimistically dispatching
+            # and discovering the constraint via a ``ValueError``.
+            "extractable": len(auto_columns) > 0,
+        }
         if include_columns:
-            column_payload = [
+            row["columns"] = [
                 {
                     "id": column.id,
                     "name": column.name,
@@ -356,25 +373,8 @@ def list_fieldsets(
                 }
                 for column in auto_columns
             ]
-            row: dict[str, Any] = {"columns": column_payload}
         else:
-            row = {"column_names": [column.name for column in auto_columns]}
-
-        row.update(
-            {
-                "id": fieldset.id,
-                "name": fieldset.name,
-                "description": fieldset.description,
-                "column_count": len(auto_columns),
-                # ``extractable=False`` signals the LLM that
-                # ``start_extract`` will reject this fieldset (no
-                # auto-extract columns — every column is manual-entry,
-                # the fieldset is empty, etc.). Surfacing the flag in
-                # the listing avoids the LLM optimistically dispatching
-                # and discovering the constraint via a ``ValueError``.
-                "extractable": len(auto_columns) > 0,
-            }
-        )
+            row["column_names"] = [column.name for column in auto_columns]
         results.append(row)
 
     return results
@@ -469,17 +469,18 @@ def start_extract(
         f"Agent extract: {fieldset.name} on {corpus.title or 'corpus'}"
     )
 
+    # The CRUD grant and atomic boundary live inside
+    # ``create_and_setup_extract`` so every caller (here, the GraphQL
+    # mutations, and the CorpusAction pipeline) gets the same guarantee
+    # without having to remember it.
     with transaction.atomic():
-        extract = Extract.objects.create(
+        extract = create_and_setup_extract(
+            user.id,
             corpus=corpus,
-            name=extract_name,
             fieldset=fieldset,
-            creator=user,
+            name=extract_name,
+            document_ids=target_ids,
             corpus_action=corpus_action,
-        )
-        extract.documents.add(*target_ids)
-        set_permissions_for_obj_to_user(
-            user, extract, [PermissionTypes.CRUD], is_new=True
         )
 
         extract_id = extract.id
@@ -802,6 +803,12 @@ def list_recent_analyses(
                 # agent polling immediately after dispatch sees a stable
                 # value rather than a case-shift mid-lifecycle.
                 "status": _normalize_analysis_status(analysis.status),
+                # ``created`` mirrors ``list_recent_extracts`` — an agent
+                # polling immediately after ``start_analysis`` would
+                # otherwise see ``analysis_started=null`` /
+                # ``analysis_completed=null`` with no timestamp to
+                # confirm the record exists.
+                "created": (analysis.created.isoformat() if analysis.created else None),
                 "analysis_started": (
                     analysis.analysis_started.isoformat()
                     if analysis.analysis_started

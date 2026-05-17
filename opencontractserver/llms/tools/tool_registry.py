@@ -841,8 +841,9 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             (
                 "include_columns",
                 "When true, include the full column definitions "
-                "(query/match_text/output_type/instructions) inline. Default "
-                "false returns column names only to keep the response compact.",
+                "(query/match_text/output_type/instructions/extract_is_list) "
+                "inline. Default false returns column names only to keep "
+                "the response compact.",
                 False,
             ),
         ),
@@ -897,10 +898,14 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
     ToolDefinition(
         name="list_analyzers",
         description=(
-            "List the Analyzers visible to the user that can run on this "
-            "corpus. Use this to pick an analyzer_id before calling "
-            "start_analysis. Note: Analyzer.id is a STRING (e.g. "
-            "'noop.analyzer'), unlike Fieldset.id which is an integer."
+            "List the Analyzers visible to the user. The corpus_id is used "
+            "to verify you can access this corpus, but the returned list is "
+            "NOT filtered by corpus-type affinity — it contains every "
+            "non-disabled analyzer visible to you, and the agent is "
+            "responsible for picking one that makes sense for the corpus. "
+            "Use this to pick an analyzer_id before calling start_analysis. "
+            "Note: Analyzer.id is a STRING (e.g. 'noop.analyzer'), unlike "
+            "Fieldset.id which is an integer."
         ),
         category=ToolCategory.ANALYZERS,
         requires_corpus=True,
