@@ -91,7 +91,7 @@ def list_documents(
     Returns:
         Dict with total_count and list of document summaries
     """
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     limit = min(limit, 100)
@@ -100,9 +100,9 @@ def list_documents(
     # Get corpus (raises Corpus.DoesNotExist if not found or not public)
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    # Use DocumentFolderService for optimized single-query document retrieval
+    # Use CorpusObjsService for optimized single-query document retrieval
     # This handles corpus membership and visibility in one query
-    qs = DocumentFolderService.get_corpus_documents(
+    qs = CorpusObjsService.get_corpus_documents(
         user=user, corpus=corpus, include_deleted=False
     )
 
@@ -131,18 +131,19 @@ def get_document_text(
     Returns:
         Dict with document slug, page count, and full text
     """
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-    # Route document lookup through DocumentFolderService so tools.py uses the
-    # same permission chain as resources.py (corpus READ gate + corpus
-    # membership), avoiding drift between the two access paths.
-    document = DocumentFolderService.get_corpus_documents(
-        user=user, corpus=corpus, include_deleted=False
-    ).get(slug=document_slug)
+    # Route document lookup through CorpusObjsService so tools.py uses
+    # the same permission chain as resources.py (corpus READ gate +
+    # corpus membership) and IDOR-safely raises Document.DoesNotExist
+    # for slug-misses, hidden corpora, and cross-corpus lookups alike.
+    document = CorpusObjsService.get_corpus_document_by_slug(
+        user=user, corpus=corpus, slug=document_slug
+    )
 
     full_text = ""
     if document.txt_extract_file:
@@ -183,19 +184,16 @@ def list_annotations(
         Dict with total_count and list of annotations
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     limit = min(limit, 100)
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-    # Route document lookup through DocumentFolderService so tools.py uses the
-    # same permission chain as resources.py (corpus READ gate + corpus
-    # membership), avoiding drift between the two access paths.
-    document = DocumentFolderService.get_corpus_documents(
-        user=user, corpus=corpus, include_deleted=False
-    ).get(slug=document_slug)
+    document = CorpusObjsService.get_corpus_document_by_slug(
+        user=user, corpus=corpus, slug=document_slug
+    )
 
     # Use query optimizer - eliminates N+1 permission queries
     qs = AnnotationQueryOptimizer.get_document_annotations(
@@ -234,8 +232,8 @@ def search_corpus(
     Returns:
         Dict with query and ranked results
     """
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
 
     limit = min(limit, 50)
     user = user or AnonymousUser()
@@ -247,13 +245,11 @@ def search_corpus(
         embedder_path, query_vector = corpus.embed_text(query)
 
         if query_vector:
-            # Get document IDs in corpus via DocumentPath (source of truth)
-            corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-            # Search documents using vector similarity, filtered by corpus membership
+            # Single canonical entry point: corpus-as-gate doc set for this user.
             doc_results = list(
-                Document.objects.visible_to_user(user)
-                .filter(id__in=corpus_doc_ids)
-                .search_by_embedding(  # type: ignore[attr-defined]
+                CorpusObjsService.get_corpus_documents(
+                    user=user, corpus=corpus
+                ).search_by_embedding(  # type: ignore[attr-defined]
                     query_vector, embedder_path, top_k=limit
                 )
             )
@@ -287,14 +283,13 @@ def _text_search_fallback(
     corpus: Corpus, query: str, limit: int, user: UserOrAnonymous
 ) -> dict:
     """Fallback to text search when embeddings are unavailable."""
-    from opencontractserver.documents.models import Document
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 
-    # Get document IDs in corpus via DocumentPath (source of truth)
-    corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
+    # Single canonical entry point: corpus-as-gate doc set for this user.
     documents = list(
-        Document.objects.visible_to_user(user)
-        .filter(id__in=corpus_doc_ids)
-        .filter(Q(title__icontains=query) | Q(description__icontains=query))[:limit]
+        CorpusObjsService.get_corpus_documents(user=user, corpus=corpus).filter(
+            Q(title__icontains=query) | Q(description__icontains=query)
+        )[:limit]
     )
 
     results = []
@@ -334,7 +329,7 @@ def list_threads(
         Conversation,
         ConversationTypeChoices,
     )
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     limit = min(limit, 100)
@@ -350,12 +345,9 @@ def list_threads(
     )
 
     if document_slug:
-        # Route document lookup through DocumentFolderService so tools.py uses
-        # the same permission chain as resources.py and the other list/get
-        # helpers above, avoiding drift between access paths.
-        document = DocumentFolderService.get_corpus_documents(
-            user=user, corpus=corpus, include_deleted=False
-        ).get(slug=document_slug)
+        document = CorpusObjsService.get_corpus_document_by_slug(
+            user=user, corpus=corpus, slug=document_slug
+        )
         qs = qs.filter(chat_with_document=document)
 
     # Order by pinned first, then recent activity

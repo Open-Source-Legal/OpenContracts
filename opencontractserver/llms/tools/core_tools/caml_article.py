@@ -153,12 +153,15 @@ def _looks_like_prose(text: str) -> bool:
 def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     """Return the corpus's ``Readme.CAML`` document if visible to ``user``.
 
-    Uses ``Corpus.get_documents(include_caml=True)`` to follow the same
-    DocumentPath-based lookup the frontend's article query uses, then
+    Uses ``Corpus._get_active_documents(include_caml=True)`` to follow the
+    same DocumentPath-based lookup the frontend's article query uses, then
     intersects with ``Document.objects.visible_to_user`` for IDOR-safe access.
-    Raises ``ValueError`` with a single error string for both
-    "corpus does not exist" and "user lacks permission" so the message cannot
-    be used for enumeration.
+    Corpus READ is gated by the preceding ``Corpus.objects.visible_to_user``
+    lookup, so the internal helper is the correct entry point here (the
+    deprecated user-facing ``get_documents()`` alias would otherwise warn on
+    every CAML resolve). Raises ``ValueError`` with a single error string for
+    both "corpus does not exist" and "user lacks permission" so the message
+    cannot be used for enumeration.
     """
     from opencontractserver.corpuses.models import Corpus
 
@@ -171,13 +174,13 @@ def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     except Corpus.DoesNotExist:
         raise ValueError(not_found)
 
-    # ``corpus.get_documents(include_caml=True)`` already filters via the
-    # ``DocumentPath.is_current=True`` join (see CorpusType.get_documents).
+    # ``corpus._get_active_documents(include_caml=True)`` already filters via
+    # the ``DocumentPath.is_current=True`` join (see CorpusType.get_documents).
     # Pass the inner query as a subquery so Django pushes the intersection
     # to the database in a single round-trip — IDOR-safe two-query pattern
     # without materialising the candidate IDs in Python.
     caml_ids_qs = (
-        corpus.get_documents(include_caml=True)
+        corpus._get_active_documents(include_caml=True)
         .filter(title=CAML_ARTICLE_TITLE, file_type=MARKDOWN_MIME_TYPE)
         .values("id")
     )

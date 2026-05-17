@@ -69,17 +69,19 @@ def get_document_resource(
     corpus read access and current DocumentPath state are enforced consistently
     with list_documents.
     """
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    # Get document in corpus via DocumentPath (source of truth)
-    document = DocumentFolderService.get_corpus_documents(
-        user=user, corpus=corpus, include_deleted=False
-    ).get(slug=document_slug)
+    # Source of truth for corpus-scoped document lookup; raises
+    # ``Document.DoesNotExist`` IDOR-safely when the slug isn't in the
+    # corpus or the user lacks corpus READ.
+    document = CorpusObjsService.get_corpus_document_by_slug(
+        user=user, corpus=corpus, slug=document_slug
+    )
 
     # Read extracted text
     full_text = ""
@@ -122,17 +124,19 @@ def get_annotation_resource(
     permission checks.
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    # Get document in corpus via DocumentPath (source of truth)
-    document = DocumentFolderService.get_corpus_documents(
-        user=user, corpus=corpus, include_deleted=False
-    ).get(slug=document_slug)
+    # Source of truth for corpus-scoped document lookup; raises
+    # ``Document.DoesNotExist`` IDOR-safely when the slug isn't in the
+    # corpus or the user lacks corpus READ.
+    document = CorpusObjsService.get_corpus_document_by_slug(
+        user=user, corpus=corpus, slug=document_slug
+    )
 
     # Use query optimizer for efficient permission checking
     annotations = AnnotationQueryOptimizer.get_document_annotations(

@@ -1246,19 +1246,42 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
         return deleted_paths
 
-    def get_documents(self, include_caml: bool = False) -> QuerySet[Document]:
+    def _get_active_documents(self, include_caml: bool = False) -> QuerySet[Document]:
         """
-        Get all documents with active paths in this corpus.
+        INTERNAL: corpus documents with no permission check.
 
-        This method uses DocumentPath as the source of truth.
+        **API note on the underscore prefix.** Despite the leading
+        underscore, this method *is* the blessed cross-module API for
+        non-user-context callers — Celery tasks, signal handlers, badge
+        / corpus / analyzer task batches, and the LLM-tool helpers that
+        run without a request. The underscore is load-bearing on the
+        Manager/QuerySet contract: it signals "do not call from a
+        user-context resolver / view / mutation"; ``get_documents()``
+        is the deprecated public alias that emits a warning. Renaming
+        away from the underscore would require simultaneously renaming
+        the public alias and updating ~10 call sites; the current shape
+        is the trade-off between Python convention and reviewer
+        clarity. Cross-module callers (`badge_tasks`, `corpus_tasks`,
+        `sharing`, `analyzer`, the LLM-tool helpers, etc.) are
+        intentional and approved — see the deprecation notice on
+        ``get_documents()`` below.
+
+        Returns all documents with an active, non-deleted ``DocumentPath`` in
+        this corpus.  Reserved for Celery tasks, signal handlers, and the
+        corpus-objs service itself, where the caller has already verified
+        permission (or no user is involved).
+
+        User-context code MUST go through
+        ``CorpusObjsService.get_corpus_documents(user, corpus)`` so that
+        corpus READ is enforced uniformly.
 
         Args:
-            include_caml: If True, include CAML/markdown documents in results.
-                Defaults to False so extractors, analyzers, and other
-                internal processes skip CAML articles automatically.
+            include_caml: If True, include CAML/markdown documents in
+                results.  Defaults to False so extractors, analyzers, and
+                other internal processes skip CAML articles automatically.
 
         Returns:
-            QuerySet of Document objects with active paths in this corpus
+            QuerySet of Document objects with active paths in this corpus.
         """
         from opencontractserver.documents.models import Document, DocumentPath
 
@@ -1270,6 +1293,36 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         if not include_caml:
             qs = qs.exclude(file_type=MARKDOWN_MIME_TYPE)
         return qs
+
+    def get_documents(self, include_caml: bool = False) -> QuerySet[Document]:
+        """
+        DEPRECATED user-facing wrapper around ``_get_active_documents``.
+
+        Use ``CorpusObjsService.get_corpus_documents(user, corpus)`` in any
+        user-context code (request handlers, MCP tools, LLM tools, GraphQL
+        resolvers).  For internal/task code without a user, call
+        ``corpus._get_active_documents()`` directly to opt out of the
+        deprecation warning.
+
+        Args:
+            include_caml: If True, include CAML/markdown documents in
+                results.
+
+        Returns:
+            QuerySet of Document objects with active paths in this corpus.
+        """
+        import warnings
+
+        warnings.warn(
+            "Corpus.get_documents() is deprecated. Use "
+            "CorpusObjsService.get_corpus_documents(user, corpus) in any "
+            "user-context code (request handlers, MCP tools, LLM tools, "
+            "GraphQL resolvers). For internal use (Celery tasks, signal "
+            "handlers), call corpus._get_active_documents() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._get_active_documents(include_caml=include_caml)
 
     def document_count(self) -> int:
         """

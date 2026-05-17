@@ -212,7 +212,9 @@ def run_analysis(
         not isinstance(doc_ids, list) or len(doc_ids) == 0
     ):
         corpus = analysis.analyzed_corpus
-        docs = corpus.get_documents()
+        # Celery task (no user kwarg); uses the internal helper to skip the
+        # deprecation warning emitted by the user-context wrapper.
+        docs = corpus._get_active_documents()
         logger.info(f"Analyze corpus {corpus.id} with {docs.count()} docs")
 
     # Otherwise we need a list of valid doc_ids to apply to analysis

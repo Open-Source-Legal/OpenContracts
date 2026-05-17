@@ -23,6 +23,7 @@ from config.graphql.og_metadata_types import (
 from config.graphql.ratelimits import graphql_ratelimit
 from config.graphql.user_types import redacted_handle
 from opencontractserver.conversations.models import Conversation
+from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 
@@ -157,13 +158,23 @@ class OGMetadataQueryMixin:
         Rate limited to 60 requests/minute per IP to prevent abuse.
         """
         from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import AnonymousUser
 
         User = get_user_model()
         try:
             user = User.objects.get(slug=user_slug)
             corpus = Corpus.objects.get(creator=user, slug=corpus_slug, is_public=True)
+            # Anonymous access (public OG metadata, no auth) — corpus.is_public
+            # is already enforced by the ``Corpus.objects.get(... is_public=True)``
+            # above (load-bearing — without that filter, AnonymousUser would
+            # match any public corpus via the service's READ check). The
+            # ``is_public=True`` doc filter below preserves the document-level
+            # public gate so private documents inside an otherwise-public
+            # corpus remain hidden from the OG endpoint.
             document = (
-                corpus.get_documents()
+                CorpusObjsService.get_corpus_documents(
+                    user=AnonymousUser(), corpus=corpus
+                )
                 .filter(slug=document_slug, is_public=True)
                 .first()
             )

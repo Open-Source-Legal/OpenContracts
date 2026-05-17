@@ -30,6 +30,7 @@ from opencontractserver.conversations.models import (
     MessageStateChoices,
     MessageTypeChoices,
 )
+from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.context_guardrails import (
@@ -41,6 +42,7 @@ from opencontractserver.llms.tools.tool_factory import CoreTool
 from opencontractserver.llms.vector_stores.core_vector_stores import (
     CoreAnnotationVectorStore,
 )
+from opencontractserver.users.types import resolve_user_or_anon
 from opencontractserver.utils.embeddings import aget_embedder
 from opencontractserver.utils.prompt_sanitization import (
     UNTRUSTED_CONTENT_NOTICE,
@@ -359,10 +361,22 @@ class CorpusAgentContext:
         load-trigger now.
         """
         if not self.documents:
-            # Use DocumentPath-based method to get active documents
-            self.documents = await sync_to_async(
-                lambda: list(self.corpus.get_documents())
-            )()
+            # Route through CorpusObjsService so corpus READ is enforced
+            # uniformly. ``config.user_id is None`` maps to AnonymousUser()
+            # so public corpuses remain readable in anonymous sessions
+            # (matches the ``_assert_access`` semantic invoked at context
+            # creation).
+            user_id = self.config.user_id
+            corpus = self.corpus
+
+            def _load_corpus_documents() -> list[Document]:
+                return list(
+                    CorpusObjsService.get_corpus_documents(
+                        user=resolve_user_or_anon(user_id), corpus=corpus
+                    )
+                )
+
+            self.documents = await sync_to_async(_load_corpus_documents)()
 
 
 @runtime_checkable
@@ -1109,10 +1123,20 @@ class CoreCorpusAgentFactory:
         # Permission check – anonymous sessions cannot access private corpuses
         _assert_access(corpus_obj, config.user_id)
 
-        # Use DocumentPath-based method to get active documents
-        documents: list[Document] = await sync_to_async(
-            lambda: list(corpus_obj.get_documents())
-        )()
+        # Route through CorpusObjsService so corpus READ is enforced
+        # uniformly. ``_assert_access`` already ran above, so the user is
+        # known to satisfy the gate; we still pass an AnonymousUser sentinel
+        # for ``user_id is None`` to keep the public-corpus path working.
+        user_id = config.user_id
+
+        def _load_corpus_documents() -> list[Document]:
+            return list(
+                CorpusObjsService.get_corpus_documents(
+                    user=resolve_user_or_anon(user_id), corpus=corpus_obj
+                )
+            )
+
+        documents: list[Document] = await sync_to_async(_load_corpus_documents)()
 
         # Set default system prompt if not provided
         if config.system_prompt is None:

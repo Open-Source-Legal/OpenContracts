@@ -828,12 +828,15 @@ def _search_within_corpus(
     query: str, corpus_slug: str, limit: int, user
 ) -> JsonResponse:
     """Search documents within a single public corpus."""
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+
     try:
         corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
     except Corpus.DoesNotExist:
         return JsonResponse({"error": "Corpus not found."}, status=404)
 
-    corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
+    # Single canonical entry point: corpus-as-gate doc set for this user.
+    corpus_docs = CorpusObjsService.get_corpus_documents(user=user, corpus=corpus)
     results = []
 
     # Attempt vector search first, fall through to text search on empty results
@@ -841,7 +844,7 @@ def _search_within_corpus(
         embedder_path, query_vector = corpus.embed_text(query)
         if query_vector:
             doc_results = list(
-                Document.objects.filter(id__in=corpus_doc_ids).search_by_embedding(  # type: ignore[attr-defined]
+                corpus_docs.search_by_embedding(  # type: ignore[attr-defined]
                     query_vector, embedder_path, top_k=limit
                 )
             )
@@ -866,9 +869,9 @@ def _search_within_corpus(
     # Text search fallback — corpus access already verified above,
     # so query documents directly via corpus membership
     documents = list(
-        Document.objects.filter(id__in=corpus_doc_ids).filter(
-            Q(title__icontains=query) | Q(description__icontains=query)
-        )[:limit]
+        corpus_docs.filter(Q(title__icontains=query) | Q(description__icontains=query))[
+            :limit
+        ]
     )
     for doc in documents:
         results.append(

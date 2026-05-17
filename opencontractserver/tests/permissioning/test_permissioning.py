@@ -813,7 +813,7 @@ class PermissioningTestCase(TestCase):
             # visibility, NOT visible to user2 (no doc/corpus grants).
             annotation_on_user1_doc_public = Annotation.objects.create(
                 creator=self.superuser,
-                document=self.corpus.get_documents().first(),
+                document=self.corpus._get_active_documents().first(),
                 is_public=True,
             )
             feedback3 = UserFeedback.objects.create(
@@ -828,7 +828,7 @@ class PermissioningTestCase(TestCase):
             # creator); user2 sees neither (no grants).
             annotation_on_user1_doc_private = Annotation.objects.create(
                 creator=self.superuser,
-                document=self.corpus.get_documents().first(),
+                document=self.corpus._get_active_documents().first(),
                 is_public=False,
             )
             feedback4 = UserFeedback.objects.create(
