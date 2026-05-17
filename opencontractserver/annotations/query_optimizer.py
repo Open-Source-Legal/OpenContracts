@@ -114,14 +114,28 @@ class AnnotationQueryOptimizer:
         # status is honored. This is the Phase A bug-fix posture: the legacy
         # function ignored creator, producing False-denials when the same
         # user owned both the annotation and its parent document/corpus.
-        doc_read = Document.objects.user_can(user, document, PermissionTypes.READ)
+        #
+        # Forward ``context`` as ``request`` so the Tier 2
+        # ``PermissionQueryOptimizer`` (PR #1665) dedupes the guardian
+        # lookups across distinct Document/Corpus instances in this request.
+        doc_read = Document.objects.user_can(
+            user, document, PermissionTypes.READ, request=context
+        )
         if not doc_read:
             return _store((False, False, False, False, False))
 
-        doc_create = Document.objects.user_can(user, document, PermissionTypes.CREATE)
-        doc_update = Document.objects.user_can(user, document, PermissionTypes.UPDATE)
-        doc_delete = Document.objects.user_can(user, document, PermissionTypes.DELETE)
-        doc_comment = Document.objects.user_can(user, document, PermissionTypes.COMMENT)
+        doc_create = Document.objects.user_can(
+            user, document, PermissionTypes.CREATE, request=context
+        )
+        doc_update = Document.objects.user_can(
+            user, document, PermissionTypes.UPDATE, request=context
+        )
+        doc_delete = Document.objects.user_can(
+            user, document, PermissionTypes.DELETE, request=context
+        )
+        doc_comment = Document.objects.user_can(
+            user, document, PermissionTypes.COMMENT, request=context
+        )
 
         if not corpus_id:
             return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
@@ -131,11 +145,21 @@ class AnnotationQueryOptimizer:
             # Corpus doesn't exist or isn't visible — fall back to document perms.
             return _store((doc_read, doc_create, doc_update, doc_delete, doc_comment))
 
-        corpus_read = Corpus.objects.user_can(user, corpus, PermissionTypes.READ)
-        corpus_create = Corpus.objects.user_can(user, corpus, PermissionTypes.CREATE)
-        corpus_update = Corpus.objects.user_can(user, corpus, PermissionTypes.UPDATE)
-        corpus_delete = Corpus.objects.user_can(user, corpus, PermissionTypes.DELETE)
-        corpus_comment = Corpus.objects.user_can(user, corpus, PermissionTypes.COMMENT)
+        corpus_read = Corpus.objects.user_can(
+            user, corpus, PermissionTypes.READ, request=context
+        )
+        corpus_create = Corpus.objects.user_can(
+            user, corpus, PermissionTypes.CREATE, request=context
+        )
+        corpus_update = Corpus.objects.user_can(
+            user, corpus, PermissionTypes.UPDATE, request=context
+        )
+        corpus_delete = Corpus.objects.user_can(
+            user, corpus, PermissionTypes.DELETE, request=context
+        )
+        corpus_comment = Corpus.objects.user_can(
+            user, corpus, PermissionTypes.COMMENT, request=context
+        )
 
         final_read = doc_read and corpus_read
 

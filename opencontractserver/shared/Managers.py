@@ -783,11 +783,16 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
             AnnotationQueryOptimizer,
         )
 
+        # Forward ``request`` as ``context`` so the optimizer's request-scoped
+        # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
+        # wired into the underlying Document/Corpus user_can calls) are shared
+        # across distinct annotation checks in this request.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
                 user=user,
                 document_id=instance.document_id,
                 corpus_id=instance.corpus_id,
+                context=request,
             )
         )
 
@@ -1088,11 +1093,16 @@ class RelationshipManager(BaseVisibilityManager):
             AnnotationQueryOptimizer,
         )
 
+        # Forward ``request`` as ``context`` so the optimizer's request-scoped
+        # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
+        # wired into the underlying Document/Corpus user_can calls) are shared
+        # across distinct relationship checks in this request.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
                 user=user,
                 document_id=instance.document_id,
                 corpus_id=instance.corpus_id,
+                context=request,
             )
         )
 
