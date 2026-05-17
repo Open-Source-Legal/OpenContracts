@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from opencontractserver.users.types import UserOrAnonymous
 
 
-def get_corpus_resource(corpus_slug: str, user: "UserOrAnonymous | None" = None) -> str:
+def get_corpus_resource(corpus_slug: str, user: UserOrAnonymous | None = None) -> str:
     """
     Get corpus resource content.
 
@@ -57,7 +57,7 @@ def get_corpus_resource(corpus_slug: str, user: "UserOrAnonymous | None" = None)
 
 
 def get_document_resource(
-    corpus_slug: str, document_slug: str, user: "UserOrAnonymous | None" = None
+    corpus_slug: str, document_slug: str, user: UserOrAnonymous | None = None
 ) -> str:
     """
     Get document resource content.
@@ -109,7 +109,7 @@ def get_annotation_resource(
     corpus_slug: str,
     document_slug: str,
     annotation_id: int,
-    user: "UserOrAnonymous | None" = None,
+    user: UserOrAnonymous | None = None,
 ) -> str:
     """
     Get annotation resource content.
@@ -167,7 +167,7 @@ def get_thread_resource(
     corpus_slug: str,
     thread_id: int,
     include_messages: bool = True,
-    user: "UserOrAnonymous | None" = None,
+    user: UserOrAnonymous | None = None,
 ) -> str:
     """
     Get thread resource content.
