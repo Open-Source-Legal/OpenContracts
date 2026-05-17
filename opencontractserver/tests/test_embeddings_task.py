@@ -1477,5 +1477,281 @@ class TestGetEmbedderExplicitPath(unittest.TestCase):
         )
 
 
+class TestEmbedRelationship(unittest.TestCase):
+    """Unit tests for ``_embed_relationship`` (issue #1645).
+
+    Exercises the failure modes of the per-relationship embedding helper
+    without requiring a real Relationship row — every external collaborator
+    is mocked.
+    """
+
+    def test_empty_text_skips_embedder(self):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_rel = MagicMock()
+        mock_rel.id = 1
+        mock_embedder = MagicMock()
+
+        result = _embed_relationship(
+            mock_rel,
+            mock_embedder,
+            "embedder.path",
+            precomputed_text="   ",
+        )
+
+        self.assertFalse(result)
+        mock_embedder.embed_text.assert_not_called()
+        mock_rel.add_embedding.assert_not_called()
+
+    def test_embedder_returns_none_returns_false(self):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_rel = MagicMock()
+        mock_rel.id = 2
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = None
+
+        result = _embed_relationship(
+            mock_rel,
+            mock_embedder,
+            "embedder.path",
+            precomputed_text="HEAD\nT1",
+        )
+
+        self.assertFalse(result)
+        mock_rel.add_embedding.assert_not_called()
+
+    def test_add_embedding_returns_none_returns_false(self):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_rel = MagicMock()
+        mock_rel.id = 3
+        mock_rel.add_embedding.return_value = None
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = [0.1] * 4
+
+        result = _embed_relationship(
+            mock_rel,
+            mock_embedder,
+            "embedder.path",
+            precomputed_text="HEAD\nT1",
+        )
+
+        self.assertFalse(result)
+        mock_rel.add_embedding.assert_called_once_with("embedder.path", [0.1] * 4)
+
+    def test_successful_embedding_returns_true(self):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_rel = MagicMock()
+        mock_rel.id = 4
+        mock_embedding = MagicMock()
+        mock_embedding.pk = 99
+        mock_rel.add_embedding.return_value = mock_embedding
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = [0.2] * 4
+
+        result = _embed_relationship(
+            mock_rel,
+            mock_embedder,
+            "embedder.path",
+            precomputed_text="HEAD\nT1",
+        )
+
+        self.assertTrue(result)
+        mock_embedder.embed_text.assert_called_once_with("HEAD\nT1")
+
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
+    def test_synthesizes_text_when_not_precomputed(self, mock_synth):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_synth.return_value = "synthesized"
+        mock_rel = MagicMock()
+        mock_rel.id = 5
+        mock_rel.add_embedding.return_value = MagicMock(pk=1)
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = [0.0] * 4
+
+        result = _embed_relationship(mock_rel, mock_embedder, "embedder.path")
+
+        self.assertTrue(result)
+        mock_synth.assert_called_once_with(mock_rel)
+        mock_embedder.embed_text.assert_called_once_with("synthesized")
+
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
+    def test_precomputed_text_skips_synthesize(self, mock_synth):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_rel = MagicMock()
+        mock_rel.id = 6
+        mock_rel.add_embedding.return_value = MagicMock(pk=1)
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = [0.0] * 4
+
+        result = _embed_relationship(
+            mock_rel,
+            mock_embedder,
+            "embedder.path",
+            precomputed_text="precomputed",
+        )
+
+        self.assertTrue(result)
+        mock_synth.assert_not_called()
+        mock_embedder.embed_text.assert_called_once_with("precomputed")
+
+
+class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
+    """Unit tests for ``calculate_embeddings_for_relationship_batch`` (issue #1645).
+
+    Mocks the Relationship queryset and the embedding helpers — the
+    intent is to verify the orchestration logic (dispatch counts, error
+    aggregation, explicit-vs-dual code paths), not the underlying
+    embedder mechanics, which are exercised in
+    ``TestEmbedRelationship`` above.
+    """
+
+    def test_empty_relationship_ids_returns_early(self):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        result = calculate_embeddings_for_relationship_batch.apply(args=[[]]).get()
+
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["succeeded"], 0)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(result["skipped"], 0)
+
+    @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
+    @patch("opencontractserver.tasks.embeddings_task.Relationship")
+    def test_explicit_embedder_load_failure_marks_all_failed(
+        self, mock_rel_model, mock_get_component
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        mock_get_component.side_effect = ImportError("bad embedder")
+        # Relationship.objects.filter(...).prefetch_related(...) chain.
+        mock_rel_model.objects.filter.return_value = []
+
+        result = calculate_embeddings_for_relationship_batch.apply(
+            args=[[1, 2, 3]],
+            kwargs={"embedder_path": "bogus.path"},
+        ).get()
+
+        self.assertEqual(result["failed"], 3)
+        self.assertTrue(any("Failed to load embedder" in e for e in result["errors"]))
+
+    @patch("opencontractserver.tasks.embeddings_task._embed_relationship")
+    @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
+    @patch("opencontractserver.tasks.embeddings_task.Relationship")
+    def test_explicit_embedder_counts_outcomes(
+        self, mock_rel_model, mock_get_component, mock_embed
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        rel1, rel2, rel3 = MagicMock(pk=1), MagicMock(pk=2), MagicMock(pk=3)
+        # rel4 is missing from the DB → counts as "skipped".
+        mock_rel_model.objects.filter.return_value = [
+            rel1,
+            rel2,
+            rel3,
+        ]
+        mock_get_component.return_value = MagicMock(return_value=MagicMock())
+
+        # rel1 succeeds, rel2 fails, rel3 raises.
+        def fake_embed(rel, embedder, embedder_path):
+            if rel is rel1:
+                return True
+            if rel is rel2:
+                return False
+            raise RuntimeError("boom")
+
+        mock_embed.side_effect = fake_embed
+
+        result = calculate_embeddings_for_relationship_batch.apply(
+            args=[[1, 2, 3, 4]],
+            kwargs={"embedder_path": "explicit.path"},
+        ).get()
+
+        self.assertEqual(result["total"], 4)
+        self.assertEqual(result["succeeded"], 1)
+        self.assertEqual(result["failed"], 2)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(len(result["errors"]), 2)
+
+    @patch("opencontractserver.tasks.embeddings_task._apply_dual_embedding_strategy")
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
+    @patch("opencontractserver.tasks.embeddings_task.Relationship")
+    def test_dual_embedding_path_invoked_when_no_explicit_embedder(
+        self, mock_rel_model, mock_synth, mock_dual
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        rel1, rel2 = MagicMock(pk=1, id=1), MagicMock(pk=2, id=2)
+        mock_rel_model.objects.filter.return_value = [
+            rel1,
+            rel2,
+        ]
+        mock_synth.return_value = "synth"
+
+        result = calculate_embeddings_for_relationship_batch.apply(
+            args=[[1, 2]],
+            kwargs={"corpus_id": 42},
+        ).get()
+
+        self.assertEqual(result["succeeded"], 2)
+        self.assertEqual(mock_dual.call_count, 2)
+        # corpus_id is converted to int when truthy.
+        for call in mock_dual.call_args_list:
+            self.assertEqual(call.kwargs["corpus_id"], 42)
+            self.assertEqual(call.kwargs["obj_type"], "relationship")
+
+    @patch("opencontractserver.tasks.embeddings_task._apply_dual_embedding_strategy")
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
+    @patch("opencontractserver.tasks.embeddings_task.Relationship")
+    def test_dual_embedding_records_individual_failures(
+        self, mock_rel_model, mock_synth, mock_dual
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        rel1, rel2 = MagicMock(pk=1, id=1), MagicMock(pk=2, id=2)
+        mock_rel_model.objects.filter.return_value = [
+            rel1,
+            rel2,
+        ]
+        mock_synth.return_value = "synth"
+
+        # rel1 succeeds, rel2's dual-embedding raises.
+        def fake_dual(**kwargs):
+            if kwargs["obj_id"] == 2:
+                raise RuntimeError("dual boom")
+
+        mock_dual.side_effect = fake_dual
+
+        result = calculate_embeddings_for_relationship_batch.apply(
+            args=[[1, 2]],
+        ).get()
+
+        self.assertEqual(result["succeeded"], 1)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(len(result["errors"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

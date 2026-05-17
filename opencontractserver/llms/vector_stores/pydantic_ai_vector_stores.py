@@ -10,6 +10,7 @@ from pydantic_ai.tools import RunContext
 
 from opencontractserver.llms.tools.pydantic_ai_tools import PydanticAIDependencies
 from opencontractserver.llms.vector_stores.core_vector_stores import (
+    BlockContext,
     CoreAnnotationVectorStore,
     VectorSearchQuery,
     VectorSearchResult,
@@ -25,6 +26,22 @@ class PydanticAIVectorSearchRequest(BaseModel):
     query_embedding: Optional[list[float]] = None
     similarity_top_k: int = 10
     filters: Optional[dict[str, Any]] = None
+
+
+def _block_context_to_dict(bc: BlockContext) -> dict[str, Any]:
+    """Serialise a :class:`BlockContext` for the pydantic-ai response payload.
+
+    ``block_text`` is already capped at
+    ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` by the core store, so the
+    dict is safe to surface unmodified.
+    """
+    return {
+        "relationship_id": bc.relationship_id,
+        "source_annotation_id": bc.source_annotation_id,
+        "source_text": bc.source_text,
+        "target_annotation_ids": list(bc.target_annotation_ids),
+        "block_text": bc.block_text,
+    }
 
 
 class PydanticAIVectorSearchResponse(BaseModel):
@@ -71,6 +88,10 @@ class PydanticAIVectorSearchResponse(BaseModel):
                 "json": result.annotation.json,
                 "similarity_score": result.similarity_score,
             }
+            if result.block_context is not None:
+                formatted_result["block_context"] = _block_context_to_dict(
+                    result.block_context
+                )
             formatted_results.append(formatted_result)
 
         return cls(results=formatted_results, total_results=len(formatted_results))
@@ -119,6 +140,12 @@ class PydanticAIVectorSearchResponse(BaseModel):
         for result in results:
             annotation_data = await extract_annotation_data(result.annotation)
             annotation_data["similarity_score"] = result.similarity_score
+            if result.block_context is not None:
+                # Plain-dict block_context — keeps the model-dump path in
+                # ``create_vector_search_tool`` free of Django ORM access.
+                annotation_data["block_context"] = _block_context_to_dict(
+                    result.block_context
+                )
             formatted_results.append(annotation_data)
 
         return cls(results=formatted_results, total_results=len(formatted_results))

@@ -391,4 +391,112 @@ def build_subtree_groups_for_document(
         created,
         document.pk,
     )
+
+    # ------------------------------------------------------------------ #
+    # 7. Dispatch embedding tasks for the new subtree-group rows so
+    #    relationship-targeted semantic search (issue #1645) can return
+    #    them. Done OUTSIDE the atomic block so a failed enqueue (broker
+    #    transient outage) doesn't roll back the freshly-written rows —
+    #    a follow-up call will re-create them (the idempotency delete +
+    #    re-insert keeps PKs stable for already-embedded rows, so the
+    #    enqueue retry is safe and won't double-embed).
+    # ------------------------------------------------------------------ #
+    if created > 0:
+        _dispatch_relationship_embeddings(document=document, label_id=label.pk)
+
     return created
+
+
+def _dispatch_relationship_embeddings(document: Document, label_id: int) -> None:
+    """Enqueue embedding tasks for this document's OC_SUBTREE_GROUP rows.
+
+    Picks up every fresh row regardless of whether it still lives on
+    ``document`` (first parse) or has been migrated to a
+    ``StructuralAnnotationSet`` (re-parse) — the same Q-OR pattern as the
+    materialiser's delete/create paths.
+
+    Dispatches the default embedder unconditionally and the corpus's
+    ``preferred_embedder`` for every corpus this document belongs to when
+    it differs from the default. Mirrors the per-annotation dual-embedding
+    strategy in ``utils/importing.py``: re-using corpus-preferred embedders
+    here keeps relationship and annotation embeddings aligned in the same
+    vector space.
+    """
+    # Lazy imports: this module is consumed by the parser pipeline at
+    # ingestion time, and pulling Celery + corpus models at module import
+    # time would bloat the worker boot path. See ``utils/importing.py``
+    # for the analogous pattern on annotations.
+    from opencontractserver.constants.document_processing import (
+        EMBEDDING_BATCH_SIZE,
+    )
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import DocumentPath
+    from opencontractserver.pipeline.utils import get_default_embedder_path
+    from opencontractserver.tasks.embeddings_task import (
+        calculate_embeddings_for_relationship_batch,
+    )
+
+    structural_set_id = document.structural_annotation_set_id
+    rel_filter = Q(
+        document=document,
+        structural=True,
+        structural_set__isnull=True,
+        relationship_label_id=label_id,
+    )
+    if structural_set_id is not None:
+        rel_filter |= Q(
+            structural=True,
+            structural_set_id=structural_set_id,
+            relationship_label_id=label_id,
+        )
+    relationship_ids = list(
+        Relationship.objects.filter(rel_filter)
+        .order_by("id")
+        .values_list("id", flat=True)
+    )
+    if not relationship_ids:
+        return
+
+    embedder_paths: list[tuple[str, int | None]] = []
+    default_embedder_path = get_default_embedder_path()
+    if default_embedder_path:
+        # Default embedder is corpus-agnostic by design — pass ``None`` so
+        # the task doesn't fan out into corpus-specific embedders a second
+        # time.
+        embedder_paths.append((default_embedder_path, None))
+
+    # Per-corpus preferred embedders. A document may belong to multiple
+    # corpuses (DocumentPath fan-out for forks/sidecars), so we dedupe
+    # by (embedder_path, corpus_id) to avoid redundant dispatches when
+    # several corpora share the same preferred embedder.
+    seen: set[tuple[str, int]] = set()
+    corpus_ids = list(
+        DocumentPath.objects.filter(
+            document=document, is_current=True, is_deleted=False
+        )
+        .values_list("corpus_id", flat=True)
+        .distinct()
+    )
+    if corpus_ids:
+        corpus_rows = Corpus.objects.filter(id__in=corpus_ids).values_list(
+            "id", "preferred_embedder"
+        )
+        for corpus_pk, pref in corpus_rows:
+            if not pref or pref == default_embedder_path:
+                continue
+            if (pref, corpus_pk) in seen:
+                continue
+            seen.add((pref, corpus_pk))
+            embedder_paths.append((pref, corpus_pk))
+
+    # Chunk by EMBEDDING_BATCH_SIZE to match the annotation dispatch path
+    # — keeps queue payload sizes bounded for documents that emit
+    # thousands of subtree groups.
+    for embedder_path, corpus_pk in embedder_paths:
+        for i in range(0, len(relationship_ids), EMBEDDING_BATCH_SIZE):
+            chunk = relationship_ids[i : i + EMBEDDING_BATCH_SIZE]
+            calculate_embeddings_for_relationship_batch.delay(
+                relationship_ids=chunk,
+                corpus_id=corpus_pk,
+                embedder_path=embedder_path,
+            )

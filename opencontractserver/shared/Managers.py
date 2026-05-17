@@ -1197,10 +1197,11 @@ class EmbeddingManager(BaseVisibilityManager):
         note_id: int | None = None,
         conversation_id: int | None = None,
         message_id: int | None = None,
+        relationship_id: int | None = None,
     ) -> Any:
         """
         Create or update an Embedding, referencing exactly one of:
-        Document, Annotation, Note, Conversation, or ChatMessage.
+        Document, Annotation, Note, Conversation, ChatMessage, or Relationship.
         If an Embedding already exists for (embedder_path + parent_id), update its vector field
         instead of creating a new record.
 
@@ -1213,9 +1214,25 @@ class EmbeddingManager(BaseVisibilityManager):
         filtering would cause us to miss embeddings created by other users, leading to
         constraint violations.
         """
-        if not any([document_id, annotation_id, note_id, conversation_id, message_id]):
+        # Exactly one parent FK must be set — Embedding has a partial
+        # unique constraint per (embedder_path, parent) pair and accepting
+        # multiple here would silently write a row violating that intent.
+        provided = [
+            x
+            for x in (
+                document_id,
+                annotation_id,
+                note_id,
+                conversation_id,
+                message_id,
+                relationship_id,
+            )
+            if x
+        ]
+        if len(provided) != 1:
             raise ValueError(
-                "Must provide one of document_id, annotation_id, note_id, conversation_id, or message_id."
+                "Must provide exactly one of document_id, annotation_id, "
+                "note_id, conversation_id, message_id, or relationship_id."
             )
 
         field_name = self._get_vector_field_name(dimension)
@@ -1228,6 +1245,7 @@ class EmbeddingManager(BaseVisibilityManager):
             "note_id": note_id,
             "conversation_id": conversation_id,
             "message_id": message_id,
+            "relationship_id": relationship_id,
         }
 
         # Check for existing embedding without permission filtering.

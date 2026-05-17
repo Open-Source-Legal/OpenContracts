@@ -258,7 +258,7 @@ class TestCoreAnnotationVectorStore(TestCase):
         self.assertIn(self.anno3.id, returned_ids)
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_search_by_vector_similarity_generated_from_query_text(
         self, mock_gen_embeds
@@ -311,7 +311,7 @@ class TestCoreAnnotationVectorStore(TestCase):
         self.assertTrue(any("doc2, important label" in txt for txt in returned_texts))
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_search_query_text_fallback_when_no_embedding(self, mock_gen_embeds):
         """

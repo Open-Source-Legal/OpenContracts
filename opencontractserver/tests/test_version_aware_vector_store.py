@@ -46,7 +46,7 @@ class TestVersionAwareVectorStore(TestCase):
         self.label = AnnotationLabel.objects.create(text="Important", creator=self.user)
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_vector_search_defaults_to_current_versions(self, mock_generate):
         """Test that vector search defaults to current versions only."""
@@ -119,7 +119,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Vector search defaults to current versions only")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_vector_search_can_include_old_versions(self, mock_generate):
         """Test that vector search can explicitly include old versions."""
@@ -189,7 +189,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Vector search can include old versions when requested")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_vector_search_excludes_deleted_documents(self, mock_generate):
         """Test that vector search excludes deleted documents."""
@@ -250,7 +250,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Vector search excludes deleted documents")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_vector_search_without_deletion_check(self, mock_generate):
         """Test that deletion check can be disabled for recovery scenarios."""
@@ -298,7 +298,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Deletion check can be disabled for recovery")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_vector_search_after_document_move(self, mock_generate):
         """Test that vector search works correctly after document move."""
@@ -352,7 +352,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Vector search works after document move")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_structural_annotations_in_vector_search(self, mock_generate):
         """Test that structural annotations follow version filtering."""
@@ -422,7 +422,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Structural annotations follow version filtering")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_empty_corpus_returns_no_results(self, mock_generate):
         """Test that corpus with all deleted documents returns empty results."""
@@ -471,7 +471,7 @@ class TestVersionAwareVectorStore(TestCase):
         logger.info("✓ Empty corpus returns no results")
 
     @patch(
-        "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+        "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
     )
     def test_cross_corpus_search_independence(self, mock_generate):
         """Test that deletion in one corpus doesn't affect search in another."""
@@ -583,7 +583,7 @@ class TestVersionAwareVectorStore(TestCase):
 
         # Time the search with version filtering
         with patch(
-            "opencontractserver.llms.vector_stores.core_vector_stores.generate_embeddings_from_text"
+            "opencontractserver.llms.vector_stores.base_vector_store.generate_embeddings_from_text"
         ) as mock_gen:
             mock_gen.return_value = (TEST_EMBEDDER_PATH, mock_embeddings())
 

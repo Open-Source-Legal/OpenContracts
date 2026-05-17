@@ -538,6 +538,23 @@ export const includeStructuralAnnotations = makeVar<boolean>(false); // These ar
 export const selectedAnnotationIds = makeVar<string[]>([]);
 
 /**
+ * URL-DRIVEN STATE: selectedRelationshipId is controlled by URL query
+ * parameter ?rel=<relationship_pk>. Drives the "jump to surfaced
+ * relationship" affordance — when set, the doc viewer scrolls to the
+ * relationship's source/target annotations and toggles the relation
+ * line as selected. Issue #1645.
+ *
+ * Holds the raw Django PK (matching ``Relationship.id`` returned by
+ * ``semanticSearchRelationships`` and ``blockContext.relationshipId``),
+ * NOT a Relay global ID — the resolver pairs with this convention so
+ * deep-link URLs stay short.
+ *
+ * Cleared (null) when no ``rel`` param is present, matching the
+ * single-id reactive vars (``selectedThreadId``, ``selectedMessageId``).
+ */
+export const selectedRelationshipId = makeVar<string | null>(null);
+
+/**
  * Analysis-related global variables
  *
  * URL-DRIVEN STATE: selectedAnalysesIds is controlled by URL query parameter ?analysis=

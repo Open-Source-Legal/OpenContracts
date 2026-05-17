@@ -16,9 +16,11 @@ from graphql_relay import from_global_id
 from config.graphql.graphene_types import (
     AgentConfigurationType,
     AnnotationType,
+    BlockContextType,
     CorpusType,
     DocumentType,
     NoteType,
+    SemanticSearchRelationshipResultType,
     SemanticSearchResultType,
     UserType,
 )
@@ -738,11 +740,158 @@ class SearchQueryMixin:
                 if result.annotation.id in annotations_by_id:
                     result.annotation = annotations_by_id[result.annotation.id]
 
-        # Convert to GraphQL result types
-        return [
-            SemanticSearchResultType(
-                annotation=result.annotation,
-                similarity_score=result.similarity_score,
+        # Convert to GraphQL result types — surface the block-of-context
+        # the core store attached after reranking. ``BlockContextType`` is
+        # a plain GraphQL ObjectType (not a DjangoObjectType), so we
+        # construct it from the dataclass fields directly. Keeping the
+        # mapping inline mirrors ``SemanticSearchResultType``'s pattern
+        # for ``annotation``/``similarity_score`` and avoids a helper
+        # for a single non-shared call site.
+        graphql_results = []
+        for result in paginated_results:
+            block_ctx = None
+            if result.block_context is not None:
+                bc = result.block_context
+                block_ctx = BlockContextType(
+                    relationship_id=bc.relationship_id,
+                    source_annotation_id=bc.source_annotation_id,
+                    source_text=bc.source_text,
+                    target_annotation_ids=list(bc.target_annotation_ids),
+                    block_text=bc.block_text,
+                )
+            graphql_results.append(
+                SemanticSearchResultType(
+                    annotation=result.annotation,
+                    similarity_score=result.similarity_score,
+                    block_context=block_ctx,
+                )
             )
-            for result in paginated_results
-        ]
+        return graphql_results
+
+    # ------------------------------------------------------------------ #
+    # Relationship-targeted semantic search
+    # ------------------------------------------------------------------ #
+    semantic_search_relationships = graphene.List(
+        SemanticSearchRelationshipResultType,
+        query=graphene.String(required=True, description="Search query text"),
+        corpus_id=graphene.ID(
+            required=False,
+            description="Optional corpus ID to scope search within",
+        ),
+        document_id=graphene.ID(
+            required=False,
+            description="Optional document ID to scope search within",
+        ),
+        limit=graphene.Int(
+            default_value=50,
+            description=(
+                f"Maximum number of results to return (default: 50, "
+                f"max: {SEMANTIC_SEARCH_MAX_RESULTS})"
+            ),
+        ),
+        offset=graphene.Int(
+            default_value=0,
+            description="Number of results to skip for pagination",
+        ),
+        description=(
+            "Vector search across embedded Relationship rows — currently "
+            "the materialised OC_SUBTREE_GROUP subtrees. Returns each "
+            "relationship's source/target annotation IDs so the document "
+            "viewer can scroll to and select the whole block in one go."
+        ),
+    )
+
+    @login_required
+    def resolve_semantic_search_relationships(
+        self,
+        info,
+        query,
+        corpus_id=None,
+        document_id=None,
+        limit=50,
+        offset=0,
+    ) -> Any:
+        """Run vector search against the embedded Relationship surface.
+
+        Mirrors ``resolve_semantic_search`` for scoping and permissioning
+        but targets ``Relationship`` rows instead of annotations. The
+        underlying store applies the same ``visible_to_user`` filters so
+        IDOR rules are identical.
+        """
+        from opencontractserver.llms.vector_stores.core_relationship_vector_store import (  # noqa: E501
+            CoreRelationshipVectorStore,
+            RelationshipVectorSearchQuery,
+        )
+        from opencontractserver.pipeline.utils import get_default_embedder_path
+
+        limit = min(limit, SEMANTIC_SEARCH_MAX_RESULTS)
+
+        corpus_pk = int(from_global_id(corpus_id)[1]) if corpus_id else None
+        document_pk = int(from_global_id(document_id)[1]) if document_id else None
+
+        user = info.context.user
+
+        # IDOR check: same pattern as ``resolve_semantic_search``. Returning
+        # ``[]`` for both "not found" and "no permission" prevents
+        # enumeration attacks via differing error messages.
+        if document_pk:
+            if (
+                not Document.objects.visible_to_user(user)
+                .filter(id=document_pk)
+                .exists()
+            ):
+                return []
+
+        if corpus_pk:
+            if not Corpus.objects.visible_to_user(user).filter(id=corpus_pk).exists():
+                return []
+
+        # Resolve embedder: corpus-scoped queries use the corpus's frozen
+        # ``preferred_embedder`` so the query vector is in the same space
+        # as the corpus's relationship embeddings. Same logic as the
+        # annotation-targeted path above; kept inline so the two
+        # resolvers can evolve independently if the relationship surface
+        # ever picks a different embedder.
+        scoped_embedder_path = get_default_embedder_path()
+        if corpus_pk:
+            corpus_embedder = (
+                Corpus.objects.filter(pk=corpus_pk)
+                .values_list("preferred_embedder", flat=True)
+                .first()
+            )
+            if corpus_embedder:
+                scoped_embedder_path = corpus_embedder
+
+        store = CoreRelationshipVectorStore(
+            user_id=user.id,
+            corpus_id=corpus_pk,
+            document_id=document_pk,
+            embedder_path=scoped_embedder_path,
+        )
+        results = store.search(
+            RelationshipVectorSearchQuery(
+                query_text=query,
+                similarity_top_k=limit + offset,
+            )
+        )
+        paginated_results = results[offset : offset + limit]
+
+        # Construct GraphQL types. ``document_id`` and ``corpus_id`` are
+        # raw PKs (matching the type definition) so deep-link URLs can
+        # round-trip them through ``to_global_id`` on the client side
+        # without needing a second resolver.
+        graphql_results: list[SemanticSearchRelationshipResultType] = []
+        for r in paginated_results:
+            graphql_results.append(
+                SemanticSearchRelationshipResultType(
+                    relationship_id=r.relationship.pk,
+                    similarity_score=r.similarity_score,
+                    label=r.label_text,
+                    source_annotation_id=r.source_annotation_id,
+                    target_annotation_ids=list(r.target_annotation_ids),
+                    block_text=r.block_text,
+                    document_id=r.document_id,
+                    corpus_id=r.corpus_id,
+                )
+            )
+        return graphql_results
