@@ -313,9 +313,9 @@ class TestListRecentExtracts(BaseFixtureTestCase):
     async def test_async_variant_matches(self):
         sync_ids = {
             r["id"]
-            for r in await sync_to_async(
-                list_recent_extracts, thread_sensitive=False
-            )(corpus_id=self.corpus.id, user_id=self.user.id)
+            for r in await sync_to_async(list_recent_extracts, thread_sensitive=False)(
+                corpus_id=self.corpus.id, user_id=self.user.id
+            )
         }
         async_ids = {
             r["id"]
@@ -363,9 +363,9 @@ class TestListRecentAnalyses(BaseFixtureTestCase):
     async def test_async_variant_matches(self):
         sync_ids = {
             r["id"]
-            for r in await sync_to_async(
-                list_recent_analyses, thread_sensitive=False
-            )(corpus_id=self.corpus.id, user_id=self.user.id)
+            for r in await sync_to_async(list_recent_analyses, thread_sensitive=False)(
+                corpus_id=self.corpus.id, user_id=self.user.id
+            )
         }
         async_ids = {
             r["id"]
