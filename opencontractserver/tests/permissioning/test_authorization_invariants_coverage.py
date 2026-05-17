@@ -625,17 +625,27 @@ class RelationshipUserCanAccessWideningTestCase(TransactionTestCase):
 
 
 class RelationshipNonOwnerCreatorTestCase(TransactionTestCase):
-    """Pin the creator short-circuit added to ``RelationshipManager.user_can``.
+    """Pin the creator short-circuit on ``RelationshipManager.user_can``.
 
-    Addresses the latent invariant violation flagged on PR #1663: a
-    user who is granted CREATE on someone else's document/corpus,
-    authors a relationship (becoming ``relationship.creator``), and
-    then loses their READ grant must still see/manage the relationship
-    via the creator path — otherwise ``visible_to_user`` (which has
-    ``Q(creator=user)``) and ``user_can(READ)`` (which routed only
-    through ``_compute_effective_permissions``) diverge.
+    POLICY (intended behavior, not a bug being tracked for Phase B):
+    a user who authored a relationship retains READ/UPDATE/DELETE
+    access via the creator branch even after their explicit doc/corpus
+    guardian grants are revoked. This mirrors the way
+    ``RelationshipQuerySet.visible_to_user`` surfaces creator-owned
+    rows via ``Q(creator=user)`` — the manager check and the queryset
+    filter must agree (Phase A invariant), so ``user_can`` short-circuits
+    on creator status before delegating to
+    ``_compute_effective_permissions``.
 
-    Structural relationships remain read-only even for their creator.
+    Without this short-circuit, the contributor in the fixture below
+    would lose READ when their doc/corpus grants are revoked while
+    ``visible_to_user``'s creator predicate would still surface the
+    row — that divergence is what the creator branch prevents.
+
+    Structural relationships remain read-only even for their creator:
+    the structural-write-deny check runs *before* the creator
+    short-circuit, so creator status grants READ but not writes on
+    structural rows.
     """
 
     def setUp(self) -> None:
@@ -676,10 +686,12 @@ class RelationshipNonOwnerCreatorTestCase(TransactionTestCase):
             set_permissions_for_obj_to_user(self.contributor, inst, [])
 
     def test_creator_keeps_access_after_grants_revoked(self) -> None:
-        """The creator-short-circuit branch — without it, the contributor
-        would lose READ when the doc/corpus grants were revoked, while
-        ``visible_to_user``'s ``Q(creator=user)`` would still surface the
-        row. That divergence is the invariant violation Claude flagged."""
+        """Verify the creator-short-circuit branch (see class docstring
+        for policy rationale): the contributor created the relationship,
+        so they retain READ/UPDATE/DELETE on it via ``Q(creator=user)``
+        even after their doc/corpus grants are revoked. This pins the
+        Phase A invariant that ``visible_to_user`` and ``user_can``
+        agree on creator-owned rows."""
         for perm in (
             PermissionTypes.READ,
             PermissionTypes.UPDATE,
