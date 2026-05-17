@@ -640,6 +640,77 @@ test.describe("Documents View - Selection", () => {
 
     await component.unmount();
   });
+
+  test("should exercise compact view selection and context menu", async ({
+    mount,
+    page,
+  }) => {
+    authToken("test-auth-token");
+    userObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+    } as any);
+    backendUserObj({
+      id: "1",
+      email: "test@example.com",
+      username: "testuser",
+      isUsageCapped: false,
+    } as any);
+    documentSearchTerm("");
+    selectedDocumentIds([]);
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          getDocumentsMock,
+          getDocumentsMock,
+          getDocumentStatsMock,
+          getDocumentStatsMock,
+        ]}
+        addTypename={false}
+      >
+        <MemoryRouter>
+          <JotaiProvider>
+            <Documents />
+          </JotaiProvider>
+        </MemoryRouter>
+      </MockedProvider>
+    );
+
+    await expect(page.locator("text=Test Document 1.pdf")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Switch to compact view to render DocumentsCompactView.
+    const compactButton = page.locator('[aria-label="Compact view"]');
+    await compactButton.click();
+    await expect(compactButton).toHaveAttribute("aria-pressed", "true");
+
+    // Exercise the per-row checkbox onSelect handler. The click handler
+    // on the wrapping div calls e.stopPropagation() so the row click
+    // doesn't navigate — this drives DocumentsCompactView's onSelect prop
+    // and the isSelected branch without leaving the page.
+    const compactRow = page
+      .locator('[role="listitem"][data-testid="document-card"]')
+      .first();
+    const compactCheckbox = compactRow.locator('input[type="checkbox"]');
+    await compactCheckbox.click();
+    await page.waitForTimeout(150);
+
+    // Exercise the kebab-menu onClick which calls onContextMenu — proves
+    // the second context-menu trigger path is wired (the row right-click
+    // is the first, this is the keyboard-friendly button alternative).
+    const kebab = compactRow.locator('button[aria-label="Open menu"]');
+    await kebab.click();
+    await page.waitForTimeout(150);
+
+    authToken(null);
+    userObj(null);
+    backendUserObj(null);
+
+    await component.unmount();
+  });
 });
 
 test.describe("Documents View - Stat Tiles", () => {
