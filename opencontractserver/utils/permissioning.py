@@ -548,9 +548,13 @@ def _default_user_can(
 # potentially fired many times per request, an unthrottled
 # ``warnings.warn`` would flood logs during the Phase B migration window.
 # We track (filename, lineno) tuples for each unique caller frame and
-# emit at most once per site per process. Tests that need to assert
+# emit at most once per site per process. The set is bounded by the
+# number of distinct call sites in the codebase (currently ~170) and
+# does not grow with request/task volume, so it is safe to leave
+# uncleared in long-running Celery workers. Tests that need to assert
 # specific call sites still issue warnings can clear this set via
-# ``_user_has_permission_for_obj_warned.clear()``.
+# ``_user_has_permission_for_obj_warned.clear()`` (see
+# ``ShimDeprecationWarningTestCase.setUp``).
 _user_has_permission_for_obj_warned: set[tuple[str, int]] = set()
 
 

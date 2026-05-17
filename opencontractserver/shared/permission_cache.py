@@ -37,6 +37,17 @@ The cache stays dormant until a future Phase B change wires it in.
 This is intentional: shipping the cache primitive separately lets us
 verify the API surface and key shape with invariant tests before
 activating it in the request path. Tracking issue: #1655 follow-up.
+
+**Phase B wire-up — nested-scope semantics to revisit:** each
+``permission_cache_scope()`` allocates a fresh empty dict on entry, so
+nested scopes do NOT inherit their parent scope's cached entries. A
+permission computed in the outer scope is recomputed if the same tuple
+is queried inside an inner scope. If middleware wraps each request in
+an outer scope and view code sometimes enters an inner scope, that
+double-computation is wasteful. When wiring Phase B, consider whether
+a "join existing scope if one is active" variant (returning the
+existing context-var value instead of overwriting it) better matches
+the production call pattern.
 """
 
 from __future__ import annotations

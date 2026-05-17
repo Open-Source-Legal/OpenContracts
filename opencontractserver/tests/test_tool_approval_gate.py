@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase, override_settings
+from django.test import TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -111,7 +111,6 @@ class _IterCtx:
 
 
 @pytest.mark.serial
-@override_settings(DATABASES={"default": {"CONN_MAX_AGE": 0}})
 class TestApprovalFlow(TransactionTestCase):
     """Approval gate tests.
 

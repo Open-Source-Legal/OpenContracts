@@ -13,12 +13,13 @@ import io
 import json
 import pathlib
 import zipfile
+from tempfile import SpooledTemporaryFile
 from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
@@ -1541,6 +1542,67 @@ class TestV2EdgeCases(TransactionTestCase):
                     data = json.load(data_file)
                     self.assertIn("conversations", data)
                     self.assertEqual(len(data["conversations"]), 1)
+
+    @override_settings(EXPORT_SPOOL_MAX_SIZE_BYTES=1)
+    def test_build_zip_disk_rollover_produces_valid_archive(self):
+        """Force the SpooledTemporaryFile to spill to disk and round-trip cleanly.
+
+        With ``EXPORT_SPOOL_MAX_SIZE_BYTES=1`` the spool rolls over to an
+        on-disk file almost immediately (every write past the first byte
+        is on disk). This exercises the memory-fix's actual purpose:
+
+        1. ``build_corpus_v2_zip`` honours the override (the threshold is
+           read lazily — a stale module-level capture would silently keep
+           the 100 MB default and never spill).
+        2. The buffer ``_rolled`` flag flips to ``True``, confirming we
+           hit the disk path rather than the in-memory short-circuit.
+        3. The archive is still a valid zipfile after rollover, and a
+           full import succeeds — i.e. the central directory is written
+           and the rewind to offset 0 happens after the close.
+        """
+        from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
+        from opencontractserver.tasks.import_tasks_v2 import (
+            import_corpus_v2_from_bytes,
+        )
+
+        labelset = LabelSet.objects.create(title="Rollover Set", creator=self.user)
+        corpus = Corpus.objects.create(
+            title="Rollover Corpus",
+            label_set=labelset,
+            creator=self.user,
+        )
+
+        # Use as a context manager to exercise the documented lifetime
+        # pattern (the function's docstring tells callers to ``with`` the
+        # returned buffer); a try/finally + .close() would test the same
+        # bytes but not the contract.
+        with build_corpus_v2_zip(
+            corpus_pk=corpus.id,
+            user_for_visibility=None,
+            include_conversations=False,
+        ) as zip_buffer:
+            self.assertIsInstance(zip_buffer, SpooledTemporaryFile)
+            # ``_rolled`` is the documented internal flag SpooledTemporaryFile
+            # flips when it crosses ``max_size``. Asserting on it is the
+            # cleanest way to prove we actually exercised the disk path —
+            # any in-memory short-circuit would leave it False.
+            self.assertTrue(
+                zip_buffer._rolled,
+                "spool did not roll over even with max_size=1; the override "
+                "is being ignored (likely a stale module-level constant "
+                "capture)",
+            )
+
+            with zipfile.ZipFile(zip_buffer, "r") as zf:
+                self.assertIn("data.json", zf.namelist())
+
+            zip_buffer.seek(0)
+            imported_id = import_corpus_v2_from_bytes(
+                zip_source=zip_buffer,
+                user_id=self.user.id,
+                seed_corpus_id=None,
+            )
+            self.assertIsNotNone(imported_id)
 
     def test_import_zip_missing_data_json(self):
         """Test importing a ZIP that has no data.json returns None."""

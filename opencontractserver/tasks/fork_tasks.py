@@ -138,7 +138,7 @@ def fork_corpus(
 
     try:
         # Build the export ZIP outside the write transaction.  It only
-        # reads from the DB (and constructs an in-memory ZIP), so it
+        # reads from the DB (and constructs a spooled ZIP buffer), so it
         # doesn't need to share scope with the import's writes — keeping
         # it outside narrows the lock window to just the import phase,
         # which can run for minutes on large corpora.
@@ -150,14 +150,43 @@ def fork_corpus(
         # window — is unacceptable on large corpora.  The forked corpus
         # reflects the source state at the moment ``build_corpus_v2_zip``
         # ran; later mutations are caller-visible and out of scope here.
-        zip_bytes = build_corpus_v2_zip(
-            corpus_pk=int(source_pk),
-            user_for_visibility=None,  # fork inherits all conversations
-            include_conversations=True,
-            include_action_trail=False,
-        )
-
-        with transaction.atomic():
+        #
+        # ``build_corpus_v2_zip`` returns a ``SpooledTemporaryFile`` whose
+        # on-disk counterpart (for corpora that exceed
+        # ``EXPORT_SPOOL_MAX_SIZE_BYTES``) only releases when closed; use
+        # it as a context manager so the temp file disappears even if the
+        # import path raises.
+        #
+        # Ordering note on the parenthesized ``with`` below: Python
+        # evaluates every expression left-to-right *before* calling
+        # ``__enter__`` on any of them. That means ``build_corpus_v2_zip``
+        # — including all of its DB reads and ZIP-writing work — runs
+        # to completion before ``transaction.atomic()`` enters. So the
+        # export does NOT execute inside the write transaction, which
+        # keeps the read window outside the write lock and is the
+        # invariant this block depends on.
+        #
+        # Rollback contract for the outer atomic: ``_import_corpus`` uses
+        # nested ``transaction.atomic()`` blocks internally that Django
+        # promotes to **savepoints**, not autonomous transactions.  Its
+        # broad-except swallows partial failures and returns ``None``
+        # after rolling back the failing savepoint, but writes that
+        # released their savepoints before the failure remain pending
+        # against this outer atomic.  Raising on ``None`` here is what
+        # forces the outer block to roll those pending writes back, so
+        # the shell corpus does not end up half-populated.  Any
+        # ``transaction.on_commit`` callbacks registered inside this
+        # block (e.g. ``_gc_orphaned_blobs`` below) only fire on a
+        # successful outer commit, so a rollback is leak-safe.
+        with (
+            build_corpus_v2_zip(
+                corpus_pk=int(source_pk),
+                user_for_visibility=None,  # fork inherits all conversations
+                include_conversations=True,
+                include_action_trail=False,
+            ) as zip_bytes,
+            transaction.atomic(),
+        ):
             imported_id = import_corpus_v2_from_bytes(
                 zip_source=zip_bytes,
                 user_id=int(user_id),
