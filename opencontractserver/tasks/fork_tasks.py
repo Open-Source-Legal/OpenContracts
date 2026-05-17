@@ -157,6 +157,15 @@ def fork_corpus(
         # it as a context manager so the temp file disappears even if the
         # import path raises.
         #
+        # Ordering note on the parenthesized ``with`` below: Python
+        # evaluates every expression left-to-right *before* calling
+        # ``__enter__`` on any of them. That means ``build_corpus_v2_zip``
+        # — including all of its DB reads and ZIP-writing work — runs
+        # to completion before ``transaction.atomic()`` enters. So the
+        # export does NOT execute inside the write transaction, which
+        # keeps the read window outside the write lock and is the
+        # invariant this block depends on.
+        #
         # Rollback contract for the outer atomic: ``_import_corpus`` uses
         # nested ``transaction.atomic()`` blocks internally that Django
         # promotes to **savepoints**, not autonomous transactions.  Its

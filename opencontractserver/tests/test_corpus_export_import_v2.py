@@ -1572,12 +1572,15 @@ class TestV2EdgeCases(TransactionTestCase):
             creator=self.user,
         )
 
-        zip_buffer = build_corpus_v2_zip(
+        # Use as a context manager to exercise the documented lifetime
+        # pattern (the function's docstring tells callers to ``with`` the
+        # returned buffer); a try/finally + .close() would test the same
+        # bytes but not the contract.
+        with build_corpus_v2_zip(
             corpus_pk=corpus.id,
             user_for_visibility=None,
             include_conversations=False,
-        )
-        try:
+        ) as zip_buffer:
             self.assertIsInstance(zip_buffer, SpooledTemporaryFile)
             # ``_rolled`` is the documented internal flag SpooledTemporaryFile
             # flips when it crosses ``max_size``. Asserting on it is the
@@ -1600,8 +1603,6 @@ class TestV2EdgeCases(TransactionTestCase):
                 seed_corpus_id=None,
             )
             self.assertIsNotNone(imported_id)
-        finally:
-            zip_buffer.close()
 
     def test_import_zip_missing_data_json(self):
         """Test importing a ZIP that has no data.json returns None."""
