@@ -332,7 +332,21 @@ class TestUserFeedbackQuerySet(TestCase):
 
 
 class TestUserFeedbackVisibility(TestCase):
-    """Tests for UserFeedbackQuerySet.visible_to_user and manager delegation."""
+    """Tests for UserFeedbackQuerySet.visible_to_user and manager delegation.
+
+    Feedback inherits READ visibility from the annotation it comments on
+    (see ``UserFeedbackQuerySet.visible_to_user``). The fixtures below
+    create annotations with different visibility profiles so each branch
+    of the inherited gate can be exercised:
+
+    - ``visible_annotation`` is structural on a public document and so
+      is visible to anonymous users (matches ``AnnotationQuerySet``'s
+      anonymous predicate: ``structural=True`` AND public doc).
+    - ``authenticated_only_annotation`` is non-structural on a public
+      document — visible to authenticated users but NOT to anonymous.
+    - ``hidden_annotation`` is on a private document with no grants —
+      only the owner can see it.
+    """
 
     @classmethod
     def setUpTestData(cls):
@@ -348,8 +362,14 @@ class TestUserFeedbackVisibility(TestCase):
         cls.corpus = Corpus.objects.create(
             title="Vis Corpus", creator=cls.owner, is_public=True
         )
-        cls.document = Document.objects.create(
-            title="Vis Doc",
+        cls.public_document = Document.objects.create(
+            title="Public Vis Doc",
+            creator=cls.owner,
+            file_type="application/pdf",
+            is_public=True,
+        )
+        cls.private_document = Document.objects.create(
+            title="Private Vis Doc",
             creator=cls.owner,
             file_type="application/pdf",
         )
@@ -358,99 +378,177 @@ class TestUserFeedbackVisibility(TestCase):
             creator=cls.owner,
             label_type=LabelType.TOKEN_LABEL,
         )
-        cls.public_annotation = Annotation.objects.create(
+        # Structural annotation on a public document — visible to
+        # anonymous, authenticated, and owner.
+        cls.visible_annotation = Annotation.objects.create(
             page=1,
-            raw_text="Public",
+            raw_text="Visible",
             annotation_label=cls.label,
-            document=cls.document,
+            document=cls.public_document,
             corpus=cls.corpus,
             creator=cls.owner,
-            is_public=True,
+            structural=True,
         )
-        cls.private_annotation = Annotation.objects.create(
+        # Non-structural annotation on a public document — visible to
+        # authenticated users and owner, NOT visible to anonymous
+        # (anonymous annotation visibility requires structural=True).
+        cls.authenticated_only_annotation = Annotation.objects.create(
             page=2,
-            raw_text="Private",
+            raw_text="AuthOnly",
             annotation_label=cls.label,
-            document=cls.document,
+            document=cls.public_document,
             corpus=cls.corpus,
             creator=cls.owner,
-            is_public=False,
+        )
+        # Annotation on a private document — only the owner can see it.
+        cls.hidden_annotation = Annotation.objects.create(
+            page=1,
+            raw_text="Hidden",
+            annotation_label=cls.label,
+            document=cls.private_document,
+            creator=cls.owner,
         )
 
-        # Public feedback
+        # Feedback row that is itself ``is_public=True`` — visible to
+        # everyone regardless of the commented annotation.
         cls.public_feedback = UserFeedback.objects.create(
             creator=cls.owner,
-            commented_annotation=cls.public_annotation,
+            commented_annotation=cls.hidden_annotation,
             is_public=True,
             comment="Public fb",
         )
-        # Private feedback by owner, on public annotation
-        cls.private_feedback_public_ann = UserFeedback.objects.create(
+        # Private feedback on the structural-on-public-doc annotation.
+        # Inherits visibility from the annotation, so anonymous + all
+        # authenticated users see it.
+        cls.feedback_on_visible_ann = UserFeedback.objects.create(
             creator=cls.owner,
-            commented_annotation=cls.public_annotation,
+            commented_annotation=cls.visible_annotation,
             is_public=False,
-            comment="Private fb, public ann",
+            comment="On visible ann",
         )
-        # Private feedback by owner, on private annotation
-        cls.private_feedback_private_ann = UserFeedback.objects.create(
+        # Private feedback on the non-structural-on-public-doc annotation.
+        # Authenticated users inherit visibility from the annotation,
+        # but anonymous does NOT (annotation is not structural).
+        cls.feedback_on_authenticated_only_ann = UserFeedback.objects.create(
             creator=cls.owner,
-            commented_annotation=cls.private_annotation,
+            commented_annotation=cls.authenticated_only_annotation,
             is_public=False,
-            comment="Private fb, private ann",
+            comment="On authenticated-only ann",
         )
-        # Private feedback by other user
+        # Private feedback on a hidden annotation — only the owner can
+        # see it via the creator branch.
+        cls.feedback_on_hidden_ann = UserFeedback.objects.create(
+            creator=cls.owner,
+            commented_annotation=cls.hidden_annotation,
+            is_public=False,
+            comment="On hidden ann",
+        )
+        # Other user's feedback on the hidden annotation — only the
+        # other user can see it (via creator).
         cls.other_user_feedback = UserFeedback.objects.create(
             creator=cls.other_user,
-            commented_annotation=cls.private_annotation,
+            commented_annotation=cls.hidden_annotation,
             is_public=False,
             comment="Other user fb",
         )
 
     def test_superuser_sees_all(self):
         qs = UserFeedback.objects.visible_to_user(self.superuser)
-        self.assertEqual(qs.count(), 4)
+        self.assertEqual(qs.count(), 5)
 
-    def test_anonymous_sees_public_or_on_public_annotation(self):
+    def test_anonymous_sees_public_or_on_visible_annotation(self):
         """Anonymous READ visibility mirrors ``UserFeedbackManager.user_can``
-        (Phase A invariant): a feedback is visible to anonymous when it
-        is itself public OR comments on a public annotation. The
-        commented-annotation grant is symmetric across the anonymous
-        and authenticated branches so the manager check and the
-        queryset filter answer the same question for the same user."""
+        (Phase A invariant): a feedback row is visible to anonymous when
+        it is itself ``is_public=True`` OR comments on an annotation
+        that ``Annotation.objects.visible_to_user(AnonymousUser())``
+        includes. Anonymous annotation visibility is structural + public
+        doc, so the feedback follows the same gate."""
         anon = AnonymousUser()
         qs = UserFeedback.objects.visible_to_user(anon)
         ids = set(qs.values_list("id", flat=True))
-        # Public feedback → visible.
+        # ``is_public=True`` on the feedback row → visible regardless
+        # of whether anonymous can see the commented annotation.
         self.assertIn(self.public_feedback.id, ids)
-        # Private feedback on a PUBLIC annotation → visible (new in Phase A,
-        # mirrors user_can's commented_annotation.is_public READ grant).
-        self.assertIn(self.private_feedback_public_ann.id, ids)
-        # Private feedback on a PRIVATE annotation → NOT visible.
-        self.assertNotIn(self.private_feedback_private_ann.id, ids)
+        # Feedback on a structural-on-public-doc annotation → visible
+        # via inherited annotation visibility.
+        self.assertIn(self.feedback_on_visible_ann.id, ids)
+        # Feedback on a non-structural annotation → NOT visible to
+        # anonymous (annotation is not visible to anonymous).
+        self.assertNotIn(self.feedback_on_authenticated_only_ann.id, ids)
+        # Feedback on a hidden annotation → NOT visible to anonymous.
+        self.assertNotIn(self.feedback_on_hidden_ann.id, ids)
         self.assertNotIn(self.other_user_feedback.id, ids)
 
-    def test_owner_sees_own_and_public(self):
+    def test_owner_sees_own_and_inherited(self):
         qs = UserFeedback.objects.visible_to_user(self.owner)
         ids = set(qs.values_list("id", flat=True))
-        # Owner sees: public feedback, own private feedbacks (all 3 are owned)
-        # Also sees other_user_feedback if public annotation linked - but
-        # other_user_feedback is linked to private annotation
-        self.assertEqual(qs.count(), 3)
+        # Owner created 4 of the 5 rows — visible via creator. The fifth
+        # (other_user_feedback) is on hidden_annotation, which the owner
+        # CAN see via document-creator, so the feedback row is inherited.
+        self.assertEqual(qs.count(), 5)
         self.assertIn(self.public_feedback.id, ids)
-        self.assertIn(self.private_feedback_public_ann.id, ids)
-        self.assertIn(self.private_feedback_private_ann.id, ids)
+        self.assertIn(self.feedback_on_visible_ann.id, ids)
+        self.assertIn(self.feedback_on_authenticated_only_ann.id, ids)
+        self.assertIn(self.feedback_on_hidden_ann.id, ids)
+        self.assertIn(self.other_user_feedback.id, ids)
 
-    def test_other_user_sees_own_public_and_public_annotation(self):
+    def test_other_user_sees_public_and_visible_annotations(self):
         qs = UserFeedback.objects.visible_to_user(self.other_user)
         ids = set(qs.values_list("id", flat=True))
-        # Sees: public_feedback (is_public=True)
-        # Sees: private_feedback_public_ann (commented_annotation.is_public=True)
-        # Sees: other_user_feedback (creator=other_user)
+        # ``is_public=True`` feedback → visible.
         self.assertIn(self.public_feedback.id, ids)
-        self.assertIn(self.private_feedback_public_ann.id, ids)
+        # Annotation visible to authenticated users (structural on public doc).
+        self.assertIn(self.feedback_on_visible_ann.id, ids)
+        # Annotation visible to authenticated users (non-structural on public doc).
+        self.assertIn(self.feedback_on_authenticated_only_ann.id, ids)
+        # other_user is the creator of their own feedback row.
         self.assertIn(self.other_user_feedback.id, ids)
-        # Does NOT see: private_feedback_private_ann
-        self.assertNotIn(self.private_feedback_private_ann.id, ids)
+        # Annotation on a private document with no grants — NOT visible.
+        self.assertNotIn(self.feedback_on_hidden_ann.id, ids)
+
+    def test_guardian_doc_grant_lets_user_see_feedback_on_private_annotation(self):
+        """Direct regression for Bug #2: pre-fix, ``visible_to_user`` only
+        considered ``commented_annotation.is_public=True`` instead of the
+        annotation's full visibility model. A user with a guardian READ
+        grant on the private document — which makes the annotation
+        visible — would correctly see the annotation but NOT the
+        feedback. After the fix, the feedback inherits the same
+        visibility surface as the annotation, so the grant flows through.
+
+        Uses doc-level guardian grant (the production grant scope —
+        annotations have no per-row guardian table) so this also exercises
+        ``Annotation.objects.visible_to_user`` via the doc path.
+        """
+        from guardian.shortcuts import assign_perm
+
+        third_user = User.objects.create_user(
+            username="vis_guardian", password="testpass123"
+        )
+
+        # Sanity: without any grant this user sees only ``is_public``
+        # feedback (no creator branch, no annotation-visibility branch).
+        before_qs = UserFeedback.objects.visible_to_user(third_user)
+        self.assertNotIn(self.feedback_on_hidden_ann.id, set(before_qs))
+
+        # Grant READ on the *document* — the standard guardian scope.
+        # This makes ``hidden_annotation`` show up in
+        # ``Annotation.objects.visible_to_user(third_user)``, which is
+        # exactly the surface the new feedback filter rides on.
+        assign_perm("read_document", third_user, self.private_document)
+
+        after_qs = UserFeedback.objects.visible_to_user(third_user)
+        ids = set(after_qs.values_list("id", flat=True))
+        self.assertIn(
+            self.feedback_on_hidden_ann.id,
+            ids,
+            "guardian READ on the document should grant READ on feedback "
+            "of annotations within it (Bug #2 — UserFeedback used to gate "
+            "only on commented_annotation.is_public)",
+        )
+
+        # And it should also propagate to other users' feedback on the
+        # same now-visible annotation.
+        self.assertIn(self.other_user_feedback.id, ids)
 
     def test_get_or_none_existing(self):
         result = UserFeedback.objects.get_or_none(pk=self.public_feedback.pk)

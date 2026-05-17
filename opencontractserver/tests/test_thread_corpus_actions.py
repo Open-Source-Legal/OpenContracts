@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.agents.models import AgentActionResult, AgentConfiguration
 from opencontractserver.conversations.models import (
@@ -1187,14 +1187,12 @@ class TestRunAgentThreadActionTask(TestCase):
 
 
 @pytest.mark.serial
-@override_settings(DATABASES={"default": {"CONN_MAX_AGE": 0}})
 class TestRunAgentThreadActionAsync(TransactionTestCase):
     """Direct tests for _run_agent_thread_action_async.
 
     Following Pattern 1 from test-suite.md:
     - TransactionTestCase for async code
     - @pytest.mark.serial to avoid xdist worker conflicts
-    - @override_settings to prevent connection pooling issues
     - Mock at agent level to avoid real LLM calls
 
     Note: Uses sync_to_async for synchronous ORM calls within async tests.

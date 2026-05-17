@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase, override_settings
+from django.test import TransactionTestCase
 
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -32,7 +32,6 @@ User = get_user_model()
 
 
 @pytest.mark.serial
-@override_settings(DATABASES={"default": {"CONN_MAX_AGE": 0}})
 class TestLongConversationAPI(TransactionTestCase):
     """Test suite for long conversation functionality.
 
