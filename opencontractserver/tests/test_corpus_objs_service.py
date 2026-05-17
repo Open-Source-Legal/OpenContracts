@@ -467,9 +467,7 @@ class TestGetCorpusDocuments_CamlAndDeleted(TransactionTestCase):
 
     def test_default_excludes_caml_and_deleted(self):
         """Default flags drop CAML and soft-deleted; only the PDF remains."""
-        qs = CorpusObjsService.get_corpus_documents(
-            user=self.owner, corpus=self.corpus
-        )
+        qs = CorpusObjsService.get_corpus_documents(user=self.owner, corpus=self.corpus)
         ids = set(qs.values_list("id", flat=True))
         self.assertEqual(ids, {self.pdf.id})
 
