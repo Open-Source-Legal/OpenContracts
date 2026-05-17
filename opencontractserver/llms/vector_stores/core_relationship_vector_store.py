@@ -205,15 +205,18 @@ class CoreRelationshipVectorStore(BaseVectorStore):
         """Convert raw Relationship rows into the result dataclass."""
         results: list[RelationshipVectorSearchResult] = []
         for r, similarity_score in rows:
-            sources = list(r.source_annotations.all())
-            targets = list(r.target_annotations.all())
+            # Sort by id so multi-source relationships mirror
+            # ``synthesize_relationship_block_text`` exactly (it orders
+            # source/target M2Ms by id at the SQL level). Single-source
+            # OC_SUBTREE_GROUP rows today are unaffected, but the sort
+            # makes the alignment hold for any future multi-source kind.
+            sources = sorted(r.source_annotations.all(), key=lambda a: a.id)
+            targets = sorted(r.target_annotations.all(), key=lambda a: a.id)
             source_id = sources[0].id if sources else None
-            target_ids = sorted(t.id for t in targets)
-            # Order: source(s) first then targets by id — matches
-            # ``synthesize_relationship_block_text`` so block_text mirrors
-            # what the embedder saw exactly.
+            source_ids = [s.id for s in sources]
+            target_ids = [t.id for t in targets]
             ann_text = {ann.id: (ann.raw_text or "") for ann in [*sources, *targets]}
-            ordered_ids = ([source_id] if source_id is not None else []) + target_ids
+            ordered_ids = source_ids + target_ids
             block_text = join_block_text_parts(
                 [ann_text.get(aid, "") or "" for aid in ordered_ids]
             )

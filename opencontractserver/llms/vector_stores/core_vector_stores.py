@@ -7,6 +7,7 @@ from typing import Any, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
 
 from opencontractserver.annotations.models import (
@@ -530,17 +531,16 @@ class CoreAnnotationVectorStore(BaseVectorStore):
     @staticmethod
     def _attach_block_context_sync(
         results: list["VectorSearchResult"],
+        user_id: Union[str, int, None] = None,
     ) -> list["VectorSearchResult"]:
         """Populate ``result.block_context`` for hits inside a subtree group.
 
-        SECURITY CONTRACT: this helper queries ``Relationship.objects``
-        without applying any ``visible_to_user`` filter. Callers MUST pass
-        results that have already been permission-filtered (e.g. via
-        :meth:`_check_idor_sync` and the store's visibility queryset), or
-        an unauthorised user could observe block text whose source/target
-        annotations they cannot otherwise see. Today every call site is
-        downstream of the store's permission gate; new entry points must
-        preserve that invariant.
+        Security gate is mechanical: the relationship lookup runs through
+        ``Relationship.objects.visible_to_user`` using ``user_id`` (or
+        ``AnonymousUser`` when ``None``), so the helper cannot leak a
+        block whose parent doc/corpus the caller can't read — even if the
+        annotation-level filter upstream is later loosened or bypassed.
+        Defense in depth complementing the store's visibility queryset.
         """
         if not results:
             return results
@@ -549,6 +549,14 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         if not hit_ids:
             return results
 
+        # Resolve user up front so the manager can apply MIN(doc, corpus)
+        # visibility via ``Document``/``Corpus`` visible_to_user lookups.
+        # ``None`` → ``AnonymousUser`` matches the manager's normalisation.
+        if user_id is None:
+            user: Any = AnonymousUser()
+        else:
+            user = User.objects.filter(id=user_id).first() or AnonymousUser()
+
         # ``OC_SUBTREE_GROUP`` rows are always structural; filter both on
         # the label text AND ``structural=True`` so a hypothetical
         # non-structural relationship with the same label text (e.g. an
@@ -556,7 +564,8 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         # ``target_annotations__in=hit_ids`` filter is the small side of
         # the join — typical hit sets are <= ``similarity_top_k`` (≤200).
         groups = (
-            Relationship.objects.filter(
+            Relationship.objects.visible_to_user(user)
+            .filter(
                 relationship_label__text=OC_SUBTREE_GROUP_LABEL_NAME,
                 structural=True,
                 target_annotations__in=hit_ids,
@@ -655,7 +664,9 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         """Async wrapper around :meth:`_attach_block_context_sync`."""
         # One sync_to_async per call — the whole pass shares the same
         # M2M joins, so splitting would buy nothing.
-        return await sync_to_async(self._attach_block_context_sync)(results)
+        return await sync_to_async(self._attach_block_context_sync)(
+            results, self.user_id
+        )
 
     # Sync + async query-embedding generation are inherited from BaseVectorStore.
 
@@ -866,7 +877,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         # Attach containing-subtree block context AFTER reranking so the
         # extra DB hop is bounded by the final top_k count rather than the
         # oversampled first-stage pool.
-        return self._attach_block_context_sync(reranked)
+        return self._attach_block_context_sync(reranked, self.user_id)
 
     @staticmethod
     def _fuse_results(
@@ -1018,7 +1029,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         reranked = self._apply_rerank(
             fused, query.query_text, query.similarity_top_k, reranker
         )
-        return self._attach_block_context_sync(reranked)
+        return self._attach_block_context_sync(reranked, self.user_id)
 
     async def async_hybrid_search(
         self, query: VectorSearchQuery
@@ -1239,8 +1250,9 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         reranked = cls._rerank_results(results, query_text, top_k, reranker)
         # Block-context attach is independent of the per-instance store
         # state, so the classmethod path can call the @staticmethod helper
-        # directly.
-        return cls._attach_block_context_sync(reranked)
+        # directly. Pass user_id so the helper's mechanical visibility
+        # gate uses the same user as the global_search permission filter.
+        return cls._attach_block_context_sync(reranked, user_id)
 
     @classmethod
     async def async_global_search(

@@ -1056,6 +1056,16 @@ def calculate_embeddings_for_relationship_batch(
 
     Returns:
         Summary dict with ``succeeded``/``failed``/``skipped`` counts.
+
+    Note:
+        ``_dispatch_relationship_embeddings`` always supplies an explicit
+        ``embedder_path``, dispatching two separate tasks to achieve dual
+        embedding. The ``embedder_path=None`` branch below therefore exists
+        for **direct callers** (tests, ad-hoc backfills, future schedulers
+        that want a single task per relationship) — not for the materialiser
+        path. Keep the branch wired even if it appears unused from the
+        dispatcher: removing it would amputate the public single-call dual-
+        embedding contract.
     """
     result: dict[str, Any] = {
         "total": len(relationship_ids),
