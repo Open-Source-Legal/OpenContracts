@@ -33,3 +33,37 @@ To view or edit annotations, you need to open a corpus and then open a document 
        2. Or you might want to select multiple snippets of text in a larger block of text, such as where you have multiple
           parties you want to combine into a single annotation:
           ![](../assets/images/screenshots/Select_Multiple_Words_In_Paragraph.png)
+
+## Hyperlink Annotations (`OC_URL`)
+
+You can anchor a clickable hyperlink to highlighted text. Annotations carrying the
+built-in `OC_URL` label render with an underline + external-link icon and open
+their target URL on click (in both the PDF viewer and the text/markdown viewer).
+
+To create a link annotation:
+
+1. Highlight the target text the same way you would for a normal annotation.
+2. In the selection action menu, click **Add link…**
+3. Enter the URL.
+
+The selection is persisted as an `Annotation` with `label.text = "OC_URL"` and a
+`link_url` field. The `OC_URL` `AnnotationLabel` is auto-created per corpus on
+first use, so no labelset configuration is required up front.
+
+### Editing or removing a link
+
+- The pencil icon on an existing `OC_URL` annotation opens a URL-edit modal
+  (instead of the normal label modal).
+- Hold **Shift / Ctrl / Cmd** while clicking a link annotation to fall back to
+  the normal selection toggle — useful when you want to delete or rebind it.
+
+### URL safety
+
+URLs are validated both client-side and server-side via a shared
+`validate_link_url` helper:
+
+- Allowed: `http://`, `https://`, and site-relative paths (`/...`).
+- Rejected: `javascript:`, `data:`, and other dangerous schemes.
+
+External targets open in a new tab with `noopener,noreferrer`; site-relative
+paths navigate within the SPA.
