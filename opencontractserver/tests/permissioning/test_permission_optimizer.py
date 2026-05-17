@@ -79,6 +79,14 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         # zero-query assertion below would notice anything had changed.
         # 6 = current guardian lookup cost (object + group perms, content-
         # type warm-up, user/anon resolution); update if the path changes.
+        # NOTE: This pin is intentionally exact, not a `<=` bound — a
+        # regression that adds even one extra query should be visible
+        # here. Expect to revisit this number on django-guardian or
+        # Django upgrades (guardian occasionally restructures its
+        # object-permission lookup) and on any refactor of
+        # ``get_users_permissions_for_obj``. If the count grows after an
+        # upgrade and you've verified the new shape is correct, bump the
+        # constant and update this comment with the new query breakdown.
         with self.assertNumQueries(6):
             self.assertTrue(corpus.user_can(self.reader, PermissionTypes.READ))
         # Second call should be a pure cache hit — no DB.

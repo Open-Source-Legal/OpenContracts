@@ -148,6 +148,13 @@ class PermissionQueryOptimizer:
         # the optimizer's lock. The worst race is two threads computing the
         # same granted set in parallel before either populates the cache;
         # the second write just overwrites an identical frozenset.
+        #
+        # DESIGN NOTE — do not "fix" this by widening the lock to cover the
+        # DB call. Putting ``get_users_permissions_for_obj`` inside ``with
+        # self._lock`` would serialise every guardian lookup on the
+        # request-scoped optimizer (the very N+1 bottleneck this class
+        # exists to elide). The duplicate-computation window is the
+        # intentional trade-off: cheap, idempotent, benign.
         granted = get_users_permissions_for_obj(
             user=user,
             instance=instance,
@@ -219,9 +226,15 @@ class PermissionQueryOptimizer:
         """Clear the entire cache.
 
         Naming parity with ``ConversationQueryOptimizer.invalidate_caches``.
+
+        Implemented directly (not via ``self.invalidate()``) so the
+        "prefer ``invalidate_caches`` for the clear-all intent" guidance
+        on :meth:`invalidate` doesn't loop back on itself — the explicit
+        method is the one that nukes the cache, full stop.
         """
 
-        self.invalidate()
+        with self._lock:
+            self._cache.clear()
 
 
 def get_request_optimizer(request: Any) -> PermissionQueryOptimizer:
