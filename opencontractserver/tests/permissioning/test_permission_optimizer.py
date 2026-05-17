@@ -176,7 +176,9 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         # Cache attribute is now present under the keyed slot.
         cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
         assert cache is not None
-        self.assertIn((admin.id, False), cache)
+        # Default ``include_group_permissions=True`` (aligned with every
+        # other ``user_can`` surface) — see ``get_users_permissions_for_obj``.
+        self.assertIn((admin.id, True), cache)
         # Second call returns a defensive copy of the same content.
         again = get_users_permissions_for_obj(user=admin, instance=corpus)
         self.assertEqual(again, granted)
@@ -254,7 +256,7 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         # Cache populated under the keyed slot.
         cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
         assert cache is not None
-        self.assertIn((self.reader.id, False), cache)
+        self.assertIn((self.reader.id, True), cache)
 
 
 class PermissionQueryOptimizerTestCase(TransactionTestCase):
@@ -833,9 +835,11 @@ class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
         get_users_permissions_for_obj(user=self.grantee, instance=self.corpus)
 
         cache_before = dict(getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {}))
-        # Should hold both users' entries.
-        self.assertIn((other.id, False), cache_before)
-        self.assertIn((self.grantee.id, False), cache_before)
+        # Should hold both users' entries. Default ``include_group_permissions=True``
+        # is aligned across every ``user_can`` surface (see
+        # ``get_users_permissions_for_obj`` docstring).
+        self.assertIn((other.id, True), cache_before)
+        self.assertIn((self.grantee.id, True), cache_before)
 
         # Re-grant for grantee only — must scrub grantee's entries but
         # leave ``other``'s untouched.
@@ -843,8 +847,8 @@ class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
             self.grantee, self.corpus, [PermissionTypes.UPDATE]
         )
         cache_after = getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {})
-        self.assertIn((other.id, False), cache_after)
-        self.assertNotIn((self.grantee.id, False), cache_after)
+        self.assertIn((other.id, True), cache_after)
+        self.assertNotIn((self.grantee.id, True), cache_after)
 
     def test_set_permissions_without_request_still_drops_instance_cache(self):
         """Tier 1 must always be scrubbed, even when no request is supplied
@@ -859,7 +863,7 @@ class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
         )
         get_users_permissions_for_obj(user=self.grantee, instance=self.corpus)
         self.assertIn(
-            (self.grantee.id, False),
+            (self.grantee.id, True),
             getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {}),
         )
 
@@ -868,9 +872,62 @@ class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
             self.grantee, self.corpus, [PermissionTypes.UPDATE]
         )
         self.assertNotIn(
-            (self.grantee.id, False),
+            (self.grantee.id, True),
             getattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR, {}),
         )
+
+
+class Tier1PicklingScrubTestCase(TransactionTestCase):
+    """``InstanceUserCanMixin.__getstate__`` strips the Tier 1 cache.
+
+    The Tier 1 per-instance cache is stashed on ``instance.__dict__`` under
+    ``INSTANCE_PERMS_CACHE_ATTR``. Default pickling would carry it to
+    Celery workers (or any other ``pickle``-based round-trip), leaving the
+    receiver acting on a snapshot that may have drifted between
+    ``apply_async`` and the worker picking the task up. ``__getstate__``
+    on the shared mixin strips the entry so the worker can never see a
+    stale frozenset.
+    """
+
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            username="pickle_creator", email="pc@test.test", password="x"
+        )
+        self.reader = User.objects.create_user(
+            username="pickle_reader", email="pr@test.test", password="x"
+        )
+        self.corpus = Corpus.objects.create(
+            title="pickle corpus", creator=self.creator, is_public=False
+        )
+        set_permissions_for_obj_to_user(
+            self.reader, self.corpus, [PermissionTypes.READ]
+        )
+
+    def test_pickle_drops_cache_attribute(self):
+        """Round-tripping through pickle removes the Tier 1 cache."""
+        import pickle
+
+        # Warm Tier 1.
+        get_users_permissions_for_obj(user=self.reader, instance=self.corpus)
+        self.assertTrue(hasattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR))
+
+        restored = pickle.loads(pickle.dumps(self.corpus))
+        self.assertFalse(
+            hasattr(restored, INSTANCE_PERMS_CACHE_ATTR),
+            "Pickled instance must NOT carry the Tier 1 cache to the receiver "
+            "(see InstanceUserCanMixin.__getstate__).",
+        )
+        # Producer-side instance keeps its cache — only the serialised
+        # state is scrubbed.
+        self.assertTrue(hasattr(self.corpus, INSTANCE_PERMS_CACHE_ATTR))
+
+    def test_getstate_returns_dict_without_cache_key(self):
+        """Direct ``__getstate__`` call returns a dict missing the cache key."""
+
+        get_users_permissions_for_obj(user=self.reader, instance=self.corpus)
+        state = self.corpus.__getstate__()
+        self.assertIsInstance(state, dict)
+        self.assertNotIn(INSTANCE_PERMS_CACHE_ATTR, state)
 
 
 class FolderServiceRequestKwargCoverageTestCase(TransactionTestCase):

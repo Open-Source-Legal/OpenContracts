@@ -23,6 +23,7 @@ into the wider visibility / permission stack.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
@@ -50,10 +51,33 @@ class PermissionQueryOptimizer:
     def __init__(self) -> None:
         # instance_pk slot is ``Any`` because models may use int / UUID / str PKs.
         self._cache: dict[tuple[int, int, Any, bool], frozenset[str]] = {}
+        # Django's WSGI/ASGI workers handle one request per thread/coroutine,
+        # so the optimizer attached to ``request`` is *effectively* single-
+        # threaded today. The lock is cheap insurance against future shapes
+        # that violate that assumption (a multi-user delegation context, a
+        # background thread spun off mid-request, a service account sharing
+        # the optimizer across coroutines). Without it, a compound op like
+        # the invalidate-loop below would race with a concurrent ``get`` and
+        # raise ``RuntimeError: dictionary changed size during iteration``.
+        # An uncontended ``threading.Lock`` acquire/release on CPython is a
+        # few-hundred-nanosecond no-op, well below the cost of the guardian
+        # lookups this class exists to elide.
+        self._lock = threading.Lock()
 
     @staticmethod
     def _resolve_content_type_id(instance: Model) -> int:
-        """Return the cached content-type id for ``instance``'s model."""
+        """Return the cached content-type id for ``instance``'s model.
+
+        ``ContentType.objects.get_for_model`` is backed by
+        ``ContentType._cache`` (a process-local dict keyed by model class)
+        that Django populates on first lookup, so this is effectively a
+        dict read after the first call per process — no DB round-trip even
+        though it's called on every ``get_granted`` / ``invalidate``. The
+        ``_cache`` is an internal-but-documented contract of Django's
+        contenttypes framework; if Django ever drops it, this method
+        becomes a hot query and should be memoized locally on the
+        optimizer instead.
+        """
 
         return ContentType.objects.get_for_model(type(instance)).id
 
@@ -67,14 +91,10 @@ class PermissionQueryOptimizer:
         """Return the set of guardian permission codenames the user has on
         ``instance``, consulting the request-scoped cache first.
 
-        Note on default: ``include_group_permissions`` defaults to ``True``
-        here to mirror :func:`user_can`'s default (this optimizer exists to
-        serve ``user_can`` callers). The lower-level Tier 1 helper
-        :func:`get_users_permissions_for_obj` defaults to ``False`` to keep
-        direct callers narrow by default. Production call sites always pass
-        the flag explicitly, so the two defaults never collide on a real
-        request; the divergence only matters to ad-hoc callers, who get the
-        default matching the API level they reach for.
+        ``include_group_permissions`` defaults to ``True`` here, matching
+        every other surface in the authorization stack
+        (``Manager.user_can`` / ``obj.user_can`` / ``_default_user_can`` /
+        :func:`get_users_permissions_for_obj`). One default, one answer.
 
         Anonymous / unauthenticated users bypass the cache (their state
         isn't reusable across calls and we never want to retain the
@@ -111,16 +131,23 @@ class PermissionQueryOptimizer:
             instance.pk,
             bool(include_group_permissions),
         )
-        cached = self._cache.get(key)
+        with self._lock:
+            cached = self._cache.get(key)
         if cached is not None:
             return set(cached)
 
+        # Compute outside the lock — ``get_users_permissions_for_obj`` may
+        # run guardian queries, and we never want to serialise DB work on
+        # the optimizer's lock. The worst race is two threads computing the
+        # same granted set in parallel before either populates the cache;
+        # the second write just overwrites an identical frozenset.
         granted = get_users_permissions_for_obj(
             user=user,
             instance=instance,
             include_group_permissions=include_group_permissions,
         )
-        self._cache[key] = frozenset(granted)
+        with self._lock:
+            self._cache[key] = frozenset(granted)
         return granted
 
     def invalidate(
@@ -162,19 +189,20 @@ class PermissionQueryOptimizer:
                 "whose PK collides with instance_pk."
             )
 
-        if user_id is None and content_type_id is None and instance_pk is None:
-            self._cache.clear()
-            return
+        with self._lock:
+            if user_id is None and content_type_id is None and instance_pk is None:
+                self._cache.clear()
+                return
 
-        keys_to_drop = [
-            key
-            for key in self._cache
-            if (user_id is None or key[0] == user_id)
-            and (content_type_id is None or key[1] == content_type_id)
-            and (instance_pk is None or key[2] == instance_pk)
-        ]
-        for key in keys_to_drop:
-            del self._cache[key]
+            keys_to_drop = [
+                key
+                for key in self._cache
+                if (user_id is None or key[0] == user_id)
+                and (content_type_id is None or key[1] == content_type_id)
+                and (instance_pk is None or key[2] == instance_pk)
+            ]
+            for key in keys_to_drop:
+                del self._cache[key]
 
     def invalidate_caches(self) -> None:
         """Clear the entire cache.

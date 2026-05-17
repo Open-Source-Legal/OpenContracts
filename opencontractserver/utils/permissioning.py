@@ -276,7 +276,7 @@ def _store_granted_on_instance(
 def get_users_permissions_for_obj(
     user: UserModel,
     instance: django.db.models.Model,
-    include_group_permissions: bool = False,
+    include_group_permissions: bool = True,
 ) -> set[str]:
     """Return the set of guardian permission codenames the user has on
     ``instance``.
@@ -288,6 +288,15 @@ def get_users_permissions_for_obj(
     matching entries when a grant changes. ``refresh_from_db`` does NOT
     clear the cache — callers that mutate guardian rows out-of-band and
     reuse the same Python object must drop the attribute manually.
+
+    ``include_group_permissions`` defaults to ``True`` — same as
+    :meth:`PermissionQueryOptimizer.get_granted`, :func:`_default_user_can`
+    and every ``Manager.user_can`` / ``obj.user_can`` surface. One default,
+    one answer: ad-hoc callers who skip the flag get group permissions
+    folded in just like the rest of the authorization stack. The legacy
+    shim :func:`user_has_permission_for_obj` still defaults to ``False``
+    because that's the behaviour its ~170 callers were written against —
+    do not collapse the two contracts.
     """
 
     model_name = instance._meta.model_name
@@ -308,7 +317,17 @@ def get_users_permissions_for_obj(
             return set(cache[cache_key])
 
     # Check if the model has django-guardian permission tables
-    # Some models (like AnnotationLabel) use creator-based permissions instead
+    # Some models (like AnnotationLabel) use creator-based permissions instead.
+    #
+    # Tier 1 safety on this branch: ``set_permissions_for_obj_to_user`` is
+    # effectively a no-op on creator-based models — its only side-effect is
+    # ``assign_perm`` / ``remove_perm``, both of which mutate guardian
+    # tables that don't exist for these models. The cached value therefore
+    # cannot go stale from the documented mutation path. The only ways for
+    # it to drift are (a) re-parenting the instance (changing ``creator_id``)
+    # or (b) toggling ``is_public`` — both rare, both already require the
+    # caller to ``refresh_from_db`` and follow the same manual-``delattr``
+    # contract that guardian-backed models honour.
     if not hasattr(instance, f"{model_name}userobjectpermission_set"):
         logger.debug(
             f"Model {model_name} does not have guardian permissions, using creator-based permissions"

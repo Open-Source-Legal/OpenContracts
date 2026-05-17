@@ -33,14 +33,14 @@ Known staleness boundaries (callers must scrub manually):
   ``set_permissions_for_obj_to_user`` either, so any cached entry
   computed with ``include_group_permissions=True`` becomes stale until
   the instance is discarded. Same manual ``delattr`` remedy applies.
-- Pickling survives this attribute. Django model instances passed as
-  Celery task arguments serialize ``_oc_granted_perms_cache`` with the
-  rest of ``__dict__``. If guardian rows are mutated between the
-  producer's ``apply_async`` and the worker's task body the worker
-  acts on a stale cache. Pass primary keys to tasks and re-fetch
-  inside the task body (the standard pattern) to avoid this — or
-  ``delattr`` the attribute before enqueueing if you must pass
-  instances.
+- Pickling: ``InstanceUserCanMixin.__getstate__`` strips this attribute
+  before serialisation, so models passed as Celery task arguments
+  (which inherit from ``BaseOCModel`` or otherwise mix in
+  ``InstanceUserCanMixin`` — see ``shared/user_can_mixin.py``) never
+  carry stale Tier 1 entries across the wire. Pass primary keys to
+  tasks and re-fetch inside the task body anyway — that's the
+  standard pattern and avoids the broader N+1 / staleness pitfalls
+  that the ``__getstate__`` strip only narrowly addresses.
 """
 
 REQUEST_OPTIMIZER_ATTR = "_permission_query_optimizer"
