@@ -683,10 +683,18 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
         flagged in the PR #1533 review — the async wrapper had the
         type annotation but not the runtime guard).
         """
+        # ``processing_started`` short-circuits ``process_doc_on_create_atomic``
+        # so the eager ``ingest_doc`` chain doesn't run (it would otherwise
+        # raise ``DocumentParsingError`` because there's no extract file).
+        # The pytest conftest disconnects that signal globally, but tests must
+        # also work under ``manage.py test`` which doesn't load the fixture.
+        from django.utils import timezone
+
         bare_txt_document = Document.objects.create(
             title="Bare TXT Document - no extract (async)",
             creator=self.user,
             file_type="text/plain",
+            processing_started=timezone.now(),
             # intentionally no txt_extract_file
         )
 
@@ -712,10 +720,14 @@ class AsyncDocAnalyzerTaskTestCase(TransactionTestCase):
         """Same async guard contract for the alternate ``application/txt``
         MIME type — both fall through the same elif branch in the
         async post-processing loop."""
+        # See sibling test for why ``processing_started`` is set.
+        from django.utils import timezone
+
         bare_app_txt_document = Document.objects.create(
             title="Bare application/txt Document - no extract (async)",
             creator=self.user,
             file_type="application/txt",
+            processing_started=timezone.now(),
             # intentionally no txt_extract_file
         )
 
