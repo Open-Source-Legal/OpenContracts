@@ -1,48 +1,59 @@
+# Key Concepts
+
+This page walks through the core data types and patterns in OpenContracts. It is the recommended starting point for the [walkthrough](step-1-add-documents.md).
+
 ## Data Types
 
-Text annotation data is divided into several concepts:
+OpenContracts organises knowledge into a small set of first-class entities:
 
-1. **Corpuses** (or collections of documents). One document can be in multiple corpuses.
-2. **Documents**. Currently, these are PDFs ONLY.
-3. **Annotations**. These are either document-level annotations (the document type), text-level annotations (highlighted
-   text), or relationships (which apply a label between two annotations). Relationships are currently not
-   well-supported and may be buggy.
-4. **Analyses**. These groups of read-only annotations added by a document analyzer (see more on that below).
+1. **Documents** — uploaded files. PDFs are the primary format (full layout and annotation fidelity via the Docling microservice); DOCX (Docxodus) and plain text (`.txt`) are also supported. See [Supported File Formats](../upload_methods/supported_formats.md).
+2. **Corpuses** — collections of documents. A document can live in zero or more corpuses. Corpuses can be nested into folder hierarchies (`CorpusFolder`), forked from public corpuses, exported, imported, and version-controlled.
+3. **Annotations** — text-level spans (highlighted text), document-level type labels, or token-level spans. Annotations can be created by humans, by analyzers, or by AI agents. Each annotation has a `LabelSet`-scoped `AnnotationLabel`.
+4. **Relationships** — directed edges between annotations, with their own `AnnotationLabel`. Used for cross-references, parent/child structural relationships, and pre-materialised `OC_SUBTREE_GROUP` rows for efficient block-level retrieval.
+5. **Notes** — long-form prose attached to a document or corpus. Distinct from annotations; intended for human-written commentary.
+6. **Conversations & Threads** — persistent chat history. Conversations come in two flavours: `CHAT` (one-on-one chat with an AI agent) and `THREAD` (forum-style discussion). Threads support voting, moderation, @-mentions, and agent participation.
+7. **Analyses** — read-only annotation sets produced by a document analyzer (see [analyzers documentation](../architecture/analyzers.md)).
+8. **Extracts / Fieldsets / Datacells** — structured data extraction across documents. A `Fieldset` defines columns (`Column` rows) with prompts; running it against a corpus produces an `Extract` with one `Datacell` per (document, column).
+9. **Metadata** — typed custom metadata fields with validation, attached to corpuses and documents. See [Metadata Overview](../metadata/metadata_overview.md).
+10. **Badges & Reputation** — gamified recognition tied to community contributions. See [Badge System](../features/badge_system.md).
+11. **Corpus Actions** — automation triggers. Run a fieldset, analyzer, or AI agent automatically when a document is added/edited or a new thread/message arrives. See [Corpus Actions](../corpus_actions/intro_to_corpus_actions.md).
+12. **Agent Configurations** — saved configurations for AI agents (`AgentConfiguration` model) with scope (`GLOBAL` or corpus-scoped), tool allowlists, and approval policies.
 
 ## Permissioning
 
-OpenContracts is built on top of the powerful permissioning framework for Django called `django-guardian`. Each GraphQL
-request can add a field to annotate the object-level permissions the current user has for a given object, and the
-frontend relies on this to determine whether to make some objects and pages read-only and whether certain features
-should be exposed to a given user. The capability of sharing objects with specific users *is* built in, **but**
-is not enabled from the frontend at the moment. Allowing such widespread sharing and user lookups could be a security
-hole and could also unduly tax the system. We'd like to test these capabilities more fully before letting users used them.
+OpenContracts uses [`django-guardian`](https://django-guardian.readthedocs.io/) for per-object permissions, layered with custom queryset managers:
+
+- Each `Model.objects.visible_to_user(user)` returns the queryset of objects the user can see (public + owned + explicitly shared).
+- Annotations and Relationships do **not** carry individual permissions; access is inherited from the document and corpus they live in (effective permission = `min(document_permission, corpus_permission)`).
+- Documents and Corpuses carry direct object-level permissions.
+- Analyses and Extracts use a hybrid model (own permissions + corpus permissions + document filtering).
+- Structural annotations (those bound to a `StructuralAnnotationSet`) are read-only except for superusers.
+
+The full guide is at [Consolidated Permissioning Guide](../permissioning/consolidated_permissioning_guide.md).
+
+## Sharing & Forking
+
+Public visibility is a first-class UI feature: the corpus settings tab exposes a "make public" toggle, the corpus card shows the visibility badge, and anyone can fork a public corpus from the corpus home page. Forking is now implemented as `export-V2 → import-V2` so the fork format is guaranteed to round-trip cleanly (see [Corpus Forking](../architecture/corpus_forking.md)).
+
+Behind the UI, the underlying GraphQL mutations are `setCorpusVisibility` and `startCorpusFork`. The `makeAnalysisPublic` mutation is also available for analysis sharing.
 
 ## GraphQL
 
-### Mutations and Queries
+OpenContracts uses [Graphene](https://graphene-python.org/) to serve GraphQL. The GraphiQL playground lives at the application root URL `/graphql/`:
 
-OpenContracts uses Graphene and GraphQL to serve data to its frontend. You can access the Graphiql playground by going
-to your OpenContracts root url `/graphql` - e.g. `https://contracts.opensource.legal/graphql`. Anonymous users have
-access to any *public* data. To authenticate and access your own data, you either need to use the login mutation to
-create a JWT token *or* login to the admin dashboard to get a Django session and auth cookie that will automatically
-authenticate your requests to the GraphQL endpoint.
+- Local development: `http://localhost:8000/graphql/`
+- Demo / production: e.g., `https://contracts.opensource.legal/graphql/`
 
-If you're not familiar with [GraphQL](https://graphql.org/learn/), it's a very powerful way to expose your backend to
-the user and/or frontend clients to permit the construction of specific queries with specific data shapes. As an
-example, here's a request to get public corpuses and the annotated text and labels in them:
+Anonymous requests can see public data. To act as a user you can either log in to the Django admin (session cookie) or call the `tokenAuth` mutation to obtain a JWT.
 
-![](../assets/images/screenshots/Graph_QL_Request_For_Annotations.png)
+The schema is checked into the repository at [`schema.graphql`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/schema.graphql); GraphiQL's built-in docs explorer is the easiest way to browse types interactively.
 
-Graphiql comes with a built-in documentation browser. Just click "Docs" in the top-right of the screen to start
-browsing. Typically, mutations change things on the server. Queries merely request copies of data from the server.
-We've tried to make our schema fairly self-explanatory, but we do plan to add more descriptions and guidance to our
-API docs.
+## WebSockets
 
-### GraphQL-only features
+Real-time streaming chat is delivered over Django Channels. Three consumer endpoints are exposed (see [WebSocket Protocol](../architecture/websocket/protocol.md)):
 
-Some of our features are currently not accessible via the frontend. Sharing analyses and corpuses to the public, for
-example, can only be achieved via `SetCorpusVisibility` and `makeAnalysisPublic` mutations, and *only* admins have this
-power at the moment. For our current release, we've done this to prevent large numbers of public corpuses being shared
-to cut down on server usage. We'd like to make a fully free and open, collaborative platform with more features to share
-anonymously, but this will require additional effort and compute power.
+- `ws/agent-chat/` — unified agent conversation (document chat, corpus chat, standalone agent chat). Context is supplied via query parameters: `?corpus_id=X`, `?document_id=X`, `?agent_id=X`, `?conversation_id=X`.
+- `ws/thread-updates/` — agent-mention streaming inside discussion threads. Requires `?conversation_id=X`.
+- `ws/notification-updates/` — real-time notification push (badges, moderation events, agent responses).
+
+All WebSocket connections are authenticated by the shared `JWTAuthMiddleware`, which handles both Django session auth and Auth0 JWTs.

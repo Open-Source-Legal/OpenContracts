@@ -475,11 +475,81 @@ user_msg_id = await agent.store_user_message("Custom user message")
 llm_msg_id = await agent.store_llm_message("Custom LLM response")
 ```
 
+### Context Management
+
+Conversations can outgrow an LLM's context window, both during a single
+high-tool-traffic turn and across many turns of a long-lived thread. The
+framework ships two complementary subsystems for this:
+
+#### Context Guardrails (single-turn protection)
+
+`opencontractserver/llms/context_guardrails.py` provides three layers of
+runtime protection against context overflow:
+
+1. **Token estimation** — heuristics that approximate token counts for prompts,
+   tool outputs, and message history without paying the cost of a real
+   tokeniser.
+2. **Conversation compaction** — old messages are summarised in place when the
+   estimated context budget would be exceeded, preserving recent turns and key
+   instructions verbatim while collapsing older context into a summary.
+3. **Tool-output truncation** — long tool results are clipped (with a marker)
+   before being injected back into the conversation.
+
+The guardrails fire automatically inside the WebSocket consumer's per-turn
+loop. When the budget is exhausted to the point that no further safe
+compaction is possible, the consumer emits an `ASYNC_ERROR` with `error =
+WS_ERROR_CONTEXT_EXHAUSTED` (see `opencontractserver.constants.context_guardrails`).
+
+Tunable constants live in `opencontractserver/constants/context_guardrails.py`.
+
+#### Memory Curation (cross-conversation learning)
+
+`opencontractserver/tasks/memory_tasks.py` is a Celery-based pipeline that
+turns idle conversations into long-term corpus memory:
+
+1. A scheduled task scans for conversations whose latest message is older than
+   the idle threshold and that have not yet been curated.
+2. Each idle conversation is summarised by a curation LLM.
+3. The summary is merged into the corpus's memory document.
+4. The conversation is marked `curated=True` so it is not re-processed.
+
+Memory is then read by agents via the `read_corpus_memory` tool
+(`opencontractserver/llms/tools/core_tools/memory.py`), so a corpus's agents
+gradually accumulate knowledge from prior interactions without inflating
+per-turn context.
+
+Operators should monitor curation cost and tune the idle threshold to balance
+freshness against LLM spend.
+
 ### Tools
 
 The framework provides a unified tool system that works across all supported frameworks. Core tools often have synchronous and asynchronous versions (e.g., `load_document_md_summary` and `aload_document_md_summary`).
 
 #### Built-in Tools
+
+The framework ships a substantial library of built-in tools under
+`opencontractserver/llms/tools/core_tools/`. Highlights:
+
+| Tool family | File | Purpose |
+|---|---|---|
+| Annotations | `annotations.py` | Read / create annotations and labels |
+| Documents | `documents.py` | Document metadata, summaries, file access |
+| Notes | `notes.py` | Read / write per-document notes |
+| Document summaries | `document_summaries.py`, `md_summaries.py` | Generate and read markdown summaries |
+| Page images | `page_images.py` | Vision tools — fetch page images for multimodal models |
+| Search | `search.py`, `document_indexing.py`, `text_extracts.py` | Vector search, keyword search, sourced text-span retrieval |
+| Links | `links.py` | Create / read `OC_URL` link annotations |
+| CAML / corpus articles | `caml_article.py` | Read / write the corpus's markdown "README" article |
+| Memory | `memory.py` | Read the curated corpus memory document |
+| Descriptions | `descriptions.py` | Read / update corpus and document descriptions |
+| **PII** | `pii.py` | Scan documents for PII via the Privacy Filter microservice and persist results as annotations |
+| Privacy Filter client | `_privacy_filter_client.py` | HTTP client for the external Privacy Filter service |
+
+In addition, `opencontractserver/llms/tools/web_search_tools.py` exposes a
+real-time web search tool that agents can call mid-conversation. Set
+`SEARCH_PROVIDER_API_KEY` (or the relevant env var for your provider) to enable
+it. Be aware of the privacy and cost implications before enabling it on
+documents that contain sensitive data.
 
 ```python
 from opencontractserver.llms.tools import create_document_tools # Convenience function
@@ -1298,6 +1368,19 @@ agent = PydanticAIAgent(
 This applies to all three agent creation sites in `pydantic_ai_agents.py`: `PydanticAIDocumentAgent.create()`, `PydanticAICorpusAgent.create()`, and the structured extraction agent in `structured_response()`.
 
 > **Version note**: Verified against pydantic-ai 0.2.20. Future versions may unify these parameters.
+
+**All production tools MUST be async (`a`-prefixed in `core_tools.py`)**
+
+`PydanticAIToolWrapper` accepts both sync and async functions, but the wrapper does **NOT** push sync callables onto a thread pool. A sync function that touches the Django ORM (e.g., `Document.objects.get(...)`) will raise `SynchronousOnlyOperation` the moment it runs inside an async agent loop.
+
+Use the `a`-prefixed async versions defined in `opencontractserver/llms/tools/core_tools/`. The sync versions exist for testing and lightweight helpers only.
+
+**Operational errors become tool error strings; security errors propagate (issue #820)**
+
+The wrapper has a deliberate fault-tolerance contract:
+
+- **Operational exceptions** (network errors, parsing errors, missing data, etc.) are caught and returned to the LLM as an error string. This lets the model recover or apologise gracefully instead of crashing the conversation.
+- **Security exceptions** — specifically `PermissionError` and `ToolConfirmationRequired` — propagate to the consumer. The agent stops; the user sees an approval prompt or an auth error. Tools should raise these explicitly when access is denied or confirmation is needed.
 
 #### Framework Selection
 

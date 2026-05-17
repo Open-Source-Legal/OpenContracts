@@ -1,80 +1,66 @@
 ![OpenContracts](assets/images/logos/OS_Legal_Logo.png)
 
-# Open Contracts
+# OpenContracts
 
-## The Free and Open Source Document Analytics Platform
+## The open source platform for building knowledge bases that humans and AI agents can work with together
 
 ---
 
-| |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| --- |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| CI/CD | [![codecov](https://codecov.io/gh/JSv4/OpenContracts/branch/main/graph/badge.svg?token=RdVsiuaTVz)](https://codecov.io/gh/JSv4/OpenContracts)                                                                                                                                                                                                                                                                                                                  |
+| | |
+| --- | --- |
+| Backend coverage | [![backend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=backend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=backend) |
+| Frontend coverage | [![frontend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=frontend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=frontend) |
 | Meta | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - MIT](https://img.shields.io/badge/license-MIT-green)](https://opensource.org/licenses/MIT) |
+
+OpenContracts is an MIT-licensed, self-hosted document analytics platform. Teams build knowledge bases from their documents and AI agents work alongside humans to search, analyze, and extend that knowledge.
 
 ## What Does it Do?
 
-OpenContracts is an **MIT Licensed** enterprise document analytics tool. It provides several key features:
+OpenContracts gives you, in one place:
 
-1. **Manage Documents** - Manage document collections (`Corpuses`)
-2. **Custom Metadata Schemas** - Define structured metadata fields with validation for consistent data collection
-3. **Layout Parser** - Automatically extracts layout features from PDFs
-4. **Automatic Vector Embeddings** - generated for uploaded PDFs and extracted layout blocks
-5. **Pluggable microservice analyzer architecture** - to let you analyze documents and automatically annotate them
-6. **Human Annotation Interface** - to manually annotated documents, including multi-page annotations.
-7. **Data Extract** - ask multiple questions across hundreds of documents using complex LLM-powered querying behavior.
-   Our sample implementation uses our battle-tested agent framework for precise data extraction and natural language querying.
-8. **Custom Data Extract** - Custom data extract pipelines can be used on the frontend to query documents in bulk.
+1. **Document collections** organised as **corpuses** with folder hierarchies, fine-grained permissions, full history, and forking.
+2. **Multi-format ingestion** — PDF (layout-faithful, via Docling), DOCX (via [Docxodus](https://github.com/JSv4/Docxodus)), and plain text. See [Supported File Formats](upload_methods/supported_formats.md).
+3. **Pluggable parser / embedder / thumbnailer pipeline** — register your own in Python (see [Pipeline Overview](pipelines/pipeline_overview.md)).
+4. **Custom metadata schemas** — typed fields with validation. See [Metadata Overview](metadata/metadata_overview.md).
+5. **Human annotation interface** — multi-page text annotations, document-level type labels, relationships, notes, and structural annotations (auto-extracted by the parser).
+6. **AI agents** — configurable agents built on PydanticAI that search documents, query annotations, and participate in discussions. See [LLM Framework](architecture/llms/README.md).
+7. **MCP server** — expose your corpus to Claude, Cursor, and any MCP-compatible AI tool via streamable HTTP (and a deprecated SSE transport). See [MCP](mcp/README.md).
+8. **Data extract** — ask multiple questions across hundreds of documents using `Fieldset` / `Column` / `Extract` records. See [Data Extraction](extract_and_retrieval/data_extraction.md).
+9. **Forum-style discussions** — global, per-corpus, and per-document threads with voting, moderation, @-mentions of documents/corpuses/agents, and badge-based reputation. See [Commenting System](commenting_system/README.md).
+10. **Corpus actions** — automation triggers that run a fieldset, analyzer, or agent when a document is added / edited or a discussion thread / message arrives. See [Corpus Actions](corpus_actions/intro_to_corpus_actions.md).
+11. **Document versioning & forking** — version-controlled corpuses; fork a public corpus to build on someone else's work.
+12. **Multimodal search** — combined vector embeddings (pgvector) and full-text search over documents and annotations.
 
 ![Grid Review And Sources.gif](assets/images/gifs/Grid_Review_And_Sources.gif)
 
-![Manual Annotations](assets/images/screenshots/Jumped_To_Annotation.png)
-
 ## Key Docs
 
-1. [Quickstart Guide](quick_start.md) - You'll probably want to get started quickly. Setting up locally should be
-   pretty painless if you're already running Docker.
-2. [Basic Walkthrough](walkthrough/key-concepts.md) - Check out the walkthrough to step through basic usage of the
-   application for document and annotation management.
-3. [Metadata System](metadata/metadata_overview.md) - Learn how to define custom metadata schemas for your documents
-   with comprehensive validation and type safety.
-4. [PDF Annotation Data Format Overview](architecture/PDF-data-layer.md) - You may be interested how we map text to
-   PDFs visually and the underlying data format we're using.
-5. [Vector Store Architecture](extract_and_retrieval/vector_stores.md)
-   We've used the latest open source tooling for vector storage in postgres to make it almost trivially easy to
-   combine structured metadata and vector embeddings with an API-powered application.
-6. [Write Custom Data Extractors](walkthrough/advanced/write-your-own-extractors.md) - Custom data extract tasks are
-   automatically loaded and displayed on the frontend to let users select how to ask questions and extract data from documents.
+1. [Quickstart Guide](quick_start.md) — get running with Docker.
+2. [Key Concepts](walkthrough/key-concepts.md) — the data model and core workflows.
+3. [Metadata System](metadata/metadata_overview.md) — define custom metadata schemas.
+4. [PDF Annotation Data Format](architecture/PDF-data-layer.md) — how text maps to PDF coordinates (PAWLs).
+5. [LLM Framework](architecture/llms/README.md) — PydanticAI integration, tools, agents.
+6. [Vector Store Architecture](extract_and_retrieval/vector_stores.md) — pgvector-backed semantic search.
+7. [Write Custom Data Extractors](walkthrough/advanced/write-your-own-extractors.md) — extend the extraction pipeline.
 
-## Architecture and Data Flows at a Glance
+## Architecture at a Glance
 
-### Core Data Standard
+### Core Data Standard (PAWLs)
 
-The core idea here - besides providing a platform to analyze contracts - is an open and standardized architecture that
-makes data extremely portable. Powering this is a set of data standards to describe the text and layout blocks on a PDF
-page:
+OpenContracts uses a portable text-and-layout format derived from AllenAI's PAWLs project — tokens with bounding boxes per page, so annotations carry both their text and their visual position:
 
 ![Data Format](assets/images/diagrams/pawls-annotation-mapping.svg)
 
-### Robust PDF Processing Pipeline
+### Processing Pipeline
 
-We have a robust PDF processing pipeline that is horizontally scalable and generates our standardized data
-consistently for PDF inputs (We're working on adding additional formats soon):
+The modular pipeline supports custom parsers, embedders, and thumbnail generators. Documents flow through three stages: parse → thumbnail → embed.
 
-![PDF Processor](assets/images/diagrams/PDF-processor-sequence-diagram.png)
+![Pipeline Diagram](assets/images/diagrams/parser_pipeline.svg)
 
-Special thanks to Nlmatics and [nlm-ingestor](https://github.com/nlmatics/nlm-ingestor) for powering the layout parsing
-and extraction.
+## License
 
-## Limitations
-
-At the moment, it only works with PDFs. In the future, it will be able to convert other document types to PDF for
-storage and labeling. PDF is an excellent format for this as it introduces a consistent, repeatable format which we can
-use to generate a text and x-y coordinate layer from scratch.
-
-**Adding OCR and ingestion for other enterprise documents is a priority**.
+OpenContracts is released under the [MIT License](https://github.com/Open-Source-Legal/OpenContracts/blob/main/LICENSE). Build proprietary products on it, embed it in commercial offerings, fork it, ship it — no copyleft strings attached.
 
 ## Acknowledgements
 
-Special thanks to AllenAI's [PAWLS project](https://github.com/allenai/pawls) and Nlmatics
-[nlm-ingestor](https://github.com/nlmatics/nlm-ingestor). They've pioneered a number of features and flows, and we are
-using their code in some parts of the application.
+This project builds on work from [AllenAI PAWLS](https://github.com/allenai/pawls) (PDF annotation data format and concepts).
