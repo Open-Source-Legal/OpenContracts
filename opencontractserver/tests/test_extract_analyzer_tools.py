@@ -129,7 +129,6 @@ def test_clamp_limit(limit, default, expected):
 # =========================================================================== #
 
 
-@pytest.mark.django_db
 class TestExtractAnalyzerRegistryIntegration(TransactionTestCase):
     """All six tools resolve via ToolFunctionRegistry, with the expected flags."""
 
@@ -206,11 +205,25 @@ class TestListFieldsets(BaseFixtureTestCase):
         self.assertNotIn("Other", names)
 
     def test_returns_columns_with_metadata(self):
+        # Default discovery payload is the slim summary — the agent gets
+        # column names but not the long-form ``query``/``instructions``
+        # body, which can be many KB per fieldset.
         results = list_fieldsets(corpus_id=self.corpus.id, user_id=self.user.id)
         mine = next(r for r in results if r["name"] == "Mine")
         self.assertEqual(mine["column_count"], 1)
-        self.assertEqual(mine["columns"][0]["query"], "What is the answer?")
-        self.assertEqual(mine["columns"][0]["output_type"], "str")
+        self.assertEqual(mine["column_names"], ["Mine col"])
+        self.assertNotIn("columns", mine)
+
+        # Asking for the full payload returns the heavy detail inline.
+        detailed = list_fieldsets(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            include_columns=True,
+        )
+        mine_detailed = next(r for r in detailed if r["name"] == "Mine")
+        self.assertEqual(mine_detailed["columns"][0]["query"], "What is the answer?")
+        self.assertEqual(mine_detailed["columns"][0]["output_type"], "str")
+        self.assertNotIn("column_names", mine_detailed)
 
     def test_skips_fieldsets_pinned_to_other_corpus(self):
         # Pin "Mine" to a different corpus as its metadata schema
@@ -244,6 +257,20 @@ class TestListFieldsets(BaseFixtureTestCase):
             {r["name"] for r in sync_result},
             {r["name"] for r in async_result},
         )
+
+    def test_limit_caps_returned_row_count(self):
+        """The ``limit`` parameter clamps how many fieldsets are returned.
+
+        ``_clamp_limit`` has unit tests for value normalisation; this
+        exercises the end-to-end path so a future regression that
+        clamps but forgets to apply the slice gets caught.
+        """
+        # Two visible fieldsets exist in setUp ("Mine" + "Public"). Asking
+        # for ``limit=1`` must surface exactly one of them.
+        results = list_fieldsets(
+            corpus_id=self.corpus.id, user_id=self.user.id, limit=1
+        )
+        self.assertEqual(len(results), 1)
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
@@ -332,6 +359,15 @@ class TestListAnalyzers(BaseFixtureTestCase):
         }
         self.assertEqual(sync_ids, async_ids)
 
+    def test_limit_caps_returned_row_count(self):
+        """The ``limit`` parameter clamps how many analyzers are returned."""
+        # setUp creates two visible analyzers ("mine.analyzer",
+        # "public.analyzer"). ``limit=1`` must surface exactly one.
+        results = list_analyzers(
+            corpus_id=self.corpus.id, user_id=self.user.id, limit=1
+        )
+        self.assertEqual(len(results), 1)
+
 
 # =========================================================================== #
 # Recent listings
@@ -375,6 +411,62 @@ class TestListRecentExtracts(BaseFixtureTestCase):
         results = list_recent_extracts(corpus_id=self.corpus.id, user_id=self.user.id)
         entry = next(r for r in results if r["name"] == "Visible Extract")
         self.assertEqual(entry["status"], "queued")
+
+    def test_status_transitions(self):
+        """All four ``_extract_status`` branches map to the right vocabulary.
+
+        ``Extract`` has no ``status`` column — the agent-surface status
+        is synthesised from ``started`` / ``finished`` / ``error``.
+        Pre-existing coverage only pinned the default ``queued`` case;
+        the other three are derived in exactly the same place so a typo
+        in any one branch would silently misreport completion to a
+        polling LLM. Mirrors ``TestListRecentAnalyses.test_status_is_normalised_lowercase``.
+        """
+
+        from django.utils import timezone
+
+        from opencontractserver.constants.tools import (
+            EXTRACT_STATUS_COMPLETED,
+            EXTRACT_STATUS_FAILED,
+            EXTRACT_STATUS_QUEUED,
+            EXTRACT_STATUS_RUNNING,
+        )
+
+        # error > finished > started > queued — the branch order matters
+        # because a failed extract is by definition both started and
+        # finished, but the agent should see ``failed`` rather than
+        # ``completed``.
+        now = timezone.now()
+
+        cases: list[tuple[dict, str]] = [
+            ({"started": None, "finished": None, "error": ""}, EXTRACT_STATUS_QUEUED),
+            ({"started": now, "finished": None, "error": ""}, EXTRACT_STATUS_RUNNING),
+            (
+                {"started": now, "finished": now, "error": ""},
+                EXTRACT_STATUS_COMPLETED,
+            ),
+            (
+                {"started": now, "finished": now, "error": "boom"},
+                EXTRACT_STATUS_FAILED,
+            ),
+        ]
+
+        for fields, expected in cases:
+            self.extract_visible.started = fields["started"]
+            self.extract_visible.finished = fields["finished"]
+            self.extract_visible.error = fields["error"]
+            self.extract_visible.save()
+
+            results = list_recent_extracts(
+                corpus_id=self.corpus.id, user_id=self.user.id
+            )
+            entry = next(r for r in results if r["name"] == "Visible Extract")
+            self.assertEqual(
+                entry["status"],
+                expected,
+                f"Expected status {expected!r} for fields {fields}, "
+                f"got {entry['status']!r}",
+            )
 
     async def test_async_variant_matches(self):
         sync_ids = {
@@ -643,7 +735,7 @@ class TestStartExtract(BaseFixtureTestCase):
         results = list_fieldsets(corpus_id=self.corpus.id, user_id=self.user.id)
         listed = next(r for r in results if r["id"] == manual_only.id)
         self.assertEqual(listed["column_count"], 0)
-        self.assertEqual(listed["columns"], [])
+        self.assertEqual(listed["column_names"], [])
         self.assertFalse(
             listed["extractable"],
             "Zero-column fieldsets must be flagged extractable=False so the "
@@ -664,35 +756,24 @@ class TestStartExtract(BaseFixtureTestCase):
                 user_id=self.user.id,
             )
 
-    def test_doc_agent_outside_corpus_falls_back_to_full_corpus(self):
-        # Document agent injecting a document_id that isn't in the corpus
-        # should warn and broaden scope to the full corpus rather than
-        # silently dispatching against an empty document set.
+    def test_doc_agent_outside_corpus_raises_value_error(self):
+        # A document agent whose injected document_id is not a member of
+        # the working corpus must fail loudly. Silently broadening scope
+        # to the full corpus would let a single-doc agent dispatch a
+        # corpus-wide run (potentially thousands of docs) without the
+        # LLM realising — both an over-billing risk and a confusing
+        # scope-leakage surprise for the user.
         outside_doc = Document.objects.create(
             title="Outside doc", creator=self.user, backend_lock=False
         )
-        with self._patch_dispatch() as mock_run:
-            mock_run.s.return_value.apply_async.return_value = None
-            with self.assertLogs(
-                "opencontractserver.llms.tools.core_tools.extracts_and_analyzers",
-                level="WARNING",
-            ) as logs:
-                result = start_extract(
+        with self._patch_dispatch():
+            with self.assertRaisesRegex(ValueError, r"is not part of corpus"):
+                start_extract(
                     corpus_id=self.corpus.id,
                     fieldset_id=self.fieldset.id,
                     user_id=self.user.id,
                     document_id=outside_doc.id,
                 )
-
-        extract = Extract.objects.get(pk=result["extract_id"])
-        self.assertEqual(
-            set(extract.documents.values_list("id", flat=True)),
-            set(self.corpus.get_documents().values_list("id", flat=True)),
-        )
-        self.assertTrue(
-            any("not in corpus" in line for line in logs.output),
-            f"Expected outside-corpus warning, got: {logs.output}",
-        )
 
     def test_cross_corpus_action_id_is_ignored(self):
         # A CorpusAction belonging to a different corpus must not be linked.

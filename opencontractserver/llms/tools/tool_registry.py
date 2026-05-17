@@ -830,13 +830,21 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "List the configured Fieldsets (extract column schemas) visible to "
             "the user. Use this to pick an existing Fieldset before calling "
             "start_extract — do not invent new column definitions. Returns "
-            "each Fieldset's name, description, and column definitions "
-            "(query, output_type, instructions)."
+            "each Fieldset's name, description, and column names. Pass "
+            "include_columns=true to also get the full column definitions "
+            "(query, output_type, instructions) inline."
         ),
         category=ToolCategory.EXTRACTS,
         requires_corpus=True,
         parameters=(
             ("limit", "Max number of fieldsets to return (default 20)", False),
+            (
+                "include_columns",
+                "When true, include the full column definitions "
+                "(query/match_text/output_type/instructions) inline. Default "
+                "false returns column names only to keep the response compact.",
+                False,
+            ),
         ),
     ),
     ToolDefinition(
@@ -845,7 +853,10 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "Run a configured Fieldset over the corpus to extract structured "
             "data into Datacells. Always pick a fieldset_id from list_fieldsets; "
             "this tool does not invent new columns. Returns the new extract_id "
-            "with status='queued' — the Celery pipeline runs asynchronously."
+            "with status='queued' — the Celery pipeline runs asynchronously. "
+            "If document_ids is omitted on a corpus agent the run targets the "
+            "entire corpus; for corpora with thousands of documents pass an "
+            "explicit document_ids subset to bound the dispatch cost."
         ),
         category=ToolCategory.EXTRACTS,
         requires_corpus=True,
@@ -902,7 +913,10 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         description=(
             "Run a configured Analyzer over the corpus. Returns the new "
             "analysis_id with status='queued' — the analyzer runs "
-            "asynchronously via the existing Gremlin/task pipeline."
+            "asynchronously via the existing Gremlin/task pipeline. If "
+            "document_ids is omitted on a corpus agent the run targets the "
+            "entire corpus; for corpora with thousands of documents pass an "
+            "explicit document_ids subset to bound the dispatch cost."
         ),
         category=ToolCategory.ANALYZERS,
         requires_corpus=True,

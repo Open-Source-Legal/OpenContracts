@@ -137,11 +137,14 @@ def _resolve_target_document_ids(
         agent_doc_pk = int(agent_document_id)
         if corpus_doc_qs.filter(pk=agent_doc_pk).exists():
             return [agent_doc_pk]
-        logger.warning(
-            "Document agent document_id=%s not in corpus %s; defaulting to "
-            "full corpus scope.",
-            agent_document_id,
-            corpus.id,
+        # Silent fallback to full corpus is dangerous: a document agent
+        # wired to one doc would quietly become a corpus-wide dispatch.
+        # Fail loudly so the LLM can surface the mismatch instead of
+        # over-scoping (and over-billing).
+        raise ValueError(
+            f"Document {agent_document_id} is not part of corpus {corpus.id}; "
+            "pass document_ids explicitly or omit them to use the full "
+            "corpus scope."
         )
     return sorted(corpus_doc_qs.values_list("id", flat=True))
 
@@ -294,14 +297,19 @@ def list_fieldsets(
     corpus_id: int,
     user_id: int | None = None,
     limit: int | None = None,
+    include_columns: bool = False,
 ) -> list[dict[str, Any]]:
     """List Fieldsets visible to the user that can be applied to this corpus.
 
-    Returns each fieldset's name, description, and column definitions so the
-    agent can pick one. Fieldsets pinned as the metadata schema of another
-    corpus (via ``Fieldset.corpus``) are excluded; fieldsets pinned to *this*
-    corpus are included so the agent sees the same set ``start_extract``
-    accepts.
+    By default returns one row per fieldset with just the name, description,
+    and a list of column names — enough for the agent to decide which
+    fieldset to dispatch. Pass ``include_columns=True`` to get the full
+    column definitions (``query``, ``match_text``, ``output_type``,
+    ``instructions``) inline; useful when the agent wants to verify a
+    fieldset's schema before calling ``start_extract``. Fieldsets pinned as
+    the metadata schema of another corpus (via ``Fieldset.corpus``) are
+    excluded; fieldsets pinned to *this* corpus are included so the agent
+    sees the same set ``start_extract`` accepts.
     """
 
     user = _get_user_or_none(user_id)
@@ -330,34 +338,44 @@ def list_fieldsets(
 
     results: list[dict[str, Any]] = []
     for fieldset in queryset:
-        columns = [
-            {
-                "id": column.id,
-                "name": column.name,
-                "query": column.query,
-                "match_text": column.match_text,
-                "output_type": column.output_type,
-                "instructions": column.instructions,
-                "extract_is_list": column.extract_is_list,
-            }
-            for column in fieldset.auto_columns
-        ]
-        results.append(
+        auto_columns = list(fieldset.auto_columns)
+        # Default to a slim summary so a corpus admin with 20 fieldsets
+        # of 10 long-form columns each doesn't return a multi-page
+        # payload on every discovery call. ``column_names`` keeps the
+        # LLM able to decide which fieldset matches its intent.
+        if include_columns:
+            column_payload = [
+                {
+                    "id": column.id,
+                    "name": column.name,
+                    "query": column.query,
+                    "match_text": column.match_text,
+                    "output_type": column.output_type,
+                    "instructions": column.instructions,
+                    "extract_is_list": column.extract_is_list,
+                }
+                for column in auto_columns
+            ]
+            row: dict[str, Any] = {"columns": column_payload}
+        else:
+            row = {"column_names": [column.name for column in auto_columns]}
+
+        row.update(
             {
                 "id": fieldset.id,
                 "name": fieldset.name,
                 "description": fieldset.description,
-                "column_count": len(columns),
+                "column_count": len(auto_columns),
                 # ``extractable=False`` signals the LLM that
                 # ``start_extract`` will reject this fieldset (no
                 # auto-extract columns — every column is manual-entry,
                 # the fieldset is empty, etc.). Surfacing the flag in
                 # the listing avoids the LLM optimistically dispatching
                 # and discovering the constraint via a ``ValueError``.
-                "extractable": len(columns) > 0,
-                "columns": columns,
+                "extractable": len(auto_columns) > 0,
             }
         )
+        results.append(row)
 
     return results
 
@@ -367,10 +385,14 @@ async def alist_fieldsets(
     corpus_id: int,
     user_id: int | None = None,
     limit: int | None = None,
+    include_columns: bool = False,
 ) -> list[dict[str, Any]]:
     """Async variant of :func:`list_fieldsets`."""
     return await _db_sync_to_async(list_fieldsets)(
-        corpus_id=corpus_id, user_id=user_id, limit=limit
+        corpus_id=corpus_id,
+        user_id=user_id,
+        limit=limit,
+        include_columns=include_columns,
     )
 
 
@@ -571,9 +593,14 @@ def list_analyzers(
     capped_limit = _clamp_limit(limit, DEFAULT_LIST_LIMIT)
 
     queryset = (
-        Analyzer.objects.visible_to_user(user)
-        .filter(disabled=False)
-        .order_by("id")[:capped_limit]
+        Analyzer.objects.visible_to_user(user).filter(disabled=False)
+        # ``-created`` mirrors ``list_fieldsets`` so the discovery surface
+        # is consistent. Previous ``order_by("id")`` was lexicographic
+        # over CharField IDs like ``"gremlin.v2.analyzer"`` — deterministic
+        # but unpredictable, and the position of any given analyzer would
+        # shift whenever a new one with an ID earlier in the alphabet
+        # was registered.
+        .order_by("-created")[:capped_limit]
     )
 
     results: list[dict[str, Any]] = []
