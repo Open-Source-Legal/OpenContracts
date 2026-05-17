@@ -25,7 +25,7 @@ from celery import shared_task
 from django.contrib.auth import get_user_model
 
 from opencontractserver.annotations.models import StructuralAnnotationSet
-from opencontractserver.constants.zip_export import EXPORT_SPOOL_MAX_SIZE_BYTES
+from opencontractserver.constants.zip_export import get_export_spool_max_size_bytes
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import DocumentPath
 from opencontractserver.tasks.export_tasks import finalize_export
@@ -128,8 +128,10 @@ def build_corpus_v2_zip(
     document_ids = [dp.document_id for dp in active_doc_paths]
     documents = [dp.document for dp in active_doc_paths]
 
+    # Read the spool threshold at call time so ``@override_settings`` in
+    # tests (and any runtime settings change) actually takes effect.
     output_bytes: IO[bytes] = SpooledTemporaryFile(
-        max_size=EXPORT_SPOOL_MAX_SIZE_BYTES, mode="w+b"
+        max_size=get_export_spool_max_size_bytes(), mode="w+b"
     )
     zip_file = zipfile.ZipFile(output_bytes, mode="w", compression=zipfile.ZIP_DEFLATED)
 
