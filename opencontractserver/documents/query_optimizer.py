@@ -614,10 +614,6 @@ class DocumentRelationshipQueryOptimizer:
         Returns:
             True if user has permission, False otherwise
         """
-        # Superusers have all permissions
-        if user.is_superuser:
-            return True
-
         # Map permission type string to enum
         perm_map = {
             "READ": PermissionTypes.READ,
@@ -629,15 +625,15 @@ class DocumentRelationshipQueryOptimizer:
         if not perm_enum:
             return False
 
-        # Check permission on source document
+        # ``obj.user_can`` short-circuits on superuser/creator/public-read
+        # internally (Phase A), so the per-target calls below cover the
+        # superuser path without a separate early return up top.
         if not doc_relationship.source_document.user_can(user, perm_enum):
             return False
 
-        # Check permission on target document
         if not doc_relationship.target_document.user_can(user, perm_enum):
             return False
 
-        # Check permission on corpus (if set)
         if doc_relationship.corpus:
             if not doc_relationship.corpus.user_can(user, perm_enum):
                 return False
