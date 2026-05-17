@@ -506,6 +506,50 @@ class TestUserFeedbackVisibility(TestCase):
         # Annotation on a private document with no grants — NOT visible.
         self.assertNotIn(self.feedback_on_hidden_ann.id, ids)
 
+    def test_guardian_doc_grant_lets_user_see_feedback_on_private_annotation(self):
+        """Direct regression for Bug #2: pre-fix, ``visible_to_user`` only
+        considered ``commented_annotation.is_public=True`` instead of the
+        annotation's full visibility model. A user with a guardian READ
+        grant on the private document — which makes the annotation
+        visible — would correctly see the annotation but NOT the
+        feedback. After the fix, the feedback inherits the same
+        visibility surface as the annotation, so the grant flows through.
+
+        Uses doc-level guardian grant (the production grant scope —
+        annotations have no per-row guardian table) so this also exercises
+        ``Annotation.objects.visible_to_user`` via the doc path.
+        """
+        from guardian.shortcuts import assign_perm
+
+        third_user = User.objects.create_user(
+            username="vis_guardian", password="testpass123"
+        )
+
+        # Sanity: without any grant this user sees only ``is_public``
+        # feedback (no creator branch, no annotation-visibility branch).
+        before_qs = UserFeedback.objects.visible_to_user(third_user)
+        self.assertNotIn(self.feedback_on_hidden_ann.id, set(before_qs))
+
+        # Grant READ on the *document* — the standard guardian scope.
+        # This makes ``hidden_annotation`` show up in
+        # ``Annotation.objects.visible_to_user(third_user)``, which is
+        # exactly the surface the new feedback filter rides on.
+        assign_perm("read_document", third_user, self.private_document)
+
+        after_qs = UserFeedback.objects.visible_to_user(third_user)
+        ids = set(after_qs.values_list("id", flat=True))
+        self.assertIn(
+            self.feedback_on_hidden_ann.id,
+            ids,
+            "guardian READ on the document should grant READ on feedback "
+            "of annotations within it (Bug #2 — UserFeedback used to gate "
+            "only on commented_annotation.is_public)",
+        )
+
+        # And it should also propagate to other users' feedback on the
+        # same now-visible annotation.
+        self.assertIn(self.other_user_feedback.id, ids)
+
     def test_get_or_none_existing(self):
         result = UserFeedback.objects.get_or_none(pk=self.public_feedback.pk)
         self.assertEqual(result, self.public_feedback)
