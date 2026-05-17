@@ -52,12 +52,15 @@ class _MCPAsyncRunMixin:
 
         try:
             asyncio.run(sync_to_async(db.connections.close_all)())
-        except Exception:
+        except Exception as exc:
             # If the worker thread itself is gone or the event loop refuses
             # to spin up cleanly, fall through — the main-thread close
             # below is still useful and we don't want tearDown to mask a
-            # test failure.
-            pass
+            # test failure. Log at DEBUG so transient infra issues stay
+            # visible instead of silently disappearing.
+            import logging
+
+            logging.getLogger(__name__).debug("tearDown async DB close failed: %s", exc)
 
 
 class URIParserTest(TestCase):

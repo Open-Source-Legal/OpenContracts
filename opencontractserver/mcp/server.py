@@ -801,7 +801,9 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
             name="create_thread_message",
             description=(
                 "Create a new message in a thread within the "
-                f"'{corpus_slug}' corpus (requires authenticated MCP session)"
+                f"'{corpus_slug}' corpus (requires authenticated MCP session). "
+                "Note: corpus_slug is injected from the endpoint URL and must "
+                "not be supplied by the client."
             ),
             inputSchema={
                 "type": "object",

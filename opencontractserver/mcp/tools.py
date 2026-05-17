@@ -334,8 +334,8 @@ def list_threads(
         Conversation,
         ConversationTypeChoices,
     )
+    from opencontractserver.corpuses.folder_service import DocumentFolderService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
 
     limit = min(limit, 100)
     user = user or AnonymousUser()
@@ -350,11 +350,12 @@ def list_threads(
     )
 
     if document_slug:
-        # Get document in corpus via DocumentPath, filtered by visibility and slug
-        corpus_doc_ids = corpus.get_documents().values_list("id", flat=True)
-        document = Document.objects.visible_to_user(user).get(
-            id__in=corpus_doc_ids, slug=document_slug
-        )
+        # Route document lookup through DocumentFolderService so tools.py uses
+        # the same permission chain as resources.py and the other list/get
+        # helpers above, avoiding drift between access paths.
+        document = DocumentFolderService.get_corpus_documents(
+            user=user, corpus=corpus, include_deleted=False
+        ).get(slug=document_slug)
         qs = qs.filter(chat_with_document=document)
 
     # Order by pinned first, then recent activity
