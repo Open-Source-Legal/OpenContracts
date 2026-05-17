@@ -10,6 +10,7 @@
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import { AnnotationsSemanticSearchTestWrapper } from "./AnnotationsSemanticSearchTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MOCK DATA
@@ -163,6 +164,8 @@ test.describe("Annotations Semantic Search", () => {
     await expect(page.getByText("Browse Label")).toBeVisible({
       timeout: 15000,
     });
+
+    await docScreenshot(page, "annotations--semantic-search--browse-mode");
 
     await component.unmount();
   });
