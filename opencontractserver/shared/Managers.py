@@ -853,8 +853,12 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         if permission == PermissionTypes.CRUD:
             return can_read and can_create and can_update and can_delete
         if permission == PermissionTypes.ALL:
+            # Annotations don't support PUBLISH or PERMISSION — ALL here
+            # matches the legacy semantic (READ+CRUD+COMMENT).
             return can_read and can_create and can_update and can_delete and can_comment
-        # PUBLISH and PERMISSION are not defined for annotations.
+        # PUBLISH and PERMISSION are not defined for annotations — any
+        # caller asking for those on an annotation gets a deny rather
+        # than a model-level error so the API surface stays uniform.
         return False
 
 

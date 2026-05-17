@@ -995,9 +995,16 @@ class UserFeedbackUserCanFallbackTestCase(TransactionTestCase):
             comment="no annotation",
         )
 
-        # Feedback that comments on a PRIVATE annotation — same fall-through.
-        doc = Document.objects.create(
-            title="UFB Doc", creator=self.creator, is_public=True
+        # Feedback that comments on an annotation a stranger truly cannot see
+        # — the host document is PRIVATE (no guardian grant for stranger),
+        # so ``Annotation.objects.visible_to_user(stranger)`` excludes the
+        # row and the inherited-visibility branch in the manager + queryset
+        # falls through to the default deny. (An annotation row with its own
+        # ``is_public=False`` but a public host doc is still visible to
+        # strangers under the unified annotation visibility model, so we
+        # gate via the parent doc here rather than via the annotation flag.)
+        private_doc = Document.objects.create(
+            title="UFB Private Doc", creator=self.creator, is_public=False
         )
         label = AnnotationLabel.objects.create(
             text="ufbl", label_type="TOKEN_LABEL", creator=self.creator
@@ -1008,7 +1015,7 @@ class UserFeedbackUserCanFallbackTestCase(TransactionTestCase):
             page=1,
             annotation_label=label,
             creator=self.creator,
-            document=doc,
+            document=private_doc,
             is_public=False,
         )
         self.fb_private_annotation = UserFeedback.objects.create(
