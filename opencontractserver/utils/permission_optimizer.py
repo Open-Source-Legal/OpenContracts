@@ -160,7 +160,11 @@ class PermissionQueryOptimizer:
     ) -> None:
         """Drop cache entries matching the supplied coordinates.
 
-        - No coordinates → clear the entire cache.
+        - No coordinates → clear the entire cache. Prefer
+          :meth:`invalidate_caches` for the clear-all intent: an accidental
+          ``optimizer.invalidate()`` with all-defaults will silently nuke
+          the whole request cache, and the explicit method name signals
+          that at the call site.
         - Any subset of ``user_id`` / ``content_type_id`` / ``instance_pk``
           → drop entries that match every supplied slot (others wildcard).
         - ``instance`` is a shorthand for the ``(content_type_id,

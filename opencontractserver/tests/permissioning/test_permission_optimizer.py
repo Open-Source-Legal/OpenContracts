@@ -72,8 +72,14 @@ class PerInstanceMemoizationTestCase(TransactionTestCase):
         """Second ``user_can`` on the same instance issues no queries."""
 
         corpus = self._fresh_corpus()
-        # First call warms the cache.
-        self.assertTrue(corpus.user_can(self.reader, PermissionTypes.READ))
+        # First call warms the cache. Assert a finite query budget so a
+        # regression that makes the cold path explode in queries is still
+        # caught here — without this bound, only the second call's
+        # zero-query assertion below would notice anything had changed.
+        # 6 = current guardian lookup cost (object + group perms, content-
+        # type warm-up, user/anon resolution); update if the path changes.
+        with self.assertNumQueries(6):
+            self.assertTrue(corpus.user_can(self.reader, PermissionTypes.READ))
         # Second call should be a pure cache hit — no DB.
         with self.assertNumQueries(0):
             self.assertTrue(corpus.user_can(self.reader, PermissionTypes.READ))
