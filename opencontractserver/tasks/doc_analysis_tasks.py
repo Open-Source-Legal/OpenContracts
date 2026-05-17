@@ -1,7 +1,10 @@
 import logging
 from typing import Any
 
-from opencontractserver.shared.decorators import doc_analyzer_task
+from opencontractserver.shared.decorators import (
+    async_doc_analyzer_task,
+    doc_analyzer_task,
+)
 from opencontractserver.types.dicts import TextSpan
 
 logger = logging.getLogger(__name__)
@@ -654,3 +657,248 @@ def pii_highlighter_claude(
     # Return the list of doc labels (empty), our list of snippet tuples,
     # an empty metadata list, and success = True
     return ([], span_label_pairs, [], True)
+
+
+async def _ensure_pii_labels_for_analysis(
+    *,
+    analysis_id: int | str,
+    label_type_const: str,
+    entity_groups: list[str],
+) -> None:
+    """Pre-create the requested PII AnnotationLabel rows for an analysis.
+
+    The ``@async_doc_analyzer_task`` post-processing calls
+    ``AnnotationLabel.objects.aget_or_create(text=..., label_type=...,
+    creator=..., analyzer=...)`` once per emitted span_label_pair. By
+    creating the rows up front with the canonical color/icon from
+    ``ENTITY_GROUP_LABELS``, that lookup lands on rows that already carry
+    the styling — giving label parity with the agent-tool
+    ``scan_and_annotate_pii`` flow. ``update_or_create`` keeps styling
+    refreshed if ``ENTITY_GROUP_LABELS`` changes between runs.
+
+    ``entity_groups`` is the deduplicated list of groups we are about to
+    emit (already filtered by ``min_score`` and ``ENTITY_GROUP_LABELS``
+    membership) so we don't seed unused labels.
+    """
+    from opencontractserver.analyzer.models import Analysis
+    from opencontractserver.annotations.models import AnnotationLabel
+    from opencontractserver.llms.tools.core_tools.pii import ENTITY_GROUP_LABELS
+
+    if not entity_groups:
+        return
+
+    analysis = await Analysis.objects.select_related("analyzer", "creator").aget(
+        id=analysis_id
+    )
+    creator = analysis.creator
+    analyzer = analysis.analyzer
+
+    for group in entity_groups:
+        label_text, color, icon = ENTITY_GROUP_LABELS[group]
+        await AnnotationLabel.objects.aupdate_or_create(
+            text=label_text,
+            label_type=label_type_const,
+            creator=creator,
+            analyzer=analyzer,
+            defaults={"color": color, "icon": icon},
+        )
+
+
+@async_doc_analyzer_task(
+    input_schema={
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "PiiScannerPrivacyFilterSchema",
+        "type": "object",
+        "properties": {
+            "min_score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.5,
+                "description": ("Drop detections below this confidence score (0..1)."),
+            },
+        },
+        "additionalProperties": False,
+    }
+)
+async def pii_scanner_privacy_filter(
+    *args: Any,
+    pdf_text_extract: str | None = None,
+    pdf_pawls_extract: dict | None = None,
+    **kwargs: Any,
+) -> tuple[list[str], list[tuple[TextSpan, str]], list[dict[str, Any]], bool]:
+    """# PII Scanner (privacy-filter)
+
+    Detects sensitive information (emails, phone numbers, names, addresses,
+    account numbers, URLs, dates, secrets) in document text via the
+    ``privacy-filter`` HTTP microservice and emits one annotation per
+    detection.
+
+    The underlying ``adetect_pii`` client already chunks input into
+    overlapping 40k-character windows and de-duplicates detections across
+    chunk overlaps, so this task hands the full document text to the
+    client and trusts the contract.
+
+    ## Parameters
+    - ``min_score``: Float in [0,1], default 0.5. Detections below this
+      confidence threshold are skipped.
+
+    ## Returns
+    Standard ``async_doc_analyzer_task`` 4-tuple:
+    - doc-level labels (always empty for PII)
+    - span_label_pairs of ``(TextSpan, label_text)`` where ``label_text``
+      comes from ``ENTITY_GROUP_LABELS`` for parity with the agent tool
+    - metadata (carries the per-group detection counts)
+    - success bool
+    """
+    from asgiref.sync import sync_to_async
+
+    from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL
+    from opencontractserver.constants.document_processing import TEXT_MIMETYPES
+    from opencontractserver.llms.tools.core_tools._privacy_filter_client import (
+        adetect_pii,
+    )
+    from opencontractserver.llms.tools.core_tools.pii import ENTITY_GROUP_LABELS
+
+    if not pdf_text_extract:
+        return (
+            [],
+            [],
+            [{"data": {"error": "No document text available for PII scan"}}],
+            False,
+        )
+
+    try:
+        min_score = float(kwargs.get("min_score", 0.5))
+    except (TypeError, ValueError):
+        return (
+            [],
+            [],
+            [{"data": {"error": "min_score must be a number in [0, 1]"}}],
+            False,
+        )
+    if not 0.0 <= min_score <= 1.0:
+        return (
+            [],
+            [],
+            [{"data": {"error": "min_score must be in [0, 1]"}}],
+            False,
+        )
+
+    doc_id = kwargs.get("doc_id")
+    analysis_id = kwargs.get("analysis_id")
+    file_type = ((await sync_to_async(_get_doc_file_type)(doc_id)) or "").lower()
+    if file_type == "application/pdf":
+        label_type_const = TOKEN_LABEL
+    elif file_type in TEXT_MIMETYPES:
+        label_type_const = SPAN_LABEL
+    else:
+        return (
+            [],
+            [],
+            [
+                {
+                    "data": {
+                        "error": (f"Unsupported file_type {file_type!r} for PII scan")
+                    }
+                }
+            ],
+            False,
+        )
+
+    try:
+        detections = await adetect_pii(pdf_text_extract)
+    except RuntimeError as exc:
+        # Transport / configuration failures from the privacy-filter
+        # service are surfaced as RuntimeError. Return a failed-task
+        # tuple so the error is visible in the analysis result metadata.
+        return (
+            [],
+            [],
+            [{"data": {"error": f"privacy-filter call failed: {exc}"}}],
+            False,
+        )
+
+    span_label_pairs: list[tuple[TextSpan, str]] = []
+    by_group: dict[str, int] = {}
+    skipped_unknown_groups: dict[str, int] = {}
+    skipped_low_score = 0
+
+    for i, det in enumerate(detections):
+        score = float(det.get("score", 0.0))
+        if score < min_score:
+            skipped_low_score += 1
+            continue
+        group = det.get("entity_group", "")
+        if group not in ENTITY_GROUP_LABELS:
+            skipped_unknown_groups[group] = skipped_unknown_groups.get(group, 0) + 1
+            logger.warning(
+                "pii_scanner_privacy_filter: unknown entity_group=%r; skipping",
+                group,
+            )
+            continue
+        label_text, _color, _icon = ENTITY_GROUP_LABELS[group]
+        start, end = int(det["start"]), int(det["end"])
+        if start < 0 or end > len(pdf_text_extract) or start >= end:
+            logger.warning(
+                "pii_scanner_privacy_filter: skipping invalid detection "
+                "start=%s end=%s doc_len=%s",
+                start,
+                end,
+                len(pdf_text_extract),
+            )
+            continue
+        span_label_pairs.append(
+            (
+                TextSpan(
+                    id=f"pii-{i}",
+                    start=start,
+                    end=end,
+                    text=pdf_text_extract[start:end],
+                ),
+                label_text,
+            )
+        )
+        by_group[group] = by_group.get(group, 0) + 1
+
+    # Pre-create styled labels (color/icon from ENTITY_GROUP_LABELS) so the
+    # decorator's aget_or_create lookup lands on the rows we just upserted.
+    # Only seed labels for the groups we are about to emit — no orphans.
+    if analysis_id is not None and by_group:
+        await _ensure_pii_labels_for_analysis(
+            analysis_id=analysis_id,
+            label_type_const=label_type_const,
+            entity_groups=list(by_group.keys()),
+        )
+
+    metadata: list[dict[str, Any]] = [
+        {
+            "data": {
+                "detection_count": len(span_label_pairs),
+                "by_entity_group": by_group,
+                "skipped_low_score": skipped_low_score,
+                "skipped_unknown_groups": skipped_unknown_groups,
+                "min_score": min_score,
+                "file_type": file_type,
+            }
+        }
+    ]
+
+    return [], span_label_pairs, metadata, True
+
+
+def _get_doc_file_type(doc_id: int | str | None) -> str | None:
+    """Sync helper to fetch a document's ``file_type`` by id.
+
+    Wrapped in ``sync_to_async`` from the async task to avoid the
+    ``SynchronousOnlyOperation`` Django raises when an async context
+    touches the ORM directly.
+    """
+    if doc_id is None:
+        return None
+    from opencontractserver.documents.models import Document  # local import
+
+    try:
+        return Document.objects.values_list("file_type", flat=True).get(id=doc_id)
+    except Document.DoesNotExist:
+        return None

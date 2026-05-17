@@ -50,6 +50,19 @@ Read-only mode prevents users from modifying documents and annotations while sti
 
 ## Implementation Patterns
 
+> **Naming note**: the codebase currently mixes two prop names for the same
+> concept:
+> - **`readOnly`** (camelCase) — the standard React convention, used by most
+>   components (`TxtAnnotatorWrapper`, `UnifiedContentFeed`, `HighlightItem`,
+>   `RelationItem`, the styled-component transient prop `$readOnly`, etc.).
+> - **`read_only`** (snake_case) — used by the legacy PDF viewer
+>   (`PDF.tsx`) for historical reasons.
+>
+> When wiring read-only state through a new component, prefer **`readOnly`**.
+> The `read_only` form on `PDF.tsx` is the outlier and is targeted for
+> normalisation; if you touch that component, accept both names during the
+> transition and forward the value to the renderer.
+
 ### Pattern 1: Conditional Rendering
 ```typescript
 // Hide components that have no read-only use case
@@ -72,10 +85,16 @@ Read-only mode prevents users from modifying documents and annotations while sti
 
 ### Pattern 3: Conditional Handlers
 ```typescript
-// Disable handlers in read-only mode
+// Disable handlers in read-only mode (most components — camelCase)
 <HighlightItem
   annotation={annotation}
   onDelete={readOnly ? undefined : handleDelete}
+  readOnly={readOnly}
+/>
+
+// Legacy PDF viewer — snake_case
+<PDF
+  document={document}
   read_only={readOnly}
 />
 ```

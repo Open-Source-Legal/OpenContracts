@@ -5,6 +5,34 @@
 
 ---
 
+## ⚠️ Status Update (post-audit)
+
+**Most of the CRITICAL findings below have been fixed in code.** This document is preserved as the historical audit record. Verification spot-checks:
+
+| Finding (CRITICAL) | Current status in `main` | Code reference |
+|---|---|---|
+| `RemoveRelationships` — no permission check | ✅ Fixed: now uses `Relationship.objects.visible_to_user(user)` + `user_has_permission_for_obj()` | `config/graphql/annotation_mutations.py:725-757` |
+| `UpdateRelations` — no permission check | ✅ Fixed: `visible_to_user()` gate before update | `config/graphql/annotation_mutations.py:937+` |
+| `StartCorpusFork` | ✅ Fixed: `visible_to_user()` + explicit READ check | `config/graphql/corpus_mutations.py` |
+| `DeleteMultipleLabelMutation` | ✅ Fixed: creator-ownership + read-only flag check | `config/graphql/label_mutations.py` |
+| `StartQueryForCorpus`, `StartCorpusExport`, `StartDocumentExtract` | ✅ Fixed | corresponding mutation files |
+
+In addition, the more recent **Auth0 permissioning audit** (recorded in `CHANGELOG.md` under "Security / Auth0 permissioning audit") shipped further defense-in-depth changes:
+
+- `AUTH0_SUPERUSER_SUB_ALLOWLIST` allowlist for `is_superuser` JWT-claim sync (F1)
+- `ADMIN_CLAIMS_CACHE_TTL` tightened from 300 s → 30 s (F2)
+- `AddRelationship` IDOR oracle eliminated; document-ID is now visibility-checked (F3 + F4)
+- `CreateMetadataColumn` / `UpdateMetadataColumn` existence oracles eliminated (F5, F6)
+- `Datacell` mutation broad-except message leaks closed (F7)
+- Bounded JWKS stale-cache fallback (F9)
+- `Analysis.callback_token` now hashed at rest (F10)
+
+The CHANGELOG entry also lists **verified false positives** (e.g., `SetCorpusVisibility`, `AnnotationImagesView`, moderation mutations) — items this guide may have over-stated.
+
+**When reading this document, treat each finding as historical context** and verify the current code state before acting. Open issues (if any) should be tracked separately in GitHub.
+
+---
+
 ## Executive Summary
 
 This guide consolidates and **corrects** the findings from the GraphQL and Task audit reports. After careful code review, the original reports contained several inaccuracies and overstated claims. This guide provides:
