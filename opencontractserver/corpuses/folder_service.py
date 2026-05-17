@@ -51,10 +51,7 @@ from opencontractserver.constants.document_processing import (
 )
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
@@ -2429,14 +2426,13 @@ class DocumentFolderService:
                 "Permission denied: You do not have write access to this corpus",
             )
 
-        # Check document access (owner or public)
-        if document.creator != user and not document.is_public:
-            if not user_has_permission_for_obj(user, document, PermissionTypes.READ):
-                return (
-                    None,
-                    "",
-                    "Permission denied: You do not have access to this document",
-                )
+        # Check document access (Document.user_can handles owner/public/guardian)
+        if not document.user_can(user, PermissionTypes.READ):
+            return (
+                None,
+                "",
+                "Permission denied: You do not have access to this document",
+            )
 
         try:
             # Use corpus.add_document for proper corpus isolation
@@ -2639,11 +2635,8 @@ class DocumentFolderService:
         try:
             document = Document.objects.get(pk=document_id)
 
-            # Check access: owner, public, or has READ permission
-            if document.creator == user or document.is_public:
-                return document
-
-            if user_has_permission_for_obj(user, document, PermissionTypes.READ):
+            # Check access (Document.user_can handles owner/public/guardian)
+            if document.user_can(user, PermissionTypes.READ):
                 return document
 
             return None
@@ -2711,15 +2704,13 @@ class DocumentFolderService:
         Permissions:
             Requires document ownership or PERMISSION permission
         """
-        # Check if user can set permissions (owner or has PERMISSION perm)
-        if document.creator != user:
-            if not user_has_permission_for_obj(
-                user, document, PermissionTypes.PERMISSION
-            ):
-                return (
-                    False,
-                    "Permission denied: Cannot modify permissions for this document",
-                )
+        # Check if user can set permissions (Document.user_can encapsulates
+        # owner + guardian-grant rules for PERMISSION).
+        if not document.user_can(user, PermissionTypes.PERMISSION):
+            return (
+                False,
+                "Permission denied: Cannot modify permissions for this document",
+            )
 
         try:
             set_permissions_for_obj_to_user(target_user, document, permissions)

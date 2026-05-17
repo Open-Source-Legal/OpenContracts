@@ -11,10 +11,7 @@ from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -132,12 +129,7 @@ class SmartLabelSearchOrCreateMutation(graphene.Mutation):
             corpus = Corpus.objects.get(pk=corpus_pk)
 
             # Check user has permission to update corpus
-            if not user_has_permission_for_obj(
-                user_val=user,
-                instance=corpus,
-                permission=PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            ):
+            if not corpus.user_can(user, PermissionTypes.UPDATE):
                 return SmartLabelSearchOrCreateMutation(
                     ok=False,
                     message="You don't have permission to update this corpus",
@@ -271,12 +263,7 @@ class SmartLabelListMutation(graphene.Mutation):
             corpus = Corpus.objects.get(pk=corpus_pk)
 
             # Check permissions
-            can_update = user_has_permission_for_obj(
-                user_val=user,
-                instance=corpus,
-                permission=PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            can_update = corpus.user_can(user, PermissionTypes.UPDATE)
             can_create_labels = can_update
 
             # Check labelset

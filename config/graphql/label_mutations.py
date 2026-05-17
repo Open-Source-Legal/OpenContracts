@@ -19,10 +19,7 @@ from config.graphql.serializers import LabelsetSerializer
 from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -243,12 +240,7 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             # error messages (IDOR mitigation — see
             # docs/permissioning/consolidated_permissioning_guide.md).
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not user_has_permission_for_obj(
-                info.context.user,
-                labelset,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            ):
+            if not labelset.user_can(info.context.user, PermissionTypes.UPDATE):
                 raise LabelSet.DoesNotExist()
 
             # Reject blank text explicitly: Django's ``blank=False`` is
@@ -347,12 +339,7 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
             user = info.context.user
             label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not user_has_permission_for_obj(
-                user,
-                labelset,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            ):
+            if not labelset.user_can(user, PermissionTypes.UPDATE):
                 raise LabelSet.DoesNotExist()
             labelset.annotation_labels.remove(*label_pks)
             ok = True

@@ -14,10 +14,7 @@ from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +97,7 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
                     )
 
                 # Check if user has permission for this corpus
-                if not user.is_superuser and not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
-                ):
+                if not corpus.user_can(user, PermissionTypes.CRUD):
                     return CreateAgentConfigurationMutation(
                         ok=False,
                         message="Corpus not found",
@@ -222,9 +217,7 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
                 )
 
             # Permission check
-            if not user.is_superuser and not user_has_permission_for_obj(
-                user, agent, PermissionTypes.CRUD, include_group_permissions=True
-            ):
+            if not agent.user_can(user, PermissionTypes.CRUD):
                 return UpdateAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",
@@ -299,9 +292,7 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
                 )
 
             # Permission check
-            if not user.is_superuser and not user_has_permission_for_obj(
-                user, agent, PermissionTypes.CRUD, include_group_permissions=True
-            ):
+            if not agent.user_can(user, PermissionTypes.CRUD):
                 return DeleteAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",

@@ -38,10 +38,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.types.enums import LabelType, PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +70,9 @@ class RemoveAnnotation(graphene.Mutation):
                 )
 
             # Check if user has permission to delete this annotation
-            # This now handles privacy-aware permissions for annotations with created_by_* fields
-            if not user_has_permission_for_obj(
-                user,
-                annotation_obj,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            ):
+            # Annotation.user_can encapsulates the privacy-aware /
+            # structural / inheritance rules.
+            if not annotation_obj.user_can(user, PermissionTypes.DELETE):
                 return RemoveAnnotation(
                     ok=False,
                     message="Annotation not found or you do not have permission to access it",
@@ -121,11 +114,7 @@ class RejectAnnotation(graphene.Mutation):
 
         # Check if user has COMMENT permission on this annotation
         # COMMENT permission respects document+corpus inheritance and corpus.allow_comments
-        can_comment = user_has_permission_for_obj(
-            user, annotation, PermissionTypes.COMMENT, include_group_permissions=True
-        )
-
-        if not can_comment:
+        if not annotation.user_can(user, PermissionTypes.COMMENT):
             return RejectAnnotation(
                 ok=False,
                 user_feedback=None,
@@ -184,11 +173,7 @@ class ApproveAnnotation(graphene.Mutation):
 
         # Check if user has COMMENT permission on this annotation
         # COMMENT permission respects document+corpus inheritance and corpus.allow_comments
-        can_comment = user_has_permission_for_obj(
-            user, annotation, PermissionTypes.COMMENT, include_group_permissions=True
-        )
-
-        if not can_comment:
+        if not annotation.user_can(user, PermissionTypes.COMMENT):
             return ApproveAnnotation(
                 ok=False,
                 user_feedback=None,
@@ -260,9 +245,7 @@ def _resolve_annotation_parents(
     except (Document.DoesNotExist, Corpus.DoesNotExist):
         return None
 
-    if not user_has_permission_for_obj(
-        user, corpus, PermissionTypes.CREATE, include_group_permissions=True
-    ):
+    if not corpus.user_can(user, PermissionTypes.CREATE):
         return None
 
     if not DocumentPath.objects.filter(
@@ -557,12 +540,7 @@ class RemoveRelationship(graphene.Mutation):
                 )
 
             # Check if user has permission to delete this relationship
-            if not user_has_permission_for_obj(
-                user,
-                relationship_obj,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            ):
+            if not relationship_obj.user_can(user, PermissionTypes.DELETE):
                 return RemoveRelationship(
                     ok=False,
                     message="Relationship not found or you do not have permission to access it",
@@ -666,12 +644,7 @@ class AddRelationship(graphene.Mutation):
         except Corpus.DoesNotExist:
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-        if not user_has_permission_for_obj(
-            user,
-            corpus,
-            PermissionTypes.CREATE,
-            include_group_permissions=True,
-        ):
+        if not corpus.user_can(user, PermissionTypes.CREATE):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Document visibility check: without this, a caller with CREATE on
@@ -742,12 +715,7 @@ class RemoveRelationships(graphene.Mutation):
                 relationship = Relationship.objects.visible_to_user(user).get(pk=pk)
             except Relationship.DoesNotExist:
                 return RemoveRelationships(ok=False, message=not_found_msg)
-            if not user_has_permission_for_obj(
-                user,
-                relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            ):
+            if not relationship.user_can(user, PermissionTypes.DELETE):
                 return RemoveRelationships(ok=False, message=not_found_msg)
             relationship.delete()
         return RemoveRelationships(ok=True, message="Success")
@@ -817,12 +785,7 @@ class UpdateRelationship(graphene.Mutation):
                 )
 
             # Check UPDATE permission on the relationship
-            if not user_has_permission_for_obj(
-                user,
-                relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            ):
+            if not relationship.user_can(user, PermissionTypes.UPDATE):
                 return UpdateRelationship(
                     ok=False,
                     relationship=None,
@@ -964,12 +927,7 @@ class UpdateRelations(graphene.Mutation):
                 relationship = Relationship.objects.visible_to_user(user).get(id=pk)
             except Relationship.DoesNotExist:
                 return UpdateRelations(ok=False, message=not_found_msg)
-            if not user_has_permission_for_obj(
-                user,
-                relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            ):
+            if not relationship.user_can(user, PermissionTypes.UPDATE):
                 return UpdateRelations(ok=False, message=not_found_msg)
 
             relationship.relationship_label_id = relationship_label_pk

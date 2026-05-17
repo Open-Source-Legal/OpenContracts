@@ -35,10 +35,7 @@ from opencontractserver.tasks import fork_corpus
 from opencontractserver.tasks.permissioning_tasks import make_corpus_public_task
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.corpus_collector import collect_corpus_objects
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -87,17 +84,9 @@ class SetCorpusVisibility(graphene.Mutation):
                 ok=False, message="Corpus not found or you don't have permission"
             )
 
-        # Permission check: owner OR has PERMISSION OR superuser
-        # This is the security gate - prevents unauthorized visibility changes
-        can_change_visibility = (
-            user.is_superuser
-            or corpus.creator_id == user.id
-            or user_has_permission_for_obj(
-                user, corpus, PermissionTypes.PERMISSION, include_group_permissions=True
-            )
-        )
-
-        if not can_change_visibility:
+        # Permission check: Corpus.user_can encapsulates superuser + creator
+        # + guardian-grant rules; PERMISSION is the change-ACL right.
+        if not corpus.user_can(user, PermissionTypes.PERMISSION):
             # IDOR protection: same message as "not found"
             return SetCorpusVisibility(
                 ok=False, message="Corpus not found or you don't have permission"
@@ -524,12 +513,7 @@ class StartCorpusFork(graphene.Mutation):
                 )
 
             # Verify READ permission
-            if not user_has_permission_for_obj(
-                info.context.user,
-                corpus,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            ):
+            if not corpus.user_can(info.context.user, PermissionTypes.READ):
                 return StartCorpusFork(
                     ok=False, message="Corpus not found", new_corpus=None
                 )
@@ -824,13 +808,7 @@ class CreateCorpusAction(graphene.Mutation):
             corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
 
             # Check if user has update permission on the corpus
-            if not (
-                user.is_superuser
-                or corpus.creator_id == user.id
-                or user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
-                )
-            ):
+            if not corpus.user_can(user, PermissionTypes.CRUD):
                 return CreateCorpusAction(
                     ok=False,
                     message="You don't have permission to create actions on this corpus",
@@ -1407,13 +1385,7 @@ class AddTemplateToCorpus(graphene.Mutation):
             corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
 
             # Check if user has update permission on the corpus
-            if not (
-                user.is_superuser
-                or corpus.creator_id == user.id
-                or user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
-                )
-            ):
+            if not corpus.user_can(user, PermissionTypes.CRUD):
                 return AddTemplateToCorpus(
                     ok=False,
                     message="You don't have permission to add templates to this corpus",
@@ -1512,7 +1484,7 @@ class ToggleCorpusMemory(graphene.Mutation):
         except (Corpus.DoesNotExist, ValueError, IndexError):
             return ToggleCorpusMemory(ok=False, message="Corpus not found", corpus=None)
 
-        if not user_has_permission_for_obj(user, corpus, PermissionTypes.CRUD):
+        if not corpus.user_can(user, PermissionTypes.CRUD):
             return ToggleCorpusMemory(
                 ok=False,
                 message="You don't have permission to modify this corpus",

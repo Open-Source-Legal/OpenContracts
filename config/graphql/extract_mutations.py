@@ -29,10 +29,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +196,7 @@ class CreateMetadataColumn(graphene.Mutation):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
-            if not user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not corpus.user_can(user, PermissionTypes.UPDATE):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Get or create metadata fieldset for corpus
@@ -308,9 +303,7 @@ class UpdateMetadataColumn(graphene.Mutation):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
-            if not user_has_permission_for_obj(
-                user, column, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not column.user_can(user, PermissionTypes.UPDATE):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Ensure it's a manual entry column
@@ -853,12 +846,7 @@ class UpdateExtractMutation(graphene.Mutation):
             )
 
         # Check if the user has permission to update the Extract object
-        if not user_has_permission_for_obj(
-            user_val=user,
-            instance=extract,
-            permission=PermissionTypes.UPDATE,
-            include_group_permissions=True,
-        ):
+        if not extract.user_can(user, PermissionTypes.UPDATE):
             return UpdateExtractMutation(
                 ok=False,
                 message="You don't have permission to update this extract.",
@@ -877,12 +865,7 @@ class UpdateExtractMutation(graphene.Mutation):
             try:
                 corpus = Corpus.objects.get(pk=corpus_pk)
                 # Check permission
-                if not user_has_permission_for_obj(
-                    user_val=user,
-                    instance=corpus,
-                    permission=PermissionTypes.READ,
-                    include_group_permissions=True,
-                ):
+                if not corpus.user_can(user, PermissionTypes.READ):
                     return UpdateExtractMutation(
                         ok=False,
                         message="You don't have permission to use this corpus.",
@@ -903,12 +886,7 @@ class UpdateExtractMutation(graphene.Mutation):
                 fieldset = Fieldset.objects.get(pk=fieldset_pk)
                 print(f"Found fieldset {fieldset.id} for update")
                 # Check permission
-                if not user_has_permission_for_obj(
-                    user_val=user,
-                    instance=fieldset,
-                    permission=PermissionTypes.READ,
-                    include_group_permissions=True,
-                ):
+                if not fieldset.user_can(user, PermissionTypes.READ):
                     print(
                         f"User {user.id} denied permission to use fieldset {fieldset.id}"
                     )
@@ -1272,9 +1250,7 @@ class CreateExtractIteration(graphene.Mutation):
         except (Extract.DoesNotExist, ValueError):
             return CreateExtractIteration(ok=False, message="Source extract not found.")
 
-        if not user_has_permission_for_obj(
-            user, source, PermissionTypes.READ, include_group_permissions=True
-        ):
+        if not source.user_can(user, PermissionTypes.READ):
             return CreateExtractIteration(
                 ok=False,
                 message="You don't have permission to read this extract.",
