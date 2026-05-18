@@ -323,6 +323,7 @@ class ActionQueryMixin:
             user=user,
             document_id=int(document_pk),
             corpus_id=int(corpus_pk) if corpus_pk else None,
+            context=info.context,
         )
 
         return DocumentCorpusActionsType(

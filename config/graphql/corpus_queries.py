@@ -354,12 +354,12 @@ class CorpusQueryMixin:
 
                 # total_analyses: Uses hybrid permission model (analysis perm + corpus perm)
                 total_analyses = AnalysisQueryOptimizer.get_visible_analyses(
-                    user, corpus_id=corpus.id
+                    user, corpus_id=corpus.id, context=info.context
                 ).count()
 
                 # total_extracts: Uses hybrid permission model (extract perm + corpus perm)
                 total_extracts = ExtractQueryOptimizer.get_visible_extracts(
-                    user, corpus_id=corpus.id
+                    user, corpus_id=corpus.id, context=info.context
                 ).count()
 
                 # total_threads and total_chats: Use ConversationQueryOptimizer

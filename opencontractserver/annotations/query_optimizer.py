@@ -4,7 +4,7 @@ Direct database queries with smart prefetching and permission filtering.
 No caching layer - just optimized queries.
 """
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
     from opencontractserver.analyzer.models import Analysis
@@ -650,6 +650,7 @@ class AnnotationQueryOptimizer:
         user,
         structural: Optional[bool] = None,
         analysis_isnull: Optional[bool] = None,
+        context: Optional[Any] = None,
     ) -> QuerySet:
         """
         Get annotations for a corpus with proper permission filtering.
@@ -671,6 +672,8 @@ class AnnotationQueryOptimizer:
             user: The requesting user
             structural: Optional filter for structural annotations (True/False/None)
             analysis_isnull: Optional filter for analysis field (True=manual only)
+            context: Optional GraphQL context (``info.context``) threaded into
+                ``user_can`` so Tier-2 request-scoped permission caching applies.
 
         Returns:
             QuerySet of annotations with permission filtering applied
@@ -737,7 +740,9 @@ class AnnotationQueryOptimizer:
             ).values_list("id", flat=True)
         else:
             # Check if user has READ permission on corpus
-            has_corpus_read = corpus.user_can(user, PermissionTypes.READ)
+            has_corpus_read = corpus.user_can(
+                user, PermissionTypes.READ, request=context
+            )
             if not has_corpus_read:
                 return Annotation.objects.none()
 
@@ -1102,7 +1107,7 @@ class AnalysisQueryOptimizer:
 
     @classmethod
     def check_analysis_permission(
-        cls, user, analysis_id: int
+        cls, user, analysis_id: int, context: Optional[Any] = None
     ) -> tuple[bool, Optional["Analysis"]]:
         """
         Check if user can access an analysis.
@@ -1111,6 +1116,12 @@ class AnalysisQueryOptimizer:
         Permission model:
         1. User must have permission on the analysis object itself
         2. AND user must have permission on the corpus
+
+        Args:
+            user: The requesting user
+            analysis_id: The analysis ID to check
+            context: Optional GraphQL context (``info.context``) threaded into
+                ``user_can`` so Tier-2 request-scoped permission caching applies.
         """
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.types.enums import PermissionTypes
@@ -1130,7 +1141,7 @@ class AnalysisQueryOptimizer:
             has_analysis_perm = (
                 analysis.is_public
                 or analysis.creator_id == user.id
-                or analysis.user_can(user, PermissionTypes.READ)
+                or analysis.user_can(user, PermissionTypes.READ, request=context)
             )
 
             if not has_analysis_perm:
@@ -1141,7 +1152,9 @@ class AnalysisQueryOptimizer:
                 has_corpus_perm = (
                     analysis.analyzed_corpus.is_public
                     or analysis.analyzed_corpus.creator_id == user.id
-                    or analysis.analyzed_corpus.user_can(user, PermissionTypes.READ)
+                    or analysis.analyzed_corpus.user_can(
+                        user, PermissionTypes.READ, request=context
+                    )
                 )
                 if not has_corpus_perm:
                     return False, None
@@ -1152,11 +1165,22 @@ class AnalysisQueryOptimizer:
             return False, None
 
     @classmethod
-    def get_visible_analyses(cls, user, corpus_id: Optional[int] = None) -> QuerySet:
+    def get_visible_analyses(
+        cls,
+        user,
+        corpus_id: Optional[int] = None,
+        context: Optional[Any] = None,
+    ) -> QuerySet:
         """
         Get analyses visible to user based on:
         1. User has permission on analysis object
         2. User has READ permission on corpus
+
+        Args:
+            user: The requesting user
+            corpus_id: Optional corpus ID to scope the query
+            context: Optional GraphQL context (``info.context``) threaded into
+                ``user_can`` so Tier-2 request-scoped permission caching applies.
         """
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.corpuses.models import (
@@ -1213,7 +1237,7 @@ class AnalysisQueryOptimizer:
                     if not corpus.is_public:
                         return Analysis.objects.none()
                 elif not user.is_superuser and not corpus.user_can(
-                    user, PermissionTypes.READ
+                    user, PermissionTypes.READ, request=context
                 ):
                     return Analysis.objects.none()
             except Corpus.DoesNotExist:
@@ -1292,11 +1316,17 @@ class ExtractQueryOptimizer:
 
     @classmethod
     def check_extract_permission(
-        cls, user, extract_id: int
+        cls, user, extract_id: int, context: Optional[Any] = None
     ) -> tuple[bool, Optional["Extract"]]:
         """
         Check if user can access an extract.
         Returns (has_permission, extract_object)
+
+        Args:
+            user: The requesting user
+            extract_id: The extract ID to check
+            context: Optional GraphQL context (``info.context``) threaded into
+                ``user_can`` so Tier-2 request-scoped permission caching applies.
         """
         from opencontractserver.extracts.models import Extract
         from opencontractserver.types.enums import PermissionTypes
@@ -1314,7 +1344,7 @@ class ExtractQueryOptimizer:
 
             # Check extract-level permission
             has_extract_perm = extract.creator_id == user.id or extract.user_can(
-                user, PermissionTypes.READ
+                user, PermissionTypes.READ, request=context
             )
 
             if not has_extract_perm:
@@ -1325,7 +1355,9 @@ class ExtractQueryOptimizer:
                 has_corpus_perm = (
                     extract.corpus.is_public
                     or extract.corpus.creator_id == user.id
-                    or extract.corpus.user_can(user, PermissionTypes.READ)
+                    or extract.corpus.user_can(
+                        user, PermissionTypes.READ, request=context
+                    )
                 )
                 if not has_corpus_perm:
                     return False, None
@@ -1336,11 +1368,22 @@ class ExtractQueryOptimizer:
             return False, None
 
     @classmethod
-    def get_visible_extracts(cls, user, corpus_id: Optional[int] = None) -> QuerySet:
+    def get_visible_extracts(
+        cls,
+        user,
+        corpus_id: Optional[int] = None,
+        context: Optional[Any] = None,
+    ) -> QuerySet:
         """
         Get extracts visible to user based on:
         1. User has permission on extract object
         2. User has READ permission on corpus
+
+        Args:
+            user: The requesting user
+            corpus_id: Optional corpus ID to scope the query
+            context: Optional GraphQL context (``info.context``) threaded into
+                ``user_can`` so Tier-2 request-scoped permission caching applies.
         """
         from opencontractserver.corpuses.models import (
             Corpus,
@@ -1397,7 +1440,7 @@ class ExtractQueryOptimizer:
                     if not corpus.is_public:
                         return Extract.objects.none()
                 elif not user.is_superuser and not corpus.user_can(
-                    user, PermissionTypes.READ
+                    user, PermissionTypes.READ, request=context
                 ):
                     return Extract.objects.none()
             except Corpus.DoesNotExist:
