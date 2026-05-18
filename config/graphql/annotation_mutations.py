@@ -138,11 +138,15 @@ class RejectAnnotation(graphene.Mutation):
             user_feedback.comment = comment or user_feedback.comment
             user_feedback.save()
 
+        # ``is_new=created`` so an existing UserFeedback row still flows
+        # through the ``remove_perm`` sweep that clears stale guardian rows
+        # from any prior CRUD → READ-only downgrade. Only fresh-creation
+        # paths get the 7-DB-op skip.
         set_permissions_for_obj_to_user(
             user,
             user_feedback,
             [PermissionTypes.CRUD],
-            is_new=True,
+            is_new=created,
             request=info.context,
         )
 
@@ -203,11 +207,15 @@ class ApproveAnnotation(graphene.Mutation):
             user_feedback.comment = comment or user_feedback.comment
             user_feedback.save()
 
+        # ``is_new=created`` so an existing UserFeedback row still flows
+        # through the ``remove_perm`` sweep that clears stale guardian rows
+        # from any prior CRUD → READ-only downgrade. Only fresh-creation
+        # paths get the 7-DB-op skip.
         set_permissions_for_obj_to_user(
             user,
             user_feedback,
             [PermissionTypes.CRUD],
-            is_new=True,
+            is_new=created,
             request=info.context,
         )
 
