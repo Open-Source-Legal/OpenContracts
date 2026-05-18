@@ -30,10 +30,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +197,7 @@ class CreateMetadataColumn(graphene.Mutation):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
-            if not user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not corpus.user_can(user, PermissionTypes.UPDATE, request=info.context):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Get or create metadata fieldset for corpus
@@ -213,7 +208,13 @@ class CreateMetadataColumn(graphene.Mutation):
                     corpus=corpus,
                     creator=user,
                 )
-                set_permissions_for_obj_to_user(user, fieldset, [PermissionTypes.CRUD])
+                set_permissions_for_obj_to_user(
+                    user,
+                    fieldset,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
+                )
             else:
                 fieldset = corpus.metadata_schema
 
@@ -260,7 +261,13 @@ class CreateMetadataColumn(graphene.Mutation):
                 creator=user,
             )
 
-            set_permissions_for_obj_to_user(user, column, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                column,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
             return CreateMetadataColumn(
                 ok=True, message="Metadata field created successfully", obj=column
@@ -309,9 +316,7 @@ class UpdateMetadataColumn(graphene.Mutation):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
-            if not user_has_permission_for_obj(
-                user, column, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not column.user_can(user, PermissionTypes.UPDATE, request=info.context):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Ensure it's a manual entry column
@@ -423,7 +428,13 @@ class SetMetadataValue(graphene.Mutation):
             )
 
             if created:
-                set_permissions_for_obj_to_user(user, datacell, [PermissionTypes.CRUD])
+                set_permissions_for_obj_to_user(
+                    user,
+                    datacell,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
+                )
 
             return SetMetadataValue(
                 ok=True, message="Metadata value set successfully", obj=datacell
@@ -522,7 +533,11 @@ class CreateFieldset(graphene.Mutation):
         )
         fieldset.save()
         set_permissions_for_obj_to_user(
-            info.context.user, fieldset, [PermissionTypes.CRUD]
+            info.context.user,
+            fieldset,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
         )
 
         record_event(
@@ -670,7 +685,11 @@ class CreateColumn(graphene.Mutation):
         )
         column.save()
         set_permissions_for_obj_to_user(
-            info.context.user, column, [PermissionTypes.CRUD]
+            info.context.user,
+            column,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
         )
         return CreateColumn(ok=True, message="SUCCESS!", obj=column)
 
@@ -783,7 +802,11 @@ class CreateExtract(graphene.Mutation):
                 creator=info.context.user,
             )
             set_permissions_for_obj_to_user(
-                info.context.user, fieldset, [PermissionTypes.CRUD]
+                info.context.user,
+                fieldset,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
             )
 
         extract = Extract(
@@ -808,7 +831,11 @@ class CreateExtract(graphene.Mutation):
             logger.info("Corpus IS still None... no docs to add.")
 
         set_permissions_for_obj_to_user(
-            info.context.user, extract, [PermissionTypes.CRUD]
+            info.context.user,
+            extract,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
         )
 
         return CreateExtract(ok=True, msg="SUCCESS!", obj=extract)
@@ -861,12 +888,7 @@ class UpdateExtractMutation(graphene.Mutation):
             )
 
         # Check if the user has permission to update the Extract object
-        if not user_has_permission_for_obj(
-            user_val=user,
-            instance=extract,
-            permission=PermissionTypes.UPDATE,
-            include_group_permissions=True,
-        ):
+        if not extract.user_can(user, PermissionTypes.UPDATE, request=info.context):
             return UpdateExtractMutation(
                 ok=False,
                 message="You don't have permission to update this extract.",
@@ -885,11 +907,8 @@ class UpdateExtractMutation(graphene.Mutation):
             try:
                 corpus = Corpus.objects.get(pk=corpus_pk)
                 # Check permission
-                if not user_has_permission_for_obj(
-                    user_val=user,
-                    instance=corpus,
-                    permission=PermissionTypes.READ,
-                    include_group_permissions=True,
+                if not corpus.user_can(
+                    user, PermissionTypes.READ, request=info.context
                 ):
                     return UpdateExtractMutation(
                         ok=False,
@@ -911,11 +930,8 @@ class UpdateExtractMutation(graphene.Mutation):
                 fieldset = Fieldset.objects.get(pk=fieldset_pk)
                 print(f"Found fieldset {fieldset.id} for update")
                 # Check permission
-                if not user_has_permission_for_obj(
-                    user_val=user,
-                    instance=fieldset,
-                    permission=PermissionTypes.READ,
-                    include_group_permissions=True,
+                if not fieldset.user_can(
+                    user, PermissionTypes.READ, request=info.context
                 ):
                     print(
                         f"User {user.id} denied permission to use fieldset {fieldset.id}"
@@ -1135,6 +1151,8 @@ def _clone_fieldset_for_iteration(
     source_fieldset: Fieldset,
     user,
     column_overrides: Optional[dict] = None,
+    *,
+    request=None,
 ) -> Fieldset:
     """Deep-clone a fieldset and its columns for a FIELDSET-axis iteration.
 
@@ -1146,7 +1164,9 @@ def _clone_fieldset_for_iteration(
         description=source_fieldset.description,
         creator=user,
     )
-    set_permissions_for_obj_to_user(user, new_fieldset, [PermissionTypes.CRUD])
+    set_permissions_for_obj_to_user(
+        user, new_fieldset, [PermissionTypes.CRUD], is_new=True, request=request
+    )
 
     overrides_by_pk: dict = {}
     if column_overrides:
@@ -1181,7 +1201,9 @@ def _clone_fieldset_for_iteration(
             display_order=column.display_order,
             creator=user,
         )
-        set_permissions_for_obj_to_user(user, clone, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user, clone, [PermissionTypes.CRUD], is_new=True, request=request
+        )
     return new_fieldset
 
 
@@ -1280,9 +1302,7 @@ class CreateExtractIteration(graphene.Mutation):
         except (Extract.DoesNotExist, ValueError):
             return CreateExtractIteration(ok=False, message="Source extract not found.")
 
-        if not user_has_permission_for_obj(
-            user, source, PermissionTypes.READ, include_group_permissions=True
-        ):
+        if not source.user_can(user, PermissionTypes.READ, request=info.context):
             return CreateExtractIteration(
                 ok=False,
                 message="You don't have permission to read this extract.",
@@ -1293,7 +1313,10 @@ class CreateExtractIteration(graphene.Mutation):
         # because we want the column definitions to stay byte-identical.
         if axis == "FIELDSET":
             new_fieldset = _clone_fieldset_for_iteration(
-                source.fieldset, user, column_overrides=column_overrides
+                source.fieldset,
+                user,
+                column_overrides=column_overrides,
+                request=info.context,
             )
         else:
             new_fieldset = source.fieldset
@@ -1323,7 +1346,13 @@ class CreateExtractIteration(graphene.Mutation):
                 model_config=effective_model_config,
             )
             new_extract.documents.set(_resolve_iteration_documents(source, axis))
-            set_permissions_for_obj_to_user(user, new_extract, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                new_extract,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
         if auto_start:
             new_extract.started = timezone.now()

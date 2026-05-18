@@ -20,7 +20,6 @@ from opencontractserver.tasks import delete_analysis_and_annotations_task
 from opencontractserver.tasks.corpus_tasks import process_analyzer
 from opencontractserver.tasks.permissioning_tasks import make_analysis_public_task
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -196,11 +195,8 @@ class DeleteAnalysisMutation(graphene.Mutation):
         # We ARE OK with deleting something that's been locked by the backend, however, as sh@t happens, and we want
         # frontend users to be able to delete things that are hanging or taking too long and start over / abandon them.
 
-        if not user_has_permission_for_obj(
-            user_val=info.context.user,
-            instance=analysis,
-            permission=PermissionTypes.DELETE,
-            include_group_permissions=True,
+        if not analysis.user_can(
+            info.context.user, PermissionTypes.DELETE, request=info.context
         ):
             raise PermissionError("You don't have permission to delete this analysis.")
 

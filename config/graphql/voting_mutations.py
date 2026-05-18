@@ -107,7 +107,11 @@ class VoteMessageMutation(graphene.Mutation):
                 )
                 # Set permissions for the creator
                 set_permissions_for_obj_to_user(
-                    user, existing_vote, [PermissionTypes.CRUD]
+                    user,
+                    existing_vote,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
                 )
                 message_text = f"Vote ({vote_type_lower}) added successfully"
 
@@ -258,7 +262,11 @@ class VoteConversationMutation(graphene.Mutation):
                 )
                 # Set permissions for the creator
                 set_permissions_for_obj_to_user(
-                    user, existing_vote, [PermissionTypes.CRUD]
+                    user,
+                    existing_vote,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
                 )
                 message_text = f"Vote ({vote_type_lower}) added successfully"
 

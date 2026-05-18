@@ -19,10 +19,7 @@ from config.graphql.serializers import LabelsetSerializer
 from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +69,9 @@ class CreateLabelset(graphene.Mutation):
             obj.save()
 
             # Assign permissions for user to obj so it can be retrieved
-            set_permissions_for_obj_to_user(user, obj, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user, obj, [PermissionTypes.CRUD], is_new=True, request=info.context
+            )
 
             ok = True
             message = "Success"
@@ -243,11 +242,8 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             # error messages (IDOR mitigation — see
             # docs/permissioning/consolidated_permissioning_guide.md).
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not user_has_permission_for_obj(
-                info.context.user,
-                labelset,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if not labelset.user_can(
+                info.context.user, PermissionTypes.UPDATE, request=info.context
             ):
                 raise LabelSet.DoesNotExist()
 
@@ -291,7 +287,11 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             logger.debug("CreateLabelForLabelsetMutation - mutate / Created label", obj)
 
             set_permissions_for_obj_to_user(
-                info.context.user, obj, [PermissionTypes.CRUD]
+                info.context.user,
+                obj,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
             )
             logger.debug(
                 "CreateLabelForLabelsetMutation - permissioned for creating user"
@@ -347,11 +347,8 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
             user = info.context.user
             label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not user_has_permission_for_obj(
-                user,
-                labelset,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if not labelset.user_can(
+                user, PermissionTypes.UPDATE, request=info.context
             ):
                 raise LabelSet.DoesNotExist()
             labelset.annotation_labels.remove(*label_pks)

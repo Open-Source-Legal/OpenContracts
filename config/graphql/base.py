@@ -15,10 +15,7 @@ from rest_framework import serializers
 
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -148,11 +145,8 @@ class DRFDeletion(graphene.Mutation):
         # needing someone to drop in the admin dash.
 
         # Check user permissions
-        if not user_has_permission_for_obj(
-            info.context.user,
-            obj,
-            PermissionTypes.DELETE,
-            include_group_permissions=True,
+        if not obj.user_can(
+            info.context.user, PermissionTypes.DELETE, request=info.context
         ):
             raise PermissionError(
                 "You do not have sufficient permissions to delete requested object"
@@ -274,11 +268,8 @@ class DRFMutation(graphene.Mutation):
                     )
 
                 # Check that the user has update permissions
-                if not user_has_permission_for_obj(
-                    info.context.user,
-                    obj,
-                    PermissionTypes.UPDATE,
-                    include_group_permissions=True,
+                if not obj.user_can(
+                    info.context.user, PermissionTypes.UPDATE, request=info.context
                 ):
                     raise PermissionError(
                         "You do not have permission to modify this object"
@@ -303,7 +294,11 @@ class DRFMutation(graphene.Mutation):
 
                 # If we created new obj... give user proper permissions
                 set_permissions_for_obj_to_user(
-                    info.context.user, obj, [PermissionTypes.CRUD]
+                    info.context.user,
+                    obj,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
                 )
                 logger.info(f"Permissioned obj for user: {info.context.user.id}")
 

@@ -18,7 +18,6 @@ from opencontractserver.documents.query_optimizer import (
     DocumentRelationshipQueryOptimizer,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -111,11 +110,8 @@ class CreateDocumentRelationship(graphene.Mutation):
                 )
 
             # IDOR-safe: same message for not found or no permission
-            if not user_has_permission_for_obj(
-                info.context.user,
-                corpus,
-                PermissionTypes.CREATE,
-                include_group_permissions=True,
+            if not corpus.user_can(
+                info.context.user, PermissionTypes.CREATE, request=info.context
             ):
                 return CreateDocumentRelationship(
                     ok=False,
@@ -130,11 +126,8 @@ class CreateDocumentRelationship(graphene.Mutation):
             except Document.DoesNotExist:
                 source_doc = None
 
-            if source_doc is None or not user_has_permission_for_obj(
-                info.context.user,
-                source_doc,
-                PermissionTypes.CREATE,
-                include_group_permissions=True,
+            if source_doc is None or not source_doc.user_can(
+                info.context.user, PermissionTypes.CREATE, request=info.context
             ):
                 return CreateDocumentRelationship(
                     ok=False,
@@ -148,11 +141,8 @@ class CreateDocumentRelationship(graphene.Mutation):
             except Document.DoesNotExist:
                 target_doc = None
 
-            if target_doc is None or not user_has_permission_for_obj(
-                info.context.user,
-                target_doc,
-                PermissionTypes.CREATE,
-                include_group_permissions=True,
+            if target_doc is None or not target_doc.user_can(
+                info.context.user, PermissionTypes.CREATE, request=info.context
             ):
                 return CreateDocumentRelationship(
                     ok=False,
@@ -367,11 +357,10 @@ class UpdateDocumentRelationship(graphene.Mutation):
                         )
 
                     # Check permission on the new corpus (IDOR-safe message)
-                    if not user_has_permission_for_obj(
+                    if not corpus.user_can(
                         info.context.user,
-                        corpus,
                         PermissionTypes.UPDATE,
-                        include_group_permissions=True,
+                        request=info.context,
                     ):
                         return UpdateDocumentRelationship(
                             ok=False,

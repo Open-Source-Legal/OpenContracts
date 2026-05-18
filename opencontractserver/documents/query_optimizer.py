@@ -83,7 +83,9 @@ class DocumentActionsQueryOptimizer:
             return result
 
         # Check document permission
-        if not cls._check_document_permission(user, document):
+        from opencontractserver.types.enums import PermissionTypes
+
+        if not document.user_can(user, PermissionTypes.READ):
             return result
 
         # Get corpus if provided and check permission
@@ -91,7 +93,7 @@ class DocumentActionsQueryOptimizer:
         if corpus_id:
             try:
                 corpus = Corpus.objects.get(id=corpus_id)
-                if not cls._check_corpus_permission(user, corpus):
+                if not corpus.user_can(user, PermissionTypes.READ):
                     return result
             except Corpus.DoesNotExist:
                 # No corpus found, but document permission passed
@@ -125,90 +127,6 @@ class DocumentActionsQueryOptimizer:
         return result
 
     @classmethod
-    def _check_document_permission(cls, user, document) -> bool:
-        """
-        Check if user has READ permission on document.
-
-        Users can read a document if:
-        - They are superuser
-        - Document is public
-        - They are the creator
-        - They have explicit READ permission
-
-        Args:
-            user: The requesting user
-            document: The Document object
-
-        Returns:
-            True if user can read the document, False otherwise
-        """
-        from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
-        # Superusers can access everything
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return True
-
-        # Anonymous users can only access public documents
-        if user is None or (hasattr(user, "is_anonymous") and user.is_anonymous):
-            return document.is_public
-
-        # Public documents are accessible to all authenticated users
-        if document.is_public:
-            return True
-
-        # Creators can always access their own documents
-        if hasattr(document, "creator_id") and document.creator_id == user.id:
-            return True
-
-        # Check explicit READ permission
-        return user_has_permission_for_obj(
-            user, document, PermissionTypes.READ, include_group_permissions=True
-        )
-
-    @classmethod
-    def _check_corpus_permission(cls, user, corpus) -> bool:
-        """
-        Check if user has READ permission on corpus.
-
-        Users can read a corpus if:
-        - They are superuser
-        - Corpus is public
-        - They are the creator
-        - They have explicit READ permission
-
-        Args:
-            user: The requesting user
-            corpus: The Corpus object
-
-        Returns:
-            True if user can read the corpus, False otherwise
-        """
-        from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
-        # Superusers can access everything
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return True
-
-        # Anonymous users can only access public corpuses
-        if user is None or (hasattr(user, "is_anonymous") and user.is_anonymous):
-            return corpus.is_public
-
-        # Public corpuses are accessible to all authenticated users
-        if corpus.is_public:
-            return True
-
-        # Creators can always access their own corpuses
-        if hasattr(corpus, "creator_id") and corpus.creator_id == user.id:
-            return True
-
-        # Check explicit READ permission
-        return user_has_permission_for_obj(
-            user, corpus, PermissionTypes.READ, include_group_permissions=True
-        )
-
-    @classmethod
     def get_corpus_actions_for_corpus(
         cls,
         user,
@@ -225,6 +143,7 @@ class DocumentActionsQueryOptimizer:
             QuerySet of CorpusAction objects
         """
         from opencontractserver.corpuses.models import Corpus, CorpusAction
+        from opencontractserver.types.enums import PermissionTypes
 
         # Check corpus permission first
         try:
@@ -232,7 +151,9 @@ class DocumentActionsQueryOptimizer:
         except Corpus.DoesNotExist:
             return CorpusAction.objects.none()
 
-        if not cls._check_corpus_permission(user, corpus):
+        # No ``request`` is available in this code path — the request-scoped
+        # Tier-2 cache degrades gracefully when omitted (Tier-1 still applies).
+        if not corpus.user_can(user, PermissionTypes.READ):
             return CorpusAction.objects.none()
 
         # Use visible_to_user manager method
@@ -261,6 +182,7 @@ class DocumentActionsQueryOptimizer:
         )
         from opencontractserver.documents.models import Document
         from opencontractserver.extracts.models import Extract
+        from opencontractserver.types.enums import PermissionTypes
 
         # Check document permission
         try:
@@ -268,7 +190,7 @@ class DocumentActionsQueryOptimizer:
         except Document.DoesNotExist:
             return Extract.objects.none()
 
-        if not cls._check_document_permission(user, document):
+        if not document.user_can(user, PermissionTypes.READ):
             return Extract.objects.none()
 
         # Get visible extracts
@@ -301,6 +223,7 @@ class DocumentActionsQueryOptimizer:
             AnalysisQueryOptimizer,
         )
         from opencontractserver.documents.models import Document, DocumentAnalysisRow
+        from opencontractserver.types.enums import PermissionTypes
 
         # Check document permission
         try:
@@ -308,7 +231,7 @@ class DocumentActionsQueryOptimizer:
         except Document.DoesNotExist:
             return DocumentAnalysisRow.objects.none()
 
-        if not cls._check_document_permission(user, document):
+        if not document.user_can(user, PermissionTypes.READ):
             return DocumentAnalysisRow.objects.none()
 
         # Get visible analyses
@@ -643,6 +566,7 @@ class DocumentRelationshipQueryOptimizer:
         from django.db.models import Q
 
         from opencontractserver.documents.models import Document, DocumentRelationship
+        from opencontractserver.types.enums import PermissionTypes
 
         # Check document exists and user can access it
         try:
@@ -650,7 +574,7 @@ class DocumentRelationshipQueryOptimizer:
         except Document.DoesNotExist:
             return DocumentRelationship.objects.none()
 
-        if not DocumentActionsQueryOptimizer._check_document_permission(user, document):
+        if not document.user_can(user, PermissionTypes.READ):
             return DocumentRelationship.objects.none()
 
         # Build filter for source/target
@@ -716,13 +640,9 @@ class DocumentRelationshipQueryOptimizer:
             True if user has permission, False otherwise
         """
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
-        # Superusers have all permissions
-        if user.is_superuser:
-            return True
-
-        # Map permission type string to enum
+        # Map permission type string to enum. ``user_can`` already handles the
+        # superuser short-circuit, so we don't need a guard here.
         perm_map = {
             "READ": PermissionTypes.READ,
             "CREATE": PermissionTypes.CREATE,
@@ -734,31 +654,16 @@ class DocumentRelationshipQueryOptimizer:
             return False
 
         # Check permission on source document
-        if not user_has_permission_for_obj(
-            user,
-            doc_relationship.source_document,
-            perm_enum,
-            include_group_permissions=True,
-        ):
+        if not doc_relationship.source_document.user_can(user, perm_enum):
             return False
 
         # Check permission on target document
-        if not user_has_permission_for_obj(
-            user,
-            doc_relationship.target_document,
-            perm_enum,
-            include_group_permissions=True,
-        ):
+        if not doc_relationship.target_document.user_can(user, perm_enum):
             return False
 
         # Check permission on corpus (if set)
         if doc_relationship.corpus:
-            if not user_has_permission_for_obj(
-                user,
-                doc_relationship.corpus,
-                perm_enum,
-                include_group_permissions=True,
-            ):
+            if not doc_relationship.corpus.user_can(user, perm_enum):
                 return False
 
         return True

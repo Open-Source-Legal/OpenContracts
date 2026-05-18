@@ -15,10 +15,7 @@ from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -143,7 +140,9 @@ class CreateBadgeMutation(graphene.Mutation):
             )
 
             # Set permissions
-            set_permissions_for_obj_to_user(user, badge, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user, badge, [PermissionTypes.CRUD], is_new=True, request=info.context
+            )
 
             return CreateBadgeMutation(
                 ok=True,
@@ -411,11 +410,8 @@ class AwardBadgeMutation(graphene.Mutation):
             # IDOR FIX: Return same "Badge not found" message as above to prevent enumeration
             if badge.badge_type == "CORPUS" and badge.corpus:
                 # For corpus badges, check corpus permissions
-                if not awarder.is_superuser and not user_has_permission_for_obj(
-                    awarder,
-                    badge.corpus,
-                    PermissionTypes.CRUD,
-                    include_group_permissions=True,
+                if not badge.corpus.user_can(
+                    awarder, PermissionTypes.CRUD, request=info.context
                 ):
                     return AwardBadgeMutation(
                         ok=False,
@@ -494,11 +490,8 @@ class RevokeBadgeMutation(graphene.Mutation):
             # IDOR FIX: Return same "User badge not found" message as above to prevent enumeration
             badge = user_badge.badge
             if badge.badge_type == "CORPUS" and badge.corpus:
-                if not user.is_superuser and not user_has_permission_for_obj(
-                    user,
-                    badge.corpus,
-                    PermissionTypes.CRUD,
-                    include_group_permissions=True,
+                if not badge.corpus.user_can(
+                    user, PermissionTypes.CRUD, request=info.context
                 ):
                     return RevokeBadgeMutation(
                         ok=False,

@@ -38,10 +38,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.types.enums import LabelType, PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +71,8 @@ class RemoveAnnotation(graphene.Mutation):
 
             # Check if user has permission to delete this annotation
             # This now handles privacy-aware permissions for annotations with created_by_* fields
-            if not user_has_permission_for_obj(
-                user,
-                annotation_obj,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
+            if not annotation_obj.user_can(
+                user, PermissionTypes.DELETE, request=info.context
             ):
                 return RemoveAnnotation(
                     ok=False,
@@ -121,11 +115,7 @@ class RejectAnnotation(graphene.Mutation):
 
         # Check if user has COMMENT permission on this annotation
         # COMMENT permission respects document+corpus inheritance and corpus.allow_comments
-        can_comment = user_has_permission_for_obj(
-            user, annotation, PermissionTypes.COMMENT, include_group_permissions=True
-        )
-
-        if not can_comment:
+        if not annotation.user_can(user, PermissionTypes.COMMENT, request=info.context):
             return RejectAnnotation(
                 ok=False,
                 user_feedback=None,
@@ -148,7 +138,13 @@ class RejectAnnotation(graphene.Mutation):
             user_feedback.comment = comment or user_feedback.comment
             user_feedback.save()
 
-        set_permissions_for_obj_to_user(user, user_feedback, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user,
+            user_feedback,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
+        )
 
         return RejectAnnotation(
             ok=True, user_feedback=user_feedback, message="Annotation rejected"
@@ -184,11 +180,7 @@ class ApproveAnnotation(graphene.Mutation):
 
         # Check if user has COMMENT permission on this annotation
         # COMMENT permission respects document+corpus inheritance and corpus.allow_comments
-        can_comment = user_has_permission_for_obj(
-            user, annotation, PermissionTypes.COMMENT, include_group_permissions=True
-        )
-
-        if not can_comment:
+        if not annotation.user_can(user, PermissionTypes.COMMENT, request=info.context):
             return ApproveAnnotation(
                 ok=False,
                 user_feedback=None,
@@ -211,7 +203,13 @@ class ApproveAnnotation(graphene.Mutation):
             user_feedback.comment = comment or user_feedback.comment
             user_feedback.save()
 
-        set_permissions_for_obj_to_user(user, user_feedback, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user,
+            user_feedback,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
+        )
 
         return ApproveAnnotation(
             ok=True, user_feedback=user_feedback, message="Annotation approved"
@@ -239,7 +237,11 @@ def _format_link_url_error(exc: ValidationError) -> str:
 
 
 def _resolve_annotation_parents(
-    user, corpus_pk: int | str, document_pk: int | str
+    user,
+    corpus_pk: int | str,
+    document_pk: int | str,
+    *,
+    request=None,
 ) -> tuple["Document", "Corpus"] | None:
     """Resolve and validate the (document, corpus) parents for a new annotation.
 
@@ -260,9 +262,7 @@ def _resolve_annotation_parents(
     except (Document.DoesNotExist, Corpus.DoesNotExist):
         return None
 
-    if not user_has_permission_for_obj(
-        user, corpus, PermissionTypes.CREATE, include_group_permissions=True
-    ):
+    if not corpus.user_can(user, PermissionTypes.CREATE, request=request):
         return None
 
     if not DocumentPath.objects.filter(
@@ -342,7 +342,9 @@ class AddAnnotation(graphene.Mutation):
                     ok=False, annotation=None, message=_format_link_url_error(exc)
                 )
 
-        parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
+        parents = _resolve_annotation_parents(
+            user, corpus_pk, document_pk, request=info.context
+        )
         if parents is None:
             return AddAnnotation(
                 ok=False,
@@ -367,7 +369,13 @@ class AddAnnotation(graphene.Mutation):
             link_url=link_url or None,
         )
         annotation.save()
-        set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user,
+            annotation,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
+        )
 
         return AddAnnotation(
             ok=True, message="Annotation created", annotation=annotation
@@ -438,7 +446,9 @@ class AddUrlAnnotation(graphene.Mutation):
                 ok=False, annotation=None, message=_format_link_url_error(exc)
             )
 
-        parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
+        parents = _resolve_annotation_parents(
+            user, corpus_pk, document_pk, request=info.context
+        )
         if parents is None:
             return AddUrlAnnotation(
                 ok=False,
@@ -474,7 +484,13 @@ class AddUrlAnnotation(graphene.Mutation):
                 link_url=link_url,
             )
             annotation.save()
-            set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                annotation,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
         return AddUrlAnnotation(
             ok=True, message="URL annotation created", annotation=annotation
@@ -508,7 +524,9 @@ class AddDocTypeAnnotation(graphene.Mutation):
 
         user = info.context.user
 
-        parents = _resolve_annotation_parents(user, corpus_pk, document_pk)
+        parents = _resolve_annotation_parents(
+            user, corpus_pk, document_pk, request=info.context
+        )
         if parents is None:
             return AddDocTypeAnnotation(
                 ok=False,
@@ -523,7 +541,13 @@ class AddDocTypeAnnotation(graphene.Mutation):
             annotation_label_id=annotation_label_pk,
             creator=user,
         )
-        set_permissions_for_obj_to_user(user, annotation, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user,
+            annotation,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
+        )
 
         return AddDocTypeAnnotation(
             ok=True, message="Annotation created", annotation=annotation
@@ -557,11 +581,8 @@ class RemoveRelationship(graphene.Mutation):
                 )
 
             # Check if user has permission to delete this relationship
-            if not user_has_permission_for_obj(
-                user,
-                relationship_obj,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
+            if not relationship_obj.user_can(
+                user, PermissionTypes.DELETE, request=info.context
             ):
                 return RemoveRelationship(
                     ok=False,
@@ -666,12 +687,7 @@ class AddRelationship(graphene.Mutation):
         except Corpus.DoesNotExist:
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-        if not user_has_permission_for_obj(
-            user,
-            corpus,
-            PermissionTypes.CREATE,
-            include_group_permissions=True,
-        ):
+        if not corpus.user_can(user, PermissionTypes.CREATE, request=info.context):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Document visibility check: without this, a caller with CREATE on
@@ -700,7 +716,13 @@ class AddRelationship(graphene.Mutation):
                 corpus_id=corpus_pk,
                 document_id=document_pk,
             )
-            set_permissions_for_obj_to_user(user, relationship, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                relationship,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
             relationship.target_annotations.set(target_annotations)
             relationship.source_annotations.set(source_annotations)
         except Exception:
@@ -742,11 +764,8 @@ class RemoveRelationships(graphene.Mutation):
                 relationship = Relationship.objects.visible_to_user(user).get(pk=pk)
             except Relationship.DoesNotExist:
                 return RemoveRelationships(ok=False, message=not_found_msg)
-            if not user_has_permission_for_obj(
-                user,
-                relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
+            if not relationship.user_can(
+                user, PermissionTypes.DELETE, request=info.context
             ):
                 return RemoveRelationships(ok=False, message=not_found_msg)
             relationship.delete()
@@ -817,11 +836,8 @@ class UpdateRelationship(graphene.Mutation):
                 )
 
             # Check UPDATE permission on the relationship
-            if not user_has_permission_for_obj(
-                user,
-                relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if not relationship.user_can(
+                user, PermissionTypes.UPDATE, request=info.context
             ):
                 return UpdateRelationship(
                     ok=False,
@@ -964,11 +980,8 @@ class UpdateRelations(graphene.Mutation):
                 relationship = Relationship.objects.visible_to_user(user).get(id=pk)
             except Relationship.DoesNotExist:
                 return UpdateRelations(ok=False, message=not_found_msg)
-            if not user_has_permission_for_obj(
-                user,
-                relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if not relationship.user_can(
+                user, PermissionTypes.UPDATE, request=info.context
             ):
                 return UpdateRelations(ok=False, message=not_found_msg)
 
@@ -1146,7 +1159,13 @@ class CreateNote(graphene.Mutation):
             note = Note.objects.create(**note_data)
 
             # Set permissions
-            set_permissions_for_obj_to_user(user, note, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                note,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
             return CreateNote(ok=True, message="Note created successfully!", obj=note)
 
