@@ -187,6 +187,16 @@ def import_document(
     file_type = doc_kwargs.get("file_type") or "application/pdf"
     is_text = _is_text_file(file_type)
 
+    # Refuse cross-corpus folder assignment at the boundary; see the
+    # matching guard in ``Corpus.add_document``. Without this, a doc
+    # placed in a foreign folder vanishes from the corpus browser even
+    # though ``Corpus.document_count`` still counts it.
+    if folder is not None and folder.corpus_id != corpus.id:
+        raise ValueError(
+            f"Folder {folder.id} belongs to corpus {folder.corpus_id}, "
+            f"cannot be used in corpus {corpus.id}"
+        )
+
     with transaction.atomic():
         # Step 1: Check if this path already exists in THIS corpus
         current_path = (

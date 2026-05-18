@@ -216,6 +216,41 @@ class TestCorpusFolderModel:
 
 
 @pytest.mark.django_db
+class TestAddDocumentCrossCorpusFolderGuard:
+    """``Corpus.add_document`` must reject folders from another corpus.
+
+    Cross-corpus folder assignment is silently wrong: the DocumentPath
+    counts toward ``Corpus.document_count`` (which only filters on
+    ``corpus``), but the document disappears from the folder browser
+    (which filters on ``folder_id``) because the folder lives in a
+    different corpus. The guard refuses the write at the boundary.
+    """
+
+    def test_add_document_rejects_foreign_folder(self):
+        user = User.objects.create_user(username="testuser", password="test")
+        corpus_a = Corpus.objects.create(title="A", creator=user)
+        corpus_b = Corpus.objects.create(title="B", creator=user)
+        folder_in_b = CorpusFolder.objects.create(
+            name="Mistake", corpus=corpus_b, creator=user
+        )
+        doc = Document.objects.create(title="Doc", creator=user)
+
+        with pytest.raises(ValueError, match="belongs to corpus"):
+            corpus_a.add_document(document=doc, user=user, folder=folder_in_b)
+
+    def test_add_document_accepts_same_corpus_folder(self):
+        user = User.objects.create_user(username="testuser", password="test")
+        corpus = Corpus.objects.create(title="Test", creator=user)
+        folder = CorpusFolder.objects.create(name="Same", corpus=corpus, creator=user)
+        doc = Document.objects.create(title="Doc", creator=user)
+
+        corpus_doc, _status, doc_path = corpus.add_document(
+            document=doc, user=user, folder=folder
+        )
+        assert doc_path.folder_id == folder.id
+
+
+@pytest.mark.django_db
 class TestFolderPermissions:
     """Test folder permission inheritance from corpus."""
 

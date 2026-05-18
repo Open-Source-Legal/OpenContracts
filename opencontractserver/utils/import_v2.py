@@ -239,6 +239,20 @@ def import_corpus_folders(
             parent_export_id = folder_data.get("parent_id")
             if parent_export_id and parent_export_id in folder_map:
                 parent_folder = folder_map[parent_export_id]
+            elif parent_export_id:
+                # Parent was expected (export listed it) but never made it
+                # into ``folder_map`` — most likely because its own
+                # ``create_folder`` call returned an error and was skipped.
+                # Surface this so the resulting orphan (created at root)
+                # is visible in operator logs; without it the folder appears
+                # silently misplaced and the document browser confusion is
+                # invisible until end users notice.
+                logger.warning(
+                    "Folder %r expected parent %s but parent was never "
+                    "created; child will be created at root.",
+                    folder_data["name"],
+                    parent_export_id,
+                )
 
             # Create folder using service
             folder, error = DocumentFolderService.create_folder(

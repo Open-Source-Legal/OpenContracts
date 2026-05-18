@@ -505,31 +505,32 @@ class DocumentFilter(django_filters.FilterSet):
         Special handling: value="__root__" returns documents in corpus root
         (no folder). Otherwise filters to a specific folder ID.
 
-        Note: This filter works in conjunction with ``in_corpus``. The queryset
-        is already filtered to documents in a specific corpus, so we just need
-        to intersect with the folder's DocumentPath rows.
+        Corpus-scoped: when ``in_corpus_with_id`` is also set on the
+        filterset, the inner ``DocumentPath`` subquery is restricted to
+        that corpus. Without this scoping, a document that has
+        ``folder=NULL`` in *another* corpus would match the ``__root__``
+        branch and leak into the current corpus's root view despite
+        actually being in a folder here — the cross-filter ``id__in``
+        intersection lets that path through because ``DocumentPath``
+        rows are matched globally.
         """
         from opencontractserver.documents.models import DocumentPath
 
-        if value == "__root__":
-            # Root documents: those whose DocumentPath has folder=NULL.
-            # Use a lazy values queryset so Django emits a SQL subquery for
-            # ``__in`` instead of materialising IDs into Python.
-            root_doc_ids = DocumentPath.objects.filter(
-                folder__isnull=True, is_current=True, is_deleted=False
-            ).values("document_id")
-            # ``.distinct()`` mirrors the non-root branch and guards against
-            # any pathological case where the same ``document_id`` appears in
-            # multiple matching ``DocumentPath`` rows.
-            return queryset.filter(id__in=root_doc_ids).distinct()
+        path_qs = DocumentPath.objects.filter(is_current=True, is_deleted=False)
 
-        # ``from_global_id`` returns a ``str`` PK; coerce to int so the
-        # ``folder_id`` lookup matches the FK type.
-        folder_pk = int(from_global_id(value)[1])
-        doc_ids = DocumentPath.objects.filter(
-            folder_id=folder_pk, is_current=True, is_deleted=False
-        ).values("document_id")
-        return queryset.filter(id__in=doc_ids).distinct()
+        corpus_global_id = self.data.get("in_corpus_with_id")
+        if corpus_global_id:
+            path_qs = path_qs.filter(corpus_id=from_global_id(corpus_global_id)[1])
+
+        if value == "__root__":
+            path_qs = path_qs.filter(folder__isnull=True)
+        else:
+            path_qs = path_qs.filter(folder_id=int(from_global_id(value)[1]))
+
+        # ``.distinct()`` guards against any pathological case where the
+        # same ``document_id`` appears in multiple matching ``DocumentPath``
+        # rows (e.g. aliased paths that both satisfy is_current=True).
+        return queryset.filter(id__in=path_qs.values("document_id")).distinct()
 
     def has_label_title(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         return queryset.filter(annotation__annotation_label__title__contains=value)

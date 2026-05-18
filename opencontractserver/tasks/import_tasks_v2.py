@@ -669,11 +669,17 @@ def _reconstruct_document_paths(
     all_folders = CorpusFolder.objects.filter(corpus=corpus_obj)
     folder_path_map = {f.get_path(): f for f in all_folders}
 
-    # Pre-build a document -> DocumentPath lookup to avoid N queries in the loop
+    # Pre-build a document -> DocumentPath lookup to avoid N queries in the
+    # loop. Filter to current+undeleted rows so a re-import that picks up an
+    # already-superseded historical path can't silently overwrite the wrong
+    # row via the dict comprehension's last-write-wins semantics.
     path_by_doc_id = {
         p.document_id: p
         for p in DocumentPath.objects.filter(
-            corpus=corpus_obj, document__in=doc_hash_to_corpus_doc.values()
+            corpus=corpus_obj,
+            document__in=doc_hash_to_corpus_doc.values(),
+            is_current=True,
+            is_deleted=False,
         )
     }
 
@@ -711,6 +717,18 @@ def _reconstruct_document_paths(
             folder = folder_path_map.get(folder_path)
             if folder:
                 updates["folder"] = folder
+            else:
+                # Surface this so operators can spot import/export drift:
+                # the document silently stays at root and the corpus folder
+                # browser will show it under ``__root__`` rather than the
+                # exported folder path.
+                logger.warning(
+                    "DocumentPath reconstruction: folder_path %r for doc %s "
+                    "did not resolve to an imported folder; doc remains at "
+                    "corpus root.",
+                    folder_path,
+                    corpus_doc.id,
+                )
 
         # Restore ingestion lineage fields
         source_name = path_data.get("ingestion_source_name")

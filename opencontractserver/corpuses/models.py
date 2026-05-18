@@ -892,6 +892,18 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 "Document is required. For content-based imports, use import_content()"
             )
 
+        # Cross-corpus folder assignment is silently wrong: the DocumentPath
+        # would point at a folder the read filters expect to live in this
+        # corpus, so the doc disappears from browser queries while still
+        # counting in ``Corpus.document_count``. Mirror the parent guard in
+        # ``CorpusObjsService.create_folder`` and refuse the write at the
+        # boundary instead of letting the inconsistency land in the DB.
+        if folder is not None and folder.corpus_id != self.id:
+            raise ValueError(
+                f"Folder {folder.id} belongs to corpus {folder.corpus_id}, "
+                f"cannot be used in corpus {self.id}"
+            )
+
         from opencontractserver.documents.models import Document, DocumentPath
 
         # Generate path if not provided
