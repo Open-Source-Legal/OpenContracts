@@ -59,7 +59,19 @@ def make_create_permissions_xdist_safe():
             # row exists — is already satisfied.
             return None
 
-    post_migrate.disconnect(dispatch_uid=_UID)
+    # ``post_migrate.disconnect`` returns ``True`` only if a receiver
+    # registered with the given ``dispatch_uid`` was actually removed. Fail
+    # loudly if Django ever changes the UID string that ``AuthConfig.ready``
+    # uses to register ``create_permissions``: a silent no-op here would
+    # leave the unsafe original handler in place and quietly re-introduce
+    # the xdist race this fixture exists to fix.
+    disconnected = post_migrate.disconnect(dispatch_uid=_UID)
+    assert disconnected, (
+        f"Expected Django to have registered ``create_permissions`` with "
+        f"dispatch_uid={_UID!r}; nothing was disconnected. The xdist race "
+        f"this fixture mitigates may have been silently re-introduced. "
+        f"Check django.contrib.auth.apps.AuthConfig.ready for the new UID."
+    )
     post_migrate.connect(safe_create_permissions, dispatch_uid=_UID)
 
     yield
