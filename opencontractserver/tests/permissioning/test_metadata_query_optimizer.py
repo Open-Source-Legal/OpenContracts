@@ -315,6 +315,35 @@ class MetadataQueryOptimizerTestCase(TestCase):
         )
         self.assertFalse(can_read)
 
+    def test_compute_permissions_query_count_superuser_is_zero(self):
+        """Superuser short-circuit must not touch the database (issue #1690)."""
+        with self.assertNumQueries(0):
+            MetadataQueryOptimizer._compute_effective_permissions(
+                self.superuser, self.doc1.id, self.corpus.id
+            )
+
+    def test_compute_permissions_query_count_collaborator_is_bounded(self):
+        """
+        Regression for issue #1690: the legacy implementation issued 4
+        ``user_can`` calls per object (8 total). Each call could enter
+        the guardian fetch path independently. The new implementation
+        collapses this to at most one ``get_users_permissions_for_obj``
+        per object, plus the two ``Model.objects.get`` lookups. Lock the
+        budget here so any future reintroduction of per-permission
+        fan-out fails CI.
+        """
+        # Warm any process-level caches (content type lookups, etc.)
+        # that aren't part of the per-invocation work we want to bound.
+        MetadataQueryOptimizer._compute_effective_permissions(
+            self.collaborator, self.doc1.id, self.corpus.id
+        )
+
+        with self.assertNumQueries(10):
+            can_read, _, _, _ = MetadataQueryOptimizer._compute_effective_permissions(
+                self.collaborator, self.doc1.id, self.corpus.id
+            )
+        self.assertTrue(can_read)
+
     # =========================================================================
     # Tests for get_corpus_metadata_columns
     # =========================================================================
