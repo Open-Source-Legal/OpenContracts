@@ -96,7 +96,7 @@ class PermissionedTreeQuerySet(UserCanMixin, TreeQuerySet):
             user = AnonymousUser()
 
         if hasattr(user, "is_superuser") and user.is_superuser:
-            return self.all().order_by("created")
+            return self.all().with_tree_fields()
 
         if user.is_anonymous or not hasattr(user, "is_authenticated"):
             queryset = self.filter(Q(is_public=True)).distinct()

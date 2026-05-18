@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.db import IntegrityError
-from django.db.models import Manager, Prefetch, Q, QuerySet
+from django.db.models import Manager, Model, Prefetch, Q, QuerySet
 
 from opencontractserver.shared.prefetch_attrs import (
     user_group_perm_attr,
@@ -51,6 +51,7 @@ _RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS = frozenset(
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
+    from opencontractserver.users.models import User as UserModel
 
 logger = logging.getLogger(__name__)
 
@@ -184,9 +185,9 @@ class BaseVisibilityManager(UserCanMixin, Manager):
         if user is None:
             user = AnonymousUser()
 
-        # Superusers see everything (ordered by created for consistency)
+        # Superusers see everything (ordering owned by resolver / caller).
         if hasattr(user, "is_superuser") and user.is_superuser:
-            return queryset.order_by("created")
+            return queryset
 
         # Anonymous users only see public items
         if user.is_anonymous:
@@ -352,9 +353,9 @@ class UserFeedbackManager(BaseVisibilityManager):
 
     def user_can(
         self,
-        user: Any,
-        instance: Any,
-        permission: Any,
+        user: "int | str | UserModel | AnonymousUser | None",
+        instance: Model,
+        permission: _PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,
@@ -433,9 +434,19 @@ class UserFeedbackManager(BaseVisibilityManager):
 
 
 class DocumentManager(BaseVisibilityManager):
-    """
-    Extends PermissionManager to return a DocumentQuerySet
-    that supports vector searching via the mixin.
+    """Visibility manager for the Document model.
+
+    Returns a DocumentQuerySet that supports vector searching via the
+    mixin.
+
+    Documents use the default ``user_can`` rules from
+    ``BaseVisibilityManager``: public-corpus visibility is encoded at
+    creation time via ``is_public`` auto-propagation
+    (``Corpus.add_document`` / ``Corpus._propagate_public_status_to_documents``),
+    so the public-corpus auto-inheritance is handled by
+    ``_default_user_can``'s public-READ branch without needing
+    additional joins. Mirrors ``DocumentQuerySet.visible_to_user``
+    (``shared/QuerySets.py``).
     """
 
     def get_queryset(self) -> DocumentQuerySet:
@@ -465,36 +476,6 @@ class DocumentManager(BaseVisibilityManager):
             user,
             lightweight,
             with_doc_label_annotations=with_doc_label_annotations,
-        )
-
-    def user_can(
-        self,
-        user: Any,
-        instance: Any,
-        permission: Any,
-        *,
-        include_group_permissions: bool = True,
-        request: Any = None,
-    ) -> bool:
-        """Single-object authorization check for ``Document``.
-
-        Documents in public corpora have ``is_public=True`` auto-propagated
-        at creation time (see ``Corpus.add_document`` and
-        ``Corpus._propagate_public_status_to_documents``), so the
-        public-corpus auto-inheritance is encoded in the instance's own
-        ``is_public`` flag and ``_default_user_can``'s public-READ branch
-        handles it without additional joins.
-
-        Default rules suffice: creator OR is_public (READ only) OR
-        guardian codename. Mirrors ``DocumentQuerySet.visible_to_user``
-        (``shared/QuerySets.py:256-299``).
-        """
-        return super().user_can(
-            user,
-            instance,
-            permission,
-            include_group_permissions=include_group_permissions,
-            request=request,
         )
 
     def search_by_embedding(
@@ -633,9 +614,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
     def user_can(
         self,
-        user: Any,
-        instance: Any,
-        permission: Any,
+        user: "int | str | UserModel | AnonymousUser | None",
+        instance: Model,
+        permission: _PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,
@@ -733,7 +714,10 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         )
 
     def _read_only_via_visible_to_user(
-        self, user: Any, instance: Any, permission: Any
+        self,
+        user: "UserModel | AnonymousUser",
+        instance: Model,
+        permission: _PermissionTypes,
     ) -> bool:
         """READ via ``visible_to_user(...).exists()``; deny non-READ.
 
@@ -758,9 +742,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
     def _check_annotation_privacy_recursion(
         self,
-        user: Any,
-        instance: Any,
-        permission: Any,
+        user: "UserModel | AnonymousUser",
+        instance: Model,
+        permission: _PermissionTypes,
         include_group_permissions: bool,
         *,
         request: Any = None,
@@ -828,7 +812,12 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         return True
 
     def _compute_annotation_effective_permission(
-        self, user: Any, instance: Any, permission: Any, *, request: Any = None
+        self,
+        user: "UserModel | AnonymousUser",
+        instance: Model,
+        permission: _PermissionTypes,
+        *,
+        request: Any = None,
     ) -> bool:
         """Resolve ``permission`` against the MIN(doc, corpus) tuple.
 
@@ -904,9 +893,9 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
 
     def user_can(
         self,
-        user: Any,
-        instance: Any,
-        permission: Any,
+        user: "int | str | UserModel | AnonymousUser | None",
+        instance: Model,
+        permission: _PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,
@@ -1072,9 +1061,9 @@ class RelationshipManager(BaseVisibilityManager):
 
     def user_can(
         self,
-        user: Any,
-        instance: Any,
-        permission: Any,
+        user: "int | str | UserModel | AnonymousUser | None",
+        instance: Model,
+        permission: _PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,

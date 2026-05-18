@@ -222,8 +222,8 @@ class BaseVisibilityManagerSuperuserTest(TestCase):
         )
 
     def test_superuser_sees_all_embeddings(self) -> None:
-        """Superuser must hit the early-return ``queryset.order_by("created")``
-        branch in BaseVisibilityManager and receive every embedding row."""
+        """Superuser must hit the early-return ``return queryset`` branch in
+        BaseVisibilityManager and receive every embedding row."""
         qs = self.Embedding.objects.visible_to_user(user=self.superuser)
         ids = list(qs.values_list("pk", flat=True))
         self.assertIn(self.public_embedding.pk, ids)
