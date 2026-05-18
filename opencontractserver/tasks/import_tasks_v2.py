@@ -32,6 +32,7 @@ from opencontractserver.documents.models import (
     IngestionSourceCategory,
 )
 from opencontractserver.types.dicts import (
+    CorpusFolderExport,
     DocumentPathExport,
     IngestionSourceExport,
     OpenContractsExportDataJsonPythonType,
@@ -59,6 +60,7 @@ from opencontractserver.utils.packaging import (
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
+    from opencontractserver.corpuses.models import CorpusFolder
     from opencontractserver.users.models import User as UserModel
 
 logger = logging.getLogger(__name__)
@@ -421,7 +423,9 @@ def _import_corpus(
 
             # Import folders
             folders_data = v2_data.get("folders", [])
-            import_corpus_folders(folders_data, corpus_obj, user_obj)
+            folder_export_id_to_obj = import_corpus_folders(
+                folders_data, corpus_obj, user_obj
+            )
 
             # Import ingestion sources and reconstruct DocumentPaths
             ingestion_sources_data = v2_data.get("ingestion_sources", [])
@@ -435,6 +439,8 @@ def _import_corpus(
                     document_paths_data,
                     corpus_obj,
                     doc_hash_to_corpus_doc,
+                    folders_data,
+                    folder_export_id_to_obj,
                     source_name_map,
                 )
 
@@ -636,10 +642,57 @@ def _import_ingestion_sources(
     return source_map
 
 
+def _build_folder_path_lookup(
+    folders_data: list[CorpusFolderExport],
+    folder_export_id_to_obj: dict[str, CorpusFolder],
+) -> dict[str, CorpusFolder]:
+    """
+    Build a folder-path -> CorpusFolder lookup that tolerates differing path
+    conventions between the exporter and importer.
+
+    The canonical OpenContracts exporter (``utils/export_v2.py``) writes the
+    folder's ``get_path()`` (name-joined, e.g. ``"Filings/10-K"``) into both
+    ``folder.path`` and ``document_paths.folder_path``.  Third-party exporters
+    (e.g. EDGAR scrapers that build the export ZIP themselves) may emit
+    slug-joined or otherwise transformed paths.  Either is acceptable as
+    long as the convention is consistent **within a single export**, because
+    the lookup keys here use the export's own ``folder.path`` field as the
+    source of truth — whatever string the exporter chose will match the
+    string written into ``document_paths.folder_path`` in the same zip.
+
+    Both the export-provided ``path`` and the freshly-imported folder's
+    ``get_path()`` are inserted so canonical exports continue to resolve
+    even when older formats omit the ``path`` field.
+
+    Args:
+        folders_data: Folder dicts as written by the exporter.
+        folder_export_id_to_obj: Map from each folder dict's ``id`` to the
+            ``CorpusFolder`` row created during import (from
+            :func:`import_corpus_folders`).
+
+    Returns:
+        Mapping of every known path representation to its ``CorpusFolder``.
+    """
+    folder_path_to_folder: dict[str, CorpusFolder] = {}
+    for folder_data in folders_data:
+        folder_obj = folder_export_id_to_obj.get(folder_data["id"])
+        if folder_obj is None:
+            # Folder creation failed earlier (already logged by
+            # import_corpus_folders).
+            continue
+        folder_path_to_folder[folder_obj.get_path()] = folder_obj
+        exported_path = folder_data.get("path")
+        if exported_path:
+            folder_path_to_folder[exported_path] = folder_obj
+    return folder_path_to_folder
+
+
 def _reconstruct_document_paths(
     document_paths_data: list[DocumentPathExport],
     corpus_obj: Corpus,
     doc_hash_to_corpus_doc: dict[str, Document],
+    folders_data: list[CorpusFolderExport],
+    folder_export_id_to_obj: dict[str, CorpusFolder],
     source_name_map: dict[str, IngestionSource] | None = None,
 ) -> None:
     """
@@ -655,19 +708,20 @@ def _reconstruct_document_paths(
         corpus_obj: The target corpus.
         doc_hash_to_corpus_doc: Mapping of document_ref (hash or old ID) to
             the imported corpus-isolated Document.
+        folders_data: Folder dicts from the export — used to learn whichever
+            path convention the exporter used so ``document_paths.folder_path``
+            resolves regardless of canonical vs. third-party formatting.
+        folder_export_id_to_obj: Map from export folder id to the imported
+            ``CorpusFolder`` (the return value of ``import_corpus_folders``).
         source_name_map: Mapping of source name -> IngestionSource instance
             (from _import_ingestion_sources).
     """
-    from opencontractserver.corpuses.models import CorpusFolder
     from opencontractserver.documents.models import DocumentPath
 
     if source_name_map is None:
         source_name_map = {}
 
-    # Pre-build a folder path lookup to avoid repeated DB queries + linear
-    # scans inside the loop.
-    all_folders = CorpusFolder.objects.filter(corpus=corpus_obj)
-    folder_path_map = {f.get_path(): f for f in all_folders}
+    folder_path_map = _build_folder_path_lookup(folders_data, folder_export_id_to_obj)
 
     # Pre-build a document -> DocumentPath lookup to avoid N queries in the loop
     path_by_doc_id = {
@@ -711,6 +765,22 @@ def _reconstruct_document_paths(
             folder = folder_path_map.get(folder_path)
             if folder:
                 updates["folder"] = folder
+            else:
+                # Loud failure mode: the exporter pointed this document at a
+                # folder we couldn't resolve, so it would silently land at the
+                # corpus root.  This typically means folder.path and
+                # document_paths.folder_path were written with different
+                # conventions, or the referenced folder failed to import.
+                logger.warning(
+                    "DocumentPath reconstruction: folder_path %r did not "
+                    "resolve to any imported folder in corpus %s (doc %s). "
+                    "Document will remain at corpus root. Known folder paths: "
+                    "%s",
+                    folder_path,
+                    corpus_obj.id,
+                    corpus_doc.id,
+                    sorted(folder_path_map.keys()),
+                )
 
         # Restore ingestion lineage fields
         source_name = path_data.get("ingestion_source_name")
