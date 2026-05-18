@@ -422,9 +422,6 @@ class AnnotationQueryOptimizer:
             # Additional filter for analysis visibility
             from opencontractserver.analyzer.models import Analysis
             from opencontractserver.types.enums import PermissionTypes
-            from opencontractserver.utils.permissioning import (
-                user_has_permission_for_obj,
-            )
 
             try:
                 analysis = Analysis.objects.get(id=analysis_id)
@@ -433,12 +430,7 @@ class AnnotationQueryOptimizer:
                 has_permission = (
                     analysis.is_public
                     or analysis.creator_id == user.id
-                    or user_has_permission_for_obj(
-                        user,
-                        analysis,
-                        PermissionTypes.READ,
-                        include_group_permissions=True,
-                    )
+                    or analysis.user_can(user, PermissionTypes.READ, request=context)
                 )
                 if not has_permission:
                     return Annotation.objects.none()
@@ -695,7 +687,6 @@ class AnnotationQueryOptimizer:
             ExtractUserObjectPermission,
         )
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Superusers see everything
         if user.is_superuser:
@@ -746,9 +737,7 @@ class AnnotationQueryOptimizer:
             ).values_list("id", flat=True)
         else:
             # Check if user has READ permission on corpus
-            has_corpus_read = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.READ, include_group_permissions=True
-            )
+            has_corpus_read = corpus.user_can(user, PermissionTypes.READ)
             if not has_corpus_read:
                 return Annotation.objects.none()
 
@@ -986,9 +975,6 @@ class RelationshipQueryOptimizer:
                 # Check analysis visibility as additional restriction
                 from opencontractserver.analyzer.models import Analysis
                 from opencontractserver.types.enums import PermissionTypes
-                from opencontractserver.utils.permissioning import (
-                    user_has_permission_for_obj,
-                )
 
                 try:
                     analysis = Analysis.objects.get(id=analysis_id)
@@ -997,11 +983,8 @@ class RelationshipQueryOptimizer:
                     has_permission = (
                         analysis.is_public
                         or analysis.creator_id == user.id
-                        or user_has_permission_for_obj(
-                            user,
-                            analysis,
-                            PermissionTypes.READ,
-                            include_group_permissions=True,
+                        or analysis.user_can(
+                            user, PermissionTypes.READ, request=context
                         )
                     )
                     if not has_permission:
@@ -1131,7 +1114,6 @@ class AnalysisQueryOptimizer:
         """
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Superuser can see everything
         if user.is_superuser:
@@ -1148,9 +1130,7 @@ class AnalysisQueryOptimizer:
             has_analysis_perm = (
                 analysis.is_public
                 or analysis.creator_id == user.id
-                or user_has_permission_for_obj(
-                    user, analysis, PermissionTypes.READ, include_group_permissions=True
-                )
+                or analysis.user_can(user, PermissionTypes.READ)
             )
 
             if not has_analysis_perm:
@@ -1161,12 +1141,7 @@ class AnalysisQueryOptimizer:
                 has_corpus_perm = (
                     analysis.analyzed_corpus.is_public
                     or analysis.analyzed_corpus.creator_id == user.id
-                    or user_has_permission_for_obj(
-                        user,
-                        analysis.analyzed_corpus,
-                        PermissionTypes.READ,
-                        include_group_permissions=True,
-                    )
+                    or analysis.analyzed_corpus.user_can(user, PermissionTypes.READ)
                 )
                 if not has_corpus_perm:
                     return False, None
@@ -1189,7 +1164,6 @@ class AnalysisQueryOptimizer:
             CorpusUserObjectPermission,
         )
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         if user.is_superuser:
             qs = Analysis.objects.all()
@@ -1238,8 +1212,8 @@ class AnalysisQueryOptimizer:
                 if user.is_anonymous:
                     if not corpus.is_public:
                         return Analysis.objects.none()
-                elif not user.is_superuser and not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.READ, include_group_permissions=True
+                elif not user.is_superuser and not corpus.user_can(
+                    user, PermissionTypes.READ
                 ):
                     return Analysis.objects.none()
             except Corpus.DoesNotExist:
@@ -1266,7 +1240,6 @@ class AnalysisQueryOptimizer:
         from opencontractserver.annotations.models import Annotation
         from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Start with all annotations in the analysis
         qs = Annotation.objects.filter(analysis=analysis)
@@ -1279,9 +1252,7 @@ class AnalysisQueryOptimizer:
             if not user.is_superuser:
                 try:
                     doc = Document.objects.get(id=document_id)
-                    if not user_has_permission_for_obj(
-                        user, doc, PermissionTypes.READ, include_group_permissions=True
-                    ):
+                    if not doc.user_can(user, PermissionTypes.READ):
                         return Annotation.objects.none()
                 except Document.DoesNotExist:
                     return Annotation.objects.none()
@@ -1291,9 +1262,7 @@ class AnalysisQueryOptimizer:
                 # Get IDs of documents user can read
                 readable_doc_ids = []
                 for doc in analysis.analyzed_documents.all():
-                    if user_has_permission_for_obj(
-                        user, doc, PermissionTypes.READ, include_group_permissions=True
-                    ):
+                    if doc.user_can(user, PermissionTypes.READ):
                         readable_doc_ids.append(doc.id)
 
                 if not readable_doc_ids:
@@ -1331,7 +1300,6 @@ class ExtractQueryOptimizer:
         """
         from opencontractserver.extracts.models import Extract
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Superuser can see everything
         if user.is_superuser:
@@ -1345,11 +1313,8 @@ class ExtractQueryOptimizer:
             extract = Extract.objects.get(id=extract_id)
 
             # Check extract-level permission
-            has_extract_perm = (
-                extract.creator_id == user.id
-                or user_has_permission_for_obj(
-                    user, extract, PermissionTypes.READ, include_group_permissions=True
-                )
+            has_extract_perm = extract.creator_id == user.id or extract.user_can(
+                user, PermissionTypes.READ
             )
 
             if not has_extract_perm:
@@ -1360,12 +1325,7 @@ class ExtractQueryOptimizer:
                 has_corpus_perm = (
                     extract.corpus.is_public
                     or extract.corpus.creator_id == user.id
-                    or user_has_permission_for_obj(
-                        user,
-                        extract.corpus,
-                        PermissionTypes.READ,
-                        include_group_permissions=True,
-                    )
+                    or extract.corpus.user_can(user, PermissionTypes.READ)
                 )
                 if not has_corpus_perm:
                     return False, None
@@ -1388,7 +1348,6 @@ class ExtractQueryOptimizer:
         )
         from opencontractserver.extracts.models import Extract
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         if user.is_superuser:
             qs = Extract.objects.all()
@@ -1437,8 +1396,8 @@ class ExtractQueryOptimizer:
                 if user.is_anonymous:
                     if not corpus.is_public:
                         return Extract.objects.none()
-                elif not user.is_superuser and not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.READ, include_group_permissions=True
+                elif not user.is_superuser and not corpus.user_can(
+                    user, PermissionTypes.READ
                 ):
                     return Extract.objects.none()
             except Corpus.DoesNotExist:
@@ -1465,7 +1424,6 @@ class ExtractQueryOptimizer:
         from opencontractserver.documents.models import Document
         from opencontractserver.extracts.models import Datacell
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Start with all datacells in the extract
         qs = Datacell.objects.filter(extract=extract)
@@ -1478,9 +1436,7 @@ class ExtractQueryOptimizer:
             if not user.is_superuser:
                 try:
                     doc = Document.objects.get(id=document_id)
-                    if not user_has_permission_for_obj(
-                        user, doc, PermissionTypes.READ, include_group_permissions=True
-                    ):
+                    if not doc.user_can(user, PermissionTypes.READ):
                         return Datacell.objects.none()
                 except Document.DoesNotExist:
                     return Datacell.objects.none()
@@ -1490,9 +1446,7 @@ class ExtractQueryOptimizer:
                 # Get IDs of documents user can read
                 readable_doc_ids = []
                 for doc in extract.documents.all():
-                    if user_has_permission_for_obj(
-                        user, doc, PermissionTypes.READ, include_group_permissions=True
-                    ):
+                    if doc.user_can(user, PermissionTypes.READ):
                         readable_doc_ids.append(doc.id)
 
                 if not readable_doc_ids:
