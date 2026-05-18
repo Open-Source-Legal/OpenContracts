@@ -75,32 +75,24 @@ class SetCorpusVisibility(graphene.Mutation):
     def mutate(root, info, corpus_id, is_public) -> "SetCorpusVisibility":
         user = info.context.user
 
+        # IDOR protection: same response whether the global ID is malformed,
+        # the corpus doesn't exist, the caller can't READ it, or the caller
+        # can READ but lacks PERMISSION. Phase D rule (#1658): READ is a
+        # precondition for any other permission op — granting PERMISSION
+        # without READ is unsupported. ``get_for_user_or_none`` enforces
+        # the READ gate; the explicit user_has_permission_for_obj below
+        # adds the PERMISSION check on top.
+        not_found_msg = "Corpus not found or you don't have permission"
+
         try:
             corpus_pk = from_global_id(corpus_id)[1]
         except Exception:
-            return SetCorpusVisibility(ok=False, message="Invalid corpus ID format")
+            return SetCorpusVisibility(ok=False, message=not_found_msg)
 
-        try:
-            corpus = Corpus.objects.get(pk=corpus_pk)
-        except Corpus.DoesNotExist:
-            # IDOR protection: same message whether corpus doesn't exist or user can't access
-            return SetCorpusVisibility(
-                ok=False, message="Corpus not found or you don't have permission"
-            )
+        corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+        if corpus is None:
+            return SetCorpusVisibility(ok=False, message=not_found_msg)
 
-        # Permission check: owner OR has PERMISSION OR superuser. This is the
-        # security gate — prevents unauthorized visibility changes.
-        # NOTE: we deliberately do NOT route this lookup through
-        # ``get_for_user_or_none`` (Phase D, #1658). That helper filters by
-        # ``visible_to_user`` (i.e. the READ codename), which would lock out
-        # callers granted ``PermissionTypes.PERMISSION`` without an explicit
-        # READ codename — a legitimate sharing case pinned by
-        # ``test_user_with_permission_perm_can_change_visibility``. The
-        # mutation is still IDOR-safe at the response level because the
-        # not-found and no-permission branches return the same message
-        # string. ``test_invalid_id_format_returns_error`` likewise relies
-        # on the bare ``Corpus.objects.get`` raising for garbage pks, which
-        # the helper would have swallowed.
         can_change_visibility = (
             user.is_superuser
             or corpus.creator_id == user.id
@@ -110,10 +102,7 @@ class SetCorpusVisibility(graphene.Mutation):
         )
 
         if not can_change_visibility:
-            # IDOR protection: same message as "not found"
-            return SetCorpusVisibility(
-                ok=False, message="Corpus not found or you don't have permission"
-            )
+            return SetCorpusVisibility(ok=False, message=not_found_msg)
 
         # Check if visibility is actually changing
         if corpus.is_public == is_public:

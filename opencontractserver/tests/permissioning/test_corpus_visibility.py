@@ -134,10 +134,18 @@ class TestSetCorpusVisibilityMutation(TestCase):
         self.assertFalse(self.corpus.is_public)
 
     def test_user_with_permission_perm_can_change_visibility(self):
-        """User with PERMISSION permission can change visibility."""
-        # Grant PERMISSION permission to other_user
+        """User with READ + PERMISSION can change visibility.
+
+        Phase D (#1658) rule: READ is a precondition for any other
+        permission op. Granting PERMISSION without READ is unsupported —
+        the mutation now filters the corpus through ``visible_to_user``
+        before checking PERMISSION, so the caller must also be able to
+        see the corpus.
+        """
         set_permissions_for_obj_to_user(
-            self.other_user, self.corpus, [PermissionTypes.PERMISSION]
+            self.other_user,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.PERMISSION],
         )
 
         variables = {
@@ -268,7 +276,15 @@ class TestSetCorpusVisibilityMutation(TestCase):
         )
 
     def test_invalid_id_format_returns_error(self):
-        """Invalid corpus ID format returns error."""
+        """Invalid corpus ID format returns the unified IDOR-safe response.
+
+        Phase D (#1658) routes the lookup through ``get_for_user_or_none``,
+        which catches ValueError/TypeError from the ORM on garbage pks and
+        returns None — so malformed IDs now surface as the same
+        ``ok=False`` / unified message that "doesn't exist" and "no
+        permission" return, rather than bubbling up as a GraphQL error.
+        That collapses one more enumeration channel.
+        """
         variables = {
             "corpusId": "invalid-id-format",
             "isPublic": True,
@@ -277,11 +293,11 @@ class TestSetCorpusVisibilityMutation(TestCase):
         client = Client(schema, context_value=TestContext(self.owner))
         result = client.execute(self.MUTATION, variable_values=variables)
 
-        # GraphQL returns an error when from_global_id fails to parse the ID
-        # This is expected behavior - the invalid format is caught before
-        # reaching our permission logic, which is fine for security
-        self.assertIsNotNone(
-            result.get("errors"), "Invalid ID format should return a GraphQL error"
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["setCorpusVisibility"]["ok"])
+        self.assertIn(
+            "not found or you don't have permission",
+            result["data"]["setCorpusVisibility"]["message"],
         )
 
     # =========================================================================

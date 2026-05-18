@@ -55,6 +55,9 @@ class UserProfileManager(DjangoUserManager["User"]):
         Returns queryset filtered to users whose profiles are visible to the requesting user.
 
         Privacy rules:
+        - Superusers see every active user (administrative / moderation surfaces
+          like badge awarding need to operate on private-profile recipients;
+          mirrors the superuser bypass on ``BaseVisibilityManager``).
         - Own profile is always visible (even if private)
         - Public profiles are visible to everyone
         - Private profiles are only visible to the profile owner
@@ -69,6 +72,11 @@ class UserProfileManager(DjangoUserManager["User"]):
         if user is None or isinstance(user, AnonymousUser):
             # Anonymous users can only see public profiles
             return self.filter(is_profile_public=True, is_active=True)
+
+        # Superusers see every active user — needed for admin / moderation
+        # paths (e.g. badge awarding) that must reach private-profile users.
+        if getattr(user, "is_superuser", False):
+            return self.filter(is_active=True)
 
         # Authenticated users can see:
         # 1. Their own profile (even if private)

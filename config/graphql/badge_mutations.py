@@ -381,16 +381,13 @@ class AwardBadgeMutation(graphene.Mutation):
                 )
 
             recipient_pk = from_global_id(user_id)[1]
-            # NB: we deliberately do NOT route this lookup through
-            # ``get_for_user_or_none``. ``UserProfileManager.visible_to_user``
-            # has no superuser bypass — applying it would lock a superuser
-            # awarder out from awarding badges to private-profile users,
-            # which is a legitimate workflow. Bare ``User.objects.get`` is
-            # retained; the mutation is still IDOR-safe via the unified
-            # message returned on DoesNotExist.
-            try:
-                recipient = User.objects.get(pk=recipient_pk)
-            except User.DoesNotExist:
+            # Recipient lookup must be visible to the awarder. Superusers
+            # bypass the profile-privacy filter via UserProfileManager's
+            # superuser branch, so admin / moderation awarding paths still
+            # reach private-profile users; non-superuser awarders only see
+            # their own profile + public profiles.
+            recipient = get_for_user_or_none(User, recipient_pk, awarder)
+            if recipient is None:
                 return AwardBadgeMutation(
                     ok=False, message="User not found", user_badge=None
                 )

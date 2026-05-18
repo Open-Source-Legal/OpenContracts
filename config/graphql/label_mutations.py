@@ -245,17 +245,13 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             # distinguish "reached validation" from "denied" via different
             # error messages (IDOR mitigation — see
             # docs/permissioning/consolidated_permissioning_guide.md).
-            # NB: bare ``LabelSet.objects.get`` (NOT
-            # ``get_for_user_or_none``) — Phase D's helper filters by
-            # ``visible_to_user`` (READ codename), which would lock out
-            # collaborators granted only ``PermissionTypes.UPDATE``
-            # without an explicit READ codename (pinned by
-            # ``test_non_owner_with_explicit_update_permission_can_create``).
-            # The mutation is still IDOR-safe at the response level
-            # because both DoesNotExist and permission-denied paths raise
-            # the same LabelSet.DoesNotExist + share one ``except`` handler.
-            labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not user_has_permission_for_obj(
+            # Phase D rule (#1658): READ is a precondition for UPDATE — the
+            # helper enforces it; the explicit user_has_permission_for_obj
+            # below adds the UPDATE check on top. Both DoesNotExist paths
+            # share one ``except`` handler so the response is unified.
+            labelset_pk = from_global_id(labelset_id)[1]
+            labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
+            if labelset is None or not user_has_permission_for_obj(
                 info.context.user,
                 labelset,
                 PermissionTypes.UPDATE,
@@ -358,11 +354,10 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
         try:
             user = info.context.user
             label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
-            # Bare LabelSet.objects.get — see CreateLabelForLabelsetMutation
-            # for the rationale (UPDATE-without-READ sharing case pinned by
-            # ``test_remove_labels_allows_non_owner_with_explicit_update_permission``).
-            labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not user_has_permission_for_obj(
+            # Phase D rule (#1658): READ is a precondition for UPDATE.
+            labelset_pk = from_global_id(labelset_id)[1]
+            labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
+            if labelset is None or not user_has_permission_for_obj(
                 user,
                 labelset,
                 PermissionTypes.UPDATE,
