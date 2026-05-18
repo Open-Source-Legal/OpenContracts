@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from functools import reduce
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import django
 from django.contrib.auth import get_user_model
@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+# Generic bound to ``django.db.models.Model`` so ``get_for_user_or_none`` returns
+# the concrete model type back to callers (e.g. ``Extract | None`` rather than
+# the abstract ``Model | None``). Without this, mypy can't see ``.name`` /
+# ``.fieldset`` etc. on the helper's return value.
+_T_Model = TypeVar("_T_Model", bound=django.db.models.Model)
 
 
 class _InstancePermsCache(dict):
@@ -850,10 +856,10 @@ def user_has_permission_for_obj(
 
 
 def get_for_user_or_none(
-    model_cls: type[django.db.models.Model],
+    model_cls: type[_T_Model],
     pk: Any,
     user: UserModel | AnonymousUser | None,
-) -> django.db.models.Model | None:
+) -> _T_Model | None:
     """IDOR-safe object lookup for non-corpus-scoped models.
 
     Returns the instance iff it exists AND ``user`` can READ it, otherwise
