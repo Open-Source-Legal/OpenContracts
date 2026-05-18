@@ -78,7 +78,7 @@ class CorpusSnapshot:
     def from_corpus(cls, corpus: Corpus) -> "CorpusSnapshot":
         """Create a snapshot from a corpus."""
         # Get documents via get_documents() to respect DocumentPath
-        documents = corpus.get_documents()
+        documents = corpus._get_active_documents()
 
         # Get user annotations (not analysis-generated)
         annotations = Annotation.objects.filter(
@@ -388,7 +388,7 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
         Returns the forked corpus or None if fork failed.
         """
         # Collect fork data (mimicking the mutation logic)
-        doc_ids = list(corpus.get_documents().values_list("id", flat=True))
+        doc_ids = list(corpus._get_active_documents().values_list("id", flat=True))
 
         annotation_ids = list(
             Annotation.objects.filter(
@@ -784,7 +784,7 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
         self.assertEqual(gen1.title, "[FORK] Original Title")
 
         # Get the forked document title
-        gen1_doc = gen1.get_documents().first()
+        gen1_doc = gen1._get_active_documents().first()
         self.assertEqual(gen1_doc.title, "[FORK] Document 0")
 
         # Second fork (fork of fork)
@@ -796,7 +796,7 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
             "Second generation should have stacked [FORK] prefix",
         )
 
-        gen2_doc = gen2.get_documents().first()
+        gen2_doc = gen2._get_active_documents().first()
         self.assertEqual(
             gen2_doc.title,
             "[FORK] [FORK] Document 0",
@@ -859,7 +859,7 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
         )
 
         # Create analysis-generated annotation
-        doc = original.get_documents().first()
+        doc = original._get_active_documents().first()
         _analysis_annotation = Annotation.objects.create(  # noqa: F841
             page=1,
             raw_text="Analysis generated annotation",
@@ -1211,7 +1211,7 @@ class CorpusForkPreservationTest(TransactionTestCase):
         self.assertEqual(forked_folder.name, "My Folder")
 
         # Verify document is in the forked folder
-        forked_doc = forked.get_documents().first()
+        forked_doc = forked._get_active_documents().first()
         self.assertIsNotNone(forked_doc)
 
         forked_path = DocumentPath.objects.filter(
@@ -1407,7 +1407,7 @@ class CorpusForkPreservationTest(TransactionTestCase):
         forked.refresh_from_db()
 
         # Verify document was forked with files
-        forked_doc = forked.get_documents().first()
+        forked_doc = forked._get_active_documents().first()
         self.assertIsNotNone(forked_doc, "Forked corpus should have a document")
         self.assertTrue(
             forked_doc.txt_extract_file and forked_doc.txt_extract_file.name,
@@ -1630,7 +1630,7 @@ class CorpusForkMetadataTest(TransactionTestCase):
         forked.refresh_from_db()
 
         # Verify datacell was copied
-        forked_doc = forked.get_documents().first()
+        forked_doc = forked._get_active_documents().first()
         self.assertIsNotNone(forked_doc)
 
         # Get forked column
@@ -1838,7 +1838,7 @@ class CorpusForkMetadataTest(TransactionTestCase):
             )
 
             # Get forked document and datacell for next iteration
-            forked_doc = forked.get_documents().first()
+            forked_doc = forked._get_active_documents().first()
             forked_col = forked.metadata_schema.columns.first()
             forked_datacell = Datacell.objects.filter(
                 document=forked_doc,
@@ -1974,7 +1974,7 @@ class CorpusForkMetadataTest(TransactionTestCase):
         forked.refresh_from_db()
 
         # Get forked datacell
-        forked_doc = forked.get_documents().first()
+        forked_doc = forked._get_active_documents().first()
         forked_col = forked.metadata_schema.columns.first()
         forked_datacell = Datacell.objects.filter(
             document=forked_doc,

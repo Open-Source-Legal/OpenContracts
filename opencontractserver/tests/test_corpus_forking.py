@@ -102,8 +102,8 @@ class CorpusForkTestCase(TransactionTestCase):
 
         # Document count
         self.assertEqual(
-            forked_corpus.get_documents().count(),
-            original_corpus.get_documents().count(),
+            forked_corpus._get_active_documents().count(),
+            original_corpus._get_active_documents().count(),
         )
 
         # Label count
@@ -218,8 +218,8 @@ class CorpusForkTestCase(TransactionTestCase):
         and share the same underlying file blobs as the originals."""
         original_corpus, forked_corpus = self._load_corpuses()
 
-        original_docs = list(original_corpus.get_documents())
-        forked_docs = list(forked_corpus.get_documents())
+        original_docs = list(original_corpus._get_active_documents())
+        forked_docs = list(forked_corpus._get_active_documents())
 
         self.assertGreater(len(original_docs), 0, "Fixture should contain documents")
         self.assertEqual(len(forked_docs), len(original_docs))

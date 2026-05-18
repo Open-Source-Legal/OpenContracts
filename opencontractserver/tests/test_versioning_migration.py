@@ -92,7 +92,7 @@ class VersioningMigrationTestCase(TestCase):
         This helper replicates what the 0024_initialize_dual_tree_versioning
         migration does for existing corpus-document relationships.
         """
-        for doc in corpus.get_documents():
+        for doc in corpus._get_active_documents():
             # Check if DocumentPath already exists (safeguard like in migration)
             existing = DocumentPath.objects.filter(
                 document=doc, corpus=corpus, is_current=True, is_deleted=False
