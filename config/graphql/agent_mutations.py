@@ -15,6 +15,7 @@ from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
     set_permissions_for_obj_to_user,
     user_has_permission_for_obj,
 )
@@ -84,24 +85,21 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            # Permission check: must be superuser or corpus owner
+            # Permission check: must be superuser or corpus owner. Unified
+            # message blocks IDOR enumeration — same response whether the
+            # corpus doesn't exist or the caller lacks CRUD permission on it.
             corpus = None
             if corpus_id:
                 corpus_pk = from_global_id(corpus_id)[1]
-                # Use visible_to_user to prevent IDOR - returns same error whether
-                # corpus doesn't exist or user lacks permission
-                try:
-                    corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-                except Corpus.DoesNotExist:
-                    return CreateAgentConfigurationMutation(
-                        ok=False,
-                        message="Corpus not found",
-                        agent=None,
+                corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+                if corpus is None or (
+                    not user.is_superuser
+                    and not user_has_permission_for_obj(
+                        user,
+                        corpus,
+                        PermissionTypes.CRUD,
+                        include_group_permissions=True,
                     )
-
-                # Check if user has permission for this corpus
-                if not user.is_superuser and not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
                 ):
                     return CreateAgentConfigurationMutation(
                         ok=False,
@@ -209,21 +207,12 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
 
         try:
             agent_pk = from_global_id(agent_id)[1]
-            # Use visible_to_user to prevent IDOR
-            try:
-                agent = AgentConfiguration.objects.visible_to_user(user).get(
-                    pk=agent_pk
+            agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
+            if agent is None or (
+                not user.is_superuser
+                and not user_has_permission_for_obj(
+                    user, agent, PermissionTypes.CRUD, include_group_permissions=True
                 )
-            except AgentConfiguration.DoesNotExist:
-                return UpdateAgentConfigurationMutation(
-                    ok=False,
-                    message="Agent configuration not found",
-                    agent=None,
-                )
-
-            # Permission check
-            if not user.is_superuser and not user_has_permission_for_obj(
-                user, agent, PermissionTypes.CRUD, include_group_permissions=True
             ):
                 return UpdateAgentConfigurationMutation(
                     ok=False,
@@ -287,20 +276,12 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
 
         try:
             agent_pk = from_global_id(agent_id)[1]
-            # Use visible_to_user to prevent IDOR
-            try:
-                agent = AgentConfiguration.objects.visible_to_user(user).get(
-                    pk=agent_pk
+            agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
+            if agent is None or (
+                not user.is_superuser
+                and not user_has_permission_for_obj(
+                    user, agent, PermissionTypes.CRUD, include_group_permissions=True
                 )
-            except AgentConfiguration.DoesNotExist:
-                return DeleteAgentConfigurationMutation(
-                    ok=False,
-                    message="Agent configuration not found",
-                )
-
-            # Permission check
-            if not user.is_superuser and not user_has_permission_for_obj(
-                user, agent, PermissionTypes.CRUD, include_group_permissions=True
             ):
                 return DeleteAgentConfigurationMutation(
                     ok=False,
