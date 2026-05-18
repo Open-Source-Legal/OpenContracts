@@ -25,11 +25,8 @@ export const CorpusViewContainer = styled.div`
   width: 100%;
   position: relative;
   flex: 1;
+  min-height: 0;
   align-items: stretch;
-  /* Progressive enhancement: dvh overrides 100vh in supporting browsers so
-     mobile address-bar collapse doesn't cause overflow. */
-  min-height: calc(100vh - var(--oc-navbar-height, 4.5rem));
-  min-height: calc(100dvh - var(--oc-navbar-height, 4.5rem));
 `;
 
 export const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
@@ -561,6 +558,31 @@ export const MobileBackButton = styled.button`
     align-items: center;
     justify-content: center;
   }
+`;
+
+// ===============================================
+// TAB CONTENT WRAPPERS (shared across non-home tabs)
+// ===============================================
+// Establishes a column flex chain with `min-height: 0` so descendants with
+// `flex: 1` or `height: 100%` can actually fill `MainContentArea`. Without
+// this chain the inline wrapper would shrink-wrap to its content height and
+// leave awkward whitespace below.
+export const TabContentWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+`;
+
+// Body region that sits beneath a TabNavigationHeader and re-establishes a
+// flex column for grand-children (e.g. FolderDocumentBrowser whose root has
+// `height: 100%` and needs a bounded parent).
+export const TabContentBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 `;
 
 // ===============================================

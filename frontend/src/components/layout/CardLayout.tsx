@@ -62,6 +62,8 @@ const ScrollableSegment = styled(StyledSegment)`
   flex-direction: column;
   justify-content: flex-start;
   width: 100%;
+  flex: 1;
+  min-height: 0;
   border-radius: 12px;
   background: #ffffff;
   margin: 0;

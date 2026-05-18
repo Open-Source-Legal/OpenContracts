@@ -154,6 +154,8 @@ import {
   NavItemBadge,
   SearchBarContainer,
   SearchBarWithNav,
+  TabContentBody,
+  TabContentWrapper,
   TabNavigationHeader,
   TabTitle,
 } from "./Corpuses.styles";
@@ -1069,7 +1071,7 @@ export const Corpuses = () => {
         icon: <FileText />,
         badge: stats.totalDocs,
         component: (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <TabContentWrapper>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1087,7 +1089,7 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div>
+            <TabContentBody>
               {opened_corpus_id && (
                 <FolderDocumentBrowser
                   corpusId={opened_corpus_id}
@@ -1102,8 +1104,8 @@ export const Corpuses = () => {
                   />
                 </FolderDocumentBrowser>
               )}
-            </div>
-          </div>
+            </TabContentBody>
+          </TabContentWrapper>
         ),
       },
       {
@@ -1112,7 +1114,7 @@ export const Corpuses = () => {
         icon: <MessageSquare />,
         badge: stats.totalAnnotations,
         component: (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <TabContentWrapper>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1130,10 +1132,10 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div>
+            <TabContentBody>
               <CorpusAnnotationCards opened_corpus_id={opened_corpus_id} />
-            </div>
-          </div>
+            </TabContentBody>
+          </TabContentWrapper>
         ),
       },
       {
@@ -1142,7 +1144,7 @@ export const Corpuses = () => {
         icon: <Factory />,
         badge: stats.totalAnalyses,
         component: (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <TabContentWrapper>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1160,10 +1162,10 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div>
+            <TabContentBody>
               <CorpusAnalysesCards />
-            </div>
-          </div>
+            </TabContentBody>
+          </TabContentWrapper>
         ),
       },
       {
@@ -1184,7 +1186,7 @@ export const Corpuses = () => {
         icon: <Link2 />,
         badge: stats.totalRelationships,
         component: opened_corpus?.id ? (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <TabContentWrapper>
             <TabNavigationHeader>
               <BackNavButton
                 onClick={() => setActiveTab(0)}
@@ -1202,10 +1204,10 @@ export const Corpuses = () => {
                 <MoreVertical />
               </MobileKebabButton>
             </TabNavigationHeader>
-            <div>
+            <TabContentBody>
               <CorpusDocumentRelationships corpusId={opened_corpus.id} />
-            </div>
-          </div>
+            </TabContentBody>
+          </TabContentWrapper>
         ) : null,
       },
       {
@@ -1214,7 +1216,7 @@ export const Corpuses = () => {
         icon: <MessageSquare />,
         badge: stats.totalThreads || 0,
         component: opened_corpus?.id ? (
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <TabContentWrapper>
             {/* Only show parent header when viewing thread list */}
             {/* When viewing inline thread detail, CorpusDiscussionsView handles its own */}
             {!discussionInThreadView && (
@@ -1236,10 +1238,10 @@ export const Corpuses = () => {
                 </MobileKebabButton>
               </TabNavigationHeader>
             )}
-            <div>
+            <TabContentBody>
               <CorpusDiscussionsView corpusId={opened_corpus.id} hideHeader />
-            </div>
-          </div>
+            </TabContentBody>
+          </TabContentWrapper>
         ) : null,
       },
       {
@@ -1329,7 +1331,7 @@ export const Corpuses = () => {
               label: "Settings",
               icon: <Settings />,
               component: opened_corpus?.title ? (
-                <div style={{ display: "flex", flexDirection: "column" }}>
+                <TabContentWrapper>
                   <TabNavigationHeader>
                     <BackNavButton
                       onClick={() => setActiveTab(0)}
@@ -1347,7 +1349,7 @@ export const Corpuses = () => {
                       <MoreVertical />
                     </MobileKebabButton>
                   </TabNavigationHeader>
-                  <div>
+                  <TabContentBody>
                     <CorpusSettings
                       corpus={{
                         id: opened_corpus.id,
@@ -1364,8 +1366,8 @@ export const Corpuses = () => {
                         myPermissions: corpusAtomPermissions,
                       }}
                     />
-                  </div>
-                </div>
+                  </TabContentBody>
+                </TabContentWrapper>
               ) : null,
             },
             {
@@ -1373,7 +1375,7 @@ export const Corpuses = () => {
               label: "Badges",
               icon: <Trophy />,
               component: opened_corpus?.id ? (
-                <div style={{ display: "flex", flexDirection: "column" }}>
+                <TabContentWrapper>
                   <TabNavigationHeader>
                     <BackNavButton
                       onClick={() => setActiveTab(0)}
@@ -1391,10 +1393,10 @@ export const Corpuses = () => {
                       <MoreVertical />
                     </MobileKebabButton>
                   </TabNavigationHeader>
-                  <div style={{ flex: 1, overflow: "auto" }}>
+                  <TabContentBody style={{ overflow: "auto" }}>
                     <BadgeManagement corpusId={opened_corpus.id} />
-                  </div>
-                </div>
+                  </TabContentBody>
+                </TabContentWrapper>
               ) : null,
             },
           ]
