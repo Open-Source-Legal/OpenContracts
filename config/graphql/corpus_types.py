@@ -198,30 +198,24 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_documents(self, info, **kwargs) -> Any:
         """
         Custom resolver for documents field that uses DocumentPath.
-        Returns documents with active paths in this corpus, filtered by
-        document-level visibility.
+        Returns documents with active paths in this corpus.
 
-        Document visibility is independent of corpus visibility:
-        Effective Permission = MIN(document_permission, corpus_permission).
-        A private document in a public corpus is still hidden from
-        users without document-level access.
+        Delegates to ``CorpusObjsService.get_corpus_documents`` so the
+        corpus-as-gate semantic stays uniform across the service surface
+        and the IDOR-prone ``visible_to_user`` + ``_get_active_documents``
+        fusion is retired.
 
         CAML/markdown files are included here since this resolver serves
         corpus views that need to display the article landing page.
         """
-        from opencontractserver.documents.models import Document
+        from django.contrib.auth.models import AnonymousUser
 
-        user = getattr(info.context, "user", None)
-        # Corpus READ is already gated by the parent query that resolved
-        # ``self`` (CorpusType only renders for corpora the user can see), so
-        # the underscore-private internal helper is the correct entry point
-        # — the deprecated user-facing ``get_documents()`` alias would warn on
-        # every doc list render otherwise. Document-level visibility is
-        # applied below.
-        corpus_doc_ids = self._get_active_documents(include_caml=True).values_list(
-            "id", flat=True
+        from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+
+        user = getattr(info.context, "user", None) or AnonymousUser()
+        return CorpusObjsService.get_corpus_documents(
+            user, self, include_caml=True, request=info.context
         )
-        return Document.objects.visible_to_user(user).filter(id__in=corpus_doc_ids)
 
     def resolve_annotations(self, info) -> Any:
         """
