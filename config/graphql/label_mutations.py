@@ -20,6 +20,7 @@ from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
     set_permissions_for_obj_to_user,
     user_has_permission_for_obj,
 )
@@ -176,25 +177,27 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
                 )
             )
             for label_pk in label_pks:
-                try:
-                    label = AnnotationLabel.objects.get(pk=label_pk)
-                    # AnnotationLabel uses creator-based permissions (no guardian tables)
-                    # Only the creator or superuser can delete labels
-                    # read_only labels cannot be deleted (built-in system labels)
-                    if label.read_only:
-                        return DeleteMultipleLabelMutation(
-                            ok=False, message="Cannot delete read-only labels"
-                        )
-                    if not user.is_superuser and label.creator_id != user.id:
-                        # Use consistent error message for IDOR protection
-                        return DeleteMultipleLabelMutation(
-                            ok=False, message="Label not found"
-                        )
-                    label.delete()
-                except AnnotationLabel.DoesNotExist:
+                # IDOR protection: collapse "label doesn't exist", "hidden
+                # from caller", and "caller can READ but is not the creator"
+                # into the same response. AnnotationLabel uses creator-based
+                # permissions (no guardian tables); BaseVisibilityManager.
+                # visible_to_user enforces creator/public/superuser.
+                label = get_for_user_or_none(AnnotationLabel, label_pk, user)
+                if label is None:
                     return DeleteMultipleLabelMutation(
                         ok=False, message="Label not found"
                     )
+                # read_only labels cannot be deleted (built-in system labels)
+                if label.read_only:
+                    return DeleteMultipleLabelMutation(
+                        ok=False, message="Cannot delete read-only labels"
+                    )
+                if not user.is_superuser and label.creator_id != user.id:
+                    # Use consistent error message for IDOR protection
+                    return DeleteMultipleLabelMutation(
+                        ok=False, message="Label not found"
+                    )
+                label.delete()
             ok = True
             message = "Success"
 
@@ -242,6 +245,15 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             # distinguish "reached validation" from "denied" via different
             # error messages (IDOR mitigation — see
             # docs/permissioning/consolidated_permissioning_guide.md).
+            # NB: bare ``LabelSet.objects.get`` (NOT
+            # ``get_for_user_or_none``) — Phase D's helper filters by
+            # ``visible_to_user`` (READ codename), which would lock out
+            # collaborators granted only ``PermissionTypes.UPDATE``
+            # without an explicit READ codename (pinned by
+            # ``test_non_owner_with_explicit_update_permission_can_create``).
+            # The mutation is still IDOR-safe at the response level
+            # because both DoesNotExist and permission-denied paths raise
+            # the same LabelSet.DoesNotExist + share one ``except`` handler.
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
             if not user_has_permission_for_obj(
                 info.context.user,
@@ -346,6 +358,9 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
         try:
             user = info.context.user
             label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
+            # Bare LabelSet.objects.get — see CreateLabelForLabelsetMutation
+            # for the rationale (UPDATE-without-READ sharing case pinned by
+            # ``test_remove_labels_allows_non_owner_with_explicit_update_permission``).
             labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
             if not user_has_permission_for_obj(
                 user,
