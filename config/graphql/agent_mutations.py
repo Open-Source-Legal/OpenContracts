@@ -139,7 +139,9 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
             )
 
             # Set permissions
-            set_permissions_for_obj_to_user(user, agent, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user, agent, [PermissionTypes.CRUD], is_new=True, request=info.context
+            )
 
             return CreateAgentConfigurationMutation(
                 ok=True,

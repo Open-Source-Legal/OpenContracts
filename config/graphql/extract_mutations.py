@@ -211,7 +211,13 @@ class CreateMetadataColumn(graphene.Mutation):
                     corpus=corpus,
                     creator=user,
                 )
-                set_permissions_for_obj_to_user(user, fieldset, [PermissionTypes.CRUD])
+                set_permissions_for_obj_to_user(
+                    user,
+                    fieldset,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
+                )
             else:
                 fieldset = corpus.metadata_schema
 
@@ -258,7 +264,13 @@ class CreateMetadataColumn(graphene.Mutation):
                 creator=user,
             )
 
-            set_permissions_for_obj_to_user(user, column, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                column,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
             return CreateMetadataColumn(
                 ok=True, message="Metadata field created successfully", obj=column
@@ -419,7 +431,13 @@ class SetMetadataValue(graphene.Mutation):
             )
 
             if created:
-                set_permissions_for_obj_to_user(user, datacell, [PermissionTypes.CRUD])
+                set_permissions_for_obj_to_user(
+                    user,
+                    datacell,
+                    [PermissionTypes.CRUD],
+                    is_new=True,
+                    request=info.context,
+                )
 
             return SetMetadataValue(
                 ok=True, message="Metadata value set successfully", obj=datacell
@@ -518,7 +536,11 @@ class CreateFieldset(graphene.Mutation):
         )
         fieldset.save()
         set_permissions_for_obj_to_user(
-            info.context.user, fieldset, [PermissionTypes.CRUD]
+            info.context.user,
+            fieldset,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
         )
 
         record_event(
@@ -666,7 +688,11 @@ class CreateColumn(graphene.Mutation):
         )
         column.save()
         set_permissions_for_obj_to_user(
-            info.context.user, column, [PermissionTypes.CRUD]
+            info.context.user,
+            column,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
         )
         return CreateColumn(ok=True, message="SUCCESS!", obj=column)
 
@@ -779,7 +805,11 @@ class CreateExtract(graphene.Mutation):
                 creator=info.context.user,
             )
             set_permissions_for_obj_to_user(
-                info.context.user, fieldset, [PermissionTypes.CRUD]
+                info.context.user,
+                fieldset,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
             )
 
         extract = Extract(
@@ -804,7 +834,11 @@ class CreateExtract(graphene.Mutation):
             logger.info("Corpus IS still None... no docs to add.")
 
         set_permissions_for_obj_to_user(
-            info.context.user, extract, [PermissionTypes.CRUD]
+            info.context.user,
+            extract,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
         )
 
         return CreateExtract(ok=True, msg="SUCCESS!", obj=extract)
@@ -1096,6 +1130,8 @@ def _clone_fieldset_for_iteration(
     source_fieldset: Fieldset,
     user,
     column_overrides: Optional[dict] = None,
+    *,
+    request=None,
 ) -> Fieldset:
     """Deep-clone a fieldset and its columns for a FIELDSET-axis iteration.
 
@@ -1107,7 +1143,9 @@ def _clone_fieldset_for_iteration(
         description=source_fieldset.description,
         creator=user,
     )
-    set_permissions_for_obj_to_user(user, new_fieldset, [PermissionTypes.CRUD])
+    set_permissions_for_obj_to_user(
+        user, new_fieldset, [PermissionTypes.CRUD], is_new=True, request=request
+    )
 
     overrides_by_pk: dict = {}
     if column_overrides:
@@ -1142,7 +1180,9 @@ def _clone_fieldset_for_iteration(
             display_order=column.display_order,
             creator=user,
         )
-        set_permissions_for_obj_to_user(user, clone, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user, clone, [PermissionTypes.CRUD], is_new=True, request=request
+        )
     return new_fieldset
 
 
@@ -1255,7 +1295,10 @@ class CreateExtractIteration(graphene.Mutation):
         # because we want the column definitions to stay byte-identical.
         if axis == "FIELDSET":
             new_fieldset = _clone_fieldset_for_iteration(
-                source.fieldset, user, column_overrides=column_overrides
+                source.fieldset,
+                user,
+                column_overrides=column_overrides,
+                request=info.context,
             )
         else:
             new_fieldset = source.fieldset
@@ -1285,7 +1328,13 @@ class CreateExtractIteration(graphene.Mutation):
                 model_config=effective_model_config,
             )
             new_extract.documents.set(_resolve_iteration_documents(source, axis))
-            set_permissions_for_obj_to_user(user, new_extract, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                new_extract,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
         if auto_start:
             new_extract.started = timezone.now()

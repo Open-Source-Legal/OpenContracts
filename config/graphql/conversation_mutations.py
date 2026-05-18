@@ -140,7 +140,13 @@ class CreateThreadMutation(graphene.Mutation):
             )
 
             # Set permissions for the creator
-            set_permissions_for_obj_to_user(user, conversation, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                conversation,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
             # Create the initial message
             chat_message = ChatMessage.objects.create(
@@ -230,7 +236,13 @@ class CreateThreadMessageMutation(graphene.Mutation):
             )
 
             # Set permissions for the creator
-            set_permissions_for_obj_to_user(user, chat_message, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                chat_message,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
             # Parse and link mentioned resources (documents, annotations, etc.)
             try:
@@ -328,7 +340,13 @@ class ReplyToMessageMutation(graphene.Mutation):
             )
 
             # Set permissions for the creator
-            set_permissions_for_obj_to_user(user, reply_message, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user,
+                reply_message,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
+            )
 
             # Parse and link mentioned resources (documents, annotations, etc.)
             try:

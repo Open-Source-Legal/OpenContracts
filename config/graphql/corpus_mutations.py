@@ -334,11 +334,20 @@ class DeleteCorpusMutation(DRFDeletion):
         id = from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
         # Filter through visibility so a caller who can't see the corpus
         # doesn't get a leaked is_personal signal from the early-exit below.
-        # ``None`` falls through to ``super().mutate`` which renders the
-        # standard not-found / no-permission response from DRFDeletion.
         obj = get_for_user_or_none(cls.IOSettings.model, id, info.context.user)
 
-        if obj is not None and obj.is_personal:
+        if obj is None:
+            # Short-circuit on the IDOR path so we don't hit the DB twice on
+            # unauthorized/missing pks. ``DRFDeletion.mutate`` would have
+            # raised the same ``Corpus.DoesNotExist`` from its own
+            # ``.visible_to_user(user).get(pk=id)`` — we just skip that
+            # redundant lookup.
+            raise cls.IOSettings.model.DoesNotExist(
+                f"{cls.IOSettings.model.__name__} matching pk={id} does not "
+                "exist or is not visible to user."
+            )
+
+        if obj.is_personal:
             raise GraphQLError(
                 "Cannot delete your personal 'My Documents' corpus. "
                 "This corpus is automatically managed and stores your uploaded documents."
@@ -502,11 +511,8 @@ class StartCorpusFork(graphene.Mutation):
             # for labels and docs to new obj ids
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # IDOR protection: collapse missing pk, hidden pk, and no-READ
-            # into the same response. ``get_for_user_or_none`` enforces the
-            # READ visibility filter so the explicit ``corpus.user_can`` check
-            # below is redundant — kept for defense in depth in case a
-            # per-model ``visible_to_user`` ever drifts from the READ codename.
+            # IDOR protection: missing / hidden / no-READ all return the same
+            # response. user_can(READ) below is defense-in-depth (issue #1658).
             corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
             if corpus is None or not corpus.user_can(
                 info.context.user, PermissionTypes.READ, request=info.context

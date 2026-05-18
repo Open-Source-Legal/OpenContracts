@@ -178,36 +178,38 @@ class DeleteAnalysisMutation(graphene.Mutation):
     @login_required
     def mutate(root, info, id) -> "DeleteAnalysisMutation":
 
-        # ok = False
-        # message = "Could not complete"
-
         # Unified message blocks IDOR enumeration: same response whether the
         # analysis doesn't exist, the caller can't see it, or they can see
-        # it but lack DELETE permission. Previously the three branches raised
-        # different exception types (Analysis.DoesNotExist vs PermissionError),
-        # leaking object existence to anyone with a guessable pk.
+        # it but lack DELETE permission. Returned via the standard ok=False
+        # envelope (matches every other mutation migrated in Phase D) — the
+        # previous mix of Analysis.DoesNotExist + PermissionError surfaced
+        # different GraphQL response shapes for each branch and leaked
+        # object existence to anyone with a guessable pk.
         not_found_msg = "Analysis not found or you don't have permission to delete it."
 
         analysis_pk = from_global_id(id)[1]
         analysis = get_for_user_or_none(Analysis, analysis_pk, info.context.user)
         if analysis is None:
-            raise PermissionError(not_found_msg)
+            return DeleteAnalysisMutation(ok=False, message=not_found_msg)
 
         # Lock check stays its own error path — the lock is observable state
         # to anyone who can READ the analysis (so it does NOT leak existence).
+        # We ARE OK with deleting something locked by the backend itself —
+        # sh@t happens and users need to abandon hung/stalled analyses.
         if analysis.user_lock is not None:
             if info.context.user.id != analysis.user_lock_id:
-                raise PermissionError(
-                    "Specified object is locked by another user. Cannot be deleted."
+                return DeleteAnalysisMutation(
+                    ok=False,
+                    message=(
+                        "Specified object is locked by another user. "
+                        "Cannot be deleted."
+                    ),
                 )
-
-        # We ARE OK with deleting something that's been locked by the backend, however, as sh@t happens, and we want
-        # frontend users to be able to delete things that are hanging or taking too long and start over / abandon them.
 
         if not analysis.user_can(
             info.context.user, PermissionTypes.DELETE, request=info.context
         ):
-            raise PermissionError(not_found_msg)
+            return DeleteAnalysisMutation(ok=False, message=not_found_msg)
 
         # Kick off an async task to delete the analysis (as it can be very large)
         delete_analysis_and_annotations_task.si(analysis_pk=analysis_pk).apply_async()

@@ -72,7 +72,9 @@ class CreateLabelset(graphene.Mutation):
             obj.save()
 
             # Assign permissions for user to obj so it can be retrieved
-            set_permissions_for_obj_to_user(user, obj, [PermissionTypes.CRUD])
+            set_permissions_for_obj_to_user(
+                user, obj, [PermissionTypes.CRUD], is_new=True, request=info.context
+            )
 
             ok = True
             message = "Success"
@@ -295,7 +297,11 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             logger.debug("CreateLabelForLabelsetMutation - mutate / Created label", obj)
 
             set_permissions_for_obj_to_user(
-                info.context.user, obj, [PermissionTypes.CRUD]
+                info.context.user,
+                obj,
+                [PermissionTypes.CRUD],
+                is_new=True,
+                request=info.context,
             )
             logger.debug(
                 "CreateLabelForLabelsetMutation - permissioned for creating user"
