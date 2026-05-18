@@ -18,7 +18,10 @@ from opencontractserver.documents.query_optimizer import (
     DocumentRelationshipQueryOptimizer,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    user_has_permission_for_obj,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,18 +103,11 @@ class CreateDocumentRelationship(graphene.Mutation):
                     message="annotation_label_id is required for RELATIONSHIP type",
                 )
 
-            # Fetch corpus first and check permission
-            try:
-                corpus = Corpus.objects.get(pk=corpus_pk)
-            except Corpus.DoesNotExist:
-                return CreateDocumentRelationship(
-                    ok=False,
-                    document_relationship=None,
-                    message="Corpus not found",
-                )
-
-            # IDOR-safe: same message for not found or no permission
-            if not user_has_permission_for_obj(
+            # Fetch corpus + check CREATE permission. ``get_for_user_or_none``
+            # collapses missing-pk and inaccessible-pk into the same response
+            # per the Phase D IDOR contract.
+            corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
+            if corpus is None or not user_has_permission_for_obj(
                 info.context.user,
                 corpus,
                 PermissionTypes.CREATE,
@@ -123,13 +119,10 @@ class CreateDocumentRelationship(graphene.Mutation):
                     message="Corpus not found",
                 )
 
-            # Fetch source document and check permission (before same-corpus check
-            # for better error messages)
-            try:
-                source_doc = Document.objects.get(pk=source_doc_pk)
-            except Document.DoesNotExist:
-                source_doc = None
-
+            # Source document — same unified pattern.
+            source_doc = get_for_user_or_none(
+                Document, source_doc_pk, info.context.user
+            )
             if source_doc is None or not user_has_permission_for_obj(
                 info.context.user,
                 source_doc,
@@ -142,12 +135,10 @@ class CreateDocumentRelationship(graphene.Mutation):
                     message="Source document not found",
                 )
 
-            # Fetch target document and check permission
-            try:
-                target_doc = Document.objects.get(pk=target_doc_pk)
-            except Document.DoesNotExist:
-                target_doc = None
-
+            # Target document — same unified pattern.
+            target_doc = get_for_user_or_none(
+                Document, target_doc_pk, info.context.user
+            )
             if target_doc is None or not user_has_permission_for_obj(
                 info.context.user,
                 target_doc,
@@ -356,18 +347,9 @@ class UpdateDocumentRelationship(graphene.Mutation):
                     )
                 else:
                     corpus_pk = from_global_id(corpus_id)[1]
-                    try:
-                        corpus = Corpus.objects.get(pk=corpus_pk)
-                    except Corpus.DoesNotExist:
-                        # IDOR-safe: same message for not found or no permission
-                        return UpdateDocumentRelationship(
-                            ok=False,
-                            document_relationship=None,
-                            message="Corpus not found",
-                        )
-
-                    # Check permission on the new corpus (IDOR-safe message)
-                    if not user_has_permission_for_obj(
+                    # IDOR-safe: same message for not found or no permission.
+                    corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
+                    if corpus is None or not user_has_permission_for_obj(
                         info.context.user,
                         corpus,
                         PermissionTypes.UPDATE,
