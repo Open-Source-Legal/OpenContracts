@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eliminate N+1 permission loops in `get_analysis_annotations` / `get_extract_datacells`** (issue #1692; `opencontractserver/annotations/query_optimizer.py:1259-1271`, `:1443-1455`; `opencontractserver/tests/permissioning/test_query_optimizer_methods.py`). Phase C cleanup follow-up. Both methods previously iterated `analysis.analyzed_documents.all()` / `extract.documents.all()` in Python, calling `doc.user_can(user, PermissionTypes.READ)` per document — O(N) permission checks with full-row deserialisation on each loop step. Replaced both loops with a single `Document.objects.visible_to_user(user).filter(id__in=<m2m subquery>.values("id")).values_list("id", flat=True)` queryset intersection, which already encodes the full visibility model (creator + is_public + guardian + corpus membership) and matches the pattern in use elsewhere in the same file (`query_optimizer.py:745-752`). Behaviour preserved: same readable-doc-id set, same early `Annotation.objects.none()` / `Datacell.objects.none()` exit when nothing is readable. New `DocumentPermissionFilterQueryCountTestCase` pins behaviour parity against a mix of readable / non-readable documents and asserts a bounded query count for the visibility filter regardless of N.
+
 ### Changed
 
 - **Phase C permission centralization — migrate optimizer call sites to `obj.user_can(...)`** (issue #1657; `opencontractserver/annotations/query_optimizer.py`, `opencontractserver/extracts/query_optimizer.py`). The 24 remaining `user_has_permission_for_obj` call sites across `AnnotationQueryOptimizer` (analysis/extract/datacell/corpus-annotation/document-relationship paths) and `MetadataQueryOptimizer` (`_compute_effective_permissions`, `get_corpus_metadata_columns`, `get_documents_metadata_batch`, `check_metadata_mutation_permission`) now route through `obj.user_can(...)` — completing the substitution PR #1663 started in `AnnotationQueryOptimizer._compute_effective_permissions`. Net effect:
