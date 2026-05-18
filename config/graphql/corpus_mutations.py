@@ -36,6 +36,7 @@ from opencontractserver.tasks.permissioning_tasks import make_corpus_public_task
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.corpus_collector import collect_corpus_objects
 from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
     set_permissions_for_obj_to_user,
     user_has_permission_for_obj,
 )
@@ -87,8 +88,19 @@ class SetCorpusVisibility(graphene.Mutation):
                 ok=False, message="Corpus not found or you don't have permission"
             )
 
-        # Permission check: owner OR has PERMISSION OR superuser
-        # This is the security gate - prevents unauthorized visibility changes
+        # Permission check: owner OR has PERMISSION OR superuser. This is the
+        # security gate — prevents unauthorized visibility changes.
+        # NOTE: we deliberately do NOT route this lookup through
+        # ``get_for_user_or_none`` (Phase D, #1658). That helper filters by
+        # ``visible_to_user`` (i.e. the READ codename), which would lock out
+        # callers granted ``PermissionTypes.PERMISSION`` without an explicit
+        # READ codename — a legitimate sharing case pinned by
+        # ``test_user_with_permission_perm_can_change_visibility``. The
+        # mutation is still IDOR-safe at the response level because the
+        # not-found and no-permission branches return the same message
+        # string. ``test_invalid_id_format_returns_error`` likewise relies
+        # on the bare ``Corpus.objects.get`` raising for garbage pks, which
+        # the helper would have swallowed.
         can_change_visibility = (
             user.is_superuser
             or corpus.creator_id == user.id
@@ -228,28 +240,29 @@ class UpdateCorpusMutation(DRFMutation):
     def mutate(cls, root, info, *args, **kwargs) -> "UpdateCorpusMutation":
         # Issue #437: Prevent changing preferred_embedder after documents exist.
         # This avoids creating inconsistent embeddings within a corpus.
-        # Use the ReEmbedCorpus mutation instead for controlled embedder migration.
+        # Use the ReEmbedCorpus mutation instead for controlled embedder
+        # migration. We filter through ``visible_to_user`` so a caller who
+        # can't see the corpus doesn't get a leaked "this corpus has docs"
+        # signal from the early-exit — they fall through to the parent's
+        # standard not-found / not-permitted response.
         if "preferred_embedder" in kwargs:
             corpus_global_id = kwargs.get("id")
             if corpus_global_id:
                 corpus_pk = from_global_id(corpus_global_id)[1]
-                try:
-                    corpus = Corpus.objects.get(pk=corpus_pk)
-                    if corpus.has_documents():
-                        new_embedder = kwargs["preferred_embedder"]
-                        if new_embedder != corpus.preferred_embedder:
-                            return cls(
-                                ok=False,
-                                message=(
-                                    "Cannot change preferred_embedder after documents "
-                                    "have been added to this corpus. Changing the "
-                                    "embedder would create inconsistent embeddings. "
-                                    "Use the reEmbedCorpus mutation to migrate to a "
-                                    "different embedder."
-                                ),
-                            )
-                except Corpus.DoesNotExist:
-                    pass  # Let the parent class handle not-found
+                corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
+                if corpus is not None and corpus.has_documents():
+                    new_embedder = kwargs["preferred_embedder"]
+                    if new_embedder != corpus.preferred_embedder:
+                        return cls(
+                            ok=False,
+                            message=(
+                                "Cannot change preferred_embedder after documents "
+                                "have been added to this corpus. Changing the "
+                                "embedder would create inconsistent embeddings. "
+                                "Use the reEmbedCorpus mutation to migrate to a "
+                                "different embedder."
+                            ),
+                        )
 
         return super().mutate(root, info, *args, **kwargs)
 
@@ -284,21 +297,10 @@ class UpdateCorpusDescription(graphene.Mutation):
                 "Corpus not found or you do not have permission to update it."
             )
 
-            # Filter through visible_to_user so unauthorized IDs collapse to the
-            # same branch as truly-missing IDs
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-            except Corpus.DoesNotExist:
+            corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+            if corpus is None or corpus.creator != user:
                 return UpdateCorpusDescription(
                     ok=False, message=not_found_msg, obj=None, version=None
-                )
-
-            if corpus.creator != user:
-                return UpdateCorpusDescription(
-                    ok=False,
-                    message=not_found_msg,
-                    obj=None,
-                    version=None,
                 )
 
             # Use the update_description method to create a new version
@@ -346,9 +348,13 @@ class DeleteCorpusMutation(DRFDeletion):
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(cls, root, info, *args, **kwargs) -> "DeleteCorpusMutation":
         id = from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
-        obj = cls.IOSettings.model.objects.get(pk=id)
+        # Filter through visibility so a caller who can't see the corpus
+        # doesn't get a leaked is_personal signal from the early-exit below.
+        # ``None`` falls through to ``super().mutate`` which renders the
+        # standard not-found / no-permission response from DRFDeletion.
+        obj = get_for_user_or_none(cls.IOSettings.model, id, info.context.user)
 
-        if obj.is_personal:
+        if obj is not None and obj.is_personal:
             raise GraphQLError(
                 "Cannot delete your personal 'My Documents' corpus. "
                 "This corpus is automatically managed and stores your uploaded documents."
@@ -516,18 +522,13 @@ class StartCorpusFork(graphene.Mutation):
             # for labels and docs to new obj ids
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # Get corpus obj with visibility check
-            try:
-                corpus = Corpus.objects.visible_to_user(info.context.user).get(
-                    pk=corpus_pk
-                )
-            except Corpus.DoesNotExist:
-                return StartCorpusFork(
-                    ok=False, message="Corpus not found", new_corpus=None
-                )
-
-            # Verify READ permission
-            if not user_has_permission_for_obj(
+            # IDOR protection: collapse missing pk, hidden pk, and no-READ
+            # into the same response. ``get_for_user_or_none`` enforces the
+            # READ visibility filter so the explicit user_has_permission_for_obj
+            # check below is redundant — kept for defense in depth in case a
+            # per-model ``visible_to_user`` ever drifts from the READ codename.
+            corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
+            if corpus is None or not user_has_permission_for_obj(
                 info.context.user,
                 corpus,
                 PermissionTypes.READ,
@@ -656,13 +657,10 @@ class ReEmbedCorpus(graphene.Mutation):
         except Exception:
             return ReEmbedCorpus(ok=False, message="Invalid corpus ID")
 
-        try:
-            corpus = Corpus.objects.get(pk=corpus_pk)
-        except Corpus.DoesNotExist:
-            return ReEmbedCorpus(ok=False, message="Corpus not found")
-
-        # Only creator can re-embed
-        if corpus.creator != user:
+        # IDOR protection: same response for missing pk, hidden pk, and
+        # caller-is-not-creator.
+        corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+        if corpus is None or corpus.creator != user:
             return ReEmbedCorpus(ok=False, message="Corpus not found")
 
         # Validate the new embedder exists in the registry and is an embedder
@@ -826,11 +824,11 @@ class CreateCorpusAction(graphene.Mutation):
             user = info.context.user
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # Get corpus with visibility filter to prevent IDOR
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-
-            # Check if user has update permission on the corpus
-            if not (
+            # Get corpus with visibility filter to prevent IDOR. ``None``
+            # short-circuits to the same unified message as a no-CRUD result
+            # so missing / hidden / no-permission look identical to the caller.
+            corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+            if corpus is None or not (
                 user.is_superuser
                 or corpus.creator_id == user.id
                 or user_has_permission_for_obj(
@@ -1420,11 +1418,10 @@ class AddTemplateToCorpus(graphene.Mutation):
             corpus_pk = from_global_id(corpus_id)[1]
             template_pk = from_global_id(template_id)[1]
 
-            # Get corpus with visibility filter to prevent IDOR
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-
-            # Check if user has update permission on the corpus
-            if not (
+            # Get corpus with visibility filter to prevent IDOR. ``None``
+            # collapses missing / hidden / no-CRUD into the same response.
+            corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+            if corpus is None or not (
                 user.is_superuser
                 or corpus.creator_id == user.id
                 or user_has_permission_for_obj(
@@ -1478,9 +1475,6 @@ class AddTemplateToCorpus(graphene.Mutation):
                 obj=action,
             )
 
-        except Corpus.DoesNotExist:
-            return AddTemplateToCorpus(ok=False, message="Corpus not found", obj=None)
-
         except CorpusActionTemplate.DoesNotExist:
             return AddTemplateToCorpus(
                 ok=False, message="Template not found or inactive", obj=None
@@ -1528,18 +1522,20 @@ class ToggleCorpusMemory(graphene.Mutation):
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(self, info, corpus_id, enabled) -> "ToggleCorpusMemory":
         user = info.context.user
+        # IDOR protection: same response whether the pk is malformed,
+        # corpus doesn't exist, is hidden from the caller, or the caller has
+        # READ but no CRUD on it.
+        not_found_msg = "Corpus not found or you don't have permission to modify it."
         try:
             corpus_pk = from_global_id(corpus_id)[1]
-            corpus = Corpus.objects.get(pk=corpus_pk)
-        except (Corpus.DoesNotExist, ValueError, IndexError):
-            return ToggleCorpusMemory(ok=False, message="Corpus not found", corpus=None)
+        except (ValueError, IndexError):
+            return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 
-        if not user_has_permission_for_obj(user, corpus, PermissionTypes.CRUD):
-            return ToggleCorpusMemory(
-                ok=False,
-                message="You don't have permission to modify this corpus",
-                corpus=None,
-            )
+        corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+        if corpus is None or not user_has_permission_for_obj(
+            user, corpus, PermissionTypes.CRUD
+        ):
+            return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 
         corpus.memory_enabled = enabled
         corpus.save(update_fields=["memory_enabled", "modified"])
