@@ -396,9 +396,9 @@ class AddDocumentsToCorpus(graphene.Mutation):
         try:
             user = info.context.user
             doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
-            corpus = Corpus.objects.visible_to_user(user).get(
-                pk=from_global_id(corpus_id)[1]
-            )
+            corpus = get_for_user_or_none(Corpus, from_global_id(corpus_id)[1], user)
+            if corpus is None:
+                return AddDocumentsToCorpus(message=not_found_msg, ok=False)
 
             # Delegate to service - handles permission checks, validation, dual-system update
             added_count, added_ids, error = (
@@ -419,8 +419,6 @@ class AddDocumentsToCorpus(graphene.Mutation):
                 ok=True,
             )
 
-        except Corpus.DoesNotExist:
-            return AddDocumentsToCorpus(message=not_found_msg, ok=False)
         except Exception as e:
             return AddDocumentsToCorpus(message=f"Error on upload: {e}", ok=False)
 
@@ -462,9 +460,9 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
             doc_pks = [
                 int(from_global_id(doc_id)[1]) for doc_id in document_ids_to_remove
             ]
-            corpus = Corpus.objects.visible_to_user(user).get(
-                pk=from_global_id(corpus_id)[1]
-            )
+            corpus = get_for_user_or_none(Corpus, from_global_id(corpus_id)[1], user)
+            if corpus is None:
+                return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
 
             # Delegate to service - handles permission checks, soft-delete, audit trail
             removed_count, error = DocumentFolderService.remove_documents_from_corpus(
@@ -482,8 +480,6 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 ok=True,
             )
 
-        except Corpus.DoesNotExist:
-            return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
         except Exception as e:
             return RemoveDocumentsFromCorpus(message=f"Error on removal: {e}", ok=False)
 
