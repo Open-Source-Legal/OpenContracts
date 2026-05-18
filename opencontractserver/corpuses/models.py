@@ -2011,8 +2011,8 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
         check guardian grants on the folder row, which never exist, so a
         shared reader would receive a silent ``False``. Delegate to
         ``self.corpus.user_can(user, perm)`` to keep the answer consistent
-        with the rest of the permissioning surface (``DocumentFolderService``
-        and every legacy call site already go through the corpus).
+        with the rest of the permissioning surface (``CorpusObjsService``
+        and every call site already go through the corpus).
 
         ``request`` is threaded through unchanged so the request-scoped
         ``PermissionQueryOptimizer`` (issue #1640) can cache across

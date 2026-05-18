@@ -351,7 +351,7 @@ class DeleteCorpusMutation(DRFDeletion):
 class AddDocumentsToCorpus(graphene.Mutation):
     """Add existing documents to a corpus.
 
-    Delegates to DocumentFolderService.add_documents_to_corpus() for:
+    Delegates to CorpusObjsService.add_documents_to_corpus() for:
     - Permission checking (corpus UPDATE permission)
     - Document validation (user owns or public)
     - Dual-system update (DocumentPath + corpus.add_document)
@@ -372,7 +372,9 @@ class AddDocumentsToCorpus(graphene.Mutation):
 
     @login_required
     def mutate(root, info, corpus_id, document_ids) -> "AddDocumentsToCorpus":
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         # Unified message prevents enumeration of corpora the caller cannot see/edit
         not_found_msg = (
@@ -387,7 +389,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
 
             # Delegate to service - handles permission checks, validation, dual-system update
             added_count, added_ids, error = (
-                DocumentFolderService.add_documents_to_corpus(
+                CorpusObjsService.add_documents_to_corpus(
                     user=user,
                     document_ids=doc_pks,
                     corpus=corpus,
@@ -413,7 +415,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
 class RemoveDocumentsFromCorpus(graphene.Mutation):
     """Remove documents from a corpus (soft-delete).
 
-    Delegates to DocumentFolderService.remove_documents_from_corpus() for:
+    Delegates to CorpusObjsService.remove_documents_from_corpus() for:
     - Permission checking (corpus UPDATE permission)
     - Soft-delete via DocumentPath (creates is_deleted=True record)
     - Audit trail
@@ -436,7 +438,9 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
     def mutate(
         root, info, corpus_id, document_ids_to_remove
     ) -> "RemoveDocumentsFromCorpus":
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         # Unified message prevents enumeration of corpora the caller cannot see/edit
         not_found_msg = (
@@ -452,7 +456,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
             )
 
             # Delegate to service - handles permission checks, soft-delete, audit trail
-            removed_count, error = DocumentFolderService.remove_documents_from_corpus(
+            removed_count, error = CorpusObjsService.remove_documents_from_corpus(
                 user=user,
                 document_ids=doc_pks,
                 corpus=corpus,

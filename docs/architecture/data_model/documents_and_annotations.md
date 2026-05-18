@@ -122,7 +122,7 @@ The central model representing an uploaded document (typically PDF).
 - Self-referential via `DocumentRelationship`
 
 **Adding documents to corpuses:**
-Use `corpus.add_document(document=doc, user=user)` or `DocumentFolderService.add_document_to_corpus()`.
+Use `corpus.add_document(document=doc, user=user)` or `CorpusObjsService.add_document_to_corpus()`.
 Never use `corpus.documents.add()` directly as it bypasses versioning and creates inconsistent state.
 
 ---

@@ -829,7 +829,7 @@ def get_scoped_resource_definitions(
     Get concrete resource definitions for a corpus-scoped MCP endpoint.
 
     Dynamically queries the database to list actual documents and threads
-    in the corpus as readable resources. Uses DocumentFolderService for
+    in the corpus as readable resources. Uses CorpusObjsService for
     proper document retrieval.
 
     Args:
@@ -845,7 +845,7 @@ def get_scoped_resource_definitions(
         Conversation,
         ConversationTypeChoices,
     )
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     resources: list[Resource] = []
@@ -866,8 +866,8 @@ def get_scoped_resource_definitions(
         )
     )
 
-    # Add document resources using DocumentFolderService
-    documents = DocumentFolderService.get_corpus_documents(
+    # Add document resources using CorpusObjsService
+    documents = CorpusObjsService.get_corpus_documents(
         user=effective_user, corpus=corpus, include_deleted=False
     )[:limit]
     for doc in documents:

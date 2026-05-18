@@ -45,7 +45,7 @@ class TestMoveDocument(TestCase):
             folder=self.folder_a,
         )
         # NOTE: Document-level permission grant is not what's being tested here.
-        # move_document delegates to DocumentFolderService.move_document_to_folder,
+        # move_document delegates to CorpusObjsService.move_document_to_folder,
         # which checks corpus-level write permission.  self.user passes that check
         # because they are the corpus creator.  We still grant document CRUD for
         # completeness, but the move succeeds due to corpus ownership.
@@ -207,7 +207,7 @@ class TestMoveDocument(TestCase):
 
         Grants other_user READ permission on both the corpus and the document
         so visibility checks pass, but does NOT grant corpus write permission.
-        DocumentFolderService.move_document_to_folder rejects the move because
+        CorpusObjsService.move_document_to_folder rejects the move because
         other_user is not the corpus creator, not a superuser, and has no
         explicit UPDATE/CRUD permission on the corpus.
         """

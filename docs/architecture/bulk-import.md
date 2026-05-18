@@ -31,9 +31,9 @@ The validation produces a `ZipManifest` containing:
 Folder structure is created in a single transaction:
 
 ```python
-from opencontractserver.corpuses.folder_service import DocumentFolderService
+from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 
-folder_map, created, reused, error = DocumentFolderService.create_folder_structure_from_paths(
+folder_map, created, reused, error = CorpusObjsService.create_folder_structure_from_paths(
     user=user,
     corpus=corpus,
     folder_paths=manifest.folder_paths,
