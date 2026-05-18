@@ -64,10 +64,7 @@ from opencontractserver.types.enums import (
 )
 from opencontractserver.users.models import UserExport
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -520,10 +517,7 @@ class RetryDocumentProcessing(graphene.Mutation):
         from opencontractserver.documents.models import DocumentProcessingStatus
         from opencontractserver.tasks.doc_tasks import retry_document_processing
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import (
-            get_for_user_or_none,
-            user_has_permission_for_obj,
-        )
+        from opencontractserver.utils.permissioning import get_for_user_or_none
 
         try:
             # Decode global ID
@@ -547,19 +541,16 @@ class RetryDocumentProcessing(graphene.Mutation):
                     document=None,
                 )
 
-            # Check user has UPDATE permission
-            if (
-                document.creator != info.context.user
-                and not info.context.user.is_superuser
+            # Check user has UPDATE permission (user_can handles creator /
+            # superuser short-circuits internally).
+            if not document.user_can(
+                info.context.user, PermissionTypes.UPDATE, request=info.context
             ):
-                if not user_has_permission_for_obj(
-                    info.context.user, document, PermissionTypes.UPDATE
-                ):
-                    return RetryDocumentProcessing(
-                        ok=False,
-                        message="You don't have permission to retry processing for this document",
-                        document=None,
-                    )
+                return RetryDocumentProcessing(
+                    ok=False,
+                    message="You don't have permission to retry processing for this document",
+                    document=None,
+                )
 
             # Trigger the retry task
             retry_document_processing.delay(
@@ -792,7 +783,7 @@ class ImportZipToCorpus(graphene.Mutation):
                 )
 
             # Check permission on corpus
-            if not user_has_permission_for_obj(user, corpus, PermissionTypes.EDIT):
+            if not corpus.user_can(user, PermissionTypes.EDIT, request=info.context):
                 return ImportZipToCorpus(
                     ok=False,
                     message=corpus_not_found_msg,
@@ -995,11 +986,8 @@ class StartCorpusExport(graphene.Mutation):
                     ok=False, message="Corpus not found", export=None
                 )
 
-            if not user_has_permission_for_obj(
-                info.context.user,
-                corpus,
-                PermissionTypes.READ,
-                include_group_permissions=True,
+            if not corpus.user_can(
+                info.context.user, PermissionTypes.READ, request=info.context
             ):
                 return StartCorpusExport(
                     ok=False, message="Corpus not found", export=None
@@ -1414,11 +1402,8 @@ class RestoreDocumentToVersion(graphene.Mutation):
                 )
 
             # Check UPDATE permission on both document and corpus
-            if not user_has_permission_for_obj(
-                user,
-                old_version,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if not old_version.user_can(
+                user, PermissionTypes.UPDATE, request=info.context
             ):
                 return RestoreDocumentToVersion(
                     ok=False,
@@ -1427,9 +1412,7 @@ class RestoreDocumentToVersion(graphene.Mutation):
                     new_version_number=None,
                 )
 
-            if not user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not corpus.user_can(user, PermissionTypes.UPDATE, request=info.context):
                 return RestoreDocumentToVersion(
                     ok=False,
                     message=not_found_msg,

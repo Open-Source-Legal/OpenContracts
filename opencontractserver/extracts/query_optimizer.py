@@ -43,7 +43,6 @@ class MetadataQueryOptimizer:
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Superusers have all permissions
         if user.is_superuser:
@@ -63,18 +62,10 @@ class MetadataQueryOptimizer:
         # Check document permissions (primary)
         try:
             document = Document.objects.get(id=document_id)
-            doc_read = user_has_permission_for_obj(
-                user, document, PermissionTypes.READ, include_group_permissions=True
-            )
-            doc_create = user_has_permission_for_obj(
-                user, document, PermissionTypes.CREATE, include_group_permissions=True
-            )
-            doc_update = user_has_permission_for_obj(
-                user, document, PermissionTypes.UPDATE, include_group_permissions=True
-            )
-            doc_delete = user_has_permission_for_obj(
-                user, document, PermissionTypes.DELETE, include_group_permissions=True
-            )
+            doc_read = document.user_can(user, PermissionTypes.READ)
+            doc_create = document.user_can(user, PermissionTypes.CREATE)
+            doc_update = document.user_can(user, PermissionTypes.UPDATE)
+            doc_delete = document.user_can(user, PermissionTypes.DELETE)
         except Document.DoesNotExist:
             return False, False, False, False
 
@@ -85,18 +76,10 @@ class MetadataQueryOptimizer:
         # Check corpus permissions (secondary) and apply most restrictive
         try:
             corpus = Corpus.objects.get(id=corpus_id)
-            corpus_read = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.READ, include_group_permissions=True
-            )
-            corpus_create = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.CREATE, include_group_permissions=True
-            )
-            corpus_update = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-            )
-            corpus_delete = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.DELETE, include_group_permissions=True
-            )
+            corpus_read = corpus.user_can(user, PermissionTypes.READ)
+            corpus_create = corpus.user_can(user, PermissionTypes.CREATE)
+            corpus_update = corpus.user_can(user, PermissionTypes.UPDATE)
+            corpus_delete = corpus.user_can(user, PermissionTypes.DELETE)
 
             # Apply MIN logic: effective = MIN(doc_perm, corpus_perm)
             return (
@@ -188,7 +171,6 @@ class MetadataQueryOptimizer:
         """
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         try:
             corpus = Corpus.objects.get(pk=corpus_id)
@@ -198,9 +180,7 @@ class MetadataQueryOptimizer:
                 if user.is_anonymous:
                     if not corpus.is_public:
                         return Column.objects.none()
-                elif not user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.READ, include_group_permissions=True
-                ):
+                elif not corpus.user_can(user, PermissionTypes.READ):
                     return Column.objects.none()
 
             # Get metadata fieldset
@@ -297,7 +277,6 @@ class MetadataQueryOptimizer:
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         result: dict[int, list[Datacell]] = defaultdict(list)
 
@@ -317,9 +296,7 @@ class MetadataQueryOptimizer:
                 if not corpus.is_public:
                     return result
             # Authenticated user corpus check
-            elif not user_has_permission_for_obj(
-                user, corpus, PermissionTypes.READ, include_group_permissions=True
-            ):
+            elif not corpus.user_can(user, PermissionTypes.READ, request=context):
                 return result
 
         # Check if corpus has metadata schema
@@ -485,7 +462,6 @@ class MetadataQueryOptimizer:
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Anonymous users cannot mutate
         if user.is_anonymous:
@@ -502,28 +478,25 @@ class MetadataQueryOptimizer:
             return False, "Corpus not found"
 
         # Check document visibility using the query resolver pattern.
-        # IMPORTANT: We use visible_to_user() instead of user_has_permission_for_obj()
-        # because corpus-scoped documents may not have explicit guardian permissions.
-        # visible_to_user() handles: creator access, is_public, guardian permissions,
-        # and corpus membership - the full visibility model.
+        # IMPORTANT: We use visible_to_user() instead of the per-object user_can()
+        # check because corpus-scoped documents may not have explicit guardian
+        # permissions. visible_to_user() handles: creator access, is_public,
+        # guardian permissions, and corpus membership — the full visibility model.
         doc_visible = (
             Document.objects.visible_to_user(user).filter(id=document_id).exists()
         )
         if not doc_visible:
             return False, "Document not found or not accessible"
 
-        # Check corpus permission (UPDATE or DELETE based on operation)
-        # For corpus, we DO use user_has_permission_for_obj because corpus permissions
-        # are always explicit (not inherited from a parent context).
+        # Check corpus permission (UPDATE or DELETE based on operation).
+        # For corpus, we use the per-object user_can() check because corpus
+        # permissions are always explicit (not inherited from a parent context).
         corpus_perm_type = (
             PermissionTypes.DELETE
             if permission_type == "DELETE"
             else PermissionTypes.UPDATE
         )
-        corpus_has_perm = user_has_permission_for_obj(
-            user, corpus, corpus_perm_type, include_group_permissions=True
-        )
-        if not corpus_has_perm:
+        if not corpus.user_can(user, corpus_perm_type):
             return False, f"You don't have {permission_type} permission on this corpus"
 
         return True, ""

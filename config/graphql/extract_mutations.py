@@ -33,7 +33,6 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 logger = logging.getLogger(__name__)
@@ -201,9 +200,7 @@ class CreateMetadataColumn(graphene.Mutation):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
-            if not user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not corpus.user_can(user, PermissionTypes.UPDATE, request=info.context):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Get or create metadata fieldset for corpus
@@ -310,9 +307,7 @@ class UpdateMetadataColumn(graphene.Mutation):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Check permissions
-            if not user_has_permission_for_obj(
-                user, column, PermissionTypes.UPDATE, include_group_permissions=True
-            ):
+            if not column.user_can(user, PermissionTypes.UPDATE, request=info.context):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Ensure it's a manual entry column
@@ -861,11 +856,8 @@ class UpdateExtractMutation(graphene.Mutation):
 
         extract_pk = from_global_id(id)[1]
         extract = get_for_user_or_none(Extract, extract_pk, user)
-        if extract is None or not user_has_permission_for_obj(
-            user_val=user,
-            instance=extract,
-            permission=PermissionTypes.UPDATE,
-            include_group_permissions=True,
+        if extract is None or not extract.user_can(
+            user, PermissionTypes.UPDATE, request=info.context
         ):
             return UpdateExtractMutation(
                 ok=False, message=extract_not_found_msg, obj=None

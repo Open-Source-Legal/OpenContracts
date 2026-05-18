@@ -35,7 +35,6 @@ from opencontractserver.utils.mention_parser import (
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 logger = logging.getLogger(__name__)
@@ -302,8 +301,8 @@ class ReplyToMessageMutation(graphene.Mutation):
             # SECURITY: Check permissions FIRST to prevent information disclosure
             # about locked thread status via different error messages (IDOR prevention).
             # Uses same generic message for both permission denied and locked states.
-            if not user_has_permission_for_obj(
-                user, conversation, PermissionTypes.READ
+            if not conversation.user_can(
+                user, PermissionTypes.READ, request=info.context
             ):
                 return ReplyToMessageMutation(
                     ok=False,
@@ -392,8 +391,8 @@ class DeleteConversationMutation(graphene.Mutation):
                 )
 
             # Check if user has permission to delete
-            has_delete_permission = user_has_permission_for_obj(
-                user, conversation, PermissionTypes.DELETE
+            has_delete_permission = conversation.user_can(
+                user, PermissionTypes.DELETE, request=info.context
             )
             is_moderator = conversation.can_moderate(user)
 
@@ -507,8 +506,8 @@ class UpdateMessageMutation(graphene.Mutation):
 
             # Check if user has permission to update (CRUD includes update)
             # Moderators can always edit messages in conversations they moderate
-            has_update_permission = user_has_permission_for_obj(
-                user, chat_message, PermissionTypes.CRUD
+            has_update_permission = chat_message.user_can(
+                user, PermissionTypes.CRUD, request=info.context
             )
             is_moderator = chat_message.conversation.can_moderate(user)
 
@@ -636,8 +635,8 @@ class DeleteMessageMutation(graphene.Mutation):
                 )
 
             # Check if user has permission to delete
-            has_delete_permission = user_has_permission_for_obj(
-                user, chat_message, PermissionTypes.DELETE
+            has_delete_permission = chat_message.user_can(
+                user, PermissionTypes.DELETE, request=info.context
             )
             is_moderator = chat_message.conversation.can_moderate(user)
 

@@ -22,7 +22,6 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 logger = logging.getLogger(__name__)
@@ -246,16 +245,13 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             # error messages (IDOR mitigation — see
             # docs/permissioning/consolidated_permissioning_guide.md).
             # Phase D rule (#1658): READ is a precondition for UPDATE — the
-            # helper enforces it; the explicit user_has_permission_for_obj
-            # below adds the UPDATE check on top. Both DoesNotExist paths
-            # share one ``except`` handler so the response is unified.
+            # helper enforces it; the explicit ``labelset.user_can`` below
+            # adds the UPDATE check on top. Both DoesNotExist paths share
+            # one ``except`` handler so the response is unified.
             labelset_pk = from_global_id(labelset_id)[1]
             labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
-            if labelset is None or not user_has_permission_for_obj(
-                info.context.user,
-                labelset,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if labelset is None or not labelset.user_can(
+                info.context.user, PermissionTypes.UPDATE, request=info.context
             ):
                 raise LabelSet.DoesNotExist()
 
@@ -357,11 +353,8 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
             # Phase D rule (#1658): READ is a precondition for UPDATE.
             labelset_pk = from_global_id(labelset_id)[1]
             labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
-            if labelset is None or not user_has_permission_for_obj(
-                user,
-                labelset,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            if labelset is None or not labelset.user_can(
+                user, PermissionTypes.UPDATE, request=info.context
             ):
                 raise LabelSet.DoesNotExist()
             labelset.annotation_labels.remove(*label_pks)

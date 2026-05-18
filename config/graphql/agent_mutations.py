@@ -17,7 +17,6 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,14 +91,8 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
             if corpus_id:
                 corpus_pk = from_global_id(corpus_id)[1]
                 corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-                if corpus is None or (
-                    not user.is_superuser
-                    and not user_has_permission_for_obj(
-                        user,
-                        corpus,
-                        PermissionTypes.CRUD,
-                        include_group_permissions=True,
-                    )
+                if corpus is None or not corpus.user_can(
+                    user, PermissionTypes.CRUD, request=info.context
                 ):
                     return CreateAgentConfigurationMutation(
                         ok=False,
@@ -208,11 +201,8 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
         try:
             agent_pk = from_global_id(agent_id)[1]
             agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
-            if agent is None or (
-                not user.is_superuser
-                and not user_has_permission_for_obj(
-                    user, agent, PermissionTypes.CRUD, include_group_permissions=True
-                )
+            if agent is None or not agent.user_can(
+                user, PermissionTypes.CRUD, request=info.context
             ):
                 return UpdateAgentConfigurationMutation(
                     ok=False,
@@ -277,11 +267,8 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
         try:
             agent_pk = from_global_id(agent_id)[1]
             agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
-            if agent is None or (
-                not user.is_superuser
-                and not user_has_permission_for_obj(
-                    user, agent, PermissionTypes.CRUD, include_group_permissions=True
-                )
+            if agent is None or not agent.user_can(
+                user, PermissionTypes.CRUD, request=info.context
             ):
                 return DeleteAgentConfigurationMutation(
                     ok=False,

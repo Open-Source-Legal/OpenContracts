@@ -100,7 +100,9 @@ class CreateIngestionSourceMutation(graphene.Mutation):
                 ingestion_source=None,
             )
 
-        set_permissions_for_obj_to_user(user, source, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(
+            user, source, [PermissionTypes.CRUD], is_new=True, request=info.context
+        )
 
         return CreateIngestionSourceMutation(
             ok=True,

@@ -38,7 +38,6 @@ from opencontractserver.utils.corpus_collector import collect_corpus_objects
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,8 +79,8 @@ class SetCorpusVisibility(graphene.Mutation):
         # can READ but lacks PERMISSION. Phase D rule (#1658): READ is a
         # precondition for any other permission op — granting PERMISSION
         # without READ is unsupported. ``get_for_user_or_none`` enforces
-        # the READ gate; the explicit user_has_permission_for_obj below
-        # adds the PERMISSION check on top.
+        # the READ gate; the ``corpus.user_can`` call below adds the
+        # PERMISSION check on top.
         not_found_msg = "Corpus not found or you don't have permission"
 
         try:
@@ -93,12 +92,8 @@ class SetCorpusVisibility(graphene.Mutation):
         if corpus is None:
             return SetCorpusVisibility(ok=False, message=not_found_msg)
 
-        can_change_visibility = (
-            user.is_superuser
-            or corpus.creator_id == user.id
-            or user_has_permission_for_obj(
-                user, corpus, PermissionTypes.PERMISSION, include_group_permissions=True
-            )
+        can_change_visibility = corpus.user_can(
+            user, PermissionTypes.PERMISSION, request=info.context
         )
 
         if not can_change_visibility:
@@ -509,15 +504,12 @@ class StartCorpusFork(graphene.Mutation):
 
             # IDOR protection: collapse missing pk, hidden pk, and no-READ
             # into the same response. ``get_for_user_or_none`` enforces the
-            # READ visibility filter so the explicit user_has_permission_for_obj
-            # check below is redundant — kept for defense in depth in case a
+            # READ visibility filter so the explicit ``corpus.user_can`` check
+            # below is redundant — kept for defense in depth in case a
             # per-model ``visible_to_user`` ever drifts from the READ codename.
             corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
-            if corpus is None or not user_has_permission_for_obj(
-                info.context.user,
-                corpus,
-                PermissionTypes.READ,
-                include_group_permissions=True,
+            if corpus is None or not corpus.user_can(
+                info.context.user, PermissionTypes.READ, request=info.context
             ):
                 return StartCorpusFork(
                     ok=False, message="Corpus not found", new_corpus=None
@@ -813,12 +805,8 @@ class CreateCorpusAction(graphene.Mutation):
             # short-circuits to the same unified message as a no-CRUD result
             # so missing / hidden / no-permission look identical to the caller.
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-            if corpus is None or not (
-                user.is_superuser
-                or corpus.creator_id == user.id
-                or user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
-                )
+            if corpus is None or not corpus.user_can(
+                user, PermissionTypes.CRUD, request=info.context
             ):
                 return CreateCorpusAction(
                     ok=False,
@@ -1406,12 +1394,8 @@ class AddTemplateToCorpus(graphene.Mutation):
             # Get corpus with visibility filter to prevent IDOR. ``None``
             # collapses missing / hidden / no-CRUD into the same response.
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-            if corpus is None or not (
-                user.is_superuser
-                or corpus.creator_id == user.id
-                or user_has_permission_for_obj(
-                    user, corpus, PermissionTypes.CRUD, include_group_permissions=True
-                )
+            if corpus is None or not corpus.user_can(
+                user, PermissionTypes.CRUD, request=info.context
             ):
                 return AddTemplateToCorpus(
                     ok=False,
@@ -1517,8 +1501,8 @@ class ToggleCorpusMemory(graphene.Mutation):
             return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 
         corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-        if corpus is None or not user_has_permission_for_obj(
-            user, corpus, PermissionTypes.CRUD
+        if corpus is None or not corpus.user_can(
+            user, PermissionTypes.CRUD, request=info.context
         ):
             return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 
