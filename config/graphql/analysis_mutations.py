@@ -20,7 +20,10 @@ from opencontractserver.tasks import delete_analysis_and_annotations_task
 from opencontractserver.tasks.corpus_tasks import process_analyzer
 from opencontractserver.tasks.permissioning_tasks import make_analysis_public_task
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    user_has_permission_for_obj,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,16 +184,24 @@ class DeleteAnalysisMutation(graphene.Mutation):
         # ok = False
         # message = "Could not complete"
 
-        analysis_pk = from_global_id(id)[1]
-        analysis = Analysis.objects.visible_to_user(info.context.user).get(
-            id=analysis_pk
-        )
+        # Unified message blocks IDOR enumeration: same response whether the
+        # analysis doesn't exist, the caller can't see it, or they can see
+        # it but lack DELETE permission. Previously the three branches raised
+        # different exception types (Analysis.DoesNotExist vs PermissionError),
+        # leaking object existence to anyone with a guessable pk.
+        not_found_msg = "Analysis not found or you don't have permission to delete it."
 
-        # Check the object isn't locked by another user
+        analysis_pk = from_global_id(id)[1]
+        analysis = get_for_user_or_none(Analysis, analysis_pk, info.context.user)
+        if analysis is None:
+            raise PermissionError(not_found_msg)
+
+        # Lock check stays its own error path — the lock is observable state
+        # to anyone who can READ the analysis (so it does NOT leak existence).
         if analysis.user_lock is not None:
             if info.context.user.id != analysis.user_lock_id:
                 raise PermissionError(
-                    "Specified object is locked by another user. Cannot be " "deleted."
+                    "Specified object is locked by another user. Cannot be deleted."
                 )
 
         # We ARE OK with deleting something that's been locked by the backend, however, as sh@t happens, and we want
@@ -202,7 +213,7 @@ class DeleteAnalysisMutation(graphene.Mutation):
             permission=PermissionTypes.DELETE,
             include_group_permissions=True,
         ):
-            raise PermissionError("You don't have permission to delete this analysis.")
+            raise PermissionError(not_found_msg)
 
         # Kick off an async task to delete the analysis (as it can be very large)
         delete_analysis_and_annotations_task.si(analysis_pk=analysis_pk).apply_async()
