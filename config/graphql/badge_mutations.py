@@ -16,6 +16,7 @@ from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
     set_permissions_for_obj_to_user,
     user_has_permission_for_obj,
 )
@@ -373,38 +374,34 @@ class AwardBadgeMutation(graphene.Mutation):
 
         try:
             badge_pk = from_global_id(badge_id)[1]
-            # Use visible_to_user() to prevent IDOR enumeration
-            try:
-                badge = Badge.objects.visible_to_user(awarder).get(pk=badge_pk)
-            except Badge.DoesNotExist:
+            badge = get_for_user_or_none(Badge, badge_pk, awarder)
+            if badge is None:
                 return AwardBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                    user_badge=None,
+                    ok=False, message="Badge not found", user_badge=None
                 )
 
             recipient_pk = from_global_id(user_id)[1]
-            # IDOR FIX: Get user, but don't reveal existence vs. permission difference
+            # NB: we deliberately do NOT route this lookup through
+            # ``get_for_user_or_none``. ``UserProfileManager.visible_to_user``
+            # has no superuser bypass — applying it would lock a superuser
+            # awarder out from awarding badges to private-profile users,
+            # which is a legitimate workflow. Bare ``User.objects.get`` is
+            # retained; the mutation is still IDOR-safe via the unified
+            # message returned on DoesNotExist.
             try:
                 recipient = User.objects.get(pk=recipient_pk)
             except User.DoesNotExist:
                 return AwardBadgeMutation(
-                    ok=False,
-                    message="User not found",
-                    user_badge=None,
+                    ok=False, message="User not found", user_badge=None
                 )
 
             corpus = None
             if corpus_id:
                 corpus_pk = from_global_id(corpus_id)[1]
-                # Use visible_to_user to prevent IDOR
-                try:
-                    corpus = Corpus.objects.visible_to_user(awarder).get(pk=corpus_pk)
-                except Corpus.DoesNotExist:
+                corpus = get_for_user_or_none(Corpus, corpus_pk, awarder)
+                if corpus is None:
                     return AwardBadgeMutation(
-                        ok=False,
-                        message="Corpus not found",
-                        user_badge=None,
+                        ok=False, message="Corpus not found", user_badge=None
                     )
 
             # Permission check: must be moderator/owner of the corpus or superuser
