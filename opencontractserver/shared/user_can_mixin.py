@@ -31,7 +31,14 @@ contract stays consistent across surfaces.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+    from django.db.models import Model
+
+    from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.users.models import User as UserModel
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +121,9 @@ class UserCanMixin:
 
     def user_can(
         self,
-        user: Any,
-        instance: Any,
-        permission: Any,
+        user: int | str | UserModel | AnonymousUser | None,
+        instance: Model,
+        permission: PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,
@@ -191,8 +198,8 @@ class InstanceUserCanMixin:
 
     def user_can(
         self,
-        user: Any,
-        permission: Any,
+        user: int | str | UserModel | AnonymousUser | None,
+        permission: PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,

@@ -168,7 +168,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
 
         has_perm, extract = ExtractQueryOptimizer.check_extract_permission(
-            info.context.user, int(id)
+            info.context.user, int(id), context=info.context
         )
         return extract if has_perm else None
 
@@ -338,7 +338,7 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         has_perm, analysis = AnalysisQueryOptimizer.check_analysis_permission(
-            info.context.user, int(id)
+            info.context.user, int(id), context=info.context
         )
         return analysis if has_perm else None
 

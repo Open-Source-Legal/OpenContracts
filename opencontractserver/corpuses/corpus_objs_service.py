@@ -1403,7 +1403,7 @@ class CorpusObjsService:
             Set of path strings currently occupied in ``directory``.
         """
         # Nested import to avoid circular dependency:
-        # folder_service -> documents.models -> corpuses.models -> folder_service
+        # corpus_objs_service -> documents.models -> corpuses.models -> corpus_objs_service
         from opencontractserver.documents.models import DocumentPath
 
         qs = DocumentPath.objects.filter(

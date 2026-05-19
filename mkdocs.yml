@@ -102,7 +102,6 @@ nav:
       - Corpus Export Format Spec: architecture/corpus-export-format-spec.md
       - Corpus Export/Import V2: architecture/corpus_export_import_v2.md
       - Document & Corpus Lifecycle: architecture/document_corpus_lifecycle.md
-      - Document Folder Service: architecture/document_folder_service.md
       - Document Annotation Index: architecture/document_annotation_index.md
       - Structural vs Non-Structural: architecture/structural_vs_non_structural_annotations.md
       - Embeddings Creation & Retrieval: architecture/embeddings_creation_and_retrieval.md

@@ -43,6 +43,7 @@ class DocumentActionsQueryOptimizer:
         user,
         document_id: int,
         corpus_id: Optional[int] = None,
+        context: Optional[Any] = None,
     ) -> dict:
         """
         Get all actions/extracts/analyses for a document with proper permission filtering.
@@ -56,6 +57,9 @@ class DocumentActionsQueryOptimizer:
             user: The requesting user
             document_id: The document ID to get actions for
             corpus_id: Optional corpus ID to filter by
+            context: Optional GraphQL context (``info.context``) threaded into
+                ``user_can`` and downstream optimizer helpers so Tier-2
+                request-scoped permission caching applies.
 
         Returns:
             dict with:
@@ -85,7 +89,7 @@ class DocumentActionsQueryOptimizer:
         # Check document permission
         from opencontractserver.types.enums import PermissionTypes
 
-        if not document.user_can(user, PermissionTypes.READ):
+        if not document.user_can(user, PermissionTypes.READ, request=context):
             return result
 
         # Get corpus if provided and check permission
@@ -93,7 +97,7 @@ class DocumentActionsQueryOptimizer:
         if corpus_id:
             try:
                 corpus = Corpus.objects.get(id=corpus_id)
-                if not corpus.user_can(user, PermissionTypes.READ):
+                if not corpus.user_can(user, PermissionTypes.READ, request=context):
                     return result
             except Corpus.DoesNotExist:
                 # No corpus found, but document permission passed
@@ -108,7 +112,7 @@ class DocumentActionsQueryOptimizer:
 
         # Get extracts using ExtractQueryOptimizer
         visible_extracts = ExtractQueryOptimizer.get_visible_extracts(
-            user, corpus_id=corpus_id
+            user, corpus_id=corpus_id, context=context
         )
         # Filter to extracts that include this document
         result["extracts"] = list(visible_extracts.filter(documents=document))
@@ -116,7 +120,7 @@ class DocumentActionsQueryOptimizer:
         # Get analysis rows
         # Filter to analyses user can see, then get their rows for this document
         visible_analyses = AnalysisQueryOptimizer.get_visible_analyses(
-            user, corpus_id=corpus_id
+            user, corpus_id=corpus_id, context=context
         )
         result["analysis_rows"] = list(
             document.rows.filter(analysis__in=visible_analyses).select_related(

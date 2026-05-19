@@ -242,8 +242,6 @@ docker compose -f production.yml up
 
    Calling `corpus.get_documents()` directly emits a `DeprecationWarning`. Internal/task code without a user must call `corpus._get_active_documents()` explicitly to opt out. Never fuse `corpus.get_documents().values_list("id", flat=True)` with `Document.objects.visible_to_user(user)` — use `CorpusObjsService.get_corpus_document_by_slug` / `get_corpus_document_by_id` / `is_document_in_corpus` instead.
 
-   `DocumentFolderService` survives as a backwards-compat alias subclass and will be removed once all imports migrate (tracked via follow-up issue).
-
 ## Testing Patterns
 
 ### Manual Test Scripts

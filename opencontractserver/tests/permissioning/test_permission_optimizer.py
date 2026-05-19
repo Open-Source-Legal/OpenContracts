@@ -1085,11 +1085,11 @@ class Tier1PicklingScrubTestCase(TransactionTestCase):
         self.assertNotIn(INSTANCE_PERMS_CACHE_ATTR, state)
 
 
-class FolderServiceRequestKwargCoverageTestCase(TransactionTestCase):
+class CorpusObjsServiceRequestKwargCoverageTestCase(TransactionTestCase):
     """Smoke coverage for the ``request=`` kwarg flowing through the
-    ``DocumentFolderService`` permission gates.
+    ``CorpusObjsService`` permission gates.
 
-    The folder service methods accept ``request=request`` so the Tier 2
+    The corpus-objs service methods accept ``request=request`` so the Tier 2
     optimizer can be shared across folder-related GraphQL resolvers in
     the same request. Verify the parameter is accepted and the denial
     branch fires when the user has no access.
@@ -1108,26 +1108,30 @@ class FolderServiceRequestKwargCoverageTestCase(TransactionTestCase):
         self.factory = RequestFactory()
 
     def test_get_visible_folders_denies_outsider(self):
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         request = self.factory.get("/graphql/")
         request.user = self.outsider
         # Permission-denied path returns an empty QuerySet (NOT raise) so
         # GraphQL resolvers can serialize cleanly. Exercise the branch.
-        result = DocumentFolderService.get_visible_folders(
+        result = CorpusObjsService.get_visible_folders(
             self.outsider, self.corpus.id, request=request
         )
         self.assertEqual(list(result), [])
 
     def test_get_visible_folders_allows_creator(self):
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         request = self.factory.get("/graphql/")
         request.user = self.creator
         # Creator can list folders — returned queryset is permitted but
         # may be empty when no folder rows exist; .list() materialises
         # without raising.
-        result = DocumentFolderService.get_visible_folders(
+        result = CorpusObjsService.get_visible_folders(
             self.creator, self.corpus.id, request=request
         )
         # Either a list or a queryset; both are acceptable — just exercise

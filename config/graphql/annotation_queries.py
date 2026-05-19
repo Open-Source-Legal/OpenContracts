@@ -110,6 +110,7 @@ class AnnotationQueryMixin:
                 user=info.context.user,
                 structural=structural,
                 analysis_isnull=analysis_isnull,
+                context=info.context,
             )
             # Mark filters already applied by optimizer to prevent double-filtering
             corpus_id = None

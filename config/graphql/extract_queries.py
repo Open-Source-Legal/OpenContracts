@@ -158,7 +158,7 @@ class ExtractQueryMixin:
 
         django_pk = from_global_id(kwargs["id"])[1]
         has_perm, extract = ExtractQueryOptimizer.check_extract_permission(
-            info.context.user, int(django_pk)
+            info.context.user, int(django_pk), context=info.context
         )
         return extract if has_perm else None
 
@@ -181,7 +181,7 @@ class ExtractQueryMixin:
             corpus_django_pk = None
 
         return ExtractQueryOptimizer.get_visible_extracts(
-            info.context.user, corpus_id=corpus_django_pk
+            info.context.user, corpus_id=corpus_django_pk, context=info.context
         )
 
     compare_extracts = graphene.Field(
@@ -204,8 +204,12 @@ class ExtractQueryMixin:
 
         # Permission check leverages the same optimizer the extract node
         # resolver uses, so visibility rules stay consistent.
-        a_ok, extract_a = ExtractQueryOptimizer.check_extract_permission(user, a_pk)
-        b_ok, extract_b = ExtractQueryOptimizer.check_extract_permission(user, b_pk)
+        a_ok, extract_a = ExtractQueryOptimizer.check_extract_permission(
+            user, a_pk, context=info.context
+        )
+        b_ok, extract_b = ExtractQueryOptimizer.check_extract_permission(
+            user, b_pk, context=info.context
+        )
         if not (a_ok and b_ok and extract_a and extract_b):
             return None
 
@@ -425,7 +429,7 @@ class ExtractQueryMixin:
 
             django_pk = from_global_id(kwargs["id"])[1]
             has_perm, analysis = AnalysisQueryOptimizer.check_analysis_permission(
-                info.context.user, int(django_pk)
+                info.context.user, int(django_pk), context=info.context
             )
             return analysis if has_perm else None
 
@@ -446,5 +450,5 @@ class ExtractQueryMixin:
                 corpus_django_pk = None
 
             return AnalysisQueryOptimizer.get_visible_analyses(
-                info.context.user, corpus_id=corpus_django_pk
+                info.context.user, corpus_id=corpus_django_pk, context=info.context
             )

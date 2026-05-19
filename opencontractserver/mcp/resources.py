@@ -65,7 +65,7 @@ def get_document_resource(
     URI: document://{corpus_slug}/{document_slug}
     Returns: JSON with document metadata and extracted text
 
-    Note: Document membership is resolved through DocumentFolderService so
+    Note: Document membership is resolved through CorpusObjsService so
     corpus read access and current DocumentPath state are enforced consistently
     with list_documents.
     """
@@ -119,7 +119,7 @@ def get_annotation_resource(
     URI: annotation://{corpus_slug}/{document_slug}/{annotation_id}
     Returns: JSON with annotation details including label and bounding box
 
-    Note: Document membership is resolved through DocumentFolderService, then
+    Note: Document membership is resolved through CorpusObjsService, then
     annotations are filtered through AnnotationQueryOptimizer's effective
     permission checks.
     """
