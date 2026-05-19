@@ -215,13 +215,15 @@ class CorpusQueryMixin:
         Get all folders in a corpus.
         Returns flat list - frontend reconstructs tree from parentId relationships.
 
-        Delegates to DocumentFolderService.get_visible_folders() for
+        Delegates to CorpusObjsService.get_visible_folders() for
         permission checking and query optimization.
         """
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         _, corpus_pk = from_global_id(corpus_id)
-        return DocumentFolderService.get_visible_folders(
+        return CorpusObjsService.get_visible_folders(
             user=info.context.user,
             corpus_id=int(corpus_pk),
             request=info.context,
@@ -238,13 +240,15 @@ class CorpusQueryMixin:
         """
         Get a single folder by ID with permission check.
 
-        Delegates to DocumentFolderService.get_folder_by_id() for
+        Delegates to CorpusObjsService.get_folder_by_id() for
         permission checking and IDOR protection.
         """
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         _, folder_pk = from_global_id(id)
-        return DocumentFolderService.get_folder_by_id(
+        return CorpusObjsService.get_folder_by_id(
             user=info.context.user,
             folder_id=int(folder_pk),
             request=info.context,
@@ -261,13 +265,15 @@ class CorpusQueryMixin:
         """
         Get all soft-deleted documents in a corpus for trash folder view.
 
-        Delegates to DocumentFolderService.get_deleted_documents() for
+        Delegates to CorpusObjsService.get_deleted_documents() for
         permission checking and query optimization.
         """
-        from opencontractserver.corpuses.folder_service import DocumentFolderService
+        from opencontractserver.corpuses.corpus_objs_service import (
+            CorpusObjsService,
+        )
 
         _, corpus_pk = from_global_id(corpus_id)
-        return DocumentFolderService.get_deleted_documents(
+        return CorpusObjsService.get_deleted_documents(
             user=info.context.user,
             corpus_id=int(corpus_pk),
             request=info.context,

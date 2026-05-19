@@ -213,7 +213,7 @@ def import_corpus_folders(
     Import corpus folder hierarchy.
 
     Reconstructs tree structure from flat list with parent references.
-    Uses DocumentFolderService.create_folder() for folder creation.
+    Uses CorpusObjsService.create_folder() for folder creation.
 
     Args:
         folders_data: List of CorpusFolderExport dicts
@@ -223,7 +223,7 @@ def import_corpus_folders(
     Returns:
         Mapping of export IDs to created CorpusFolder instances
     """
-    from opencontractserver.corpuses.folder_service import DocumentFolderService
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 
     folder_map: dict[str, CorpusFolder] = {}
 
@@ -241,7 +241,7 @@ def import_corpus_folders(
                 parent_folder = folder_map[parent_export_id]
 
             # Create folder using service
-            folder, error = DocumentFolderService.create_folder(
+            folder, error = CorpusObjsService.create_folder(
                 user=user_obj,
                 corpus=corpus,
                 name=folder_data["name"],

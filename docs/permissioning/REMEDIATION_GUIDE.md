@@ -286,7 +286,7 @@ return LockThreadMutation(ok=False, message="Conversation not found", obj=None)
 
 **Original Claim**: 6 CRITICAL IDOR vulnerabilities in corpus_folder_mutations.py
 
-**Reality**: These mutations correctly delegate to `DocumentFolderService` which has proper permission checks:
+**Reality**: These mutations correctly delegate to `CorpusObjsService` which has proper permission checks:
 - `check_corpus_write_permission()` (lines 154-196)
 - `check_corpus_delete_permission()` (lines 199-237)
 - Uses `user_has_permission_for_obj` with `include_group_permissions=True`
@@ -511,8 +511,8 @@ def get_conversation_with_moderation_check(conversation_id, user):
 |------|---------|
 | agent_mutations.py | Uses `visible_to_user()` + `include_group_permissions=True` |
 | notification_mutations.py | Correct ownership model (recipient=user) |
-| corpus_folder_mutations.py | Delegates to DocumentFolderService with proper checks |
-| folder_service.py | Centralized permission checking with IDOR protection |
+| corpus_folder_mutations.py | Delegates to CorpusObjsService with proper checks |
+| corpus_objs_service.py | Centralized permission checking with IDOR protection |
 
 ---
 

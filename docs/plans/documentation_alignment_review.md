@@ -106,7 +106,7 @@ All documentation issues have been addressed:
 corpus.add_document(document=doc, user=user)
 
 # Or via service with full permission checks
-DocumentFolderService.add_document_to_corpus(user, document, corpus)
+CorpusObjsService.add_document_to_corpus(user, document, corpus)
 
 # Get documents in corpus
 corpus.get_documents()

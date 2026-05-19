@@ -38,11 +38,20 @@ class MetadataQueryOptimizer:
         """
         Compute effective permissions based on document and corpus.
 
-        Returns: (can_read, can_create, can_update, can_delete)
+        Returns: (can_read, can_create, can_update, can_delete).
+
+        Issue #1690: collapses 8 sequential ``user_can`` calls (one per
+        permission-type per object) into at most two
+        ``get_users_permissions_for_obj`` calls plus set-membership tests.
+        Tier-2 batching that shares a granted-set cache across the document
+        and corpus is deferred to issue #1691, which threads ``request``
+        into this code path.
         """
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document
-        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            get_users_permissions_for_obj,
+        )
 
         # Superusers have all permissions
         if user.is_superuser:
@@ -59,15 +68,35 @@ class MetadataQueryOptimizer:
                 pass
             return False, False, False, False
 
+        def _crud_from_granted(
+            granted: set[str], model_name: str
+        ) -> tuple[bool, bool, bool, bool]:
+            return (
+                f"read_{model_name}" in granted,
+                f"create_{model_name}" in granted,
+                f"update_{model_name}" in granted,
+                f"remove_{model_name}" in granted,
+            )
+
         # Check document permissions (primary)
         try:
             document = Document.objects.get(id=document_id)
-            doc_read = document.user_can(user, PermissionTypes.READ)
-            doc_create = document.user_can(user, PermissionTypes.CREATE)
-            doc_update = document.user_can(user, PermissionTypes.UPDATE)
-            doc_delete = document.user_can(user, PermissionTypes.DELETE)
         except Document.DoesNotExist:
             return False, False, False, False
+
+        # Creator short-circuit mirrors ``_default_user_can`` in
+        # ``utils/permissioning.py`` so behavior matches the legacy
+        # per-permission ``user_can`` chain even when explicit guardian
+        # rows aren't present on the instance. Skipping the guardian
+        # fetch for creators avoids ~6 queries per object on the owner
+        # hot path.
+        if document.creator_id == user.id:
+            doc_read, doc_create, doc_update, doc_delete = True, True, True, True
+        else:
+            doc_granted = get_users_permissions_for_obj(user=user, instance=document)
+            doc_read, doc_create, doc_update, doc_delete = _crud_from_granted(
+                doc_granted, "document"
+            )
 
         # If no document read permission, no access
         if not doc_read:
@@ -76,20 +105,29 @@ class MetadataQueryOptimizer:
         # Check corpus permissions (secondary) and apply most restrictive
         try:
             corpus = Corpus.objects.get(id=corpus_id)
-            corpus_read = corpus.user_can(user, PermissionTypes.READ)
-            corpus_create = corpus.user_can(user, PermissionTypes.CREATE)
-            corpus_update = corpus.user_can(user, PermissionTypes.UPDATE)
-            corpus_delete = corpus.user_can(user, PermissionTypes.DELETE)
-
-            # Apply MIN logic: effective = MIN(doc_perm, corpus_perm)
-            return (
-                doc_read and corpus_read,
-                doc_create and corpus_create,
-                doc_update and corpus_update,
-                doc_delete and corpus_delete,
-            )
         except Corpus.DoesNotExist:
             return False, False, False, False
+
+        if corpus.creator_id == user.id:
+            corpus_read, corpus_create, corpus_update, corpus_delete = (
+                True,
+                True,
+                True,
+                True,
+            )
+        else:
+            corpus_granted = get_users_permissions_for_obj(user=user, instance=corpus)
+            corpus_read, corpus_create, corpus_update, corpus_delete = (
+                _crud_from_granted(corpus_granted, "corpus")
+            )
+
+        # Apply MIN logic: effective = MIN(doc_perm, corpus_perm)
+        return (
+            doc_read and corpus_read,
+            doc_create and corpus_create,
+            doc_update and corpus_update,
+            doc_delete and corpus_delete,
+        )
 
     @classmethod
     def _get_readable_document_ids_bulk(
