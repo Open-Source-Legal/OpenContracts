@@ -47,7 +47,9 @@ from opencontractserver.corpuses.models import (
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.export_tasks_v2 import package_corpus_export_v2
 from opencontractserver.tasks.import_tasks_v2 import (
+    _build_folder_path_lookup,
     _import_v2_relationships,
+    _reconstruct_document_paths,
     import_corpus_v2,
 )
 from opencontractserver.tests._corpus_fixture import build_rich_test_corpus
@@ -1018,6 +1020,308 @@ class TestV2ImportUtilities(TransactionTestCase):
         self.assertEqual(
             relationships.count(), 0
         )  # No relationship due to missing label
+
+
+class TestV2FolderPathReconstruction(TransactionTestCase):
+    """
+    Regression coverage for ``_reconstruct_document_paths`` folder lookup.
+
+    The export side may write either:
+      * ``get_path()``-style (name-joined) paths into both
+        ``folder.path`` and ``document_paths.folder_path`` (canonical
+        ``utils/export_v2.py`` exporter), or
+      * slug-joined / arbitrary paths (third-party exporters such as
+        EDGAR scrapers that build the ZIP themselves).
+
+    Either is fine — the only invariant the importer requires is that
+    ``folder.path`` and ``document_paths.folder_path`` use the **same**
+    convention within a single export.  These tests pin that contract.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="reconuser", password="pw")
+        self.labelset = LabelSet.objects.create(title="LS", creator=self.user)
+        self.corpus = Corpus.objects.create(
+            title="Recon Corpus", label_set=self.labelset, creator=self.user
+        )
+
+        # Build a 3-folder hierarchy that mirrors the EDGAR-style export:
+        # one ``8-K/A`` name contains a slash to also lock down the
+        # ambiguity it would create for any naive get_path()-only lookup.
+        self.f_root = CorpusFolder.objects.create(
+            corpus=self.corpus, name="Filings", creator=self.user
+        )
+        self.f_eight_k_a = CorpusFolder.objects.create(
+            corpus=self.corpus,
+            name="8-K/A",
+            parent=self.f_root,
+            creator=self.user,
+        )
+        self.f_leaf = CorpusFolder.objects.create(
+            corpus=self.corpus,
+            name="2025-06-03",
+            parent=self.f_eight_k_a,
+            creator=self.user,
+        )
+
+        # Create one corpus-isolated Document + DocumentPath per document
+        # so ``_reconstruct_document_paths`` has a row to update.
+        self.doc = Document.objects.create(
+            title="Recon Doc",
+            pdf_file_hash="hash-recon-1",
+            creator=self.user,
+            page_count=1,
+        )
+        self.doc_path = DocumentPath.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            folder=None,
+            path="/placeholder.pdf",
+            version_number=1,
+            creator=self.user,
+        )
+
+        self.doc_hash_to_corpus_doc = {"hash-recon-1": self.doc}
+
+        # ``folder_export_id_to_obj`` mirrors what ``import_corpus_folders``
+        # returns: keyed by the export's ``id`` field.
+        self.folder_export_id_to_obj = {
+            "fld-root": self.f_root,
+            "fld-8ka": self.f_eight_k_a,
+            "fld-leaf": self.f_leaf,
+        }
+
+    def _folders_data(self, exporter: str) -> list[dict]:
+        """Build a ``folders_data`` payload with the given exporter style.
+
+        ``"canonical"`` reproduces what ``package_corpus_folders`` writes
+        today (name-joined via ``get_path()``).  ``"slug"`` reproduces what
+        an EDGAR-scraper-style exporter writes (slug-joined paths that do
+        not match ``get_path()``).
+        """
+        if exporter == "canonical":
+            return [
+                {
+                    "id": "fld-root",
+                    "name": "Filings",
+                    "description": "",
+                    "color": "#05313d",
+                    "icon": "folder",
+                    "tags": [],
+                    "is_public": False,
+                    "parent_id": None,
+                    "path": "Filings",
+                },
+                {
+                    "id": "fld-8ka",
+                    "name": "8-K/A",
+                    "description": "",
+                    "color": "#05313d",
+                    "icon": "folder",
+                    "tags": [],
+                    "is_public": False,
+                    "parent_id": "fld-root",
+                    "path": "Filings/8-K/A",
+                },
+                {
+                    "id": "fld-leaf",
+                    "name": "2025-06-03",
+                    "description": "",
+                    "color": "#05313d",
+                    "icon": "folder",
+                    "tags": [],
+                    "is_public": False,
+                    "parent_id": "fld-8ka",
+                    "path": "Filings/8-K/A/2025-06-03",
+                },
+            ]
+        if exporter == "slug":
+            return [
+                {
+                    "id": "fld-root",
+                    "name": "Filings",
+                    "description": "",
+                    "color": "#05313d",
+                    "icon": "folder",
+                    "tags": [],
+                    "is_public": False,
+                    "parent_id": None,
+                    "path": "filings",
+                },
+                {
+                    "id": "fld-8ka",
+                    "name": "8-K/A",
+                    "description": "",
+                    "color": "#05313d",
+                    "icon": "folder",
+                    "tags": [],
+                    "is_public": False,
+                    "parent_id": "fld-root",
+                    "path": "filings/8-k-a",
+                },
+                {
+                    "id": "fld-leaf",
+                    "name": "2025-06-03",
+                    "description": "",
+                    "color": "#05313d",
+                    "icon": "folder",
+                    "tags": [],
+                    "is_public": False,
+                    "parent_id": "fld-8ka",
+                    "path": "filings/8-k-a/2025-06-03",
+                },
+            ]
+        raise ValueError(f"unknown exporter style: {exporter}")
+
+    def _document_paths_data(self, folder_path: str | None) -> list[dict]:
+        return [
+            {
+                "document_ref": "hash-recon-1",
+                "folder_path": folder_path,
+                "path": "/Filings/8-K/A/2025-06-03/doc.pdf",
+                "version_number": 1,
+                "parent_version_number": None,
+                "is_current": True,
+                "is_deleted": False,
+                "created": timezone.now().isoformat(),
+            }
+        ]
+
+    def test_build_lookup_indexes_both_get_path_and_export_path(self):
+        """The helper accepts whichever string the exporter wrote."""
+        folders_data = self._folders_data("slug")
+        lookup = _build_folder_path_lookup(folders_data, self.folder_export_id_to_obj)
+
+        # Slug keys (what document_paths.folder_path will hold in this zip)
+        self.assertIs(lookup["filings"], self.f_root)
+        self.assertIs(lookup["filings/8-k-a"], self.f_eight_k_a)
+        self.assertIs(lookup["filings/8-k-a/2025-06-03"], self.f_leaf)
+
+        # get_path() keys still resolve in case a future export uses
+        # the canonical convention alongside slug paths.
+        self.assertIs(lookup[self.f_root.get_path()], self.f_root)
+        self.assertIs(lookup[self.f_leaf.get_path()], self.f_leaf)
+
+    def test_build_lookup_skips_folders_that_failed_to_import(self):
+        """Folders missing from the id map are silently skipped (already logged)."""
+        folders_data = self._folders_data("slug")
+        # Drop one entry from the map as if import_corpus_folders had logged
+        # an error and returned without that folder.
+        partial_map = dict(self.folder_export_id_to_obj)
+        partial_map.pop("fld-leaf")
+
+        lookup = _build_folder_path_lookup(folders_data, partial_map)
+        self.assertNotIn("filings/8-k-a/2025-06-03", lookup)
+        self.assertIn("filings/8-k-a", lookup)
+
+    def test_canonical_name_joined_folder_path_resolves(self):
+        """Regression guard: canonical ``get_path()``-style exports still work."""
+        _reconstruct_document_paths(
+            document_paths_data=self._document_paths_data(
+                folder_path=self.f_leaf.get_path(),
+            ),
+            corpus_obj=self.corpus,
+            doc_hash_to_corpus_doc=self.doc_hash_to_corpus_doc,
+            folders_data=self._folders_data("canonical"),
+            folder_export_id_to_obj=self.folder_export_id_to_obj,
+        )
+
+        self.doc_path.refresh_from_db()
+        self.assertEqual(self.doc_path.folder, self.f_leaf)
+
+    def test_slug_joined_folder_path_resolves(self):
+        """Primary fix: third-party slug-joined ``folder_path`` resolves.
+
+        Before the fix this DocumentPath would silently stay at
+        ``folder=NULL`` because the importer only indexed by
+        ``get_path()``.
+        """
+        _reconstruct_document_paths(
+            document_paths_data=self._document_paths_data(
+                folder_path="filings/8-k-a/2025-06-03",
+            ),
+            corpus_obj=self.corpus,
+            doc_hash_to_corpus_doc=self.doc_hash_to_corpus_doc,
+            folders_data=self._folders_data("slug"),
+            folder_export_id_to_obj=self.folder_export_id_to_obj,
+        )
+
+        self.doc_path.refresh_from_db()
+        self.assertEqual(self.doc_path.folder, self.f_leaf)
+
+    def test_unresolved_folder_path_logs_warning_and_leaves_root(self):
+        """Operators get a breadcrumb when the conventions don't line up."""
+        with self.assertLogs(
+            "opencontractserver.tasks.import_tasks_v2", level="WARNING"
+        ) as captured:
+            _reconstruct_document_paths(
+                document_paths_data=self._document_paths_data(
+                    folder_path="some/path/the/exporter/invented",
+                ),
+                corpus_obj=self.corpus,
+                doc_hash_to_corpus_doc=self.doc_hash_to_corpus_doc,
+                folders_data=self._folders_data("slug"),
+                folder_export_id_to_obj=self.folder_export_id_to_obj,
+            )
+
+        # Document stays at the corpus root rather than getting silently
+        # mis-attached.
+        self.doc_path.refresh_from_db()
+        self.assertIsNone(self.doc_path.folder)
+
+        joined = "\n".join(captured.output)
+        self.assertIn("some/path/the/exporter/invented", joined)
+        self.assertIn(f"corpus {self.corpus.id}", joined)
+
+    def test_build_lookup_skips_empty_exported_path(self):
+        """An empty ``folder.path`` string is treated as absent, not registered.
+
+        Indexing ``""`` would silently fuse every empty-path folder onto a
+        single key and let documents land in whichever folder happened to be
+        processed last.  The ``if key:`` guard in ``_register`` prevents that;
+        ``get_path()`` keys still resolve normally.
+        """
+        folders_data = self._folders_data("canonical")
+        # Mutate the root entry's ``path`` to the empty string — mimics a
+        # malformed export.
+        for entry in folders_data:
+            if entry["id"] == "fld-root":
+                entry["path"] = ""
+
+        lookup = _build_folder_path_lookup(folders_data, self.folder_export_id_to_obj)
+        self.assertNotIn("", lookup)
+        # ``get_path()`` for the root folder is still indexed, so resolution
+        # via the canonical key continues to work.
+        self.assertIs(lookup[self.f_root.get_path()], self.f_root)
+
+    def test_build_lookup_warns_on_key_collision(self):
+        """Two folders sharing a lookup key are surfaced loudly.
+
+        Construct a synthetic collision: a sibling's exported ``path`` value
+        is set to the leaf folder's ``get_path()``.  Last writer wins, but
+        the WARNING makes the silent mis-attribution grep-able.
+        """
+        folders_data = self._folders_data("canonical")
+        leaf_canonical = self.f_leaf.get_path()
+        # Force the ``Filings`` root export entry to claim the same lookup key
+        # as the leaf folder's canonical ``get_path()``.
+        for entry in folders_data:
+            if entry["id"] == "fld-root":
+                entry["path"] = leaf_canonical
+
+        with self.assertLogs(
+            "opencontractserver.tasks.import_tasks_v2", level="WARNING"
+        ) as captured:
+            lookup = _build_folder_path_lookup(
+                folders_data, self.folder_export_id_to_obj
+            )
+
+        joined = "\n".join(captured.output)
+        self.assertIn("Folder path key collision", joined)
+        self.assertIn(repr(leaf_canonical), joined)
+        # Last writer wins — whichever folder registered the key second
+        # (iteration order over ``folders_data``) owns the lookup entry.
+        self.assertIn(lookup[leaf_canonical], {self.f_root, self.f_leaf})
 
 
 class TestV2ImportExceptionHandling(TransactionTestCase):
@@ -2190,6 +2494,25 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             creator=self.user,
         )
 
+        # Folder lookup wiring that mirrors what the production caller
+        # gets back from ``import_corpus_folders``. Tests that don't
+        # exercise folder resolution can still pass these through; only
+        # the folder-specific tests vary the contents.
+        self.folders_data = [
+            {
+                "id": "fld-myfolder",
+                "name": "MyFolder",
+                "description": "",
+                "color": "#05313d",
+                "icon": "folder",
+                "tags": [],
+                "is_public": False,
+                "parent_id": None,
+                "path": "MyFolder",
+            }
+        ]
+        self.folder_export_id_to_obj = {"fld-myfolder": self.folder}
+
     def test_updates_path_version_and_folder(self):
         """Test that path, version_number, and folder are updated."""
         from opencontractserver.tasks.import_tasks_v2 import _reconstruct_document_paths
@@ -2207,7 +2530,13 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             }
         ]
 
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        _reconstruct_document_paths(
+            document_paths_data,
+            self.corpus,
+            doc_hash_map,
+            self.folders_data,
+            self.folder_export_id_to_obj,
+        )
 
         # Reload DocumentPath
         updated_path = DocumentPath.objects.filter(
@@ -2234,7 +2563,13 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             }
         ]
 
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        _reconstruct_document_paths(
+            document_paths_data,
+            self.corpus,
+            doc_hash_map,
+            self.folders_data,
+            self.folder_export_id_to_obj,
+        )
 
         # Path should remain unchanged
         self.doc_path.refresh_from_db()
@@ -2256,7 +2591,13 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             }
         ]
 
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        _reconstruct_document_paths(
+            document_paths_data,
+            self.corpus,
+            doc_hash_map,
+            self.folders_data,
+            self.folder_export_id_to_obj,
+        )
 
         self.doc_path.refresh_from_db()
         self.assertEqual(self.doc_path.path, original_path)
@@ -2276,7 +2617,13 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             }
         ]
 
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        _reconstruct_document_paths(
+            document_paths_data,
+            self.corpus,
+            doc_hash_map,
+            self.folders_data,
+            self.folder_export_id_to_obj,
+        )
 
         # No error, path unchanged
         self.doc_path.refresh_from_db()
@@ -2305,7 +2652,13 @@ class TestReconstructDocumentPaths(TransactionTestCase):
         ]
 
         # Should not raise
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        _reconstruct_document_paths(
+            document_paths_data,
+            self.corpus,
+            doc_hash_map,
+            self.folders_data,
+            self.folder_export_id_to_obj,
+        )
 
     def test_no_updates_when_values_match(self):
         """Test that no save is performed when exported values match existing."""
@@ -2324,13 +2677,19 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             }
         ]
 
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        _reconstruct_document_paths(
+            document_paths_data,
+            self.corpus,
+            doc_hash_map,
+            self.folders_data,
+            self.folder_export_id_to_obj,
+        )
 
         # No changes expected
         self.doc_path.refresh_from_db()
 
     def test_folder_path_not_found(self):
-        """Test that unmatched folder_path is silently ignored."""
+        """Test that unmatched folder_path leaves the document at root."""
         from opencontractserver.tasks.import_tasks_v2 import _reconstruct_document_paths
 
         doc_hash_map = {"hash_abc": self.corpus_doc}
@@ -2345,7 +2704,18 @@ class TestReconstructDocumentPaths(TransactionTestCase):
             }
         ]
 
-        _reconstruct_document_paths(document_paths_data, self.corpus, doc_hash_map)
+        # The miss is also logged as a warning now; suppress it so this
+        # test's intent (path applied, folder stays NULL) stays focused.
+        with self.assertLogs(
+            "opencontractserver.tasks.import_tasks_v2", level="WARNING"
+        ):
+            _reconstruct_document_paths(
+                document_paths_data,
+                self.corpus,
+                doc_hash_map,
+                self.folders_data,
+                self.folder_export_id_to_obj,
+            )
 
         updated_path = DocumentPath.objects.filter(
             corpus=self.corpus, document=self.corpus_doc

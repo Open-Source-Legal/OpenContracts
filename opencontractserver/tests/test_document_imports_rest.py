@@ -485,6 +485,58 @@ class ImportServicesTests(TestCase):
         self.assertEqual(result_no_perm.error, CORPUS_NOT_FOUND_MSG)
         self.assertEqual(result_no_exist.error, CORPUS_NOT_FOUND_MSG)
 
+    def test_import_document_for_user_honors_group_permission(self):
+        """Phase E widening: ``import_document_for_user`` now routes the
+        EDIT gate through ``corpus.user_can(...)``, which defaults to
+        ``include_group_permissions=True``. The legacy
+        ``user_has_permission_for_obj`` shim defaulted to ``False``, so a
+        user who only held ``update_corpus`` via a Django ``Group`` would
+        have been blocked before Phase E. This pins the new behavior at
+        the import-service boundary so future refactors can't quietly
+        revert to user-only checks.
+        """
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        from opencontractserver.document_imports.services import (
+            import_document_for_user,
+        )
+
+        # Corpus owned by ``self.other``. Make it public so
+        # ``Corpus.objects.visible_to_user(self.user)`` resolves the row —
+        # the EDIT widening is the focus of this test, not visibility.
+        # ``BaseVisibilityManager.visible_to_user`` only checks
+        # user-direct guardian perms (not group perms) for non-public rows,
+        # so without ``is_public=True`` the lookup would 404 before reaching
+        # the user_can gate that this test exercises.
+        shared_corpus = Corpus.objects.create(
+            title="Group-shared",
+            creator=self.other,
+            backend_lock=False,
+            is_public=True,
+        )
+
+        # Group holds ``update_corpus``; ``self.user`` is a member.
+        # No direct user grant on ``self.user`` for ``update_corpus`` —
+        # under the legacy shim default this would fail the EDIT check.
+        editors = Group.objects.create(name="phase-e-corpus-editors")
+        self.user.groups.add(editors)
+        assign_perm("corpuses.update_corpus", editors, shared_corpus)
+
+        result = import_document_for_user(
+            user=self.user,
+            file_bytes=PDF_BYTES,
+            filename="x.pdf",
+            title="X",
+            description="d",
+            make_public=False,
+            add_to_corpus_id=str(shared_corpus.id),
+        )
+
+        # Group-derived EDIT lets the import land in the foreign corpus.
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.document)
+
     def test_import_documents_zip_for_user_accepts_uploaded_file(self):
         from opencontractserver.document_imports.services import (
             import_documents_zip_for_user,
