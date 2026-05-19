@@ -1336,6 +1336,19 @@ class ShimDeprecationWarningTestCase(TransactionTestCase):
             title="Shim Corpus", creator=self.creator, is_public=False
         )
 
+    def tearDown(self):
+        # Mirror ``setUp``'s clear — the shim's dedup set is process-wide,
+        # so a warning emitted by this test would otherwise prevent a
+        # later test (in any test module) from recording the same site.
+        # Clearing on the way out keeps the cross-module invariant
+        # symmetric with the on-the-way-in clear in ``setUp``.
+        from opencontractserver.utils.permissioning import (
+            _user_has_permission_for_obj_warned,
+        )
+
+        _user_has_permission_for_obj_warned.clear()
+        super().tearDown()
+
     def test_shim_emits_deprecation_warning_and_delegates(self):
         import warnings
 

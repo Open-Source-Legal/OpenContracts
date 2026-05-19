@@ -19,10 +19,7 @@ from opencontractserver.notifications.signals import (
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.celery_tasks import get_task_by_name
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +109,7 @@ def run_extract(extract_id: Optional[str | int], user_id: str | int):
         logger.error(f"User {user_id} not found — aborting extract {extract_id}")
         return
 
-    if not user_has_permission_for_obj(
-        requesting_user, extract, PermissionTypes.UPDATE, include_group_permissions=True
-    ):
+    if not extract.user_can(requesting_user, PermissionTypes.UPDATE):
         logger.error(
             f"User {user_id} lacks permission for extract {extract_id} — aborting"
         )

@@ -42,10 +42,7 @@ from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.tasks import process_documents_zip
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.files import is_plaintext_content
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +236,7 @@ def import_document_for_user(
         except (Corpus.DoesNotExist, ValueError, TypeError):
             return ImportResult(document=None, error=CORPUS_NOT_FOUND_MSG)
 
-        if not user_has_permission_for_obj(user, corpus, PermissionTypes.EDIT):
+        if not corpus.user_can(user, PermissionTypes.EDIT):
             return ImportResult(document=None, error=CORPUS_NOT_FOUND_MSG)
 
         if add_to_folder_id is not None:
@@ -329,7 +326,7 @@ def import_documents_zip_for_user(
             corpus = Corpus.objects.visible_to_user(user).get(id=corpus_pk)
         except (Corpus.DoesNotExist, ValueError, TypeError):
             return ZipImportResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
-        if not user_has_permission_for_obj(user, corpus, PermissionTypes.EDIT):
+        if not corpus.user_can(user, PermissionTypes.EDIT):
             return ZipImportResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
         corpus_id = corpus.id
 
