@@ -69,14 +69,8 @@ class MetadataQueryOptimizer:
             return False, False, False, False
 
         def _crud_from_granted(
-            granted: set[str], model_name: str, is_creator: bool
+            granted: set[str], model_name: str
         ) -> tuple[bool, bool, bool, bool]:
-            # Creator short-circuit mirrors ``_default_user_can`` in
-            # ``utils/permissioning.py`` so behavior matches the legacy
-            # per-permission ``user_can`` chain even when explicit
-            # guardian rows aren't present on the instance.
-            if is_creator:
-                return True, True, True, True
             return (
                 f"read_{model_name}" in granted,
                 f"create_{model_name}" in granted,
@@ -90,14 +84,19 @@ class MetadataQueryOptimizer:
         except Document.DoesNotExist:
             return False, False, False, False
 
-        doc_is_creator = (
-            getattr(document, "creator_id", None) is not None
-            and document.creator_id == user.id
-        )
-        doc_granted = get_users_permissions_for_obj(user=user, instance=document)
-        doc_read, doc_create, doc_update, doc_delete = _crud_from_granted(
-            doc_granted, "document", doc_is_creator
-        )
+        # Creator short-circuit mirrors ``_default_user_can`` in
+        # ``utils/permissioning.py`` so behavior matches the legacy
+        # per-permission ``user_can`` chain even when explicit guardian
+        # rows aren't present on the instance. Skipping the guardian
+        # fetch for creators avoids ~6 queries per object on the owner
+        # hot path.
+        if document.creator_id == user.id:
+            doc_read, doc_create, doc_update, doc_delete = True, True, True, True
+        else:
+            doc_granted = get_users_permissions_for_obj(user=user, instance=document)
+            doc_read, doc_create, doc_update, doc_delete = _crud_from_granted(
+                doc_granted, "document"
+            )
 
         # If no document read permission, no access
         if not doc_read:
@@ -109,14 +108,18 @@ class MetadataQueryOptimizer:
         except Corpus.DoesNotExist:
             return False, False, False, False
 
-        corpus_is_creator = (
-            getattr(corpus, "creator_id", None) is not None
-            and corpus.creator_id == user.id
-        )
-        corpus_granted = get_users_permissions_for_obj(user=user, instance=corpus)
-        corpus_read, corpus_create, corpus_update, corpus_delete = _crud_from_granted(
-            corpus_granted, "corpus", corpus_is_creator
-        )
+        if corpus.creator_id == user.id:
+            corpus_read, corpus_create, corpus_update, corpus_delete = (
+                True,
+                True,
+                True,
+                True,
+            )
+        else:
+            corpus_granted = get_users_permissions_for_obj(user=user, instance=corpus)
+            corpus_read, corpus_create, corpus_update, corpus_delete = (
+                _crud_from_granted(corpus_granted, "corpus")
+            )
 
         # Apply MIN logic: effective = MIN(doc_perm, corpus_perm)
         return (

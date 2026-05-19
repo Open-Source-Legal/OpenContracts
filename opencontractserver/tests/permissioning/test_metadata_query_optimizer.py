@@ -331,6 +331,14 @@ class MetadataQueryOptimizerTestCase(TestCase):
         per object, plus the two ``Model.objects.get`` lookups. Lock the
         budget here so any future reintroduction of per-permission
         fan-out fails CI.
+
+        Observed warm-path cost is 14 queries: 1 ``Model.objects.get``
+        + 6 ``get_users_permissions_for_obj`` queries (ContentType +
+        auth_permission codenames + user object perms + user groups +
+        group object perms x2) per object, x2 objects. Tier-2 batching
+        in sister issue #1691 will collapse the duplicated ContentType /
+        auth_group lookups by threading a ``request`` through this code
+        path.
         """
         # Warm any process-level caches (content type lookups, etc.)
         # that aren't part of the per-invocation work we want to bound.
@@ -338,7 +346,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
             self.collaborator, self.doc1.id, self.corpus.id
         )
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(14):
             can_read, _, _, _ = MetadataQueryOptimizer._compute_effective_permissions(
                 self.collaborator, self.doc1.id, self.corpus.id
             )
