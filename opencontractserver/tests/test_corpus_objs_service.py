@@ -521,3 +521,183 @@ class TestGetCorpusDocuments_CamlAndDeleted(TransactionTestCase):
             include_caml=True,
         )
         self.assertEqual(qs.count(), 0)
+
+
+# =============================================================================
+# get_corpus_caml_articles
+# =============================================================================
+
+
+class TestGetCorpusCamlArticles(TransactionTestCase):
+    """
+    SCENARIO: ``get_corpus_caml_articles`` returns the corpus's
+    ``Readme.CAML`` / ``text/markdown`` document(s) under the same
+    corpus-as-gate semantic as the rest of the corpus-objs service.
+
+    BUSINESS RULE: A CAML article is a Document with
+    ``title="Readme.CAML"`` and ``file_type="text/markdown"``. The
+    method returns at most one per corpus today but is shaped as a
+    queryset so future multi-article designs don't break the signature.
+    Permission denial returns an empty queryset (not an exception) —
+    IDOR-safe.
+    """
+
+    def setUp(self):
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+
+        self.CAML_ARTICLE_TITLE = CAML_ARTICLE_TITLE
+        self.MARKDOWN_MIME_TYPE = MARKDOWN_MIME_TYPE
+
+        self.owner = User.objects.create_user(
+            username="caml_articles_owner",
+            email="caml_articles@test.com",
+            password="test",
+        )
+        self.stranger = User.objects.create_user(
+            username="caml_articles_stranger",
+            email="cas@test.com",
+            password="test",
+        )
+        self.anonymous = AnonymousUser()
+
+        # Private corpus with: regular PDF, CAML article, and a markdown
+        # file that is NOT a CAML article (wrong title). The decoy
+        # markdown is the load-bearing fixture for
+        # ``test_excludes_non_caml_markdown``.
+        self.private_corpus = Corpus.objects.create(
+            title="Private CAML Corpus", creator=self.owner, is_public=False
+        )
+        self.pdf = Document.objects.create(
+            title="Regular PDF",
+            creator=self.owner,
+            pdf_file="regular.pdf",
+            slug="regular-doc",
+            file_type="application/pdf",
+        )
+        DocumentPath.objects.create(
+            document=self.pdf,
+            corpus=self.private_corpus,
+            creator=self.owner,
+            folder=None,
+            path="/regular.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+        self.caml = Document.objects.create(
+            title=CAML_ARTICLE_TITLE,
+            creator=self.owner,
+            pdf_file="readme-caml.md",
+            slug="readme-caml",
+            file_type=MARKDOWN_MIME_TYPE,
+        )
+        DocumentPath.objects.create(
+            document=self.caml,
+            corpus=self.private_corpus,
+            creator=self.owner,
+            folder=None,
+            path="/Readme.CAML",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+        self.decoy_markdown = Document.objects.create(
+            title="Some Other Markdown",
+            creator=self.owner,
+            pdf_file="other.md",
+            slug="other-markdown",
+            file_type=MARKDOWN_MIME_TYPE,
+        )
+        DocumentPath.objects.create(
+            document=self.decoy_markdown,
+            corpus=self.private_corpus,
+            creator=self.owner,
+            folder=None,
+            path="/other.md",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        # Public corpus with a CAML article — exercises the anonymous
+        # / public READ path.
+        self.public_corpus = Corpus.objects.create(
+            title="Public CAML Corpus", creator=self.owner, is_public=True
+        )
+        self.public_caml = Document.objects.create(
+            title=CAML_ARTICLE_TITLE,
+            creator=self.owner,
+            pdf_file="public-readme-caml.md",
+            slug="public-readme-caml",
+            file_type=MARKDOWN_MIME_TYPE,
+        )
+        DocumentPath.objects.create(
+            document=self.public_caml,
+            corpus=self.public_corpus,
+            creator=self.owner,
+            folder=None,
+            path="/Readme.CAML",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        # An empty corpus (no CAML, no docs at all) for the empty-queryset
+        # case.
+        self.empty_corpus = Corpus.objects.create(
+            title="Empty Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_owner_sees_caml_article(self):
+        """Owner of the corpus gets the corpus's CAML article."""
+        qs = CorpusObjsService.get_corpus_caml_articles(
+            user=self.owner, corpus=self.private_corpus
+        )
+        ids = list(qs.values_list("id", flat=True))
+        self.assertEqual(ids, [self.caml.id])
+
+    def test_empty_queryset_when_no_caml_present(self):
+        """A corpus with no CAML article returns an empty queryset, not
+        an exception."""
+        qs = CorpusObjsService.get_corpus_caml_articles(
+            user=self.owner, corpus=self.empty_corpus
+        )
+        self.assertEqual(qs.count(), 0)
+
+    def test_excludes_non_caml_markdown(self):
+        """A markdown file with a different title is NOT a CAML article
+        and must be excluded — the title filter is load-bearing."""
+        qs = CorpusObjsService.get_corpus_caml_articles(
+            user=self.owner, corpus=self.private_corpus
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertNotIn(self.decoy_markdown.id, ids)
+        self.assertNotIn(self.pdf.id, ids)
+        self.assertEqual(ids, {self.caml.id})
+
+    def test_stranger_gets_empty_queryset_for_private_corpus(self):
+        """A user without corpus READ gets an empty queryset, not an
+        exception. IDOR-safe: no signal that the CAML exists."""
+        qs = CorpusObjsService.get_corpus_caml_articles(
+            user=self.stranger, corpus=self.private_corpus
+        )
+        self.assertEqual(qs.count(), 0)
+
+    def test_anonymous_can_see_caml_in_public_corpus(self):
+        """Anonymous user against a public corpus gets the CAML
+        article — corpus READ via ``is_public=True`` is sufficient."""
+        qs = CorpusObjsService.get_corpus_caml_articles(
+            user=self.anonymous, corpus=self.public_corpus
+        )
+        ids = list(qs.values_list("id", flat=True))
+        self.assertEqual(ids, [self.public_caml.id])
+
+    def test_anonymous_blocked_from_private_corpus(self):
+        """Anonymous against a private corpus → empty queryset."""
+        qs = CorpusObjsService.get_corpus_caml_articles(
+            user=self.anonymous, corpus=self.private_corpus
+        )
+        self.assertEqual(qs.count(), 0)

@@ -44,7 +44,6 @@ from opencontractserver.constants.document_processing import (
     CAML_ARTICLE_TITLE,
     CAML_CITATION_MAX_CANDIDATES,
     CAML_EDIT_PREVIEW_RADIUS_CHARS,
-    MARKDOWN_MIME_TYPE,
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
@@ -152,16 +151,13 @@ def _looks_like_prose(text: str) -> bool:
 def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     """Return the corpus's ``Readme.CAML`` document if visible to ``user``.
 
-    Uses ``Corpus._get_active_documents(include_caml=True)`` to follow the
-    same DocumentPath-based lookup the frontend's article query uses, then
-    intersects with ``Document.objects.visible_to_user`` for IDOR-safe access.
-    Corpus READ is gated by the preceding ``Corpus.objects.visible_to_user``
-    lookup, so the internal helper is the correct entry point here (the
-    deprecated user-facing ``get_documents()`` alias would otherwise warn on
-    every CAML resolve). Raises ``ValueError`` with a single error string for
-    both "corpus does not exist" and "user lacks permission" so the message
-    cannot be used for enumeration.
+    Delegates to :meth:`CorpusObjsService.get_corpus_caml_articles`, which
+    gates by corpus READ and applies the ``Readme.CAML`` / ``text/markdown``
+    filter. Returns the same opaque "not found" message for both "corpus
+    does not exist" and "user lacks permission" so the message cannot be
+    used for enumeration.
     """
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
 
     not_found = (
@@ -169,21 +165,11 @@ def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     )
 
     try:
-        corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
+        corpus = Corpus.objects.get(pk=corpus_id)
     except Corpus.DoesNotExist:
         raise ValueError(not_found)
 
-    # ``corpus._get_active_documents(include_caml=True)`` already filters via
-    # the ``DocumentPath.is_current=True`` join (see CorpusType.get_documents).
-    # Pass the inner query as a subquery so Django pushes the intersection
-    # to the database in a single round-trip — IDOR-safe two-query pattern
-    # without materialising the candidate IDs in Python.
-    caml_ids_qs = (
-        corpus._get_active_documents(include_caml=True)
-        .filter(title=CAML_ARTICLE_TITLE, file_type=MARKDOWN_MIME_TYPE)
-        .values("id")
-    )
-    doc = Document.objects.visible_to_user(user).filter(pk__in=caml_ids_qs).first()
+    doc = CorpusObjsService.get_corpus_caml_articles(user, corpus).first()
     if doc is None:
         raise ValueError(not_found)
     return doc
