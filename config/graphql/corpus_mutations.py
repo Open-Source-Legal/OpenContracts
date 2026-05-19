@@ -319,10 +319,9 @@ class UpdateCorpusDescription(graphene.Mutation):
             )
 
 
-class DeleteCorpusMutation(DRFDeletion):
-    class IOSettings:
-        model = Corpus
-        lookup_field = "id"
+class DeleteCorpusMutation(graphene.Mutation):
+    ok = graphene.Boolean()
+    message = graphene.String()
 
     class Arguments:
         id = graphene.String(required=True)
@@ -330,30 +329,53 @@ class DeleteCorpusMutation(DRFDeletion):
     @classmethod
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(cls, root, info, *args, **kwargs) -> "DeleteCorpusMutation":
-        id = from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
-        # Filter through visibility so a caller who can't see the corpus
-        # doesn't get a leaked is_personal signal from the early-exit below.
-        obj = get_for_user_or_none(cls.IOSettings.model, id, info.context.user)
+    def mutate(cls, root, info, id) -> "DeleteCorpusMutation":
+        # Unified IDOR-safe envelope: same response whether the corpus
+        # doesn't exist, the caller can't see it, or they can see it but
+        # lack DELETE permission.  Returning ``ok=False`` (rather than
+        # raising ``Corpus.DoesNotExist``) keeps the response shape
+        # consistent with the rest of the Phase D migration and prevents
+        # the parent ``DRFDeletion.mutate`` from surfacing a raw
+        # GraphQL ``errors`` entry for the unauthorized/not-found case.
+        not_found_msg = "Corpus not found or you don't have permission to delete it."
 
+        try:
+            corpus_pk = from_global_id(id)[1]
+        except Exception:
+            return cls(ok=False, message=not_found_msg)
+
+        obj = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
         if obj is None:
-            # Short-circuit on the IDOR path so we don't hit the DB twice on
-            # unauthorized/missing pks. ``DRFDeletion.mutate`` would have
-            # raised the same ``Corpus.DoesNotExist`` from its own
-            # ``.visible_to_user(user).get(pk=id)`` — we just skip that
-            # redundant lookup.
-            raise cls.IOSettings.model.DoesNotExist(
-                f"{cls.IOSettings.model.__name__} matching pk={id} does not "
-                "exist or is not visible to user."
-            )
+            return cls(ok=False, message=not_found_msg)
 
+        # ``is_personal`` is observable to anyone who can READ the corpus
+        # (it's exposed on ``CorpusType``), so this branch does not leak
+        # existence — it stays a distinct error message.
         if obj.is_personal:
             raise GraphQLError(
                 "Cannot delete your personal 'My Documents' corpus. "
-                "This corpus is automatically managed and stores your uploaded documents."
+                "This corpus is automatically managed and stores your "
+                "uploaded documents."
             )
 
-        return super().mutate(root, info, *args, **kwargs)
+        # User-lock check mirrors ``DRFDeletion``: lock holder (or
+        # superuser via ``user_can``) can proceed even on a backend-held
+        # lock so users can abandon stalled/hung corpora.
+        if obj.user_lock is not None and info.context.user.id != obj.user_lock_id:
+            return cls(
+                ok=False,
+                message=(
+                    "Specified object is locked by another user. " "Cannot be deleted."
+                ),
+            )
+
+        if not obj.user_can(
+            info.context.user, PermissionTypes.DELETE, request=info.context
+        ):
+            return cls(ok=False, message=not_found_msg)
+
+        obj.delete()
+        return cls(ok=True, message="Success!")
 
 
 class AddDocumentsToCorpus(graphene.Mutation):
@@ -511,12 +533,11 @@ class StartCorpusFork(graphene.Mutation):
             # for labels and docs to new obj ids
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # IDOR protection: missing / hidden / no-READ all return the same
-            # response. user_can(READ) below is defense-in-depth (issue #1658).
+            # IDOR protection: ``get_for_user_or_none`` filters through
+            # ``visible_to_user``, which already enforces READ — missing
+            # pk and no-READ collapse to the same ``None`` return.
             corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
-            if corpus is None or not corpus.user_can(
-                info.context.user, PermissionTypes.READ, request=info.context
-            ):
+            if corpus is None:
                 return StartCorpusFork(
                     ok=False, message="Corpus not found", new_corpus=None
                 )
@@ -1501,9 +1522,14 @@ class ToggleCorpusMemory(graphene.Mutation):
         # corpus doesn't exist, is hidden from the caller, or the caller has
         # READ but no CRUD on it.
         not_found_msg = "Corpus not found or you don't have permission to modify it."
+        # ``from_global_id`` can raise a bare ``Exception`` (via
+        # ``binascii.Error``) on malformed base64 input — narrower
+        # ``(ValueError, IndexError)`` would let those slip through as
+        # raw GraphQL ``errors``.  Mirrors the broader catch used at
+        # the other migrated ``from_global_id`` sites in this file.
         try:
             corpus_pk = from_global_id(corpus_id)[1]
-        except (ValueError, IndexError):
+        except Exception:
             return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 
         corpus = get_for_user_or_none(Corpus, corpus_pk, user)

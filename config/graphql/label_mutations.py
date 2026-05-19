@@ -188,15 +188,20 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
                     return DeleteMultipleLabelMutation(
                         ok=False, message="Label not found"
                     )
+                # Run the creator gate BEFORE the ``read_only`` check so a
+                # non-creator who happens to be able to READ a public
+                # built-in label gets the unified "Label not found" response
+                # — surfacing "Cannot delete read-only labels" would reveal
+                # the label's existence + read-only flag to anyone with a
+                # guessable pk.
+                if not user.is_superuser and label.creator_id != user.id:
+                    return DeleteMultipleLabelMutation(
+                        ok=False, message="Label not found"
+                    )
                 # read_only labels cannot be deleted (built-in system labels)
                 if label.read_only:
                     return DeleteMultipleLabelMutation(
                         ok=False, message="Cannot delete read-only labels"
-                    )
-                if not user.is_superuser and label.creator_id != user.id:
-                    # Use consistent error message for IDOR protection
-                    return DeleteMultipleLabelMutation(
-                        ok=False, message="Label not found"
                     )
                 label.delete()
             ok = True

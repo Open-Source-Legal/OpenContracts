@@ -187,7 +187,14 @@ class DeleteAnalysisMutation(graphene.Mutation):
         # object existence to anyone with a guessable pk.
         not_found_msg = "Analysis not found or you don't have permission to delete it."
 
-        analysis_pk = from_global_id(id)[1]
+        # ``from_global_id`` raises a bare ``Exception`` (via
+        # ``binascii.Error``) on malformed base64 ids; route that through
+        # the same unified IDOR envelope rather than letting it surface
+        # as a GraphQL ``errors`` entry.
+        try:
+            analysis_pk = from_global_id(id)[1]
+        except Exception:
+            return DeleteAnalysisMutation(ok=False, message=not_found_msg)
         analysis = get_for_user_or_none(Analysis, analysis_pk, info.context.user)
         if analysis is None:
             return DeleteAnalysisMutation(ok=False, message=not_found_msg)
