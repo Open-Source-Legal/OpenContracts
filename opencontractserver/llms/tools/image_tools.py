@@ -22,7 +22,6 @@ from opencontractserver.utils.pdf_token_extraction import (
     get_image_data_url,
     load_pawls_data,
 )
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -426,9 +425,7 @@ def list_document_images_with_permission(
     """
     try:
         document = Document.objects.get(pk=document_id)
-        if not user_has_permission_for_obj(
-            user, document, PermissionTypes.READ, include_group_permissions=True
-        ):
+        if not document.user_can(user, PermissionTypes.READ):
             logger.warning(f"User {user} lacks permission for document {document_id}")
             return []
         return list_document_images(document_id, page_index)
@@ -459,9 +456,7 @@ def get_document_image_with_permission(
     """
     try:
         document = Document.objects.get(pk=document_id)
-        if not user_has_permission_for_obj(
-            user, document, PermissionTypes.READ, include_group_permissions=True
-        ):
+        if not document.user_can(user, PermissionTypes.READ):
             logger.warning(f"User {user} lacks permission for document {document_id}")
             return None
         return get_document_image(document_id, page_index, token_index)

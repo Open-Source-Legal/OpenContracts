@@ -66,7 +66,6 @@ from opencontractserver.tasks.corpus_tasks import process_analyzer
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import JobStatus, PermissionTypes
 from opencontractserver.utils.extract import create_and_setup_extract
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 from ._helpers import _db_sync_to_async
 
@@ -425,9 +424,7 @@ def start_extract(
     if corpus is None:
         raise PermissionError(f"User {user_id} cannot access corpus {corpus_id}.")
 
-    if not user_has_permission_for_obj(
-        user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-    ):
+    if not corpus.user_can(user, PermissionTypes.UPDATE):
         raise PermissionError(
             f"User {user_id} lacks UPDATE permission on corpus {corpus_id}."
         )
@@ -662,9 +659,7 @@ def start_analysis(
     if corpus is None:
         raise PermissionError(f"User {user_id} cannot access corpus {corpus_id}.")
 
-    if not user_has_permission_for_obj(
-        user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-    ):
+    if not corpus.user_can(user, PermissionTypes.UPDATE):
         raise PermissionError(
             f"User {user_id} lacks UPDATE permission on corpus {corpus_id}."
         )

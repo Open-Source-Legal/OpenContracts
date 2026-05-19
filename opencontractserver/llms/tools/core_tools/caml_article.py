@@ -26,7 +26,7 @@ walk through citations one at a time, asking the user before each edit:
      Readme.CAML.  Each call triggers one approval prompt, so the agent
      steps through the article one citation at a time.
 
-All three tools use the existing ``visible_to_user`` / ``user_has_permission_for_obj``
+All three tools use the existing ``visible_to_user`` / ``user_can``
 patterns documented in ``docs/permissioning/consolidated_permissioning_guide.md``.
 """
 
@@ -48,7 +48,6 @@ from opencontractserver.constants.document_processing import (
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 from ._helpers import _db_sync_to_async
 
@@ -487,16 +486,13 @@ def _apply_caml_article_edit(
 
         # Defense-in-depth: explicit UPDATE check on the CAML document.  The
         # wrapper validates READ on deps.corpus_id, but the CAML article is a
-        # separate Document with its own guardian permissions -- creator access
-        # is honoured here (user_has_permission_for_obj does not consider it
-        # for documents, see its docstring).  The check runs inside the locked
+        # separate Document with its own guardian permissions.  ``user_can``
+        # honours creator access uniformly (Phase A — issue #1655), so the
+        # creator OR-branch the previous shim call needed is folded into the
+        # single ``user_can`` call below.  The check runs inside the locked
         # transaction so a permission revocation between the initial load and
         # the write cannot slip through.
-        if not (
-            user.is_superuser
-            or locked_doc.creator_id == user.pk
-            or user_has_permission_for_obj(user, locked_doc, PermissionTypes.UPDATE)
-        ):
+        if not locked_doc.user_can(user, PermissionTypes.UPDATE):
             raise ValueError(
                 f"User {user.pk} cannot modify the Readme.CAML for corpus {corpus_id}."
             )
