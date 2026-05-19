@@ -1449,3 +1449,197 @@ class ExtractQueryOptimizerTestCase(TestCase):
         self.assertIn("Extract on Collab Corpus", extract_names)
 
         logger.info("✓ Corpus creator can see permitted extracts on their corpus")
+
+
+class DocumentPermissionFilterQueryCountTestCase(TestCase):
+    """
+    Pins the O(1)-queries contract for the document-permission filter in
+    ``AnalysisQueryOptimizer.get_analysis_annotations`` and
+    ``ExtractQueryOptimizer.get_extract_datacells``.
+
+    Issue #1692 replaced per-document ``doc.user_can(...)`` Python loops with a
+    single ``Document.objects.visible_to_user(user).filter(id__in=...)``
+    intersection. These tests assert:
+
+      1. Behavior parity — the returned annotation / datacell set matches the
+         pre-fix per-document permission check.
+      2. The query count for the visibility step does not scale with the number
+         of documents bundled in the analysis / extract.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(username="dpf_owner", password="test123")
+        cls.reader = User.objects.create_user(username="dpf_reader", password="test123")
+
+        # Owner-only corpus — reader will only see docs via explicit grant.
+        cls.corpus = Corpus.objects.create(
+            title="DPF Corpus", creator=cls.owner, is_public=False
+        )
+
+        cls.docs = []
+        for idx in range(5):
+            doc = Document.objects.create(
+                title=f"DPF Doc {idx}",
+                description=f"DPF doc {idx}",
+                creator=cls.owner,
+                is_public=False,
+            )
+            cls.corpus.add_document(document=doc, user=cls.owner)
+            cls.docs.append(doc)
+
+        # Grant reader READ on the first two docs only (mix of readable/non-readable).
+        cls.readable_docs = cls.docs[:2]
+        cls.unreadable_docs = cls.docs[2:]
+        for doc in cls.readable_docs:
+            set_permissions_for_obj_to_user(cls.reader, doc, [PermissionTypes.READ])
+
+        # Annotation label shared across docs.
+        cls.label = AnnotationLabel.objects.create(
+            label_type=TOKEN_LABEL, text="DPF Label", creator=cls.owner
+        )
+
+        # Analysis with all docs in cls.docs.
+        cls.gremlin = GremlinEngine.objects.create(
+            url="http://dpf-gremlin:8000", creator=cls.owner
+        )
+        cls.analyzer = Analyzer.objects.create(
+            id="DPF.ANALYZER", host_gremlin=cls.gremlin, creator=cls.owner
+        )
+        cls.analysis = Analysis.objects.create(
+            analyzer=cls.analyzer,
+            analyzed_corpus=cls.corpus,
+            creator=cls.owner,
+        )
+        cls.analysis.analyzed_documents.add(*cls.docs)
+
+        # One annotation per doc, attached to the analysis.
+        cls.annotations_by_doc = {}
+        for doc in cls.docs:
+            ann = Annotation.objects.create(
+                annotation_label=cls.label,
+                document=doc,
+                corpus=cls.corpus,
+                analysis=cls.analysis,
+                creator=cls.owner,
+                page=1,
+                raw_text=f"ann for {doc.title}",
+            )
+            cls.annotations_by_doc[doc.id] = ann
+
+        # Extract with all docs and one datacell per doc.
+        cls.fieldset = Fieldset.objects.create(name="DPF Fieldset", creator=cls.owner)
+        cls.column = Column.objects.create(
+            name="DPF Column",
+            fieldset=cls.fieldset,
+            query="q",
+            output_type="string",
+            creator=cls.owner,
+        )
+        cls.extract = Extract.objects.create(
+            name="DPF Extract",
+            corpus=cls.corpus,
+            fieldset=cls.fieldset,
+            creator=cls.owner,
+        )
+        cls.extract.documents.add(*cls.docs)
+
+        cls.datacells_by_doc = {}
+        for doc in cls.docs:
+            dc = Datacell.objects.create(
+                creator=cls.owner,
+                extract=cls.extract,
+                column=cls.column,
+                document=doc,
+                data={"value": f"v-{doc.id}"},
+                data_definition="DPF",
+            )
+            cls.datacells_by_doc[doc.id] = dc
+
+    def test_get_analysis_annotations_parity_and_constant_queries(self):
+        """
+        ``get_analysis_annotations`` must return only annotations on readable
+        docs and must not issue an O(N) burst of queries for the visibility
+        filter.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from opencontractserver.annotations.query_optimizer import (
+            AnalysisQueryOptimizer,
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            qs = AnalysisQueryOptimizer.get_analysis_annotations(
+                self.analysis, self.reader
+            )
+            returned_ids = sorted(qs.values_list("id", flat=True))
+
+        expected_ids = sorted(
+            self.annotations_by_doc[doc.id].id for doc in self.readable_docs
+        )
+        self.assertEqual(returned_ids, expected_ids)
+
+        # Hard ceiling — far below the ~5+ permission-lookup queries the
+        # old per-doc loop required for N=5 (each doc.user_can typically
+        # triggers a permission table SELECT in addition to deserialising
+        # the doc row). Under the queryset intersection we expect a small
+        # single-digit number.
+        self.assertLess(
+            len(captured.captured_queries),
+            10,
+            msg=(
+                "get_analysis_annotations should issue a bounded number of "
+                f"queries; saw {len(captured.captured_queries)}: "
+                + "\n".join(q["sql"] for q in captured.captured_queries)
+            ),
+        )
+
+    def test_get_extract_datacells_parity_and_constant_queries(self):
+        """
+        ``get_extract_datacells`` must return only datacells on readable
+        docs and must not issue an O(N) burst of queries for the visibility
+        filter.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as captured:
+            qs = ExtractQueryOptimizer.get_extract_datacells(self.extract, self.reader)
+            returned_ids = sorted(qs.values_list("id", flat=True))
+
+        expected_ids = sorted(
+            self.datacells_by_doc[doc.id].id for doc in self.readable_docs
+        )
+        self.assertEqual(returned_ids, expected_ids)
+
+        self.assertLess(
+            len(captured.captured_queries),
+            10,
+            msg=(
+                "get_extract_datacells should issue a bounded number of "
+                f"queries; saw {len(captured.captured_queries)}: "
+                + "\n".join(q["sql"] for q in captured.captured_queries)
+            ),
+        )
+
+    def test_get_analysis_annotations_returns_none_when_no_readable_docs(self):
+        """
+        When the reader has no READ permission on any analyzed document the
+        method must short-circuit to ``Annotation.objects.none()``.
+        """
+        from opencontractserver.annotations.query_optimizer import (
+            AnalysisQueryOptimizer,
+        )
+
+        stranger = User.objects.create_user(username="dpf_stranger", password="x")
+        qs = AnalysisQueryOptimizer.get_analysis_annotations(self.analysis, stranger)
+        self.assertEqual(qs.count(), 0)
+
+    def test_get_extract_datacells_returns_none_when_no_readable_docs(self):
+        """
+        Mirror of the analysis case for ``get_extract_datacells``.
+        """
+        stranger = User.objects.create_user(username="dpf_stranger2", password="x")
+        qs = ExtractQueryOptimizer.get_extract_datacells(self.extract, stranger)
+        self.assertEqual(qs.count(), 0)
