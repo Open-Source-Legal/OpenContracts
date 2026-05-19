@@ -121,9 +121,9 @@ class UserCanMixin:
 
     def user_can(
         self,
-        user: "int | str | UserModel | AnonymousUser | None",
-        instance: "Model",
-        permission: "PermissionTypes",
+        user: int | str | UserModel | AnonymousUser | None,
+        instance: Model,
+        permission: PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,
@@ -198,8 +198,8 @@ class InstanceUserCanMixin:
 
     def user_can(
         self,
-        user: "int | str | UserModel | AnonymousUser | None",
-        permission: "PermissionTypes",
+        user: int | str | UserModel | AnonymousUser | None,
+        permission: PermissionTypes,
         *,
         include_group_permissions: bool = True,
         request: Any = None,

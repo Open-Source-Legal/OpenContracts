@@ -286,6 +286,52 @@ class PermissionManagerSuperuserTest(TestCase):
         self.assertIn(self.private_corpus.pk, ids)
 
 
+class PermissionedTreeQuerySetSuperuserTreeFieldsTest(TestCase):
+    """
+    Regression guard for the ``PermissionedTreeQuerySet.visible_to_user``
+    superuser branch (``shared/QuerySets.py``).
+
+    Before the Phase A follow-up the superuser branch returned
+    ``self.all().order_by("created")`` — i.e. it skipped
+    ``.with_tree_fields()``, so superusers silently lost ``tree_depth`` /
+    ``tree_path`` annotations on every tree queryset call. This test
+    pins the post-fix invariant: the superuser path now goes through
+    ``self.all().with_tree_fields()`` and the django-tree-queries
+    annotations show up on each row.
+    """
+
+    def setUp(self) -> None:
+        self.superuser = User.objects.create_superuser(
+            username="tree_super",
+            email="tree_super@example.com",
+            password="s3cur3",
+        )
+        # Corpus.objects is a ``PermissionedTreeQuerySet.as_manager(
+        # with_tree_fields=True)``, which is the surface this test pins.
+        self.corpus = Corpus.objects.create(
+            title="Tree Fields Corpus",
+            creator=self.superuser,
+            is_public=False,
+        )
+
+    def test_superuser_branch_applies_with_tree_fields(self) -> None:
+        qs = Corpus.objects.visible_to_user(user=self.superuser)
+        row = qs.get(pk=self.corpus.pk)
+        # ``with_tree_fields`` annotates each row with ``tree_depth`` and
+        # ``tree_path``; absence of either attribute means the superuser
+        # branch regressed to a bare ``.all()`` call.
+        self.assertTrue(
+            hasattr(row, "tree_depth"),
+            "Superuser visible_to_user must apply .with_tree_fields() "
+            "(missing tree_depth attribute on returned row).",
+        )
+        self.assertTrue(
+            hasattr(row, "tree_path"),
+            "Superuser visible_to_user must apply .with_tree_fields() "
+            "(missing tree_path attribute on returned row).",
+        )
+
+
 class PermissionManagerVisibleToUserViaNoteTest(TestCase):
     """``PermissionManager.visible_to_user`` is reached through models whose
     manager is built via ``PermissionManager.from_queryset(...)`` — i.e.,

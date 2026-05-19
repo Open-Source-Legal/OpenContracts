@@ -353,7 +353,7 @@ class UserFeedbackManager(BaseVisibilityManager):
 
     def user_can(
         self,
-        user: "int | str | UserModel | AnonymousUser | None",
+        user: int | str | UserModel | AnonymousUser | None,
         instance: Model,
         permission: _PermissionTypes,
         *,
@@ -614,7 +614,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
     def user_can(
         self,
-        user: "int | str | UserModel | AnonymousUser | None",
+        user: int | str | UserModel | AnonymousUser | None,
         instance: Model,
         permission: _PermissionTypes,
         *,
@@ -715,7 +715,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
     def _read_only_via_visible_to_user(
         self,
-        user: "UserModel | AnonymousUser",
+        user: UserModel | AnonymousUser,
         instance: Model,
         permission: _PermissionTypes,
     ) -> bool:
@@ -742,7 +742,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
     def _check_annotation_privacy_recursion(
         self,
-        user: "UserModel | AnonymousUser",
+        user: UserModel | AnonymousUser,
         instance: Model,
         permission: _PermissionTypes,
         include_group_permissions: bool,
@@ -781,7 +781,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
         analysis_id = getattr(instance, "created_by_analysis_id", None)
         if analysis_id:
-            source_analysis = instance.created_by_analysis
+            # ``instance`` is statically ``Model`` but this branch only runs for
+            # Annotation rows, which declare this FK.
+            source_analysis = instance.created_by_analysis  # type: ignore[attr-defined]
             if source_analysis is None:
                 return False
             from opencontractserver.analyzer.models import Analysis
@@ -796,7 +798,9 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
         extract_id = getattr(instance, "created_by_extract_id", None)
         if extract_id:
-            source_extract = instance.created_by_extract
+            # ``instance`` is statically ``Model`` but this branch only runs for
+            # Annotation rows, which declare this FK.
+            source_extract = instance.created_by_extract  # type: ignore[attr-defined]
             if source_extract is None:
                 return False
             from opencontractserver.extracts.models import Extract
@@ -813,7 +817,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
 
     def _compute_annotation_effective_permission(
         self,
-        user: "UserModel | AnonymousUser",
+        user: UserModel | AnonymousUser,
         instance: Model,
         permission: _PermissionTypes,
         *,
@@ -836,11 +840,13 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
         # wired into the underlying Document/Corpus user_can calls) are shared
         # across distinct annotation checks in this request.
+        # ``instance`` is statically ``Model``; ``document_id`` / ``corpus_id``
+        # are Annotation FKs declared on the concrete subclass.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
                 user=user,
-                document_id=instance.document_id,
-                corpus_id=instance.corpus_id,
+                document_id=instance.document_id,  # type: ignore[attr-defined]
+                corpus_id=instance.corpus_id,  # type: ignore[attr-defined]
                 context=request,
             )
         )
@@ -893,7 +899,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
 
     def user_can(
         self,
-        user: "int | str | UserModel | AnonymousUser | None",
+        user: int | str | UserModel | AnonymousUser | None,
         instance: Model,
         permission: _PermissionTypes,
         *,
@@ -948,7 +954,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         # Creator short-circuit (matches the QuerySet's ``Q(creator=user)``).
         if (
             getattr(instance, "creator_id", None) is not None
-            and instance.creator_id == user.id
+            and instance.creator_id == user.id  # type: ignore[attr-defined]
         ):
             return True
 
@@ -1061,7 +1067,7 @@ class RelationshipManager(BaseVisibilityManager):
 
     def user_can(
         self,
-        user: "int | str | UserModel | AnonymousUser | None",
+        user: int | str | UserModel | AnonymousUser | None,
         instance: Model,
         permission: _PermissionTypes,
         *,
@@ -1132,7 +1138,7 @@ class RelationshipManager(BaseVisibilityManager):
         # for the permission codes this short-circuit covers.
         if (
             getattr(instance, "creator_id", None) is not None
-            and instance.creator_id == user.id
+            and instance.creator_id == user.id  # type: ignore[attr-defined]
             and permission in _RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS
         ):
             return True
@@ -1148,11 +1154,13 @@ class RelationshipManager(BaseVisibilityManager):
         # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
         # wired into the underlying Document/Corpus user_can calls) are shared
         # across distinct relationship checks in this request.
+        # ``instance`` is statically ``Model``; ``document_id`` / ``corpus_id``
+        # are Relationship FKs declared on the concrete subclass.
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationQueryOptimizer._compute_effective_permissions(
                 user=user,
-                document_id=instance.document_id,
-                corpus_id=instance.corpus_id,
+                document_id=instance.document_id,  # type: ignore[attr-defined]
+                corpus_id=instance.corpus_id,  # type: ignore[attr-defined]
                 context=request,
             )
         )
