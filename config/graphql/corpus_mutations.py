@@ -388,14 +388,12 @@ class AddDocumentsToCorpus(graphene.Mutation):
             )
 
             # Delegate to service - handles permission checks, validation, dual-system update
-            added_count, added_ids, error = (
-                CorpusObjsService.add_documents_to_corpus(
-                    user=user,
-                    document_ids=doc_pks,
-                    corpus=corpus,
-                    folder=None,  # No folder specified - add to root
-                    request=info.context,
-                )
+            added_count, added_ids, error = CorpusObjsService.add_documents_to_corpus(
+                user=user,
+                document_ids=doc_pks,
+                corpus=corpus,
+                folder=None,  # No folder specified - add to root
+                request=info.context,
             )
 
             if error:

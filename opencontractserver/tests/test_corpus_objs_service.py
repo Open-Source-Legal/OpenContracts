@@ -503,9 +503,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         )
         folder_id = folder.id
 
-        success, error = CorpusObjsService.delete_folder(
-            user=self.owner, folder=folder
-        )
+        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
 
         self.assertTrue(success)
         self.assertEqual(error, "")
@@ -616,9 +614,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         )
 
         # Delete the folder — both docs should move to root
-        success, error = CorpusObjsService.delete_folder(
-            user=self.owner, folder=folder
-        )
+        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
 
         self.assertTrue(success, f"delete_folder failed: {error}")
 
@@ -1374,7 +1370,9 @@ class TestVersioning_DeletedDocumentsQueryable(_CorpusObjsServiceFolderTestBase)
 # =============================================================================
 
 
-class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(_CorpusObjsServiceFolderTestBase):
+class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
+    _CorpusObjsServiceFolderTestBase
+):
     """
     SCENARIO: Adding a document to a corpus creates a corpus-isolated copy.
 
@@ -1578,9 +1576,7 @@ class TestEdgeCases_NonexistentResources(TransactionTestCase):
 
     def test_get_folder_by_id_with_nonexistent_id_returns_none(self):
         """Querying nonexistent folder returns None (IDOR protection)."""
-        folder = CorpusObjsService.get_folder_by_id(
-            user=self.owner, folder_id=99999
-        )
+        folder = CorpusObjsService.get_folder_by_id(user=self.owner, folder_id=99999)
         self.assertIsNone(folder)
 
     def test_get_deleted_documents_with_nonexistent_corpus_returns_empty(self):
@@ -1705,18 +1701,14 @@ class TestEdgeCases_UploadQuota(TransactionTestCase):
 
     def test_uncapped_user_passes_quota_check(self):
         """Uncapped user should always pass quota check."""
-        can_upload, error = DocumentService.check_user_upload_quota(
-            self.uncapped_user
-        )
+        can_upload, error = DocumentService.check_user_upload_quota(self.uncapped_user)
 
         self.assertTrue(can_upload)
         self.assertEqual(error, "")
 
     def test_capped_user_with_room_passes_quota_check(self):
         """Capped user under limit should pass quota check."""
-        can_upload, error = DocumentService.check_user_upload_quota(
-            self.capped_user
-        )
+        can_upload, error = DocumentService.check_user_upload_quota(self.capped_user)
 
         self.assertTrue(can_upload)
         self.assertEqual(error, "")
@@ -2410,9 +2402,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
             mock_filter.return_value.values_list.return_value = all_candidates
 
             with self.assertRaises(ValueError) as ctx:
-                CorpusObjsService._disambiguate_path(
-                    "/Target/report.pdf", self.corpus
-                )
+                CorpusObjsService._disambiguate_path("/Target/report.pdf", self.corpus)
 
             self.assertIn(str(MAX_PATH_DISAMBIGUATION_SUFFIX), str(ctx.exception))
 
@@ -2543,9 +2533,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
             )
             docs.append(doc)
 
-        success, error = CorpusObjsService.delete_folder(
-            user=self.owner, folder=folder
-        )
+        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
 
         self.assertTrue(success)
         self.assertEqual(error, "")
@@ -2761,9 +2749,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
         deleted_path = DocumentPath.objects.get(
             document=doc, corpus=self.corpus, is_current=True, is_deleted=True
         )
-        CorpusObjsService.restore_document(
-            user=self.owner, document_path=deleted_path
-        )
+        CorpusObjsService.restore_document(user=self.owner, document_path=deleted_path)
 
         # Get final current path and check history
         current = DocumentPath.objects.get(
@@ -3283,9 +3269,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         self.assertTrue(CorpusFolder.objects.filter(pk=folder.pk).exists())
 
         # Second attempt: succeeds (no mock = real disambiguate)
-        success, error = CorpusObjsService.delete_folder(
-            user=self.owner, folder=folder
-        )
+        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
         self.assertTrue(success, f"Retry should succeed, got error: {error}")
         self.assertEqual(error, "")
 
@@ -4162,9 +4146,7 @@ class TestCoverageGapDeleteFolderMultiDocHistory(_CorpusObjsServiceFolderTestBas
             )
             docs_and_paths.append((doc, path))
 
-        success, error = CorpusObjsService.delete_folder(
-            user=self.owner, folder=folder
-        )
+        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
         self.assertTrue(success)
         self.assertEqual(error, "")
 
@@ -4265,7 +4247,9 @@ class TestCoverageGapBulkMoveVersionPreservation(_CorpusObjsServiceFolderTestBas
             self.assertFalse(original_path.is_current)
 
 
-class TestCoverageGapDeleteFolderIntegrityErrorRollback(_CorpusObjsServiceFolderTestBase):
+class TestCoverageGapDeleteFolderIntegrityErrorRollback(
+    _CorpusObjsServiceFolderTestBase
+):
     """
     SCENARIO: An IntegrityError during delete_folder's bulk_create causes
     full atomic rollback.
@@ -4348,9 +4332,7 @@ class TestCoverageGapTargetDirectoryStringFromPathEdgeCases(
 
     def test_slash_normalises_to_root(self):
         """Bare '/' is treated as the root directory (not an error)."""
-        self.assertEqual(
-            CorpusObjsService._target_directory_string_from_path("/"), "/"
-        )
+        self.assertEqual(CorpusObjsService._target_directory_string_from_path("/"), "/")
 
     def test_root_returns_slash(self):
         """None (root) returns '/'."""
