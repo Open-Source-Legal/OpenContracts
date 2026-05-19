@@ -211,7 +211,6 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # ``ConversationQueryOptimizer``); the ``count()``/``all()`` fallback
         # keeps the resolver correct if the prefetch is missing.
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         if info.context.user.is_superuser:
             cache = getattr(self, "_prefetched_objects_cache", {})
@@ -224,17 +223,13 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return sum(
             1
             for doc in documents
-            if user_has_permission_for_obj(
-                info.context.user,
-                doc,
-                PermissionTypes.READ,
-                include_group_permissions=True,
+            if doc.user_can(
+                info.context.user, PermissionTypes.READ, request=info.context
             )
         )
 
     def resolve_full_document_list(self, info) -> Any:
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Filter to only documents user can read
         if info.context.user.is_superuser:
@@ -242,11 +237,8 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         readable_docs = []
         for doc in self.documents.all():
-            if user_has_permission_for_obj(
-                info.context.user,
-                doc,
-                PermissionTypes.READ,
-                include_group_permissions=True,
+            if doc.user_can(
+                info.context.user, PermissionTypes.READ, request=info.context
             ):
                 readable_docs.append(doc)
         return readable_docs

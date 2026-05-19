@@ -190,6 +190,11 @@ class UserFeedbackQuerySet(models.QuerySet):
         # ``Annotation.objects.visible_to_user(user)``-based gate in
         # ``UserFeedbackManager.user_can`` so the manager check and the
         # queryset filter answer the same question for the same user.
+        #
+        # ``visible_to_user`` produces a compound subquery here —
+        # acceptable for Phase A correctness, but see issue #1655 for
+        # the Phase B request-scoped permission cache that should wrap
+        # this path before it hits scale.
         visible_annotation_ids = Annotation.objects.visible_to_user(user).values("pk")
         inherited_visibility = Q(commented_annotation_id__in=visible_annotation_ids)
 

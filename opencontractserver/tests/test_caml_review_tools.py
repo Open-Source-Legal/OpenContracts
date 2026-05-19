@@ -694,6 +694,50 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
             )
         self.assertIn("cannot modify", str(ctx.exception))
 
+    def test_creator_without_explicit_perm_can_edit(self):
+        """The CAML document's creator can edit it without an explicit guardian perm.
+
+        Phase E (#1659) drops the legacy ``locked_doc.creator_id == user.pk``
+        short-circuit because ``user_can`` now honours creator access uniformly
+        (Phase A — #1655). This test pins the semantic widening: a user who is
+        the ``locked_doc.creator`` but holds no explicit guardian UPDATE row
+        must still pass the gate. Without the creator-honoring path baked into
+        ``user_can``, the edit would now raise ``cannot modify``.
+        """
+        from guardian.shortcuts import get_perms
+
+        # The owner is the creator of the CAML doc (via ``_create_caml_doc``
+        # and ``corpus.add_document``) but ``add_document`` never assigns
+        # guardian UPDATE perms, so this is the creator-without-explicit-perm
+        # case the issue calls out. Make the relationship explicit so a future
+        # refactor that auto-grants doc perms on creation won't silently mask
+        # the regression we're guarding against.
+        self.caml_doc.refresh_from_db()
+        self.assertEqual(self.caml_doc.creator_id, self.owner.id)
+        self.assertNotIn(
+            "update_document",
+            get_perms(self.owner, self.caml_doc),
+            "Setup invariant violated: owner unexpectedly has explicit UPDATE perm "
+            "on the CAML doc — this test must exercise the creator-only path.",
+        )
+
+        target = (
+            "Force majeure clauses were updated in 2023 to cover supply-chain shocks."
+        )
+        replacement = (
+            "Force majeure clauses were updated in 2023 to cover supply-chain "
+            "shocks. {{@cite sentence}}"
+        )
+        result = _apply_caml_article_edit(
+            corpus_id=self.corpus.id,
+            author_id=self.owner.id,
+            target_text=target,
+            replacement_text=replacement,
+            rationale="Creator edits CAML article.",
+        )
+        self.assertTrue(result["applied"])
+        self.assertIn("{{@cite sentence}}", self._read_caml_body())
+
     def test_superuser_can_edit_any_corpus(self):
         """Superusers bypass guardian checks (matches existing tool conventions)."""
         target = "Liability is capped at twice the annual fee. {{@cite sentence}}"

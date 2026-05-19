@@ -66,7 +66,6 @@ from opencontractserver.llms.tools.delegation_tools import (
     filter_by_scope,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -252,8 +251,8 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
         if self.corpus is not None:
             if is_authenticated:
-                has_perm = await database_sync_to_async(user_has_permission_for_obj)(
-                    user, self.corpus, PermissionTypes.READ
+                has_perm = await database_sync_to_async(self.corpus.user_can)(
+                    user, PermissionTypes.READ
                 )
                 if not has_perm:
                     return False
@@ -268,8 +267,8 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
         if self.document is not None:
             if is_authenticated:
-                has_perm = await database_sync_to_async(user_has_permission_for_obj)(
-                    user, self.document, PermissionTypes.READ
+                has_perm = await database_sync_to_async(self.document.user_can)(
+                    user, PermissionTypes.READ
                 )
                 if not has_perm:
                     return False
