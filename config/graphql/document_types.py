@@ -880,15 +880,14 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         user = info.context.user
         if isinstance(user, AnonymousUser) or not user or not user.is_authenticated:
             return False
 
         # Check document permission
-        has_doc_update = user_has_permission_for_obj(
-            user, self, PermissionTypes.UPDATE, include_group_permissions=True
+        has_doc_update = self.user_can(
+            user, PermissionTypes.UPDATE, request=info.context
         )
         if not has_doc_update:
             return False
@@ -897,10 +896,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         _, corpus_pk = from_global_id(corpus_id)
         try:
             corpus = Corpus.objects.get(pk=corpus_pk)
-            has_corpus_update = user_has_permission_for_obj(
-                user, corpus, PermissionTypes.UPDATE, include_group_permissions=True
-            )
-            return has_corpus_update
+            return corpus.user_can(user, PermissionTypes.UPDATE, request=info.context)
         except Corpus.DoesNotExist:
             return False
 
@@ -909,7 +905,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from django.contrib.auth.models import AnonymousUser
 
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         user = info.context.user
 
@@ -920,9 +915,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if isinstance(user, AnonymousUser) or not user or not user.is_authenticated:
             return False
 
-        return user_has_permission_for_obj(
-            user, self, PermissionTypes.READ, include_group_permissions=True
-        )
+        return self.user_can(user, PermissionTypes.READ, request=info.context)
 
     # -------------------- Processing Status Fields (Pipeline Hardening) -------------------- #
     processing_status = graphene.Field(
@@ -965,7 +958,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from django.contrib.auth.models import AnonymousUser
 
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         # Must be in failed state to retry
         if self.processing_status != DocumentProcessingStatus.FAILED:
@@ -980,9 +972,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return True
 
         # Others need UPDATE permission
-        return user_has_permission_for_obj(
-            user, self, PermissionTypes.UPDATE, include_group_permissions=True
-        )
+        return self.user_can(user, PermissionTypes.UPDATE, request=info.context)
 
     page_annotations = graphene.List(
         AnnotationType,

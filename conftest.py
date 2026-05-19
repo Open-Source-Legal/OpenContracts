@@ -13,6 +13,74 @@ from django import db
 
 
 @pytest.fixture(scope="session", autouse=True)
+def make_create_permissions_xdist_safe():
+    """Make ``django.contrib.auth.management.create_permissions`` idempotent
+    under pytest-xdist worker concurrency.
+
+    Each ``TransactionTestCase._fixture_teardown`` calls Django's ``flush``
+    management command, which fires ``emit_post_migrate_signal``, which calls
+    ``create_permissions`` and ends in
+    ``Permission.objects.bulk_create(perms)``. Under xdist with 4 workers,
+    every worker's per-test teardown races on the shared ``auth_permission``
+    table — content_type ids overlap across the per-worker test databases
+    (postgres assigns them serially during migrate), so the
+    ``(content_type_id, codename)`` unique constraint produces
+    ``IntegrityError`` for whichever worker loses the race. The losing
+    worker's teardown then dies, the next test's ``setUp`` finds an
+    un-rolled-back transaction and an empty fixture, and we get a cascade of
+    ``User matching query does not exist`` setUp failures.
+
+    Fix: wrap the registered ``create_permissions`` handler in
+    ``transaction.atomic`` and swallow ``IntegrityError``. The conflicting
+    rows are exactly the permissions we'd have inserted anyway (already
+    present courtesy of the winning worker), so the swallow is safe — and
+    the atomic block guarantees no half-inserted state leaks past the
+    rollback.
+
+    This is a test-only patch. The fixture re-registers the original handler
+    at session teardown so no production import path is affected.
+    """
+    from django.contrib.auth.management import create_permissions
+    from django.db import IntegrityError, transaction
+    from django.db.models.signals import post_migrate
+
+    _UID = "django.contrib.auth.management.create_permissions"
+
+    def safe_create_permissions(app_config, **kwargs):
+        using = kwargs.get("using", "default")
+        try:
+            with transaction.atomic(using=using):
+                return create_permissions(app_config, **kwargs)
+        except IntegrityError:
+            # Another xdist worker won the race and inserted the same
+            # (content_type_id, codename) rows; the atomic block has rolled
+            # back any partial inserts on our side. The post-condition
+            # ``create_permissions`` cares about — every expected Permission
+            # row exists — is already satisfied.
+            return None
+
+    # ``post_migrate.disconnect`` returns ``True`` only if a receiver
+    # registered with the given ``dispatch_uid`` was actually removed. Fail
+    # loudly if Django ever changes the UID string that ``AuthConfig.ready``
+    # uses to register ``create_permissions``: a silent no-op here would
+    # leave the unsafe original handler in place and quietly re-introduce
+    # the xdist race this fixture exists to fix.
+    disconnected = post_migrate.disconnect(dispatch_uid=_UID)
+    assert disconnected, (
+        f"Expected Django to have registered ``create_permissions`` with "
+        f"dispatch_uid={_UID!r}; nothing was disconnected. The xdist race "
+        f"this fixture mitigates may have been silently re-introduced. "
+        f"Check django.contrib.auth.apps.AuthConfig.ready for the new UID."
+    )
+    post_migrate.connect(safe_create_permissions, dispatch_uid=_UID)
+
+    yield
+
+    post_migrate.disconnect(dispatch_uid=_UID)
+    post_migrate.connect(create_permissions, dispatch_uid=_UID)
+
+
+@pytest.fixture(scope="session", autouse=True)
 def disable_document_processing_signals(django_db_setup):
     """
     Disable document, annotation, and note processing signals for all tests by default.

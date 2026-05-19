@@ -21,7 +21,6 @@ from opencontractserver.llms.tools.tool_factory import (
 )
 from opencontractserver.llms.types import AgentFramework
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +55,8 @@ async def _user_has_write_permission(
     except User.DoesNotExist:
         return False
 
-    # Use database_sync_to_async since user_has_permission_for_obj is synchronous
-    return await database_sync_to_async(user_has_permission_for_obj)(
-        user, resource, PermissionTypes.CRUD
-    )
+    # Use database_sync_to_async since user_can is synchronous
+    return await database_sync_to_async(resource.user_can)(user, PermissionTypes.CRUD)
 
 
 async def _inject_corpus_memory(corpus_obj, config) -> None:
