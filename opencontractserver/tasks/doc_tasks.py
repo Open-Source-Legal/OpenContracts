@@ -337,7 +337,6 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     """
     from opencontractserver.documents.models import DocumentPath
     from opencontractserver.types.enums import PermissionTypes
-    from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
     logger.info(
         f"[ingest_doc] Ingesting doc {doc_id} for user {user_id} "
@@ -380,9 +379,7 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
             "doc_id": doc_id,
             "error": "Invalid user for ingest",
         }
-    if not user_has_permission_for_obj(
-        user_obj, document, PermissionTypes.READ, include_group_permissions=True
-    ):
+    if not document.user_can(user_obj, PermissionTypes.READ):
         logger.error(
             f"[SECURITY] [ingest_doc] user_id={user_id} lacks READ "
             f"permission on doc_id={doc_id}; refusing to process. "
@@ -854,7 +851,6 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     from celery import chain
 
     from opencontractserver.types.enums import PermissionTypes
-    from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
     logger.info(
         f"[retry_document_processing] Manual retry requested for doc {doc_id} "
@@ -896,12 +892,7 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
             "doc_id": doc_id,
             "message": "Document not found",
         }
-    if not user_has_permission_for_obj(
-        user_obj,
-        document_obj,
-        PermissionTypes.UPDATE,
-        include_group_permissions=True,
-    ):
+    if not document_obj.user_can(user_obj, PermissionTypes.UPDATE):
         logger.error(
             f"[SECURITY] [retry_document_processing] user_id={user_id} "
             f"lacks UPDATE permission on doc_id={doc_id}; refusing to retry."

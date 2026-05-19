@@ -410,7 +410,13 @@ class TestUserFeedbackVisibility(TestCase):
         )
 
         # Feedback row that is itself ``is_public=True`` — visible to
-        # everyone regardless of the commented annotation.
+        # everyone regardless of the commented annotation. Pairing this
+        # with ``hidden_annotation`` (a fully private annotation with no
+        # inherited-visibility path for non-owners) is intentional: it
+        # asserts the ``is_public=True`` branch on the feedback row alone
+        # grants READ, independent of annotation visibility. Do not
+        # repoint to a visible annotation — that would silently collapse
+        # this row's coverage into the inherited-gate tests.
         cls.public_feedback = UserFeedback.objects.create(
             creator=cls.owner,
             commented_annotation=cls.hidden_annotation,

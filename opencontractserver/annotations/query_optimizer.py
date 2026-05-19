@@ -1259,11 +1259,11 @@ class AnalysisQueryOptimizer:
         else:
             # Filter to only documents user can read
             if not user.is_superuser:
-                # Get IDs of documents user can read
-                readable_doc_ids = []
-                for doc in analysis.analyzed_documents.all():
-                    if doc.user_can(user, PermissionTypes.READ):
-                        readable_doc_ids.append(doc.id)
+                readable_doc_ids = list(
+                    Document.objects.visible_to_user(user)
+                    .filter(id__in=analysis.analyzed_documents.values("id"))
+                    .values_list("id", flat=True)
+                )
 
                 if not readable_doc_ids:
                     return Annotation.objects.none()
@@ -1443,11 +1443,11 @@ class ExtractQueryOptimizer:
         else:
             # Filter to only documents user can read
             if not user.is_superuser:
-                # Get IDs of documents user can read
-                readable_doc_ids = []
-                for doc in extract.documents.all():
-                    if doc.user_can(user, PermissionTypes.READ):
-                        readable_doc_ids.append(doc.id)
+                readable_doc_ids = list(
+                    Document.objects.visible_to_user(user)
+                    .filter(id__in=extract.documents.values("id"))
+                    .values_list("id", flat=True)
+                )
 
                 if not readable_doc_ids:
                     return Datacell.objects.none()

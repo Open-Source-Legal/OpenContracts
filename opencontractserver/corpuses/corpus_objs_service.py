@@ -2781,3 +2781,54 @@ class CorpusObjsService:
             .filter(pk=document_id)
             .exists()
         )
+
+    @classmethod
+    def get_corpus_caml_articles(
+        cls,
+        user: UserOrAnonymous,
+        corpus: Corpus,
+        *,
+        request: Any = None,
+    ) -> QuerySet[Document]:
+        """
+        Get the CAML article documents in a corpus (typically 0 or 1).
+
+        A CAML article is a Markdown ``Document`` attached to the corpus
+        whose ``title`` is ``"Readme.CAML"`` and whose ``file_type`` is
+        ``"text/markdown"``. The plural return shape mirrors
+        :meth:`get_corpus_documents` so future multi-article designs do
+        not require a signature change; today the queryset is expected
+        to contain at most one row.
+
+        Reuses :meth:`_build_corpus_documents_queryset` so the
+        ``DocumentPath`` join and CAML toggle stay consistent with the
+        rest of the corpus-scoped read surface.
+
+        Args:
+            user: Requesting user.
+            corpus: Corpus to look up CAML articles in.
+            request: Optional request object for the per-request
+                permission cache.
+
+        Returns:
+            QuerySet of ``Document`` rows matching the CAML article
+            shape. Empty if the user lacks corpus READ or the corpus
+            has no CAML article — IDOR-safe (no distinction between
+            "no permission" and "no article").
+
+        Permissions:
+            Requires corpus READ permission. Mirrors
+            :meth:`get_corpus_documents`' corpus-as-gate semantic.
+        """
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+        from opencontractserver.documents.models import Document
+
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
+            return Document.objects.none()
+
+        return cls._build_corpus_documents_queryset(corpus, include_caml=True).filter(
+            title=CAML_ARTICLE_TITLE, file_type=MARKDOWN_MIME_TYPE
+        )
