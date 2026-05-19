@@ -986,7 +986,9 @@ class TestImportReconstructLineage(TestCase):
                 "ingestion_metadata": {"job_id": "job-789"},
             }
         ]
-        _reconstruct_document_paths(path_data, self.corpus, {"abc123": doc}, source_map)
+        _reconstruct_document_paths(
+            path_data, self.corpus, {"abc123": doc}, [], {}, source_map
+        )
 
         doc_path.refresh_from_db()
         self.assertEqual(doc_path.ingestion_source, source_map["my_crawler"])
@@ -1022,7 +1024,9 @@ class TestImportReconstructLineage(TestCase):
             }
         ]
         # Should not raise even with None source_name_map
-        _reconstruct_document_paths(path_data, self.corpus, {"def456": doc}, None)
+        _reconstruct_document_paths(
+            path_data, self.corpus, {"def456": doc}, [], {}, None
+        )
 
 
 # ------------------------------------------------------------------ #
