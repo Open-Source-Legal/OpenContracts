@@ -408,10 +408,17 @@ class AddDocumentsToCorpus(graphene.Mutation):
         not_found_msg = (
             "Corpus not found or you do not have permission to add documents to it"
         )
+        # Decode global ids up-front so a malformed id surfaces as the unified
+        # not-found envelope rather than echoing raw exception text through the
+        # outer ``except Exception`` (IDOR review on PR #1693).
+        try:
+            corpus_pk = from_global_id(corpus_id)[1]
+            doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
+        except Exception:
+            return AddDocumentsToCorpus(message=not_found_msg, ok=False)
         try:
             user = info.context.user
-            doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
-            corpus = get_for_user_or_none(Corpus, from_global_id(corpus_id)[1], user)
+            corpus = get_for_user_or_none(Corpus, corpus_pk, user)
             if corpus is None:
                 return AddDocumentsToCorpus(message=not_found_msg, ok=False)
 
@@ -470,12 +477,19 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
         not_found_msg = (
             "Corpus not found or you do not have permission to remove documents from it"
         )
+        # Decode global ids up-front so a malformed id surfaces as the unified
+        # not-found envelope rather than echoing raw exception text through the
+        # outer ``except Exception`` (IDOR review on PR #1693).
         try:
-            user = info.context.user
+            corpus_pk = from_global_id(corpus_id)[1]
             doc_pks = [
                 int(from_global_id(doc_id)[1]) for doc_id in document_ids_to_remove
             ]
-            corpus = get_for_user_or_none(Corpus, from_global_id(corpus_id)[1], user)
+        except Exception:
+            return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
+        try:
+            user = info.context.user
+            corpus = get_for_user_or_none(Corpus, corpus_pk, user)
             if corpus is None:
                 return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
 
