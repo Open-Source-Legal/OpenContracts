@@ -73,10 +73,12 @@ const Header = styled.div`
   background: ${CORPUS_COLORS.white};
   border-bottom: 1px solid ${CORPUS_COLORS.slate[200]};
   gap: 0.5rem;
+  min-width: 0;
 
   @media (max-width: 768px) {
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
     flex-direction: column;
+    gap: 0.5rem;
   }
 `;
 
@@ -86,6 +88,11 @@ const HeaderLeft = styled.div`
   gap: 0.25rem;
   flex: 1;
   min-width: 0;
+  width: 100%;
+
+  @media (max-width: 768px) {
+    gap: 0.5rem;
+  }
 `;
 
 const BackButton = styled.button`
@@ -186,6 +193,12 @@ const TitleRow = styled.div`
   align-items: baseline;
   gap: 0.5rem;
   min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 0.375rem;
+
+  @media (max-width: 768px) {
+    gap: 0.375rem 0.5rem;
+  }
 `;
 
 const Title = styled.h1`
@@ -198,6 +211,16 @@ const Title = styled.h1`
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+
+  @media (max-width: 768px) {
+    flex-basis: 100%;
+    font-size: 1.0625rem;
+    line-height: 1.3;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+  }
 `;
 
 const Description = styled.span`
@@ -209,6 +232,17 @@ const Description = styled.span`
   white-space: nowrap;
   min-width: 0;
   flex: 1;
+
+  @media (max-width: 768px) {
+    flex: 1 1 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+  }
 `;
 
 const MetaRow = styled.div`
@@ -218,6 +252,9 @@ const MetaRow = styled.div`
   font-family: ${CORPUS_FONTS.sans};
   font-size: 0.75rem;
   color: ${CORPUS_COLORS.slate[500]};
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+  min-width: 0;
 `;
 
 const MetaItem = styled.span`

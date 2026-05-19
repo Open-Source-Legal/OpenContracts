@@ -89,6 +89,8 @@ const CorpusLink = styled(Link)`
   color: ${OS_LEGAL_COLORS.textTertiary};
   text-decoration: none;
   transition: all 0.15s;
+  min-width: 0;
+  max-width: 100%;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.border};
@@ -99,6 +101,25 @@ const CorpusLink = styled(Link)`
   svg {
     width: 12px;
     height: 12px;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 768px) {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+`;
+
+const CorpusLinkLabel = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+
+  @media (max-width: 768px) {
+    display: inline-block;
+    max-width: 100%;
   }
 `;
 
@@ -192,7 +213,7 @@ export const CorpusThreadRoute: React.FC = () => {
               title={corpus.title}
             >
               <Folder />
-              {corpus.title}
+              <CorpusLinkLabel>{corpus.title}</CorpusLinkLabel>
             </CorpusLink>
             <NavSeparator>
               <ChevronRight />
