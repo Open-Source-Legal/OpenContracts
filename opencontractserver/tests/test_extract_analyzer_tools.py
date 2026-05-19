@@ -588,7 +588,7 @@ class TestStartExtract(BaseFixtureTestCase):
         extract = Extract.objects.get(pk=result["extract_id"])
         self.assertEqual(
             set(extract.documents.values_list("id", flat=True)),
-            set(self.corpus.get_documents().values_list("id", flat=True)),
+            set(self.corpus._get_active_documents().values_list("id", flat=True)),
         )
         self.assertEqual(result["status"], "queued")
         self.assertEqual(result["fieldset_id"], self.fieldset.id)
@@ -881,7 +881,9 @@ class TestStartAnalysis(BaseFixtureTestCase):
         self.assertEqual(call_kwargs["document_ids"], [self.doc.id])
 
     def test_corpus_agent_scope_defaults_to_all_corpus_docs(self):
-        expected_ids = sorted(self.corpus.get_documents().values_list("id", flat=True))
+        expected_ids = sorted(
+            self.corpus._get_active_documents().values_list("id", flat=True)
+        )
         with self._patch_process_analyzer() as mock_process:
             start_analysis(
                 corpus_id=self.corpus.id,
