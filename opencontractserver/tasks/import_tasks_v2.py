@@ -68,6 +68,11 @@ logger.setLevel(logging.DEBUG)
 
 User = get_user_model()
 
+# Cap on how many known folder-path keys we dump into the "unresolved
+# folder_path" warning. Log aggregators (Datadog, CloudWatch) truncate long
+# lines, which could hide the very keys we want a human to compare against.
+_UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE = 20
+
 
 def import_corpus_v2_from_bytes(
     zip_source: IO[bytes],
@@ -661,8 +666,13 @@ def _build_folder_path_lookup(
     string written into ``document_paths.folder_path`` in the same zip.
 
     Both the export-provided ``path`` and the freshly-imported folder's
-    ``get_path()`` are inserted so canonical exports continue to resolve
-    even when older formats omit the ``path`` field.
+    ``get_path()`` are inserted in case either field is absent, empty, or
+    differs from the other under the exporter's chosen convention.
+
+    Collisions between two distinct folders sharing the same lookup key
+    (e.g. one folder's ``exported_path`` equals a sibling's ``get_path()``)
+    are logged at WARNING and the last writer wins — same loud-failure
+    posture as an unresolved ``folder_path``.
 
     Args:
         folders_data: Folder dicts as written by the exporter.
@@ -674,16 +684,29 @@ def _build_folder_path_lookup(
         Mapping of every known path representation to its ``CorpusFolder``.
     """
     folder_path_to_folder: dict[str, CorpusFolder] = {}
+
+    def _register(key: str | None, folder_obj: CorpusFolder) -> None:
+        if not key:
+            return
+        existing = folder_path_to_folder.get(key)
+        if existing is not None and existing is not folder_obj:
+            logger.warning(
+                "Folder path key collision: %r maps to both folder %s and "
+                "folder %s; last writer wins.",
+                key,
+                existing.id,
+                folder_obj.id,
+            )
+        folder_path_to_folder[key] = folder_obj
+
     for folder_data in folders_data:
         folder_obj = folder_export_id_to_obj.get(folder_data["id"])
         if folder_obj is None:
             # Folder creation failed earlier (already logged by
             # import_corpus_folders).
             continue
-        folder_path_to_folder[folder_obj.get_path()] = folder_obj
-        exported_path = folder_data.get("path")
-        if exported_path:
-            folder_path_to_folder[exported_path] = folder_obj
+        _register(folder_obj.get_path(), folder_obj)
+        _register(folder_data.get("path"), folder_obj)
     return folder_path_to_folder
 
 
@@ -771,15 +794,22 @@ def _reconstruct_document_paths(
                 # corpus root.  This typically means folder.path and
                 # document_paths.folder_path were written with different
                 # conventions, or the referenced folder failed to import.
+                # Cap the displayed key list — log aggregators truncate long
+                # lines, which would hide the very keys we want to compare
+                # against.
+                known_keys = sorted(folder_path_map.keys())
+                key_sample = known_keys[:_UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE]
                 logger.warning(
                     "DocumentPath reconstruction: folder_path %r did not "
                     "resolve to any imported folder in corpus %s (doc %s). "
-                    "Document will remain at corpus root. Known folder paths: "
-                    "%s",
+                    "Document will remain at corpus root. Known folder paths "
+                    "(%d total, showing first %d): %s",
                     folder_path,
                     corpus_obj.id,
                     corpus_doc.id,
-                    sorted(folder_path_map.keys()),
+                    len(known_keys),
+                    len(key_sample),
+                    key_sample,
                 )
 
         # Restore ingestion lineage fields

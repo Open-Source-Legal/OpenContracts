@@ -1273,6 +1273,56 @@ class TestV2FolderPathReconstruction(TransactionTestCase):
         self.assertIn("some/path/the/exporter/invented", joined)
         self.assertIn(f"corpus {self.corpus.id}", joined)
 
+    def test_build_lookup_skips_empty_exported_path(self):
+        """An empty ``folder.path`` string is treated as absent, not registered.
+
+        Indexing ``""`` would silently fuse every empty-path folder onto a
+        single key and let documents land in whichever folder happened to be
+        processed last.  The ``if key:`` guard in ``_register`` prevents that;
+        ``get_path()`` keys still resolve normally.
+        """
+        folders_data = self._folders_data("canonical")
+        # Mutate the root entry's ``path`` to the empty string — mimics a
+        # malformed export.
+        for entry in folders_data:
+            if entry["id"] == "fld-root":
+                entry["path"] = ""
+
+        lookup = _build_folder_path_lookup(folders_data, self.folder_export_id_to_obj)
+        self.assertNotIn("", lookup)
+        # ``get_path()`` for the root folder is still indexed, so resolution
+        # via the canonical key continues to work.
+        self.assertIs(lookup[self.f_root.get_path()], self.f_root)
+
+    def test_build_lookup_warns_on_key_collision(self):
+        """Two folders sharing a lookup key are surfaced loudly.
+
+        Construct a synthetic collision: a sibling's exported ``path`` value
+        is set to the leaf folder's ``get_path()``.  Last writer wins, but
+        the WARNING makes the silent mis-attribution grep-able.
+        """
+        folders_data = self._folders_data("canonical")
+        leaf_canonical = self.f_leaf.get_path()
+        # Force the ``Filings`` root export entry to claim the same lookup key
+        # as the leaf folder's canonical ``get_path()``.
+        for entry in folders_data:
+            if entry["id"] == "fld-root":
+                entry["path"] = leaf_canonical
+
+        with self.assertLogs(
+            "opencontractserver.tasks.import_tasks_v2", level="WARNING"
+        ) as captured:
+            lookup = _build_folder_path_lookup(
+                folders_data, self.folder_export_id_to_obj
+            )
+
+        joined = "\n".join(captured.output)
+        self.assertIn("Folder path key collision", joined)
+        self.assertIn(repr(leaf_canonical), joined)
+        # Last writer wins — whichever folder registered the key second
+        # (iteration order over ``folders_data``) owns the lookup entry.
+        self.assertIn(lookup[leaf_canonical], {self.f_root, self.f_leaf})
+
 
 class TestV2ImportExceptionHandling(TransactionTestCase):
     """Test exception handling in V2 import functions."""
