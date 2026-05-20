@@ -1267,9 +1267,12 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         ``get_documents()`` below.
 
         Returns all documents with an active, non-deleted ``DocumentPath`` in
-        this corpus.  Reserved for Celery tasks, signal handlers, and the
-        corpus-objs service itself, where the caller has already verified
-        permission (or no user is involved).
+        this corpus.  Reserved for Celery tasks, signal handlers, test
+        fixtures / setup helpers, and the corpus-objs service itself, where
+        the caller has already verified permission (or no user is involved).
+        This is the approved accessor for test fixture code — tests asserting
+        the active-document predicate should call it directly rather than the
+        deprecated ``get_documents()`` public alias.
 
         User-context code MUST go through
         ``CorpusObjsService.get_corpus_documents(user, corpus)`` so that

@@ -2,7 +2,7 @@
 Comprehensive tests for Issue #654: DocumentPath as single source of truth.
 
 This test file covers:
-1. New Corpus methods (add_document, remove_document, get_documents, document_count)
+1. New Corpus methods (add_document, remove_document, _get_active_documents, document_count)
 2. DocumentPathType request-level caching
 
 Note: Backward compatibility layer has been removed. All corpus-document
@@ -143,8 +143,8 @@ class TestCorpusDocumentMethods(TransactionTestCase):
 
         self.assertIn("Either document or path must be provided", str(cm.exception))
 
-    def test_get_documents_returns_active_documents(self):
-        """Test that get_documents returns only active documents."""
+    def test_active_documents_returns_active_documents(self):
+        """Test that _get_active_documents returns only active documents."""
         # Add two documents
         doc2 = Document.objects.create(
             title="Document 2", creator=self.user, pdf_file_hash="hash2"
@@ -211,8 +211,8 @@ class TestCorpusDocumentMethods(TransactionTestCase):
 
         self.assertEqual(path.folder, folder)
 
-    def test_get_documents_excludes_deleted(self):
-        """Test that get_documents excludes soft-deleted documents."""
+    def test_active_documents_excludes_deleted(self):
+        """Test that _get_active_documents excludes soft-deleted documents."""
         # Add document
         doc, status, path = self.corpus.add_document(
             document=self.document, user=self.user
@@ -233,8 +233,8 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         )
         self.assertTrue(deleted_path.exists())
 
-    def test_get_documents_filtering(self):
-        """Test that get_documents returns a filterable queryset."""
+    def test_active_documents_filtering(self):
+        """Test that _get_active_documents returns a filterable queryset."""
         # Add multiple documents
         doc2 = Document.objects.create(
             title="Another Document", creator=self.user, pdf_file_hash="hash2"
