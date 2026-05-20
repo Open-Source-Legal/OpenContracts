@@ -55,10 +55,14 @@ test.describe("ThreadDetail mobile header", () => {
       timeout: 5000,
     });
 
-    // The header must stay within the mobile viewport — no bleed.
-    const box = await component.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeLessThanOrEqual(390);
+    // The header content must wrap inside the card — no horizontal bleed.
+    // scrollWidth > clientWidth means children overflow the header's box.
+    const header = component.locator("[data-testid='thread-header']");
+    const { scrollWidth, clientWidth } = await header.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 
     await docScreenshot(page, "threads--thread-detail--mobile-header");
   });

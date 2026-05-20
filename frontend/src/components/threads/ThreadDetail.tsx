@@ -88,10 +88,10 @@ const HeaderLeft = styled.div`
   gap: 0.25rem;
   flex: 1;
   min-width: 0;
-  width: 100%;
 
   ${mediaQuery.tablet} {
     gap: 0.5rem;
+    width: 100%;
   }
 `;
 
@@ -191,10 +191,9 @@ const StatusBadge = styled.span<{ $variant: "pinned" | "locked" | "deleted" }>`
 const TitleRow = styled.div`
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.375rem 0.5rem;
   min-width: 0;
   flex-wrap: wrap;
-  row-gap: 0.375rem;
 `;
 
 const Title = styled.h1`
@@ -214,7 +213,6 @@ const Title = styled.h1`
     line-height: 1.3;
     white-space: normal;
     overflow: visible;
-    text-overflow: clip;
     word-break: break-word;
   }
 `;
@@ -488,7 +486,7 @@ export function ThreadDetail({
   return (
     <Container>
       {/* Compact Header */}
-      <Header>
+      <Header data-testid="thread-header">
         <HeaderLeft>
           {/* Title row: Back + badge + title + status badges */}
           <TitleRow>
