@@ -40,15 +40,16 @@ class ServiceResult(Generic[T]):
         return not self.error
 
     @classmethod
-    def success(cls, value: T) -> "ServiceResult[T]":
+    def success(cls, value: T) -> ServiceResult[T]:
         return cls(value=value, error="")
 
     @classmethod
-    def failure(cls, error: str) -> "ServiceResult[T]":
+    def failure(cls, error: str) -> ServiceResult[Any]:
+        # Returns ``ServiceResult[Any]`` rather than ``ServiceResult[T]``:
+        # a failure carries no value, so the type parameter is genuinely
+        # unbound at the call site.
         if not error:
-            raise ValueError(
-                "ServiceResult.failure requires a non-empty error message"
-            )
+            raise ValueError("ServiceResult.failure requires a non-empty error message")
         return cls(value=None, error=error)
 
     def __iter__(self) -> Iterator[Any]:

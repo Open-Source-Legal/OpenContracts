@@ -89,3 +89,23 @@ class BaseService:
             f"Permission denied: cannot {permission.value} "
             f"this {type(instance).__name__}"
         )
+
+    @staticmethod
+    def log_action(action: str, instance: Any, user: Any, **extra: Any) -> None:
+        """Emit a structured who-did-what-to-which-object log line.
+
+        Args:
+            action: Verb describing the operation (e.g. ``"Created"``).
+            instance: The affected model instance.
+            user: The acting user.
+            **extra: Additional ``key=value`` context appended to the line.
+        """
+        details = " ".join(f"{key}={value}" for key, value in extra.items())
+        logger.info(
+            "%s %s(id=%s) by user=%s %s",
+            action,
+            type(instance).__name__,
+            getattr(instance, "pk", None),
+            getattr(user, "id", user),
+            details,
+        )
