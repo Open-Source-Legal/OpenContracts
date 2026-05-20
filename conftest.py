@@ -212,6 +212,37 @@ def enable_doc_processing_signals():
     )
 
 
+@pytest.fixture(autouse=True)
+def reset_pipeline_settings_cache():
+    """Clear the ``PipelineSettings`` singleton cache around every test.
+
+    ``PipelineSettings.get_instance(use_cache=True)`` stores the singleton in
+    a process-global cache (``LocMemCache`` under test settings) that is NOT
+    transaction-aware. A ``TestCase`` that mutates the singleton inside its
+    rolled-back transaction can still leak the mutated object into the cache:
+    ``get_instance`` runs ``cache.set`` while the uncommitted change is
+    visible. The DB row rolls back on teardown; the cached Python object does
+    not — so it poisons every later test on the same xdist worker.
+
+    Concretely, ``EnabledComponentsMutationTestCase`` sets
+    ``default_embedder=""`` in ``setUp``; a rejection-path mutation then calls
+    ``get_instance(use_cache=True)`` (caching the empty value) and returns
+    early without a ``save()`` to invalidate it. Subsequent agent/vector-store
+    tests then hit ``get_embedder`` → ``get_default_embedder`` → the poisoned
+    instance and fail with "resolved no embedder_path".
+
+    Clearing the key before and after each test restores the per-test cache
+    isolation that the ``LocMemCache`` test setting is meant to provide.
+    """
+    from django.core.cache import cache
+
+    from opencontractserver.documents.models import PipelineSettings
+
+    cache.delete(PipelineSettings.CACHE_KEY)
+    yield
+    cache.delete(PipelineSettings.CACHE_KEY)
+
+
 def pytest_configure(config):
     """Configure pytest settings, including xdist worker handling."""
     # Ensure the serial marker is registered only once
