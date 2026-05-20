@@ -144,3 +144,54 @@ class TestBaseServiceLookup(TestCase):
             )
         )
         self.assertNotIn(self.corpus.pk, visible_ids)
+
+
+class TestBaseServiceRequirePermission(TestCase):
+    """SCENARIO: require_permission is the uniform write-operation gate.
+
+    BUSINESS RULE: it returns an empty string when the user holds the
+    permission, and a human-readable denial string otherwise — so a
+    service can feed the return value straight into ServiceResult.failure.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="rp_owner", email="rp_owner@test.com", password="test"
+        )
+        self.other = User.objects.create_user(
+            username="rp_other", email="rp_other@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="RequirePermission Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_owner_passes_returns_empty_string(self):
+        error = BaseService.require_permission(
+            self.corpus, self.owner, PermissionTypes.UPDATE
+        )
+        self.assertEqual(error, "")
+
+    def test_other_user_denied_returns_nonempty_error(self):
+        error = BaseService.require_permission(
+            self.corpus, self.other, PermissionTypes.UPDATE
+        )
+        self.assertNotEqual(error, "")
+        self.assertIn("Permission denied", error)
+
+    def test_custom_error_message_is_used_on_denial(self):
+        error = BaseService.require_permission(
+            self.corpus,
+            self.other,
+            PermissionTypes.UPDATE,
+            error_message="You cannot edit this corpus",
+        )
+        self.assertEqual(error, "You cannot edit this corpus")
+
+    def test_custom_error_message_ignored_on_success(self):
+        error = BaseService.require_permission(
+            self.corpus,
+            self.owner,
+            PermissionTypes.UPDATE,
+            error_message="You cannot edit this corpus",
+        )
+        self.assertEqual(error, "")

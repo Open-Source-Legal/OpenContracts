@@ -54,3 +54,38 @@ class BaseService:
         encodes the per-model READ visibility rules.
         """
         return model.objects.visible_to_user(user)
+
+    @staticmethod
+    def require_permission(
+        instance: Any,
+        user: Any,
+        permission: Any,
+        *,
+        request: Any = None,
+        error_message: str | None = None,
+    ) -> str:
+        """Return ``""`` when ``user`` holds ``permission`` on ``instance``.
+
+        Otherwise return a human-readable denial string. Services use the
+        return value directly as the ``error`` field of a
+        ``ServiceResult``::
+
+            error = cls.require_permission(corpus, user, PermissionTypes.UPDATE)
+            if error:
+                return ServiceResult.failure(error)
+
+        ``error_message`` overrides the default denial string; it is
+        ignored when the check passes.
+
+        The model's manager MUST implement ``user_can`` (see
+        ``conventions.get_for_user_or_none`` for the same contract).
+        """
+        manager = type(instance).objects
+        if manager.user_can(user, instance, permission, request=request):
+            return ""
+        if error_message is not None:
+            return error_message
+        return (
+            f"Permission denied: cannot {permission.value} "
+            f"this {type(instance).__name__}"
+        )
