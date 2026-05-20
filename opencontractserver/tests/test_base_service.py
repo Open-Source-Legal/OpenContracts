@@ -10,7 +10,12 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
-from opencontractserver.shared.services.conventions import ServiceResult
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.conventions import (
+    ServiceResult,
+    get_for_user_or_none,
+)
+from opencontractserver.types.enums import PermissionTypes
 
 User = get_user_model()
 
@@ -46,3 +51,47 @@ class TestServiceResult(SimpleTestCase):
         value, error = ServiceResult.failure("nope")
         self.assertIsNone(value)
         self.assertEqual(error, "nope")
+
+
+class TestGetForUserOrNone(TestCase):
+    """SCENARIO: get_for_user_or_none is the IDOR-safe single-object lookup.
+
+    BUSINESS RULE: it returns the instance only when it exists AND the user
+    holds the requested permission. Every other case — not-found,
+    permission-denied, malformed pk — returns None, so a caller cannot
+    distinguish "does not exist" from "exists but forbidden".
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="test"
+        )
+        self.other = User.objects.create_user(
+            username="other", email="other@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Owned Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_owner_gets_instance(self):
+        result = get_for_user_or_none(Corpus, self.corpus.pk, self.owner)
+        self.assertEqual(result, self.corpus)
+
+    def test_other_user_gets_none(self):
+        result = get_for_user_or_none(Corpus, self.corpus.pk, self.other)
+        self.assertIsNone(result)
+
+    def test_nonexistent_pk_gets_none(self):
+        result = get_for_user_or_none(Corpus, 999999999, self.owner)
+        self.assertIsNone(result)
+
+    def test_malformed_pk_gets_none(self):
+        result = get_for_user_or_none(Corpus, "not-a-pk", self.owner)
+        self.assertIsNone(result)
+
+    def test_permission_argument_is_honored(self):
+        # Owner has full CRUD on their own corpus, so UPDATE also resolves.
+        result = get_for_user_or_none(
+            Corpus, self.corpus.pk, self.owner, PermissionTypes.UPDATE
+        )
+        self.assertEqual(result, self.corpus)

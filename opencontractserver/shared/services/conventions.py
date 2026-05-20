@@ -55,3 +55,55 @@ class ServiceResult(Generic[T]):
         """Yield ``(value, error)`` for backward-compatible tuple unpacking."""
         yield self.value
         yield self.error
+
+
+def get_for_user_or_none(
+    model: Any,
+    pk: Any,
+    user: Any,
+    permission: Any = None,
+    *,
+    request: Any = None,
+) -> Any | None:
+    """IDOR-safe single-object lookup.
+
+    Returns the instance only when it exists AND ``user`` holds
+    ``permission`` on it. Returns ``None`` for every other case —
+    not-found, permission-denied, or a malformed ``pk`` — so callers
+    cannot distinguish "does not exist" from "exists but forbidden"
+    (the IDOR-prevention contract from CLAUDE.md).
+
+    The model's manager MUST implement ``user_can`` — i.e. it extends
+    ``BaseVisibilityManager`` / ``UserCanMixin`` or is built from
+    ``PermissionedTreeQuerySet``. Models with a plain manager (e.g.
+    ``Notification``, which uses a simple ownership model) are not
+    supported here; gate those with their own ownership filter.
+
+    Args:
+        model: The Django model class to look up.
+        pk: Primary key of the desired row.
+        user: Requesting user (``User``, ``AnonymousUser``, id, or None).
+        permission: Required ``PermissionTypes`` — defaults to ``READ``.
+        request: Optional request object, threaded into ``user_can`` so
+            the request-scoped permission cache is shared.
+
+    Returns:
+        The instance, or ``None``.
+    """
+    from opencontractserver.types.enums import PermissionTypes
+
+    if permission is None:
+        permission = PermissionTypes.READ
+
+    try:
+        instance = model.objects.get(pk=pk)
+    except model.DoesNotExist:
+        return None
+    except (ValueError, TypeError):
+        # Malformed pk (e.g. a GraphQL global id passed instead of a raw
+        # PK). Treat as not-found rather than raising.
+        return None
+
+    if model.objects.user_can(user, instance, permission, request=request):
+        return instance
+    return None
