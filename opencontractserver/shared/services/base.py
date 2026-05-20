@@ -47,11 +47,18 @@ class BaseService:
         return get_for_user_or_none(model, pk, user, permission, request=request)
 
     @staticmethod
-    def filter_visible(model: Any, user: Any) -> Any:
+    def filter_visible(model: Any, user: Any, *, request: Any = None) -> Any:
         """Return ``model`` rows visible to ``user`` (permission-filtered).
 
         Delegates to the model's ``visible_to_user`` manager method, which
         encodes the per-model READ visibility rules.
+
+        ``request`` is accepted for API consistency with ``get_or_none`` /
+        ``require_permission`` (every public service method takes an optional
+        ``request`` so the request-scoped permission cache can be threaded).
+        It is not yet forwarded — the ``visible_to_user`` manager API does not
+        currently accept it — and will be threaded in once that API supports
+        it.
         """
         return model.objects.visible_to_user(user)
 
@@ -100,12 +107,16 @@ class BaseService:
             user: The acting user.
             **extra: Additional ``key=value`` context appended to the line.
         """
-        details = " ".join(f"{key}={value}" for key, value in extra.items())
+        suffix = (
+            " " + " ".join(f"{key}={value}" for key, value in extra.items())
+            if extra
+            else ""
+        )
         logger.info(
-            "%s %s(id=%s) by user=%s %s",
+            "%s %s(id=%s) by user=%s%s",
             action,
             type(instance).__name__,
             getattr(instance, "pk", None),
             getattr(user, "id", user),
-            details,
+            suffix,
         )

@@ -90,6 +90,22 @@ class TestGetForUserOrNone(TestCase):
         result = get_for_user_or_none(Corpus, "not-a-pk", self.owner)
         self.assertIsNone(result)
 
+    def test_overflow_pk_gets_none(self):
+        # A pk far larger than the IntegerField column can hold raises
+        # OverflowError on .get(); it must be treated as not-found.
+        result = get_for_user_or_none(Corpus, 99999999999999999999999999, self.owner)
+        self.assertIsNone(result)
+
+    def test_anonymous_user_gets_none_for_private_corpus(self):
+        from django.contrib.auth.models import AnonymousUser
+
+        result = get_for_user_or_none(Corpus, self.corpus.pk, AnonymousUser())
+        self.assertIsNone(result)
+
+    def test_none_user_gets_none_for_private_corpus(self):
+        result = get_for_user_or_none(Corpus, self.corpus.pk, None)
+        self.assertIsNone(result)
+
     def test_permission_argument_is_honored(self):
         # Owner has full CRUD on their own corpus, so UPDATE also resolves.
         result = get_for_user_or_none(
@@ -169,8 +185,12 @@ class TestBaseServiceRequirePermission(TestCase):
         error = BaseService.require_permission(
             self.corpus, self.other, PermissionTypes.UPDATE
         )
-        self.assertNotEqual(error, "")
-        self.assertIn("Permission denied", error)
+        # Pin the denial-string format contract, not just the substring.
+        self.assertTrue(
+            error.startswith("Permission denied: cannot "),
+            f"unexpected denial string format: {error!r}",
+        )
+        self.assertIn("Corpus", error)
 
     def test_custom_error_message_is_used_on_denial(self):
         error = BaseService.require_permission(

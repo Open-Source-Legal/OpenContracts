@@ -100,9 +100,10 @@ def get_for_user_or_none(
         instance = model.objects.get(pk=pk)
     except model.DoesNotExist:
         return None
-    except (ValueError, TypeError):
-        # Malformed pk (e.g. a GraphQL global id passed instead of a raw
-        # PK). Treat as not-found rather than raising.
+    except (ValueError, TypeError, OverflowError):
+        # Malformed pk — a GraphQL global id passed instead of a raw PK
+        # (ValueError/TypeError), or a value too large for the PK column
+        # (OverflowError). Treat as not-found rather than raising.
         return None
 
     if model.objects.user_can(user, instance, permission, request=request):
