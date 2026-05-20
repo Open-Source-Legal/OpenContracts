@@ -6,10 +6,6 @@ The structural cases verify that the service-layer split preserves:
 
 - Importability of each class from its new home.
 - Disjoint method sets (no accidental overlap that would create ambiguous MRO).
-- Backwards-compat: ``DocumentFolderService`` exposes the full merged surface
-  so existing ``from opencontractserver.corpuses.folder_service import
-  DocumentFolderService`` imports keep working until the deprecation issue
-  retires the alias.
 
 The behavioural cases drive each ``DocumentService`` method through its
 branches — quota under/over cap, MIME validation happy / plaintext-fallback /
@@ -28,7 +24,6 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
-from opencontractserver.corpuses.folder_service import DocumentFolderService
 from opencontractserver.documents.document_service import DocumentService
 from opencontractserver.documents.models import Document
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
@@ -44,8 +39,8 @@ class TestServiceSplit_MethodPartition(TestCase):
 
     BUSINESS RULE: The split is along the seam *"is the document the noun,
     or is the corpus context the noun?"*. The two classes must not define
-    methods with the same name; if they did, ``DocumentFolderService``'s MRO
-    would silently pick one and the merge would be inconsistent.
+    methods with the same name; if they did, a shared subclass's MRO would
+    silently pick one and the merge would be inconsistent.
     """
 
     def test_document_service_and_corpus_objs_service_have_no_method_collisions(self):
@@ -133,40 +128,6 @@ class TestServiceSplit_CorpusObjsServiceSurface(TestCase):
                 hasattr(CorpusObjsService, name),
                 f"CorpusObjsService missing lifecycle method {name!r}",
             )
-
-
-class TestServiceSplit_BackwardsCompatAlias(TestCase):
-    """
-    SCENARIO: DocumentFolderService still works as a back-compat alias.
-
-    BUSINESS RULE: ~18 production files import ``DocumentFolderService``.
-    The shim must expose the full merged surface from both new services so
-    those imports continue to work until the follow-up migration issue
-    retires the alias.
-    """
-
-    def test_dfs_mro_includes_both_new_services(self):
-        mro_names = [c.__name__ for c in DocumentFolderService.__mro__]
-        self.assertIn("CorpusObjsService", mro_names)
-        self.assertIn("DocumentService", mro_names)
-
-    def test_dfs_exposes_corpus_objs_service_methods(self):
-        # Spot-check a corpus-scoped method.
-        self.assertTrue(hasattr(DocumentFolderService, "get_corpus_documents"))
-        self.assertTrue(hasattr(DocumentFolderService, "create_folder"))
-        self.assertTrue(hasattr(DocumentFolderService, "soft_delete_document"))
-
-    def test_dfs_exposes_document_service_methods(self):
-        # Spot-check a document-only method.
-        self.assertTrue(hasattr(DocumentFolderService, "create_document"))
-        self.assertTrue(hasattr(DocumentFolderService, "set_document_permissions"))
-
-    def test_dfs_exposes_new_convenience_methods_via_inheritance(self):
-        # The new convenience methods on CorpusObjsService should be
-        # visible on the shim via inheritance.
-        self.assertTrue(hasattr(DocumentFolderService, "get_corpus_document_by_slug"))
-        self.assertTrue(hasattr(DocumentFolderService, "get_corpus_document_by_id"))
-        self.assertTrue(hasattr(DocumentFolderService, "is_document_in_corpus"))
 
 
 class TestDocumentService_QuotaSmoke(TestCase):

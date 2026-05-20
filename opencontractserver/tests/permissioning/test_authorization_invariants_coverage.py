@@ -975,8 +975,9 @@ class UserFeedbackUserCanFallbackTestCase(TransactionTestCase):
     """Cover ``UserFeedbackManager.user_can`` when the feedback has no
     public commented annotation — the manager falls through to
     ``super().user_can`` which is the default branch. Also exercises
-    ``DocumentManager.user_can`` (a thin ``super()`` delegate) so the
-    one-line body is covered."""
+    ``Document.objects.user_can`` (inherited from
+    ``BaseVisibilityManager`` — documents use the default rules
+    unchanged) so the resolution path is covered."""
 
     def setUp(self) -> None:
         self.creator = User.objects.create_user(
@@ -1051,8 +1052,10 @@ class UserFeedbackUserCanFallbackTestCase(TransactionTestCase):
             )
 
     def test_document_manager_user_can_delegate(self) -> None:
-        """``DocumentManager.user_can`` is a thin ``super()`` call —
-        exercise it directly so the one-line body is covered."""
+        """``Document.objects.user_can`` resolves to
+        ``BaseVisibilityManager.user_can`` (Document uses the default
+        rules unchanged) — exercise it directly so the resolution
+        path is covered."""
         doc = Document.objects.create(
             title="DM Delegate", creator=self.creator, is_public=False
         )

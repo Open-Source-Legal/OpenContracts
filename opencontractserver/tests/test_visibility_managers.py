@@ -68,7 +68,7 @@ class VisibleToUserTests(TestCase):
         )
 
     def test_superuser_sees_all_queryset(self):
-        """Superusers should see all objects ordered by creation."""
+        """Superusers should see all objects; ordering is owned by the caller."""
         result = Corpus.objects.visible_to_user(self.superuser)
 
         # Filter to corpuses created by this test's users to make the assertion
@@ -79,8 +79,9 @@ class VisibleToUserTests(TestCase):
         # Should see both test corpora + 2 personal corpuses (one per user)
         # Each user (user, superuser) gets a personal corpus auto-created
         self.assertEqual(scoped.count(), 4)  # public + private + 2 personal
-        # Should be ordered by created
-        self.assertEqual(result.query.order_by, ("created",))
+        # Superuser branch must not impose its own ordering — that's the
+        # resolver / caller's job (issue #1668 — Fix #5 ordering asymmetry).
+        self.assertEqual(result.query.order_by, ())
 
     def test_superuser_single_model_access(self):
         """Superusers should be able to access any object."""

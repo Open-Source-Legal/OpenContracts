@@ -18,7 +18,7 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase
 
-from opencontractserver.corpuses.folder_service import DocumentFolderService
+from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class TestCreateFolderStructureFromPaths(TestCase):
-    """Tests for DocumentFolderService.create_folder_structure_from_paths()."""
+    """Tests for CorpusObjsService.create_folder_structure_from_paths()."""
 
     def setUp(self):
         """Set up test user and corpus."""
@@ -57,7 +57,7 @@ class TestCreateFolderStructureFromPaths(TestCase):
         folder_paths = ["docs", "docs/contracts", "legal"]
 
         folder_map, created, reused, error = (
-            DocumentFolderService.create_folder_structure_from_paths(
+            CorpusObjsService.create_folder_structure_from_paths(
                 user=self.user,
                 corpus=self.corpus,
                 folder_paths=folder_paths,
@@ -82,7 +82,7 @@ class TestCreateFolderStructureFromPaths(TestCase):
         # Create initial folder structure
         folder_paths_1 = ["docs", "docs/contracts"]
         folder_map_1, created_1, reused_1, error_1 = (
-            DocumentFolderService.create_folder_structure_from_paths(
+            CorpusObjsService.create_folder_structure_from_paths(
                 user=self.user,
                 corpus=self.corpus,
                 folder_paths=folder_paths_1,
@@ -94,7 +94,7 @@ class TestCreateFolderStructureFromPaths(TestCase):
         # Create overlapping structure - should reuse "docs"
         folder_paths_2 = ["docs", "docs/legal"]
         folder_map_2, created_2, reused_2, error_2 = (
-            DocumentFolderService.create_folder_structure_from_paths(
+            CorpusObjsService.create_folder_structure_from_paths(
                 user=self.user,
                 corpus=self.corpus,
                 folder_paths=folder_paths_2,
@@ -117,7 +117,7 @@ class TestCreateFolderStructureFromPaths(TestCase):
 
         folder_paths = ["2024", "2024/contracts"]
         folder_map, created, reused, error = (
-            DocumentFolderService.create_folder_structure_from_paths(
+            CorpusObjsService.create_folder_structure_from_paths(
                 user=self.user,
                 corpus=self.corpus,
                 folder_paths=folder_paths,
@@ -134,7 +134,7 @@ class TestCreateFolderStructureFromPaths(TestCase):
     def test_empty_folder_paths(self):
         """Empty folder paths list should return empty map."""
         folder_map, created, reused, error = (
-            DocumentFolderService.create_folder_structure_from_paths(
+            CorpusObjsService.create_folder_structure_from_paths(
                 user=self.user,
                 corpus=self.corpus,
                 folder_paths=[],
@@ -150,7 +150,7 @@ class TestCreateFolderStructureFromPaths(TestCase):
         """User without write permission should be denied."""
         folder_paths = ["docs"]
         folder_map, created, reused, error = (
-            DocumentFolderService.create_folder_structure_from_paths(
+            CorpusObjsService.create_folder_structure_from_paths(
                 user=self.other_user,  # Not the corpus owner
                 corpus=self.corpus,
                 folder_paths=folder_paths,
