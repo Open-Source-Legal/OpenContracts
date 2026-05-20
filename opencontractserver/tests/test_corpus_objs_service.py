@@ -5085,3 +5085,240 @@ class TestGetCorpusCamlArticles(TransactionTestCase):
             user=self.anonymous, corpus=self.private_corpus
         )
         self.assertEqual(qs.count(), 0)
+
+
+# =============================================================================
+# get_corpus_documents_visible_to_user (MIN-permission semantic — issue #1682)
+# =============================================================================
+
+
+class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
+    """
+    SCENARIO: ``get_corpus_documents_visible_to_user`` returns the corpus's
+    documents under the MIN-permission semantic, in contrast to the
+    corpus-as-gate ``get_corpus_documents``.
+
+    BUSINESS RULE (issue #1682): Effective Permission =
+    ``MIN(document_permission, corpus_permission)``. A user who can READ a
+    corpus but lacks document-level READ on a particular document must NOT
+    see that document — a private document inside a shared (or public)
+    corpus stays hidden. ``get_corpus_documents`` deliberately keeps the
+    corpus-as-gate semantic for pipeline-facing callers; this method is the
+    explicit MIN variant for user-facing surfaces (e.g. the GraphQL
+    ``CorpusType.documents`` resolver).
+    """
+
+    def setUp(self):
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+
+        self.owner = User.objects.create_user(
+            username="min_owner", email="min_owner@test.com", password="test"
+        )
+        # ``collaborator`` is granted corpus READ but only document-level READ
+        # on ``visible_doc`` — the load-bearing fixture for the MIN gap.
+        self.collaborator = User.objects.create_user(
+            username="min_collaborator", email="min_collab@test.com", password="test"
+        )
+        # ``stranger`` has no grants at all.
+        self.stranger = User.objects.create_user(
+            username="min_stranger", email="min_stranger@test.com", password="test"
+        )
+        self.superuser = User.objects.create_superuser(
+            username="min_superuser", email="min_super@test.com", password="test"
+        )
+        self.anonymous = AnonymousUser()
+
+        # Private corpus — corpus READ is NOT auto-granted, so ``collaborator``
+        # only has it via the explicit guardian grant below.
+        self.corpus = Corpus.objects.create(
+            title="MIN Corpus", creator=self.owner, is_public=False
+        )
+
+        # ``visible_doc``: private document the collaborator CAN see at the
+        # document level (explicit guardian READ grant).
+        self.visible_doc = Document.objects.create(
+            title="Visible PDF",
+            creator=self.owner,
+            pdf_file="visible.pdf",
+            slug="visible-doc",
+            file_type="application/pdf",
+            is_public=False,
+        )
+        DocumentPath.objects.create(
+            document=self.visible_doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/visible.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        # ``private_doc``: private document the collaborator CANNOT see at the
+        # document level — present in the corpus, but no document-level grant.
+        self.private_doc = Document.objects.create(
+            title="Private PDF",
+            creator=self.owner,
+            pdf_file="private.pdf",
+            slug="private-doc",
+            file_type="application/pdf",
+            is_public=False,
+        )
+        DocumentPath.objects.create(
+            document=self.private_doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/private.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        # A CAML article — exercises the ``include_caml`` toggle.
+        self.caml_doc = Document.objects.create(
+            title=CAML_ARTICLE_TITLE,
+            creator=self.owner,
+            pdf_file="readme-caml.md",
+            slug="min-readme-caml",
+            file_type=MARKDOWN_MIME_TYPE,
+            is_public=False,
+        )
+        DocumentPath.objects.create(
+            document=self.caml_doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/Readme.CAML",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+        # A soft-deleted document — exercises the ``include_deleted`` toggle.
+        self.deleted_doc = Document.objects.create(
+            title="Deleted PDF",
+            creator=self.owner,
+            pdf_file="deleted.pdf",
+            slug="min-deleted-doc",
+            file_type="application/pdf",
+            is_public=False,
+        )
+        DocumentPath.objects.create(
+            document=self.deleted_doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/deleted.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=True,
+        )
+
+        # Grant the collaborator corpus READ + document-level READ on the
+        # visible doc ONLY. The private doc is intentionally left ungranted.
+        set_permissions_for_obj_to_user(
+            self.collaborator, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.collaborator, self.visible_doc, [PermissionTypes.READ]
+        )
+
+    def test_owner_sees_all_documents(self):
+        """The owner can see every document at the document level (creator),
+        so the MIN method returns the same active set as corpus-as-gate."""
+        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.owner, corpus=self.corpus
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertEqual(ids, {self.visible_doc.id, self.private_doc.id})
+
+    def test_collaborator_sees_only_document_visible_docs(self):
+        """CORE ASSERTION: a collaborator with corpus READ but no
+        document-level access to ``private_doc`` must NOT see it — the
+        document side of MIN(document, corpus) is load-bearing."""
+        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.collaborator, corpus=self.corpus
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertIn(self.visible_doc.id, ids)
+        self.assertNotIn(
+            self.private_doc.id,
+            ids,
+            "A private document the collaborator lacks document-level READ "
+            "on must stay hidden even though the collaborator can READ the "
+            "corpus — issue #1682.",
+        )
+        self.assertEqual(ids, {self.visible_doc.id})
+
+    def test_corpus_as_gate_method_still_returns_everything(self):
+        """Contrast fixture: the corpus-as-gate ``get_corpus_documents``
+        returns BOTH documents for the same collaborator — proving the two
+        methods carry genuinely different semantics and the MIN result above
+        is not just an empty-corpus artifact."""
+        qs = CorpusObjsService.get_corpus_documents(
+            user=self.collaborator, corpus=self.corpus
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertEqual(ids, {self.visible_doc.id, self.private_doc.id})
+
+    def test_stranger_without_corpus_read_gets_empty(self):
+        """A user without corpus READ gets an empty queryset regardless of
+        document-level permissions — the corpus side of MIN. IDOR-safe."""
+        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.stranger, corpus=self.corpus
+        )
+        self.assertEqual(qs.count(), 0)
+
+    def test_anonymous_blocked_from_private_corpus(self):
+        """Anonymous against a private corpus → empty queryset."""
+        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.anonymous, corpus=self.corpus
+        )
+        self.assertEqual(qs.count(), 0)
+
+    def test_superuser_sees_everything(self):
+        """A superuser bypasses both the corpus and document gates."""
+        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.superuser, corpus=self.corpus
+        )
+        ids = set(qs.values_list("id", flat=True))
+        self.assertEqual(ids, {self.visible_doc.id, self.private_doc.id})
+
+    def test_include_caml_toggle_composes_with_min_filter(self):
+        """``include_caml`` surfaces the CAML article, and the MIN filter
+        still applies on top of it (owner sees the CAML; default excludes)."""
+        default_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.owner, corpus=self.corpus
+        )
+        self.assertNotIn(self.caml_doc.id, set(default_qs.values_list("id", flat=True)))
+
+        caml_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.owner, corpus=self.corpus, include_caml=True
+        )
+        self.assertEqual(
+            set(caml_qs.values_list("id", flat=True)),
+            {self.visible_doc.id, self.private_doc.id, self.caml_doc.id},
+        )
+
+    def test_include_deleted_toggle_composes_with_min_filter(self):
+        """``include_deleted`` surfaces the soft-deleted document, still
+        intersected with the document-visibility set."""
+        default_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.owner, corpus=self.corpus
+        )
+        self.assertNotIn(
+            self.deleted_doc.id, set(default_qs.values_list("id", flat=True))
+        )
+
+        deleted_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+            user=self.owner, corpus=self.corpus, include_deleted=True
+        )
+        self.assertEqual(
+            set(deleted_qs.values_list("id", flat=True)),
+            {self.visible_doc.id, self.private_doc.id, self.deleted_doc.id},
+        )
