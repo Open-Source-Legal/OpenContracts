@@ -991,7 +991,7 @@ class TestInjectCorpusMemory(TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestToggleCorpusMemory(TransactionTestCase):
+class TestToggleCorpusMemory(TestCase):
     """Test the ToggleCorpusMemory GraphQL mutation."""
 
     def setUp(self):
@@ -1084,7 +1084,7 @@ class TestToggleCorpusMemory(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestCheckConversationsForCuration(TransactionTestCase):
+class TestCheckConversationsForCuration(TestCase):
     """Test the check_conversations_for_curation periodic task."""
 
     def setUp(self):
@@ -2460,7 +2460,7 @@ class TestCurateCorpusMemoryMsgTypeFallback(TransactionTestCase):
         self.assertIn(result["reason"], ("already_curated", "already_claimed"))
 
 
-class TestCheckConversationsForCurationEdgeCases(TransactionTestCase):
+class TestCheckConversationsForCurationEdgeCases(TestCase):
     """Cover edge cases in check_conversations_for_curation."""
 
     def setUp(self):

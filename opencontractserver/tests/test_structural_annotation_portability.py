@@ -18,7 +18,7 @@ CURRENT BEHAVIOR (shared structural sets):
 import hashlib
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
@@ -308,7 +308,7 @@ class StructuralAnnotationPortabilityTests(TestCase):
         )
 
 
-class ImportContentStructuralSetTests(TransactionTestCase):
+class ImportContentStructuralSetTests(TestCase):
     """Tests for structural annotation sets with import_content."""
 
     def setUp(self):

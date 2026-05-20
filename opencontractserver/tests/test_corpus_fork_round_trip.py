@@ -23,7 +23,7 @@ from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
@@ -200,7 +200,7 @@ class CorpusSnapshot:
         return differences
 
 
-class CorpusForkRoundTripTestCase(TransactionTestCase):
+class CorpusForkRoundTripTestCase(TestCase):
     """
     Round-trip tests for corpus forking.
 
@@ -907,7 +907,7 @@ class CorpusForkRoundTripTestCase(TransactionTestCase):
         )
 
 
-class CorpusForkPreservationTest(TransactionTestCase):
+class CorpusForkPreservationTest(TestCase):
     """
     Tests that verify folders and relationships ARE copied during fork.
 
@@ -1419,7 +1419,7 @@ class CorpusForkPreservationTest(TransactionTestCase):
         )
 
 
-class CorpusForkMetadataTest(TransactionTestCase):
+class CorpusForkMetadataTest(TestCase):
     """
     Tests for metadata forking functionality.
 
@@ -1993,7 +1993,7 @@ class CorpusForkMetadataTest(TransactionTestCase):
         )
 
 
-class CorpusForkRegressionTest(TransactionTestCase):
+class CorpusForkRegressionTest(TestCase):
     """
     Regression tests for bugs discovered in corpus forking.
 
@@ -2191,7 +2191,7 @@ class CorpusForkRegressionTest(TransactionTestCase):
 # ============================================================================
 
 
-class CorpusForkExportImportParityTest(TransactionTestCase):
+class CorpusForkExportImportParityTest(TestCase):
     """
     Verifies that a single fork and a single export+import of the same
     rich corpus fixture produce identical end-state, and that 3 sequential

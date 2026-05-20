@@ -25,7 +25,7 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
-from django.test import SimpleTestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase
 
 from opencontractserver.annotations.models import (
     Annotation,
@@ -156,7 +156,7 @@ class _DummyInstance:
     _default_manager = _DummyDefaultManager()
 
 
-class ShimTypeErrorGuardTestCase(TransactionTestCase):
+class ShimTypeErrorGuardTestCase(TestCase):
     """Pin Claude review item #2: the deprecation shim must raise
     ``TypeError`` (not bare ``AttributeError``) when the instance's
     ``_default_manager`` hasn't implemented ``user_can`` yet — the
@@ -221,7 +221,7 @@ class ShimTypeErrorGuardTestCase(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class AnnotationUserCanLeafBranchesTestCase(TransactionTestCase):
+class AnnotationUserCanLeafBranchesTestCase(TestCase):
     """Walk the AnnotationManager.user_can branches that the matrix
     invariant test doesn't exercise: ``created_by_extract`` privacy recursion
     (Claude review item #4 — the partner of the ``created_by_analysis``
@@ -506,7 +506,7 @@ class AnnotationUserCanLeafBranchesTestCase(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class RelationshipUserCanAccessWideningTestCase(TransactionTestCase):
+class RelationshipUserCanAccessWideningTestCase(TestCase):
     """Address Claude review item #3: pin the access-widening case for
     ``RelationshipManager.user_can`` — a stranger who has been granted
     READ on BOTH the parent document and the parent corpus now sees the
@@ -624,7 +624,7 @@ class RelationshipUserCanAccessWideningTestCase(TransactionTestCase):
         )
 
 
-class RelationshipNonOwnerCreatorTestCase(TransactionTestCase):
+class RelationshipNonOwnerCreatorTestCase(TestCase):
     """Pin the creator short-circuit on ``RelationshipManager.user_can``.
 
     POLICY (intended behavior, not a bug being tracked for Phase B):
@@ -744,7 +744,7 @@ class RelationshipNonOwnerCreatorTestCase(TransactionTestCase):
             )
 
 
-class ResolveUserForUserCanInvalidStringTestCase(TransactionTestCase):
+class ResolveUserForUserCanInvalidStringTestCase(TestCase):
     """Cover ``resolve_user_for_user_can``'s ``ValueError`` catch.
 
     The legacy duplicated bodies caught ``DoesNotExist`` only; a
@@ -804,7 +804,7 @@ class ResolveUserForUserCanInvalidStringTestCase(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class NoteUserCanAnonymousAndIdResolutionTestCase(TransactionTestCase):
+class NoteUserCanAnonymousAndIdResolutionTestCase(TestCase):
     """Cover the anonymous branch's nested ``is_public`` gates and the
     int/str user-id resolver path. The invariant test only walks the
     matrix; these tests reach the leaf returns inside the ``not
@@ -971,7 +971,7 @@ class NoteUserCanAnonymousAndIdResolutionTestCase(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class UserFeedbackUserCanFallbackTestCase(TransactionTestCase):
+class UserFeedbackUserCanFallbackTestCase(TestCase):
     """Cover ``UserFeedbackManager.user_can`` when the feedback has no
     public commented annotation — the manager falls through to
     ``super().user_can`` which is the default branch. Also exercises
@@ -1072,7 +1072,7 @@ class UserFeedbackUserCanFallbackTestCase(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class PermissionQuerySetVisibleToUserTestCase(TransactionTestCase):
+class PermissionQuerySetVisibleToUserTestCase(TestCase):
     """Exercise the fallback body of ``PermissionQuerySet.visible_to_user``
     directly.
 
@@ -1175,7 +1175,7 @@ class PermissionQuerySetVisibleToUserTestCase(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-class UserFeedbackQuerySetGuardianTestCase(TransactionTestCase):
+class UserFeedbackQuerySetGuardianTestCase(TestCase):
     """The authenticated branch of ``UserFeedbackQuerySet.visible_to_user``
     issues a guardian lookup for ``userfeedbackuserobjectpermission``.
     The invariant matrix exercises the symmetric path; here we pin the

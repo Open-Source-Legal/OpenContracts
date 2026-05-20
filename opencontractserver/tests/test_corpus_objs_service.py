@@ -22,7 +22,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
-from django.test import TransactionTestCase
+from django.test import TestCase
 
 from opencontractserver.constants.document_processing import (
     MAX_PATH_CREATE_RETRIES,
@@ -64,7 +64,7 @@ def _make_constraint_error(
 # =============================================================================
 
 
-class _CorpusObjsServiceFolderTestBase(TransactionTestCase):
+class _CorpusObjsServiceFolderTestBase(TestCase):
     """
     Base test class for document folder service tests.
 
@@ -85,7 +85,7 @@ class _CorpusObjsServiceFolderTestBase(TransactionTestCase):
 # =============================================================================
 
 
-class TestPermission_CorpusCreatorHasFullAccess(TransactionTestCase):
+class TestPermission_CorpusCreatorHasFullAccess(TestCase):
     """
     SCENARIO: Corpus creator should have full read, write, and delete access.
 
@@ -113,7 +113,7 @@ class TestPermission_CorpusCreatorHasFullAccess(TransactionTestCase):
         self.assertTrue(self.corpus.user_can(self.creator, PermissionTypes.DELETE))
 
 
-class TestPermission_SuperuserBypassesAllChecks(TransactionTestCase):
+class TestPermission_SuperuserBypassesAllChecks(TestCase):
     """
     SCENARIO: Superusers should have all permissions on any corpus.
 
@@ -144,7 +144,7 @@ class TestPermission_SuperuserBypassesAllChecks(TransactionTestCase):
         self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.DELETE))
 
 
-class TestPermission_PublicCorpusGrantsReadOnly(TransactionTestCase):
+class TestPermission_PublicCorpusGrantsReadOnly(TestCase):
     """
     SCENARIO: Public corpus should grant read-only access to everyone.
 
@@ -181,7 +181,7 @@ class TestPermission_PublicCorpusGrantsReadOnly(TransactionTestCase):
         self.assertFalse(self.corpus.user_can(self.random_user, PermissionTypes.DELETE))
 
 
-class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
+class TestPermission_ExplicitPermissionsViaGuardian(TestCase):
     """
     SCENARIO: Users can be granted specific permissions via django-guardian.
 
@@ -238,7 +238,7 @@ class TestPermission_ExplicitPermissionsViaGuardian(TransactionTestCase):
         self.assertTrue(self.corpus.user_can(self.deleter, PermissionTypes.DELETE))
 
 
-class TestPermission_NoAccessDeniesEverything(TransactionTestCase):
+class TestPermission_NoAccessDeniesEverything(TestCase):
     """
     SCENARIO: User with no permissions should be denied all access.
 
@@ -269,7 +269,7 @@ class TestPermission_NoAccessDeniesEverything(TransactionTestCase):
         self.assertFalse(self.corpus.user_can(self.stranger, PermissionTypes.DELETE))
 
 
-class TestPermission_AnonymousUserAccess(TransactionTestCase):
+class TestPermission_AnonymousUserAccess(TestCase):
     """
     SCENARIO: Anonymous users should only access public resources.
 
@@ -318,7 +318,7 @@ class TestPermission_AnonymousUserAccess(TransactionTestCase):
 # =============================================================================
 
 
-class TestFolderCreate_BasicOperations(TransactionTestCase):
+class TestFolderCreate_BasicOperations(TestCase):
     """
     SCENARIO: Creating folders in a corpus.
 
@@ -397,7 +397,7 @@ class TestFolderCreate_BasicOperations(TransactionTestCase):
         self.assertIn("Permission denied", error)
 
 
-class TestFolderUpdate_BasicOperations(TransactionTestCase):
+class TestFolderUpdate_BasicOperations(TestCase):
     """
     SCENARIO: Updating folder properties.
 
@@ -663,7 +663,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
 # =============================================================================
 
 
-class TestFolderHierarchy_NestedFolders(TransactionTestCase):
+class TestFolderHierarchy_NestedFolders(TestCase):
     """
     SCENARIO: Creating and navigating nested folder structures.
 
@@ -739,7 +739,7 @@ class TestFolderHierarchy_NestedFolders(TransactionTestCase):
         self.assertEqual(tree[0]["children"][0]["name"], "Child Folder")
 
 
-class TestFolderHierarchy_MovePreventsCircularReferences(TransactionTestCase):
+class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
     """
     SCENARIO: Moving folders must prevent circular references.
 
@@ -817,7 +817,7 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TransactionTestCase):
         self.assertIsNone(self.grandchild.parent)
 
 
-class TestFolderHierarchy_CrossCorpusMovePrevented(TransactionTestCase):
+class TestFolderHierarchy_CrossCorpusMovePrevented(TestCase):
     """
     SCENARIO: Folders cannot be moved between different corpuses.
 
@@ -1552,7 +1552,7 @@ class TestCorpusIsolation_AddToFolder(_CorpusObjsServiceFolderTestBase):
 # =============================================================================
 
 
-class TestEdgeCases_NonexistentResources(TransactionTestCase):
+class TestEdgeCases_NonexistentResources(TestCase):
     """
     SCENARIO: Operations on nonexistent resources should fail gracefully.
 
@@ -1587,7 +1587,7 @@ class TestEdgeCases_NonexistentResources(TransactionTestCase):
         self.assertEqual(deleted.count(), 0)
 
 
-class TestEdgeCases_IDORProtection(TransactionTestCase):
+class TestEdgeCases_IDORProtection(TestCase):
     """
     SCENARIO: IDOR (Insecure Direct Object Reference) protection.
 
@@ -1675,7 +1675,7 @@ class TestEdgeCases_DocumentNotInCorpus(_CorpusObjsServiceFolderTestBase):
         self.assertIn("does not belong", error)
 
 
-class TestEdgeCases_UploadQuota(TransactionTestCase):
+class TestEdgeCases_UploadQuota(TestCase):
     """
     SCENARIO: Upload quota enforcement for capped users.
 
@@ -1714,7 +1714,7 @@ class TestEdgeCases_UploadQuota(TransactionTestCase):
         self.assertEqual(error, "")
 
 
-class TestEdgeCases_EmptyOperations(TransactionTestCase):
+class TestEdgeCases_EmptyOperations(TestCase):
     """
     SCENARIO: Operations with empty inputs should handle gracefully.
 
@@ -1888,7 +1888,7 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
 # =============================================================================
 
 
-class TestValidateFileType(TransactionTestCase):
+class TestValidateFileType(TestCase):
     """Tests for DocumentService.validate_file_type classmethod."""
 
     def test_validate_file_type_accepts_pdf(self):
@@ -2963,7 +2963,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
 # =============================================================================
 
 
-class TestErrorPaths_ComputeMovedPathEdgeCases(TransactionTestCase):
+class TestErrorPaths_ComputeMovedPathEdgeCases(TestCase):
     """
     SCENARIO: _compute_moved_path raises on malformed input.
 
@@ -3707,7 +3707,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
 # =============================================================================
 
 
-class TestCoverageGapComputeMovedPathTrailingSlash(TransactionTestCase):
+class TestCoverageGapComputeMovedPathTrailingSlash(TestCase):
     """
     SCENARIO: _compute_moved_path encounters a path with a trailing slash
     (e.g. "/dir/") which produces an empty filename after rsplit.
@@ -3729,7 +3729,7 @@ class TestCoverageGapComputeMovedPathTrailingSlash(TransactionTestCase):
         self.assertIn("empty or root-only", str(ctx.exception))
 
 
-class TestCoverageGapComputeMovedPathWhitespace(TransactionTestCase):
+class TestCoverageGapComputeMovedPathWhitespace(TestCase):
     """
     SCENARIO: _compute_moved_path receives a whitespace-only path.
 
@@ -4419,7 +4419,7 @@ class TestCoverageGapBulkMoveGetPathCallCount(_CorpusObjsServiceFolderTestBase):
 # =============================================================================
 
 
-class CorpusObjsServiceTestBase(TransactionTestCase):
+class CorpusObjsServiceTestBase(TestCase):
     """
     Shared fixture: a public corpus and a private corpus, each containing a
     document with a known slug.  Used to exercise the corpus-READ gate.
@@ -4680,7 +4680,7 @@ class TestIsDocumentInCorpus_Boolean(CorpusObjsServiceTestBase):
         )
 
 
-class TestIsDocumentInCorpus_SoftDeleted(TransactionTestCase):
+class TestIsDocumentInCorpus_SoftDeleted(TestCase):
     """
     SCENARIO: ``include_deleted`` flag controls whether soft-deleted
     documents count as members.
@@ -4765,7 +4765,7 @@ class TestIsDocumentInCorpus_SoftDeleted(TransactionTestCase):
             )
 
 
-class TestGetCorpusDocuments_CamlAndDeleted(TransactionTestCase):
+class TestGetCorpusDocuments_CamlAndDeleted(TestCase):
     """
     SCENARIO: ``get_corpus_documents`` composes the ``include_deleted`` and
     ``include_caml`` toggles via the shared
@@ -4912,7 +4912,7 @@ class TestGetCorpusDocuments_CamlAndDeleted(TransactionTestCase):
 # =============================================================================
 
 
-class TestGetCorpusCamlArticles(TransactionTestCase):
+class TestGetCorpusCamlArticles(TestCase):
     """
     SCENARIO: ``get_corpus_caml_articles`` returns the corpus's
     ``Readme.CAML`` / ``text/markdown`` document(s) under the same

@@ -17,7 +17,7 @@ import io
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.utils import timezone
 from graphene.test import Client
 from graphql_relay import to_global_id
@@ -36,7 +36,7 @@ from opencontractserver.utils.permissioning import set_permissions_for_obj_to_us
 User = get_user_model()
 
 
-class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase):
+class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TestCase):
     """
     Prove that structural annotations remain accessible via GraphQL
     in both pre-migration and post-migration states.
@@ -761,7 +761,7 @@ class StructuralAnnotationGraphQLBackwardsCompatibilityTests(TransactionTestCase
         )
 
 
-class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TransactionTestCase):
+class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TestCase):
     """
     Prove that structural RELATIONSHIPS also remain accessible via GraphQL
     after migration to StructuralAnnotationSet.
