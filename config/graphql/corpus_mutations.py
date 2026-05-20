@@ -685,7 +685,7 @@ class ReEmbedCorpus(graphene.Mutation):
         try:
             corpus_pk = from_global_id(corpus_id)[1]
         except Exception:
-            return ReEmbedCorpus(ok=False, message="Invalid corpus ID")
+            return ReEmbedCorpus(ok=False, message="Corpus not found")
 
         # IDOR protection: same response for missing pk, hidden pk, and
         # caller-is-not-creator.

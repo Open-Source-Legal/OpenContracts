@@ -395,7 +395,12 @@ class AwardBadgeMutation(graphene.Mutation):
 
             corpus = None
             if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
+                try:
+                    corpus_pk = from_global_id(corpus_id)[1]
+                except Exception:
+                    return AwardBadgeMutation(
+                        ok=False, message="Corpus not found", user_badge=None
+                    )
                 corpus = get_for_user_or_none(Corpus, corpus_pk, awarder)
                 if corpus is None:
                     return AwardBadgeMutation(

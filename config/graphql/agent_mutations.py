@@ -89,7 +89,14 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
             # corpus doesn't exist or the caller lacks CRUD permission on it.
             corpus = None
             if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
+                try:
+                    corpus_pk = from_global_id(corpus_id)[1]
+                except Exception:
+                    return CreateAgentConfigurationMutation(
+                        ok=False,
+                        message="Corpus not found",
+                        agent=None,
+                    )
                 corpus = get_for_user_or_none(Corpus, corpus_pk, user)
                 if corpus is None or not corpus.user_can(
                     user, PermissionTypes.CRUD, request=info.context
