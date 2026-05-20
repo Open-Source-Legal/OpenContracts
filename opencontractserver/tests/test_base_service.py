@@ -15,6 +15,7 @@ from opencontractserver.shared.services.conventions import (
     ServiceResult,
     get_for_user_or_none,
 )
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 
 User = get_user_model()
@@ -95,3 +96,51 @@ class TestGetForUserOrNone(TestCase):
             Corpus, self.corpus.pk, self.owner, PermissionTypes.UPDATE
         )
         self.assertEqual(result, self.corpus)
+
+
+class TestBaseServiceLookup(TestCase):
+    """SCENARIO: BaseService exposes the shared fetch primitives.
+
+    BUSINESS RULE: ``get_or_none`` is the IDOR-safe single-object lookup
+    and ``filter_visible`` returns the permission-filtered queryset — both
+    delegate to the existing manager API so a subclass never re-implements
+    permission logic.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="bs_owner", email="bs_owner@test.com", password="test"
+        )
+        self.other = User.objects.create_user(
+            username="bs_other", email="bs_other@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="BaseService Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_get_or_none_returns_instance_for_owner(self):
+        self.assertEqual(
+            BaseService.get_or_none(Corpus, self.corpus.pk, self.owner),
+            self.corpus,
+        )
+
+    def test_get_or_none_returns_none_for_other_user(self):
+        self.assertIsNone(
+            BaseService.get_or_none(Corpus, self.corpus.pk, self.other)
+        )
+
+    def test_filter_visible_includes_owned_corpus(self):
+        visible_ids = set(
+            BaseService.filter_visible(Corpus, self.owner).values_list(
+                "pk", flat=True
+            )
+        )
+        self.assertIn(self.corpus.pk, visible_ids)
+
+    def test_filter_visible_excludes_corpus_for_other_user(self):
+        visible_ids = set(
+            BaseService.filter_visible(Corpus, self.other).values_list(
+                "pk", flat=True
+            )
+        )
+        self.assertNotIn(self.corpus.pk, visible_ids)
