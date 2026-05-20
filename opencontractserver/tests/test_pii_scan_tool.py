@@ -542,9 +542,7 @@ class ScanAndAnnotateRegistryTests(TestCase):
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class PersistAnnotationsLabelRaceTests(
-    _PiiPersistEmbeddingNoopMixin, TestCase
-):
+class PersistAnnotationsLabelRaceTests(_PiiPersistEmbeddingNoopMixin, TestCase):
     """Regression guard for the accepted-duplicate behavior of
     ``Corpus.ensure_label_and_labelset`` under PostgreSQL READ COMMITTED.
 
@@ -688,9 +686,7 @@ class PersistAnnotationsLabelRaceTests(
     PRIVACY_FILTER_URL="http://privacy.test",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class PersistAnnotationsUnknownGroupTests(
-    _PiiPersistEmbeddingNoopMixin, TestCase
-):
+class PersistAnnotationsUnknownGroupTests(_PiiPersistEmbeddingNoopMixin, TestCase):
     """Defensive coverage: ``_persist_annotations_sync`` is called via a
     sync_to_async wrapper inside ``ascan_and_annotate_pii``, which already
     rejects unknown entity groups at the public-API boundary

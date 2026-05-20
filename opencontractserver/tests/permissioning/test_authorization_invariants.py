@@ -735,9 +735,7 @@ class _UserCanInvariantsMixin(_MixinBase):
                 )
 
 
-class DocumentAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TestCase
-):
+class DocumentAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Document``."""
 
     def setUp(self):
@@ -927,9 +925,7 @@ class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
             )
 
 
-class RelationshipAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TestCase
-):
+class RelationshipAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Relationship`` (MIN + structural-write-deny)."""
 
     def setUp(self):
@@ -1055,9 +1051,7 @@ class RelationshipAuthorizationInvariantsTestCase(
         self.assertIsNone(self.relationship.created_by_extract_id)
 
 
-class AnnotationAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TestCase
-):
+class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Annotation``.
 
     Covers: structural-write-deny, MIN(doc, corpus), and the bug-fix
@@ -1274,9 +1268,7 @@ class AnnotationAuthorizationInvariantsTestCase(
             )
 
 
-class ConversationAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TestCase
-):
+class ConversationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Conversation`` (CHAT/THREAD bifurcation)."""
 
     def setUp(self):
@@ -1382,9 +1374,7 @@ class ConversationAuthorizationInvariantsTestCase(
             )
 
 
-class ChatMessageAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TestCase
-):
+class ChatMessageAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``ChatMessage`` (moderator branch)."""
 
     def setUp(self):
@@ -1490,9 +1480,7 @@ class ChatMessageAuthorizationInvariantsTestCase(
         )
 
 
-class UserFeedbackAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TestCase
-):
+class UserFeedbackAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``UserFeedback`` including the
     inherited-annotation-visibility READ branch.
 
