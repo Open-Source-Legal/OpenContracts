@@ -198,12 +198,20 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_documents(self, info, **kwargs) -> Any:
         """
         Custom resolver for documents field that uses DocumentPath.
-        Returns documents with active paths in this corpus.
+        Returns documents with active paths in this corpus, filtered by
+        document-level visibility.
 
-        Delegates to ``CorpusObjsService.get_corpus_documents`` so the
-        corpus-as-gate semantic stays uniform across the service surface
-        and the IDOR-prone ``visible_to_user`` + ``_get_active_documents``
-        fusion is retired.
+        Delegates to
+        ``CorpusObjsService.get_corpus_documents_visible_to_user``, which
+        enforces the MIN-permission semantic::
+
+            Effective Permission = MIN(document_permission, corpus_permission)
+
+        A private document in a public (or shared) corpus stays hidden from
+        users without document-level access — keeping this user-facing
+        GraphQL field aligned with the permission model documented in
+        ``CLAUDE.md`` rather than the corpus-as-gate semantic that
+        pipeline-facing callers (MCP, discovery) use. See issue #1682.
 
         CAML/markdown files are included here since this resolver serves
         corpus views that need to display the article landing page.
@@ -213,7 +221,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 
         user = getattr(info.context, "user", None) or AnonymousUser()
-        return CorpusObjsService.get_corpus_documents(
+        return CorpusObjsService.get_corpus_documents_visible_to_user(
             user, self, include_caml=True, request=info.context
         )
 
