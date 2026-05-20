@@ -989,9 +989,11 @@ class TestPersonalCorpusDeletionProtection(TestCase):
         variables = {"id": to_global_id("CorpusType", personal_corpus.pk)}
         result = self.client.execute(self.delete_mutation, variable_values=variables)
 
-        # Should return an error
-        self.assertIn("errors", result)
-        error_message = result["errors"][0]["message"]
+        # DeleteCorpusMutation returns the failure via the unified IDOR-safe
+        # envelope (ok=False + message) rather than a raw GraphQL error.
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["deleteCorpus"]["ok"])
+        error_message = result["data"]["deleteCorpus"]["message"]
         self.assertIn("Cannot delete", error_message)
         self.assertIn("My Documents", error_message)
 
