@@ -27,6 +27,9 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+
+# TransactionTestCase retained for Tier1CacheThreadSafetyTestCase, which
+# spawns OS threads and needs real commits visible across connections.
 from django.test import RequestFactory, TestCase, TransactionTestCase
 
 from opencontractserver.constants.permissioning import (
