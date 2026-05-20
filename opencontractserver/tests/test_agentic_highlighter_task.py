@@ -193,7 +193,7 @@ class TestAgenticHighlighterClaude(BaseFixtureTestCase):
         )
 
         # Verify that each document in the corpus has an analysis row
-        for doc in self.corpus.get_documents():
+        for doc in self.corpus._get_active_documents():
             doc_row = analysis_rows.filter(document=doc).first()
             self.assertIsNotNone(
                 doc_row, f"Document {doc.id} should have an analysis row"

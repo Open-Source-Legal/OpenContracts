@@ -82,7 +82,7 @@ class ExportCorpusTestCase(TestCase):
         assert "doc_labels" in label_lookups
         assert len(label_lookups["doc_labels"]) >= 1
 
-        for doc in self.original_corpus_obj.get_documents():
+        for doc in self.original_corpus_obj._get_active_documents():
             result = build_document_export(
                 label_lookups=label_lookups,
                 doc_id=doc.id,
@@ -98,7 +98,7 @@ class ExportCorpusTestCase(TestCase):
         expected Pydantic / TypedDict data shapes."""
         label_lookups = build_label_lookups(corpus_id=self.original_corpus_obj.id)
 
-        for doc in self.original_corpus_obj.get_documents():
+        for doc in self.original_corpus_obj._get_active_documents():
             (
                 doc_name,
                 base64_encoded_message,
@@ -147,7 +147,7 @@ class ExportCorpusTestCase(TestCase):
         pages, bounding boxes) conform to the expected schema."""
         label_lookups = build_label_lookups(corpus_id=self.original_corpus_obj.id)
 
-        for doc in self.original_corpus_obj.get_documents():
+        for doc in self.original_corpus_obj._get_active_documents():
             (
                 doc_name,
                 base64_encoded_message,
@@ -270,7 +270,7 @@ class ExportCorpusTestCase(TestCase):
         fixture_text_labels = self.import_data["text_labels"]
 
         # Export the single document in the corpus
-        docs = list(self.original_corpus_obj.get_documents())
+        docs = list(self.original_corpus_obj._get_active_documents())
         self.assertEqual(len(docs), 1, "Expected exactly 1 document in corpus")
 
         (
