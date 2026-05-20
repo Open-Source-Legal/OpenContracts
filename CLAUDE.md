@@ -118,6 +118,7 @@ docker compose -f production.yml up
    - **Structural items are ALWAYS read-only** except for superusers
    - Use `Model.objects.visible_to_user(user)` pattern (NOT `resolve_oc_model_queryset` - DEPRECATED)
    - For corpus-scoped document access (the most common pattern), prefer `CorpusObjsService.get_corpus_documents(user, corpus)` over composing `visible_to_user` filters by hand — the service is the canonical entry point and prevents IDOR-prone copy-paste fusions of `corpus.get_documents()` + `Document.objects.visible_to_user(user)`.
+   - **Corpus document access — two deliberate semantics (issue #1682)**: `CorpusObjsService.get_corpus_documents(user, corpus)` is **corpus-as-gate** — corpus READ unlocks *every* document with an active path in that corpus. It is the documented default for pipeline-facing callers (MCP, discovery, badge/analysis tasks) that legitimately operate over a whole readable corpus. `CorpusObjsService.get_corpus_documents_visible_to_user(user, corpus)` enforces **`MIN(document_permission, corpus_permission)`** — a private document inside a public (or merely shared) corpus stays hidden from users who lack document-level READ. User-facing surfaces that must not leak private documents (e.g. the GraphQL `CorpusType.documents` resolver) MUST use the `_visible_to_user` variant. Choose the method by caller intent; never silently swap one semantic for the other.
 
 3. **AnnotatePermissionsForReadMixin**:
    - Most GraphQL types inherit this mixin (see `config/graphql/permissioning/permission_annotator/mixins.py`)
@@ -217,8 +218,8 @@ docker compose -f production.yml up
 
 2. **Permission Checks**:
    - NEVER trust frontend - always check server-side
-   - Use `visible_to_user()` manager method for querysets
-   - Check `user_has_permission_for_obj()` for individual objects (in `opencontractserver.utils.permissioning`)
+   - Use `Model.objects.visible_to_user(user)` manager method for querysets (list/filter)
+   - For a single-object check use `Model.objects.user_can(user, obj, perm)` / `obj.user_can(user, perm)` — the canonical API, paired with `visible_to_user` and pinned to agree by `opencontractserver/tests/permissioning/test_authorization_invariants.py`. In GraphQL resolvers/mutations pass `request=info.context` to engage the Tier-2 permission cache; omit it in Celery/agent/internal code. The old `user_has_permission_for_obj()` helper is a deprecated shim (emits `DeprecationWarning`, removal tracked in #1661) — do not call it in new code.
 
 3. **XSS Prevention**:
    - User-generated content in JSON fields must be escaped on frontend
