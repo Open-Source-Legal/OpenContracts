@@ -281,12 +281,13 @@ class PermissionQuerySet(models.QuerySet):
             # appears in ``visible_to_user`` (issue #1714). The lazy
             # ``values_list`` keeps this a SQL subquery (no extra
             # round-trip).
+            user_group_ids = user.groups.values_list("id", flat=True)
             group_permission_model = apps.get_model(
                 app_label, f"{model_name}groupobjectpermission"
             )
             group_permitted_ids = group_permission_model.objects.filter(
                 permission__codename=f"read_{model_name}",
-                group_id__in=user.groups.values_list("id", flat=True),
+                group_id__in=user_group_ids,
             ).values_list("content_object_id", flat=True)
 
             return self.filter(
@@ -354,12 +355,13 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             # the filter must OR them in too — otherwise a group-shared
             # user passes ``user_can`` yet never appears in
             # ``visible_to_user`` (issue #1714).
+            user_group_ids = user.groups.values_list("id", flat=True)
             group_permission_model = apps.get_model(
                 "documents", "documentgroupobjectpermission"
             )
             group_permitted_ids = group_permission_model.objects.filter(
                 permission__codename="read_document",
-                group_id__in=user.groups.values_list("id", flat=True),
+                group_id__in=user_group_ids,
             ).values_list("content_object_id", flat=True)
 
             return self.filter(

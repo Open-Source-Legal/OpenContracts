@@ -1188,9 +1188,13 @@ class GroupObjectPermissionVisibilityTest(TestCase):
             .filter(pk=self.group_note.pk)
             .exists()
         )
-        self.assertTrue(check)
-        self.assertTrue(in_filter)
-        self.assertEqual(check, in_filter)
+        self.assertTrue(check, "user_can must honour the group-level READ grant")
+        self.assertTrue(
+            in_filter, "visible_to_user must honour the group-level READ grant"
+        )
+        self.assertEqual(
+            check, in_filter, "user_can and visible_to_user must agree for the note"
+        )
 
     def test_stranger_without_group_membership_stays_excluded(self):
         """A user who is NOT in the group sees none of the group-shared
