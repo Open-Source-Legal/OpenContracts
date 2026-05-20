@@ -2,7 +2,9 @@
 
 > **🔴 CRITICAL CHANGE**: Annotations and Relationships no longer have individual permissions. Both inherit permissions from document + corpus. This eliminates N+1 queries and simplifies the security model.
 
-> **🔴 CRITICAL SECURITY**: Structural annotations and relationships are ALWAYS read-only except for superusers. Even owners with full CRUD permissions cannot modify structural items. This is enforced in `user_has_permission_for_obj` at `permissioning.py:297-303` (annotations) and `permissioning.py:388-394` (relationships).
+> **🔴 CRITICAL SECURITY**: Structural annotations and relationships are ALWAYS read-only except for superusers. Even owners with full CRUD permissions cannot modify structural items. This is enforced in `AnnotationManager.user_can` and `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`) — the structural-write-deny runs before any other permission branch.
+
+> **🟠 AUTHORIZATION API**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface). It is the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter — the two are pinned to agree by the invariant suite in `opencontractserver/tests/permissioning/test_authorization_invariants.py`. The legacy `user_has_permission_for_obj` helper is a **deprecated shim** that emits `DeprecationWarning` and delegates to `Manager.user_can`; it is scheduled for removal one release after Phase E (issue #1661). New code MUST call `user_can`.
 
 > **🔵 NEW FEATURE**: Annotations can now be marked as "created by" an analysis or extract using `created_by_analysis` and `created_by_extract` fields. These annotations are private to the source object and only visible to users with permission to that analysis/extract.
 
@@ -33,6 +35,7 @@
 | **User Profile Privacy** | All users visible | Privacy via `is_profile_public` + corpus membership | Profile privacy control |
 | **Badge Visibility** | All badges visible | Follows recipient's profile privacy | Badge privacy control |
 | **Document Actions** | Inline permission checks | `DocumentActionsQueryOptimizer` | Centralized least-privilege |
+| **Single-object check** | `user_has_permission_for_obj()` helper | `Manager.user_can()` / `obj.user_can()` | Check surface paired with `visible_to_user()` filter; old helper now a deprecated shim |
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -49,7 +52,8 @@
 12. [Testing](#testing)
 13. [Troubleshooting](#troubleshooting)
 14. [Agent/LLM Permission Model](#agentllm-permission-model)
-15. [resolve_oc_model_queryset Deprecation](#resolve_oc_model_queryset-deprecation)
+15. [The user_can Authorization API](#the-user_can-authorization-api)
+16. [resolve_oc_model_queryset Deprecation](#resolve_oc_model_queryset-deprecation)
 
 ## Overview
 
@@ -81,7 +85,7 @@ OpenContracts implements a sophisticated hierarchical permission system with dif
    - This ensures annotations/relationships are never more permissive than their parent document
    - **Performance benefit**: Eliminates N+1 permission queries
    - **CRITICAL**: Structural annotations and relationships are ALWAYS read-only except for superusers
-   - Relationships use the same permission inheritance model as annotations (implemented at `permissioning.py:376-433`)
+   - Relationships use the same permission inheritance model as annotations (implemented in `RelationshipManager.user_can` / `RelationshipQuerySet.visible_to_user`, `opencontractserver/shared/Managers.py`)
    - **Privacy fields**: Both Annotation and Relationship models have `created_by_analysis`, `created_by_extract`, `structural`, and `is_public` fields (see `opencontractserver/annotations/models.py`)
 
 4. **Analyses and Extracts - HYBRID MODEL**
@@ -334,6 +338,13 @@ This simple convention means:
 ## Permission Model Summary by Object Type
 
 This section provides a comprehensive reference for how permissions work across different object types in the system.
+
+For every object type below, permissions are reachable through two paired surfaces, both defined per model in `opencontractserver/shared/Managers.py`:
+
+- **`Model.objects.visible_to_user(user)`** — the queryset *filter*: which rows the user may READ.
+- **`Model.objects.user_can(user, obj, permission)`** / **`obj.user_can(user, permission)`** — the single-object *check*: may the user perform `permission` on `obj`.
+
+The two are pinned to agree for READ by the invariant suite (`test_authorization_invariants.py`). Use the filter for list queries and the check for mutation/field-resolver gating.
 
 ### Permission Model Reference Table
 
@@ -919,7 +930,7 @@ class AnnotationQueryOptimizer:
    - **ALWAYS READ-ONLY except for superusers**
    - **Cannot be edited, updated, or deleted by ANY user (including owners with full CRUD permissions)**
    - Only superusers can modify or delete structural annotations
-   - This protection is enforced in `user_has_permission_for_obj` at `permissioning.py:297-303`
+   - This protection is enforced in `AnnotationManager.user_can` (`opencontractserver/shared/Managers.py`), before any other permission branch
    - Structural annotations are ALWAYS visible regardless of `created_by_*` fields
    - Filtered automatically when no corpus context
 
@@ -927,7 +938,7 @@ class AnnotationQueryOptimizer:
    - **ALWAYS READ-ONLY except for superusers**
    - **Cannot be edited, updated, or deleted by ANY user (including owners with full CRUD permissions)**
    - Only superusers can modify or delete structural relationships
-   - This protection is enforced in `user_has_permission_for_obj` at `permissioning.py:388-394`
+   - This protection is enforced in `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`), before any other permission branch
    - Relationships inherit permissions from document+corpus (just like annotations)
    - Structural protection is checked BEFORE any other permission logic
 
@@ -965,9 +976,11 @@ The annotation privacy model allows annotations to be marked as "created by" a s
 
 ### Centralized Permission Checking - THE Single Source of Truth
 
-**CRITICAL**: The function `user_has_permission_for_obj` in `opencontractserver/utils/permissioning.py` is THE single source of truth for ALL permission checks in the system. Never bypass this function or implement custom permission logic.
+**CRITICAL**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface), defined per model in `opencontractserver/shared/Managers.py`. Never bypass this API or implement custom permission logic.
 
-All permission checks for annotations and relationships now go through the enhanced `user_has_permission_for_obj` function, which automatically handles:
+> The legacy `user_has_permission_for_obj` function in `opencontractserver/utils/permissioning.py` is a **deprecated shim**: it emits `DeprecationWarning` and delegates straight to `Manager.user_can`. It survives one release past Phase E for plugin/external callers and is tracked for removal in issue #1661. All in-repo call sites have been migrated.
+
+All permission checks for annotations and relationships go through the per-model `user_can` implementation, which automatically handles:
 
 1. **Superuser bypass** - Superusers always have full permissions (including structural items)
 2. **Structural protection** - Structural annotations/relationships are ALWAYS read-only for non-superusers
@@ -976,12 +989,13 @@ All permission checks for annotations and relationships now go through the enhan
 5. **Document+corpus computation** - Uses AnnotationQueryOptimizer for final permissions
 
 **Implementation Details:**
-- Structural annotation protection: `permissioning.py:297-303`
-- Structural relationship protection: `permissioning.py:388-394`
+- Structural annotation protection: `AnnotationManager.user_can` (`opencontractserver/shared/Managers.py`)
+- Structural relationship protection: `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`)
 - Both checks happen BEFORE any other permission logic
+- `user_can` is the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter; the two are pinned to agree by `opencontractserver/tests/permissioning/test_authorization_invariants.py`
 - All mutations automatically respect this (RemoveAnnotation, UpdateAnnotation, RemoveRelationship, UpdateRelationship, etc.)
 
-This means mutations don't need to understand the privacy model - they just call `user_has_permission_for_obj` and it handles everything.
+This means mutations don't need to understand the privacy model - they just call `obj.user_can(...)` and it handles everything.
 
 **Important for Private Annotations**: Operations like DELETE require the matching permission on BOTH:
 - The analysis/extract that created the annotation (DELETE permission)
@@ -2384,8 +2398,8 @@ if self.corpus_id:
     self.corpus = await Corpus.objects.aget(id=self.corpus_id)
     if is_authenticated:
         has_perm = await database_sync_to_async(
-            user_has_permission_for_obj
-        )(user, self.corpus, PermissionTypes.READ)
+            self.corpus.user_can
+        )(user, PermissionTypes.READ)
         if not has_perm:
             await self.close(code=4003)
             return
@@ -2398,8 +2412,8 @@ if self.document_id:
     self.document = await Document.objects.aget(id=self.document_id)
     if is_authenticated:
         has_perm = await database_sync_to_async(
-            user_has_permission_for_obj
-        )(user, self.document, PermissionTypes.READ)
+            self.document.user_can
+        )(user, PermissionTypes.READ)
         if not has_perm:
             await self.close(code=4003)
             return
@@ -2535,6 +2549,22 @@ async def async_wrapper(ctx: RunContext[PydanticAIDependencies], *args, **kwargs
     # Then execute tool...
     return await original_func(*args, **kwargs)
 ```
+
+#### Writing permission checks inside a tool
+
+Tool authors who need a check *beyond* the wrapper's READ gate (e.g. a write tool confirming the caller may UPDATE a specific object) MUST use the `user_can` API, not the deprecated `user_has_permission_for_obj` helper:
+
+```python
+# Inside an agent tool — confirm the caller may edit this object.
+if not obj.user_can(user, PermissionTypes.UPDATE):
+    raise PermissionError("User lacks UPDATE permission")
+```
+
+Notes:
+- `obj.user_can(user, perm)` honours creator status uniformly (Phase A): a creator who never received an explicit guardian grant still passes, matching the read-side `visible_to_user` filter. Migrated tool sites (`image_tools.py`, `extracts_and_analyzers.py`, `memory.py`, `caml_article.py`) rely on this — do not re-add bare `creator_id == user.pk` OR-branches.
+- `user_can` defaults to `include_group_permissions=True`; users holding a permission via a group pass the gate.
+- Agent tools run without a GraphQL request in scope, so omit the `request=` kwarg — they degrade gracefully to Tier-1 instance caching (see [the two-tier cache](#two-tier-permission-cache)).
+- All production agent tools are async; call `database_sync_to_async(obj.user_can)(user, perm)` from async tool bodies.
 
 ### 4. Vector Search Permission Layer
 
@@ -2720,6 +2750,50 @@ Key test scenarios:
 - Write tools are filtered for users without CRUD permissions
 - Runtime checks block tool execution even if filtering fails
 - Permission changes take effect immediately (no caching)
+
+---
+
+## The `user_can` Authorization API
+
+`Model.objects.user_can(user, obj, permission)` (manager surface) and `obj.user_can(user, permission)` (instance surface) are the canonical single-object authorization check. They are the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter. Both live per model in `opencontractserver/shared/Managers.py`; the instance surface is provided by `InstanceUserCanMixin` (`opencontractserver/shared/user_can_mixin.py`), which delegates to `type(obj)._default_manager.user_can`.
+
+**Filter/check parity is an invariant.** For READ, `user_can(u, obj, READ)` must equal `visible_to_user(u).filter(pk=obj.pk).exists()` for every user. This is pinned by the suite in `opencontractserver/tests/permissioning/test_authorization_invariants.py` — if a manager's `user_can` and its queryset's `visible_to_user` ever drift, that suite fails by design.
+
+### Extending `user_can` when introducing a new visibility-managed model
+
+When you add a new model whose rows must be permission-filtered, work through this checklist:
+
+1. **Manager + queryset.** Give the model a manager inheriting `BaseVisibilityManager` (and a queryset inheriting `PermissionQuerySet`) so it gets `user_can` and `visible_to_user` for free with the default creator / `is_public` / guardian rules.
+2. **Instance surface.** Make the model inherit `InstanceUserCanMixin` so callers can use `obj.user_can(...)`. The mixin raises a clear `TypeError` if the default manager has no `user_can` — so step 1 must be done first.
+3. **Override in lockstep.** If the model has non-standard visibility (permission inheritance, privacy recursion, structural locking, type bifurcation), override **both** `Manager.user_can` and `QuerySet.visible_to_user`. Never change one without the other — the parity invariant will fail.
+4. **Resolve the user uniformly.** Use `resolve_user_for_user_can(user)` at the top of a custom `user_can` so `int` / `str` ids, `None`, `AnonymousUser`, and invalid strings all resolve consistently (it returns `None` for anything unresolvable; deny on `None`).
+5. **Honour creator status uniformly.** Per Phase A, a creator passes `user_can` without an explicit guardian grant, matching `visible_to_user`'s `Q(creator=user)` predicate. Do not gate creators behind guardian rows.
+6. **Add an invariant test class.** In `test_authorization_invariants.py`, subclass `_UserCanInvariantsMixin` + `TransactionTestCase`, and in `setUp` populate `model_cls`, `_superuser`, `_matrix_users`, and `_matrix_instances`. The mixin's equivalence / surface-agreement / superuser tests then come for free.
+7. **Cover the fixture matrix.** `_matrix_users` must include: superuser, creator, a non-creator with an explicit guardian grant, an unshared stranger, a public-only viewer (stranger × a public instance), and `AnonymousUser()`.
+8. **Pin model-specific invariants.** Add a focused test for any special rule: structural locking, recursive privacy, `is_public` write asymmetry, or CHAT/THREAD-style bifurcation.
+
+### Two-Tier Permission Cache
+
+`user_can` permission resolution is memoized at two tiers (introduced in PR #1665). Both are transparent — they never change the answer, only avoid recomputation.
+
+- **Tier 1 — per-instance memoization.** Always on. Results are cached on the in-memory model instance under `INSTANCE_PERMS_CACHE_ATTR`. The cache lives as long as the instance object does; two separate `Document` instances for the same row do not share it. This is what Celery tasks, agent tools, websocket consumers, and fixtures rely on.
+- **Tier 2 — request-scoped optimizer.** Opt-in. Activated by threading a GraphQL request through the `request=` kwarg: `obj.user_can(user, perm, request=info.context)`. All `user_can` calls in that request then share one `PermissionQueryOptimizer` (`get_request_optimizer(request)`), so repeated checks across many rows / resolvers in a single GraphQL request collapse to far fewer queries.
+
+**When to pass `request=`:**
+
+- **GraphQL resolvers and mutations** — pass `request=info.context`. This is where Tier-2 pays off (list resolvers check permissions per row).
+- **Celery tasks, agent tools, websocket consumers, import services, fixtures, tests** — omit `request=`. They have no GraphQL request in scope; they degrade gracefully to Tier-1 instance caching. Passing a non-request object is unsafe.
+
+**Cache invalidation.** `set_permissions_for_obj_to_user(user, obj, perms, request=info.context)` invalidates both tiers for that `(user, obj)` pair after the grant lands, so later `user_can` checks in the same request see the new state. Group-permission changes (`user.groups.add(...)`, `assign_perm(perm, group, obj)`) do **not** flow through that helper — a caller mutating group membership mid-request must invalidate manually (`delattr(instance, INSTANCE_PERMS_CACHE_ATTR)` and/or `get_request_optimizer(request).invalidate(user_id=user.id)`).
+
+### Service Layer: `CorpusObjsService` and `DocumentService`
+
+Authorization checks answer "may this user do X to this object." *Fetching* the right objects for a user is the job of the service layer (PR #1685), and request-context code should go through it rather than composing `visible_to_user` filters by hand:
+
+- **`DocumentService`** (`opencontractserver/documents/document_service.py`) — the single source of truth for document-level operations: creation, quota, lifecycle, document-level permissions, and standalone single-document lookup. Use it when the document is the noun and corpus context is incidental.
+- **`CorpusObjsService`** (`opencontractserver/corpuses/corpus_objs_service.py`) — the single source of truth for corpus-scoped reads: "give me X inside corpus Y for user Z" (`get_corpus_document_by_slug`, `get_corpus_document_by_id`, `is_document_in_corpus`, folder lookups, CAML articles).
+
+**IDOR safety:** never fuse `corpus.get_documents().values_list("id", flat=True)` with `Document.objects.visible_to_user(user)` by hand — that copy-paste pattern is IDOR-prone. `CorpusObjsService` is the canonical entry point and returns an empty queryset (not a leak, not an error) on permission denial. `corpus.get_documents()` itself now emits a `DeprecationWarning`; internal/task code without a user must call `corpus._get_active_documents()` explicitly.
 
 ---
 

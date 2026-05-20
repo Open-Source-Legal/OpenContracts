@@ -177,7 +177,6 @@ nav:
   - Permissions:
       - Overview: permissioning/README.md
       - Consolidated Guide: permissioning/consolidated_permissioning_guide.md
-      - Remediation Guide: permissioning/REMEDIATION_GUIDE.md
       - Read Only Mode: permissioning/read_only_mode.md
       - Corpus Optional Features: permissioning/corpus_optional_features.md
       - Mention Permissioning Spec: permissioning/mention_permissioning_spec.md

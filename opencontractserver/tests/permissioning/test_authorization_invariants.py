@@ -10,6 +10,57 @@ the same question; this module is the regression guard.
 Step 0 scope: Corpus only. Subsequent migration phases extend this module to
 cover Document, Annotation, Relationship, Note, Conversation, ChatMessage,
 Extract, Analysis, etc.
+
+Phase F fixture-matrix audit (issue #1660)
+------------------------------------------
+Every per-model invariant class below is exercised by ``_UserCanInvariantsMixin``
+(or, for ``Corpus``, an equivalent in-class test) against a user matrix that
+covers: superuser, creator, non-creator with an explicit guardian grant,
+non-creator with no grant ("stranger"), public-only viewer (stranger × a public
+instance), and anonymous. The following invariants are explicitly pinned:
+
+* **READ equivalence** — ``user_can(READ) == visible_to_user.filter(pk).exists()``
+  for every (user, instance) pair (mixin ``test_read_equivalence_across_user_matrix``;
+  ``Corpus`` has its own copy).
+* **Group-shared equivalence** — pinned for ``Corpus`` via
+  ``test_group_shared_read_equivalence`` (filter and check agree for a
+  group-granted user). **AUDIT FINDING (issue #1660):** ``Document`` —
+  and, by sharing the same ``shared/QuerySets.py`` machinery, ``Annotation``
+  and ``Note`` — exhibit a genuine filter/check drift for group-granted
+  users: ``Manager.user_can`` honours group object-permissions but
+  ``QuerySet.visible_to_user`` only consults the *user* object-permission
+  table, never the ``*groupobjectpermission`` table. The drift is pinned
+  (current behaviour, not endorsed as correct) by
+  ``DocumentAuthorizationInvariantsTestCase
+  .test_group_shared_known_drift_user_can_vs_visible_to_user``. Closing the
+  drift is a query-path change out of scope for the Phase F test/docs sweep.
+* **No silent widening (write asymmetry)** — for every model with an
+  ``is_public`` field, a non-creator/non-shared user must get ``False`` for
+  UPDATE/DELETE even when ``is_public=True``: ``Corpus``
+  (``test_is_public_grants_only_read_not_writes``), ``Document``
+  (``test_is_public_grants_only_read``), ``Note`` / ``Annotation`` /
+  ``Conversation`` / ``UserFeedback`` (``test_is_public_does_not_grant_writes``).
+  ``Relationship`` is intentionally excluded — ``RelationshipManager.user_can``
+  does not consult ``is_public`` (see its docstring in ``shared/Managers.py``);
+  relationship READ is pure ``MIN(doc, corpus)`` + creator, so structural
+  locking is the relevant relationship invariant. ``ChatMessage`` has no
+  ``is_public`` field.
+* **Structural locking** — every non-READ permission returns ``False`` for any
+  non-superuser on a structural annotation/relationship
+  (``test_structural_*_are_read_only_for_non_superuser``).
+* **Recursive privacy (annotation)** — ``created_by_analysis`` is pinned by
+  ``test_privacy_recursion_*``; ``created_by_extract`` is covered by the matrix
+  (``private_via_extract`` instance) here and by focused branch tests in
+  ``test_authorization_invariants_coverage.py``.
+* **Conversation bifurcation** — a CHAT is not visible to a corpus reader while
+  a THREAD is (``test_chat_does_not_inherit_corpus_context`` /
+  ``test_thread_inherits_corpus_read``); the same split is pinned for
+  ``ChatMessage`` (``test_chat_message_does_not_inherit_corpus_context``).
+* **Anonymous parity** — ``AnonymousUser()`` is in every class's user matrix, so
+  the READ-equivalence test pins anonymous parity for every model.
+* **BACON-mode COMMENT** — corpus ``allow_comments`` open-commenting is pinned
+  outside this module in ``test_feedback_mutations.py`` and
+  ``test_comment_permission.py``; not duplicated here.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -194,6 +245,39 @@ class CorpusAuthorizationInvariantsTestCase(TransactionTestCase):
         """Guardian UPDATE grant authorizes writes for non-creator non-superuser."""
         self.assertTrue(
             self.private_corpus.user_can(self.shared_editor, PermissionTypes.UPDATE)
+        )
+
+    def test_group_shared_read_equivalence(self):
+        """A user who can READ only via a group-level guardian grant is in
+        ``visible_to_user`` AND passes ``user_can(READ)``.
+
+        ``user_can`` resolves group permissions (``include_group_permissions``
+        defaults to True) and ``visible_to_user`` folds group grants into its
+        ``Q(...)`` predicate; this pins that the two surfaces agree for a
+        group-shared user — the one fixture slot the per-model matrices don't
+        otherwise exercise. Group membership flows through the shared
+        ``PermissionQuerySet`` group branch, so this Corpus pin is
+        representative for every other visibility-managed model.
+        """
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        group = Group.objects.create(name="corpus_invariant_group")
+        group_user = User.objects.create_user(
+            username="group_reader", email="groupr@invariant.test", password="x"
+        )
+        group_user.groups.add(group)
+        assign_perm("read_corpus", group, self.private_corpus)
+
+        self._assert_read_equivalence(group_user, self.private_corpus)
+        self.assertTrue(
+            self.private_corpus.user_can(group_user, PermissionTypes.READ),
+            "group-granted READ should authorize user_can(READ)",
+        )
+        # Group READ must not bleed into writes.
+        self.assertFalse(
+            self.private_corpus.user_can(group_user, PermissionTypes.UPDATE),
+            "group READ grant silently widened to UPDATE — leak!",
         )
 
     def test_stranger_denied_all_on_private(self):
@@ -699,6 +783,60 @@ class DocumentAuthorizationInvariantsTestCase(
         for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
             self.assertFalse(self.public_doc.user_can(self.stranger, perm))
 
+    def test_group_shared_known_drift_user_can_vs_visible_to_user(self):
+        """KNOWN DRIFT (discovered by the Phase F audit, issue #1660).
+
+        ``DocumentManager.user_can`` honours group object-permissions
+        (``_default_user_can`` resolves perms with
+        ``include_group_permissions=True``), but ``DocumentQuerySet.visible_to_user``
+        in ``opencontractserver/shared/QuerySets.py`` only consults the
+        *user* object-permission table — it never joins
+        ``documentgroupobjectpermission``. So a user whose only READ grant
+        is via a group passes ``user_can(READ)`` yet is excluded from
+        ``visible_to_user``.
+
+        ``Corpus`` does NOT have this gap (``CorpusAuthorizationInvariantsTestCase
+        .test_group_shared_read_equivalence`` passes), which is why this is a
+        genuine per-model drift rather than intended policy.
+
+        This test pins the *current* behaviour so the drift cannot change
+        silently in either direction: closing it (teaching ``visible_to_user``
+        about group perms) will correctly fail this test and force whoever
+        fixes it to convert this into a real equivalence assertion. Fixing
+        the drift is a query-path behaviour change out of scope for the
+        Phase F test/docs sweep.
+        """
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        from opencontractserver.documents.models import Document
+
+        group = Group.objects.create(name="doc_invariant_group")
+        group_user = User.objects.create_user(
+            username="doc_group_reader", email="dgr@inv.test", password="x"
+        )
+        group_user.groups.add(group)
+        assign_perm("read_document", group, self.private_doc)
+
+        check = self.private_doc.user_can(group_user, PermissionTypes.READ)
+        in_filter = (
+            Document.objects.visible_to_user(group_user)
+            .filter(pk=self.private_doc.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group-level READ grant")
+        self.assertFalse(
+            in_filter,
+            "visible_to_user unexpectedly honours group perms — the drift this "
+            "test pins has been fixed; convert this into an equivalence "
+            "assertion and update the Phase F audit comment.",
+        )
+        # Group READ must not bleed into writes, regardless of the drift.
+        self.assertFalse(
+            self.private_doc.user_can(group_user, PermissionTypes.UPDATE),
+            "group READ grant silently widened to UPDATE — leak!",
+        )
+
 
 class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TransactionTestCase):
     """Pin filter/check equivalence for ``Note`` (MIN of doc+corpus)."""
@@ -760,6 +898,33 @@ class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TransactionTe
         self.assertFalse(
             self.private_note.user_can(self.shared_reader, PermissionTypes.READ)
         )
+
+    def test_is_public_does_not_grant_writes(self):
+        """SECURITY: ``is_public=True`` grants a non-creator READ but never
+        UPDATE/DELETE — the write asymmetry must hold for Note."""
+        from opencontractserver.annotations.models import Note
+        from opencontractserver.documents.models import Document
+
+        public_corpus = Corpus.objects.create(
+            title="Public Note Corpus", creator=self.creator, is_public=True
+        )
+        public_doc = Document.objects.create(
+            title="Public Note Doc", creator=self.creator, is_public=True
+        )
+        public_note = Note.objects.create(
+            title="Public Note",
+            content="x",
+            creator=self.creator,
+            document=public_doc,
+            corpus=public_corpus,
+            is_public=True,
+        )
+        self.assertTrue(public_note.user_can(self.stranger, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                public_note.user_can(self.stranger, perm),
+                f"stranger gained {perm} on public note via is_public — leak!",
+            )
 
 
 class RelationshipAuthorizationInvariantsTestCase(
@@ -1000,6 +1165,33 @@ class AnnotationAuthorizationInvariantsTestCase(
             created_by_analysis=self.analysis,
         )
 
+        # An Extract owned by the creator. Including a ``created_by_extract``
+        # annotation in the matrix pins the extract privacy-recursion branch
+        # of ``AnnotationManager.user_can`` against the equivalence invariant
+        # inside this class (the focused branch tests live in
+        # ``test_authorization_invariants_coverage.py``).
+        from opencontractserver.extracts.models import Extract, Fieldset
+
+        self.fieldset = Fieldset.objects.create(
+            name="Invariant Fieldset", creator=self.creator
+        )
+        self.extract = Extract.objects.create(
+            name="Invariant Extract",
+            corpus=self.corpus,
+            fieldset=self.fieldset,
+            creator=self.creator,
+        )
+        self.private_via_extract = Annotation.objects.create(
+            raw_text="via_extract",
+            json={"x": 5},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            created_by_extract=self.extract,
+        )
+
         self._matrix_users = [
             self.creator,
             self.shared_reader,
@@ -1012,6 +1204,7 @@ class AnnotationAuthorizationInvariantsTestCase(
             self.private_ann,
             self.structural_ann,
             self.private_via_analysis,
+            self.private_via_extract,
         ]
 
     def test_structural_annotations_are_read_only_for_non_superuser(self):
@@ -1050,6 +1243,35 @@ class AnnotationAuthorizationInvariantsTestCase(
         self.assertFalse(
             self.private_via_analysis.user_can(self.shared_reader, PermissionTypes.READ)
         )
+
+    def test_is_public_does_not_grant_writes(self):
+        """SECURITY: ``is_public=True`` grants a non-creator READ but never
+        UPDATE/DELETE — the write asymmetry must hold for Annotation."""
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import Document
+
+        public_corpus = Corpus.objects.create(
+            title="Public Ann Corpus", creator=self.creator, is_public=True
+        )
+        public_doc = Document.objects.create(
+            title="Public Ann Doc", creator=self.creator, is_public=True
+        )
+        public_ann = Annotation.objects.create(
+            raw_text="public_write_asymmetry",
+            json={"x": 9},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=public_doc,
+            corpus=public_corpus,
+            is_public=True,
+        )
+        self.assertTrue(public_ann.user_can(self.stranger, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                public_ann.user_can(self.stranger, perm),
+                f"stranger gained {perm} on public annotation via is_public — leak!",
+            )
 
 
 class ConversationAuthorizationInvariantsTestCase(
@@ -1136,6 +1358,29 @@ class ConversationAuthorizationInvariantsTestCase(
             self.private_chat.user_can(AnonymousUser(), PermissionTypes.READ)
         )
 
+    def test_is_public_does_not_grant_writes(self):
+        """SECURITY: ``is_public=True`` grants a non-creator READ but never
+        UPDATE/DELETE — the write asymmetry must hold for Conversation."""
+        from opencontractserver.conversations.models import (
+            Conversation,
+            ConversationTypeChoices,
+        )
+
+        public_thread = Conversation.objects.create(
+            title="Public Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.creator,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=True,
+        )
+        self.assertTrue(public_thread.user_can(self.stranger, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                public_thread.user_can(self.stranger, perm),
+                f"stranger gained {perm} on public conversation via is_public "
+                f"— leak!",
+            )
+
 
 class ChatMessageAuthorizationInvariantsTestCase(
     _UserCanInvariantsMixin, TransactionTestCase
@@ -1206,6 +1451,43 @@ class ChatMessageAuthorizationInvariantsTestCase(
         """Corpus owner can READ messages in threads on their corpus
         (moderator branch), even if they didn't create the thread."""
         self.assertTrue(self.msg.user_can(self.corpus_owner, PermissionTypes.READ))
+
+    def test_chat_message_does_not_inherit_corpus_context(self):
+        """CHAT/THREAD bifurcation at the message layer: a message in a CHAT
+        is NOT visible to a corpus reader, even though the same reader sees
+        messages in a THREAD on that corpus.
+
+        ``thread_creator`` holds corpus READ. They see ``self.msg`` (a THREAD
+        message) but must NOT see a message in a CHAT created by the corpus
+        owner — CHAT conversations are restrictive and do not inherit corpus
+        context."""
+        from opencontractserver.conversations.models import (
+            ChatMessage,
+            Conversation,
+            ConversationTypeChoices,
+        )
+
+        chat = Conversation.objects.create(
+            title="Owner CHAT",
+            chat_with_corpus=self.corpus,
+            creator=self.corpus_owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+            is_public=False,
+        )
+        chat_msg = ChatMessage.objects.create(
+            conversation=chat,
+            creator=self.corpus_owner,
+            content="private chat",
+            msg_type="HUMAN",
+        )
+        # Sanity: the corpus reader DOES see the THREAD message.
+        self.assertTrue(self.msg.user_can(self.thread_creator, PermissionTypes.READ))
+        # Bifurcation: but NOT the CHAT message.
+        self.assertFalse(
+            chat_msg.user_can(self.thread_creator, PermissionTypes.READ),
+            "corpus reader saw a CHAT message — CHAT must not inherit corpus "
+            "context",
+        )
 
 
 class UserFeedbackAuthorizationInvariantsTestCase(
@@ -1307,6 +1589,23 @@ class UserFeedbackAuthorizationInvariantsTestCase(
                 self.fb_on_public.user_can(self.stranger, perm),
                 f"stranger gained {perm} on private feedback via inherited "
                 f"annotation visibility — leak!",
+            )
+
+    def test_is_public_does_not_grant_writes(self):
+        """SECURITY: ``is_public=True`` grants a non-creator READ but never
+        UPDATE/DELETE — the write asymmetry must hold for UserFeedback."""
+        from opencontractserver.feedback.models import UserFeedback
+
+        public_fb = UserFeedback.objects.create(
+            creator=self.creator,
+            is_public=True,
+            comment="public feedback",
+        )
+        self.assertTrue(public_fb.user_can(self.stranger, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                public_fb.user_can(self.stranger, perm),
+                f"stranger gained {perm} on public feedback via is_public — leak!",
             )
 
 
