@@ -75,7 +75,7 @@ const Header = styled.div`
   gap: 0.5rem;
   min-width: 0;
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     padding: 0.75rem 1rem;
     flex-direction: column;
     gap: 0.5rem;
@@ -90,7 +90,7 @@ const HeaderLeft = styled.div`
   min-width: 0;
   width: 100%;
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     gap: 0.5rem;
   }
 `;
@@ -195,10 +195,6 @@ const TitleRow = styled.div`
   min-width: 0;
   flex-wrap: wrap;
   row-gap: 0.375rem;
-
-  @media (max-width: 768px) {
-    gap: 0.375rem 0.5rem;
-  }
 `;
 
 const Title = styled.h1`
@@ -212,7 +208,7 @@ const Title = styled.h1`
   text-overflow: ellipsis;
   min-width: 0;
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     flex-basis: 100%;
     font-size: 1.0625rem;
     line-height: 1.3;
@@ -233,7 +229,7 @@ const Description = styled.span`
   min-width: 0;
   flex: 1;
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     flex: 1 1 100%;
     min-width: 0;
     white-space: normal;
@@ -283,7 +279,7 @@ const ContentArea = styled.div`
   overflow: auto;
   padding: 16px 24px;
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     padding: 12px 16px;
   }
 `;
@@ -308,7 +304,7 @@ const ReplyComposerArea = styled.div`
   background: ${CORPUS_COLORS.white};
   border-top: 1px solid ${CORPUS_COLORS.slate[200]};
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     padding: 0.5rem 1rem 0.75rem;
   }
 `;
