@@ -109,8 +109,19 @@ class CreateThreadMutation(graphene.Mutation):
             # Resolve corpus / document if provided. Both go through
             # ``get_for_user_or_none`` so missing pk and inaccessible pk
             # converge on the same response per the Phase D IDOR contract.
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope rather
+            # than the generic "Failed to create thread" outer handler.
             if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
+                try:
+                    corpus_pk = from_global_id(corpus_id)[1]
+                except Exception:
+                    return CreateThreadMutation(
+                        ok=False,
+                        message="You do not have permission to create threads in this corpus",
+                        obj=None,
+                    )
                 corpus = get_for_user_or_none(Corpus, corpus_pk, user)
                 if corpus is None:
                     return CreateThreadMutation(
@@ -120,7 +131,14 @@ class CreateThreadMutation(graphene.Mutation):
                     )
 
             if document_id:
-                document_pk = from_global_id(document_id)[1]
+                try:
+                    document_pk = from_global_id(document_id)[1]
+                except Exception:
+                    return CreateThreadMutation(
+                        ok=False,
+                        message="You do not have permission to create threads for this document",
+                        obj=None,
+                    )
                 document = get_for_user_or_none(Document, document_pk, user)
                 if document is None:
                     return CreateThreadMutation(
@@ -210,7 +228,17 @@ class CreateThreadMessageMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            conversation_pk = from_global_id(conversation_id)[1]
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
+            try:
+                conversation_pk = from_global_id(conversation_id)[1]
+            except Exception:
+                return CreateThreadMessageMutation(
+                    ok=False,
+                    message="Cannot post in this thread",
+                    obj=None,
+                )
             conversation = get_for_user_or_none(Conversation, conversation_pk, user)
             if conversation is None:
                 return CreateThreadMessageMutation(
@@ -298,7 +326,17 @@ class ReplyToMessageMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            parent_pk = from_global_id(parent_message_id)[1]
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
+            try:
+                parent_pk = from_global_id(parent_message_id)[1]
+            except Exception:
+                return ReplyToMessageMutation(
+                    ok=False,
+                    message="You do not have permission to reply to this message",
+                    obj=None,
+                )
 
             parent_message = get_for_user_or_none(ChatMessage, parent_pk, user)
             if parent_message is None:
@@ -399,7 +437,16 @@ class DeleteConversationMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            conversation_pk = from_global_id(conversation_id)[1]
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
+            try:
+                conversation_pk = from_global_id(conversation_id)[1]
+            except Exception:
+                return DeleteConversationMutation(
+                    ok=False,
+                    message="You do not have permission to delete this conversation",
+                )
 
             conversation = get_for_user_or_none(Conversation, conversation_pk, user)
             if conversation is None:
@@ -643,7 +690,16 @@ class DeleteMessageMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            message_pk = from_global_id(message_id)[1]
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
+            try:
+                message_pk = from_global_id(message_id)[1]
+            except Exception:
+                return DeleteMessageMutation(
+                    ok=False,
+                    message="You do not have permission to delete this message",
+                )
 
             chat_message = get_for_user_or_none(ChatMessage, message_pk, user)
             if chat_message is None:

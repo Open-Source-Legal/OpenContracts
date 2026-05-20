@@ -2,6 +2,7 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { CorpusesTestWrapper } from "./CorpusesTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 import { openedCorpus } from "../src/graphql/cache";
 import {
   GET_CORPUSES,
@@ -277,4 +278,6 @@ test("sidebar expands and tab navigation works", async ({ mount, page }) => {
   await expect(
     page.getByPlaceholder("Search for annotated text in corpus...")
   ).toBeVisible();
+
+  await docScreenshot(page, "corpus--workspace-view--annotations-tab");
 });

@@ -89,6 +89,11 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
             # corpus doesn't exist or the caller lacks CRUD permission on it.
             corpus = None
             if corpus_id:
+                # ``from_global_id`` can raise a bare ``Exception`` (via
+                # ``binascii.Error``) on malformed base64 input. The
+                # malformed-id and the not-found / no-permission branches
+                # return the *same* string so a caller can't distinguish a
+                # bad id from a genuinely missing/inaccessible corpus.
                 try:
                     corpus_pk = from_global_id(corpus_id)[1]
                 except Exception:
@@ -208,7 +213,18 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            agent_pk = from_global_id(agent_id)[1]
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope rather
+            # than the generic "Failed to update" outer-handler message.
+            try:
+                agent_pk = from_global_id(agent_id)[1]
+            except Exception:
+                return UpdateAgentConfigurationMutation(
+                    ok=False,
+                    message="Agent configuration not found",
+                    agent=None,
+                )
             agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
             if agent is None or not agent.user_can(
                 user, PermissionTypes.CRUD, request=info.context
@@ -274,7 +290,17 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            agent_pk = from_global_id(agent_id)[1]
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope rather
+            # than the generic "Failed to delete" outer-handler message.
+            try:
+                agent_pk = from_global_id(agent_id)[1]
+            except Exception:
+                return DeleteAgentConfigurationMutation(
+                    ok=False,
+                    message="Agent configuration not found",
+                )
             agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
             if agent is None or not agent.user_can(
                 user, PermissionTypes.CRUD, request=info.context

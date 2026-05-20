@@ -418,14 +418,21 @@ class AddDocumentsToCorpus(graphene.Mutation):
         not_found_msg = (
             "Corpus not found or you do not have permission to add documents to it"
         )
-        # Decode global ids up-front so a malformed id surfaces as the unified
-        # not-found envelope rather than echoing raw exception text through the
-        # outer ``except Exception`` (IDOR review on PR #1693).
+        # Decode global ids up-front so a malformed id surfaces as a clean
+        # envelope rather than echoing raw exception text through the outer
+        # ``except Exception`` (IDOR review on PR #1693). The corpus and the
+        # document ids are decoded separately so a malformed *document* id
+        # does not return a misleading corpus-scoped message.
         try:
             corpus_pk = from_global_id(corpus_id)[1]
-            doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
         except Exception:
             return AddDocumentsToCorpus(message=not_found_msg, ok=False)
+        try:
+            doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
+        except Exception:
+            return AddDocumentsToCorpus(
+                message="One or more document ids are invalid", ok=False
+            )
         try:
             user = info.context.user
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
@@ -487,16 +494,23 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
         not_found_msg = (
             "Corpus not found or you do not have permission to remove documents from it"
         )
-        # Decode global ids up-front so a malformed id surfaces as the unified
-        # not-found envelope rather than echoing raw exception text through the
-        # outer ``except Exception`` (IDOR review on PR #1693).
+        # Decode global ids up-front so a malformed id surfaces as a clean
+        # envelope rather than echoing raw exception text through the outer
+        # ``except Exception`` (IDOR review on PR #1693). The corpus and the
+        # document ids are decoded separately so a malformed *document* id
+        # does not return a misleading corpus-scoped message.
         try:
             corpus_pk = from_global_id(corpus_id)[1]
+        except Exception:
+            return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
+        try:
             doc_pks = [
                 int(from_global_id(doc_id)[1]) for doc_id in document_ids_to_remove
             ]
         except Exception:
-            return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
+            return RemoveDocumentsFromCorpus(
+                message="One or more document ids are invalid", ok=False
+            )
         try:
             user = info.context.user
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
