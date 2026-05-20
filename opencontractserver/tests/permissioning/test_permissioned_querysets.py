@@ -7,7 +7,7 @@ from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
-from opencontractserver.annotations.models import Annotation
+from opencontractserver.annotations.models import Annotation, AnnotationLabel, Note
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
@@ -1040,3 +1040,199 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         perms = set(result["data"]["corpus"]["myPermissions"])
         self.assertIn("read_corpus", perms)
         self.assertIn("update_corpus", perms)
+
+
+class GroupObjectPermissionVisibilityTest(TestCase):
+    """Regression coverage for issue #1714 — ``QuerySet.visible_to_user``
+    must honour *group* object-permissions, not just *user* ones.
+
+    ``Manager.user_can`` resolves group grants: ``_default_user_can``
+    runs with ``include_group_permissions=True``. Before the fix, the
+    ``PermissionQuerySet`` / ``DocumentQuerySet`` / ``AnnotationQuerySet``
+    bodies in ``shared/QuerySets.py`` only joined the *user*
+    object-permission table, so a user whose sole READ grant was via a
+    group passed ``user_can(READ)`` yet was excluded from
+    ``visible_to_user`` — a filter/check drift. ``Note`` drifted
+    transitively (it composes ``Document.objects.visible_to_user``).
+
+    These tests pin the filter/check equivalence for a group-shared
+    user across Document, Annotation, Note, and the generic
+    ``PermissionQuerySet`` fallback body.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        self.owner = User.objects.create_user(username="grp_owner", password="x")
+        # ``group_user``'s ONLY path to the objects below is group
+        # membership — no creator status, no direct user grant, nothing
+        # public. This isolates the group-permission code path.
+        self.group_user = User.objects.create_user(username="grp_member", password="x")
+        self.stranger = User.objects.create_user(username="grp_stranger", password="x")
+
+        self.group = Group.objects.create(name="visibility_test_group")
+        self.group_user.groups.add(self.group)
+
+        # Private doc + corpus, each READ-shared with the group ONLY.
+        self.group_doc = Document.objects.create(
+            title="Group-Shared Doc", creator=self.owner, is_public=False
+        )
+        self.group_corpus = Corpus.objects.create(
+            title="Group-Shared Corpus", creator=self.owner, is_public=False
+        )
+        assign_perm("read_document", self.group, self.group_doc)
+        assign_perm("read_corpus", self.group, self.group_corpus)
+
+        # Control: a private doc not shared with the group at all.
+        self.unshared_doc = Document.objects.create(
+            title="Unshared Doc", creator=self.owner, is_public=False
+        )
+
+        self.label = AnnotationLabel.objects.create(
+            text="grp_label", label_type="TOKEN_LABEL", creator=self.owner
+        )
+        # Plain annotation (non-structural, no analysis/extract privacy
+        # fields) on the group-shared doc + corpus.
+        self.group_annotation = Annotation.objects.create(
+            raw_text="group ann",
+            json={"x": 1},
+            page=1,
+            annotation_label=self.label,
+            creator=self.owner,
+            document=self.group_doc,
+            corpus=self.group_corpus,
+        )
+        self.group_note = Note.objects.create(
+            title="Group Note",
+            content="x",
+            creator=self.owner,
+            document=self.group_doc,
+            corpus=self.group_corpus,
+            is_public=False,
+        )
+
+    def test_document_group_grant_appears_in_visible_to_user(self):
+        """A document READ-granted to the user's group is included in
+        ``Document.objects.visible_to_user`` (issue #1714)."""
+        visible_ids = set(
+            Document.objects.visible_to_user(self.group_user).values_list(
+                "pk", flat=True
+            )
+        )
+        self.assertIn(self.group_doc.pk, visible_ids)
+        # Control: a doc not shared with the group stays hidden.
+        self.assertNotIn(self.unshared_doc.pk, visible_ids)
+
+    def test_document_group_filter_check_equivalence(self):
+        """``user_can(READ)`` and ``visible_to_user(...).exists()`` agree
+        for a group-shared user — the invariant the drift broke."""
+        check = self.group_doc.user_can(self.group_user, PermissionTypes.READ)
+        in_filter = (
+            Document.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_doc.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group-level READ grant")
+        self.assertTrue(in_filter, "visible_to_user must honour the group grant")
+        self.assertEqual(check, in_filter)
+
+    def test_group_read_grant_does_not_widen_to_writes(self):
+        """SECURITY: a group READ grant authorizes READ but never
+        UPDATE/DELETE — the read/write asymmetry must hold."""
+        self.assertTrue(self.group_doc.user_can(self.group_user, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                self.group_doc.user_can(self.group_user, perm),
+                f"group READ grant silently widened to {perm} — leak!",
+            )
+
+    def test_permission_queryset_generic_body_honors_group_perms(self):
+        """The generic ``PermissionQuerySet.visible_to_user`` fallback
+        body (used by direct ``PermissionManager`` consumers) also
+        consults the ``*groupobjectpermission`` table."""
+        from opencontractserver.shared.QuerySets import PermissionQuerySet
+
+        qs = PermissionQuerySet(model=Document, using=connection.alias)
+        visible_ids = set(
+            qs.visible_to_user(self.group_user).values_list("pk", flat=True)
+        )
+        self.assertIn(self.group_doc.pk, visible_ids)
+        self.assertNotIn(self.unshared_doc.pk, visible_ids)
+
+    def test_annotation_group_grant_filter_check_equivalence(self):
+        """An annotation whose parent doc + corpus are READ-granted to
+        the user's group is in ``Annotation.objects.visible_to_user``
+        and passes ``user_can(READ)`` (issue #1714)."""
+        check = Annotation.objects.user_can(
+            self.group_user, self.group_annotation, PermissionTypes.READ
+        )
+        in_filter = (
+            Annotation.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_annotation.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group grant on doc + corpus")
+        self.assertTrue(in_filter, "visible_to_user must honour the group grant")
+        self.assertEqual(check, in_filter)
+
+    def test_note_group_grant_filter_check_equivalence(self):
+        """A note inherits visibility from its parent doc + corpus; a
+        group READ grant on both makes it visible and keeps
+        ``user_can`` / ``visible_to_user`` aligned (issue #1714)."""
+        check = Note.objects.user_can(
+            self.group_user, self.group_note, PermissionTypes.READ
+        )
+        in_filter = (
+            Note.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_note.pk)
+            .exists()
+        )
+        self.assertTrue(check)
+        self.assertTrue(in_filter)
+        self.assertEqual(check, in_filter)
+
+    def test_stranger_without_group_membership_stays_excluded(self):
+        """A user who is NOT in the group sees none of the group-shared
+        objects — the fix must not widen visibility beyond members."""
+        for model, instance in (
+            (Document, self.group_doc),
+            (Annotation, self.group_annotation),
+            (Note, self.group_note),
+        ):
+            in_filter = (
+                model.objects.visible_to_user(self.stranger)
+                .filter(pk=instance.pk)
+                .exists()
+            )
+            self.assertFalse(
+                in_filter,
+                f"non-member saw {model.__name__} pk={instance.pk} — leak!",
+            )
+            self.assertFalse(
+                model.objects.user_can(self.stranger, instance, PermissionTypes.READ)
+            )
+
+    def test_group_lookup_uses_subquery_not_per_group_round_trips(self):
+        """PERFORMANCE: group grants resolve via a SQL subquery, so the
+        query count to materialize ``visible_to_user`` is independent of
+        how many groups the user belongs to (issue #1714 perf check)."""
+        from django.contrib.auth.models import Group
+
+        # A second user in five groups (incl. the shared one) — the
+        # extra groups must not each cost a round-trip.
+        many_group_user = User.objects.create_user(username="grp_many", password="x")
+        many_group_user.groups.add(self.group)
+        for i in range(4):
+            many_group_user.groups.add(Group.objects.create(name=f"perf_grp_{i}"))
+
+        with CaptureQueriesContext(connection) as one_group_ctx:
+            list(Document.objects.visible_to_user(self.group_user, lightweight=True))
+        with CaptureQueriesContext(connection) as many_group_ctx:
+            list(Document.objects.visible_to_user(many_group_user, lightweight=True))
+
+        self.assertEqual(
+            len(many_group_ctx.captured_queries),
+            len(one_group_ctx.captured_queries),
+            "group-permission resolution must not add a round-trip per group",
+        )
