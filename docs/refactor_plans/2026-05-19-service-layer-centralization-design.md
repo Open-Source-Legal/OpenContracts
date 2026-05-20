@@ -250,14 +250,16 @@ exactly — this is a relocation + encapsulation, not a rewrite.
 ## 6. Phased Roadmap
 
 Mirrors the existing Phase A–F naming style. Each phase is independently
-shippable, independently tested, and leaves the tree green.
+shippable, independently tested, and leaves the tree green. Tracking
+issues: Phase 1 #1715, Phase 2 #1716, Phase 3 #1717, Phase 4 #1718,
+Phase 5 #1719, Phase 6 #1720.
 
-**Phase 1 — Foundation.** Create `shared/services/` with `BaseService`,
+**Phase 1 — Foundation (#1715).** Create `shared/services/` with `BaseService`,
 `conventions.py`, and `get_for_user_or_none`. No behavior change; no
 callers migrated yet. Unit-test the base machinery directly. *Smallest
 phase; unblocks everything else.*
 
-**Phase 2 — Split the `CorpusObjsService` monolith.** Convert
+**Phase 2 — Split the `CorpusObjsService` monolith (#1716).** Convert
 `corpuses/corpus_objs_service.py` into the `corpuses/services/` package
 (`folders`, `corpus_documents`, `lifecycle`, `paths`), each module
 inheriting `BaseService`. Add `corpus_service.py` for Corpus-row CRUD
@@ -267,7 +269,7 @@ delete it (No-dead-code rule). Existing tests in
 `test_corpus_objs_service.py` must pass unchanged against the new
 imports.
 
-**Phase 3 — Split the `annotations/query_optimizer.py` monolith and
+**Phase 3 (#1717) — Split the `annotations/query_optimizer.py` monolith and
 relocate misfiled optimizers.** Move `AnnotationQueryOptimizer` /
 `RelationshipQueryOptimizer` into `annotations/services/`; move
 `AnalysisQueryOptimizer` → `analyzer/services/`; move
@@ -277,19 +279,19 @@ expose `get_*`/`list_*` public methods. Update all GraphQL call sites
 (`extract_queries.py`, `extract_mutations.py`, `corpus_queries.py`,
 `extract_types.py`).
 
-**Phase 4 — Migrate remaining optimizers into service packages.**
+**Phase 4 — Migrate remaining optimizers into service packages (#1718).**
 `documents/query_optimizer.py`, `conversations`, `users`, `badges`.
 Standardize their request threading onto the `BaseService` convention
 (retires `get_request_optimizer`).
 
-**Phase 5 — Fill coverage gaps.** New service packages for `agents`,
+**Phase 5 — Fill coverage gaps (#1719).** New service packages for `agents`,
 `analyzer` (analysis lifecycle beyond the optimizer),
 `notifications` (note: simple ownership model — no
 `AnnotatePermissionsForReadMixin`), `feedback`, `worker_uploads`.
 Migrate their inline resolver/mutation permission logic onto the
 services.
 
-**Phase 6 — Resolver cleanup + enforcement.** Sweep the 31
+**Phase 6 — Resolver cleanup + enforcement (#1720).** Sweep the 31
 `config/graphql/` files: every resolver/mutation fetches through a
 service, not inline `visible_to_user`/`user_can`. Update CLAUDE.md
 (replace rule 7's paragraph with the simple "always go through the
