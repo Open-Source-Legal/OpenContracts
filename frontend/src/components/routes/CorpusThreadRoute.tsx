@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useReactiveVar } from "@apollo/client";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { mediaQuery } from "../corpuses/styles/corpusDesignTokens";
 import { ArrowLeft, Folder, ChevronRight } from "lucide-react";
 import {
   openedCorpus,
@@ -32,7 +33,7 @@ const NavBar = styled.div`
   background: ${OS_LEGAL_COLORS.surfaceHover};
   border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
 
-  @media (max-width: 768px) {
+  ${mediaQuery.tablet} {
     padding: 0.5rem 1rem;
     flex-wrap: wrap;
   }
@@ -89,6 +90,8 @@ const CorpusLink = styled(Link)`
   color: ${OS_LEGAL_COLORS.textTertiary};
   text-decoration: none;
   transition: all 0.15s;
+  min-width: 0;
+  max-width: 100%;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.border};
@@ -99,7 +102,22 @@ const CorpusLink = styled(Link)`
   svg {
     width: 12px;
     height: 12px;
+    flex-shrink: 0;
   }
+
+  ${mediaQuery.tablet} {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+`;
+
+const CorpusLinkLabel = styled.span`
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
 `;
 
 const ThreadLabel = styled.span`
@@ -192,7 +210,7 @@ export const CorpusThreadRoute: React.FC = () => {
               title={corpus.title}
             >
               <Folder />
-              {corpus.title}
+              <CorpusLinkLabel>{corpus.title}</CorpusLinkLabel>
             </CorpusLink>
             <NavSeparator>
               <ChevronRight />

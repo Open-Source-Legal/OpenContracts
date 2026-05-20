@@ -291,7 +291,7 @@ class BulkDocumentUploadTests(TestCase):
         self.assertGreater(new_doc_count, initial_doc_count)
 
         # Verify documents are associated with the corpus
-        corpus_docs = self.corpus.get_documents().count()
+        corpus_docs = self.corpus._get_active_documents().count()
         self.assertGreater(corpus_docs, 0)
 
         # Verify document titles and content

@@ -2,7 +2,7 @@
 Comprehensive tests for Issue #654: DocumentPath as single source of truth.
 
 This test file covers:
-1. New Corpus methods (add_document, remove_document, get_documents, document_count)
+1. New Corpus methods (add_document, remove_document, _get_active_documents, document_count)
 2. DocumentPathType request-level caching
 
 Note: Backward compatibility layer has been removed. All corpus-document
@@ -112,7 +112,7 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         self.assertTrue(deleted_paths[0].is_deleted)
 
         # Document should no longer be in corpus
-        self.assertEqual(self.corpus.get_documents().count(), 0)
+        self.assertEqual(self.corpus._get_active_documents().count(), 0)
 
     def test_remove_document_by_path(self):
         """Test removing document by path."""
@@ -143,8 +143,8 @@ class TestCorpusDocumentMethods(TransactionTestCase):
 
         self.assertIn("Either document or path must be provided", str(cm.exception))
 
-    def test_get_documents_returns_active_documents(self):
-        """Test that get_documents returns only active documents."""
+    def test_active_documents_returns_active_documents(self):
+        """Test that _get_active_documents returns only active documents."""
         # Add two documents
         doc2 = Document.objects.create(
             title="Document 2", creator=self.user, pdf_file_hash="hash2"
@@ -157,7 +157,7 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         doc2_added, _, _ = self.corpus.add_document(document=doc2, user=self.user)
 
         # Should have 2 documents (or more if there are leftovers)
-        docs_before = self.corpus.get_documents()
+        docs_before = self.corpus._get_active_documents()
         initial_count = docs_before.count()
         self.assertGreaterEqual(initial_count, 2)
 
@@ -166,7 +166,7 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         self.assertGreater(len(removed), 0, "Should have removed at least one path")
 
         # Should have one less document
-        docs_after = self.corpus.get_documents()
+        docs_after = self.corpus._get_active_documents()
         self.assertEqual(docs_after.count(), initial_count - 1)
 
     def test_document_count(self):
@@ -211,21 +211,21 @@ class TestCorpusDocumentMethods(TransactionTestCase):
 
         self.assertEqual(path.folder, folder)
 
-    def test_get_documents_excludes_deleted(self):
-        """Test that get_documents excludes soft-deleted documents."""
+    def test_active_documents_excludes_deleted(self):
+        """Test that _get_active_documents excludes soft-deleted documents."""
         # Add document
         doc, status, path = self.corpus.add_document(
             document=self.document, user=self.user
         )
 
         # Should be visible
-        self.assertIn(doc, self.corpus.get_documents())
+        self.assertIn(doc, self.corpus._get_active_documents())
 
         # Soft-delete via remove_document
         self.corpus.remove_document(document=doc, user=self.user)
 
         # Should not be visible
-        self.assertNotIn(doc, self.corpus.get_documents())
+        self.assertNotIn(doc, self.corpus._get_active_documents())
 
         # But DocumentPath should still exist (soft-deleted)
         deleted_path = DocumentPath.objects.filter(
@@ -233,8 +233,8 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         )
         self.assertTrue(deleted_path.exists())
 
-    def test_get_documents_filtering(self):
-        """Test that get_documents returns a filterable queryset."""
+    def test_active_documents_filtering(self):
+        """Test that _get_active_documents returns a filterable queryset."""
         # Add multiple documents
         doc2 = Document.objects.create(
             title="Another Document", creator=self.user, pdf_file_hash="hash2"
@@ -245,11 +245,11 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         self.corpus.add_document(document=doc2, user=self.user)
 
         # Filter by title
-        filtered = self.corpus.get_documents().filter(title="Test Document")
+        filtered = self.corpus._get_active_documents().filter(title="Test Document")
         self.assertEqual(filtered.count(), 1)
 
         # Exclude by title
-        excluded = self.corpus.get_documents().exclude(title="Test Document")
+        excluded = self.corpus._get_active_documents().exclude(title="Test Document")
         self.assertEqual(excluded.count(), 1)
 
     def test_corpus_isolation_with_provenance(self):
@@ -300,7 +300,7 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         self.assertEqual(path2.path, "/path/two.pdf")
 
         # Both documents appear in get_documents()
-        docs = list(self.corpus.get_documents())
+        docs = list(self.corpus._get_active_documents())
         self.assertEqual(len(docs), 2)
         doc_ids = {d.id for d in docs}
         self.assertEqual(doc_ids, {doc1.id, doc2.id})
@@ -366,7 +366,7 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         self.assertTrue(path2.is_current)
 
         # get_documents should return only doc2_ret at that path
-        docs = list(self.corpus.get_documents())
+        docs = list(self.corpus._get_active_documents())
         self.assertEqual(len(docs), 1)
         self.assertEqual(docs[0].id, doc2_ret.id)  # The corpus-isolated copy
 
