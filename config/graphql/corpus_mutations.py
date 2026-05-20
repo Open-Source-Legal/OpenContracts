@@ -10,7 +10,6 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, IntegrityError, transaction
 from django.utils import timezone
-from graphql import GraphQLError
 from graphql_jwt.decorators import login_required, user_passes_test
 from graphql_relay import from_global_id, to_global_id
 
@@ -281,6 +280,10 @@ class UpdateCorpusDescription(graphene.Mutation):
                 "Corpus not found or you do not have permission to update it."
             )
 
+            # Creator-only by design: even collaborators with a guardian
+            # UPDATE grant cannot edit the description (kept distinct from
+            # general UPDATE so description history stays attributable to a
+            # single author).  Anyone else gets the unified IDOR-safe message.
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
             if corpus is None or corpus.creator != user:
                 return UpdateCorpusDescription(
@@ -350,12 +353,17 @@ class DeleteCorpusMutation(graphene.Mutation):
 
         # ``is_personal`` is observable to anyone who can READ the corpus
         # (it's exposed on ``CorpusType``), so this branch does not leak
-        # existence — it stays a distinct error message.
+        # existence — it stays a distinct error message.  Returned via the
+        # unified ``ok=False`` envelope rather than ``GraphQLError`` so the
+        # frontend can always pattern-match on ``data.deleteCorpus.ok``.
         if obj.is_personal:
-            raise GraphQLError(
-                "Cannot delete your personal 'My Documents' corpus. "
-                "This corpus is automatically managed and stores your "
-                "uploaded documents."
+            return cls(
+                ok=False,
+                message=(
+                    "Cannot delete your personal 'My Documents' corpus. "
+                    "This corpus is automatically managed and stores your "
+                    "uploaded documents."
+                ),
             )
 
         # User-lock check mirrors ``DRFDeletion``: lock holder (or
@@ -555,7 +563,9 @@ class StartCorpusFork(graphene.Mutation):
             corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
             if corpus is None:
                 return StartCorpusFork(
-                    ok=False, message="Corpus not found", new_corpus=None
+                    ok=False,
+                    message="Corpus not found or you don't have permission to fork it.",
+                    new_corpus=None,
                 )
 
             # Collect all object IDs using the shared collector

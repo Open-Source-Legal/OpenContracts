@@ -88,3 +88,14 @@ class GetForUserOrNoneTestCase(TestCase):
 
     def test_none_pk_returns_none(self):
         self.assertIsNone(get_for_user_or_none(Corpus, None, self.owner))
+
+    def test_raises_on_model_without_visibility_manager(self):
+        """Fail-loud guardrail: applying the helper to a model whose default
+        manager lacks ``visible_to_user`` (i.e. a non-permissioned model) is a
+        developer error and must surface as ``TypeError`` rather than
+        silently bypassing IDOR protection.
+        """
+        from django.contrib.auth.models import Permission
+
+        with self.assertRaises(TypeError):
+            get_for_user_or_none(Permission, 1, self.owner)

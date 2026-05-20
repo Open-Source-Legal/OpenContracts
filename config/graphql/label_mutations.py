@@ -246,22 +246,46 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
         obj = None
         obj_id = None
 
-        try:
-            # Permission check runs before validation so a non-owner cannot
-            # distinguish "reached validation" from "denied" via different
-            # error messages (IDOR mitigation — see
-            # docs/permissioning/consolidated_permissioning_guide.md).
-            # Phase D rule (#1658): READ is a precondition for UPDATE — the
-            # helper enforces it; the explicit ``labelset.user_can`` below
-            # adds the UPDATE check on top. Both DoesNotExist paths share
-            # one ``except`` handler so the response is unified.
-            labelset_pk = from_global_id(labelset_id)[1]
-            labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
-            if labelset is None or not labelset.user_can(
-                info.context.user, PermissionTypes.UPDATE, request=info.context
-            ):
-                raise LabelSet.DoesNotExist()
+        # Unified IDOR-safe message: missing pk, malformed pk, no READ, and
+        # no UPDATE all collapse to a single response so the caller cannot
+        # enumerate which labelsets exist.
+        not_found_msg = (
+            "Failed to create label for labelset due to error: "
+            "LabelSet matching query does not exist."
+        )
 
+        try:
+            labelset_pk = from_global_id(labelset_id)[1]
+        except Exception:
+            logger.warning(
+                "CreateLabelForLabelsetMutation: malformed labelset_id=%s",
+                labelset_id,
+            )
+            return CreateLabelForLabelsetMutation(
+                obj=None, obj_id=None, message=not_found_msg, ok=False
+            )
+
+        # Permission check runs before validation so a non-owner cannot
+        # distinguish "reached validation" from "denied" via different
+        # error messages (IDOR mitigation — see
+        # docs/permissioning/consolidated_permissioning_guide.md).
+        # Phase D rule (#1658): READ is a precondition for UPDATE — the
+        # helper enforces it; the explicit ``labelset.user_can`` below
+        # adds the UPDATE check on top.
+        labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
+        if labelset is None or not labelset.user_can(
+            info.context.user, PermissionTypes.UPDATE, request=info.context
+        ):
+            logger.warning(
+                "CreateLabelForLabelsetMutation: labelset not found or "
+                "permission denied (labelset_id=%s)",
+                labelset_id,
+            )
+            return CreateLabelForLabelsetMutation(
+                obj=None, obj_id=None, message=not_found_msg, ok=False
+            )
+
+        try:
             # Reject blank text explicitly: Django's ``blank=False`` is
             # form-only and ``objects.create()`` would silently apply the
             # "Text Label" model default.
@@ -317,17 +341,6 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             message = "SUCCESS"
             logger.debug("Done")
 
-        except LabelSet.DoesNotExist:
-            # Auth rejection or genuine 404 — warn without stack trace.
-            logger.warning(
-                "CreateLabelForLabelsetMutation: labelset not found or "
-                "permission denied (labelset_id=%s)",
-                labelset_id,
-            )
-            message = (
-                "Failed to create label for labelset due to error: "
-                "LabelSet matching query does not exist."
-            )
         except Exception as e:
             logger.exception("CreateLabelForLabelsetMutation failed")
             message = f"Failed to create label for labelset due to error: {e}"
@@ -358,31 +371,41 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
 
         ok = False
 
-        try:
-            user = info.context.user
-            label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
-            # Phase D rule (#1658): READ is a precondition for UPDATE.
-            labelset_pk = from_global_id(labelset_id)[1]
-            labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
-            if labelset is None or not labelset.user_can(
-                user, PermissionTypes.UPDATE, request=info.context
-            ):
-                raise LabelSet.DoesNotExist()
-            labelset.annotation_labels.remove(*label_pks)
-            ok = True
-            message = "Success"
+        # Unified IDOR-safe message — see CreateLabelForLabelsetMutation.
+        not_found_msg = (
+            "Error removing label(s) from labelset: "
+            "LabelSet matching query does not exist."
+        )
 
-        except LabelSet.DoesNotExist:
-            # Auth rejection or genuine 404 — warn without stack trace.
+        try:
+            labelset_pk = from_global_id(labelset_id)[1]
+            label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
+        except Exception:
+            logger.warning(
+                "RemoveLabelsFromLabelsetMutation: malformed id "
+                "(labelset_id=%s, label_ids=%r)",
+                labelset_id,
+                label_ids,
+            )
+            return RemoveLabelsFromLabelsetMutation(message=not_found_msg, ok=False)
+
+        user = info.context.user
+        # Phase D rule (#1658): READ is a precondition for UPDATE.
+        labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
+        if labelset is None or not labelset.user_can(
+            user, PermissionTypes.UPDATE, request=info.context
+        ):
             logger.warning(
                 "RemoveLabelsFromLabelsetMutation: labelset not found or "
                 "permission denied (labelset_id=%s)",
                 labelset_id,
             )
-            message = (
-                "Error removing label(s) from labelset: "
-                "LabelSet matching query does not exist."
-            )
+            return RemoveLabelsFromLabelsetMutation(message=not_found_msg, ok=False)
+
+        try:
+            labelset.annotation_labels.remove(*label_pks)
+            ok = True
+            message = "Success"
         except Exception as e:
             logger.exception("RemoveLabelsFromLabelsetMutation failed")
             message = f"Error removing label(s) from labelset: {e}"

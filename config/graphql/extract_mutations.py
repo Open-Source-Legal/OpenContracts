@@ -888,7 +888,13 @@ class UpdateExtractMutation(graphene.Mutation):
             "Extract not found or you don't have permission to update it."
         )
 
-        extract_pk = from_global_id(id)[1]
+        try:
+            extract_pk = from_global_id(id)[1]
+        except Exception:
+            return UpdateExtractMutation(
+                ok=False, message=extract_not_found_msg, obj=None
+            )
+
         extract = get_for_user_or_none(Extract, extract_pk, user)
         if extract is None or not extract.user_can(
             user, PermissionTypes.UPDATE, request=info.context
@@ -905,7 +911,14 @@ class UpdateExtractMutation(graphene.Mutation):
             extract.error = error
 
         if corpus_id is not None:
-            corpus_pk = from_global_id(corpus_id)[1]
+            try:
+                corpus_pk = from_global_id(corpus_id)[1]
+            except Exception:
+                return UpdateExtractMutation(
+                    ok=False,
+                    message="Corpus not found or you don't have permission to use it.",
+                    obj=None,
+                )
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
             if corpus is None:
                 return UpdateExtractMutation(
@@ -916,7 +929,16 @@ class UpdateExtractMutation(graphene.Mutation):
             extract.corpus = corpus
 
         if fieldset_id is not None:
-            fieldset_pk = from_global_id(fieldset_id)[1]
+            try:
+                fieldset_pk = from_global_id(fieldset_id)[1]
+            except Exception:
+                return UpdateExtractMutation(
+                    ok=False,
+                    message=(
+                        "Fieldset not found or you don't have permission to use it."
+                    ),
+                    obj=None,
+                )
             fieldset = get_for_user_or_none(Fieldset, fieldset_pk, user)
             if fieldset is None:
                 return UpdateExtractMutation(
