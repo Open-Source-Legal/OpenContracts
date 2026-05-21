@@ -69,8 +69,8 @@ def _apply_document_prefetches(
     keeps cheap JOINs and user-scoped guardian permission prefetches — fields
     like ``myPermissions`` are commonly requested even on list views.
     Permission prefetches land on each instance under user-id-suffixed attrs
-    (see ``shared/prefetch_attrs.py``); consumed by ``user_has_permission_for_obj``
-    and ``resolve_my_permissions``. ``with_doc_label_annotations`` opts in to a
+    (see ``shared/prefetch_attrs.py``); consumed by ``user_can`` and
+    ``resolve_my_permissions``. ``with_doc_label_annotations`` opts in to a
     focused prefetch of ``DOC_TYPE_LABEL`` annotations for list-view badges
     (only honoured in lightweight mode).
     """
@@ -761,8 +761,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
           permission must hold on the source object as well as
           doc+corpus. Delegates to ``Analysis.objects.user_can`` /
           ``Extract.objects.user_can`` so creator status on the source
-          is honored — fixing the legacy bug where the recursion used
-          the creator-blind ``user_has_permission_for_obj``.
+          is honored.
 
         At this point the caller has already denied non-READ
         structural calls, so ``structural and READ`` is the only
@@ -1082,12 +1081,10 @@ class RelationshipManager(BaseVisibilityManager):
 
         **NOTE: deliberately does NOT check ``created_by_analysis``/
         ``created_by_extract``**. Although these fields exist on
-        ``Relationship``, the legacy ``user_has_permission_for_obj``
-        relationship branch (``permissioning.py:680-740``) never
-        consulted them. Adding a privacy check here would be a
-        behavior widening beyond the scope of Phase A. If/when that
-        widening is desired, mirror the annotation branch and pin a
-        new invariant test.
+        ``Relationship``, relationship privacy has never recursed into
+        them. Adding a privacy check here would be a behavior widening
+        beyond the scope of Phase A. If/when that widening is desired,
+        mirror the annotation branch and pin a new invariant test.
 
         TODO(Phase-C, issue #1655 follow-up): mirror the privacy
         recursion already wired into ``AnnotationManager.user_can`` so

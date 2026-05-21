@@ -288,16 +288,8 @@ class TestDocumentService_CreateDocument(TestCase):
         self.assertFalse(doc.txt_extract_file)
         # Creator must have CRUD on their new doc — the service grants this
         # via set_permissions_for_obj_to_user(PermissionTypes.CRUD).
-        from opencontractserver.utils.permissioning import (
-            user_has_permission_for_obj,
-        )
-
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, doc, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, doc, PermissionTypes.UPDATE)
-        )
+        self.assertTrue(doc.user_can(self.user, PermissionTypes.READ))
+        self.assertTrue(doc.user_can(self.user, PermissionTypes.UPDATE))
 
     def test_txt_create_lands_in_txt_extract_file(self):
         doc, err = DocumentService.create_document(
@@ -481,13 +473,7 @@ class TestDocumentService_SetDocumentPermissions(TestCase):
         )
         self.assertTrue(ok, f"unexpected failure: {err}")
         self.assertEqual(err, "")
-        from opencontractserver.utils.permissioning import (
-            user_has_permission_for_obj,
-        )
-
-        self.assertTrue(
-            user_has_permission_for_obj(self.target, self.doc, PermissionTypes.READ)
-        )
+        self.assertTrue(self.doc.user_can(self.target, PermissionTypes.READ))
 
     def test_permission_codename_holder_can_grant(self):
         ok, err = DocumentService.set_document_permissions(

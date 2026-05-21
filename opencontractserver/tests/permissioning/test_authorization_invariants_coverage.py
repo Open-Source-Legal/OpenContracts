@@ -14,9 +14,6 @@ the new ``permission_cache`` machinery. Two motivations:
       was untested (only ``created_by_analysis`` was).
     - ``RelationshipManager`` access-widening case (stranger with doc+corpus
       READ now sees the relationship) was untested.
-    - Shim ``user_has_permission_for_obj`` should raise ``TypeError`` —
-      not bare ``AttributeError`` — when the model's manager hasn't yet
-      been migrated.
 """
 
 from __future__ import annotations
@@ -139,81 +136,6 @@ class PermissionCacheMachineryTestCase(SimpleTestCase):
                 cached_user_can(42, "documents", "document", 7, "read", False),
                 MISS,
             )
-
-
-# ---------------------------------------------------------------------------
-# Shim (utils/permissioning.user_has_permission_for_obj)
-# ---------------------------------------------------------------------------
-
-
-class _DummyDefaultManager:
-    """Stand-in for a Django manager lacking ``user_can`` (Phase A migration gap)."""
-
-
-class _DummyInstance:
-    """Stand-in for a Django model instance whose manager lacks ``user_can``."""
-
-    _default_manager = _DummyDefaultManager()
-
-
-class ShimTypeErrorGuardTestCase(TestCase):
-    """Pin Claude review item #2: the deprecation shim must raise
-    ``TypeError`` (not bare ``AttributeError``) when the instance's
-    ``_default_manager`` hasn't implemented ``user_can`` yet — the
-    Phase A → Phase B migration is incremental, so the error message
-    must be actionable."""
-
-    def setUp(self) -> None:
-        self.creator = User.objects.create_user(
-            username="shim_typerror_creator", email="shim@cov.test", password="x"
-        )
-
-    def test_shim_raises_typeerror_for_unmigrated_manager(self) -> None:
-        import warnings
-
-        from opencontractserver.utils.permissioning import (
-            user_has_permission_for_obj,
-        )
-
-        with warnings.catch_warnings():
-            # We expect the DeprecationWarning and the TypeError — the
-            # warning fires before the manager check.
-            warnings.simplefilter("ignore", DeprecationWarning)
-            with self.assertRaises(TypeError) as cm:
-                # mypy: ``user_has_permission_for_obj`` is typed against
-                # ``django.db.models.Model``; the dummy is a stand-in
-                # specifically to exercise the missing-``user_can`` guard.
-                user_has_permission_for_obj(
-                    self.creator,
-                    _DummyInstance(),  # type: ignore[arg-type]
-                    PermissionTypes.READ,
-                )
-        message = str(cm.exception)
-        self.assertIn("user_can", message)
-        self.assertIn("_DummyInstance", message)
-        self.assertIn("Phase A", message)
-
-    def test_shim_returns_false_for_unknown_user_id(self) -> None:
-        """Pin the ``User.DoesNotExist`` legacy branch — the shim must
-        return ``False`` (not raise) when an int id doesn't resolve. The
-        legacy behaviour raised; the shim deliberately swallows so no
-        caller has to wrap it in try/except."""
-        import warnings
-
-        from opencontractserver.corpuses.models import Corpus
-        from opencontractserver.utils.permissioning import (
-            user_has_permission_for_obj,
-        )
-
-        corpus = Corpus.objects.create(
-            title="Shim NoSuchUser", creator=self.creator, is_public=False
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            result = user_has_permission_for_obj(
-                999_999_999, corpus, PermissionTypes.READ
-            )
-        self.assertFalse(result)
 
 
 # ---------------------------------------------------------------------------

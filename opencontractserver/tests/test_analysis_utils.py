@@ -12,7 +12,6 @@ from opencontractserver.documents.models import Document
 from opencontractserver.tests.fixtures import SAMPLE_GREMLIN_ENGINE_MANIFEST_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.analysis import create_and_setup_analysis
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +124,7 @@ class TestAnalysisUtils(TestCase):
             PermissionTypes.DELETE,
         ):
             self.assertTrue(
-                user_has_permission_for_obj(
-                    self.user,
-                    analysis,
-                    permission,
-                    include_group_permissions=True,
-                ),
+                analysis.user_can(self.user, permission),
                 f"creator should have {permission.name} on Analysis "
                 f"created via the framework helper",
             )

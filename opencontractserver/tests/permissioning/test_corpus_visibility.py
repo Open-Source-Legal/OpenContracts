@@ -405,8 +405,6 @@ class TestCreateCorpusMutationGrantsPermission(TestCase):
 
     def test_creator_receives_permission_permission(self):
         """New corpus creator should have PERMISSION permission."""
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         user = User.objects.create_user(username="testuser", password="test")
 
         variables = {
@@ -423,9 +421,7 @@ class TestCreateCorpusMutationGrantsPermission(TestCase):
         corpus = Corpus.objects.get(creator=user, title="My New Corpus")
 
         # Verify user has PERMISSION permission
-        has_permission = user_has_permission_for_obj(
-            user, corpus, PermissionTypes.PERMISSION, include_group_permissions=True
-        )
+        has_permission = corpus.user_can(user, PermissionTypes.PERMISSION)
         self.assertTrue(
             has_permission, "Creator should have PERMISSION permission on new corpus"
         )
