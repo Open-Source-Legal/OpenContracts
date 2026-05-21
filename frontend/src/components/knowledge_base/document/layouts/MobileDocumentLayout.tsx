@@ -10,6 +10,7 @@ import { MobileAnnotationDetail } from "./mobile/MobileAnnotationDetail";
 import { MobileAskBar } from "./mobile/MobileAskBar";
 import { MobileDocToolbar } from "./mobile/MobileDocToolbar";
 import { MobileFindSheet } from "./mobile/MobileFindSheet";
+import { MobileMoreSheet } from "./mobile/MobileMoreSheet";
 import { MobileSectionsSheet } from "./mobile/MobileSectionsSheet";
 import { MobileSheet } from "./mobile/MobileSheet";
 import { MobileTabBar, MobileTabId } from "./mobile/MobileTabBar";
@@ -56,13 +57,6 @@ const ViewerArea = styled.div`
   min-height: 0;
   position: relative;
   overflow: hidden;
-`;
-
-/** Placeholder body for the "More" sheet — replaced by Task 12. */
-const SheetPlaceholder = styled.div`
-  padding: 16px;
-  font-size: 14px;
-  color: ${OS_LEGAL_COLORS.textSecondary};
 `;
 
 /**
@@ -135,7 +129,12 @@ const SummaryEmptyState = styled.div`
  * sets a non-null `selectedSourceIndex` on the shared chat-source atom; an
  * effect watches that transition, closes the Chat sheet, and switches the
  * active tab to `document` so the cited annotation scrolls into view in the
- * viewer. Task 12 fills in the More surface.
+ * viewer.
+ *
+ * The More tab opens a "More" {@link MobileSheet} hosting {@link MobileMoreSheet}
+ * — a tappable list of the Tier-2 surfaces (Discussions, Notes, Document info &
+ * versions). That component swaps its own body between the menu and the chosen
+ * surface with a back affordance, so exactly one sheet is open at a time.
  */
 export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   props
@@ -325,14 +324,36 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
         <MobileFindSheet open={findSheetOpen} />
       </MobileSheet>
 
+      {/* More sheet — a tappable list of the Tier-2 surfaces (Discussions,
+          Notes, Document info & versions). MobileMoreSheet swaps its own body
+          between the menu list and the chosen surface with a back affordance,
+          so only one sheet is ever open. Discussions and Notes reuse
+          RightPanelContent; the info view is a read-only render of `metadata`. */}
       <MobileSheet
         open={moreSheetOpen}
         title="More"
         onClose={() => setMoreSheetOpen(false)}
       >
-        <SheetPlaceholder data-testid="mobile-surface-more">
-          More options coming soon.
-        </SheetPlaceholder>
+        <MobileMoreSheet
+          metadata={metadata}
+          setSidebarViewMode={setSidebarViewMode}
+          feedFilters={feedFilters}
+          setFeedFilters={setFeedFilters}
+          feedSortBy={feedSortBy}
+          setFeedSortBy={setFeedSortBy}
+          searchText={searchText}
+          selectedAnalysis={selectedAnalysis}
+          selectedExtract={selectedExtract}
+          dataCells={dataCells}
+          columns={columns}
+          notes={notes}
+          loading={loading}
+          readOnly={readOnly}
+          documentId={documentId}
+          corpusId={corpusId}
+          setActiveLayer={setActiveLayer}
+          setSelectedNote={setSelectedNote}
+        />
       </MobileSheet>
 
       {/* Chat sheet — the persistent Ask bar opens the AI chat full-screen.

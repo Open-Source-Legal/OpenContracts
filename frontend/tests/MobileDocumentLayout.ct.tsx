@@ -21,3 +21,28 @@ test("selecting the Summary tab swaps the surface", async ({ mount }) => {
   );
   await expect(c.getByTestId("mobile-surface-summary")).toBeVisible();
 });
+
+test("the More tab opens a sheet listing the Tier-2 surfaces", async ({
+  mount,
+}) => {
+  const c = await mount(<MobileLayoutHarness />);
+  await c.getByRole("tab", { name: "More" }).click();
+  await expect(c.getByTestId("mobile-more-menu")).toBeVisible();
+  await expect(c.getByTestId("mobile-more-discussions")).toBeVisible();
+  await expect(c.getByTestId("mobile-more-notes")).toBeVisible();
+  await expect(c.getByTestId("mobile-more-info")).toBeVisible();
+});
+
+test("the More sheet shows the read-only document info view", async ({
+  mount,
+}) => {
+  const c = await mount(<MobileLayoutHarness />);
+  await c.getByRole("tab", { name: "More" }).click();
+  await c.getByTestId("mobile-more-info").click();
+  const infoSurface = c.getByTestId("mobile-more-info-surface");
+  await expect(infoSurface).toBeVisible();
+  await expect(infoSurface.getByText("Stub Document")).toBeVisible();
+  // The back affordance returns to the menu list.
+  await c.getByTestId("mobile-more-back").click();
+  await expect(c.getByTestId("mobile-more-menu")).toBeVisible();
+});
