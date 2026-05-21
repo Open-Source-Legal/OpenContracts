@@ -12,6 +12,7 @@ import { MobileSheet } from "./mobile/MobileSheet";
 import { MobileTabBar, MobileTabId } from "./mobile/MobileTabBar";
 import { useMobileFitToWidth } from "./mobile/useMobileFitToWidth";
 import { DesktopDocumentLayoutProps } from "./DesktopDocumentLayout";
+import UnifiedKnowledgeLayer from "../layers/UnifiedKnowledgeLayer";
 
 /**
  * Root flex column: chrome (header / ask bar / tab bar) stays fixed while
@@ -59,6 +60,23 @@ const SheetPlaceholder = styled.div`
   padding: 16px;
   font-size: 14px;
   color: ${OS_LEGAL_COLORS.textSecondary};
+`;
+
+/**
+ * Summary surface wrapper: fills the scrollable {@link Surface} so the
+ * {@link UnifiedKnowledgeLayer} (`height: 100%`) sizes correctly.
+ */
+const SummarySurface = styled.div`
+  height: 100%;
+  min-height: 0;
+`;
+
+/** Empty state shown on the Summary tab when the document has no corpus. */
+const SummaryEmptyState = styled.div`
+  padding: 24px 16px;
+  font-size: 14px;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  text-align: center;
 `;
 
 /**
@@ -158,7 +176,21 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
           </DocumentSurface>
         )}
         {activeTab === "summary" && (
-          <div data-testid="mobile-surface-summary">{mainLayerContent}</div>
+          <SummarySurface data-testid="mobile-surface-summary">
+            {corpusId ? (
+              <UnifiedKnowledgeLayer
+                documentId={documentId}
+                corpusId={corpusId}
+                metadata={metadata}
+                parentLoading={props.loading}
+                readOnly={readOnly}
+              />
+            ) : (
+              <SummaryEmptyState>
+                Add this document to a corpus to view its summary.
+              </SummaryEmptyState>
+            )}
+          </SummarySurface>
         )}
         {activeTab === "annotations" && (
           <div data-testid="mobile-surface-annotations">{mainLayerContent}</div>
