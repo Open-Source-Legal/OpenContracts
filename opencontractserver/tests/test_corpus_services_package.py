@@ -212,6 +212,7 @@ class TestFolderServiceStandalone(TestCase):
         )
         self.assertEqual(error, "")
         self.assertIsNotNone(folder)
+        assert folder is not None
 
         visible = FolderService.get_visible_folders(self.owner, self.corpus.id)
         self.assertIn(folder.id, {f.id for f in visible})
@@ -381,9 +382,11 @@ class TestCrossServiceDelegation(TestCase):
         self.corpus = Corpus.objects.create(
             title="CrossService Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = FolderService.create_folder(
+        folder, _ = FolderService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
+        assert folder is not None
+        self.folder = folder
         self.documents = []
         for i in range(2):
             doc = Document.objects.create(
@@ -487,6 +490,8 @@ class TestFacadeEquivalence(TestCase):
         )
         self.assertEqual(facade_err, "")
         self.assertEqual(service_err, "")
+        assert via_facade is not None
+        assert via_service is not None
         self.assertEqual(via_facade.corpus_id, via_service.corpus_id)
         self.assertEqual(type(via_facade), type(via_service))
 
