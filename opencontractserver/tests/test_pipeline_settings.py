@@ -301,6 +301,42 @@ class PipelineSettingsModelTestCase(TestCase):
             "my.thumbnailer.PdfThumb",
         )
 
+    def test_get_preferred_enrichers(self):
+        """get_preferred_enrichers returns the configured ordered chain."""
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        # Default: no enrichers configured -> empty list.
+        self.assertEqual(instance.get_preferred_enrichers("application/pdf"), [])
+
+        # Configure an ordered enricher chain for PDFs.
+        instance.preferred_enrichers = {
+            "application/pdf": [
+                "my.enrichers.First",
+                "my.enrichers.Second",
+            ],
+        }
+        instance.save()
+
+        self.assertEqual(
+            instance.get_preferred_enrichers("application/pdf"),
+            ["my.enrichers.First", "my.enrichers.Second"],
+        )
+        # Unconfigured MIME types still return an empty list.
+        self.assertEqual(instance.get_preferred_enrichers("text/plain"), [])
+
+    def test_get_preferred_enrichers_ignores_misconfigured_non_list(self):
+        """A non-list value (e.g. a bare string) is ignored, not iterated."""
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        # An operator typo: a string instead of a list of class paths.
+        instance.preferred_enrichers = {"application/pdf": "my.enrichers.First"}
+        instance.save()
+
+        # The string must NOT be returned (it would iterate as characters).
+        self.assertEqual(instance.get_preferred_enrichers("application/pdf"), [])
+
     def test_modified_by_tracks_user(self):
         """Test that modified_by is updated when a user modifies settings."""
         instance = PipelineSettings.get_instance()

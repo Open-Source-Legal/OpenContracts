@@ -78,6 +78,18 @@ Current implementations:
 - **LlamaParseParser**: Cloud-based parser using LlamaParse API with layout extraction
 - **TxtParser**: Simple text file parser
 
+### Enrichers
+
+Enrichers inherit from [`BaseEnricher`](../../opencontractserver/pipeline/base/enricher.py) and implement `_enrich_document_impl`. An enricher is a **chainable transform** over a parsed document's `OpenContractDocExport`: it runs at ingest time, between a parser's `parse_document()` and `save_parsed_data()`, and one or more enrichers compose in sequence (each receives the previous one's output). Enrichment is additive and non-fatal — a failing enricher is skipped and never blocks ingestion.
+
+Enrichers are configured per MIME type as an **ordered list** via `PipelineSettings.preferred_enrichers` (empty by default, so enrichment is strictly opt-in).
+
+Current implementations:
+
+| Class | Description | Source |
+|-------|-------------|--------|
+| **PdfOutlineEnricher** | Turns a PDF's embedded `/Outlines` bookmarks into hierarchical `OC_SECTION` table-of-contents annotations anchored to PAWLs tokens | [`pdf_outline_enricher.py`](../../opencontractserver/pipeline/enrichers/pdf_outline_enricher.py) |
+
 ### Thumbnailers
 
 Thumbnailers inherit from [`BaseThumbnailGenerator`](../../opencontractserver/pipeline/base/thumbnailer.py) and implement the `_generate_thumbnail` method. See the base class for the full interface.

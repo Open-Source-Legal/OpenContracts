@@ -49,7 +49,6 @@ const BoundarySpan = styled.span.attrs<{
   $boxShadow: string;
   $color: string;
   $hidden: boolean;
-  $showBoundingBox: boolean;
   $approved?: boolean;
   $rejected?: boolean;
 }>((props) => ({
@@ -134,12 +133,12 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
   const rotateY = width < 0 ? -180 : 0;
   const rotateX = height < 0 ? -180 : 0;
   const { r, g, b } = hexToRgb(color);
-  const opacity =
-    !showBoundingBox || hidden
-      ? 0
-      : selected
-      ? BOUNDARY_OPACITY_SELECTED
-      : BOUNDARY_OPACITY_UNSELECTED;
+  // Fill ignores showBoundingBox so multi-line inter-row gaps don't stripe through as white.
+  const opacity = hidden
+    ? 0
+    : selected
+    ? BOUNDARY_OPACITY_SELECTED
+    : BOUNDARY_OPACITY_UNSELECTED;
   const backgroundColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
 
   const boxShadow =
@@ -184,7 +183,6 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
       $height={height}
       $rotateX={rotateX}
       $rotateY={rotateY}
-      $showBoundingBox={showBoundingBox}
       $hidden={hidden}
       $boxShadow={boxShadow}
       $color={color}
