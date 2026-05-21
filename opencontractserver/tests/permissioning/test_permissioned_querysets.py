@@ -1241,33 +1241,50 @@ class GroupObjectPermissionVisibilityTest(TestCase):
             "group-permission resolution must not add a round-trip per group",
         )
 
-    def test_annotation_visibility_degrades_when_group_perm_table_missing(self):
-        """DEFENSIVE: if a guardian ``*groupobjectpermission`` table
-        cannot be resolved, ``AnnotationQuerySet.visible_to_user`` falls
-        back gracefully instead of raising — the ``except LookupError``
-        branches zero out the group-permitted id sets for both the
-        document and corpus subqueries."""
+    def test_visible_to_user_degrades_when_guardian_tables_missing(self):
+        """DEFENSIVE: if the guardian ``*userobjectpermission`` /
+        ``*groupobjectpermission`` tables cannot be resolved, the
+        ``visible_to_user`` bodies fall back gracefully instead of
+        raising — each ``except LookupError`` branch zeroes out its own
+        permitted-id set. Splitting the user- and group-table lookups
+        into separate ``try`` blocks (issue #1714 review) means a
+        missing group table never discards already-resolved user grants.
+        """
         from unittest.mock import patch
 
         from django.apps import apps
+
+        from opencontractserver.shared.QuerySets import PermissionQuerySet
 
         real_get_model = apps.get_model
 
         def fake_get_model(app_label, model_name=None, *args, **kwargs):
             name = model_name if model_name is not None else app_label
-            if "groupobjectpermission" in name:
+            if "userobjectpermission" in name or "groupobjectpermission" in name:
                 raise LookupError(f"simulated missing table: {name}")
             return real_get_model(app_label, model_name, *args, **kwargs)
 
         with patch.object(apps, "get_model", side_effect=fake_get_model):
-            # Must not raise — the except LookupError branches handle it.
-            visible_ids = set(
+            # None of these may raise — the except LookupError branches
+            # in every queryset body must handle the missing tables.
+            doc_visible = set(
+                Document.objects.visible_to_user(self.group_user).values_list(
+                    "pk", flat=True
+                )
+            )
+            generic_qs = PermissionQuerySet(model=Document, using=connection.alias)
+            generic_visible = set(
+                generic_qs.visible_to_user(self.group_user).values_list("pk", flat=True)
+            )
+            annotation_visible = set(
                 Annotation.objects.visible_to_user(self.group_user).values_list(
                     "pk", flat=True
                 )
             )
 
-        # With group-permission resolution unavailable, the group-only
-        # user loses access to the group-shared annotation — it was
-        # reachable solely via the group grant on its parent doc + corpus.
-        self.assertNotIn(self.group_annotation.pk, visible_ids)
+        # With guardian resolution unavailable, the group-only user
+        # loses access to every object reachable solely via a group
+        # grant — visibility degrades to creator/public, never crashes.
+        self.assertNotIn(self.group_doc.pk, doc_visible)
+        self.assertNotIn(self.group_doc.pk, generic_visible)
+        self.assertNotIn(self.group_annotation.pk, annotation_visible)

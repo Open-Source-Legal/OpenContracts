@@ -261,8 +261,7 @@ class PermissionQuerySet(models.QuerySet):
 
         # Authenticated non-superuser: combine creator, is_public, and
         # the user's explicit guardian READ grants — both user-level and
-        # group-level. Mirrors BaseVisibilityManager.visible_to_user
-        # lines 217-228.
+        # group-level. Mirrors BaseVisibilityManager.visible_to_user.
         model_name = self.model._meta.model_name
         app_label = self.model._meta.app_label
 
@@ -273,14 +272,19 @@ class PermissionQuerySet(models.QuerySet):
             permitted_ids = permission_model.objects.filter(
                 permission__codename=f"read_{model_name}", user_id=user.id
             ).values_list("content_object_id", flat=True)
+        except LookupError:
+            # No user-level guardian table for this model.
+            permitted_ids = []
 
-            # Group object-permissions: ``_default_user_can`` resolves
-            # group grants (``include_group_permissions=True``), so the
-            # filter must OR them in too — otherwise a user whose only
-            # READ grant is via a group passes ``user_can`` yet never
-            # appears in ``visible_to_user`` (issue #1714). The lazy
-            # ``values_list`` keeps this a SQL subquery (no extra
-            # round-trip).
+        # Group object-permissions: ``_default_user_can`` resolves group
+        # grants (``include_group_permissions=True``), so the filter must
+        # OR them in too — otherwise a user whose only READ grant is via
+        # a group passes ``user_can`` yet never appears in
+        # ``visible_to_user`` (issue #1714). The lazy ``values_list``
+        # keeps this a SQL subquery (no extra round-trip). Resolved in
+        # its own ``try`` so a missing group table never discards the
+        # already-resolved user-level grants.
+        try:
             user_group_ids = user.groups.values_list("id", flat=True)
             group_permission_model = apps.get_model(
                 app_label, f"{model_name}groupobjectpermission"
@@ -289,16 +293,15 @@ class PermissionQuerySet(models.QuerySet):
                 permission__codename=f"read_{model_name}",
                 group_id__in=user_group_ids,
             ).values_list("content_object_id", flat=True)
-
-            return self.filter(
-                Q(creator=user)
-                | Q(is_public=True)
-                | Q(id__in=permitted_ids)
-                | Q(id__in=group_permitted_ids)
-            ).distinct()
         except LookupError:
-            # No guardian table for this model — degrade to creator/public.
-            return self.filter(Q(creator=user) | Q(is_public=True)).distinct()
+            group_permitted_ids = []
+
+        return self.filter(
+            Q(creator=user)
+            | Q(is_public=True)
+            | Q(id__in=permitted_ids)
+            | Q(id__in=group_permitted_ids)
+        ).distinct()
 
 
 class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
@@ -349,12 +352,16 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             permitted_ids = permission_model.objects.filter(
                 permission__codename="read_document", user_id=user.id
             ).values_list("content_object_id", flat=True)
+        except LookupError:
+            permitted_ids = []
 
-            # Group object-permissions: ``_default_user_can`` honours
-            # group READ grants (``include_group_permissions=True``), so
-            # the filter must OR them in too — otherwise a group-shared
-            # user passes ``user_can`` yet never appears in
-            # ``visible_to_user`` (issue #1714).
+        # Group object-permissions: ``_default_user_can`` honours group
+        # READ grants (``include_group_permissions=True``), so the filter
+        # must OR them in too — otherwise a group-shared user passes
+        # ``user_can`` yet never appears in ``visible_to_user``
+        # (issue #1714). Resolved in its own ``try`` so a missing group
+        # table never discards the already-resolved user-level grants.
+        try:
             user_group_ids = user.groups.values_list("id", flat=True)
             group_permission_model = apps.get_model(
                 "documents", "documentgroupobjectpermission"
@@ -363,15 +370,15 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
                 permission__codename="read_document",
                 group_id__in=user_group_ids,
             ).values_list("content_object_id", flat=True)
-
-            return self.filter(
-                Q(creator=user)
-                | Q(is_public=True)
-                | Q(id__in=permitted_ids)
-                | Q(id__in=group_permitted_ids)
-            ).distinct()
         except LookupError:
-            return self.filter(Q(creator=user) | Q(is_public=True)).distinct()
+            group_permitted_ids = []
+
+        return self.filter(
+            Q(creator=user)
+            | Q(is_public=True)
+            | Q(id__in=permitted_ids)
+            | Q(id__in=group_permitted_ids)
+        ).distinct()
 
 
 class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
