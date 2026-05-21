@@ -19,7 +19,10 @@ from config.graphql.serializers import LabelsetSerializer
 from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    set_permissions_for_obj_to_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,25 +178,32 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
                 )
             )
             for label_pk in label_pks:
-                try:
-                    label = AnnotationLabel.objects.get(pk=label_pk)
-                    # AnnotationLabel uses creator-based permissions (no guardian tables)
-                    # Only the creator or superuser can delete labels
-                    # read_only labels cannot be deleted (built-in system labels)
-                    if label.read_only:
-                        return DeleteMultipleLabelMutation(
-                            ok=False, message="Cannot delete read-only labels"
-                        )
-                    if not user.is_superuser and label.creator_id != user.id:
-                        # Use consistent error message for IDOR protection
-                        return DeleteMultipleLabelMutation(
-                            ok=False, message="Label not found"
-                        )
-                    label.delete()
-                except AnnotationLabel.DoesNotExist:
+                # IDOR protection: collapse "label doesn't exist", "hidden
+                # from caller", and "caller can READ but is not the creator"
+                # into the same response. AnnotationLabel uses creator-based
+                # permissions (no guardian tables); BaseVisibilityManager.
+                # visible_to_user enforces creator/public/superuser.
+                label = get_for_user_or_none(AnnotationLabel, label_pk, user)
+                if label is None:
                     return DeleteMultipleLabelMutation(
                         ok=False, message="Label not found"
                     )
+                # Run the creator gate BEFORE the ``read_only`` check so a
+                # non-creator who happens to be able to READ a public
+                # built-in label gets the unified "Label not found" response
+                # — surfacing "Cannot delete read-only labels" would reveal
+                # the label's existence + read-only flag to anyone with a
+                # guessable pk.
+                if not user.is_superuser and label.creator_id != user.id:
+                    return DeleteMultipleLabelMutation(
+                        ok=False, message="Label not found"
+                    )
+                # read_only labels cannot be deleted (built-in system labels)
+                if label.read_only:
+                    return DeleteMultipleLabelMutation(
+                        ok=False, message="Cannot delete read-only labels"
+                    )
+                label.delete()
             ok = True
             message = "Success"
 
@@ -236,17 +246,46 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
         obj = None
         obj_id = None
 
-        try:
-            # Permission check runs before validation so a non-owner cannot
-            # distinguish "reached validation" from "denied" via different
-            # error messages (IDOR mitigation — see
-            # docs/permissioning/consolidated_permissioning_guide.md).
-            labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not labelset.user_can(
-                info.context.user, PermissionTypes.UPDATE, request=info.context
-            ):
-                raise LabelSet.DoesNotExist()
+        # Unified IDOR-safe message: missing pk, malformed pk, no READ, and
+        # no UPDATE all collapse to a single response so the caller cannot
+        # enumerate which labelsets exist.
+        not_found_msg = (
+            "Failed to create label for labelset due to error: "
+            "LabelSet matching query does not exist."
+        )
 
+        try:
+            labelset_pk = from_global_id(labelset_id)[1]
+        except Exception:
+            logger.warning(
+                "CreateLabelForLabelsetMutation: malformed labelset_id=%s",
+                labelset_id,
+            )
+            return CreateLabelForLabelsetMutation(
+                obj=None, obj_id=None, message=not_found_msg, ok=False
+            )
+
+        # Permission check runs before validation so a non-owner cannot
+        # distinguish "reached validation" from "denied" via different
+        # error messages (IDOR mitigation — see
+        # docs/permissioning/consolidated_permissioning_guide.md).
+        # Phase D rule (#1658): READ is a precondition for UPDATE — the
+        # helper enforces it; the explicit ``labelset.user_can`` below
+        # adds the UPDATE check on top.
+        labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
+        if labelset is None or not labelset.user_can(
+            info.context.user, PermissionTypes.UPDATE, request=info.context
+        ):
+            logger.warning(
+                "CreateLabelForLabelsetMutation: labelset not found or "
+                "permission denied (labelset_id=%s)",
+                labelset_id,
+            )
+            return CreateLabelForLabelsetMutation(
+                obj=None, obj_id=None, message=not_found_msg, ok=False
+            )
+
+        try:
             # Reject blank text explicitly: Django's ``blank=False`` is
             # form-only and ``objects.create()`` would silently apply the
             # "Text Label" model default.
@@ -302,17 +341,6 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
             message = "SUCCESS"
             logger.debug("Done")
 
-        except LabelSet.DoesNotExist:
-            # Auth rejection or genuine 404 — warn without stack trace.
-            logger.warning(
-                "CreateLabelForLabelsetMutation: labelset not found or "
-                "permission denied (labelset_id=%s)",
-                labelset_id,
-            )
-            message = (
-                "Failed to create label for labelset due to error: "
-                "LabelSet matching query does not exist."
-            )
         except Exception as e:
             logger.exception("CreateLabelForLabelsetMutation failed")
             message = f"Failed to create label for labelset due to error: {e}"
@@ -343,29 +371,41 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
 
         ok = False
 
-        try:
-            user = info.context.user
-            label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
-            labelset = LabelSet.objects.get(pk=from_global_id(labelset_id)[1])
-            if not labelset.user_can(
-                user, PermissionTypes.UPDATE, request=info.context
-            ):
-                raise LabelSet.DoesNotExist()
-            labelset.annotation_labels.remove(*label_pks)
-            ok = True
-            message = "Success"
+        # Unified IDOR-safe message — see CreateLabelForLabelsetMutation.
+        not_found_msg = (
+            "Error removing label(s) from labelset: "
+            "LabelSet matching query does not exist."
+        )
 
-        except LabelSet.DoesNotExist:
-            # Auth rejection or genuine 404 — warn without stack trace.
+        try:
+            labelset_pk = from_global_id(labelset_id)[1]
+            label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
+        except Exception:
+            logger.warning(
+                "RemoveLabelsFromLabelsetMutation: malformed id "
+                "(labelset_id=%s, label_ids=%r)",
+                labelset_id,
+                label_ids,
+            )
+            return RemoveLabelsFromLabelsetMutation(message=not_found_msg, ok=False)
+
+        user = info.context.user
+        # Phase D rule (#1658): READ is a precondition for UPDATE.
+        labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
+        if labelset is None or not labelset.user_can(
+            user, PermissionTypes.UPDATE, request=info.context
+        ):
             logger.warning(
                 "RemoveLabelsFromLabelsetMutation: labelset not found or "
                 "permission denied (labelset_id=%s)",
                 labelset_id,
             )
-            message = (
-                "Error removing label(s) from labelset: "
-                "LabelSet matching query does not exist."
-            )
+            return RemoveLabelsFromLabelsetMutation(message=not_found_msg, ok=False)
+
+        try:
+            labelset.annotation_labels.remove(*label_pks)
+            ok = True
+            message = "Success"
         except Exception as e:
             logger.exception("RemoveLabelsFromLabelsetMutation failed")
             message = f"Error removing label(s) from labelset: {e}"

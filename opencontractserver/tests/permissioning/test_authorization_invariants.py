@@ -24,16 +24,15 @@ instance), and anonymous. The following invariants are explicitly pinned:
   ``Corpus`` has its own copy).
 * **Group-shared equivalence** — pinned for ``Corpus`` via
   ``test_group_shared_read_equivalence`` (filter and check agree for a
-  group-granted user). **AUDIT FINDING (issue #1660):** ``Document`` —
-  and, by sharing the same ``shared/QuerySets.py`` machinery, ``Annotation``
-  and ``Note`` — exhibit a genuine filter/check drift for group-granted
-  users: ``Manager.user_can`` honours group object-permissions but
-  ``QuerySet.visible_to_user`` only consults the *user* object-permission
-  table, never the ``*groupobjectpermission`` table. The drift is pinned
-  (current behaviour, not endorsed as correct) by
+  group-granted user). The Phase F audit (issue #1660) surfaced a per-model
+  drift where ``Document`` / ``Annotation`` / ``Note`` honoured group
+  object-permissions in ``Manager.user_can`` but not in
+  ``QuerySet.visible_to_user`` (which joined only the *user*
+  object-permission table). Issue #1714 closed that drift — every affected
+  ``QuerySet.visible_to_user`` now also joins the ``*groupobjectpermission``
+  table — and the equivalence is pinned for ``Document`` by
   ``DocumentAuthorizationInvariantsTestCase
-  .test_group_shared_known_drift_user_can_vs_visible_to_user``. Closing the
-  drift is a query-path change out of scope for the Phase F test/docs sweep.
+  .test_group_shared_read_user_can_vs_visible_to_user_equivalence``.
 * **No silent widening (write asymmetry)** — for every model with an
   ``is_public`` field, a non-creator/non-shared user must get ``False`` for
   UPDATE/DELETE even when ``is_public=True``: ``Corpus``
@@ -781,28 +780,20 @@ class DocumentAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase)
         for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
             self.assertFalse(self.public_doc.user_can(self.stranger, perm))
 
-    def test_group_shared_known_drift_user_can_vs_visible_to_user(self):
-        """KNOWN DRIFT (discovered by the Phase F audit, issue #1660).
+    def test_group_shared_read_user_can_vs_visible_to_user_equivalence(self):
+        """Filter/check equivalence for a group-granted READ on ``Document``.
 
         ``DocumentManager.user_can`` honours group object-permissions
         (``_default_user_can`` resolves perms with
-        ``include_group_permissions=True``), but ``DocumentQuerySet.visible_to_user``
-        in ``opencontractserver/shared/QuerySets.py`` only consults the
-        *user* object-permission table — it never joins
-        ``documentgroupobjectpermission``. So a user whose only READ grant
-        is via a group passes ``user_can(READ)`` yet is excluded from
+        ``include_group_permissions=True``). Issue #1714 closed the gap where
+        ``DocumentQuerySet.visible_to_user`` consulted only the *user*
+        object-permission table — it now also joins
+        ``documentgroupobjectpermission``. A user whose only READ grant is via
+        a group must therefore both pass ``user_can(READ)`` and appear in
         ``visible_to_user``.
 
-        ``Corpus`` does NOT have this gap (``CorpusAuthorizationInvariantsTestCase
-        .test_group_shared_read_equivalence`` passes), which is why this is a
-        genuine per-model drift rather than intended policy.
-
-        This test pins the *current* behaviour so the drift cannot change
-        silently in either direction: closing it (teaching ``visible_to_user``
-        about group perms) will correctly fail this test and force whoever
-        fixes it to convert this into a real equivalence assertion. Fixing
-        the drift is a query-path behaviour change out of scope for the
-        Phase F test/docs sweep.
+        This used to pin a KNOWN DRIFT (Phase F audit, issue #1660); the drift
+        is now closed, so this asserts equivalence in both directions.
         """
         from django.contrib.auth.models import Group
         from guardian.shortcuts import assign_perm
@@ -823,13 +814,11 @@ class DocumentAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase)
             .exists()
         )
         self.assertTrue(check, "user_can must honour the group-level READ grant")
-        self.assertFalse(
+        self.assertTrue(
             in_filter,
-            "visible_to_user unexpectedly honours group perms — the drift this "
-            "test pins has been fixed; convert this into an equivalence "
-            "assertion and update the Phase F audit comment.",
+            "visible_to_user must honour the group-level READ grant (issue #1714)",
         )
-        # Group READ must not bleed into writes, regardless of the drift.
+        # Group READ must not bleed into writes.
         self.assertFalse(
             self.private_doc.user_can(group_user, PermissionTypes.UPDATE),
             "group READ grant silently widened to UPDATE — leak!",

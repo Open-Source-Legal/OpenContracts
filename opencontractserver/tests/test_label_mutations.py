@@ -221,15 +221,18 @@ class RemoveLabelsFromLabelsetMutationTestCase(TestCase):
     def test_remove_labels_allows_non_owner_with_explicit_update_permission(
         self,
     ) -> None:
-        """A non-creator who has been granted UPDATE on the labelset may remove labels.
+        """A non-creator with READ+UPDATE on the labelset may remove labels.
 
-        Pins the documented model: anyone with edit rights to a LabelSet can
-        add/remove labels — not just the creator. See
-        ``docs/permissioning/consolidated_permissioning_guide.md``.
+        Phase D (#1658) rule: READ is a precondition for UPDATE. The
+        mutation now routes the LabelSet lookup through
+        ``get_for_user_or_none`` (READ filter) before checking UPDATE,
+        so a collaborator granted UPDATE without READ no longer qualifies.
         """
 
         set_permissions_for_obj_to_user(
-            self.other_user, self.labelset, [PermissionTypes.UPDATE]
+            self.other_user,
+            self.labelset,
+            [PermissionTypes.READ, PermissionTypes.UPDATE],
         )
 
         variables = {
@@ -341,10 +344,15 @@ class CreateLabelForLabelsetMutationTestCase(TestCase):
         )
 
     def test_non_owner_with_explicit_update_permission_can_create(self) -> None:
-        """A collaborator with guardian UPDATE on the labelset may add labels."""
+        """A collaborator with READ+UPDATE on the labelset may add labels.
+
+        Phase D (#1658) rule: READ is a precondition for UPDATE.
+        """
 
         set_permissions_for_obj_to_user(
-            self.other_user, self.labelset, [PermissionTypes.UPDATE]
+            self.other_user,
+            self.labelset,
+            [PermissionTypes.READ, PermissionTypes.UPDATE],
         )
 
         result = self.other_client.execute(

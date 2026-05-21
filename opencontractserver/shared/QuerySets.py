@@ -237,7 +237,7 @@ class PermissionQuerySet(models.QuerySet):
           - Superuser → all rows (DB-default ordering preserved).
           - Anonymous → ``is_public=True`` only.
           - Authenticated non-superuser → ``creator | is_public |
-            guardian read codename``.
+            guardian read codename (user- and group-level)``.
 
         Concrete subclasses (``DocumentQuerySet``, ``AnnotationQuerySet``,
         ``NoteQuerySet``) override with model-specific logic; this body
@@ -260,8 +260,8 @@ class PermissionQuerySet(models.QuerySet):
             return self.filter(is_public=True).distinct()
 
         # Authenticated non-superuser: combine creator, is_public, and
-        # the user's explicit guardian READ grants. Mirrors
-        # BaseVisibilityManager.visible_to_user lines 217-228.
+        # the user's explicit guardian READ grants — both user-level and
+        # group-level. Mirrors BaseVisibilityManager.visible_to_user.
         model_name = self.model._meta.model_name
         app_label = self.model._meta.app_label
 
@@ -272,12 +272,36 @@ class PermissionQuerySet(models.QuerySet):
             permitted_ids = permission_model.objects.filter(
                 permission__codename=f"read_{model_name}", user_id=user.id
             ).values_list("content_object_id", flat=True)
-            return self.filter(
-                Q(creator=user) | Q(is_public=True) | Q(id__in=permitted_ids)
-            ).distinct()
         except LookupError:
-            # No guardian table for this model — degrade to creator/public.
-            return self.filter(Q(creator=user) | Q(is_public=True)).distinct()
+            # No user-level guardian table for this model.
+            permitted_ids = []
+
+        # Group object-permissions: ``_default_user_can`` resolves group
+        # grants (``include_group_permissions=True``), so the filter must
+        # OR them in too — otherwise a user whose only READ grant is via
+        # a group passes ``user_can`` yet never appears in
+        # ``visible_to_user`` (issue #1714). The lazy ``values_list``
+        # keeps this a SQL subquery (no extra round-trip). Resolved in
+        # its own ``try`` so a missing group table never discards the
+        # already-resolved user-level grants.
+        try:
+            user_group_ids = user.groups.values_list("id", flat=True)
+            group_permission_model = apps.get_model(
+                app_label, f"{model_name}groupobjectpermission"
+            )
+            group_permitted_ids = group_permission_model.objects.filter(
+                permission__codename=f"read_{model_name}",
+                group_id__in=user_group_ids,
+            ).values_list("content_object_id", flat=True)
+        except LookupError:
+            group_permitted_ids = []
+
+        return self.filter(
+            Q(creator=user)
+            | Q(is_public=True)
+            | Q(id__in=permitted_ids)
+            | Q(id__in=group_permitted_ids)
+        ).distinct()
 
 
 class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
@@ -293,6 +317,10 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         Override PermissionQuerySet.visible_to_user to include guardian
         permission checks. Without this override, chaining
         .filter().visible_to_user() would skip guardian entirely.
+
+        Both the user-level and group-level guardian object-permission
+        tables are consulted so the filter agrees with
+        ``DocumentManager.user_can`` for group-shared users (issue #1714).
 
         Follows the same pattern as BaseVisibilityManager.visible_to_user
         (opencontractserver/shared/Managers.py). Prefetch optimisation is
@@ -314,7 +342,7 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         if user.is_anonymous:
             return self.filter(is_public=True).distinct()
 
-        # Query guardian permission table directly for performance
+        # Query guardian permission tables directly for performance
         from django.apps import apps
 
         try:
@@ -324,12 +352,33 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             permitted_ids = permission_model.objects.filter(
                 permission__codename="read_document", user_id=user.id
             ).values_list("content_object_id", flat=True)
-
-            return self.filter(
-                Q(creator=user) | Q(is_public=True) | Q(id__in=permitted_ids)
-            ).distinct()
         except LookupError:
-            return self.filter(Q(creator=user) | Q(is_public=True)).distinct()
+            permitted_ids = []
+
+        # Group object-permissions: ``_default_user_can`` honours group
+        # READ grants (``include_group_permissions=True``), so the filter
+        # must OR them in too — otherwise a group-shared user passes
+        # ``user_can`` yet never appears in ``visible_to_user``
+        # (issue #1714). Resolved in its own ``try`` so a missing group
+        # table never discards the already-resolved user-level grants.
+        try:
+            user_group_ids = user.groups.values_list("id", flat=True)
+            group_permission_model = apps.get_model(
+                "documents", "documentgroupobjectpermission"
+            )
+            group_permitted_ids = group_permission_model.objects.filter(
+                permission__codename="read_document",
+                group_id__in=user_group_ids,
+            ).values_list("content_object_id", flat=True)
+        except LookupError:
+            group_permitted_ids = []
+
+        return self.filter(
+            Q(creator=user)
+            | Q(is_public=True)
+            | Q(id__in=permitted_ids)
+            | Q(id__in=group_permitted_ids)
+        ).distinct()
 
 
 class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
@@ -446,25 +495,46 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             (Q(created_by_extract__in=visible_extracts))
         )
 
-        # Also need document/corpus visibility
-        # Query guardian permission tables for documents and corpuses
+        # Also need document/corpus visibility.
+        # Query guardian permission tables for documents and corpuses —
+        # both the user-level and group-level object-permission tables.
+        # ``_default_user_can`` resolves group grants
+        # (``include_group_permissions=True``), so omitting the group
+        # tables here would drift the annotation filter from the
+        # Document/Corpus ``user_can`` checks (issue #1714).
         from django.apps import apps
+
+        user_group_ids = user.groups.values_list("id", flat=True)
 
         try:
             doc_perm_model = apps.get_model("documents", "documentuserobjectpermission")
             doc_permitted_ids = doc_perm_model.objects.filter(
                 permission__codename="read_document", user_id=user.id
             ).values_list("content_object_id", flat=True)
+            doc_group_perm_model = apps.get_model(
+                "documents", "documentgroupobjectpermission"
+            )
+            doc_group_permitted_ids = doc_group_perm_model.objects.filter(
+                permission__codename="read_document", group_id__in=user_group_ids
+            ).values_list("content_object_id", flat=True)
         except LookupError:
             doc_permitted_ids = []
+            doc_group_permitted_ids = []
 
         try:
             corpus_perm_model = apps.get_model("corpuses", "corpususerobjectpermission")
             corpus_permitted_ids = corpus_perm_model.objects.filter(
                 permission__codename="read_corpus", user_id=user.id
             ).values_list("content_object_id", flat=True)
+            corpus_group_perm_model = apps.get_model(
+                "corpuses", "corpusgroupobjectpermission"
+            )
+            corpus_group_permitted_ids = corpus_group_perm_model.objects.filter(
+                permission__codename="read_corpus", group_id__in=user_group_ids
+            ).values_list("content_object_id", flat=True)
         except LookupError:
             corpus_permitted_ids = []
+            corpus_group_permitted_ids = []
 
         # Handle TWO types of annotations:
         # 1. Document-attached: have document FK set, check document visibility
@@ -473,6 +543,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             Q(document__is_public=True)
             | Q(document__creator=user)
             | Q(document_id__in=doc_permitted_ids)
+            | Q(document_id__in=doc_group_permitted_ids)
         )
 
         # Structural annotations linked via structural_set (document FK is NULL)
@@ -485,6 +556,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
                 Q(structural_set__documents__is_public=True)
                 | Q(structural_set__documents__creator=user)
                 | Q(structural_set__documents__id__in=doc_permitted_ids)
+                | Q(structural_set__documents__id__in=doc_group_permitted_ids)
             )
         )
 
@@ -496,6 +568,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             | Q(corpus__is_public=True)
             | Q(corpus__creator=user)
             | Q(corpus_id__in=corpus_permitted_ids)
+            | Q(corpus_id__in=corpus_group_permitted_ids)
         )
 
         return qs.filter(
@@ -527,6 +600,8 @@ class NoteQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         managers that ``user_can`` composes — so authenticated users
         with explicit guardian READ grants on the parent doc + corpus
         see their notes in list views, matching the manager check.
+        Group-level guardian grants flow through transparently because
+        both delegated managers honour them (issue #1714).
         """
         from django.contrib.auth.models import AnonymousUser
 

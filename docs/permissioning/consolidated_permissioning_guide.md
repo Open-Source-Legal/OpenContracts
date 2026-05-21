@@ -1148,6 +1148,7 @@ User profiles have a `is_profile_public` boolean field that controls visibility:
 3. **Private Profiles** (`is_profile_public=False`): Only visible via corpus membership with > READ permission
 4. **Inactive Users** (`is_active=False`): Never visible (except to superusers)
 5. **Anonymous Users**: Can only see public profiles
+6. **Superusers**: See all profiles, including private ones — `UserProfileManager.visible_to_user` (`opencontractserver/users/models.py`) has a superuser bypass that mirrors `BaseVisibilityManager`. This is intentional: it lets admin / moderation surfaces (e.g. badge awarding) route recipient lookups through `get_for_user_or_none` and still reach private-profile users. Do not remove it.
 
 **Corpus Membership Visibility:**
 Private profiles become visible to users who share a corpus where the private user has more than READ permission (i.e., CREATE, UPDATE, or DELETE). This ensures collaborators who are actively contributing to a corpus can see each other.

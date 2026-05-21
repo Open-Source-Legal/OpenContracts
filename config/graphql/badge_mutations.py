@@ -15,7 +15,10 @@ from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    set_permissions_for_obj_to_user,
+)
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -371,39 +374,50 @@ class AwardBadgeMutation(graphene.Mutation):
         awarder = info.context.user
 
         try:
-            badge_pk = from_global_id(badge_id)[1]
-            # Use visible_to_user() to prevent IDOR enumeration
+            # Pre-guard ``from_global_id``: a malformed base64 id raises
+            # before the helper is reached — return the same unified message
+            # as a missing / hidden badge.
             try:
-                badge = Badge.objects.visible_to_user(awarder).get(pk=badge_pk)
-            except Badge.DoesNotExist:
+                badge_pk = from_global_id(badge_id)[1]
+            except Exception:
                 return AwardBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                    user_badge=None,
+                    ok=False, message="Badge not found", user_badge=None
+                )
+            badge = get_for_user_or_none(Badge, badge_pk, awarder)
+            if badge is None:
+                return AwardBadgeMutation(
+                    ok=False, message="Badge not found", user_badge=None
                 )
 
-            recipient_pk = from_global_id(user_id)[1]
-            # IDOR FIX: Get user, but don't reveal existence vs. permission difference
             try:
-                recipient = User.objects.get(pk=recipient_pk)
-            except User.DoesNotExist:
+                recipient_pk = from_global_id(user_id)[1]
+            except Exception:
                 return AwardBadgeMutation(
-                    ok=False,
-                    message="User not found",
-                    user_badge=None,
+                    ok=False, message="User not found", user_badge=None
+                )
+            # Recipient lookup must be visible to the awarder. Superusers
+            # bypass the profile-privacy filter via UserProfileManager's
+            # superuser branch, so admin / moderation awarding paths still
+            # reach private-profile users; non-superuser awarders only see
+            # their own profile + public profiles.
+            recipient = get_for_user_or_none(User, recipient_pk, awarder)
+            if recipient is None:
+                return AwardBadgeMutation(
+                    ok=False, message="User not found", user_badge=None
                 )
 
             corpus = None
             if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
-                # Use visible_to_user to prevent IDOR
                 try:
-                    corpus = Corpus.objects.visible_to_user(awarder).get(pk=corpus_pk)
-                except Corpus.DoesNotExist:
+                    corpus_pk = from_global_id(corpus_id)[1]
+                except Exception:
                     return AwardBadgeMutation(
-                        ok=False,
-                        message="Corpus not found",
-                        user_badge=None,
+                        ok=False, message="Corpus not found", user_badge=None
+                    )
+                corpus = get_for_user_or_none(Corpus, corpus_pk, awarder)
+                if corpus is None:
+                    return AwardBadgeMutation(
+                        ok=False, message="Corpus not found", user_badge=None
                     )
 
             # Permission check: must be moderator/owner of the corpus or superuser

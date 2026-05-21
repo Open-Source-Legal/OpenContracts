@@ -517,23 +517,18 @@ class RetryDocumentProcessing(graphene.Mutation):
         from opencontractserver.documents.models import DocumentProcessingStatus
         from opencontractserver.tasks.doc_tasks import retry_document_processing
         from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import get_for_user_or_none
 
         try:
             # Decode global ID
             doc_pk = from_global_id(document_id)[1]
 
-            # Fetch the document
-            try:
-                document = Document.objects.get(pk=doc_pk)
-            except Document.DoesNotExist:
-                return RetryDocumentProcessing(
-                    ok=False, message="Document not found", document=None
-                )
-
-            # IDOR protection: Check user has access to this document
-            if not document.user_can(
-                info.context.user, PermissionTypes.READ, request=info.context
-            ):
+            # Fetch the document with IDOR protection — get_for_user_or_none
+            # collapses 'document doesn't exist' and 'caller can't READ it'
+            # into the same None return so the response can't be used to
+            # enumerate document existence.
+            document = get_for_user_or_none(Document, doc_pk, info.context.user)
+            if document is None:
                 return RetryDocumentProcessing(
                     ok=False, message="Document not found", document=None
                 )
@@ -546,7 +541,8 @@ class RetryDocumentProcessing(graphene.Mutation):
                     document=None,
                 )
 
-            # Check user has UPDATE permission
+            # Check user has UPDATE permission (user_can handles creator /
+            # superuser short-circuits internally).
             if not document.user_can(
                 info.context.user, PermissionTypes.UPDATE, request=info.context
             ):
