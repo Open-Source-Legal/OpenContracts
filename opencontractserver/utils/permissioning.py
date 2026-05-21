@@ -366,10 +366,7 @@ def get_users_permissions_for_obj(
     :meth:`PermissionQueryOptimizer.get_granted`, :func:`_default_user_can`
     and every ``Manager.user_can`` / ``obj.user_can`` surface. One default,
     one answer: ad-hoc callers who skip the flag get group permissions
-    folded in just like the rest of the authorization stack. The legacy
-    shim :func:`user_has_permission_for_obj` still defaults to ``False``
-    because that's the behaviour its ~170 callers were written against —
-    do not collapse the two contracts.
+    folded in just like the rest of the authorization stack.
     """
 
     model_name = instance._meta.model_name
@@ -576,8 +573,7 @@ def _default_user_can(
               explicit guardian grants (mirrors the deleted FolderService
               behavior; pinned by
               ``test_creator_passes_compound_perms_without_explicit_grants``).
-        - ``EDIT`` is treated as an alias for ``UPDATE`` (mirrors the old
-          ``user_has_permission_for_obj`` mapping).
+        - ``EDIT`` is treated as an alias for ``UPDATE``.
 
     Per-model overrides (e.g. ``AnnotationManager.user_can``) MUST add their
     own structural / privacy / inheritance rules before delegating here,
@@ -752,109 +748,6 @@ def _default_user_can(
     return False
 
 
-# Per-call-site dedup for the deprecation warning emitted by
-# ``user_has_permission_for_obj``. With ~170 legacy call sites each
-# potentially fired many times per request, an unthrottled
-# ``warnings.warn`` would flood logs during the Phase B migration window.
-# We track (filename, lineno) tuples for each unique caller frame and
-# emit at most once per site per process. The set is bounded by the
-# number of distinct call sites in the codebase (currently ~170) and
-# does not grow with request/task volume, so it is safe to leave
-# uncleared in long-running Celery workers. Tests that need to assert
-# specific call sites still issue warnings can clear this set via
-# ``_user_has_permission_for_obj_warned.clear()`` (see
-# ``ShimDeprecationWarningTestCase.setUp``).
-_user_has_permission_for_obj_warned: set[tuple[str, int]] = set()
-
-
-def user_has_permission_for_obj(
-    user_val: int | str | UserModel,
-    instance: django.db.models.Model,
-    permission: PermissionTypes,
-    include_group_permissions: bool = False,
-) -> bool:
-    """Deprecation shim — delegates to ``Manager.user_can``.
-
-    .. deprecated:: Phase A of permission-centralization (issue #1655)
-
-        Every call emits a ``DeprecationWarning``. New code MUST use
-        ``Model.objects.user_can(user, instance, permission)`` or the
-        ergonomic ``instance.user_can(user, permission)``. Per-model
-        overrides on ``DocumentManager``, ``AnnotationManager``,
-        ``RelationshipManager``, ``NoteManager``, ``UserFeedbackManager``,
-        ``ConversationManager``, ``ChatMessageManager`` (and others
-        inheriting from ``BaseVisibilityManager``) now encode the
-        structural / privacy / inheritance / moderator rules this
-        function used to. The ``user_can`` API is the single source of
-        truth that stays aligned with ``visible_to_user`` filters.
-
-        Migration of the ~170 existing call sites is tracked in Phases
-        B/C of issue #1655.
-
-    Implementation: route the call through the instance's
-    ``_default_manager.user_can``. The kwarg defaults preserve the old
-    behavior — ``include_group_permissions=False`` (the legacy default,
-    DIFFERENT from ``_default_user_can``'s ``True``) is forwarded
-    verbatim so callers that don't pass the kwarg keep getting the same
-    answer.
-
-    ``User.objects.get(id=user_val)`` raising ``User.DoesNotExist`` for
-    an unknown id is replaced with a defensive ``False`` return (the
-    legacy code raised; no caller catches ``DoesNotExist`` around this
-    function in the production paths).
-
-    If the instance's ``_default_manager`` doesn't implement ``user_can``
-    (i.e. the model hasn't yet been migrated to the Phase A surface), the
-    shim raises ``TypeError`` with an actionable message instead of letting
-    the call fall through and surface as a confusing ``AttributeError``
-    deep inside the resolver.
-    """
-    import sys
-    import warnings
-
-    from opencontractserver.shared.user_can_mixin import resolve_user_for_user_can
-
-    # Throttle to one warning per unique call site per process. Identify
-    # the caller via its frame's (filename, lineno) — cheap to compute and
-    # stable for the lifetime of the process. ``sys._getframe(1)`` mirrors
-    # what ``warnings.warn(stacklevel=2)`` reports, so the dedup key
-    # always matches the line that actually appears in the warning text.
-    caller = sys._getframe(1)
-    site = (caller.f_code.co_filename, caller.f_lineno)
-    if site not in _user_has_permission_for_obj_warned:
-        _user_has_permission_for_obj_warned.add(site)
-        warnings.warn(
-            "user_has_permission_for_obj is deprecated; use "
-            "Model.objects.user_can(user, instance, permission) instead "
-            "(or instance.user_can(user, permission)). See issue #1655.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-    # ``resolve_user_for_user_can`` returns ``None`` for both ``None``
-    # input and a missing-id lookup; both deny under the legacy contract.
-    user = resolve_user_for_user_can(user_val)
-    if user is None:
-        return False
-
-    manager = type(instance)._default_manager
-    if not hasattr(manager, "user_can"):
-        raise TypeError(
-            f"{type(instance).__name__}._default_manager "
-            f"({type(manager).__name__}) does not implement user_can(). "
-            "Migrate the model's manager to BaseVisibilityManager / "
-            "UserCanMixin (Phase A) before calling user_has_permission_for_obj."
-        )
-    # ``manager`` is statically typed as ``Manager[Model]`` here — the
-    # ``hasattr`` guard above makes ``user_can`` safe at runtime.
-    return manager.user_can(
-        user,
-        instance,
-        permission,
-        include_group_permissions=include_group_permissions,
-    )
-
-
 def get_for_user_or_none(
     model_cls: type[_T_Model],
     pk: Any,
@@ -876,8 +769,8 @@ def get_for_user_or_none(
 
     Caller responsibility: this helper enforces ONLY the READ gate. If the
     mutation requires UPDATE / DELETE / PERMISSION, layer the additional
-    check (via ``user_can`` / ``user_has_permission_for_obj``) AFTER the
-    helper returns and emit the same unified ``"<resource> not found or
+    check (via ``user_can``) AFTER the helper returns and emit the same
+    unified ``"<resource> not found or
     you don't have permission to <verb> it."`` message on failure so the
     UPDATE-vs-READ branches stay indistinguishable to the caller.
 

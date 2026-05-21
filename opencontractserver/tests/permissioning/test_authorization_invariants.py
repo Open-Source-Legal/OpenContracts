@@ -488,10 +488,9 @@ class CorpusAuthorizationInvariantsTestCase(TestCase):
     def test_edit_is_alias_for_update(self):
         """``PermissionTypes.EDIT`` is treated identically to ``UPDATE``.
 
-        Both ``_default_user_can`` and the legacy ``user_has_permission_for_obj``
-        route EDIT through the ``update_<model>`` guardian codename. Pinning
-        this prevents a silent divergence if either side ever forgets the
-        alias.
+        ``_default_user_can`` routes EDIT through the ``update_<model>``
+        guardian codename. Pinning this prevents a silent divergence if the
+        alias is ever dropped.
         """
         for user, corpus in (
             (self.creator, self.private_corpus),
@@ -1027,10 +1026,10 @@ class RelationshipAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestC
     def test_no_privacy_widening_via_created_by_analysis(self):
         """RelationshipManager.user_can does NOT consult ``created_by_analysis``.
 
-        The legacy ``user_has_permission_for_obj`` Relationship branch
-        does not check that field; this test pins that the new manager
-        path preserves that behavior. Adding a privacy check would
-        require its own explicit invariant.
+        Relationship privacy has never recursed into that field; this
+        test pins that ``RelationshipManager.user_can`` preserves that
+        behavior. Adding a privacy check would require its own explicit
+        invariant.
         """
         # No fixture mutation needed — the relationship has no created_by_analysis
         # set, and the matrix-level READ-equivalence test already
@@ -1209,9 +1208,9 @@ class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCas
     def test_privacy_recursion_honors_creator_on_source_analysis(self):
         """BUG-FIX POSTURE: the recursive privacy check now uses
         ``Analysis.objects.user_can`` which honors creator status.
-        Previously the recursion used the creator-blind
-        ``user_has_permission_for_obj`` and could deny the analysis
-        creator access to their own private annotation.
+        Previously the recursion used a creator-blind permission check
+        and could deny the analysis creator access to their own private
+        annotation.
         """
         # The creator owns both the analysis AND the annotation. The new
         # path returns True via the creator short-circuit on Analysis.
@@ -1584,62 +1583,3 @@ class UserFeedbackAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestC
                 public_fb.user_can(self.stranger, perm),
                 f"stranger gained {perm} on public feedback via is_public — leak!",
             )
-
-
-class ShimDeprecationWarningTestCase(TestCase):
-    """Pin that ``user_has_permission_for_obj`` emits ``DeprecationWarning``
-    and routes through ``Manager.user_can`` per Phase A's shim contract."""
-
-    def setUp(self):
-        # The shim dedupes warnings by (filename, lineno) for the lifetime
-        # of the process. Under ``pytest --keepdb`` (or any multi-test
-        # run), a previous test that triggered the warning from this
-        # test's ``user_has_permission_for_obj`` line would leave the
-        # site already in the set, so ``catch_warnings`` here would
-        # record nothing and the assertion would fail silently. Clearing
-        # the dedup set before each test method makes the assertion
-        # robust regardless of run order.
-        from opencontractserver.utils.permissioning import (
-            _user_has_permission_for_obj_warned,
-        )
-
-        _user_has_permission_for_obj_warned.clear()
-
-        self.creator = User.objects.create_user(
-            username="shim_creator", email="sc@inv.test", password="x"
-        )
-        self.private_corpus = Corpus.objects.create(
-            title="Shim Corpus", creator=self.creator, is_public=False
-        )
-
-    def tearDown(self):
-        # Mirror ``setUp``'s clear — the shim's dedup set is process-wide,
-        # so a warning emitted by this test would otherwise prevent a
-        # later test (in any test module) from recording the same site.
-        # Clearing on the way out keeps the cross-module invariant
-        # symmetric with the on-the-way-in clear in ``setUp``.
-        from opencontractserver.utils.permissioning import (
-            _user_has_permission_for_obj_warned,
-        )
-
-        _user_has_permission_for_obj_warned.clear()
-        super().tearDown()
-
-    def test_shim_emits_deprecation_warning_and_delegates(self):
-        import warnings
-
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
-        with warnings.catch_warnings(record=True) as captured:
-            warnings.simplefilter("always")
-            result = user_has_permission_for_obj(
-                self.creator, self.private_corpus, PermissionTypes.READ
-            )
-
-        # The shim must emit at least one DeprecationWarning.
-        self.assertTrue(
-            any(issubclass(w.category, DeprecationWarning) for w in captured),
-            "user_has_permission_for_obj did not emit DeprecationWarning",
-        )
-        # The delegated answer (creator → READ) must be True.
-        self.assertTrue(result)

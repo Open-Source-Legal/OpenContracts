@@ -20,10 +20,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -91,110 +88,64 @@ class StructuralProtectionTestCase(TestCase):
     def test_owner_can_read_structural_annotation(self):
         """Owner with full permissions can READ structural annotations."""
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                self.structural_annotation,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
+            self.structural_annotation.user_can(self.owner, PermissionTypes.READ)
         )
 
     def test_owner_cannot_update_structural_annotation(self):
         """Owner CANNOT UPDATE structural annotations even with full permissions."""
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.owner,
-                self.structural_annotation,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.structural_annotation.user_can(self.owner, PermissionTypes.UPDATE)
         )
 
     def test_owner_cannot_delete_structural_annotation(self):
         """Owner CANNOT DELETE structural annotations even with full permissions."""
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.owner,
-                self.structural_annotation,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.structural_annotation.user_can(self.owner, PermissionTypes.DELETE)
         )
 
     def test_owner_can_read_structural_relationship(self):
         """Owner with full permissions can READ structural relationships."""
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                self.structural_relationship,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
+            self.structural_relationship.user_can(self.owner, PermissionTypes.READ)
         )
 
     def test_owner_cannot_update_structural_relationship(self):
         """Owner CANNOT UPDATE structural relationships even with full permissions."""
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.owner,
-                self.structural_relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.structural_relationship.user_can(self.owner, PermissionTypes.UPDATE)
         )
 
     def test_owner_cannot_delete_structural_relationship(self):
         """Owner CANNOT DELETE structural relationships even with full permissions."""
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.owner,
-                self.structural_relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.structural_relationship.user_can(self.owner, PermissionTypes.DELETE)
         )
 
     def test_superuser_can_update_structural_annotation(self):
         """Superuser CAN UPDATE structural annotations."""
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.superuser,
-                self.structural_annotation,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.structural_annotation.user_can(self.superuser, PermissionTypes.UPDATE)
         )
 
     def test_superuser_can_delete_structural_annotation(self):
         """Superuser CAN DELETE structural annotations."""
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.superuser,
-                self.structural_annotation,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.structural_annotation.user_can(self.superuser, PermissionTypes.DELETE)
         )
 
     def test_superuser_can_update_structural_relationship(self):
         """Superuser CAN UPDATE structural relationships."""
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.superuser,
-                self.structural_relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
+            self.structural_relationship.user_can(
+                self.superuser, PermissionTypes.UPDATE
             )
         )
 
     def test_superuser_can_delete_structural_relationship(self):
         """Superuser CAN DELETE structural relationships."""
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.superuser,
-                self.structural_relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
+            self.structural_relationship.user_can(
+                self.superuser, PermissionTypes.DELETE
             )
         )
 
@@ -211,22 +162,8 @@ class StructuralProtectionTestCase(TestCase):
         )
 
         # Owner should be able to UPDATE and DELETE normal annotations
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                normal_annotation,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                normal_annotation,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(normal_annotation.user_can(self.owner, PermissionTypes.UPDATE))
+        self.assertTrue(normal_annotation.user_can(self.owner, PermissionTypes.DELETE))
 
     def test_non_structural_relationship_can_be_modified(self):
         """Non-structural relationships CAN be modified by owner."""
@@ -240,18 +177,8 @@ class StructuralProtectionTestCase(TestCase):
 
         # Owner should be able to UPDATE and DELETE normal relationships
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                normal_relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            normal_relationship.user_can(self.owner, PermissionTypes.UPDATE)
         )
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                normal_relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            normal_relationship.user_can(self.owner, PermissionTypes.DELETE)
         )

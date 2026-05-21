@@ -30,7 +30,6 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_users_permissions_for_obj,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 User = get_user_model()
@@ -234,119 +233,35 @@ class PermissioningTestCase(TestCase):
         self.assertEqual(user_one_corpus_response["data"]["corpuses"]["totalCount"], 2)
 
         # User one should have PermissionType.READ for corpus
-        self.assertTrue(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user,
-                permission=PermissionTypes.READ,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.user, PermissionTypes.READ))
         # User twp should NOT have PermissionType.READ for corpus
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user_2,
-                permission=PermissionTypes.READ,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.user_2, PermissionTypes.READ))
 
         # User one should have PermissionType.UPDATE for corpus
-        self.assertTrue(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user,
-                permission=PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.user, PermissionTypes.UPDATE))
         # User twp should NOT have PermissionType.UPDATE for corpus
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user_2,
-                permission=PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.user_2, PermissionTypes.UPDATE))
 
         # User one should have PermissionType.DELETE for corpus
-        self.assertTrue(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user,
-                permission=PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.user, PermissionTypes.DELETE))
         # User two should NOT have PermissionType.DELETE for corpus
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user_2,
-                permission=PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.user_2, PermissionTypes.DELETE))
 
         # User one should have PermissionType.PERMISSION for corpus
-        self.assertTrue(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user,
-                permission=PermissionTypes.PERMISSION,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.user, PermissionTypes.PERMISSION))
         # User two should NOT have PermissionType.PERMISSION for corpus
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user_2,
-                permission=PermissionTypes.PERMISSION,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.user_2, PermissionTypes.PERMISSION))
 
         # User one should have PermissionType.PUBLISH for corpus
-        self.assertTrue(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user,
-                permission=PermissionTypes.PUBLISH,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.user, PermissionTypes.PUBLISH))
         # User twp should NOT have PermissionType.PUBLISH for corpus
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user_2,
-                permission=PermissionTypes.PUBLISH,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.user_2, PermissionTypes.PUBLISH))
 
         # User one should have PermissionType.ALL for corpus
-        self.assertTrue(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user,
-                permission=PermissionTypes.ALL,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.corpus.user_can(self.user, PermissionTypes.ALL))
 
         # User two should NOT have PermissionType.ALL for corpus
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=self.corpus,
-                user_val=self.user_2,
-                permission=PermissionTypes.ALL,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(self.corpus.user_can(self.user_2, PermissionTypes.ALL))
         logger.info(
             f"Retrieved permissions: "
             f"{user_one_corpus_response['data']['corpuses']['edges'][0]['node']['myPermissions']}"
@@ -938,79 +853,33 @@ class PermissioningTestCase(TestCase):
 
         # Test CREATE permission
         logger.info("Testing CREATE permission for annotation")
-        has_create = user_has_permission_for_obj(
-            instance=annotation,
-            user_val=self.user,
-            permission=PermissionTypes.CREATE,
-            include_group_permissions=True,
-        )
+        has_create = annotation.user_can(self.user, PermissionTypes.CREATE)
         self.assertTrue(has_create)
 
         # Test CRUD permission (requires all 4 base permissions)
         logger.info("Testing CRUD permission for annotation")
-        has_crud = user_has_permission_for_obj(
-            instance=annotation,
-            user_val=self.user,
-            permission=PermissionTypes.CRUD,
-            include_group_permissions=True,
-        )
+        has_crud = annotation.user_can(self.user, PermissionTypes.CRUD)
         self.assertTrue(has_crud)
 
         # Test ALL permission (includes COMMENT)
         logger.info("Testing ALL permission for annotation")
-        has_all = user_has_permission_for_obj(
-            instance=annotation,
-            user_val=self.user,
-            permission=PermissionTypes.ALL,
-            include_group_permissions=True,
-        )
+        has_all = annotation.user_can(self.user, PermissionTypes.ALL)
         self.assertTrue(has_all)
 
         # Test unsupported permissions (PUBLISH and PERMISSION should return False for annotations)
         logger.info("Testing PUBLISH permission (should be False for annotations)")
-        has_publish = user_has_permission_for_obj(
-            instance=annotation,
-            user_val=self.user,
-            permission=PermissionTypes.PUBLISH,
-            include_group_permissions=True,
-        )
+        has_publish = annotation.user_can(self.user, PermissionTypes.PUBLISH)
         self.assertFalse(has_publish)
 
         logger.info("Testing PERMISSION permission (should be False for annotations)")
-        has_permission = user_has_permission_for_obj(
-            instance=annotation,
-            user_val=self.user,
-            permission=PermissionTypes.PERMISSION,
-            include_group_permissions=True,
-        )
+        has_permission = annotation.user_can(self.user, PermissionTypes.PERMISSION)
         self.assertFalse(has_permission)
 
         # Test with user_2 who has no permissions - all should be False
         logger.info("Testing permissions for user without access")
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=annotation,
-                user_val=self.user_2,
-                permission=PermissionTypes.CREATE,
-                include_group_permissions=True,
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=annotation,
-                user_val=self.user_2,
-                permission=PermissionTypes.CRUD,
-                include_group_permissions=True,
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                instance=annotation,
-                user_val=self.user_2,
-                permission=PermissionTypes.ALL,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(annotation.user_can(self.user_2, PermissionTypes.CREATE))
+        self.assertFalse(annotation.user_can(self.user_2, PermissionTypes.CRUD))
+        self.assertFalse(annotation.user_can(self.user_2, PermissionTypes.ALL))
 
 
 class SetPermissionsIsNewTests(TestCase):
@@ -1062,7 +931,7 @@ class SetPermissionsIsNewTests(TestCase):
             PermissionTypes.PERMISSION,
         ]:
             self.assertTrue(
-                user_has_permission_for_obj(self.user, new_corpus, perm),
+                new_corpus.user_can(self.user, perm),
                 f"User must have {perm} after is_new grant",
             )
 
@@ -1074,8 +943,8 @@ class SetPermissionsIsNewTests(TestCase):
         downgraded from CRUD to READ-only: old UPDATE/DELETE perms
         must be removed.
 
-        Uses a non-creator ``shared_user`` because the Phase A
-        ``user_has_permission_for_obj`` shim routes through
+        Uses a non-creator ``shared_user`` because the
+        ``user_can`` method routes through
         ``Manager.user_can``, which applies the creator short-circuit —
         if we tested the corpus creator, UPDATE/DELETE would remain
         True even after explicit guardian perms are cleared, masking
@@ -1091,33 +960,19 @@ class SetPermissionsIsNewTests(TestCase):
         set_permissions_for_obj_to_user(
             shared_user, existing_corpus, [PermissionTypes.ALL]
         )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                shared_user, existing_corpus, PermissionTypes.UPDATE
-            )
-        )
+        self.assertTrue(existing_corpus.user_can(shared_user, PermissionTypes.UPDATE))
 
         # Downgrade to READ-only via the default (replace) path.
         set_permissions_for_obj_to_user(
             shared_user, existing_corpus, [PermissionTypes.READ]
         )
 
-        self.assertTrue(
-            user_has_permission_for_obj(
-                shared_user, existing_corpus, PermissionTypes.READ
-            )
-        )
+        self.assertTrue(existing_corpus.user_can(shared_user, PermissionTypes.READ))
         self.assertFalse(
-            user_has_permission_for_obj(
-                shared_user, existing_corpus, PermissionTypes.UPDATE
-            ),
+            existing_corpus.user_can(shared_user, PermissionTypes.UPDATE),
             "Default path must clear UPDATE when downgrading to READ-only",
         )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                shared_user, existing_corpus, PermissionTypes.DELETE
-            )
-        )
+        self.assertFalse(existing_corpus.user_can(shared_user, PermissionTypes.DELETE))
 
     def test_is_new_resolves_int_user_id(self):
         """``is_new`` must still accept an int user_id (for symmetry with
@@ -1127,6 +982,4 @@ class SetPermissionsIsNewTests(TestCase):
         set_permissions_for_obj_to_user(
             self.user.id, new_corpus, [PermissionTypes.ALL], is_new=True
         )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, new_corpus, PermissionTypes.READ)
-        )
+        self.assertTrue(new_corpus.user_can(self.user, PermissionTypes.READ))

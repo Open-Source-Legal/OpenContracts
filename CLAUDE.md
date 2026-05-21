@@ -219,7 +219,7 @@ docker compose -f production.yml up
 2. **Permission Checks**:
    - NEVER trust frontend - always check server-side
    - Use `Model.objects.visible_to_user(user)` manager method for querysets (list/filter)
-   - For a single-object check use `Model.objects.user_can(user, obj, perm)` / `obj.user_can(user, perm)` — the canonical API, paired with `visible_to_user` and pinned to agree by `opencontractserver/tests/permissioning/test_authorization_invariants.py`. In GraphQL resolvers/mutations pass `request=info.context` to engage the Tier-2 permission cache; omit it in Celery/agent/internal code. The old `user_has_permission_for_obj()` helper is a deprecated shim (emits `DeprecationWarning`, removal tracked in #1661) — do not call it in new code.
+   - For a single-object check use `Model.objects.user_can(user, obj, perm)` / `obj.user_can(user, perm)` — the canonical API, paired with `visible_to_user` and pinned to agree by `opencontractserver/tests/permissioning/test_authorization_invariants.py`. In GraphQL resolvers/mutations pass `request=info.context` to engage the Tier-2 permission cache; omit it in Celery/agent/internal code.
 
 3. **XSS Prevention**:
    - User-generated content in JSON fields must be escaped on frontend

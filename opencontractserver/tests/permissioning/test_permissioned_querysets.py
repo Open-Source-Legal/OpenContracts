@@ -799,17 +799,17 @@ class CorpusPublicPropagationEdgeCasesTest(TestCase):
         self.assertTrue(copy.is_public)
 
 
-class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
+class UserCanPrefetchFastPathTest(TestCase):
     """
-    Verifies that ``user_has_permission_for_obj`` consumes the per-user
-    permission prefetches set up by ``_apply_document_prefetches`` rather
-    than issuing a guardian query per row.
+    Verifies that ``user_can`` consumes the per-user permission prefetches
+    set up by ``_apply_document_prefetches`` rather than issuing a guardian
+    query per row.
 
     Regression coverage for issue #1555: ``DocumentType.canViewHistory`` and
     ``DocumentType.canRetry`` are selected by the shared ``GET_DOCUMENTS``
     query, so any paginated ``documents`` resolver was previously paying an
-    N+1 cost per page (each call to ``user_has_permission_for_obj`` did a
-    fresh ``.filter()`` on the related manager, bypassing the prefetch).
+    N+1 cost per page (each call to ``user_can`` did a fresh ``.filter()``
+    on the related manager, bypassing the prefetch).
     """
 
     def setUp(self):
@@ -864,60 +864,31 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
                 f"Expected {group_attr} to be set by _apply_document_prefetches",
             )
 
-    def test_user_has_permission_for_obj_no_n_plus_1_with_prefetch(self):
+    def test_user_can_no_n_plus_1_with_prefetch(self):
         """
-        With prefetched docs, calling ``user_has_permission_for_obj`` per row
-        must NOT issue any new queries — independent of N. The previous
-        implementation issued one query per row per call (and a second one for
-        the permission-id-to-name map plus a third for group perms).
+        With prefetched docs, calling ``user_can`` per row must NOT issue
+        any new queries — independent of N. The previous implementation
+        issued one query per row per call (and a second one for the
+        permission-id-to-name map plus a third for group perms).
         """
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         # Materialize the queryset (includes the prefetches).
         docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
         self.assertEqual(len(docs), 5)
 
-        # ZERO queries for direct READ checks across all rows: every lookup
-        # is satisfied from the prefetched ``_prefetched_user_perms_uid_*``
-        # list (already filtered by user_id and joined to permission codename).
+        # ZERO queries for READ checks across all rows: every lookup is
+        # satisfied from the prefetched ``_prefetched_user_perms_uid_*``
+        # list, with group perms from the matching
+        # ``_prefetched_user_group_perms_uid_*`` list (both filtered by
+        # user_id at prefetch time — ``user_can`` resolves group perms
+        # by default).
         with self.assertNumQueries(0):
             for d in docs:
-                self.assertTrue(
-                    user_has_permission_for_obj(self.viewer, d, PermissionTypes.READ)
-                )
-
-        # Same for include_group_permissions=True — group perms come from the
-        # ``_prefetched_user_group_perms_uid_*`` list, filtered to the user's
-        # groups at prefetch time.
-        with self.assertNumQueries(0):
-            for d in docs:
-                self.assertTrue(
-                    user_has_permission_for_obj(
-                        self.viewer,
-                        d,
-                        PermissionTypes.READ,
-                        include_group_permissions=True,
-                    )
-                )
+                self.assertTrue(d.user_can(self.viewer, PermissionTypes.READ))
 
         # Doc[0] has UPDATE via group membership — group prefetch path must
         # surface it. Doc[1..] only have READ, so UPDATE is denied there.
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.viewer,
-                docs[0],
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.viewer,
-                docs[1],
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(docs[0].user_can(self.viewer, PermissionTypes.UPDATE))
+        self.assertFalse(docs[1].user_can(self.viewer, PermissionTypes.UPDATE))
 
     def test_is_public_grants_read_on_prefetched_path(self):
         """
@@ -974,13 +945,9 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         the fast path is silently skipped and the legacy guardian queries
         still produce the correct answer.
         """
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         doc = Document.objects.get(pk=self.docs[0].pk)
         self.assertFalse(hasattr(doc, f"_prefetched_user_perms_uid_{self.viewer.id}"))
-        self.assertTrue(
-            user_has_permission_for_obj(self.viewer, doc, PermissionTypes.READ)
-        )
+        self.assertTrue(doc.user_can(self.viewer, PermissionTypes.READ))
 
     def test_different_user_lookup_falls_through_to_guardian(self):
         """
@@ -993,8 +960,6 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         path was actually taken — a silently-cached attribute would still
         produce ``False`` for ``other_user`` but would issue zero queries.
         """
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
         # ``other_user`` has no perms on any of these docs; the prefetch is
         # filtered by viewer.id so its presence must not cause us to
@@ -1004,11 +969,7 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         # than silently reusing the viewer's prefetched list).
         with CaptureQueriesContext(connection) as ctx:
             for d in docs:
-                self.assertFalse(
-                    user_has_permission_for_obj(
-                        self.other_user, d, PermissionTypes.READ
-                    )
-                )
+                self.assertFalse(d.user_can(self.other_user, PermissionTypes.READ))
         # Legacy path issues at least 2 queries per row (user-perm filter +
         # permission-id-to-name map). Asserting >= 2 * len(docs) pins both —
         # >= len(docs) alone would mask a partial regression.

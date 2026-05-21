@@ -15,7 +15,7 @@ from opencontractserver.extracts.models import Column, Datacell, Extract, Fields
 from opencontractserver.tasks.data_extract_tasks import (
     doc_extract_query_task,
 )
-from opencontractserver.tests.base import BaseFixtureTestCase
+from opencontractserver.tests.base import TransactionFixtureTestCase
 
 logger = logging.getLogger(__name__)
 vcr_log = logging.getLogger("vcr")
@@ -112,7 +112,7 @@ class TestDocExtractQueryTask(TransactionTestCase):
         self.assertIn("data", result, "Expected 'data' key in result")
 
 
-class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
+class TestDocExtractQueryTaskDirect(TransactionFixtureTestCase):
     """
     A test class that uses the same fixture setup as our orchestrator-based test
     but calls the doc_extract_query_task task directly on newly created Datacells.
@@ -159,7 +159,7 @@ class TestDocExtractQueryTaskDirect(BaseFixtureTestCase):
             creator=self.user,
         )
 
-        # Add documents (from BaseFixtureTestCase) to the Corpus (required for new agent API)
+        # Add documents (from TransactionFixtureTestCase) to the Corpus (required for new agent API)
         self.corpus.add_document(document=self.doc, user=self.user)
         self.corpus.add_document(document=self.doc2, user=self.user)
         self.corpus.add_document(document=self.doc3, user=self.user)

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from opencontractserver.llms import agents
 from opencontractserver.llms.types import AgentFramework
-from opencontractserver.tests.base import BaseFixtureTestCase
+from opencontractserver.tests.base import TransactionFixtureTestCase
 
 
 # Set up logging for structured data results
@@ -164,7 +164,7 @@ class CorpusInsight(BaseModel):
 
 
 @pytest.mark.asyncio
-class TestStructuredResponseAPI(BaseFixtureTestCase):
+class TestStructuredResponseAPI(TransactionFixtureTestCase):
     """Test suite for structured response extraction capabilities."""
 
     # Basic type extraction tests
@@ -984,7 +984,7 @@ class TestStructuredResponseAPI(BaseFixtureTestCase):
 
 
 @pytest.mark.asyncio
-class TestStructuredResponseAPIConvenience(BaseFixtureTestCase):
+class TestStructuredResponseAPIConvenience(TransactionFixtureTestCase):
     """Test the convenience methods in AgentAPI for structured responses."""
 
     @vcr.use_cassette(

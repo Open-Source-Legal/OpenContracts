@@ -131,7 +131,7 @@ class DocumentTypeReadPermissionTests(TestCase):
         corpus → public doc). The helper, going through
         ``Document.objects.visible_to_user``, must then grant read access to
         anonymous users on that copy. This pins the corpus-scoped visibility
-        path that motivated moving off ``user_has_permission_for_obj``.
+        path the helper relies on.
         """
         public_corpus = Corpus.objects.create(
             title="Public Corpus", creator=self.owner, is_public=True

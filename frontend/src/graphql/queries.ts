@@ -179,7 +179,7 @@ export const GET_DOCUMENT_STATS = gql`
 // metadata workflow tests) and selects a kitchen-sink of fields — including
 // expensive per-row resolvers like ``versionCount`` (an N+1 ``.count()`` per
 // document on the backend), ``canViewHistory`` / ``canRetry`` (per-row
-// ``user_has_permission_for_obj`` checks), and four file-URL fields the list
+// ``user_can`` checks), and four file-URL fields the list
 // view never renders. The Documents view only paints id / title / fileType /
 // backendLock / pageCount / icon / created / creator initials, with creator
 // slugs needed for ``navigateToDocument``. Keeping a focused query here lets

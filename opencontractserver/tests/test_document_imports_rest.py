@@ -488,12 +488,12 @@ class ImportServicesTests(TestCase):
     def test_import_document_for_user_honors_group_permission(self):
         """Phase E widening: ``import_document_for_user`` now routes the
         EDIT gate through ``corpus.user_can(...)``, which defaults to
-        ``include_group_permissions=True``. The legacy
-        ``user_has_permission_for_obj`` shim defaulted to ``False``, so a
-        user who only held ``update_corpus`` via a Django ``Group`` would
-        have been blocked before Phase E. This pins the new behavior at
-        the import-service boundary so future refactors can't quietly
-        revert to user-only checks.
+        ``include_group_permissions=True``. Earlier permission checks
+        defaulted group permissions off, so a user who only held
+        ``update_corpus`` via a Django ``Group`` would have been blocked
+        before Phase E. This pins the new behavior at the import-service
+        boundary so future refactors can't quietly revert to user-only
+        checks.
         """
         from django.contrib.auth.models import Group
         from guardian.shortcuts import assign_perm
