@@ -550,11 +550,17 @@ class PermissioningTestCase(TestCase):
             variable_values=variables,
         )
         logger.info(f"Improper permission response: {prohibited_graphql_response}")
-        self.assertEqual(prohibited_graphql_response["data"]["deleteCorpus"], None)
-        # IDOR prevention: visible_to_user() makes the corpus invisible to
-        # user_2, so a DoesNotExist error is raised instead of a permission error.
-        self.assertIn("errors", prohibited_graphql_response)
-        self.assertTrue(len(prohibited_graphql_response["errors"]) > 0)
+        # IDOR prevention: Phase D's get_for_user_or_none renders a single
+        # unified "<resource> not found or you don't have permission..."
+        # response (ok=False) instead of leaking the existence/permission
+        # distinction via a separate DoesNotExist error.
+        delete_payload = prohibited_graphql_response["data"]["deleteCorpus"]
+        self.assertIsNotNone(delete_payload)
+        self.assertFalse(delete_payload["ok"])
+        self.assertIn(
+            "not found or you don't have permission", delete_payload["message"]
+        )
+        self.assertNotIn("errors", prohibited_graphql_response)
 
     def __test_permission_annotator(self):
 

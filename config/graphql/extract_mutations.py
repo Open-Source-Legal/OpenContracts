@@ -30,7 +30,10 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    set_permissions_for_obj_to_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -879,20 +882,25 @@ class UpdateExtractMutation(graphene.Mutation):
     ) -> "UpdateExtractMutation":
         user = info.context.user
 
+        # Unified message blocks IDOR enumeration: same response whether the
+        # extract doesn't exist or the caller lacks UPDATE permission.
+        extract_not_found_msg = (
+            "Extract not found or you don't have permission to update it."
+        )
+
         try:
             extract_pk = from_global_id(id)[1]
-            extract = Extract.objects.get(pk=extract_pk)
-        except Extract.DoesNotExist:
+        except Exception:
             return UpdateExtractMutation(
-                ok=False, message="Extract not found.", obj=None
+                ok=False, message=extract_not_found_msg, obj=None
             )
 
-        # Check if the user has permission to update the Extract object
-        if not extract.user_can(user, PermissionTypes.UPDATE, request=info.context):
+        extract = get_for_user_or_none(Extract, extract_pk, user)
+        if extract is None or not extract.user_can(
+            user, PermissionTypes.UPDATE, request=info.context
+        ):
             return UpdateExtractMutation(
-                ok=False,
-                message="You don't have permission to update this extract.",
-                obj=None,
+                ok=False, message=extract_not_found_msg, obj=None
             )
 
         # Update fields
@@ -903,51 +911,44 @@ class UpdateExtractMutation(graphene.Mutation):
             extract.error = error
 
         if corpus_id is not None:
-            corpus_pk = from_global_id(corpus_id)[1]
             try:
-                corpus = Corpus.objects.get(pk=corpus_pk)
-                # Check permission
-                if not corpus.user_can(
-                    user, PermissionTypes.READ, request=info.context
-                ):
-                    return UpdateExtractMutation(
-                        ok=False,
-                        message="You don't have permission to use this corpus.",
-                        obj=None,
-                    )
-                extract.corpus = corpus
-            except Corpus.DoesNotExist:
+                corpus_pk = from_global_id(corpus_id)[1]
+            except Exception:
                 return UpdateExtractMutation(
-                    ok=False, message="Corpus not found.", obj=None
+                    ok=False,
+                    message="Corpus not found or you don't have permission to use it.",
+                    obj=None,
                 )
+            corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+            if corpus is None:
+                return UpdateExtractMutation(
+                    ok=False,
+                    message="Corpus not found or you don't have permission to use it.",
+                    obj=None,
+                )
+            extract.corpus = corpus
 
         if fieldset_id is not None:
-            fieldset_pk = from_global_id(fieldset_id)[1]
-            print(
-                f"Attempting to update extract {extract.id} with fieldset_id {fieldset_id} (pk: {fieldset_pk})"
-            )
             try:
-                fieldset = Fieldset.objects.get(pk=fieldset_pk)
-                print(f"Found fieldset {fieldset.id} for update")
-                # Check permission
-                if not fieldset.user_can(
-                    user, PermissionTypes.READ, request=info.context
-                ):
-                    print(
-                        f"User {user.id} denied permission to use fieldset {fieldset.id}"
-                    )
-                    return UpdateExtractMutation(
-                        ok=False,
-                        message="You don't have permission to use this fieldset.",
-                        obj=None,
-                    )
-                print(f"Updating extract {extract.id} fieldset to {fieldset.id}")
-                extract.fieldset = fieldset
-            except Fieldset.DoesNotExist:
-                print(f"Fieldset with pk {fieldset_pk} not found")
+                fieldset_pk = from_global_id(fieldset_id)[1]
+            except Exception:
                 return UpdateExtractMutation(
-                    ok=False, message="Fieldset not found.", obj=None
+                    ok=False,
+                    message=(
+                        "Fieldset not found or you don't have permission to use it."
+                    ),
+                    obj=None,
                 )
+            fieldset = get_for_user_or_none(Fieldset, fieldset_pk, user)
+            if fieldset is None:
+                return UpdateExtractMutation(
+                    ok=False,
+                    message=(
+                        "Fieldset not found or you don't have permission to use it."
+                    ),
+                    obj=None,
+                )
+            extract.fieldset = fieldset
 
         extract.save()
         extract.refresh_from_db()
@@ -1296,17 +1297,20 @@ class CreateExtractIteration(graphene.Mutation):
                 message=(f"axis must be one of {', '.join(EXTRACT_ITERATION_AXES)}"),
             )
 
+        # Unified message blocks IDOR enumeration: same response whether the
+        # source extract doesn't exist or the caller lacks READ permission.
+        source_not_found_msg = (
+            "Source extract not found or you don't have permission to read it."
+        )
+
         try:
             source_pk = int(from_global_id(source_extract_id)[1])
-            source = Extract.objects.get(pk=source_pk)
-        except (Extract.DoesNotExist, ValueError):
-            return CreateExtractIteration(ok=False, message="Source extract not found.")
+        except (TypeError, ValueError):
+            return CreateExtractIteration(ok=False, message=source_not_found_msg)
 
-        if not source.user_can(user, PermissionTypes.READ, request=info.context):
-            return CreateExtractIteration(
-                ok=False,
-                message="You don't have permission to read this extract.",
-            )
+        source = get_for_user_or_none(Extract, source_pk, user)
+        if source is None:
+            return CreateExtractIteration(ok=False, message=source_not_found_msg)
 
         # Pick a fieldset based on axis: clone for FIELDSET, share otherwise.
         # Shared fieldsets are the right call for MODEL/DOC drift testing

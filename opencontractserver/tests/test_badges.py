@@ -618,6 +618,82 @@ class TestBadgeGraphQLMutations(TestCase):
         self.assertFalse(result["data"]["awardBadge"]["ok"])
         self.assertEqual(result["data"]["awardBadge"]["message"], "Corpus not found")
 
+    def test_non_superuser_cannot_award_to_private_profile_recipient(self):
+        """Phase D semantic: ``AwardBadgeMutation`` resolves the recipient
+        through ``visible_to_user``. A non-superuser corpus moderator/owner
+        cannot reach a recipient whose profile is private — they get the
+        unified ``User not found`` envelope (no leak of "exists but hidden").
+
+        Superusers retain the bypass via ``UserProfileManager.visible_to_user``
+        so admin / moderation surfaces still work against private profiles.
+        """
+        # Recipient with a private profile.
+        private_recipient = User.objects.create_user(
+            username="graphqlmutations_private_recipient",
+            password="testpass123",
+            email="graphqlmutations_private@test.com",
+            is_profile_public=False,
+        )
+
+        # Corpus-scoped badge so the corpus_owner (non-superuser) clears the
+        # awarder permission gate via ``corpus.user_can(CRUD)``.
+        corpus_badge = Badge.objects.create(
+            name="Private-Recipient Badge",
+            description="Verify private-profile gate",
+            icon="Award",
+            badge_type=BadgeTypeChoices.CORPUS,
+            corpus=self.corpus,
+            creator=self.corpus_owner,
+            is_public=True,
+        )
+
+        badge_global_id = to_global_id("BadgeType", corpus_badge.id)
+        recipient_global_id = to_global_id("UserType", private_recipient.id)
+        corpus_global_id = to_global_id("CorpusType", self.corpus.id)
+
+        mutation = f"""
+            mutation AwardBadge {{
+                awardBadge(
+                    badgeId: "{badge_global_id}"
+                    userId: "{recipient_global_id}"
+                    corpusId: "{corpus_global_id}"
+                ) {{
+                    ok
+                    message
+                }}
+            }}
+        """
+
+        # Non-superuser awarder: blocked with unified "User not found".
+        non_superuser_result = self.client.execute(
+            mutation,
+            context_value=type("Request", (), {"user": self.corpus_owner})(),
+        )
+        self.assertIsNone(non_superuser_result.get("errors"))
+        self.assertFalse(non_superuser_result["data"]["awardBadge"]["ok"])
+        self.assertEqual(
+            non_superuser_result["data"]["awardBadge"]["message"],
+            "User not found",
+        )
+        self.assertFalse(
+            UserBadge.objects.filter(
+                user=private_recipient, badge=corpus_badge
+            ).exists()
+        )
+
+        # Superuser bypass still works — same payload, succeeds.
+        superuser_result = self.client.execute(
+            mutation,
+            context_value=type("Request", (), {"user": self.admin_user})(),
+        )
+        self.assertIsNone(superuser_result.get("errors"))
+        self.assertTrue(superuser_result["data"]["awardBadge"]["ok"])
+        self.assertTrue(
+            UserBadge.objects.filter(
+                user=private_recipient, badge=corpus_badge
+            ).exists()
+        )
+
 
 class TestBadgeGraphQLQueries(TestCase):
     """Test GraphQL queries for badges."""

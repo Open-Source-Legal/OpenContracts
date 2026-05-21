@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from functools import reduce
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import django
 from django.contrib.auth import get_user_model
@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+# Generic bound to ``django.db.models.Model`` so ``get_for_user_or_none`` returns
+# the concrete model type back to callers (e.g. ``Extract | None`` rather than
+# the abstract ``Model | None``). Without this, mypy can't see ``.name`` /
+# ``.fieldset`` etc. on the helper's return value.
+_T_Model = TypeVar("_T_Model", bound=django.db.models.Model)
 
 
 class _InstancePermsCache(dict):
@@ -847,3 +853,57 @@ def user_has_permission_for_obj(
         permission,
         include_group_permissions=include_group_permissions,
     )
+
+
+def get_for_user_or_none(
+    model_cls: type[_T_Model],
+    pk: Any,
+    user: UserModel | AnonymousUser | None,
+) -> _T_Model | None:
+    """IDOR-safe object lookup for non-corpus-scoped models.
+
+    Returns the instance iff it exists AND ``user`` can READ it, otherwise
+    ``None``. The single ``None`` return collapses "pk doesn't exist" and
+    "pk exists but caller lacks READ" into one indistinguishable response
+    so call sites can render a single unified error message — preventing
+    enumeration via timing or differential error text (CLAUDE.md "IDOR
+    Prevention").
+
+    Garbage pk input (non-integer string on an integer-pk model, ``None``,
+    or anything else the ORM rejects with ``ValueError`` / ``TypeError``)
+    also returns ``None`` rather than raising; callers receive untrusted
+    ids from GraphQL and must not surface a 500 on malformed input.
+
+    Caller responsibility: this helper enforces ONLY the READ gate. If the
+    mutation requires UPDATE / DELETE / PERMISSION, layer the additional
+    check (via ``user_can`` / ``user_has_permission_for_obj``) AFTER the
+    helper returns and emit the same unified ``"<resource> not found or
+    you don't have permission to <verb> it."`` message on failure so the
+    UPDATE-vs-READ branches stay indistinguishable to the caller.
+
+    For DOCUMENT lookups in a CORPUS context, prefer
+    :meth:`opencontractserver.corpuses.corpus_objs_service.CorpusObjsService.get_corpus_document_by_id`
+    instead — it enforces corpus READ as the gate (the more restrictive
+    check) and is the canonical service-layer entry point for the
+    "is this document in this corpus, for this user" question. Phase D
+    deliberately does NOT introduce a parallel doc-by-pk lookup helper
+    that would race against the service.
+    """
+
+    if pk is None:
+        return None
+    manager = model_cls._default_manager
+    if not hasattr(manager, "visible_to_user"):
+        raise TypeError(
+            f"{model_cls.__name__}._default_manager "
+            f"({type(manager).__name__}) does not implement visible_to_user(). "
+            "Use BaseVisibilityManager or implement visible_to_user before "
+            "calling get_for_user_or_none()."
+        )
+    try:
+        return manager.visible_to_user(user).filter(pk=pk).first()
+    except (ValueError, TypeError):
+        # Untrusted ids — guard against the ORM raising on a malformed pk
+        # type so the IDOR contract ("return None on bad input") holds
+        # for every garbage value, not just non-existent ones.
+        return None

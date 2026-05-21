@@ -319,7 +319,10 @@ class TestStartCorpusForkSecurity(TestCase):
         # Mutation should fail with "not found" error (IDOR protection)
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["forkCorpus"]["ok"])
-        self.assertEqual(result["data"]["forkCorpus"]["message"], "Corpus not found")
+        self.assertEqual(
+            result["data"]["forkCorpus"]["message"],
+            "Corpus not found or you don't have permission to fork it.",
+        )
         self.assertIsNone(result["data"]["forkCorpus"]["newCorpus"])
 
     def test_same_error_for_nonexistent_corpus(self):
@@ -349,7 +352,10 @@ class TestStartCorpusForkSecurity(TestCase):
         # Should get same "not found" error
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["forkCorpus"]["ok"])
-        self.assertEqual(result["data"]["forkCorpus"]["message"], "Corpus not found")
+        self.assertEqual(
+            result["data"]["forkCorpus"]["message"],
+            "Corpus not found or you don't have permission to fork it.",
+        )
 
 
 class TestStartCorpusExportSecurity(TestCase):
