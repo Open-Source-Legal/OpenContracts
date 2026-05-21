@@ -52,6 +52,17 @@ class ServiceResult(Generic[T]):
             raise ValueError("ServiceResult.failure requires a non-empty error message")
         return cls(value=None, error=error)
 
+    def __post_init__(self) -> None:
+        # Guard the bare constructor against contradictory states. A failure
+        # carries no value; a success carries no error. Callers should use
+        # success() / failure(), but the frozen dataclass still exposes the
+        # default constructor, so pin the invariant here.
+        if self.value is not None and self.error:
+            raise ValueError(
+                "ServiceResult cannot carry both a value and an error; "
+                "use ServiceResult.success() or ServiceResult.failure()"
+            )
+
     def __iter__(self) -> Iterator[Any]:
         """Yield ``(value, error)`` for backward-compatible tuple unpacking."""
         yield self.value
@@ -97,6 +108,13 @@ def get_for_user_or_none(
         permission = PermissionTypes.READ
 
     try:
+        if permission == PermissionTypes.READ:
+            # Fast path for the high-frequency READ case: ``visible_to_user``
+            # encodes exactly the READ visibility rule (the
+            # ``visible_to_user ⟺ user_can(READ)`` invariant is pinned by
+            # test_authorization_invariants), so a single filtered query
+            # replaces the fetch-then-check round-trip below.
+            return model.objects.visible_to_user(user).filter(pk=pk).first()
         instance = model.objects.get(pk=pk)
     except model.DoesNotExist:
         return None

@@ -92,10 +92,10 @@ class BaseService:
             return ""
         if error_message is not None:
             return error_message
-        return (
-            f"Permission denied: cannot {permission.value} "
-            f"this {type(instance).__name__}"
-        )
+        # ``permission`` is typically a PermissionTypes enum, but fall back to
+        # its string form so a plain-string permission cannot raise here.
+        action = getattr(permission, "value", permission)
+        return f"Permission denied: cannot {action} this {type(instance).__name__}"
 
     @staticmethod
     def log_action(action: str, instance: Any, user: Any, **extra: Any) -> None:
@@ -108,7 +108,7 @@ class BaseService:
             **extra: Additional ``key=value`` context appended to the line.
         """
         suffix = (
-            " " + " ".join(f"{key}={value}" for key, value in extra.items())
+            " " + " ".join(f"{key}={value!r}" for key, value in extra.items())
             if extra
             else ""
         )

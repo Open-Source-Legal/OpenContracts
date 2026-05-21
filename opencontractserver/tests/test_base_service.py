@@ -242,7 +242,7 @@ class TestBaseServiceLogAction(TestCase):
             "opencontractserver.shared.services.base", level="INFO"
         ) as captured:
             BaseService.log_action("Updated", self.corpus, self.owner, field="title")
-        self.assertIn("field=title", "\n".join(captured.output))
+        self.assertIn("field='title'", "\n".join(captured.output))
 
 
 class TestServicesPackageExports(SimpleTestCase):

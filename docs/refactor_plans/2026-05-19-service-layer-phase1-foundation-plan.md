@@ -43,7 +43,7 @@ Run backend tests inside Docker. The full suite takes 30+ minutes — this plan 
 - Create: `opencontractserver/shared/services/conventions.py`
 - Test: `opencontractserver/tests/test_base_service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `opencontractserver/tests/test_base_service.py`:
 
@@ -98,12 +98,12 @@ class TestServiceResult(SimpleTestCase):
         self.assertEqual(error, "nope")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestServiceResult --keepdb`
 Expected: FAIL — `ModuleNotFoundError: No module named 'opencontractserver.shared.services'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `opencontractserver/shared/services/conventions.py`:
 
@@ -167,12 +167,12 @@ class ServiceResult(Generic[T]):
         yield self.error
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestServiceResult --keepdb`
 Expected: PASS — 4 tests OK
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add opencontractserver/shared/services/conventions.py opencontractserver/tests/test_base_service.py
@@ -187,7 +187,7 @@ git commit -m "Add ServiceResult write-result envelope (service layer Phase 1)"
 - Modify: `opencontractserver/shared/services/conventions.py`
 - Test: `opencontractserver/tests/test_base_service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `opencontractserver/tests/test_base_service.py`:
 
@@ -241,12 +241,12 @@ class TestGetForUserOrNone(TestCase):
         self.assertEqual(result, self.corpus)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestGetForUserOrNone --keepdb`
 Expected: FAIL — `ImportError: cannot import name 'get_for_user_or_none'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append to `opencontractserver/shared/services/conventions.py`:
 
@@ -307,12 +307,12 @@ def get_for_user_or_none(
 
 No import-block change is needed — `Any`, `Generic`, and `TypeVar` are already imported from Task 1, and `PermissionTypes` is imported lazily inside the function body.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestGetForUserOrNone --keepdb`
 Expected: PASS — 5 tests OK
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add opencontractserver/shared/services/conventions.py opencontractserver/tests/test_base_service.py
@@ -327,7 +327,7 @@ git commit -m "Add IDOR-safe get_for_user_or_none lookup (service layer Phase 1)
 - Create: `opencontractserver/shared/services/base.py`
 - Test: `opencontractserver/tests/test_base_service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `opencontractserver/tests/test_base_service.py`:
 
@@ -383,12 +383,12 @@ class TestBaseServiceLookup(TestCase):
         self.assertNotIn(self.corpus.pk, visible_ids)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestBaseServiceLookup --keepdb`
 Expected: FAIL — `ModuleNotFoundError: No module named 'opencontractserver.shared.services.base'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `opencontractserver/shared/services/base.py`:
 
@@ -453,12 +453,12 @@ class BaseService:
         return model.objects.visible_to_user(user)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestBaseServiceLookup --keepdb`
 Expected: PASS — 4 tests OK
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add opencontractserver/shared/services/base.py opencontractserver/tests/test_base_service.py
@@ -473,7 +473,7 @@ git commit -m "Add BaseService with get_or_none and filter_visible (service laye
 - Modify: `opencontractserver/shared/services/base.py`
 - Test: `opencontractserver/tests/test_base_service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `opencontractserver/tests/test_base_service.py`:
 
@@ -529,12 +529,12 @@ class TestBaseServiceRequirePermission(TestCase):
         self.assertEqual(error, "")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestBaseServiceRequirePermission --keepdb`
 Expected: FAIL — `AttributeError: type object 'BaseService' has no attribute 'require_permission'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append a new method to the `BaseService` class in `opencontractserver/shared/services/base.py` (after `filter_visible`):
 
@@ -576,12 +576,12 @@ Append a new method to the `BaseService` class in `opencontractserver/shared/ser
         )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestBaseServiceRequirePermission --keepdb`
 Expected: PASS — 4 tests OK
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add opencontractserver/shared/services/base.py opencontractserver/tests/test_base_service.py
@@ -597,7 +597,7 @@ git commit -m "Add BaseService.require_permission write gate (service layer Phas
 - Create: `opencontractserver/shared/services/__init__.py`
 - Test: `opencontractserver/tests/test_base_service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `opencontractserver/tests/test_base_service.py`:
 
@@ -662,12 +662,12 @@ class TestServicesPackageExports(SimpleTestCase):
         self.assertTrue(callable(exported_lookup))
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service.TestBaseServiceLogAction opencontractserver.tests.test_base_service.TestServicesPackageExports --keepdb`
 Expected: FAIL — `AttributeError: type object 'BaseService' has no attribute 'log_action'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append a new method to the `BaseService` class in `opencontractserver/shared/services/base.py` (after `require_permission`):
 
@@ -715,12 +715,12 @@ from opencontractserver.shared.services.conventions import (
 __all__ = ["BaseService", "ServiceResult", "get_for_user_or_none"]
 ```
 
-- [ ] **Step 4: Run the full test module to verify everything passes**
+- [x] **Step 4: Run the full test module to verify everything passes**
 
 Run: `docker compose -f test.yml run --rm django python manage.py test opencontractserver.tests.test_base_service --keepdb`
 Expected: PASS — all tests OK (4 + 5 + 4 + 4 + 2 + 1 = 20 tests)
 
-- [ ] **Step 5: Run pre-commit and commit**
+- [x] **Step 5: Run pre-commit and commit**
 
 Run pre-commit first (CLAUDE.md baseline rule — black, isort, flake8 must pass):
 
