@@ -125,6 +125,10 @@ class TestPermission_SuperuserBypassesAllChecks(TestCase):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
         )
+        # Username must be globally unique, not a generic "admin": under
+        # ``pytest -n --dist loadscope`` a single worker DB is shared across
+        # many test files, and a plain "admin" superuser collides with ones
+        # created by other modules on that worker.
         self.superuser = User.objects.create_superuser(
             username="su_bypass_admin",
             email="su_bypass_admin@test.com",

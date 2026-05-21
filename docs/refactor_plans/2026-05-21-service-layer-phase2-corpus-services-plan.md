@@ -193,10 +193,14 @@ reference the segmented package.
   in `corpus_objs_service.py`, not in `services/`. The `services/` package is
   born clean — it never contains the deprecated facade — and Phase C deletes
   the facade simply by deleting the shim file.
-- **No runtime `DeprecationWarning` from the shim.** A module-level warning
-  would fire across all ~37 importers on every test run for marginal benefit
-  (Phase C locates importers statically via grep). Deprecation is documented
-  in the module/class docstrings and the changelog instead.
+- **Runtime `DeprecationWarning` from the shim.** The shim issues a
+  module-level `DeprecationWarning` on import. It fires once per process (the
+  module body runs only on the first import — subsequent imports hit the module
+  cache), so the cost is a single warning, not one per importer. This makes the
+  deprecation observable in CI logs and the test runner's warning capture and
+  gives Phase 2C a runtime signal for call-site discovery in addition to static
+  grep. Deprecation is also documented in the module/class docstrings and the
+  changelog.
 
 ## 7. Testing strategy
 

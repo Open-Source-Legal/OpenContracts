@@ -184,6 +184,23 @@ class TestCorpusObjsServiceShimFacade(SimpleTestCase):
         self.assertIs(shim.DocumentLifecycleService, DocumentLifecycleService)
         self.assertIs(shim.CorpusPathService, CorpusPathService)
 
+    def test_shim_import_emits_deprecation_warning(self):
+        """Importing the shim fires a ``DeprecationWarning`` — the runtime
+        signal Phase 2C relies on for call-site discovery."""
+        import importlib
+        import warnings
+
+        from opencontractserver.corpuses import corpus_objs_service as shim
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            importlib.reload(shim)
+
+        self.assertTrue(
+            any(issubclass(w.category, DeprecationWarning) for w in caught),
+            "shim import should emit a DeprecationWarning",
+        )
+
 
 # =============================================================================
 # 3. STANDALONE OPERATION OF EACH SEGMENTED SERVICE

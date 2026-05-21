@@ -43,7 +43,7 @@ warnings.warn(
     "opencontractserver.corpuses.services instead. This shim is removed once all "
     "call sites are migrated (issue #1716, Phase 2C).",
     DeprecationWarning,
-    stacklevel=2,
+    stacklevel=1,
 )
 
 __all__ = [
