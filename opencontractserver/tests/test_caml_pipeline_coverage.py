@@ -322,6 +322,94 @@ class CorpusResolveDocumentsIncludesCamlTest(TestCase):
         self.assertIn("Readme.CAML", titles)
 
 
+class CorpusResolveDocumentsRespectsDocumentVisibilityTest(TestCase):
+    """The CorpusType.documents resolver enforces the MIN-permission model:
+    a private document inside a corpus the user can READ stays hidden unless
+    the user also has document-level access (issue #1682).
+
+    Regression guard — the resolver previously delegated to the corpus-as-gate
+    ``get_corpus_documents``, which leaked private documents through the
+    GraphQL ``documents`` field of any corpus the user could merely read.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="min_resolve_owner", password="password"
+        )
+        # The collaborator gets corpus READ but only document-level READ on
+        # the "visible" document — never on the "private" one.
+        self.collaborator = User.objects.create_user(
+            username="min_resolve_collaborator", password="password"
+        )
+        # Private corpus: corpus READ is granted explicitly (guardian), not
+        # via is_public, so document is_public is NOT auto-propagated.
+        self.corpus = Corpus.objects.create(
+            title="MIN Resolve Corpus", creator=self.owner, is_public=False
+        )
+
+        source_visible = Document.objects.create(
+            title="Visible.pdf",
+            creator=self.owner,
+            file_type="application/pdf",
+        )
+        self.visible_doc, _, _ = self.corpus.add_document(
+            document=source_visible, user=self.owner
+        )
+
+        source_private = Document.objects.create(
+            title="Private.pdf",
+            creator=self.owner,
+            file_type="application/pdf",
+        )
+        self.private_doc, _, _ = self.corpus.add_document(
+            document=source_private, user=self.owner
+        )
+
+        set_permissions_for_obj_to_user(
+            self.collaborator, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.collaborator, self.visible_doc, [PermissionTypes.READ]
+        )
+
+    def _document_titles(self, user):
+        """Run the corpus.documents query as ``user`` and return doc titles."""
+        query = """
+        query($id: ID!) {
+            corpus(id: $id) {
+                documents { edges { node { title } } }
+            }
+        }
+        """
+        client = Client(schema, context_value=TestContext(user))
+        result = client.execute(
+            query,
+            variable_values={"id": to_global_id("CorpusType", self.corpus.id)},
+        )
+        return [
+            e["node"]["title"] for e in result["data"]["corpus"]["documents"]["edges"]
+        ]
+
+    def test_collaborator_cannot_see_private_document(self):
+        """A collaborator with corpus READ but no document-level access to
+        the private document must NOT see it through corpus.documents."""
+        titles = self._document_titles(self.collaborator)
+        self.assertIn("Visible.pdf", titles)
+        self.assertNotIn(
+            "Private.pdf",
+            titles,
+            "Private document leaked through the corpus.documents resolver "
+            "despite the collaborator lacking document-level access "
+            "(issue #1682).",
+        )
+
+    def test_owner_sees_all_documents(self):
+        """The corpus owner has document-level access to every document."""
+        titles = self._document_titles(self.owner)
+        self.assertIn("Visible.pdf", titles)
+        self.assertIn("Private.pdf", titles)
+
+
 class CorpusDocumentCountExcludesCamlGraphQLTest(TestCase):
     """Test that the corpus document count subquery excludes CAML files."""
 

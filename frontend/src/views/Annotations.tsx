@@ -104,12 +104,24 @@ const StatsRow = styled.div`
     grid-template-columns: 1fr 1fr;
     gap: 16px;
   }
+
+  /* On phones a 2-column grid leaves each label only ~110px beside the
+     fixed-width icon, so multi-word labels wrap to 3 cramped lines. Drop
+     to a single column so each stat gets the full row width. */
+  @media (max-width: 480px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const StatItem = styled.div`
   display: flex;
   align-items: center;
   gap: 12px;
+  /* Equal share of the row so the four stats fill the card width instead
+     of packing left with dead space; min-width:0 lets long labels wrap
+     rather than force the item wider than its quarter. */
+  flex: 1;
+  min-width: 0;
 
   @media (max-width: 768px) {
     padding: 12px;
@@ -150,6 +162,7 @@ const StatLabel = styled.div`
 const StatDivider = styled.div`
   width: 1px;
   height: 40px;
+  flex-shrink: 0;
   background: ${OS_LEGAL_COLORS.border};
 
   @media (max-width: 768px) {

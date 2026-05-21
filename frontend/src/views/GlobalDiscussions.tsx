@@ -289,7 +289,7 @@ export const GlobalDiscussions: React.FC = () => {
   }, [searchParams]);
 
   return (
-    <DiscoveryContainer>
+    <DiscoveryContainer $fabClearance>
       <DiscoveryHeader>
         <TitleRow>
           <DiscoveryTitle>Discussions</DiscoveryTitle>

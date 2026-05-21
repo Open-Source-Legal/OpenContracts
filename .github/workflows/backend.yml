@@ -161,19 +161,35 @@ jobs:
           docker stats --no-stream
           free -h
 
-      - name: Build Pytest Coverage File
+      - name: Run Backend Test Suite
         timeout-minutes: 100
         run: |
-          # Run the full test suite with coverage using parallel workers
-          # pytest-cov with pytest-xdist handles coverage merging automatically
-          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope -v
+          # Coverage instrumentation (coverage.py's C trace function under
+          # Python 3.11 — sys.monitoring/COVERAGE_CORE=sysmon needs 3.12+)
+          # adds noticeable wall time to the run. Gate it on the event type:
+          # pushes to a protected branch upload a fresh report to Codecov,
+          # while pull-request runs skip --cov for faster feedback. Coverage
+          # is therefore still measured on every merge to a protected
+          # branch, so the tracked metric on main is unaffected.
+          #
+          # pytest-cov + pytest-xdist handle per-worker coverage merging.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            COV_ARGS="--cov --cov-report=xml"
+          else
+            COV_ARGS=""
+          fi
+          docker compose -f test.yml run django pytest $COV_ARGS -n auto --dist loadscope
 
       - name: Verify Coverage File Exists
+        # Coverage is only produced on push events (see the gate above).
+        if: github.event_name == 'push'
         run: |
           # Verify coverage.xml exists in the working directory
           ls -la coverage.xml
 
       - name: Upload Coverage Reports to Codecov
+        # PR runs skip --cov, so there is nothing to upload on pull_request.
+        if: github.event_name == 'push'
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -24,9 +24,20 @@ Permission Model (from consolidated_permissioning_guide.md)
 - CorpusFolder objects inherit ALL permissions from parent Corpus.
 - Write operations require: corpus creator OR corpus UPDATE permission.
 - corpus.is_public=True grants READ-ONLY access, NOT write access.
-- Document read access via ``get_corpus_documents`` uses the corpus-as-gate
-  semantic: corpus READ unlocks every document with an active path in that
-  corpus.
+- Document read access exposes TWO deliberate, separately-named semantics
+  (issue #1682 — no hidden semantic flips):
+
+  * ``get_corpus_documents`` is **corpus-as-gate**: corpus READ unlocks
+    every document with an active path in that corpus. This is the
+    documented default for pipeline-facing callers (MCP, discovery,
+    badge / analysis tasks) that legitimately operate over every
+    document in a readable corpus.
+  * ``get_corpus_documents_visible_to_user`` enforces
+    **MIN(document_permission, corpus_permission)**: a private document
+    in a public (or shared) corpus stays hidden from a user without
+    document-level READ. User-facing surfaces that must not leak private
+    documents (e.g. the GraphQL ``CorpusType.documents`` field) use this
+    variant.
 """
 
 from __future__ import annotations
@@ -73,6 +84,7 @@ class CorpusObjsService:
 
         # Corpus-scoped document reads
         docs = CorpusObjsService.get_corpus_documents(user, corpus)
+        docs = CorpusObjsService.get_corpus_documents_visible_to_user(user, corpus)
         doc = CorpusObjsService.get_corpus_document_by_slug(user, corpus, slug)
         doc = CorpusObjsService.get_corpus_document_by_id(user, corpus, doc_id)
         is_member = CorpusObjsService.is_document_in_corpus(user, corpus, doc_id)
@@ -2665,6 +2677,11 @@ class CorpusObjsService:
             Requires corpus READ permission (corpus-as-gate semantic: if the
             user has corpus READ, every document with an active path in that
             corpus is returned).
+
+        See Also:
+            :meth:`get_corpus_documents_visible_to_user` for the
+            MIN-permission variant that additionally hides documents the
+            user cannot see at the document level.
         """
         from opencontractserver.documents.models import Document
 
@@ -2676,6 +2693,75 @@ class CorpusObjsService:
             include_deleted=include_deleted,
             include_caml=include_caml,
         )
+
+    @classmethod
+    def get_corpus_documents_visible_to_user(
+        cls,
+        user: UserOrAnonymous,
+        corpus: Corpus,
+        include_deleted: bool = False,
+        include_caml: bool = False,
+        *,
+        request: Any = None,
+    ) -> QuerySet[Document]:
+        """
+        Get the documents in a corpus under the MIN-permission semantic.
+
+        Unlike :meth:`get_corpus_documents` (corpus-as-gate: corpus READ
+        unlocks every document in the corpus), this method additionally
+        intersects the corpus document set with
+        ``Document.objects.visible_to_user`` so a document is returned only
+        when the user can see it at BOTH levels::
+
+            Effective Permission = MIN(document_permission, corpus_permission)
+
+        A private document inside a public — or merely shared — corpus is
+        therefore hidden from a user who lacks document-level access,
+        matching the permission model documented in
+        ``docs/permissioning/consolidated_permissioning_guide.md`` and the
+        ``CLAUDE.md`` Permission System section.
+
+        Use this for user-facing surfaces that must not leak private
+        documents through a corpus the user can merely read (e.g. the
+        GraphQL ``CorpusType.documents`` field). Use
+        :meth:`get_corpus_documents` for corpus-as-gate surfaces (MCP,
+        discovery, badge / analysis pipelines) where corpus READ is the
+        intended single gate.
+
+        Args:
+            user: Requesting user
+            corpus: Corpus to get documents from
+            include_deleted: Whether to include soft-deleted documents
+            include_caml: Whether to include CAML / markdown documents
+                (see :meth:`get_corpus_documents` for the default rationale)
+            request: Optional request object for the per-request
+                permission cache
+
+        Returns:
+            QuerySet of documents the user can see at both the corpus and
+            the document level (empty if the user lacks corpus READ).
+
+        Permissions:
+            Requires corpus READ permission AND, per document, document-level
+            READ (creator / ``is_public`` / guardian grant). IDOR-safe: a
+            user without corpus READ gets an empty queryset, indistinguishable
+            from an empty corpus.
+        """
+        from opencontractserver.documents.models import Document
+
+        if not corpus.user_can(user, PermissionTypes.READ, request=request):
+            return Document.objects.none()
+
+        # Corpus READ confirmed (the corpus side of MIN). Now intersect with
+        # the document-level visibility set (the document side of MIN) so
+        # private documents do not leak through a readable corpus.
+        corpus_doc_ids = cls._build_corpus_documents_queryset(
+            corpus,
+            include_deleted=include_deleted,
+            include_caml=include_caml,
+        ).values_list("pk", flat=True)
+
+        return Document.objects.visible_to_user(user).filter(pk__in=corpus_doc_ids)
 
     @classmethod
     def get_corpus_document_by_slug(
