@@ -27,7 +27,10 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
-from django.test import RequestFactory, TransactionTestCase
+
+# TransactionTestCase retained for Tier1CacheThreadSafetyTestCase, which
+# spawns OS threads and needs real commits visible across connections.
+from django.test import RequestFactory, TestCase, TransactionTestCase
 
 from opencontractserver.constants.permissioning import (
     INSTANCE_PERMS_CACHE_ATTR,
@@ -48,7 +51,7 @@ from opencontractserver.utils.permissioning import (
 User = get_user_model()
 
 
-class PerInstanceMemoizationTestCase(TransactionTestCase):
+class PerInstanceMemoizationTestCase(TestCase):
     """Tier 1: per-instance memoization."""
 
     def setUp(self):
@@ -414,7 +417,7 @@ class Tier1CacheThreadSafetyTestCase(TransactionTestCase):
         drop.assert_called_once_with(cache, reader_a.id)
 
 
-class PermissionQueryOptimizerTestCase(TransactionTestCase):
+class PermissionQueryOptimizerTestCase(TestCase):
     """Tier 2: request-scoped optimizer."""
 
     def setUp(self):
@@ -579,7 +582,7 @@ class PermissionQueryOptimizerTestCase(TransactionTestCase):
         self.assertEqual(len(optimizer._cache), 0)
 
 
-class MutationInvalidationTestCase(TransactionTestCase):
+class MutationInvalidationTestCase(TestCase):
     """``set_permissions_for_obj_to_user`` clears both tiers when given a
     request, so subsequent ``user_can`` checks reflect the new state."""
 
@@ -642,7 +645,7 @@ class MutationInvalidationTestCase(TransactionTestCase):
         self.assertTrue(self.corpus.user_can(self.target, PermissionTypes.UPDATE))
 
 
-class ManagerAndInstanceRequestPassthroughTestCase(TransactionTestCase):
+class ManagerAndInstanceRequestPassthroughTestCase(TestCase):
     """The new ``request=`` kwarg on ``Manager.user_can`` and
     ``obj.user_can`` is plumbed through to ``_default_user_can`` and the
     optimizer.
@@ -686,7 +689,7 @@ class ManagerAndInstanceRequestPassthroughTestCase(TransactionTestCase):
         self.assertEqual(len(optimizer._cache), 1)
 
 
-class DefaultUserCanCoverageTestCase(TransactionTestCase):
+class DefaultUserCanCoverageTestCase(TestCase):
     """Direct coverage for the centralized ``_default_user_can`` body.
 
     Pins each permission-type branch (CREATE/UPDATE/EDIT/DELETE/COMMENT/
@@ -951,7 +954,7 @@ class DefaultUserCanCoverageTestCase(TransactionTestCase):
         )
 
 
-class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
+class SetPermissionsInvalidationCoverageTestCase(TestCase):
     """Cover the cache-invalidation branches in
     ``set_permissions_for_obj_to_user`` that the existing test suite
     leaves implicit.
@@ -1032,7 +1035,7 @@ class SetPermissionsInvalidationCoverageTestCase(TransactionTestCase):
         )
 
 
-class Tier1PicklingScrubTestCase(TransactionTestCase):
+class Tier1PicklingScrubTestCase(TestCase):
     """``InstanceUserCanMixin.__getstate__`` strips the Tier 1 cache.
 
     The Tier 1 per-instance cache is stashed on ``instance.__dict__`` under
@@ -1085,7 +1088,7 @@ class Tier1PicklingScrubTestCase(TransactionTestCase):
         self.assertNotIn(INSTANCE_PERMS_CACHE_ATTR, state)
 
 
-class CorpusObjsServiceRequestKwargCoverageTestCase(TransactionTestCase):
+class CorpusObjsServiceRequestKwargCoverageTestCase(TestCase):
     """Smoke coverage for the ``request=`` kwarg flowing through the
     ``CorpusObjsService`` permission gates.
 

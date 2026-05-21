@@ -806,6 +806,22 @@ class EnabledComponentsMutationTestCase(TestCase):
         # save() may re-populate the cache; clear it so tests start fresh.
         cache.delete(PipelineSettings.CACHE_KEY)
 
+    def tearDown(self):
+        """Clear the PipelineSettings singleton cache after every test.
+
+        The ``PipelineSettings`` singleton is cached in a process-global
+        ``LocMemCache`` that is NOT transaction-aware. This class's ``setUp``
+        sets ``default_embedder=""``; a rejection-path mutation under test
+        then calls ``get_instance(use_cache=True)``, which caches the
+        empty-embedder instance. The DB row rolls back on test teardown, but
+        the cached Python object does not — so without this cleanup it
+        poisons every later test class on the same xdist worker (agent /
+        vector-store tests fail with "resolved no embedder_path").
+        """
+        from django.core.cache import cache
+
+        cache.delete(PipelineSettings.CACHE_KEY)
+
     def _get_real_component_paths(self):
         """Return a dict with real component paths from the registry."""
         from opencontractserver.pipeline.registry import get_registry

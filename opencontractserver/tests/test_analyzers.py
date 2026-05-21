@@ -11,7 +11,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models.signals import post_save
-from django.test.testcases import TransactionTestCase
+from django.test import TestCase
 from rest_framework.test import APIClient
 
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-class TestOpenContractsAnalyzers(TransactionTestCase):
+class TestOpenContractsAnalyzers(TestCase):
     @factory.django.mute_signals(post_save)
     def setUp(self):
 

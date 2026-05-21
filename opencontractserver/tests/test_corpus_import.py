@@ -5,7 +5,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TransactionTestCase
+from django.test import TestCase
 
 from opencontractserver.annotations.compact_json import expand_annotation_json
 from opencontractserver.annotations.models import (
@@ -99,7 +99,7 @@ EXPECTED_ACTIVE_BOUNDS = {
 }
 
 
-class TestCorpusImport(TransactionTestCase):
+class TestCorpusImport(TestCase):
     """
     Tests for the corpus import pipeline.
 

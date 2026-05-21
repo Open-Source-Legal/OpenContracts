@@ -13,14 +13,14 @@ export class TermsOfService extends Component {
           }}
         >
           <br />
-          <p>
-            <h1>Open Contracts - Terms of Service</h1>
+          <h1>Open Contracts - Terms of Service</h1>
+          <div style={{ marginBottom: "1em" }}>
             <strong>Last Updated: March 20, 2021</strong>
-          </p>
+          </div>
           <br />
         </div>
         <div style={{ maxWidth: "700px", margin: "0 auto", padding: "0 1rem" }}>
-          <p>
+          <div style={{ marginBottom: "1em" }}>
             This Terms of Service ("Agreement") is a legal agreement between you
             (referred to herein as "you" or "your") and Gordium Knot, Inc.
             ("we", "our", or "us") for access to and use of our website (the
@@ -28,8 +28,8 @@ export class TermsOfService extends Component {
             downloads operated by us and that are available through the Website
             (whether accessed directly or through any software Website)
             (collectively, the "Service").
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             BY ACCESSING OR USING THE SERVICE, YOU AGREE TO BE BOUND BY THE
             TERMS AND CONDITIONS OF THIS AGREEMENT, WHETHER OR NOT YOU ARE A
             REGISTERED USER OF OUR SERVICE. IF ANY OF THESE TERMS ARE
@@ -38,9 +38,9 @@ export class TermsOfService extends Component {
             THE SERVICE NOW, OR FOLLOWING THE POSTING OF ANY CHANGES IN THIS
             AGREEMENT, WILL INDICATE ACCEPTANCE AND AGREEMENT BY YOU OF SUCH
             CHANGES.
-          </p>
+          </div>
           <h2>Your Use of the OpenContracts Service</h2>
-          <p>
+          <div style={{ marginBottom: "1em" }}>
             We provide the Service for experimentation purposes only. You may
             not rely on any information, data, contract, label set, markup
             export file, or other materials obtained through the Service for any
@@ -49,8 +49,8 @@ export class TermsOfService extends Component {
             in any respect, or necessarily endorse the content found on
             third­-party Websites or services. You assume sole responsibility
             for your use of third­party links, Websites, products and services.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <u>You further agree that:</u>
             <ol style={{ paddingLeft: "1.5rem" }}>
               <li>
@@ -71,8 +71,8 @@ export class TermsOfService extends Component {
                 purpose or any other warranties, express or implied.
               </li>
             </ol>
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             You acknowledge and agree that your use of the Service, including,
             without limitation, the storage of any data, files, information
             and/or other materials on a server owned or under our control or in
@@ -85,8 +85,8 @@ export class TermsOfService extends Component {
             deem, in our sole discretion, such data to be in violation of this
             Agreement and/or any rule or policy of ours and/or any local, state,
             or federal law or regulation
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             We cannot always foresee or anticipate technical or other
             difficulties which may result in failure to obtain data or loss of
             data, personalization settings, or other interruptions. We cannot
@@ -94,8 +94,8 @@ export class TermsOfService extends Component {
             non­delivery or failure to store any user data, communications or
             settings, and you agree we have no obligation to provide you with
             any notice of any downtime, system failures or bugs.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <u>You represent, warrant, and agree that you will not:</u>
             <ol style={{ paddingLeft: "1.5rem" }}>
               <li>
@@ -184,8 +184,8 @@ export class TermsOfService extends Component {
                 from the Service by us;
               </li>
             </ol>
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Provision of Service by Us</h2>
             You acknowledge and agree that the form and nature of the Service
             which we provide may change from time to time without prior notice
@@ -194,9 +194,9 @@ export class TermsOfService extends Component {
             the Service (or any features or programs or Content within the
             Service) to you or to users generally at our sole discretion,
             without liability or prior notice to you.
-          </p>
+          </div>
 
-          <p>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Content in the Service.</h2>
             You understand that all information and materials (including,
             without limitation, data files, written text, computer software,
@@ -217,8 +217,8 @@ export class TermsOfService extends Component {
             by the owners of that Content, in writing. We reserve the right (but
             shall have no obligation) to pre­screen, review, flag, filter,
             modify, refuse or remove any or all Content.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Intellectual Property</h2>
             You acknowledge and agree that we (or our licensors) own all legal
             right, title and interest in and to the Service, including, without
@@ -232,8 +232,8 @@ export class TermsOfService extends Component {
             logo of any company or organization in a way that is likely or
             intended to cause confusion about the owner or authorized user of
             such marks, names or logos.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Privacy Policy</h2>
             For information about our data protection practices, please read our
             privacy policy available{" "}
@@ -241,8 +241,8 @@ export class TermsOfService extends Component {
             policy explains how we treat your personal information, and how we
             protect your privacy when you use the Service. You agree to the use
             of your data in accordance with our privacy policy.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>No Warranties</h2>
             THE SERVICE IS PROVIDED TO YOU ON AN "AS IS" AND "AS AVAILABLE"
             BASIS, WITHOUT WARRANTY OR REPRESENTATION OF ANY KIND. TO THE
@@ -263,8 +263,8 @@ export class TermsOfService extends Component {
             OR PUBLISHING IT, AND YOU AGREE THAT WE ARE ONLY ACTING AS A PASSIVE
             CONDUIT FOR YOUR AND OTHER USERS’ ONLINE DISTRIBUTION AND
             PUBLICATION OF CONTENT PROVIDED BY YOU AND THEM.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Disclaimer of Liability</h2>
             TO THE FULLEST EXTENT PERMITTED BY LAW, IN NO EVENT SHALL WE, OUR
             PARENTS, SUBSIDIARIES, AFFILIATES, OR ANY OF THEIR DIRECTORS,
@@ -296,8 +296,8 @@ export class TermsOfService extends Component {
             administrative or regulatory authority or court, including but not
             limited to those related to export and import of software, technical
             information or services.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Release and Indemnification</h2>
             You agree to release, indemnify and hold harmless us, our parents,
             subsidiaries, affiliates, directors, members, officers, employees,
@@ -323,8 +323,8 @@ export class TermsOfService extends Component {
             that is the subject of your obligations hereunder. For the avoidance
             of doubt, this section shall survive the termination of this
             Agreement.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Term and Termination.</h2>
             This Agreement is effective until terminated by us or you. We shall
             have the right to terminate this Agreement including, without
@@ -336,8 +336,8 @@ export class TermsOfService extends Component {
             your user account on the Service and discontinuing use of any and
             all parts of the Service. Upon termination of this Agreement for any
             reason, you shall immediately cease using the Service.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Governing Law and Venue for Disputes.</h2>
             This Agreement, and your relationship with us under this Agreement,
             shall be governed by the laws of the State of New York without
@@ -351,8 +351,8 @@ export class TermsOfService extends Component {
             arbitration by phone or via document submission to the fullest
             extent allowable by the arbitrator. Each party will bear their own
             costs of arbitration.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>No Class Acton.</h2>
             You agree to resolve any disputes related to this Agreement as an
             individual and not as a class or join any class. You understand
@@ -373,24 +373,24 @@ export class TermsOfService extends Component {
                 IN ANY LAWSUIT INVOLVING ANY SUCH DISPUTE.
               </li>
             </ul>
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Severability</h2>
             If any provision in this Agreement is invalid or unenforceable or
             contrary to applicable law, such provision shall be construed,
             limited, or altered, as necessary, to eliminate the invalidity or
             unenforceability or the conflict with applicable law, and all other
             provisions of this Agreement shall remain in effect.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Assignment, Sublease and/or Transfer</h2>
             You may not assign, sublicense, or transfer this Agreement or any
             rights or obligations hereunder without our prior written consent.
             Any such attempted assignment, sublicense, or transfer will be null
             and void and we, in our sole discretion, shall have the right to
             immediately terminate this Agreement.
-          </p>
-          <p>
+          </div>
+          <div style={{ marginBottom: "1em" }}>
             <h2>Entire Agreement</h2>
             This Agreement sets forth the entire understanding and agreement
             between the parties relating to its subject matter. All provisions
@@ -402,7 +402,7 @@ export class TermsOfService extends Component {
             no trial by jury. Any waiver of or promise not to enforce any right
             under this Agreement shall not be enforceable unless evidenced by a
             writing signed by the party making said waiver or promise.
-          </p>
+          </div>
         </div>
         <br />
       </div>

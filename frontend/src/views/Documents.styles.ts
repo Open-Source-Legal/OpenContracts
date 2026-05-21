@@ -16,6 +16,15 @@ export const FilterTabsRow = styled.div`
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+
+  /* On narrow screens the status tabs wrap to multiple lines; a centered
+     flex row leaves the Filters button floating beside the wrapped block.
+     Stack instead so the button sits cleanly below the tabs. */
+  @media (max-width: 640px) {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 `;
 
 export const FilterButton = styled.button<{

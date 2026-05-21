@@ -15,7 +15,7 @@ Tests cover:
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
 
@@ -320,7 +320,7 @@ class TestUserBadgeModel(TestCase):
         self.assertIn(self.recipient.username, badge_str)
 
 
-class TestBadgeGraphQLMutations(TransactionTestCase):
+class TestBadgeGraphQLMutations(TestCase):
     """Test GraphQL mutations for badges."""
 
     def setUp(self):
@@ -619,7 +619,7 @@ class TestBadgeGraphQLMutations(TransactionTestCase):
         self.assertEqual(result["data"]["awardBadge"]["message"], "Corpus not found")
 
 
-class TestBadgeGraphQLQueries(TransactionTestCase):
+class TestBadgeGraphQLQueries(TestCase):
     """Test GraphQL queries for badges."""
 
     def setUp(self):
@@ -701,7 +701,7 @@ class TestBadgeGraphQLQueries(TransactionTestCase):
         self.assertGreater(len(edges), 0)
 
 
-class TestBadgeAutoAwardTasks(TransactionTestCase):
+class TestBadgeAutoAwardTasks(TestCase):
     """Test auto-badge award tasks."""
 
     def setUp(self):

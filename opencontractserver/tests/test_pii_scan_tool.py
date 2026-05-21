@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL, Annotation
@@ -497,7 +497,7 @@ class ScanAndAnnotateEdgeCaseTests(_PiiPersistEmbeddingNoopMixin, TransactionTes
         assert "not configured" in str(exc.exception).lower()
 
 
-class ScanAndAnnotateRegistryTests(TransactionTestCase):
+class ScanAndAnnotateRegistryTests(TestCase):
     """Confirm the tool is registered with the correct flags and parameters."""
 
     def test_tool_registered_with_correct_flags(self) -> None:
@@ -542,9 +542,7 @@ class ScanAndAnnotateRegistryTests(TransactionTestCase):
     PRIVACY_FILTER_URL="http://privacy_filter:8000",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class PersistAnnotationsLabelRaceTests(
-    _PiiPersistEmbeddingNoopMixin, TransactionTestCase
-):
+class PersistAnnotationsLabelRaceTests(_PiiPersistEmbeddingNoopMixin, TestCase):
     """Regression guard for the accepted-duplicate behavior of
     ``Corpus.ensure_label_and_labelset`` under PostgreSQL READ COMMITTED.
 
@@ -688,9 +686,7 @@ class PersistAnnotationsLabelRaceTests(
     PRIVACY_FILTER_URL="http://privacy.test",
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
-class PersistAnnotationsUnknownGroupTests(
-    _PiiPersistEmbeddingNoopMixin, TransactionTestCase
-):
+class PersistAnnotationsUnknownGroupTests(_PiiPersistEmbeddingNoopMixin, TestCase):
     """Defensive coverage: ``_persist_annotations_sync`` is called via a
     sync_to_async wrapper inside ``ascan_and_annotate_pii``, which already
     rejects unknown entity groups at the public-API boundary

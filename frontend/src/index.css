@@ -33,6 +33,21 @@
   }
 }
 
+/* Global box-sizing reset. Without this, any `width: 100%` element with
+   horizontal padding/border overflows its container by the padding amount
+   (e.g. the site footer extended 32px past the viewport on mobile, and the
+   thread search input ran off-screen). `inherit` lets a subtree opt out if
+   it ever genuinely needs content-box. */
+html {
+  box-sizing: border-box;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
+
 body {
   margin: 0;
   overflow-x: hidden;

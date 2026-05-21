@@ -67,16 +67,16 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
-from django.test import TransactionTestCase
+from django.test import TestCase
 
-# Inherit the mixin from ``TransactionTestCase`` for the type checker only so
+# Inherit the mixin from ``TestCase`` for the type checker only so
 # ``self.assertEqual`` / ``self.assertTrue`` resolve; at runtime the mixin is a
 # plain ``object`` and gets the assert helpers from the concrete subclass's
-# MRO. This avoids the MRO conflict that direct ``TransactionTestCase``
-# inheritance would create when paired with a concrete ``TransactionTestCase``
+# MRO. This avoids the MRO conflict that direct ``TestCase``
+# inheritance would create when paired with a concrete ``TestCase``
 # subclass.
 if TYPE_CHECKING:
-    _MixinBase = TransactionTestCase
+    _MixinBase = TestCase
 else:
     _MixinBase = object
 
@@ -87,7 +87,7 @@ from opencontractserver.utils.permissioning import set_permissions_for_obj_to_us
 User = get_user_model()
 
 
-class CorpusAuthorizationInvariantsTestCase(TransactionTestCase):
+class CorpusAuthorizationInvariantsTestCase(TestCase):
     """Pin the filter/check equivalence and no-silent-widening invariants for Corpus."""
 
     def setUp(self):
@@ -537,7 +537,7 @@ class CorpusAuthorizationInvariantsTestCase(TransactionTestCase):
         self.assertIn("_BareManager", message)
 
 
-class CorpusFolderDelegatesUserCanToCorpusTestCase(TransactionTestCase):
+class CorpusFolderDelegatesUserCanToCorpusTestCase(TestCase):
     """Pin that ``CorpusFolder.user_can(user, perm)`` delegates to the
     parent ``Corpus`` instead of running against the folder row's
     (non-existent) guardian rows.
@@ -735,9 +735,7 @@ class _UserCanInvariantsMixin(_MixinBase):
                 )
 
 
-class DocumentAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class DocumentAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Document``."""
 
     def setUp(self):
@@ -838,7 +836,7 @@ class DocumentAuthorizationInvariantsTestCase(
         )
 
 
-class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TransactionTestCase):
+class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Note`` (MIN of doc+corpus)."""
 
     def setUp(self):
@@ -927,9 +925,7 @@ class NoteAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TransactionTe
             )
 
 
-class RelationshipAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class RelationshipAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Relationship`` (MIN + structural-write-deny)."""
 
     def setUp(self):
@@ -1055,9 +1051,7 @@ class RelationshipAuthorizationInvariantsTestCase(
         self.assertIsNone(self.relationship.created_by_extract_id)
 
 
-class AnnotationAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Annotation``.
 
     Covers: structural-write-deny, MIN(doc, corpus), and the bug-fix
@@ -1274,9 +1268,7 @@ class AnnotationAuthorizationInvariantsTestCase(
             )
 
 
-class ConversationAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class ConversationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``Conversation`` (CHAT/THREAD bifurcation)."""
 
     def setUp(self):
@@ -1382,9 +1374,7 @@ class ConversationAuthorizationInvariantsTestCase(
             )
 
 
-class ChatMessageAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class ChatMessageAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``ChatMessage`` (moderator branch)."""
 
     def setUp(self):
@@ -1490,9 +1480,7 @@ class ChatMessageAuthorizationInvariantsTestCase(
         )
 
 
-class UserFeedbackAuthorizationInvariantsTestCase(
-    _UserCanInvariantsMixin, TransactionTestCase
-):
+class UserFeedbackAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
     """Pin filter/check equivalence for ``UserFeedback`` including the
     inherited-annotation-visibility READ branch.
 
@@ -1609,7 +1597,7 @@ class UserFeedbackAuthorizationInvariantsTestCase(
             )
 
 
-class ShimDeprecationWarningTestCase(TransactionTestCase):
+class ShimDeprecationWarningTestCase(TestCase):
     """Pin that ``user_has_permission_for_obj`` emits ``DeprecationWarning``
     and routes through ``Manager.user_can`` per Phase A's shim contract."""
 

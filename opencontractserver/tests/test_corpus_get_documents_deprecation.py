@@ -13,7 +13,7 @@ from __future__ import annotations
 import warnings
 
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase
+from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
@@ -21,7 +21,7 @@ from opencontractserver.documents.models import Document, DocumentPath
 User = get_user_model()
 
 
-class CorpusDeprecationTestBase(TransactionTestCase):
+class CorpusDeprecationTestBase(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
