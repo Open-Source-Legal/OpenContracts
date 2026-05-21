@@ -1118,6 +1118,18 @@ PREFERRED_PARSERS = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",  # noqa
 }
 
+# Preferred enrichers for each MIME type. Unlike PREFERRED_PARSERS (one parser
+# per MIME type), this maps a MIME type to an ORDERED LIST of enricher class
+# paths: the ingest-time enrichment chain run between parsing and persistence.
+# Each enricher transforms the parsed OpenContractDocExport and passes it to
+# the next. Empty by default — enrichment is strictly opt-in. Example:
+#   PREFERRED_ENRICHERS = {
+#       "application/pdf": [
+#           "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher",  # noqa
+#       ],
+#   }
+PREFERRED_ENRICHERS: dict[str, list[str]] = {}
+
 # Image extraction size limits
 # These prevent storage abuse and memory issues during PDF image extraction
 MAX_IMAGE_SIZE_BYTES = env.int(

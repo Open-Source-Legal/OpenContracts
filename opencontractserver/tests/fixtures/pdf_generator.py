@@ -292,3 +292,62 @@ def create_pdf_with_chart_figure(
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def create_pdf_with_outline(
+    pages: list[dict],
+    outline: list[dict],
+) -> bytes:
+    """
+    Create a multi-page PDF with an embedded ``/Outlines`` bookmark tree.
+
+    Renders one page per entry in ``pages``, bookmarks every page, then
+    attaches outline entries pointing at those pages. Used to exercise
+    ``PdfOutlineEnricher``, which reads the bookmark tree via
+    ``pypdf``'s ``reader.outline``.
+
+    Args:
+        pages: One dict per page. Recognised key:
+            - "lines": list[str] - text lines drawn on the page (optional).
+        outline: Ordered list of bookmark definitions. Each dict has:
+            - "title": str  - bookmark title.
+            - "page":  int  - 0-based index of the destination page.
+            - "level": int  - nesting depth (0 = top level). Levels must be
+              added in a valid order (a level-N entry requires a preceding
+              level-(N-1) entry), per reportlab's outline API.
+
+    Returns:
+        PDF content as bytes.
+
+    Example:
+        >>> pdf = create_pdf_with_outline(
+        ...     pages=[{"lines": ["Chapter One"]}, {"lines": ["Section A"]}],
+        ...     outline=[
+        ...         {"title": "Chapter One", "page": 0, "level": 0},
+        ...         {"title": "Section A", "page": 1, "level": 1},
+        ...     ],
+        ... )
+    """
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    page_width, page_height = letter
+
+    for idx, page_def in enumerate(pages):
+        c.bookmarkPage(f"page-{idx}")
+        y_position = page_height - 72
+        c.setFont("Helvetica", 12)
+        for line in page_def.get("lines", []):
+            c.drawString(72, y_position, line)
+            y_position -= 18
+        c.showPage()
+
+    for entry in outline:
+        c.addOutlineEntry(
+            entry["title"],
+            f"page-{entry['page']}",
+            level=entry.get("level", 0),
+        )
+
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
