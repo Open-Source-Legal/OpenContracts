@@ -396,7 +396,7 @@ class FolderService(BaseService):
             - Parent (if provided) is in same corpus
 
         Example:
-            folder, error = CorpusObjsService.create_folder(
+            folder, error = FolderService.create_folder(
                 user=request.user,
                 corpus=corpus,
                 name="Contracts",
@@ -1204,7 +1204,7 @@ class FolderService(BaseService):
 
         Example:
             folder_map, created, reused, error = (
-                CorpusObjsService.create_folder_structure_from_paths(
+                FolderService.create_folder_structure_from_paths(
                     user=user,
                     corpus=corpus,
                     folder_paths=["docs", "docs/contracts", "docs/legal"],

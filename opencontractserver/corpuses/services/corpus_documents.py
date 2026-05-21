@@ -61,7 +61,7 @@ class CorpusDocumentService(BaseService):
         **NO PERMISSION CHECK.** This method is a raw membership query
         against ``DocumentPath`` — it does NOT verify that the caller can
         see the corpus or the document. Callers MUST gate corpus READ
-        (typically via ``CorpusObjsService.get_corpus_documents(...)``,
+        (typically via ``CorpusDocumentService.get_corpus_documents(...)``,
         ``Corpus.objects.visible_to_user(...).get(pk=...)``, or an
         equivalent ``user_can(... READ)`` check) BEFORE calling this.
 

@@ -28,11 +28,22 @@ working unchanged for one release.
 
 from __future__ import annotations
 
+import warnings
+
 from opencontractserver.corpuses.services import (
     CorpusDocumentService,
     CorpusPathService,
     DocumentLifecycleService,
     FolderService,
+)
+
+warnings.warn(
+    "opencontractserver.corpuses.corpus_objs_service (and the CorpusObjsService "
+    "facade) is deprecated. Import the specific service you need from "
+    "opencontractserver.corpuses.services instead. This shim is removed once all "
+    "call sites are migrated (issue #1716, Phase 2C).",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = [
