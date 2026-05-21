@@ -126,7 +126,9 @@ class TestPermission_SuperuserBypassesAllChecks(TestCase):
             username="owner", email="owner@test.com", password="test"
         )
         self.superuser = User.objects.create_superuser(
-            username="admin", email="admin@test.com", password="test"
+            username="su_bypass_admin",
+            email="su_bypass_admin@test.com",
+            password="test",
         )
         self.corpus = Corpus.objects.create(
             title="Private Corpus", creator=self.owner, is_public=False
