@@ -17,10 +17,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Extract, Fieldset
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -123,47 +120,19 @@ class AnnotationMutationPermissionTestCase(TestCase):
         )
 
         # Owner should have full permissions
-        self.assertTrue(
-            user_has_permission_for_obj(self.owner, annotation, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.owner, annotation, PermissionTypes.UPDATE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.owner, annotation, PermissionTypes.DELETE)
-        )
+        self.assertTrue(annotation.user_can(self.owner, PermissionTypes.READ))
+        self.assertTrue(annotation.user_can(self.owner, PermissionTypes.UPDATE))
+        self.assertTrue(annotation.user_can(self.owner, PermissionTypes.DELETE))
 
         # Collaborator should have full permissions (has doc+corpus)
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, annotation, PermissionTypes.READ
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, annotation, PermissionTypes.UPDATE
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, annotation, PermissionTypes.DELETE
-            )
-        )
+        self.assertTrue(annotation.user_can(self.collaborator, PermissionTypes.READ))
+        self.assertTrue(annotation.user_can(self.collaborator, PermissionTypes.UPDATE))
+        self.assertTrue(annotation.user_can(self.collaborator, PermissionTypes.DELETE))
 
         # Outsider should have no permissions
-        self.assertFalse(
-            user_has_permission_for_obj(self.outsider, annotation, PermissionTypes.READ)
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, annotation, PermissionTypes.UPDATE
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, annotation, PermissionTypes.DELETE
-            )
-        )
+        self.assertFalse(annotation.user_can(self.outsider, PermissionTypes.READ))
+        self.assertFalse(annotation.user_can(self.outsider, PermissionTypes.UPDATE))
+        self.assertFalse(annotation.user_can(self.outsider, PermissionTypes.DELETE))
 
     def test_user_permission_for_analysis_created_annotation(self):
         """Test that analysis-created annotations require analysis permission."""
@@ -180,54 +149,30 @@ class AnnotationMutationPermissionTestCase(TestCase):
         )
 
         # Owner should have permissions (has analysis permission)
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner, private_annotation, PermissionTypes.READ
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner, private_annotation, PermissionTypes.UPDATE
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner, private_annotation, PermissionTypes.DELETE
-            )
-        )
+        self.assertTrue(private_annotation.user_can(self.owner, PermissionTypes.READ))
+        self.assertTrue(private_annotation.user_can(self.owner, PermissionTypes.UPDATE))
+        self.assertTrue(private_annotation.user_can(self.owner, PermissionTypes.DELETE))
 
         # Collaborator should have NO permissions (no analysis permission)
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.READ
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.READ)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.UPDATE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.DELETE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
         # Outsider should have no permissions
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, private_annotation, PermissionTypes.READ
-            )
+            private_annotation.user_can(self.outsider, PermissionTypes.READ)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, private_annotation, PermissionTypes.UPDATE
-            )
+            private_annotation.user_can(self.outsider, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, private_annotation, PermissionTypes.DELETE
-            )
+            private_annotation.user_can(self.outsider, PermissionTypes.DELETE)
         )
 
     def test_user_permission_for_extract_created_annotation(self):
@@ -244,54 +189,30 @@ class AnnotationMutationPermissionTestCase(TestCase):
         )
 
         # Owner should have permissions (has extract permission)
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner, private_annotation, PermissionTypes.READ
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner, private_annotation, PermissionTypes.UPDATE
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner, private_annotation, PermissionTypes.DELETE
-            )
-        )
+        self.assertTrue(private_annotation.user_can(self.owner, PermissionTypes.READ))
+        self.assertTrue(private_annotation.user_can(self.owner, PermissionTypes.UPDATE))
+        self.assertTrue(private_annotation.user_can(self.owner, PermissionTypes.DELETE))
 
         # Collaborator should have NO permissions (no extract permission)
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.READ
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.READ)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.UPDATE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.DELETE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
         # Outsider should have no permissions
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, private_annotation, PermissionTypes.READ
-            )
+            private_annotation.user_can(self.outsider, PermissionTypes.READ)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, private_annotation, PermissionTypes.UPDATE
-            )
+            private_annotation.user_can(self.outsider, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.outsider, private_annotation, PermissionTypes.DELETE
-            )
+            private_annotation.user_can(self.outsider, PermissionTypes.DELETE)
         )
 
     def test_structural_annotation_is_read_only(self):
@@ -308,32 +229,14 @@ class AnnotationMutationPermissionTestCase(TestCase):
         )
 
         # Owner should have READ but NOT write permissions
-        self.assertTrue(
-            user_has_permission_for_obj(self.owner, structural, PermissionTypes.READ)
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(self.owner, structural, PermissionTypes.UPDATE)
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(self.owner, structural, PermissionTypes.DELETE)
-        )
+        self.assertTrue(structural.user_can(self.owner, PermissionTypes.READ))
+        self.assertFalse(structural.user_can(self.owner, PermissionTypes.UPDATE))
+        self.assertFalse(structural.user_can(self.owner, PermissionTypes.DELETE))
 
         # Collaborator should have READ but NOT write permissions
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, structural, PermissionTypes.READ
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, structural, PermissionTypes.UPDATE
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, structural, PermissionTypes.DELETE
-            )
-        )
+        self.assertTrue(structural.user_can(self.collaborator, PermissionTypes.READ))
+        self.assertFalse(structural.user_can(self.collaborator, PermissionTypes.UPDATE))
+        self.assertFalse(structural.user_can(self.collaborator, PermissionTypes.DELETE))
 
     def test_structural_annotation_with_privacy_still_visible(self):
         """Test that structural annotations bypass privacy rules for reading."""
@@ -352,21 +255,9 @@ class AnnotationMutationPermissionTestCase(TestCase):
 
         # Collaborator should be able to READ (structural bypasses privacy)
         # but NOT write (structural is always read-only)
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, structural, PermissionTypes.READ
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, structural, PermissionTypes.UPDATE
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, structural, PermissionTypes.DELETE
-            )
-        )
+        self.assertTrue(structural.user_can(self.collaborator, PermissionTypes.READ))
+        self.assertFalse(structural.user_can(self.collaborator, PermissionTypes.UPDATE))
+        self.assertFalse(structural.user_can(self.collaborator, PermissionTypes.DELETE))
 
     def test_granting_analysis_permission_reveals_annotations(self):
         """Test that granting analysis permission makes its annotations accessible."""
@@ -384,9 +275,7 @@ class AnnotationMutationPermissionTestCase(TestCase):
 
         # Initially collaborator can't access it
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.READ
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.READ)
         )
 
         # Grant analysis permission to collaborator
@@ -396,15 +285,11 @@ class AnnotationMutationPermissionTestCase(TestCase):
 
         # Now collaborator should be able to read it
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.READ
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.READ)
         )
         # But still can't edit (only has READ on analysis)
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.UPDATE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
 
         # Grant full permissions on analysis
@@ -414,14 +299,10 @@ class AnnotationMutationPermissionTestCase(TestCase):
 
         # Now collaborator should have full permissions
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.UPDATE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator, private_annotation, PermissionTypes.DELETE
-            )
+            private_annotation.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
     def test_superuser_always_has_permissions(self):
@@ -442,18 +323,6 @@ class AnnotationMutationPermissionTestCase(TestCase):
         )
 
         # Superuser should have all permissions even without explicit grants
-        self.assertTrue(
-            user_has_permission_for_obj(
-                superuser, private_annotation, PermissionTypes.READ
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                superuser, private_annotation, PermissionTypes.UPDATE
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                superuser, private_annotation, PermissionTypes.DELETE
-            )
-        )
+        self.assertTrue(private_annotation.user_can(superuser, PermissionTypes.READ))
+        self.assertTrue(private_annotation.user_can(superuser, PermissionTypes.UPDATE))
+        self.assertTrue(private_annotation.user_can(superuser, PermissionTypes.DELETE))

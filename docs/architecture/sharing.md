@@ -39,7 +39,7 @@ The frontend checks `CAN_PERMISSION` before allowing visibility changes, but the
 
 ```python
 # Backend: base.py DRFMutation
-if not user_has_permission_for_obj(user, obj, PermissionTypes.UPDATE):  # Only UPDATE!
+if not obj.user_can(user, PermissionTypes.UPDATE):  # Only UPDATE!
     raise PermissionError(...)
 ```
 
@@ -180,9 +180,7 @@ class SetCorpusVisibility(graphene.Mutation):
         can_change_visibility = (
             user.is_superuser or
             corpus.creator_id == user.id or
-            user_has_permission_for_obj(
-                user, corpus, PermissionTypes.PERMISSION, include_group_permissions=True
-            )
+            corpus.user_can(user, PermissionTypes.PERMISSION)
         )
 
         if not can_change_visibility:

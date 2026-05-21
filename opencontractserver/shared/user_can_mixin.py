@@ -94,7 +94,7 @@ def resolve_user_for_user_can(user_val: Any) -> Any | None:
                 "resolve_user_for_user_can: invalid user id %r — treating as deny. "
                 "If you see this in production, a caller is passing a non-integer "
                 "id (often a GraphQL global id from from_global_id missing) to "
-                "user_can or user_has_permission_for_obj.",
+                "user_can.",
                 user_val,
             )
             return None

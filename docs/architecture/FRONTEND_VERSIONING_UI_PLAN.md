@@ -632,14 +632,10 @@ def restore_document(corpus, path, user):
     )
 
     # Check permissions
-    if not user_has_permission_for_obj(
-        user, deleted_path.document, PermissionTypes.UPDATE
-    ):
+    if not deleted_path.document.user_can(user, PermissionTypes.UPDATE):
         raise PermissionError("No UPDATE permission on document")
 
-    if not user_has_permission_for_obj(
-        user, corpus, PermissionTypes.UPDATE
-    ):
+    if not corpus.user_can(user, PermissionTypes.UPDATE):
         raise PermissionError("No UPDATE permission on corpus")
 
     # Perform restore...
@@ -649,9 +645,7 @@ def get_filesystem_at_time(corpus, timestamp, user):
     Time travel query - always returns read-only view.
     Requires READ permission on corpus.
     """
-    if not user_has_permission_for_obj(
-        user, corpus, PermissionTypes.READ
-    ):
+    if not corpus.user_can(user, PermissionTypes.READ):
         return DocumentPath.objects.none()
 
     # Return historical state (frontend enforces read-only)

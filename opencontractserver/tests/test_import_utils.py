@@ -218,7 +218,7 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
     ``AnnotationUserObjectPermission`` rows are NOT consulted by:
         * ``AnnotationQuerySet.visible_to_user`` (uses doc/corpus + structural + creator)
         * ``AnnotationQueryOptimizer._compute_effective_permissions`` (doc/corpus only)
-        * ``user_has_permission_for_obj`` for annotations (delegates to optimizer)
+        * ``user_can`` for annotations (delegates to optimizer)
 
     These tests exist so any future regression that re-introduces a
     consumer of those rows gets caught immediately — without these
@@ -372,31 +372,22 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
         for a in struct_private:
             self.assertNotIn(a, visible_private)
 
-    def test_user_has_permission_for_obj_uses_doc_corpus_for_annotations(self):
-        """``user_has_permission_for_obj`` for annotations consults the
-        optimizer (doc+corpus) — not ``AnnotationUserObjectPermission``.
+    def test_user_can_uses_doc_corpus_for_annotations(self):
+        """``user_can`` for annotations consults the optimizer (doc+corpus)
+        — not ``AnnotationUserObjectPermission``.
         """
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         annots = self._ingest(self.private_doc, self.private_corpus, structural=False)
         for a in annots:
             # Creator: doc creator → has all perms via doc.
-            self.assertTrue(
-                user_has_permission_for_obj(self.creator, a, PermissionTypes.READ)
-            )
+            self.assertTrue(a.user_can(self.creator, PermissionTypes.READ))
             # Collaborator: granted doc+corpus read → can read annotation.
-            self.assertTrue(
-                user_has_permission_for_obj(self.collaborator, a, PermissionTypes.READ)
-            )
+            self.assertTrue(a.user_can(self.collaborator, PermissionTypes.READ))
             # Outsider: no doc/corpus perms → cannot read.
-            self.assertFalse(
-                user_has_permission_for_obj(self.outsider, a, PermissionTypes.READ)
-            )
+            self.assertFalse(a.user_can(self.outsider, PermissionTypes.READ))
             # Superuser: always.
-            self.assertTrue(
-                user_has_permission_for_obj(self.superuser, a, PermissionTypes.READ)
-            )
+            self.assertTrue(a.user_can(self.superuser, PermissionTypes.READ))
 
     def test_no_per_annotation_guardian_rows_are_required(self):
         """The annotation-level guardian table can be empty without
@@ -412,7 +403,6 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
             AnnotationUserObjectPermission,
         )
         from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
         annots = list(
             self._ingest(self.private_doc, self.private_corpus, structural=False)
@@ -439,9 +429,5 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
                 Annotation.objects.visible_to_user(self.outsider),
                 "Outsider must still be blocked via doc/corpus perms.",
             )
-            self.assertTrue(
-                user_has_permission_for_obj(self.collaborator, a, PermissionTypes.READ)
-            )
-            self.assertFalse(
-                user_has_permission_for_obj(self.outsider, a, PermissionTypes.READ)
-            )
+            self.assertTrue(a.user_can(self.collaborator, PermissionTypes.READ))
+            self.assertFalse(a.user_can(self.outsider, PermissionTypes.READ))

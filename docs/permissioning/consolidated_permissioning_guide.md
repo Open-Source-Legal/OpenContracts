@@ -4,7 +4,7 @@
 
 > **🔴 CRITICAL SECURITY**: Structural annotations and relationships are ALWAYS read-only except for superusers. Even owners with full CRUD permissions cannot modify structural items. This is enforced in `AnnotationManager.user_can` and `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`) — the structural-write-deny runs before any other permission branch.
 
-> **🟠 AUTHORIZATION API**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface). It is the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter — the two are pinned to agree by the invariant suite in `opencontractserver/tests/permissioning/test_authorization_invariants.py`. The legacy `user_has_permission_for_obj` helper is a **deprecated shim** that emits `DeprecationWarning` and delegates to `Manager.user_can`; it is scheduled for removal one release after Phase E (issue #1661). New code MUST call `user_can`.
+> **🟠 AUTHORIZATION API**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface). It is the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter — the two are pinned to agree by the invariant suite in `opencontractserver/tests/permissioning/test_authorization_invariants.py`. New code MUST call `user_can`.
 
 > **🔵 NEW FEATURE**: Annotations can now be marked as "created by" an analysis or extract using `created_by_analysis` and `created_by_extract` fields. These annotations are private to the source object and only visible to users with permission to that analysis/extract.
 
@@ -35,7 +35,7 @@
 | **User Profile Privacy** | All users visible | Privacy via `is_profile_public` + corpus membership | Profile privacy control |
 | **Badge Visibility** | All badges visible | Follows recipient's profile privacy | Badge privacy control |
 | **Document Actions** | Inline permission checks | `DocumentActionsQueryOptimizer` | Centralized least-privilege |
-| **Single-object check** | `user_has_permission_for_obj()` helper | `Manager.user_can()` / `obj.user_can()` | Check surface paired with `visible_to_user()` filter; old helper now a deprecated shim |
+| **Single-object check** | inline permission helper | `Manager.user_can()` / `obj.user_can()` | Check surface paired with `visible_to_user()` filter |
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -781,26 +781,6 @@ def get_users_permissions_for_obj(
     include_group_permissions: bool = False,
 ) -> set[str]:
     """Get all permissions a user has for a specific object."""
-
-def user_has_permission_for_obj(
-    user_val: int | str | type[User],
-    instance: type[django.db.models.Model],
-    permission: PermissionTypes,
-    include_group_permissions: bool = False,
-) -> bool:
-    """
-    Check if user has specific permission for object.
-
-    ENHANCED: Now handles annotation privacy model automatically.
-    - For annotations with created_by_analysis: requires matching permission on analysis
-    - For annotations with created_by_extract: requires matching permission on extract
-    - Structural annotations bypass privacy for READ operations
-    - Then checks document+corpus permissions using AnnotationQueryOptimizer
-
-    Note: include_group_permissions=True is important for checking
-    permissions that come from group membership (e.g., public access).
-    Tests typically use include_group_permissions=True to get accurate results.
-    """
 ```
 
 ### GraphQL Integration
@@ -978,8 +958,6 @@ The annotation privacy model allows annotations to be marked as "created by" a s
 
 **CRITICAL**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface), defined per model in `opencontractserver/shared/Managers.py`. Never bypass this API or implement custom permission logic.
 
-> The legacy `user_has_permission_for_obj` function in `opencontractserver/utils/permissioning.py` is a **deprecated shim**: it emits `DeprecationWarning` and delegates straight to `Manager.user_can`. It survives one release past Phase E for plugin/external callers and is tracked for removal in issue #1661. All in-repo call sites have been migrated.
-
 All permission checks for annotations and relationships go through the per-model `user_can` implementation, which automatically handles:
 
 1. **Superuser bypass** - Superusers always have full permissions (including structural items)
@@ -1092,12 +1070,7 @@ def mutate(root, info, annotation_id):
     annotation = Annotation.objects.get(id=annotation_id)
 
     # Single call handles all privacy logic
-    if not user_has_permission_for_obj(
-        info.context.user,
-        annotation,
-        PermissionTypes.DELETE,
-        include_group_permissions=True
-    ):
+    if not annotation.user_can(info.context.user, PermissionTypes.DELETE):
         return RemoveAnnotation(ok=False, message="Permission denied")
 
     annotation.delete()
@@ -1106,7 +1079,7 @@ def mutate(root, info, annotation_id):
 
 The mutations that have been updated to use this pattern include:
 - **RemoveAnnotation** - Checks DELETE permission with privacy model
-- **UpdateAnnotation** - Uses user_can_edit which internally calls user_has_permission_for_obj
+- **UpdateAnnotation** - Uses user_can_edit which internally calls user_can
 - **RejectAnnotation** - Checks visibility before rejection
 - **ApproveAnnotation** - Checks visibility before approval
 - **AddRelationship** - Checks both annotations are visible
@@ -1842,24 +1815,14 @@ def test_owner_cannot_update_structural_annotation():
     set_permissions_for_obj_to_user(owner, corpus, [PermissionTypes.CRUD])
 
     # Owner STILL cannot update structural annotation
-    assert not user_has_permission_for_obj(
-        owner,
-        structural_annotation,
-        PermissionTypes.UPDATE,
-        include_group_permissions=True,
-    )
+    assert not structural_annotation.user_can(owner, PermissionTypes.UPDATE)
 
 def test_superuser_can_update_structural_annotation():
     """Superuser CAN UPDATE structural annotations."""
     superuser = User.objects.create_superuser(username="super", password="test")
 
     # Superuser can modify structural items
-    assert user_has_permission_for_obj(
-        superuser,
-        structural_annotation,
-        PermissionTypes.UPDATE,
-        include_group_permissions=True,
-    )
+    assert structural_annotation.user_can(superuser, PermissionTypes.UPDATE)
 
 def test_owner_cannot_delete_structural_relationship():
     """Owner CANNOT DELETE structural relationships even with full permissions."""
@@ -1876,12 +1839,7 @@ def test_owner_cannot_delete_structural_relationship():
     set_permissions_for_obj_to_user(owner, corpus, [PermissionTypes.CRUD])
 
     # But STILL cannot delete structural relationship
-    assert not user_has_permission_for_obj(
-        owner,
-        structural_rel,
-        PermissionTypes.DELETE,
-        include_group_permissions=True,
-    )
+    assert not structural_rel.user_can(owner, PermissionTypes.DELETE)
 ```
 
 **Key Validation Points:**
@@ -2048,7 +2006,7 @@ def resolve_analysis_annotations(analysis, info):
     # Filter to only those on documents user can read
     visible_annotations = []
     for doc_id in analysis.analyzed_documents.values_list('id', flat=True):
-        if user_has_permission_for_obj(user, doc, PermissionTypes.READ):
+        if doc.user_can(user, PermissionTypes.READ):
             visible_annotations.extend(
                 annotation_ids.filter(document_id=doc_id)
             )
@@ -2094,39 +2052,27 @@ query {
 **Problem**: Trying to delete private annotations with only analysis permission fails
 **Solution**: Ensure user has matching permission level on document AND corpus too
 
-### Pitfall 4: Not using include_group_permissions=True
-**Problem**: Permission checks fail for public objects or group-based access
-**Solution**: Always use `include_group_permissions=True` in permission checks:
-```python
-user_has_permission_for_obj(
-    user,
-    annotation,
-    PermissionTypes.DELETE,
-    include_group_permissions=True  # Don't forget this!
-)
-```
-
-### Pitfall 5: Trying to modify structural annotations
+### Pitfall 4: Trying to modify structural annotations
 **Problem**: Structural annotations are ALWAYS read-only, updates will fail
 **Solution**: Check `annotation.structural` before attempting modifications
 
-### Pitfall 6: Using wrong field names in GraphQL
+### Pitfall 5: Using wrong field names in GraphQL
 **Problem**: Using `annotations` instead of `allAnnotations` in queries
 **Solution**: Always use `allAnnotations` field name for querying document annotations
 
-### Pitfall 7: Using user_has_permission_for_obj for corpus-scoped visibility
-**Problem**: `user_has_permission_for_obj` only checks explicit guardian permissions, not corpus context
-**Solution**: For corpus-scoped objects (documents in corpus, metadata), use `visible_to_user()` pattern:
+### Pitfall 6: Using a raw permission check for corpus-scoped visibility
+**Problem**: A raw single-object check doesn't account for corpus context
+**Solution**: For corpus-scoped objects (documents in corpus, metadata), use the `visible_to_user()` pattern:
 ```python
-# WRONG - misses creator access, corpus context
-has_read = user_has_permission_for_obj(user, document, PermissionTypes.READ)
+# WRONG - misses corpus context
+has_read = document.user_can(user, PermissionTypes.READ)
 
 # CORRECT - handles full visibility model
 is_visible = Document.objects.visible_to_user(user).filter(id=doc_id).exists()
 ```
 
 **When to use each:**
-- `user_has_permission_for_obj`: Top-level objects (Corpus, Analysis), write permissions, annotations (has special handling)
+- `user_can`: single-object authorization checks (write permissions, top-level objects)
 - `Model.objects.visible_to_user()`: READ/visibility checks for corpus-scoped objects
 
 ## @ Mention Permissions (NEW)
@@ -2219,7 +2165,7 @@ def resolve_mentioned_resources(self, info):
     for corpus_slug in parse_corpus_mentions(content):
         try:
             corpus = Corpus.objects.get(slug=corpus_slug)
-            if user_has_permission_for_obj(user, corpus, PermissionTypes.READ):
+            if corpus.user_can(user, PermissionTypes.READ):
                 resources.append({
                     'type': 'CORPUS',
                     'slug': corpus_slug,
@@ -2553,7 +2499,7 @@ async def async_wrapper(ctx: RunContext[PydanticAIDependencies], *args, **kwargs
 
 #### Writing permission checks inside a tool
 
-Tool authors who need a check *beyond* the wrapper's READ gate (e.g. a write tool confirming the caller may UPDATE a specific object) MUST use the `user_can` API, not the deprecated `user_has_permission_for_obj` helper:
+Tool authors who need a check *beyond* the wrapper's READ gate (e.g. a write tool confirming the caller may UPDATE a specific object) MUST use the `user_can` API:
 
 ```python
 # Inside an agent tool — confirm the caller may edit this object.

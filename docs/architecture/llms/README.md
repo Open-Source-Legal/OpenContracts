@@ -1534,11 +1534,11 @@ The WebSocket consumer (or API endpoint) performs initial READ permission valida
 
 ```python
 # Consumer checks READ access before creating agent
-if not user_has_permission_for_obj(user, corpus, "READ"):
+if not corpus.user_can(user, "READ"):
     raise PermissionDenied("User lacks READ access to corpus")
 
 # Similarly for documents
-if not user_has_permission_for_obj(user, document, "READ"):
+if not document.user_can(user, "READ"):
     raise PermissionDenied("User lacks READ access to document")
 ```
 
@@ -1604,7 +1604,7 @@ agent = await agents.for_document(
 
 #### 2. Consistent Permission Checks
 
-All validation layers use `user_has_permission_for_obj()` from [`opencontractserver/utils/permissioning.py`](../../../opencontractserver/utils/permissioning.py). Layer 2 (factory) checks `PermissionTypes.CRUD` for write-gating, while Layer 3 (runtime) checks `PermissionTypes.READ` on every tool call.
+All validation layers use the `user_can()` permission API (`Model.objects.user_can()` / `obj.user_can()`). Layer 2 (factory) checks `PermissionTypes.CRUD` for write-gating, while Layer 3 (runtime) checks `PermissionTypes.READ` on every tool call.
 
 #### 3. Fail-Safe Defaults
 
@@ -1660,7 +1660,7 @@ Understanding the permission model requires familiarity with these key files:
 | [`agents/agent_factory.py`](../../../opencontractserver/llms/agents/agent_factory.py) | Agent creation with tool filtering | `_user_has_write_permission()`, inline filtering in `create_document_agent()`/`create_corpus_agent()` |
 | [`agents/pydantic_ai_agents.py`](../../../opencontractserver/llms/agents/pydantic_ai_agents.py) | Tool assembly with flag assignment | `PydanticAIDocumentAgent.create()`, `PydanticAICorpusAgent.create()` |
 | [`tools/pydantic_ai_tools.py`](../../../opencontractserver/llms/tools/pydantic_ai_tools.py) | Runtime permission validation | `_check_user_permissions()` (module-level), `_validate_resource_id_params()`, `PydanticAIToolWrapper` |
-| [`utils/permissioning.py`](../../../opencontractserver/utils/permissioning.py) | Core permission checking utilities | `user_has_permission_for_obj()` |
+| [`utils/permissioning.py`](../../../opencontractserver/utils/permissioning.py) | Core permission checking utilities | `_default_user_can()` (the body behind `Manager.user_can` / `obj.user_can`) |
 | `consumers/unified_agent_consumer.py` | WebSocket consumer with entry validation | Initial READ permission checks |
 
 ### Best Practices for Tool Development
