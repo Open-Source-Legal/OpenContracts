@@ -59,6 +59,25 @@ DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
 # (deeper nesting is valid data but won't be visible in the UI).
 DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH = 6
 
+# --------------------------------------------------------------------------- #
+# PDF outline enrichment (PdfOutlineEnricher)                                 #
+# --------------------------------------------------------------------------- #
+# Minimum difflib similarity ratio (0.0-1.0) for fuzzy-matching a PDF bookmark
+# title against text on its destination page. A bookmark whose title cannot be
+# located on its page at or above this ratio is dropped, and its children are
+# re-parented to the nearest matched ancestor.
+PDF_OUTLINE_FUZZY_MATCH_THRESHOLD = 0.82
+
+# Hard cap on the number of OC_SECTION entries a single PdfOutlineEnricher run
+# emits. Bounded by the document-index limit so the enricher never produces
+# more section annotations than the index is allowed to hold.
+PDF_OUTLINE_MAX_ENTRIES = DOCUMENT_ANNOTATION_INDEX_LIMIT
+
+# Maximum /Outlines nesting depth walked by the enricher. Matches the document
+# annotation index depth cap; deeper bookmark branches are pruned with a
+# warning rather than emitted.
+PDF_OUTLINE_MAX_DEPTH = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500

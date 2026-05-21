@@ -379,6 +379,54 @@ class BaseParser(PipelineComponentBase, ABC):
             f"{struct_set.pk}"
         )
 
+    def _run_enrichment_stage(
+        self, user_id: int, doc_id: int, parsed_data: OpenContractDocExport
+    ) -> OpenContractDocExport:
+        """
+        Run the configured enricher chain over freshly-parsed document data.
+
+        Enrichers are resolved per the document's MIME type from
+        ``PipelineSettings.preferred_enrichers`` and run as a chain (each
+        receives the previous enricher's output). Enrichment is additive and
+        non-fatal: any failure here — including failing to resolve the
+        enricher list itself — is logged and the un-enriched ``parsed_data``
+        is returned so the parsed document is still saved.
+
+        Args:
+            user_id: ID of the user the document is being ingested for.
+            doc_id: ID of the document being ingested.
+            parsed_data: The OpenContractDocExport produced by parse_document().
+
+        Returns:
+            OpenContractDocExport: The parsed data, enriched if any enrichers
+            are configured for the document's file type.
+        """
+        try:
+            from opencontractserver.documents.models import PipelineSettings
+            from opencontractserver.pipeline.utils import run_enrichers
+
+            file_type = Document.objects.values_list("file_type", flat=True).get(
+                pk=doc_id
+            )
+            enricher_paths = PipelineSettings.get_instance().get_preferred_enrichers(
+                file_type
+            )
+            if not enricher_paths:
+                return parsed_data
+            logger.info(
+                f"Running {len(enricher_paths)} enricher(s) for document "
+                f"{doc_id} (file_type={file_type})"
+            )
+            return run_enrichers(enricher_paths, user_id, doc_id, parsed_data)
+        except Exception as e:
+            # Defence-in-depth: even resolving the enricher list must not fail
+            # ingestion. run_enrichers already isolates per-enricher failures.
+            logger.warning(
+                f"Enrichment stage skipped for document {doc_id}: {e}",
+                exc_info=True,
+            )
+            return parsed_data
+
     def process_document(
         self, user_id: int, doc_id: int, **kwargs
     ) -> OpenContractDocExport:
@@ -414,6 +462,10 @@ class BaseParser(PipelineComponentBase, ABC):
                 f"Parser {self.__class__.__name__} returned None for document {doc_id}",
                 is_transient=True,  # Assume transient by default; subclasses override
             )
+
+        # Enrichment stage: chainable OpenContractDocExport transforms run
+        # between parsing and persistence. Additive and non-fatal.
+        parsed_data = self._run_enrichment_stage(user_id, doc_id, parsed_data)
 
         self.save_parsed_data(user_id, doc_id, parsed_data, corpus_id=corpus_id)
         logger.info(f"Document {doc_id} processed successfully.")
