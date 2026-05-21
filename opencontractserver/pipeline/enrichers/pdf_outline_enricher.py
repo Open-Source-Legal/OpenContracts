@@ -30,6 +30,7 @@ from opencontractserver.constants.annotations import (
     PDF_OUTLINE_FUZZY_MATCH_THRESHOLD,
     PDF_OUTLINE_MAX_DEPTH,
     PDF_OUTLINE_MAX_ENTRIES,
+    PDF_OUTLINE_WALK_ITEM_MULTIPLIER,
 )
 from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
@@ -128,10 +129,15 @@ def _match_title_to_tokens(
                 break
             if candidate == title_norm:
                 return (j, k)
-            ratio = SequenceMatcher(None, candidate, title_norm).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_span = (j, k)
+            matcher = SequenceMatcher(None, candidate, title_norm)
+            # quick_ratio() is a cheap upper bound on ratio(); skip the full
+            # (O(n*m)) comparison for windows that can neither beat the current
+            # best nor clear the fuzzy threshold.
+            if matcher.quick_ratio() >= max(best_ratio, fuzzy_threshold):
+                ratio = matcher.ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_span = (j, k)
             k += 1
 
     if best_span is not None and best_ratio >= fuzzy_threshold:
@@ -179,13 +185,14 @@ def _walk_outline(
     re-parented to the skipped node's parent.
 
     Defends against malformed/cyclic outline data with a visited-object set, a
-    depth cap (``max_depth``) and a processed-item cap (``max_entries * 4``).
+    depth cap (``max_depth``) and a processed-item cap
+    (``max_entries * PDF_OUTLINE_WALK_ITEM_MULTIPLIER``).
     """
     nodes: list[_OutlineNode] = []
     visited: set[int] = set()
     seq = 0
     processed = 0
-    item_cap = max_entries * 4
+    item_cap = max_entries * PDF_OUTLINE_WALK_ITEM_MULTIPLIER
 
     def walk(items, parent_temp_id: Optional[str], depth: int) -> None:
         nonlocal seq, processed
@@ -467,8 +474,13 @@ class PdfOutlineEnricher(BaseEnricher):
         node_by_id = {node.temp_id: node for node in nodes}
 
         def nearest_matched_ancestor(node: _OutlineNode) -> Optional[str]:
+            # ``seen`` guards against a cyclic parent_temp_id chain produced by
+            # crafted/malformed outline data — without it this loop would spin
+            # forever on a document analytics platform that ingests untrusted PDFs.
             pid = node.parent_temp_id
-            while pid is not None:
+            seen: set[str] = set()
+            while pid is not None and pid not in seen:
+                seen.add(pid)
                 if pid in matched_spans:
                     return pid
                 parent = node_by_id.get(pid)

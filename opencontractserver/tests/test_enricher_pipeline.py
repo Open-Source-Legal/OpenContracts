@@ -13,6 +13,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone
 
+from opencontractserver.annotations.models import TOKEN_LABEL
 from opencontractserver.documents.models import Document, PipelineSettings
 from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
@@ -30,6 +31,7 @@ PDF_MIME = "application/pdf"
 class _MarkerEnricher(BaseEnricher):
     """Appends one identifiable marker entry to labelled_text."""
 
+    title = "Marker Enricher"
     supported_file_types: ClassVar[list[FileTypeEnum]] = [FileTypeEnum.PDF]
     MARKER = "?"
 
@@ -41,7 +43,7 @@ class _MarkerEnricher(BaseEnricher):
             "page": 0,
             "annotation_json": {},
             "parent_id": None,
-            "annotation_type": "TOKEN_LABEL",
+            "annotation_type": TOKEN_LABEL,
             "structural": False,
         }
         new = dict(export_data)
@@ -60,6 +62,7 @@ class _EnricherB(_MarkerEnricher):
 class _BoomEnricher(BaseEnricher):
     """An enricher that always raises — used to verify failure isolation."""
 
+    title = "Boom Enricher"
     supported_file_types: ClassVar[list[FileTypeEnum]] = [FileTypeEnum.PDF]
 
     def _enrich_document_impl(self, user_id, doc_id, export_data, **all_kwargs):
@@ -171,7 +174,12 @@ class ProcessDocumentEnrichmentWiringTests(TestCase):
         with patch.object(BaseParser, "save_parsed_data") as mock_save:
             parser.process_document(self.user.id, self.doc.id, corpus_id=None)
         self.assertTrue(mock_save.called)
-        return mock_save.call_args.args[2]
+        # process_document passes the export positionally today; fall back to
+        # the keyword name so this survives a future signature change.
+        call = mock_save.call_args
+        if len(call.args) > 2:
+            return call.args[2]
+        return call.kwargs["open_contracts_data"]
 
     def test_configured_enricher_runs(self):
         self._set_enrichers([_A_PATH])
@@ -194,3 +202,16 @@ class ProcessDocumentEnrichmentWiringTests(TestCase):
         # Must not raise — save_parsed_data is still reached.
         persisted = self._run()
         self.assertEqual(_markers(persisted), [])
+
+    def test_enrichment_stage_swallows_resolution_failure(self):
+        """Even a failure resolving the enricher list returns parsed_data.
+
+        ``_run_enrichment_stage`` wraps the whole resolution+run path so that
+        an unexpected error (here: a non-existent document id, which makes the
+        ``file_type`` lookup raise ``Document.DoesNotExist``) is logged and the
+        un-enriched data is returned rather than failing ingestion.
+        """
+        parser = _StubParser()
+        parsed = cast(OpenContractDocExport, {"labelled_text": [], "content": ""})
+        result = parser._run_enrichment_stage(self.user.id, 99_999_999, parsed)
+        self.assertIs(result, parsed)

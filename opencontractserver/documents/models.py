@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import functools
 import hashlib
+import logging
 import uuid
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser
 
     from opencontractserver.corpuses.models import Corpus
+
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentProcessingStatus(models.TextChoices):
@@ -1368,9 +1372,7 @@ class PipelineSettings(django.db.models.Model):
             # A misconfigured non-list value (e.g. a bare string) would make
             # run_enrichers iterate characters — ignore it rather than run a
             # garbage chain.
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "PipelineSettings.preferred_enrichers[%r] is %s, not a list; "
                 "ignoring.",
                 mimetype,

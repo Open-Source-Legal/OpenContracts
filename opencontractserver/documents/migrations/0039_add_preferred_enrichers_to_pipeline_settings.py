@@ -21,6 +21,11 @@ def seed_preferred_enrichers(apps, schema_editor):
     initial = getattr(django_settings, "PREFERRED_ENRICHERS", {})
     if not initial:
         return
+    # The singleton lives at pk=1. ``PipelineSettings.get_instance()`` is the
+    # runtime accessor but is not safely callable here: it lives on the live
+    # model, whereas migrations must use the historical model from
+    # ``apps.get_model``. Querying pk=1 directly matches the preceding
+    # pipeline-settings migrations (e.g. 0037/0038).
     instance = PipelineSettings.objects.filter(pk=1).first()
     if instance is None:
         return

@@ -8,7 +8,7 @@ not depend on a parser, the embedding pipeline, or document persistence.
 from typing import cast
 
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import TOKEN_LABEL
@@ -16,9 +16,12 @@ from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.enrichers.pdf_outline_enricher import (
     PdfOutlineEnricher,
+    _match_title_to_tokens,
+    _page_text_tokens,
+    _walk_outline,
 )
 from opencontractserver.tests.fixtures.pdf_generator import create_pdf_with_outline
-from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.types.dicts import OpenContractDocExport, PawlsPagePythonType
 from opencontractserver.users.models import User
 
 
@@ -312,6 +315,81 @@ class PdfOutlineEnricherTests(TestCase):
         # inserts an 8-hex-char uuid segment so the new ids cannot clash.
         self.assertRegex(sections[0]["id"], r"^enr_outline_[0-9a-f]{8}_\d+$")
 
+    def test_no_pdf_file_returns_unchanged(self):
+        """A document with no pdf_file cannot be read — enricher is a no-op."""
+        doc = Document.objects.create(
+            creator=self.user,
+            title="No File Doc",
+            file_type="application/pdf",
+            page_count=1,
+            processing_started=timezone.now(),
+        )
+        export = self._export([["Heading", "body"]])
+        result = self._enrich(doc, export)
+        self.assertEqual(self._sections(result), [])
+
+    def test_non_list_labelled_text_is_tolerated(self):
+        """A malformed (non-list) labelled_text is replaced with an empty list."""
+        doc = self._make_pdf_doc(
+            pages=[{"lines": ["Heading"]}],
+            outline=[{"title": "Heading", "page": 0, "level": 0}],
+        )
+        export = {
+            "pawls_file_content": self._pawls([["Heading", "body"]]),
+            "labelled_text": "not-a-list",
+        }
+        result = self._enrich(doc, cast(dict, export))
+        # The garbage value is dropped; only the enricher's section survives.
+        self.assertEqual(len(self._sections(result)), 1)
+
+    def test_max_entries_zero_yields_no_sections(self):
+        """max_entries=0 makes the outline walk produce no nodes at all."""
+        doc = self._make_pdf_doc(
+            pages=[{"lines": ["Heading"]}],
+            outline=[{"title": "Heading", "page": 0, "level": 0}],
+        )
+        export = self._export([["Heading", "body"]])
+        result = self._enrich(doc, export, max_entries=0)
+        self.assertEqual(self._sections(result), [])
+
+    def test_destination_page_beyond_pawls_is_skipped(self):
+        """A bookmark whose page is beyond the parsed PAWLs layer is dropped."""
+        doc = self._make_pdf_doc(
+            pages=[{"lines": ["Page Zero"]}, {"lines": ["Page One"]}],
+            outline=[{"title": "Page One", "page": 1, "level": 0}],
+        )
+        # PAWLs content has only one page; the bookmark targets page index 1.
+        export = self._export([["Page", "Zero", "text"]])
+        result = self._enrich(doc, export)
+        self.assertEqual(self._sections(result), [])
+
+    def test_image_only_page_cannot_anchor(self):
+        """A destination page with only image tokens yields no text to anchor."""
+        doc = self._make_pdf_doc(
+            pages=[{"lines": ["Heading"]}],
+            outline=[{"title": "Heading", "page": 0, "level": 0}],
+        )
+        export = {
+            "pawls_file_content": [
+                {
+                    "page": {"width": 612.0, "height": 792.0, "index": 0},
+                    "tokens": [
+                        {
+                            "x": 72.0,
+                            "y": 700.0,
+                            "width": 40.0,
+                            "height": 12.0,
+                            "text": "Heading",
+                            "is_image": True,
+                        }
+                    ],
+                }
+            ],
+            "labelled_text": [],
+        }
+        result = self._enrich(doc, cast(dict, export))
+        self.assertEqual(self._sections(result), [])
+
     def test_emitted_annotation_json_shape(self):
         """The emitted token annotation_json matches the documented shape."""
         doc = self._make_pdf_doc(
@@ -339,3 +417,101 @@ class PdfOutlineEnricherTests(TestCase):
             self.assertEqual(ref["pageIndex"], section["page"])
             self.assertGreaterEqual(ref["tokenIndex"], 0)
             self.assertLess(ref["tokenIndex"], token_count)
+
+
+class _FakeDest:
+    """Stand-in for a pypdf ``Destination`` carrying a plain title."""
+
+    def __init__(self, title: str):
+        self.title = title
+
+
+class _BadTitleDest:
+    """A ``Destination`` whose ``.title`` access raises (malformed object)."""
+
+    @property
+    def title(self) -> str:
+        raise RuntimeError("malformed destination title")
+
+
+class _FakeReader:
+    """Resolves destination page numbers from an identity map.
+
+    Items absent from the map raise — mimicking pypdf's behaviour for a
+    bookmark whose destination cannot be resolved to a page.
+    """
+
+    def __init__(self, page_for: dict[int, int]):
+        self._page_for = page_for
+
+    def get_destination_page_number(self, item) -> int:
+        if id(item) in self._page_for:
+            return self._page_for[id(item)]
+        raise ValueError("unresolvable destination")
+
+
+class PdfOutlineHelperTests(SimpleTestCase):
+    """Unit tests for the module-level helper functions."""
+
+    def test_page_text_tokens_skips_image_and_empty_tokens(self):
+        """Image tokens and blank-text tokens are excluded; indices preserved."""
+        page = {
+            "tokens": [
+                {"text": "img", "is_image": True},
+                {"text": ""},
+                {"text": "   "},
+                {"text": "real"},
+            ]
+        }
+        texts, indices = _page_text_tokens(cast(PawlsPagePythonType, page))
+        self.assertEqual(texts, ["real"])
+        # The kept token's index is its position in the ORIGINAL tokens array.
+        self.assertEqual(indices, [3])
+
+    def test_match_title_to_tokens_empty_title_returns_none(self):
+        """A whitespace-only title normalizes to empty and cannot match."""
+        self.assertIsNone(_match_title_to_tokens("   ", ["alpha", "beta"], 0.8))
+
+    def test_match_title_to_tokens_window_stops_at_max_len(self):
+        """The fuzzy window stops growing once it exceeds the length cap."""
+        # Short title -> small max_len; the second token blows past it, so the
+        # window breaks without ever matching.
+        result = _match_title_to_tokens(
+            "ab", ["abc", "extraordinarilylongtokenword", "tail"], 0.99
+        )
+        self.assertIsNone(result)
+
+    def test_walk_outline_skips_bare_nested_lists(self):
+        """A bare nested list with no preceding Destination is skipped."""
+        outline: list = [[] for _ in range(3)]
+        nodes = _walk_outline(_FakeReader({}), outline, "enr_", 50, 10)
+        self.assertEqual(nodes, [])
+
+    def test_walk_outline_skips_duplicate_entries(self):
+        """The same Destination object appearing twice is only emitted once."""
+        dest = _FakeDest("Heading")
+        outline = [dest, dest]
+        reader = _FakeReader({id(dest): 0})
+        nodes = _walk_outline(reader, outline, "enr_", 50, 10)
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0].title, "Heading")
+
+    def test_walk_outline_drops_malformed_title(self):
+        """A Destination whose title access raises is dropped, not fatal."""
+        bad = _BadTitleDest()
+        nodes = _walk_outline(_FakeReader({id(bad): 0}), [bad], "enr_", 50, 10)
+        self.assertEqual(nodes, [])
+
+    def test_walk_outline_drops_unresolvable_destination(self):
+        """A bookmark whose destination page cannot be resolved is dropped."""
+        dest = _FakeDest("Heading")
+        # Empty page map -> get_destination_page_number raises.
+        nodes = _walk_outline(_FakeReader({}), [dest], "enr_", 50, 10)
+        self.assertEqual(nodes, [])
+
+    def test_walk_outline_aborts_on_item_cap(self):
+        """A pathological outline is bounded by the processed-item cap."""
+        # max_entries=2 -> item_cap = 2 * 4 = 8; 9 non-emitting items trip it.
+        outline: list = [[] for _ in range(9)]
+        nodes = _walk_outline(_FakeReader({}), outline, "enr_", 2, 10)
+        self.assertEqual(nodes, [])

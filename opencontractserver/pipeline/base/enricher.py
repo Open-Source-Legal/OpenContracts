@@ -32,6 +32,12 @@ class BaseEnricher(PipelineComponentBase, ABC):
 
     Handles automatic loading of settings from the ``PipelineSettings``
     database singleton (via ``PipelineComponentBase``).
+
+    Annotations emitted by an enricher should generally be created with
+    ``structural=False``. Unlike a parser's deterministic structural output,
+    enricher annotations are derived heuristically (fuzzy matching, inference)
+    and may be wrong, so a user must be able to edit or delete them —
+    structural annotations are read-only for non-superusers.
     """
 
     supported_file_types: ClassVar[list[FileTypeEnum]] = []

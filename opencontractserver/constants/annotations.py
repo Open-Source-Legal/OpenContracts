@@ -83,6 +83,14 @@ PDF_OUTLINE_MAX_DEPTH = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH
 # plausible starting tokens.
 PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO = 0.6
 
+# Multiplier applied to PDF_OUTLINE_MAX_ENTRIES to derive the processed-item
+# cap for the /Outlines tree walk. The walk may visit nodes (bare nested
+# lists, empty-title or unresolvable-destination entries) that never become
+# emitted annotations, so the item cap is set higher than the entry cap to
+# avoid aborting a legitimate-but-sparse outline while still bounding work on
+# malformed/cyclic data.
+PDF_OUTLINE_WALK_ITEM_MULTIPLIER = 4
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500
