@@ -19,7 +19,7 @@ Tests cover:
 """
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
 
@@ -515,7 +515,7 @@ class TestStartDocumentExtractSecurity(TestCase):
         )
 
 
-class TestDeleteMultipleLabelMutationSecurity(TransactionTestCase):
+class TestDeleteMultipleLabelMutationSecurity(TestCase):
     """
     Tests for DeleteMultipleLabelMutation permission checks.
 

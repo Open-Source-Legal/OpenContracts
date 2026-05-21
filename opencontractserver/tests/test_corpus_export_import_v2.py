@@ -19,7 +19,7 @@ from unittest import mock
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
@@ -79,7 +79,7 @@ User = get_user_model()
 pytestmark = pytest.mark.django_db
 
 
-class TestV2ExportUtilities(TransactionTestCase):
+class TestV2ExportUtilities(TestCase):
     """Test individual V2 export utility functions."""
 
     def setUp(self):
@@ -328,7 +328,7 @@ class TestV2ExportUtilities(TransactionTestCase):
         self.assertEqual(votes[0]["vote_type"], "upvote")
 
 
-class TestV2ImportUtilities(TransactionTestCase):
+class TestV2ImportUtilities(TestCase):
     """Test individual V2 import utility functions."""
 
     def setUp(self):
@@ -1022,7 +1022,7 @@ class TestV2ImportUtilities(TransactionTestCase):
         )  # No relationship due to missing label
 
 
-class TestV2FolderPathReconstruction(TransactionTestCase):
+class TestV2FolderPathReconstruction(TestCase):
     """
     Regression coverage for ``_reconstruct_document_paths`` folder lookup.
 
@@ -1324,7 +1324,7 @@ class TestV2FolderPathReconstruction(TransactionTestCase):
         self.assertIn(lookup[leaf_canonical], {self.f_root, self.f_leaf})
 
 
-class TestV2ImportExceptionHandling(TransactionTestCase):
+class TestV2ImportExceptionHandling(TestCase):
     """Test exception handling in V2 import functions."""
 
     def setUp(self):
@@ -1515,7 +1515,7 @@ class TestV2ImportExceptionHandling(TransactionTestCase):
         _create_export_notification(export, "Test Corpus")
 
 
-class TestV2FullRoundTrip(TransactionTestCase):
+class TestV2FullRoundTrip(TestCase):
     """Test complete V2 export/import round-trip."""
 
     def setUp(self):
@@ -1736,7 +1736,7 @@ class TestV2FullRoundTrip(TransactionTestCase):
         self.assertTrue(imported_annots.exists())
 
 
-class TestV1BackwardCompatibility(TransactionTestCase):
+class TestV1BackwardCompatibility(TestCase):
     """Test that V1 exports can still be imported."""
 
     fixtures_path = pathlib.Path(__file__).parent / "fixtures"
@@ -1785,7 +1785,7 @@ class TestV1BackwardCompatibility(TransactionTestCase):
         self.assertGreater(annots.count(), 0)
 
 
-class TestV2EdgeCases(TransactionTestCase):
+class TestV2EdgeCases(TestCase):
     """Test edge cases and error handling."""
 
     def setUp(self):
@@ -2002,7 +2002,7 @@ class TestV2EdgeCases(TransactionTestCase):
         self.assertIsNotNone(imported_id)
 
 
-class TestLabelTypeExportCompleteness(TransactionTestCase):
+class TestLabelTypeExportCompleteness(TestCase):
     """Test that all label types (TOKEN, DOC, SPAN, RELATIONSHIP) are exported."""
 
     def setUp(self):
@@ -2167,7 +2167,7 @@ class TestLabelTypeExportCompleteness(TransactionTestCase):
         self.assertIn(RELATIONSHIP_LABEL, imported_label_types)
 
 
-class TestDocumentFileTypeRoundTrip(TransactionTestCase):
+class TestDocumentFileTypeRoundTrip(TestCase):
     """Test that document file_type is preserved through export/import."""
 
     def setUp(self):
@@ -2216,7 +2216,7 @@ class TestDocumentFileTypeRoundTrip(TransactionTestCase):
             self.assertEqual(doc_data["file_type"], "text/plain")
 
 
-class TestConversationExportEnhancements(TransactionTestCase):
+class TestConversationExportEnhancements(TestCase):
     """Test enhanced conversation export features."""
 
     def setUp(self):
@@ -2460,7 +2460,7 @@ class TestConversationExportEnhancements(TransactionTestCase):
         self.assertTrue(conv.is_pinned)
 
 
-class TestReconstructDocumentPaths(TransactionTestCase):
+class TestReconstructDocumentPaths(TestCase):
     """Test _reconstruct_document_paths covers all branches."""
 
     def setUp(self):
@@ -2725,7 +2725,7 @@ class TestReconstructDocumentPaths(TransactionTestCase):
         self.assertIsNone(updated_path.folder)
 
 
-class TestBuildLabelLookupsEdgeCases(TransactionTestCase):
+class TestBuildLabelLookupsEdgeCases(TestCase):
     """Test edge cases in build_label_lookups for relationship label gathering."""
 
     def setUp(self):
@@ -2780,7 +2780,7 @@ class TestBuildLabelLookupsEdgeCases(TransactionTestCase):
         self.assertGreater(len(result["text_labels"]), 0)
 
 
-class TestDocumentPathExportFallback(TransactionTestCase):
+class TestDocumentPathExportFallback(TestCase):
     """Test package_document_paths fallback when doc has pdf_file but no hash."""
 
     def setUp(self):
@@ -2824,7 +2824,7 @@ class TestDocumentPathExportFallback(TransactionTestCase):
         self.assertTrue(doc_ref.endswith(".pdf"))
 
 
-class TestConversationImportDocHashRelinking(TransactionTestCase):
+class TestConversationImportDocHashRelinking(TestCase):
     """Test import_conversations with document hash re-linking."""
 
     def setUp(self):
@@ -2880,7 +2880,7 @@ class TestConversationImportDocHashRelinking(TransactionTestCase):
         self.assertIsNone(conv.chat_with_corpus)
 
 
-class TestV2ThreeRoundTripDataIntegrity(TransactionTestCase):
+class TestV2ThreeRoundTripDataIntegrity(TestCase):
     """
     Three-time export/import roundtrip with no data loss for in-scope features.
 

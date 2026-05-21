@@ -75,7 +75,7 @@ export const StatsSection: React.FC<StatsSectionProps> = ({
 }) => {
   return (
     <StatsWrapper>
-      <StatGrid columns={2}>
+      <StatGrid columns={4}>
         {statConfigs.map((config) => {
           const value =
             loading || !stats ? "—" : formatNumber(stats[config.key] as number);

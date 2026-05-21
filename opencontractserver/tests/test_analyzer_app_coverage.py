@@ -371,7 +371,7 @@ class AnalyzerSyncViewTests(TestCase):
 # ---------------------------------------------------------------------------
 
 
-class GetGremlinManifestsTests(TransactionTestCase):
+class GetGremlinManifestsTests(TestCase):
 
     def setUp(self) -> None:
         super().setUp()
@@ -526,7 +526,7 @@ class SyncDocAnalyzersCommandTests(TestCase):
 # ---------------------------------------------------------------------------
 
 
-class AnalysisCallbackViewHappyPathTests(TransactionTestCase):
+class AnalysisCallbackViewHappyPathTests(TestCase):
     """Exercise the success path of the analysis callback endpoint.
 
     ``USE_ANALYZER=False`` in default test settings means the
@@ -634,7 +634,7 @@ class AnalysisCallbackViewHappyPathTests(TransactionTestCase):
         self.assertEqual(mock_notif.call_args.kwargs.get("success"), False)
 
 
-class CreateAnalysisNotificationTests(TransactionTestCase):
+class CreateAnalysisNotificationTests(TestCase):
     """Direct unit tests for the notification helper used by the callback."""
 
     def setUp(self) -> None:
