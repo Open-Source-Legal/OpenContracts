@@ -1,4 +1,5 @@
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { MobileDocumentLayout } from "../src/components/knowledge_base/document/layouts/MobileDocumentLayout";
 import type { DesktopDocumentLayoutProps } from "../src/components/knowledge_base/document/layouts/DesktopDocumentLayout";
 import { PdfAnnotations } from "../src/components/annotator/types/annotations";
@@ -69,6 +70,7 @@ const stubProps: DesktopDocumentLayoutProps = {
   setAutoZoomEnabled: noop,
 
   mainLayerContent: <div data-testid="stub-main-layer">Document surface</div>,
+  viewerContent: <div data-testid="stub-viewer">PDF viewer</div>,
   floatingControlsState: { offset: 0, visible: false },
 
   mode: "quarter",
@@ -108,7 +110,9 @@ const stubProps: DesktopDocumentLayoutProps = {
 };
 
 export const MobileLayoutHarness: React.FC = () => (
-  <div style={{ height: 844, width: 390 }}>
-    <MobileDocumentLayout {...stubProps} />
-  </div>
+  <MemoryRouter>
+    <div style={{ height: 844, width: 390 }}>
+      <MobileDocumentLayout {...stubProps} />
+    </div>
+  </MemoryRouter>
 );

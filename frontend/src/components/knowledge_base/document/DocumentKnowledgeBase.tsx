@@ -810,6 +810,7 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
       autoZoomEnabled={autoZoomEnabled}
       setAutoZoomEnabled={setAutoZoomEnabled}
       mainLayerContent={mainLayerContent}
+      viewerContent={viewerContent}
       floatingControlsState={floatingControlsState}
       mode={mode}
       setMode={setMode}

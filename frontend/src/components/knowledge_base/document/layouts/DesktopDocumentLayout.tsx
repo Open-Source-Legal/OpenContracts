@@ -118,6 +118,13 @@ export interface DesktopDocumentLayoutProps {
 
   /* ----- Center content + floating controls ----- */
   mainLayerContent: React.ReactNode;
+  /**
+   * The bare document viewer (PDF / text / DOCX) — the same node embedded
+   * inside `mainLayerContent`'s `#document-layer` wrapper. Exposed separately
+   * so the mobile layout can render the viewer directly without the desktop
+   * panel-width math that wrapper applies.
+   */
+  viewerContent: React.ReactNode;
   floatingControlsState: { offset: number; visible: boolean };
 
   /* ----- Panel width / resize ----- */

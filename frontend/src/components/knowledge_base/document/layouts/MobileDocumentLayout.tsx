@@ -2,10 +2,15 @@ import React, { useState } from "react";
 import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import { useAnnotationSelection } from "../../../annotator/context/UISettingsAtom";
 import { HeaderBar } from "../document_kb/HeaderBar";
 import { MobileAskBar } from "./mobile/MobileAskBar";
+import { MobileDocToolbar } from "./mobile/MobileDocToolbar";
+import { MobileFindSheet } from "./mobile/MobileFindSheet";
+import { MobileSectionsSheet } from "./mobile/MobileSectionsSheet";
 import { MobileSheet } from "./mobile/MobileSheet";
 import { MobileTabBar, MobileTabId } from "./mobile/MobileTabBar";
+import { useMobileFitToWidth } from "./mobile/useMobileFitToWidth";
 import { DesktopDocumentLayoutProps } from "./DesktopDocumentLayout";
 
 /**
@@ -30,6 +35,25 @@ const Surface = styled.div`
   position: relative;
 `;
 
+/**
+ * Document surface: a fixed toolbar on top, the viewer fills the rest.
+ * The viewer itself owns its internal scrolling, so this column does not
+ * scroll — it just sizes the viewer to the available space.
+ */
+const DocumentSurface = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+`;
+
+const ViewerArea = styled.div`
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+`;
+
 /** Placeholder body for the "More" sheet — replaced by Task 12. */
 const SheetPlaceholder = styled.div`
   padding: 16px;
@@ -40,14 +64,18 @@ const SheetPlaceholder = styled.div`
 /**
  * Mobile layout for the DocumentKnowledgeBase.
  *
- * Owns only local tab-switching state ({@link MobileTabId}); every other value
- * is threaded in via {@link DesktopDocumentLayoutProps} — the same interface
- * the desktop layout consumes. The two layouts are alternative presentations
- * of identical data/state.
+ * Owns only local UI state (the active {@link MobileTabId} and which sheets
+ * are open); every other value is threaded in via
+ * {@link DesktopDocumentLayoutProps} — the same interface the desktop layout
+ * consumes. The two layouts are alternative presentations of identical
+ * data/state.
  *
- * This is the Task 7 skeleton: chrome (header, ask bar, tab bar) plus tab
- * switching with placeholder surfaces. Tasks 8–12 fill in the real
- * Document / Summary / Annotations / Chat / More surfaces.
+ * Task 8 wires the Document surface: the real document viewer
+ * ({@link DesktopDocumentLayoutProps.viewerContent}) below a
+ * {@link MobileDocToolbar}, defaulting to fit-to-width so the document is
+ * readable on mount. Sections and Find open {@link MobileSheet}s over the
+ * existing structural-annotation and text-search systems. Tasks 9–12 fill in
+ * the Summary / Annotations / Chat / More surfaces.
  */
 export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   props
@@ -59,6 +87,9 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     metadata,
     hasCorpus,
     mainLayerContent,
+    viewerContent,
+    zoomLevel,
+    setZoomLevel,
     handleClose,
     setShowAddToCorpusModal,
     setActiveLayer,
@@ -69,6 +100,17 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
 
   const [activeTab, setActiveTab] = useState<MobileTabId>("document");
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
+  const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
+  const [findSheetOpen, setFindSheetOpen] = useState(false);
+
+  const { setSelectedAnnotations } = useAnnotationSelection();
+
+  // Fit-to-width: default the document to a readable zoom on mount and back
+  // the toolbar's "Fit width" chip. Gated on the Document tab being active.
+  const { fitToWidth } = useMobileFitToWidth({
+    active: activeTab === "document",
+    setZoomLevel,
+  });
 
   const handleSelectTab = (tab: MobileTabId) => {
     switch (tab) {
@@ -105,7 +147,15 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
 
       <Surface>
         {activeTab === "document" && (
-          <div data-testid="mobile-surface-document">{mainLayerContent}</div>
+          <DocumentSurface data-testid="mobile-surface-document">
+            <MobileDocToolbar
+              zoomPercent={zoomLevel * 100}
+              onFitWidth={fitToWidth}
+              onSections={() => setSectionsSheetOpen(true)}
+              onFind={() => setFindSheetOpen(true)}
+            />
+            <ViewerArea>{viewerContent}</ViewerArea>
+          </DocumentSurface>
         )}
         {activeTab === "summary" && (
           <div data-testid="mobile-surface-summary">{mainLayerContent}</div>
@@ -128,6 +178,28 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
       />
 
       <MobileTabBar active={activeTab} onSelect={handleSelectTab} />
+
+      <MobileSheet
+        open={sectionsSheetOpen}
+        title="Sections"
+        onClose={() => setSectionsSheetOpen(false)}
+      >
+        <MobileSectionsSheet
+          open={sectionsSheetOpen}
+          onNavigate={(annotationId) => {
+            setSelectedAnnotations([annotationId]);
+            setSectionsSheetOpen(false);
+          }}
+        />
+      </MobileSheet>
+
+      <MobileSheet
+        open={findSheetOpen}
+        title="Find in document"
+        onClose={() => setFindSheetOpen(false)}
+      >
+        <MobileFindSheet open={findSheetOpen} />
+      </MobileSheet>
 
       <MobileSheet
         open={moreSheetOpen}
