@@ -424,7 +424,7 @@ export const Extracts = () => {
 
         {/* Stats Grid */}
         <StatsContainer>
-          <StatGrid columns={2}>
+          <StatGrid columns={4}>
             <StatBlock
               value={stats.totalExtracts.toString()}
               label="Total Extracts"

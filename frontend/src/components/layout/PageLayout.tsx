@@ -107,7 +107,6 @@ export const HeroSubtitle = styled.p`
  */
 export const StatsContainer = styled.div`
   margin-bottom: 48px;
-  padding: 32px 0;
 
   /* Override stat value size for list-page prominence. */
   [class*="StatBlock"] > *:first-child,
@@ -116,8 +115,6 @@ export const StatsContainer = styled.div`
   }
 
   @media (max-width: 768px) {
-    padding: 24px 0;
-
     [class*="StatBlock"] > *:first-child,
     [data-testid="stat-value"] {
       font-size: 28px !important;
