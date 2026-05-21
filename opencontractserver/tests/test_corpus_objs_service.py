@@ -22,7 +22,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.constants.document_processing import (
     MAX_PATH_CREATE_RETRIES,
