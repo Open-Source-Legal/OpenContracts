@@ -17,7 +17,7 @@ from typing import cast
 from unittest.mock import patch
 
 import requests
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.llms.vector_stores.core_vector_stores import (
@@ -366,7 +366,7 @@ class CohereRerankerTest(TestCase):
 # --------------------------------------------------------------------------- #
 
 
-class PipelineUtilityTest(TransactionTestCase):
+class PipelineUtilityTest(TestCase):
     """Covers the ``get_default_reranker_*`` helpers and the instance cache."""
 
     def setUp(self) -> None:

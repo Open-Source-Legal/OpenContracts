@@ -402,7 +402,7 @@ export const Labelsets = () => {
 
         {/* Stats Grid */}
         <StatsContainer>
-          <StatGrid columns={2}>
+          <StatGrid columns={4}>
             <StatBlock
               value={stats.totalLabelsets.toString()}
               label="Label Sets"

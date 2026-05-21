@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -356,7 +356,7 @@ class TestWorkerTokenAuthentication(TestCase):
 # ============================================================================
 
 
-class TestWorkerUploadEndpoint(TransactionTestCase):
+class TestWorkerUploadEndpoint(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser(
             username="admin_upload_test",
@@ -719,7 +719,7 @@ class TestWorkerUploadSerializer(TestCase):
 # ============================================================================
 
 
-class TestBatchProcessor(TransactionTestCase):
+class TestBatchProcessor(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser(
             username="admin_batch_test",
@@ -1097,7 +1097,7 @@ class TestBatchProcessor(TransactionTestCase):
 # ============================================================================
 
 
-class TestStalledUploadRecovery(TransactionTestCase):
+class TestStalledUploadRecovery(TestCase):
     """Test that stalled PROCESSING uploads are recovered."""
 
     def setUp(self):

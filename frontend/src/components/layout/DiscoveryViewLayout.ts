@@ -16,8 +16,10 @@ import {
  * needed.
  */
 
-/** Outer scroll shell with the constrained 1200px (75rem) reading column. */
-export const DiscoveryContainer = styled.div`
+/** Outer scroll shell with the constrained 1200px (75rem) reading column.
+ *  Pass `$fabClearance` on views that render a fixed FAB so trailing
+ *  content can scroll clear of it. */
+export const DiscoveryContainer = styled.div<{ $fabClearance?: boolean }>`
   max-width: 75rem;
   margin: 0 auto;
   padding: 2.5rem 4rem;
@@ -36,6 +38,11 @@ export const DiscoveryContainer = styled.div`
   ${mediaQuery.mobile} {
     padding: 1rem;
   }
+
+  /* Clearance for a fixed FAB (3rem tall, ≤2rem from the bottom edge).
+     Declared after the breakpoint shorthands so it overrides their
+     padding-bottom at every width. */
+  ${({ $fabClearance }) => $fabClearance && "padding-bottom: 7rem;"}
 `;
 
 /** Page header — wraps the title row + filter bar. */

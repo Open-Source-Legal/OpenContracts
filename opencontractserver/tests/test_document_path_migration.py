@@ -13,7 +13,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.files.base import ContentFile
 from django.db import connection
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.corpuses.models import Corpus
@@ -22,7 +22,7 @@ from opencontractserver.documents.models import Document, DocumentPath
 User = get_user_model()
 
 
-class TestCorpusDocumentMethods(TransactionTestCase):
+class TestCorpusDocumentMethods(TestCase):
     """Test the new explicit Corpus methods for document management."""
 
     def setUp(self):
@@ -426,7 +426,7 @@ class TestCorpusDocumentMethods(TransactionTestCase):
         self.assertIn("Content is required", str(cm.exception))
 
 
-class TestDocumentPathTypeCaching(TransactionTestCase):
+class TestDocumentPathTypeCaching(TestCase):
     """Test request-level caching in DocumentPathType._get_visible_corpus_ids."""
 
     def setUp(self):

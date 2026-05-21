@@ -1021,7 +1021,7 @@ class ReadCamlContentHelperTests(TestCase):
         self.assertEqual(_read_caml_content(doc), "")
 
 
-class ApplyCamlArticleEditPreviewTests(TransactionTestCase):
+class ApplyCamlArticleEditPreviewTests(TestCase):
     """Verify the ``preview`` window returned by the apply tool."""
 
     def setUp(self):

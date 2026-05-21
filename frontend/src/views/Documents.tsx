@@ -618,7 +618,7 @@ export const Documents = () => {
 
         {/* Stats Grid */}
         <StatsContainer>
-          <StatGrid columns={2}>
+          <StatGrid columns={4}>
             <StatBlock
               value={stats.totalDocs.toString()}
               label="Documents"

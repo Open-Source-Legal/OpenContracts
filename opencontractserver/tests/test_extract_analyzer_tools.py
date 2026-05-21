@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.corpuses.models import (
@@ -129,7 +129,7 @@ def test_clamp_limit(limit, default, expected):
 # =========================================================================== #
 
 
-class TestExtractAnalyzerRegistryIntegration(TransactionTestCase):
+class TestExtractAnalyzerRegistryIntegration(TestCase):
     """All six tools resolve via ToolFunctionRegistry, with the expected flags."""
 
     EXPECTED_TOOLS = {

@@ -17,7 +17,7 @@ incident this regression test is locking down.
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
@@ -29,7 +29,7 @@ from opencontractserver.documents.models import Document
 User = get_user_model()
 
 
-class OrphanStructuralSetGCTests(TransactionTestCase):
+class OrphanStructuralSetGCTests(TestCase):
     """The post_delete signal must clean up sets with zero remaining refs."""
 
     def setUp(self) -> None:
@@ -110,7 +110,7 @@ class OrphanStructuralSetGCTests(TransactionTestCase):
         doc.delete()  # must not raise
 
 
-class CleanupCommandTests(TransactionTestCase):
+class CleanupCommandTests(TestCase):
     """Backfill command for the existing-orphans case."""
 
     def setUp(self) -> None:
