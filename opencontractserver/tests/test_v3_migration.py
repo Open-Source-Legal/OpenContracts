@@ -19,7 +19,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from opencontractserver.annotations.models import (
     Annotation,
@@ -315,7 +315,7 @@ class XORConstraintTests(TestCase):
         self.assertIn("structural_set", error_dict)
 
 
-class StructuralMigrationCommandTests(TransactionTestCase):
+class StructuralMigrationCommandTests(TestCase):
     """
     Test the migrate_structural_annotations management command.
 
@@ -659,7 +659,7 @@ class StructuralMigrationCommandTests(TransactionTestCase):
         self.assertEqual(self.user_annot.document_id, self.doc.id)
 
 
-class RollbackAndEdgeCaseTests(TransactionTestCase):
+class RollbackAndEdgeCaseTests(TestCase):
     """
     Test edge cases, error handling, and data integrity.
     """
@@ -731,7 +731,7 @@ class RollbackAndEdgeCaseTests(TransactionTestCase):
                 )
 
 
-class ValidationCommandTests(TransactionTestCase):
+class ValidationCommandTests(TestCase):
     """
     Test the validate_v3_migration management command.
     """
@@ -815,7 +815,7 @@ class ValidationCommandTests(TransactionTestCase):
         self.assertIn("[2/6]", output)
 
 
-class ValidationCommandFailureTests(TransactionTestCase):
+class ValidationCommandFailureTests(TestCase):
     """
     Test the validate_v3_migration command additional scenarios.
 
@@ -916,7 +916,7 @@ class ValidationCommandFailureTests(TransactionTestCase):
         self.assertIn("PASSED", output)
 
 
-class MigrationCommandErrorTests(TransactionTestCase):
+class MigrationCommandErrorTests(TestCase):
     """
     Test migration command error handling paths.
     """
@@ -1202,7 +1202,7 @@ class MigrationCommandErrorTests(TransactionTestCase):
         self.assertIn("Successfully migrated", output)
 
 
-class ValidationCommandEdgeCaseTests(TransactionTestCase):
+class ValidationCommandEdgeCaseTests(TestCase):
     """
     Additional tests to cover edge cases in validate_v3_migration command.
 
@@ -1268,7 +1268,7 @@ class ValidationCommandEdgeCaseTests(TransactionTestCase):
         self.assertIn("can benefit from structural annotation migration", output)
 
 
-class ValidationConstraintViolationTests(TransactionTestCase):
+class ValidationConstraintViolationTests(TestCase):
     """
     Test validation command behavior when constraint violations exist.
 
@@ -1385,7 +1385,7 @@ class ValidationConstraintViolationTests(TransactionTestCase):
         self.assertIn("PASS", output)
 
 
-class MigrationCommandProgressTests(TransactionTestCase):
+class MigrationCommandProgressTests(TestCase):
     """
     Test migration command progress reporting and error handling.
 
@@ -1572,7 +1572,7 @@ class MigrationCommandProgressTests(TransactionTestCase):
         self.assertIn("...", output)
 
 
-class MigrationSummaryTests(TransactionTestCase):
+class MigrationSummaryTests(TestCase):
     """Test migration command summary output paths."""
 
     def setUp(self):
@@ -1674,7 +1674,7 @@ class MigrationSummaryTests(TransactionTestCase):
         self.assertIn("Relationships migrated: 1", output)
 
 
-class ValidationVerboseEdgeCaseTests(TransactionTestCase):
+class ValidationVerboseEdgeCaseTests(TestCase):
     """Test verbose output edge cases in validation command."""
 
     def setUp(self):

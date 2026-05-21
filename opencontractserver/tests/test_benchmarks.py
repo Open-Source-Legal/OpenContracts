@@ -16,7 +16,7 @@ from unittest import TestCase as PyUnitTestCase
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.test.utils import override_settings
 
 from opencontractserver.benchmarks.adapters.base import BenchmarkTask
@@ -484,7 +484,7 @@ def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
-class BenchmarkRunnerIntegrationTestCase(TransactionTestCase):
+class BenchmarkRunnerIntegrationTestCase(TestCase):
     """End-to-end: fixture → loader → mocked extraction → evaluator → report."""
 
     def setUp(self):
@@ -939,7 +939,7 @@ class TestPaperSampling(PyUnitTestCase):
 # --------------------------------------------------------------------------- #
 
 
-class RunBenchmarkCommandTest(TransactionTestCase):
+class RunBenchmarkCommandTest(TestCase):
     """Cover the CLI entry point so user lookup, adapter wiring and
     aggregate printing are exercised end-to-end with the runner mocked.
     """

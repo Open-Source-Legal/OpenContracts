@@ -40,7 +40,7 @@ class TestContext:
         self.user = user
 
 
-class TestPersonalCorpusCreation(TransactionTestCase):
+class TestPersonalCorpusCreation(TestCase):
     """Tests for personal corpus auto-creation on user signup."""
 
     def test_new_user_gets_personal_corpus(self):
@@ -877,7 +877,7 @@ class TestEnsureEmbeddingsNoEmbedderConfigured(TestCase):
         self.assertEqual(len(result["errors"]), 0)
 
 
-class TestPersonalCorpusSignalErrorHandling(TransactionTestCase):
+class TestPersonalCorpusSignalErrorHandling(TestCase):
     """Tests for error handling in personal corpus signal handler."""
 
     def test_signal_handles_integrity_error_gracefully(self):
@@ -1095,7 +1095,7 @@ class TestConcurrentPersonalCorpusCreation(TransactionTestCase):
         )
 
 
-class TestDeleteAndRecreatePersonalCorpus(TransactionTestCase):
+class TestDeleteAndRecreatePersonalCorpus(TestCase):
     """
     Tests for delete-and-recreate flow (Issue #839).
 

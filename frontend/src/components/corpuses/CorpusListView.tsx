@@ -526,7 +526,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
 
         {/* Stats Grid */}
         <StatsContainer>
-          <StatGrid columns={2}>
+          <StatGrid columns={4}>
             <StatBlock
               value={stats.totalCorpuses.toString()}
               label="Corpuses"

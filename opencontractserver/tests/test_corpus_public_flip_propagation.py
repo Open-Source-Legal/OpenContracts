@@ -18,7 +18,7 @@ These tests pin two behaviors:
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase
+from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
@@ -48,7 +48,7 @@ def _attach_doc_to_corpus(doc: Document, corpus: Corpus, *, path: str) -> Docume
     )
 
 
-class PublicFlipCascadeTests(TransactionTestCase):
+class PublicFlipCascadeTests(TestCase):
     """The cascade now respects cross-owner privacy and notifies owners."""
 
     def setUp(self):

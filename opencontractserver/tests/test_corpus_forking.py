@@ -5,7 +5,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TransactionTestCase
+from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.annotations.models import Annotation, Relationship
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
@@ -18,7 +18,7 @@ from opencontractserver.utils.permissioning import set_permissions_for_obj_to_us
 User = get_user_model()
 
 
-class CorpusForkTestCase(TransactionTestCase):
+class CorpusForkTestCase(TestCase):
     """Test suite for corpus forking data integrity.
 
     Uses ``setUp`` (instance method) to run an import+fork cycle before each
@@ -529,7 +529,7 @@ class CorpusForkTestCase(TransactionTestCase):
         self.assertEqual(forked_corpus.creator_id, self.user.id)
 
 
-class CorpusForkErrorHandlingTest(TransactionTestCase):
+class CorpusForkErrorHandlingTest(TestCase):
     """Cleanup-on-failure paths for the fork task.
 
     The fork code path now flows through V2 export+import, but it still owns
