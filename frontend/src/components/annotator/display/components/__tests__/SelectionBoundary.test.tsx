@@ -1,17 +1,21 @@
 /**
- * Unit tests for SelectionBoundary click semantics.
+ * Unit tests for SelectionBoundary click semantics and translucent fill.
  *
  * Covers the ``clickThroughOnPlainClick`` prop introduced for OC_URL
  * hyperlink annotations: plain (non-shift) clicks must fire ``onClick``
- * when the prop is on, but stay inert otherwise. Exercising both branches
- * pins the behaviour that lets clickable-link annotations open without
- * accidentally invading the normal selection-only semantics.
+ * when the prop is on, but stay inert otherwise. Also pins the boundary's
+ * translucent fill opacity — rendered independently of the
+ * ``showBoundingBox`` toggle so multi-line annotations don't stripe white.
  */
 import React from "react";
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
 import { SelectionBoundary } from "../SelectionBoundary";
+import {
+  BOUNDARY_OPACITY_SELECTED,
+  BOUNDARY_OPACITY_UNSELECTED,
+} from "../../../../../assets/configurations/constants";
 
 vi.mock("../../../hooks/useAnnotationRefs", () => ({
   useAnnotationRefs: () => ({
@@ -159,5 +163,56 @@ describe("SelectionBoundary click semantics", () => {
     fireEvent.mouseDown(span, { shiftKey: true });
     // The parent handler must not see the event due to stopPropagation.
     expect(parentClick).not.toHaveBeenCalled();
+  });
+});
+
+describe("SelectionBoundary translucent fill", () => {
+  // #0066cc → rgb(0, 102, 204); the fill is rgba(r, g, b, opacity).
+  it("renders the unselected fill even when showBoundingBox is false", () => {
+    const { container } = render(
+      <SelectionBoundary
+        {...baseProps}
+        id="fill1"
+        color="#0066cc"
+        bounds={bounds}
+        showBoundingBox={false}
+      />
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.style.backgroundColor).toContain(
+      `${BOUNDARY_OPACITY_UNSELECTED}`
+    );
+  });
+
+  it("forces a fully transparent fill when hidden, regardless of showBoundingBox", () => {
+    const { container } = render(
+      <SelectionBoundary
+        {...baseProps}
+        hidden
+        id="fill2"
+        color="#0066cc"
+        bounds={bounds}
+        showBoundingBox
+      />
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.style.backgroundColor).toBe("rgba(0, 102, 204, 0)");
+  });
+
+  it("renders the stronger selected fill when selected and showBoundingBox is false", () => {
+    const { container } = render(
+      <SelectionBoundary
+        {...baseProps}
+        selected
+        id="fill3"
+        color="#0066cc"
+        bounds={bounds}
+        showBoundingBox={false}
+      />
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.style.backgroundColor).toContain(
+      `${BOUNDARY_OPACITY_SELECTED}`
+    );
   });
 });

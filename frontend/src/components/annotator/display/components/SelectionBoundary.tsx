@@ -134,12 +134,8 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
   const rotateY = width < 0 ? -180 : 0;
   const rotateX = height < 0 ? -180 : 0;
   const { r, g, b } = hexToRgb(color);
-  // The translucent fill is rendered even when bounding boxes are toggled
-  // off. It backs the per-token highlights so the line-leading gap between
-  // rows of a multi-line annotation no longer shows through as a white
-  // horizontal stripe (those gaps grow with zoom and the fixed-pixel token
-  // expansion/shadow can't bridge them). Only the box-shadow halo remains
-  // gated by showBoundingBox.
+  // Fill is not gated by showBoundingBox so inter-row gaps of a multi-line
+  // annotation don't stripe through as white; only the halo stays gated.
   const opacity = hidden
     ? 0
     : selected
