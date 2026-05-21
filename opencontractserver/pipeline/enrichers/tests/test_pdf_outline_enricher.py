@@ -5,7 +5,8 @@ hand-built OpenContractDocExport and a synthesized bookmarked PDF, so they do
 not depend on a parser, the embedding pipeline, or document persistence.
 """
 
-from django.contrib.auth import get_user_model
+from typing import cast
+
 from django.core.files.base import ContentFile
 from django.test import TestCase
 from django.utils import timezone
@@ -17,17 +18,19 @@ from opencontractserver.pipeline.enrichers.pdf_outline_enricher import (
     PdfOutlineEnricher,
 )
 from opencontractserver.tests.fixtures.pdf_generator import create_pdf_with_outline
-
-User = get_user_model()
+from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.users.models import User
 
 
 class PdfOutlineEnricherTests(TestCase):
     """Behavioural tests for PdfOutlineEnricher._enrich_document_impl."""
 
+    user: User
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.user = User.objects.create_user("enricher_user", password="pw")
+        cls.user = User.objects.create_user(username="enricher_user", password="pw")
 
     # ---- helpers ----------------------------------------------------------
 
@@ -80,8 +83,14 @@ class PdfOutlineEnricherTests(TestCase):
         }
 
     def _enrich(self, doc: Document, export: dict, **kwargs) -> dict:
-        return PdfOutlineEnricher().enrich_document(
-            self.user.id, doc.id, export, **kwargs
+        return cast(
+            dict,
+            PdfOutlineEnricher().enrich_document(
+                self.user.id,
+                doc.id,
+                cast(OpenContractDocExport, export),
+                **kwargs,
+            ),
         )
 
     @staticmethod
@@ -156,7 +165,7 @@ class PdfOutlineEnricherTests(TestCase):
             pages=[{"lines": ["Heading"]}],
             outline=[{"title": "Heading", "page": 0, "level": 0}],
         )
-        export = {"pawls_file_content": [], "labelled_text": []}
+        export: dict = {"pawls_file_content": [], "labelled_text": []}
         result = self._enrich(doc, export)
         self.assertEqual(result["labelled_text"], [])
 
@@ -275,6 +284,33 @@ class PdfOutlineEnricherTests(TestCase):
         sections = self._sections(result)
         self.assertEqual(len(sections), 1)
         self.assertTrue(sections[0]["id"].startswith("enr_outline_"))
+
+    def test_id_prefix_collision_falls_back_to_uuid(self):
+        """An existing enr_outline_-prefixed id forces a uuid-suffixed prefix."""
+        doc = self._make_pdf_doc(
+            pages=[{"lines": ["Heading"]}],
+            outline=[{"title": "Heading", "page": 0, "level": 0}],
+        )
+        # Pre-seed an annotation whose id already uses the default prefix.
+        existing = [
+            {
+                "id": "enr_outline_1",
+                "annotationLabel": "STRUCT",
+                "rawText": "x",
+                "page": 0,
+                "annotation_json": {},
+                "parent_id": None,
+                "annotation_type": TOKEN_LABEL,
+                "structural": True,
+            }
+        ]
+        export = self._export([["Heading", "body"]], labelled_text=existing)
+        result = self._enrich(doc, export)
+        sections = self._sections(result)
+        self.assertEqual(len(sections), 1)
+        # The plain prefix would have collided ("enr_outline_1"); the fallback
+        # inserts an 8-hex-char uuid segment so the new ids cannot clash.
+        self.assertRegex(sections[0]["id"], r"^enr_outline_[0-9a-f]{8}_\d+$")
 
     def test_emitted_annotation_json_shape(self):
         """The emitted token annotation_json matches the documented shape."""

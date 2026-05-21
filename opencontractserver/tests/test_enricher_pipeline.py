@@ -6,10 +6,10 @@ these tests exercise the parse -> enrich -> save chain without the persistence
 or embedding machinery.
 """
 
-from typing import ClassVar
+from collections.abc import Mapping
+from typing import Any, ClassVar, cast
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
@@ -18,8 +18,8 @@ from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.utils import run_enrichers
-
-User = get_user_model()
+from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.users.models import User
 
 PDF_MIME = "application/pdf"
 
@@ -71,7 +71,7 @@ class _StubParser(BaseParser):
 
     title = "Stub Parser"
     supported_file_types: ClassVar[list[FileTypeEnum]] = [FileTypeEnum.PDF]
-    export_payload: ClassVar[dict | None] = None
+    export_payload: "dict | None" = None
 
     def _parse_document_impl(self, user_id, doc_id, **all_kwargs):
         return self.export_payload
@@ -83,7 +83,7 @@ _BOOM_PATH = f"{__name__}._BoomEnricher"
 _PARSER_PATH = "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser"
 
 
-def _markers(export: dict) -> list[str]:
+def _markers(export: Mapping[str, Any]) -> list[str]:
     """Return the marker strings appended by _MarkerEnricher instances."""
     return [
         a["rawText"]
@@ -99,31 +99,39 @@ class RunEnrichersTests(TestCase):
         PipelineSettings._invalidate_cache()
 
     def test_empty_list_returns_input_unchanged(self):
-        export = {"labelled_text": []}
+        export = cast(OpenContractDocExport, {"labelled_text": []})
         result = run_enrichers([], 1, 1, export)
         self.assertIs(result, export)
 
     def test_chain_composes_in_order(self):
-        result = run_enrichers([_A_PATH, _B_PATH], 1, 1, {"labelled_text": []})
+        result = run_enrichers(
+            [_A_PATH, _B_PATH],
+            1,
+            1,
+            cast(OpenContractDocExport, {"labelled_text": []}),
+        )
         self.assertEqual(_markers(result), ["A", "B"])
 
     def test_failing_enricher_is_isolated(self):
         """A raising enricher is skipped; the chain continues, no exception."""
         result = run_enrichers(
-            [_A_PATH, _BOOM_PATH, _B_PATH], 1, 1, {"labelled_text": []}
+            [_A_PATH, _BOOM_PATH, _B_PATH],
+            1,
+            1,
+            cast(OpenContractDocExport, {"labelled_text": []}),
         )
         # A and B still applied; the boom enricher contributed nothing.
         self.assertEqual(_markers(result), ["A", "B"])
 
     def test_non_enricher_class_skipped(self):
         """A path that resolves to a non-BaseEnricher class is skipped."""
-        export = {"labelled_text": []}
+        export = cast(OpenContractDocExport, {"labelled_text": []})
         result = run_enrichers([_PARSER_PATH], 1, 1, export)
         self.assertEqual(_markers(result), [])
 
     def test_unresolvable_path_skipped(self):
         """A class path that cannot be imported is skipped, not fatal."""
-        export = {"labelled_text": []}
+        export = cast(OpenContractDocExport, {"labelled_text": []})
         result = run_enrichers(["does.not.exist.Nope"], 1, 1, export)
         self.assertEqual(_markers(result), [])
 
@@ -131,10 +139,14 @@ class RunEnrichersTests(TestCase):
 class ProcessDocumentEnrichmentWiringTests(TestCase):
     """Tests that BaseParser.process_document runs the configured chain."""
 
+    user: User
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.user = User.objects.create_user("enrich_wiring_user", password="pw")
+        cls.user = User.objects.create_user(
+            username="enrich_wiring_user", password="pw"
+        )
 
     def setUp(self):
         PipelineSettings._invalidate_cache()

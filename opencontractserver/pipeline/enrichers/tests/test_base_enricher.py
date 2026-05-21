@@ -1,12 +1,13 @@
 """Tests for the BaseEnricher abstract base class (settings injection)."""
 
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from django.test import TestCase
 
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.types.dicts import OpenContractDocExport
 
 
 class _RecordingEnricher(BaseEnricher):
@@ -30,7 +31,7 @@ class BaseEnricherTests(TestCase):
     def test_direct_kwargs_forwarded(self):
         """enrich_document forwards direct kwargs to _enrich_document_impl."""
         enricher = _RecordingEnricher()
-        export = {"labelled_text": []}
+        export = cast(OpenContractDocExport, {"labelled_text": []})
         result = enricher.enrich_document(7, 11, export, foo="bar")
 
         self.assertIs(result, export)
@@ -45,7 +46,9 @@ class BaseEnricherTests(TestCase):
         settings.save()
 
         enricher = _RecordingEnricher()
-        enricher.enrich_document(1, 2, {"labelled_text": []}, foo="direct")
+        enricher.enrich_document(
+            1, 2, cast(OpenContractDocExport, {"labelled_text": []}), foo="direct"
+        )
 
         # Direct kwarg wins on conflict; DB-only setting is still injected.
         self.assertEqual(enricher.received_kwargs, {"foo": "direct", "baz": "db_only"})
@@ -53,4 +56,4 @@ class BaseEnricherTests(TestCase):
     def test_base_enricher_is_abstract(self):
         """BaseEnricher cannot be instantiated directly."""
         with self.assertRaises(TypeError):
-            BaseEnricher()
+            BaseEnricher()  # type: ignore[abstract]

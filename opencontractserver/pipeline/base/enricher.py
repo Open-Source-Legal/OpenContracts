@@ -36,14 +36,6 @@ class BaseEnricher(PipelineComponentBase, ABC):
 
     supported_file_types: ClassVar[list[FileTypeEnum]] = []
 
-    def __init__(self, **kwargs):
-        """
-        Initializes the Enricher.
-
-        Kwargs are passed to the superclass constructor (PipelineComponentBase).
-        """
-        super().__init__(**kwargs)
-
     @abstractmethod
     def _enrich_document_impl(
         self,

@@ -78,6 +78,11 @@ PDF_OUTLINE_MAX_ENTRIES = DOCUMENT_ANNOTATION_INDEX_LIMIT
 # warning rather than emitted.
 PDF_OUTLINE_MAX_DEPTH = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH
 
+# Minimum difflib ratio between a bookmark title's first word and a candidate
+# start token. A cheap pre-filter so the fuzzy match only does real work on
+# plausible starting tokens.
+PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO = 0.6
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500

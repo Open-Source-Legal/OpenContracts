@@ -18,7 +18,6 @@ matched ancestor so the surviving tree stays connected.
 A document with no usable outline is returned unchanged.
 """
 
-import io
 import logging
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -27,6 +26,7 @@ from uuid import uuid4
 
 from opencontractserver.constants.annotations import (
     OC_SECTION_LABEL,
+    PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO,
     PDF_OUTLINE_FUZZY_MATCH_THRESHOLD,
     PDF_OUTLINE_MAX_DEPTH,
     PDF_OUTLINE_MAX_ENTRIES,
@@ -38,16 +38,16 @@ from opencontractserver.pipeline.base.settings_schema import (
     SettingType,
 )
 from opencontractserver.types.dicts import (
+    BoundingBoxPythonType,
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
+    OpenContractsSinglePageAnnotationType,
+    PawlsPagePythonType,
+    PawlsTokenPythonType,
+    TokenIdPythonType,
 )
 
 logger = logging.getLogger(__name__)
-
-# Minimum SequenceMatcher ratio between a bookmark title's first word and a
-# candidate start token. A cheap pre-filter so the fuzzy match only does real
-# work on plausible starting tokens.
-_FIRST_WORD_PREFILTER_RATIO = 0.6
 
 
 @dataclass
@@ -61,7 +61,7 @@ class _OutlineNode:
     depth: int
 
 
-def _page_text_tokens(page: dict) -> tuple[list[str], list[int]]:
+def _page_text_tokens(page: PawlsPagePythonType) -> tuple[list[str], list[int]]:
     """Extract a PAWLs page's text tokens.
 
     Returns ``(token_texts, original_indices)`` — parallel lists of the
@@ -116,7 +116,7 @@ def _match_title_to_tokens(
         # title's first word, else the whole fuzzy scan from j is wasted.
         if (
             SequenceMatcher(None, cf[j], first_word).ratio()
-            < _FIRST_WORD_PREFILTER_RATIO
+            < PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO
         ):
             continue
         candidate = cf[j]
@@ -139,7 +139,9 @@ def _match_title_to_tokens(
     return None
 
 
-def _union_bounds(tokens: list[dict], indices: list[int]) -> dict:
+def _union_bounds(
+    tokens: list[PawlsTokenPythonType], indices: list[int]
+) -> BoundingBoxPythonType:
     """Compute the union bounding box of the given tokens.
 
     Returns a ``BoundingBoxPythonType`` dict (top/bottom/left/right). PAWLs
@@ -346,29 +348,11 @@ class PdfOutlineEnricher(BaseEnricher):
     ) -> OpenContractDocExport:
         """Append OC_SECTION annotations derived from the PDF's outline.
 
-        Returns ``export_data`` unchanged if the PDF has no usable outline,
-        carries no PAWLs token data, or anything goes wrong — enrichment is
-        strictly additive and never raises.
+        Returns ``export_data`` unchanged if the PDF has no usable outline or
+        carries no PAWLs token data. Enrichment is strictly additive. An
+        unexpected error propagates to ``run_enrichers``, which isolates the
+        failure so a misbehaving enricher never fails document ingestion.
         """
-        try:
-            return self._enrich(user_id, doc_id, export_data, **all_kwargs)
-        except Exception as exc:  # additive — must never raise
-            logger.warning(
-                "PdfOutlineEnricher failed for doc %s; returning document "
-                "unchanged: %s",
-                doc_id,
-                exc,
-                exc_info=True,
-            )
-            return export_data
-
-    def _enrich(
-        self,
-        user_id: int,
-        doc_id: int,
-        export_data: OpenContractDocExport,
-        **all_kwargs,
-    ) -> OpenContractDocExport:
         import pypdf
         from django.core.files.storage import default_storage
 
@@ -411,38 +395,41 @@ class PdfOutlineEnricher(BaseEnricher):
 
         # --- Load the PDF and read its embedded outline ---------------------
         document = Document.objects.get(pk=doc_id)
-        if not document.pdf_file:
+        pdf_name = document.pdf_file.name if document.pdf_file else None
+        if not pdf_name:
             logger.info("PdfOutlineEnricher: doc %s has no pdf_file; skipping.", doc_id)
             return export_data
 
-        with default_storage.open(document.pdf_file.name, "rb") as fh:
-            pdf_bytes = fh.read()
+        # pypdf streams from the open storage handle directly, so a large PDF
+        # is never fully buffered in memory. Everything that touches ``reader``
+        # therefore stays inside the ``with`` block.
+        with default_storage.open(pdf_name, "rb") as fh:
+            reader = pypdf.PdfReader(fh)
+            outline = reader.outline
+            if not outline:
+                logger.info(
+                    "PdfOutlineEnricher: doc %s PDF has no /Outlines "
+                    "bookmarks; skipping.",
+                    doc_id,
+                )
+                return export_data
 
-        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        outline = reader.outline
-        if not outline:
-            logger.info(
-                "PdfOutlineEnricher: doc %s PDF has no /Outlines bookmarks; "
-                "skipping.",
-                doc_id,
-            )
-            return export_data
+            # --- ID prefix that cannot collide with parser-emitted ids ------
+            existing = export_data.get("labelled_text") or []
+            if not isinstance(existing, list):
+                existing = []
+            existing_ids = {
+                str(ann.get("id"))
+                for ann in existing
+                if isinstance(ann, dict) and ann.get("id") is not None
+            }
+            id_prefix = "enr_outline_"
+            if any(eid.startswith(id_prefix) for eid in existing_ids):
+                id_prefix = f"enr_outline_{uuid4().hex[:8]}_"
 
-        # --- ID prefix that cannot collide with parser-emitted ids ----------
-        existing = export_data.get("labelled_text") or []
-        if not isinstance(existing, list):
-            existing = []
-        existing_ids = {
-            str(ann.get("id"))
-            for ann in existing
-            if isinstance(ann, dict) and ann.get("id") is not None
-        }
-        id_prefix = "enr_outline_"
-        if any(eid.startswith(id_prefix) for eid in existing_ids):
-            id_prefix = f"enr_outline_{uuid4().hex[:8]}_"
+            # --- Walk the outline tree --------------------------------------
+            nodes = _walk_outline(reader, outline, id_prefix, max_entries, max_depth)
 
-        # --- Walk the outline tree ------------------------------------------
-        nodes = _walk_outline(reader, outline, id_prefix, max_entries, max_depth)
         if not nodes:
             logger.info(
                 "PdfOutlineEnricher: doc %s outline yielded no usable "
@@ -504,15 +491,16 @@ class PdfOutlineEnricher(BaseEnricher):
             bounds = _union_bounds(page_tokens, matched_token_indices)
             page_raw_text = " ".join(token_texts[start : end + 1])
 
-            annotation_json = {
-                str(p): {
-                    "bounds": bounds,
-                    "tokensJsons": [
-                        {"pageIndex": p, "tokenIndex": idx}
-                        for idx in matched_token_indices
-                    ],
-                    "rawText": page_raw_text,
-                }
+            tokens_jsons: list[TokenIdPythonType] = [
+                {"pageIndex": p, "tokenIndex": idx} for idx in matched_token_indices
+            ]
+            single_page: OpenContractsSinglePageAnnotationType = {
+                "bounds": bounds,
+                "tokensJsons": tokens_jsons,
+                "rawText": page_raw_text,
+            }
+            annotation_json: dict[int | str, OpenContractsSinglePageAnnotationType] = {
+                str(p): single_page
             }
             new_entries.append(
                 {
@@ -523,6 +511,10 @@ class PdfOutlineEnricher(BaseEnricher):
                     "annotation_json": annotation_json,
                     "parent_id": nearest_matched_ancestor(node),
                     "annotation_type": TOKEN_LABEL,
+                    # Not structural: unlike a parser's deterministic
+                    # OC_SECTION output, these are fuzzy-matched from bookmark
+                    # titles and may be wrong, so a user must be able to edit
+                    # or delete them. Structural annotations are read-only.
                     "structural": False,
                 }
             )

@@ -1360,7 +1360,22 @@ class PipelineSettings(django.db.models.Model):
             Ordered list of enricher class paths (empty if none configured).
         """
         if self.preferred_enrichers and mimetype in self.preferred_enrichers:
-            return self.preferred_enrichers[mimetype] or []
+            configured = self.preferred_enrichers[mimetype]
+            if configured is None:
+                return []
+            if isinstance(configured, list):
+                return configured
+            # A misconfigured non-list value (e.g. a bare string) would make
+            # run_enrichers iterate characters — ignore it rather than run a
+            # garbage chain.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "PipelineSettings.preferred_enrichers[%r] is %s, not a list; "
+                "ignoring.",
+                mimetype,
+                type(configured).__name__,
+            )
         return []
 
     def get_parser_kwargs(self, parser_class_path: str) -> dict:
