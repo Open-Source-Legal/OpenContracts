@@ -167,7 +167,8 @@ class BaseVisibilityManager(UserCanMixin, Manager):
         Visibility rules:
         - Superusers see everything
         - Anonymous users see only public objects
-        - Authenticated users see: public objects, objects they created, or objects with explicit permissions
+        - Authenticated users see: public objects, objects they created, or
+          objects with an explicit guardian READ grant (user- or group-level)
 
         Args:
             user: The requesting user (None treated as anonymous).
@@ -242,20 +243,54 @@ class BaseVisibilityManager(UserCanMixin, Manager):
                 permitted_ids = permission_model_type.objects.filter(
                     permission__codename=f"read_{model_name}", user_id=user.id
                 ).values_list("content_object_id", flat=True)
-
-                # Build the optimized query using simpler conditions
-                queryset = model_cls.objects.filter(
-                    Q(creator_id=user.id) | Q(is_public=True) | Q(id__in=permitted_ids)
-                )
             except LookupError:
                 logger.warning(
                     f"Permission model {app_label}.{permission_model_name}"
                     " not found. Falling back to creator/public check."
                 )
-                # Fallback if permission model doesn't exist (might happen for simpler models)
-                queryset = model_cls.objects.filter(
-                    Q(creator_id=user.id) | Q(is_public=True)
+                # Fallback if the user-level permission model doesn't exist
+                # (might happen for simpler models).
+                permitted_ids = []
+
+            # Group object-permissions: ``user_can`` resolves group grants
+            # (``_default_user_can`` runs with
+            # ``include_group_permissions=True``), so the filter must OR
+            # them in too — otherwise a user whose only READ grant is via a
+            # group passes ``user_can`` yet never appears in
+            # ``visible_to_user``. This is the same drift #1714 closed in
+            # the ``shared/QuerySets.py`` bodies; issue #1731 aligns this
+            # manager body with that fix. The lazy ``values_list`` keeps the
+            # group lookup a SQL subquery (no extra round-trip). Resolved in
+            # its own ``try`` so a missing group table never discards the
+            # already-resolved user-level grants.
+            group_permission_model_name = f"{model_name}groupobjectpermission"
+            try:
+                user_group_ids = user.groups.values_list("id", flat=True)
+                group_permission_model_type = apps.get_model(
+                    app_label, group_permission_model_name
                 )
+                group_permitted_ids = group_permission_model_type.objects.filter(
+                    permission__codename=f"read_{model_name}",
+                    group_id__in=user_group_ids,
+                ).values_list("content_object_id", flat=True)
+            except LookupError:
+                logger.warning(
+                    f"Group permission model {app_label}."
+                    f"{group_permission_model_name} not found. Falling back "
+                    "to creator/public check."
+                )
+                # Fallback if the group-level permission model doesn't exist
+                # (might happen for simpler models).
+                group_permitted_ids = []
+
+            # Build the optimized query: creator OR public OR an explicit
+            # user-level guardian READ grant OR a group-level one.
+            queryset = model_cls.objects.filter(
+                Q(creator_id=user.id)
+                | Q(is_public=True)
+                | Q(id__in=permitted_ids)
+                | Q(id__in=group_permitted_ids)
+            )
 
             # --- Apply Performance Optimizations Based on Model Type ---
             if model_name.upper() == "CORPUS":
