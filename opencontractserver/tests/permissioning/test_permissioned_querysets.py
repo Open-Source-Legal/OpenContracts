@@ -1230,6 +1230,9 @@ class GroupObjectPermissionVisibilityTest(TestCase):
         for i in range(4):
             many_group_user.groups.add(Group.objects.create(name=f"perf_grp_{i}"))
 
+        # lightweight=True skips the heavy prefetch fan-outs so the
+        # captured query count reflects only the core visibility query —
+        # exactly the part group resolution touches.
         with CaptureQueriesContext(connection) as one_group_ctx:
             list(Document.objects.visible_to_user(self.group_user, lightweight=True))
         with CaptureQueriesContext(connection) as many_group_ctx:
