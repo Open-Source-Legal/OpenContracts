@@ -4,6 +4,8 @@ import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { useAnnotationSelection } from "../../../annotator/context/UISettingsAtom";
 import { HeaderBar } from "../document_kb/HeaderBar";
+import { RightPanelContent } from "../document_kb/RightPanelContent";
+import { MobileAnnotationDetail } from "./mobile/MobileAnnotationDetail";
 import { MobileAskBar } from "./mobile/MobileAskBar";
 import { MobileDocToolbar } from "./mobile/MobileDocToolbar";
 import { MobileFindSheet } from "./mobile/MobileFindSheet";
@@ -71,6 +73,16 @@ const SummarySurface = styled.div`
   min-height: 0;
 `;
 
+/**
+ * Annotations surface wrapper: fills the {@link Surface} so the unified feed's
+ * `AutoSizer` (which needs a measured parent) and `height: 100%` panels size
+ * correctly. The feed owns its own internal scrolling.
+ */
+const AnnotationsSurface = styled.div`
+  height: 100%;
+  min-height: 0;
+`;
+
 /** Empty state shown on the Summary tab when the document has no corpus. */
 const SummaryEmptyState = styled.div`
   padding: 24px 16px;
@@ -88,12 +100,18 @@ const SummaryEmptyState = styled.div`
  * consumes. The two layouts are alternative presentations of identical
  * data/state.
  *
- * Task 8 wires the Document surface: the real document viewer
+ * The Document surface renders the real document viewer
  * ({@link DesktopDocumentLayoutProps.viewerContent}) below a
  * {@link MobileDocToolbar}, defaulting to fit-to-width so the document is
  * readable on mount. Sections and Find open {@link MobileSheet}s over the
- * existing structural-annotation and text-search systems. Tasks 9–12 fill in
- * the Summary / Annotations / Chat / More surfaces.
+ * existing structural-annotation and text-search systems. The Summary surface
+ * embeds the {@link UnifiedKnowledgeLayer}.
+ *
+ * The Annotations surface renders the existing unified annotation feed
+ * full-screen ({@link RightPanelContent} in `feed` mode). Selecting an
+ * annotation — from a feed row or from a highlight in the Document-tab viewer —
+ * opens the shared "Annotation" {@link MobileSheet} with the existing
+ * single-annotation detail card. Tasks 11–12 fill in the Chat / More surfaces.
  */
 export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   props
@@ -104,7 +122,6 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     readOnly,
     metadata,
     hasCorpus,
-    mainLayerContent,
     viewerContent,
     zoomLevel,
     setZoomLevel,
@@ -114,6 +131,20 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     setSidebarViewMode,
     setShowRightPanel,
     setPendingChatMessage,
+    sidebarViewMode,
+    feedFilters,
+    setFeedFilters,
+    feedSortBy,
+    setFeedSortBy,
+    searchText,
+    selectedAnalysis,
+    selectedExtract,
+    dataCells,
+    columns,
+    notes,
+    loading,
+    setSelectedNote,
+    pendingChatMessage,
   } = props;
 
   const [activeTab, setActiveTab] = useState<MobileTabId>("document");
@@ -121,7 +152,8 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [findSheetOpen, setFindSheetOpen] = useState(false);
 
-  const { setSelectedAnnotations } = useAnnotationSelection();
+  const { selectedAnnotations, setSelectedAnnotations } =
+    useAnnotationSelection();
 
   // Fit-to-width: default the document to a readable zoom on mount and back
   // the toolbar's "Fit width" chip. Gated on the Document tab being active.
@@ -193,7 +225,30 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
           </SummarySurface>
         )}
         {activeTab === "annotations" && (
-          <div data-testid="mobile-surface-annotations">{mainLayerContent}</div>
+          <AnnotationsSurface data-testid="mobile-surface-annotations">
+            <RightPanelContent
+              showRightPanel={true}
+              sidebarViewMode="feed"
+              setSidebarViewMode={setSidebarViewMode}
+              feedFilters={feedFilters}
+              setFeedFilters={setFeedFilters}
+              feedSortBy={feedSortBy}
+              setFeedSortBy={setFeedSortBy}
+              searchText={searchText}
+              selectedAnalysis={selectedAnalysis}
+              selectedExtract={selectedExtract}
+              dataCells={dataCells}
+              columns={columns}
+              notes={notes}
+              loading={loading}
+              readOnly={readOnly}
+              documentId={documentId}
+              corpusId={corpusId}
+              setActiveLayer={setActiveLayer}
+              setSelectedNote={setSelectedNote}
+              pendingChatMessage={pendingChatMessage}
+            />
+          </AnnotationsSurface>
         )}
       </Surface>
 
@@ -241,6 +296,18 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
         <SheetPlaceholder data-testid="mobile-surface-more">
           More options coming soon.
         </SheetPlaceholder>
+      </MobileSheet>
+
+      {/* Annotation detail sheet — single rendering site for both open paths:
+          tapping a feed row in the Annotations surface and tapping a highlight
+          in the Document-tab viewer. Both set the shared `selectedAnnotations`
+          selection; closing the sheet clears it. */}
+      <MobileSheet
+        open={selectedAnnotations.length > 0}
+        title="Annotation"
+        onClose={() => setSelectedAnnotations([])}
+      >
+        <MobileAnnotationDetail readOnly={readOnly} />
       </MobileSheet>
     </Root>
   );
