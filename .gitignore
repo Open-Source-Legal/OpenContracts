@@ -208,3 +208,6 @@ docs/superpowers/
 # traceable artifact. Do not exclude that directory.
 !docs/benchmarks/runs/
 .playwright-mcp/
+
+# Superpowers brainstorming scratch files
+.superpowers/
