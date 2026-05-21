@@ -1097,6 +1097,34 @@ git commit -m "Update changelog for mobile DocumentKnowledgeBase layout"
 
 ---
 
+## Phase 6 — Visual inspection & iterate to perfection
+
+### Task 18: Re-run the mobile visual audit and iterate until the surfaces look right
+
+**Files:** none directly — this task drives the running app, inspects screenshots, and dispatches fixes.
+
+- [ ] **Step 1: Bring up the app**
+
+Backend: `docker compose -f local.yml up -d django`. Frontend: `cd frontend && yarn start` (Vite on :5173).
+
+- [ ] **Step 2: Drive the real mobile DocumentKnowledgeBase at 390px and screenshot every surface**
+
+Use a headless Playwright drive at a 390×844 viewport (the same technique as the original audit — intercept `**/graphql**`, proxy each POST server-side with a Django `sessionid` + CSRF token; see `CLAUDE.md` → "Authenticated Playwright Testing"). Open a processed PDF document and capture: the Document surface (on load — verify fit-to-width), the Summary tab, the Annotations tab, the annotation detail sheet, the Chat sheet, the More sheet, the Sections sheet, the Find sheet. Also measure: horizontal overflow (`scrollWidth − clientWidth` must be ≤ 1) and console errors.
+
+- [ ] **Step 3: Visually inspect each screenshot**
+
+Look at every captured screenshot for crowding, clipping, overflow, awkward spacing, overlapping controls, unreadable text, mis-aligned chrome — the same criteria as the original audit. Judge it as a user would.
+
+- [ ] **Step 4: Iterate to perfection**
+
+For each genuine visual defect found, dispatch a focused fix (a small implementer subagent or a direct edit), re-run Step 2, and re-inspect. Repeat until the surfaces are clean: document readable on load, no overflow, no overlapping/clipped controls, chrome aligned, every surface reachable and legible. Commit each fix.
+
+- [ ] **Step 5: Final confirmation**
+
+Re-run `cd frontend && yarn tsc --noEmit && yarn lint` and `yarn test:ct --reporter=list -g "DocumentKnowledgeBase"` — all green, desktop baseline still 66/0. Commit any remaining changes.
+
+---
+
 ## Self-review notes
 
 - **Spec coverage:** navigation model (Tasks 3–7), four surfaces (Tasks 8–11), More sheet (Task 12), annotation detail sheet / review flow (Task 10), architecture / layout owner + extraction (Tasks 2, 7, 13), state mapping (Task 7 table), `isMobile`-branch deletion (Task 14), desktop regression gate (Tasks 1, 13, 14, 17), mobile tests + absence assertions + audit re-run (Tasks 15–16). Out-of-scope items (annotation authoring, Analyses/Extracts, tablet) are honored by never wiring them into `MobileDocumentLayout`.
