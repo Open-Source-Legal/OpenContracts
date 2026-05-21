@@ -53,7 +53,7 @@ from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIToolWrapper,
 )
 from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
-from opencontractserver.tests.base import BaseFixtureTestCase
+from opencontractserver.tests.base import TransactionFixtureTestCase
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -181,7 +181,7 @@ class TestExtractAnalyzerRegistryIntegration(TestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-class TestListFieldsets(BaseFixtureTestCase):
+class TestListFieldsets(TransactionFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_user(username="other_user", password="pw")
@@ -274,7 +274,7 @@ class TestListFieldsets(BaseFixtureTestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-class TestListAnalyzers(BaseFixtureTestCase):
+class TestListAnalyzers(TransactionFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_user(username="other_user", password="pw")
@@ -375,7 +375,7 @@ class TestListAnalyzers(BaseFixtureTestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-class TestListRecentExtracts(BaseFixtureTestCase):
+class TestListRecentExtracts(TransactionFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_user(username="other_user", password="pw")
@@ -485,7 +485,7 @@ class TestListRecentExtracts(BaseFixtureTestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-class TestListRecentAnalyses(BaseFixtureTestCase):
+class TestListRecentAnalyses(TransactionFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_user(username="other_user", password="pw")
@@ -564,7 +564,7 @@ class TestListRecentAnalyses(BaseFixtureTestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-class TestStartExtract(BaseFixtureTestCase):
+class TestStartExtract(TransactionFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.fieldset = _make_fieldset(name="FS", user=self.user)
@@ -818,7 +818,7 @@ class TestStartExtract(BaseFixtureTestCase):
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-class TestStartAnalysis(BaseFixtureTestCase):
+class TestStartAnalysis(TransactionFixtureTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.analyzer = _make_task_analyzer(user=self.user)

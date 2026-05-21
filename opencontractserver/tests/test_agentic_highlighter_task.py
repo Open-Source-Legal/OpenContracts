@@ -22,7 +22,7 @@ from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import DocumentAnalysisRow
-from opencontractserver.tests.base import BaseFixtureTestCase
+from opencontractserver.tests.base import TransactionFixtureTestCase
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -37,7 +37,7 @@ class TestContext:
         self.user = user
 
 
-class TestAgenticHighlighterClaude(BaseFixtureTestCase):
+class TestAgenticHighlighterClaude(TransactionFixtureTestCase):
     """Test suite for agentic_highlighter_claude task."""
 
     def setUp(self):

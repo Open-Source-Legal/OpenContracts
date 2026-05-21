@@ -12,7 +12,7 @@ websocket consumer layer because we only need to verify that:
 3.  Anonymous access to private corpuses/documents is rejected with a
     :class:`PermissionError` raised by the factory layer.
 
-The fixtures provided by :class:`~opencontractserver.tests.base.BaseFixtureTestCase`
+The fixtures provided by :class:`~opencontractserver.tests.base.TransactionFixtureTestCase`
 already include a test user (``self.user``) plus at least one
 document/corpus.  We simply toggle the ``is_public`` flag between test
 cases.
@@ -24,11 +24,11 @@ import vcr
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.llms import agents as llm_agents
 from opencontractserver.llms.tools.tool_factory import CoreTool
-from opencontractserver.tests.base import BaseFixtureTestCase
+from opencontractserver.tests.base import TransactionFixtureTestCase
 
 
 @pytest.mark.django_db(transaction=True)
-class PublicCorpusPersistenceTestCase(BaseFixtureTestCase):
+class PublicCorpusPersistenceTestCase(TransactionFixtureTestCase):
     """Ensure that message persistence is disabled for *public* corpuses."""
 
     @vcr.use_cassette(
@@ -78,7 +78,7 @@ class PublicCorpusPersistenceTestCase(BaseFixtureTestCase):
 
 
 @pytest.mark.django_db(transaction=True)
-class PublicToolFilteringTestCase(BaseFixtureTestCase):
+class PublicToolFilteringTestCase(TransactionFixtureTestCase):
     """Verify that approval-gated tools are filtered in public context."""
 
     @vcr.use_cassette(
@@ -113,7 +113,7 @@ class PublicToolFilteringTestCase(BaseFixtureTestCase):
 
 
 @pytest.mark.django_db(transaction=True)
-class PermissionGuardTestCase(BaseFixtureTestCase):
+class PermissionGuardTestCase(TransactionFixtureTestCase):
     """Anonymous users must be blocked from private corpuses."""
 
     @vcr.use_cassette(
@@ -129,7 +129,7 @@ class PermissionGuardTestCase(BaseFixtureTestCase):
             await llm_agents.for_corpus(corpus=self.corpus.id, user_id=None)
 
 
-class PydanticAICorpusPersistenceTestCase(BaseFixtureTestCase):
+class PydanticAICorpusPersistenceTestCase(TransactionFixtureTestCase):
     """Ensure Pydantic-AI corpus agent does not create extra conversations."""
 
     @vcr.use_cassette(
