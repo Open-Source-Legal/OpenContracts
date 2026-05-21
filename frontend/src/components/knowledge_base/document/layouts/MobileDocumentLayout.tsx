@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { useAnnotationSelection } from "../../../annotator/context/UISettingsAtom";
+import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import { HeaderBar } from "../document_kb/HeaderBar";
 import { RightPanelContent } from "../document_kb/RightPanelContent";
 import { MobileAnnotationDetail } from "./mobile/MobileAnnotationDetail";
@@ -83,6 +84,19 @@ const AnnotationsSurface = styled.div`
   min-height: 0;
 `;
 
+/**
+ * Chat sheet wrapper: fills the {@link MobileSheet} body so the chat content
+ * ({@link RightPanelContent} in `chat` mode → `FlexColumnPanel` → `ChatTray`,
+ * all `height: 100%`) sizes correctly. The chat owns its own scrolling, so
+ * this wrapper does not scroll.
+ */
+const ChatSurface = styled.div`
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
 /** Empty state shown on the Summary tab when the document has no corpus. */
 const SummaryEmptyState = styled.div`
   padding: 24px 16px;
@@ -111,7 +125,17 @@ const SummaryEmptyState = styled.div`
  * full-screen ({@link RightPanelContent} in `feed` mode). Selecting an
  * annotation — from a feed row or from a highlight in the Document-tab viewer —
  * opens the shared "Annotation" {@link MobileSheet} with the existing
- * single-annotation detail card. Tasks 11–12 fill in the Chat / More surfaces.
+ * single-annotation detail card.
+ *
+ * The {@link MobileAskBar} opens the AI chat in a dedicated "Chat"
+ * {@link MobileSheet}: focusing the bar opens an empty conversation, submitting
+ * text opens the sheet and threads the query through as `pendingChatMessage`.
+ * The sheet reuses {@link RightPanelContent} in `chat` mode (the same component
+ * the desktop right tray renders). When a chat source citation is clicked it
+ * sets a non-null `selectedSourceIndex` on the shared chat-source atom; an
+ * effect watches that transition, closes the Chat sheet, and switches the
+ * active tab to `document` so the cited annotation scrolls into view in the
+ * viewer. Task 12 fills in the More surface.
  */
 export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   props
@@ -129,7 +153,6 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     setShowAddToCorpusModal,
     setActiveLayer,
     setSidebarViewMode,
-    setShowRightPanel,
     setPendingChatMessage,
     sidebarViewMode,
     feedFilters,
@@ -151,9 +174,23 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [findSheetOpen, setFindSheetOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const { selectedAnnotations, setSelectedAnnotations } =
     useAnnotationSelection();
+
+  // A chat source citation click sets a non-null `selectedSourceIndex` on the
+  // shared chat-source atom (see ChatTray's per-source `onClick`). When that
+  // happens while the Chat sheet is open, dismiss the sheet and switch to the
+  // Document tab so the cited annotation scrolls into view in the viewer.
+  const { selectedSourceIndex } = useChatSourceState();
+  useEffect(() => {
+    if (selectedSourceIndex != null && chatOpen) {
+      setChatOpen(false);
+      setActiveLayer("document");
+      setActiveTab("document");
+    }
+  }, [selectedSourceIndex, chatOpen, setActiveLayer]);
 
   // Fit-to-width: default the document to a readable zoom on mount and back
   // the toolbar's "Fit width" chip. Gated on the Document tab being active.
@@ -255,12 +292,12 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
       <MobileAskBar
         onActivate={() => {
           setSidebarViewMode("chat");
-          setShowRightPanel(true);
+          setChatOpen(true);
         }}
         onSubmit={(text) => {
           setPendingChatMessage(text);
           setSidebarViewMode("chat");
-          setShowRightPanel(true);
+          setChatOpen(true);
         }}
       />
 
@@ -296,6 +333,42 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
         <SheetPlaceholder data-testid="mobile-surface-more">
           More options coming soon.
         </SheetPlaceholder>
+      </MobileSheet>
+
+      {/* Chat sheet — the persistent Ask bar opens the AI chat full-screen.
+          Reuses RightPanelContent in `chat` mode (the same ChatTray-backed
+          component the desktop right tray renders), with `showRightPanel`
+          forced true so the content is never gated off. `pendingChatMessage`
+          is threaded straight through to ChatTray's `initialMessage`. */}
+      <MobileSheet
+        open={chatOpen}
+        title="Chat"
+        onClose={() => setChatOpen(false)}
+      >
+        <ChatSurface data-testid="mobile-surface-chat">
+          <RightPanelContent
+            showRightPanel={true}
+            sidebarViewMode="chat"
+            setSidebarViewMode={setSidebarViewMode}
+            feedFilters={feedFilters}
+            setFeedFilters={setFeedFilters}
+            feedSortBy={feedSortBy}
+            setFeedSortBy={setFeedSortBy}
+            searchText={searchText}
+            selectedAnalysis={selectedAnalysis}
+            selectedExtract={selectedExtract}
+            dataCells={dataCells}
+            columns={columns}
+            notes={notes}
+            loading={loading}
+            readOnly={readOnly}
+            documentId={documentId}
+            corpusId={corpusId}
+            setActiveLayer={setActiveLayer}
+            setSelectedNote={setSelectedNote}
+            pendingChatMessage={pendingChatMessage}
+          />
+        </ChatSurface>
       </MobileSheet>
 
       {/* Annotation detail sheet — single rendering site for both open paths:
