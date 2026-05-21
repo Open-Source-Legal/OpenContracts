@@ -179,8 +179,8 @@ describe("SelectionBoundary translucent fill", () => {
       />
     );
     const span = container.querySelector("span") as HTMLElement;
-    expect(span.style.backgroundColor).toContain(
-      `${BOUNDARY_OPACITY_UNSELECTED}`
+    expect(span.style.backgroundColor).toBe(
+      `rgba(0, 102, 204, ${BOUNDARY_OPACITY_UNSELECTED})`
     );
   });
 
@@ -211,8 +211,8 @@ describe("SelectionBoundary translucent fill", () => {
       />
     );
     const span = container.querySelector("span") as HTMLElement;
-    expect(span.style.backgroundColor).toContain(
-      `${BOUNDARY_OPACITY_SELECTED}`
+    expect(span.style.backgroundColor).toBe(
+      `rgba(0, 102, 204, ${BOUNDARY_OPACITY_SELECTED})`
     );
   });
 });

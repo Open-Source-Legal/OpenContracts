@@ -49,7 +49,6 @@ const BoundarySpan = styled.span.attrs<{
   $boxShadow: string;
   $color: string;
   $hidden: boolean;
-  $showBoundingBox: boolean;
   $approved?: boolean;
   $rejected?: boolean;
 }>((props) => ({
@@ -134,8 +133,7 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
   const rotateY = width < 0 ? -180 : 0;
   const rotateX = height < 0 ? -180 : 0;
   const { r, g, b } = hexToRgb(color);
-  // Fill is not gated by showBoundingBox so inter-row gaps of a multi-line
-  // annotation don't stripe through as white; only the halo stays gated.
+  // Fill ignores showBoundingBox so multi-line inter-row gaps don't stripe through as white.
   const opacity = hidden
     ? 0
     : selected
@@ -185,7 +183,6 @@ export const SelectionBoundary: React.FC<SelectionBoundaryProps> = ({
       $height={height}
       $rotateX={rotateX}
       $rotateY={rotateY}
-      $showBoundingBox={showBoundingBox}
       $hidden={hidden}
       $boxShadow={boxShadow}
       $color={color}
