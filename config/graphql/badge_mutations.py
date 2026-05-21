@@ -374,14 +374,27 @@ class AwardBadgeMutation(graphene.Mutation):
         awarder = info.context.user
 
         try:
-            badge_pk = from_global_id(badge_id)[1]
+            # Pre-guard ``from_global_id``: a malformed base64 id raises
+            # before the helper is reached — return the same unified message
+            # as a missing / hidden badge.
+            try:
+                badge_pk = from_global_id(badge_id)[1]
+            except Exception:
+                return AwardBadgeMutation(
+                    ok=False, message="Badge not found", user_badge=None
+                )
             badge = get_for_user_or_none(Badge, badge_pk, awarder)
             if badge is None:
                 return AwardBadgeMutation(
                     ok=False, message="Badge not found", user_badge=None
                 )
 
-            recipient_pk = from_global_id(user_id)[1]
+            try:
+                recipient_pk = from_global_id(user_id)[1]
+            except Exception:
+                return AwardBadgeMutation(
+                    ok=False, message="User not found", user_badge=None
+                )
             # Recipient lookup must be visible to the awarder. Superusers
             # bypass the profile-privacy filter via UserProfileManager's
             # superuser branch, so admin / moderation awarding paths still

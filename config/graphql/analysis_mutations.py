@@ -202,7 +202,7 @@ class DeleteAnalysisMutation(graphene.Mutation):
         # Lock check stays its own error path — the lock is observable state
         # to anyone who can READ the analysis (so it does NOT leak existence).
         # We ARE OK with deleting something locked by the backend itself —
-        # sh@t happens and users need to abandon hung/stalled analyses.
+        # processing can stall and users need to abandon hung analyses.
         if analysis.user_lock is not None:
             if info.context.user.id != analysis.user_lock_id:
                 return DeleteAnalysisMutation(

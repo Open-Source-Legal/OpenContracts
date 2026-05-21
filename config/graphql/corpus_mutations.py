@@ -231,8 +231,18 @@ class UpdateCorpusMutation(DRFMutation):
         if "preferred_embedder" in kwargs:
             corpus_global_id = kwargs.get("id")
             if corpus_global_id:
-                corpus_pk = from_global_id(corpus_global_id)[1]
-                corpus = get_for_user_or_none(Corpus, corpus_pk, info.context.user)
+                # A malformed base64 id raises in ``from_global_id``; skip the
+                # pre-check and let the parent ``super().mutate()`` return its
+                # standard not-found / not-permitted response.
+                try:
+                    corpus_pk = from_global_id(corpus_global_id)[1]
+                except Exception:
+                    corpus_pk = None
+                corpus = (
+                    get_for_user_or_none(Corpus, corpus_pk, info.context.user)
+                    if corpus_pk is not None
+                    else None
+                )
                 if corpus is not None and corpus.has_documents():
                     new_embedder = kwargs["preferred_embedder"]
                     if new_embedder != corpus.preferred_embedder:
@@ -569,7 +579,17 @@ class StartCorpusFork(graphene.Mutation):
             # Get annotation ids for the old corpus - these refer to a corpus, doc and label by id, so easaiest way to
             # copy these is to first filter by annotations for our corpus. Then, later, we'll use a dict to map old ids
             # for labels and docs to new obj ids
-            corpus_pk = from_global_id(corpus_id)[1]
+            # Pre-guard ``from_global_id``: a malformed base64 id raises before
+            # the helper is reached, so catch it here and return the same
+            # unified IDOR-safe message as a missing / hidden corpus.
+            try:
+                corpus_pk = from_global_id(corpus_id)[1]
+            except Exception:
+                return StartCorpusFork(
+                    ok=False,
+                    message="Corpus not found or you don't have permission to fork it.",
+                    new_corpus=None,
+                )
 
             # IDOR protection: ``get_for_user_or_none`` filters through
             # ``visible_to_user``, which already enforces READ — missing
@@ -866,7 +886,16 @@ class CreateCorpusAction(graphene.Mutation):
 
         try:
             user = info.context.user
-            corpus_pk = from_global_id(corpus_id)[1]
+            no_permission_msg = (
+                "You don't have permission to create actions on this corpus"
+            )
+            # Pre-guard ``from_global_id``: a malformed base64 id raises before
+            # the helper is reached — return the same unified message as a
+            # missing / hidden / no-permission corpus.
+            try:
+                corpus_pk = from_global_id(corpus_id)[1]
+            except Exception:
+                return CreateCorpusAction(ok=False, message=no_permission_msg, obj=None)
 
             # Get corpus with visibility filter to prevent IDOR. ``None``
             # short-circuits to the same unified message as a no-CRUD result
@@ -877,7 +906,7 @@ class CreateCorpusAction(graphene.Mutation):
             ):
                 return CreateCorpusAction(
                     ok=False,
-                    message="You don't have permission to create actions on this corpus",
+                    message=no_permission_msg,
                     obj=None,
                 )
 
@@ -1455,8 +1484,19 @@ class AddTemplateToCorpus(graphene.Mutation):
     def mutate(root, info, template_id: str, corpus_id: str) -> "AddTemplateToCorpus":
         try:
             user = info.context.user
-            corpus_pk = from_global_id(corpus_id)[1]
-            template_pk = from_global_id(template_id)[1]
+            no_permission_msg = (
+                "You don't have permission to add templates to this corpus"
+            )
+            # Pre-guard both ``from_global_id`` decodes: a malformed base64
+            # corpus or template id raises before the helper is reached —
+            # return the same unified message rather than a leaked decode error.
+            try:
+                corpus_pk = from_global_id(corpus_id)[1]
+                template_pk = from_global_id(template_id)[1]
+            except Exception:
+                return AddTemplateToCorpus(
+                    ok=False, message=no_permission_msg, obj=None
+                )
 
             # Get corpus with visibility filter to prevent IDOR. ``None``
             # collapses missing / hidden / no-CRUD into the same response.
@@ -1466,7 +1506,7 @@ class AddTemplateToCorpus(graphene.Mutation):
             ):
                 return AddTemplateToCorpus(
                     ok=False,
-                    message="You don't have permission to add templates to this corpus",
+                    message=no_permission_msg,
                     obj=None,
                 )
 
