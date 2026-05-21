@@ -216,3 +216,51 @@ describe("SelectionBoundary translucent fill", () => {
     );
   });
 });
+
+describe("SelectionBoundary box-shadow halo", () => {
+  // The fill is decoupled from showBoundingBox, but the box-shadow halo
+  // must stay gated by it — this is the other half of the invariant.
+  it("omits the box-shadow halo when showBoundingBox is false", () => {
+    const { container } = render(
+      <SelectionBoundary
+        {...baseProps}
+        id="halo1"
+        color="#0066cc"
+        bounds={bounds}
+        showBoundingBox={false}
+      />
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.style.boxShadow).toBe("none");
+  });
+
+  it("renders the box-shadow halo when showBoundingBox is true", () => {
+    const { container } = render(
+      <SelectionBoundary
+        {...baseProps}
+        id="halo2"
+        color="#0066cc"
+        bounds={bounds}
+        showBoundingBox
+      />
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.style.boxShadow).not.toBe("none");
+    expect(span.style.boxShadow).not.toBe("");
+  });
+
+  it("omits the box-shadow halo when hidden, even if showBoundingBox is true", () => {
+    const { container } = render(
+      <SelectionBoundary
+        {...baseProps}
+        hidden
+        id="halo3"
+        color="#0066cc"
+        bounds={bounds}
+        showBoundingBox
+      />
+    );
+    const span = container.querySelector("span") as HTMLElement;
+    expect(span.style.boxShadow).toBe("none");
+  });
+});
