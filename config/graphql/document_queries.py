@@ -38,9 +38,7 @@ from opencontractserver.documents.models import (
     DocumentRelationship,
     IngestionSource,
 )
-from opencontractserver.documents.query_optimizer import (
-    DocumentRelationshipQueryOptimizer,
-)
+from opencontractserver.documents.services import DocumentRelationshipService
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +165,7 @@ class DocumentQueryMixin:
     ) -> QuerySet[DocumentRelationship]:
         """
         Resolve document relationships with proper permission filtering.
-        Uses DocumentRelationshipQueryOptimizer for consistent eager loading.
+        Uses DocumentRelationshipService for consistent eager loading.
         """
         user = info.context.user
 
@@ -178,24 +176,22 @@ class DocumentQueryMixin:
         document_id = kwargs.get("document_id")
         doc_pk = int(from_global_id(document_id)[1]) if document_id else None
 
-        # Use optimizer for visibility and eager loading
-        # Pass context for request-level caching of visible IDs
+        # Use the relationship service for visibility and eager loading
+        # Pass request for request-level caching of visible IDs
         if doc_pk:
             # Get relationships for specific document
-            queryset = (
-                DocumentRelationshipQueryOptimizer.get_relationships_for_document(
-                    user=user,
-                    document_id=doc_pk,
-                    corpus_id=corpus_pk,
-                    context=info.context,
-                )
+            queryset = DocumentRelationshipService.get_relationships_for_document(
+                user=user,
+                document_id=doc_pk,
+                corpus_id=corpus_pk,
+                request=info.context,
             )
         else:
             # Get all visible relationships with optional corpus filter
-            queryset = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+            queryset = DocumentRelationshipService.get_visible_relationships(
                 user=user,
                 corpus_id=corpus_pk,
-                context=info.context,
+                request=info.context,
             )
 
         return queryset.distinct().order_by("-created")
@@ -208,15 +204,17 @@ class DocumentQueryMixin:
     ) -> DocumentRelationship:
         """
         Resolve a single document relationship by ID.
-        Uses optimizer for IDOR-safe fetching with proper eager loading.
+        Uses the relationship service for IDOR-safe fetching with proper
+        eager loading.
         """
         relay_id = kwargs.get("id")
         if relay_id is None:
             raise GraphQLError("DocumentRelationship id is required")
         django_pk = from_global_id(relay_id)[1]
-        result = DocumentRelationshipQueryOptimizer.get_relationship_by_id(
+        result = DocumentRelationshipService.get_relationship_by_id(
             user=info.context.user,
             relationship_id=int(django_pk),
+            request=info.context,
         )
         if result is None:
             raise DocumentRelationship.DoesNotExist()
@@ -236,7 +234,7 @@ class DocumentQueryMixin:
     ) -> QuerySet[DocumentRelationship]:
         """
         Bulk resolver for document relationships involving a specific document.
-        Uses DocumentRelationshipQueryOptimizer for proper eager loading.
+        Uses DocumentRelationshipService for proper eager loading.
         """
         user = info.context.user
 
@@ -247,11 +245,12 @@ class DocumentQueryMixin:
         corpus_id = kwargs.get("corpus_id")
         corpus_pk = int(from_global_id(corpus_id)[1]) if corpus_id else None
 
-        # Use optimizer for visibility and eager loading
-        queryset = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        # Use the relationship service for visibility and eager loading
+        queryset = DocumentRelationshipService.get_relationships_for_document(
             user=user,
             document_id=doc_pk,
             corpus_id=corpus_pk,
+            request=info.context,
         )
 
         # Apply optional relationship_type filter

@@ -174,23 +174,21 @@ class DocumentRelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
-        # Check if permissions were already handled by the query optimizer.
-        # The optimizer adds _can_read, _can_create, etc. annotations.
+        # Check if permissions were already handled by the relationship service.
+        # The service adds _can_read, _can_create, etc. annotations.
         if hasattr(queryset, "query") and queryset.query.annotations:
             if any(key.startswith("_can_") for key in queryset.query.annotations):
                 return queryset
 
-        # Fall back to optimizer-based permission filtering.
+        # Fall back to service-based permission filtering.
         # DocumentRelationship uses inherited permissions (not PermissionManager),
-        # so we delegate to DocumentRelationshipQueryOptimizer which checks
+        # so we delegate to DocumentRelationshipService which checks
         # visibility on source_document + target_document + corpus.
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         user = info.context.user
-        return DocumentRelationshipQueryOptimizer.get_visible_relationships(
-            user, context=info.context
+        return DocumentRelationshipService.get_visible_relationships(
+            user, request=info.context
         )
 
 
@@ -407,20 +405,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         required here — visibility is enforced at the relationship level by
         the optimizer's source/target/corpus filters.
         """
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         try:
             user = info.context.user
             corpus_pk = int(from_global_id(corpus_id)[1]) if corpus_id else None
 
-            counts = (
-                DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
-                    user=user,
-                    corpus_id=corpus_pk,
-                    context=info.context,
-                )
+            counts = DocumentRelationshipService.get_relationship_counts_by_document(
+                user=user,
+                corpus_id=corpus_pk,
+                request=info.context,
             )
             return counts.get(self.id, 0)
         except Exception as e:
@@ -434,30 +428,28 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         Resolve DocumentRelationship objects for this document.
 
-        Uses DocumentRelationshipQueryOptimizer for proper permission filtering.
+        Uses DocumentRelationshipService for proper permission filtering.
         DocumentRelationship inherits visibility from source_document,
         target_document, and corpus — its own guardian tables were dropped in
-        migration ``documents/0029``. The optimizer enforces the AND-of-all-three
-        rule (see ``DocumentRelationshipQueryOptimizer.get_visible_relationships``).
+        migration ``documents/0029``. The service enforces the AND-of-all-three
+        rule (see ``DocumentRelationshipService.get_visible_relationships``).
 
-        Performance: Passes info.context to the query optimizer for request-level
+        Performance: Passes info.context to the service for request-level
         caching of visible document/corpus IDs.
         """
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         try:
             user = info.context.user
             corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
 
-            # Use the query optimizer for proper permission filtering
+            # Use the relationship service for proper permission filtering
             # Pass info.context for request-level caching
-            return DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+            return DocumentRelationshipService.get_relationships_for_document(
                 user=user,
                 document_id=self.id,
                 corpus_id=int(corpus_pk) if corpus_pk else None,
-                context=info.context,
+                request=info.context,
             )
         except Exception as e:
             logger.warning(
@@ -632,7 +624,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         Return the count of visible documents sharing this version tree.
 
-        Performance: uses ``DocumentVersionQueryOptimizer.get_version_counts_by_tree``
+        Performance: uses ``DocumentVersionService.get_version_counts_by_tree``
         so the first call computes counts for every version tree the user can
         see in a single aggregated SQL query, caching the result on
         ``info.context``. Subsequent resolvers in the same GraphQL request
@@ -645,14 +637,12 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         the user can already see (the parent resolver applies the same
         visibility filter).
         """
-        from opencontractserver.documents.query_optimizer import (
-            DocumentVersionQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentVersionService
 
         try:
-            counts = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
+            counts = DocumentVersionService.get_version_counts_by_tree(
                 user=info.context.user,
-                context=info.context,
+                request=info.context,
             )
             return counts.get(self.version_tree_id, 1)
         except Exception as e:

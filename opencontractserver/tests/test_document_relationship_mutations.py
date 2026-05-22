@@ -992,8 +992,8 @@ class DocumentRelationshipValidationTestCase(TestCase):
         self.assertIn("not found", data["message"].lower())
 
 
-class DocumentRelationshipQueryOptimizerTestCase(TestCase):
-    """Test DocumentRelationshipQueryOptimizer methods for coverage."""
+class DocumentRelationshipServiceTestCase(TestCase):
+    """Test DocumentRelationshipService methods for coverage."""
 
     def setUp(self):
         """Set up test data."""
@@ -1088,11 +1088,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_visible_relationships_with_source_filter(self):
         """Test filtering by source_document_id."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        result = DocumentRelationshipService.get_visible_relationships(
             user=self.owner,
             source_document_id=self.source_doc.id,
         )
@@ -1100,11 +1098,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_visible_relationships_with_target_filter(self):
         """Test filtering by target_document_id."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        result = DocumentRelationshipService.get_visible_relationships(
             user=self.owner,
             target_document_id=self.target_doc.id,
         )
@@ -1112,11 +1108,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_visible_relationships_with_corpus_filter(self):
         """Test filtering by corpus_id."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        result = DocumentRelationshipService.get_visible_relationships(
             user=self.owner,
             corpus_id=self.corpus.id,
         )
@@ -1124,11 +1118,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_visible_relationships_with_type_filter(self):
         """Test filtering by relationship_type."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        result = DocumentRelationshipService.get_visible_relationships(
             user=self.owner,
             relationship_type="RELATIONSHIP",
         )
@@ -1137,11 +1129,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationships_for_document_nonexistent(self):
         """Test with nonexistent document returns empty queryset."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.owner,
             document_id=99999,
         )
@@ -1149,11 +1139,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationships_for_document_no_permission(self):
         """Test with document user can't access returns empty queryset."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.outsider,
             document_id=self.source_doc.id,
         )
@@ -1161,11 +1149,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationships_for_document_as_source_only(self):
         """Test include_as_source=True, include_as_target=False."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.owner,
             document_id=self.source_doc.id,
             include_as_source=True,
@@ -1175,11 +1161,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationships_for_document_as_target_only(self):
         """Test include_as_source=False, include_as_target=True."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.owner,
             document_id=self.target_doc.id,
             include_as_source=False,
@@ -1189,11 +1173,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationships_for_document_neither_source_nor_target(self):
         """Test include_as_source=False, include_as_target=False returns empty."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.owner,
             document_id=self.source_doc.id,
             include_as_source=False,
@@ -1203,11 +1185,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationships_for_document_with_corpus_filter(self):
         """Test filtering by corpus_id."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.owner,
             document_id=self.source_doc.id,
             corpus_id=self.corpus.id,
@@ -1215,7 +1195,7 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
         self.assertEqual(result.count(), 2)
 
         # Test with wrong corpus returns empty
-        result = DocumentRelationshipQueryOptimizer.get_relationships_for_document(
+        result = DocumentRelationshipService.get_relationships_for_document(
             user=self.owner,
             document_id=self.source_doc.id,
             corpus_id=99999,
@@ -1224,11 +1204,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationship_by_id_success(self):
         """Test getting a single relationship by ID."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationship_by_id(
+        result = DocumentRelationshipService.get_relationship_by_id(
             user=self.owner,
             relationship_id=self.relationship.id,
         )
@@ -1237,11 +1215,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationship_by_id_not_found(self):
         """Test getting nonexistent relationship returns None."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationship_by_id(
+        result = DocumentRelationshipService.get_relationship_by_id(
             user=self.owner,
             relationship_id=99999,
         )
@@ -1249,11 +1225,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_get_relationship_by_id_no_permission(self):
         """Test getting relationship without permission returns None."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.get_relationship_by_id(
+        result = DocumentRelationshipService.get_relationship_by_id(
             user=self.outsider,
             relationship_id=self.relationship.id,
         )
@@ -1261,12 +1235,10 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_user_has_permission_read(self):
         """Test user_has_permission for READ permission."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         # Owner has READ permission (inherits from docs/corpus)
-        result = DocumentRelationshipQueryOptimizer.user_has_permission(
+        result = DocumentRelationshipService.user_has_permission(
             user=self.owner,
             doc_relationship=self.relationship,
             permission_type="READ",
@@ -1274,7 +1246,7 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
         self.assertTrue(result)
 
         # Outsider has no permission
-        result = DocumentRelationshipQueryOptimizer.user_has_permission(
+        result = DocumentRelationshipService.user_has_permission(
             user=self.outsider,
             doc_relationship=self.relationship,
             permission_type="READ",
@@ -1283,12 +1255,10 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_user_has_permission_update(self):
         """Test user_has_permission for UPDATE permission."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         # Owner has UPDATE permission
-        result = DocumentRelationshipQueryOptimizer.user_has_permission(
+        result = DocumentRelationshipService.user_has_permission(
             user=self.owner,
             doc_relationship=self.relationship,
             permission_type="UPDATE",
@@ -1297,12 +1267,10 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_user_has_permission_delete(self):
         """Test user_has_permission for DELETE permission."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         # Owner has DELETE permission
-        result = DocumentRelationshipQueryOptimizer.user_has_permission(
+        result = DocumentRelationshipService.user_has_permission(
             user=self.owner,
             doc_relationship=self.relationship,
             permission_type="DELETE",
@@ -1311,11 +1279,9 @@ class DocumentRelationshipQueryOptimizerTestCase(TestCase):
 
     def test_user_has_permission_invalid_type(self):
         """Test user_has_permission with invalid permission type returns False."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
-        result = DocumentRelationshipQueryOptimizer.user_has_permission(
+        result = DocumentRelationshipService.user_has_permission(
             user=self.owner,
             doc_relationship=self.relationship,
             permission_type="INVALID",
@@ -1524,9 +1490,7 @@ class DocumentRelationshipInheritedPermissionTestCase(TestCase):
 
     def test_partial_document_permission_blocks_visibility(self):
         """Test that missing permission on ONE document blocks relationship visibility."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         # Create a user with permission on source_doc but NOT target_doc
         partial_user = User.objects.create_user(username="partial", password="test")
@@ -1539,16 +1503,14 @@ class DocumentRelationshipInheritedPermissionTestCase(TestCase):
         # No permission on target_doc
 
         # Should not be able to see the relationship
-        result = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        result = DocumentRelationshipService.get_visible_relationships(
             user=partial_user
         )
         self.assertEqual(result.count(), 0)
 
     def test_missing_corpus_permission_blocks_visibility(self):
         """Test that missing corpus permission blocks relationship visibility."""
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         # Create a user with permission on documents but NOT corpus
         no_corpus_user = User.objects.create_user(username="nocorpus", password="test")
@@ -1561,7 +1523,7 @@ class DocumentRelationshipInheritedPermissionTestCase(TestCase):
         # No permission on corpus
 
         # Should not be able to see the relationship
-        result = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        result = DocumentRelationshipService.get_visible_relationships(
             user=no_corpus_user
         )
         self.assertEqual(result.count(), 0)

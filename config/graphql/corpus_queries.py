@@ -292,19 +292,15 @@ class CorpusQueryMixin:
         - Annotations: Filtered by visible documents (inherit doc+corpus permissions)
         - Analyses: Uses AnalysisQueryOptimizer (hybrid permission model)
         - Extracts: Uses ExtractQueryOptimizer (hybrid permission model)
-        - Relationships: Uses DocumentRelationshipQueryOptimizer (inherit doc+corpus)
-        - Threads/Chats: Uses ConversationQueryOptimizer (single visibility query)
+        - Relationships: Uses DocumentRelationshipService (inherit doc+corpus)
+        - Threads/Chats: Uses ConversationService (single visibility query)
         """
         from opencontractserver.annotations.query_optimizer import (
             AnalysisQueryOptimizer,
             ExtractQueryOptimizer,
         )
-        from opencontractserver.conversations.query_optimizer import (
-            ConversationQueryOptimizer,
-        )
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.conversations.services import ConversationService
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         total_docs = 0
         total_annotations = 0
@@ -368,18 +364,19 @@ class CorpusQueryMixin:
                     user, corpus_id=corpus.id, context=info.context
                 ).count()
 
-                # total_threads and total_chats: Use ConversationQueryOptimizer
+                # total_threads and total_chats: Use ConversationService
                 # to execute visibility subqueries once instead of twice
-                conv_optimizer = ConversationQueryOptimizer(user)
                 total_threads, total_chats = (
-                    conv_optimizer.get_corpus_conversation_counts(corpus.id)
+                    ConversationService.get_corpus_conversation_counts(
+                        user, corpus.id, request=info.context
+                    )
                 )
 
-                # total_relationships: Uses DocumentRelationshipQueryOptimizer
+                # total_relationships: Uses DocumentRelationshipService
                 # Relationships inherit from source_doc + target_doc + corpus
                 total_relationships = (
-                    DocumentRelationshipQueryOptimizer.get_visible_relationships(
-                        user, corpus_id=corpus.id, context=info.context
+                    DocumentRelationshipService.get_visible_relationships(
+                        user, corpus_id=corpus.id, request=info.context
                     ).count()
                 )
         except Exception as e:

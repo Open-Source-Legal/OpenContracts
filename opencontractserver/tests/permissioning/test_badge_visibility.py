@@ -17,7 +17,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
 
 from opencontractserver.badges.models import Badge, UserBadge
-from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+from opencontractserver.badges.services import BadgeService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -63,7 +63,7 @@ class TestUserBadgeVisibility(TestCase):
         WHEN: Viewer queries for visible user badges
         THEN: The badge award should NOT be visible
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.viewer)
+        visible_badges = BadgeService.get_visible_user_badges(self.viewer)
 
         self.assertNotIn(
             self.badge_award,
@@ -77,7 +77,7 @@ class TestUserBadgeVisibility(TestCase):
         WHEN: badgeholder queries for their own badges
         THEN: Their badges should be visible regardless of profile privacy
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.badge_owner)
+        visible_badges = BadgeService.get_visible_user_badges(self.badge_owner)
 
         self.assertIn(
             self.badge_award,
@@ -102,7 +102,7 @@ class TestUserBadgeVisibility(TestCase):
             badge=self.achievement_badge,
         )
 
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.viewer)
+        visible_badges = BadgeService.get_visible_user_badges(self.viewer)
 
         self.assertIn(
             public_badge_award,
@@ -165,7 +165,7 @@ class TestBadgeVisibilityViaCorpusMembership(TestCase):
         WHEN: Corpus owner queries for visible badges
         THEN: The badge should be visible
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.corpus_owner)
+        visible_badges = BadgeService.get_visible_user_badges(self.corpus_owner)
 
         self.assertIn(
             self.badge_award,
@@ -180,7 +180,7 @@ class TestBadgeVisibilityViaCorpusMembership(TestCase):
         WHEN: Outsider queries for visible badges
         THEN: The badge should NOT be visible
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.outsider)
+        visible_badges = BadgeService.get_visible_user_badges(self.outsider)
 
         self.assertNotIn(
             self.badge_award,
@@ -249,7 +249,7 @@ class TestCorpusSpecificBadgeVisibility(TestCase):
         WHEN: User queries for visible badges
         THEN: The corpus badge should be visible
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.corpus_owner)
+        visible_badges = BadgeService.get_visible_user_badges(self.corpus_owner)
 
         self.assertIn(
             self.corpus_badge_award,
@@ -264,7 +264,7 @@ class TestCorpusSpecificBadgeVisibility(TestCase):
         WHEN: User queries for visible badges
         THEN: The corpus badge should NOT be visible
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.outsider)
+        visible_badges = BadgeService.get_visible_user_badges(self.outsider)
 
         self.assertNotIn(
             self.corpus_badge_award,
@@ -310,7 +310,7 @@ class TestBadgeVisibilityIDORProtection(TestCase):
         WHEN: Checking badge visibility directly
         THEN: Returns (False, None) - cannot enumerate badge IDs
         """
-        has_permission, badge = BadgeQueryOptimizer.check_user_badge_visibility(
+        has_permission, badge = BadgeService.check_user_badge_visibility(
             self.user_b, self.private_badge_award.id
         )
 
@@ -323,7 +323,7 @@ class TestBadgeVisibilityIDORProtection(TestCase):
         WHEN: Checking badge visibility
         THEN: Returns (True, badge_object)
         """
-        has_permission, badge = BadgeQueryOptimizer.check_user_badge_visibility(
+        has_permission, badge = BadgeService.check_user_badge_visibility(
             self.user_a, self.private_badge_award.id
         )
 
@@ -338,7 +338,7 @@ class TestBadgeVisibilityIDORProtection(TestCase):
         WHEN: Checking badge visibility
         THEN: Returns (False, None) - same as access denied (IDOR protection)
         """
-        has_permission, badge = BadgeQueryOptimizer.check_user_badge_visibility(
+        has_permission, badge = BadgeService.check_user_badge_visibility(
             self.user_a, 999999  # Non-existent ID
         )
 
@@ -390,7 +390,7 @@ class TestBadgeVisibilityAnonymousUser(TestCase):
         THEN: The badge should be visible
         """
         anonymous = AnonymousUser()
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(anonymous)
+        visible_badges = BadgeService.get_visible_user_badges(anonymous)
 
         self.assertIn(
             self.public_badge_award,
@@ -405,7 +405,7 @@ class TestBadgeVisibilityAnonymousUser(TestCase):
         THEN: The badge should NOT be visible
         """
         anonymous = AnonymousUser()
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(anonymous)
+        visible_badges = BadgeService.get_visible_user_badges(anonymous)
 
         self.assertNotIn(
             self.private_badge_award,
@@ -451,7 +451,7 @@ class TestSuperuserBadgeVisibility(TestCase):
         WHEN: A superuser queries for badges
         THEN: All badges should be visible
         """
-        visible_badges = BadgeQueryOptimizer.get_visible_user_badges(self.superuser)
+        visible_badges = BadgeService.get_visible_user_badges(self.superuser)
 
         self.assertIn(
             self.badge_award,
@@ -529,9 +529,7 @@ class TestGetBadgesForUser(TestCase):
         WHEN: Viewer queries for that user's badges
         THEN: Badges should be returned
         """
-        badges = BadgeQueryOptimizer.get_badges_for_user(
-            self.viewer, self.public_user.id
-        )
+        badges = BadgeService.get_badges_for_user(self.viewer, self.public_user.id)
 
         self.assertIn(
             self.global_badge_award,
@@ -545,9 +543,7 @@ class TestGetBadgesForUser(TestCase):
         WHEN: Viewer queries for that user's badges
         THEN: Empty queryset should be returned
         """
-        badges = BadgeQueryOptimizer.get_badges_for_user(
-            self.viewer, self.private_user.id
-        )
+        badges = BadgeService.get_badges_for_user(self.viewer, self.private_user.id)
 
         self.assertEqual(
             badges.count(),
@@ -561,7 +557,7 @@ class TestGetBadgesForUser(TestCase):
         WHEN: Querying with include_corpus_badges=False
         THEN: Only global badges should be returned
         """
-        badges = BadgeQueryOptimizer.get_badges_for_user(
+        badges = BadgeService.get_badges_for_user(
             self.viewer,
             self.public_user.id,
             include_corpus_badges=False,
@@ -591,9 +587,7 @@ class TestGetBadgesForUser(TestCase):
             [PermissionTypes.READ],
         )
 
-        badges = BadgeQueryOptimizer.get_badges_for_user(
-            self.viewer, self.public_user.id
-        )
+        badges = BadgeService.get_badges_for_user(self.viewer, self.public_user.id)
 
         self.assertIn(
             self.global_badge_award,
@@ -612,9 +606,7 @@ class TestGetBadgesForUser(TestCase):
         WHEN: Querying for badges
         THEN: Results should be ordered by awarded_at descending
         """
-        badges = BadgeQueryOptimizer.get_badges_for_user(
-            self.viewer, self.public_user.id
-        )
+        badges = BadgeService.get_badges_for_user(self.viewer, self.public_user.id)
 
         badges_list = list(badges)
         if len(badges_list) >= 2:

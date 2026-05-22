@@ -629,7 +629,7 @@ class DocumentRelationship(BaseOCModel):
 
     # Note: DocumentRelationship inherits permissions from source_document,
     # target_document, and corpus - no individual guardian permissions needed.
-    # Use DocumentRelationshipQueryOptimizer for permission-aware queries.
+    # Use DocumentRelationshipService for permission-aware queries.
 
     class Meta:
         indexes = [

@@ -1,30 +1,36 @@
-"""
-Badge Query Optimizer for OpenContracts.
+"""Badge service — permission-aware badge queries with profile privacy filtering.
 
-Provides optimized badge queries with profile privacy filtering.
 Badge visibility follows the recipient's profile visibility rules.
+
+Visibility model for UserBadge:
+- Badge awards are visible if the recipient's profile is visible
+- Follows ``UserService``'s visibility rules
+- Corpus-specific badges: visible to users with access to that corpus
+- Own badges: always visible regardless of profile privacy
+
+The key insight is that badge visibility derives from user profile
+visibility, not from direct badge permissions.
+
+Migrated from ``badges/query_optimizer.py`` as Phase 4 of the service-layer
+centralization roadmap — see
+docs/refactor_plans/2026-05-19-service-layer-centralization-design.md.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db.models import Q, QuerySet
+
+from opencontractserver.shared.services import BaseService
 
 if TYPE_CHECKING:
     from opencontractserver.badges.models import UserBadge
 
 
-class BadgeQueryOptimizer:
-    """
-    Optimized badge queries with profile privacy filtering.
+class BadgeService(BaseService):
+    """Permission-aware badge queries with profile privacy filtering.
 
-    Visibility model for UserBadge:
-    - Badge awards are visible if the recipient's profile is visible
-    - Follows UserQueryOptimizer's visibility rules
-    - Corpus-specific badges: visible to users with access to that corpus
-    - Own badges: always visible regardless of profile privacy
-
-    The key insight is that badge visibility derives from user profile visibility,
-    not from direct badge permissions.
+    All public methods accept an optional ``request`` kwarg for service-layer
+    API consistency (the standard ``BaseService`` convention).
     """
 
     @classmethod
@@ -33,6 +39,8 @@ class BadgeQueryOptimizer:
         requesting_user,
         corpus_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        *,
+        request: Optional[Any] = None,
     ) -> QuerySet:
         """
         Get user badge awards visible to requesting_user.
@@ -41,6 +49,7 @@ class BadgeQueryOptimizer:
             requesting_user: The user making the request
             corpus_id: Optional corpus to filter badges (for corpus-specific badges)
             user_id: Optional user ID to filter to a specific user's badges
+            request: Accepted for service-layer API consistency.
 
         Returns:
             QuerySet of UserBadge objects visible to the requesting user
@@ -49,15 +58,15 @@ class BadgeQueryOptimizer:
 
         from opencontractserver.badges.models import UserBadge
         from opencontractserver.corpuses.models import Corpus
-        from opencontractserver.users.query_optimizer import UserQueryOptimizer
+        from opencontractserver.users.services import UserService
 
         # Superuser sees all badges
         if hasattr(requesting_user, "is_superuser") and requesting_user.is_superuser:
             qs = UserBadge.objects.all()
         else:
             # Get visible users based on profile privacy
-            visible_users = UserQueryOptimizer.get_visible_users(
-                requesting_user, corpus_id=corpus_id
+            visible_users = UserService.get_visible_users(
+                requesting_user, corpus_id=corpus_id, request=request
             )
 
             # Filter to badges of visible users
@@ -90,7 +99,7 @@ class BadgeQueryOptimizer:
 
     @classmethod
     def check_user_badge_visibility(
-        cls, requesting_user, user_badge_id: int
+        cls, requesting_user, user_badge_id: int, *, request: Optional[Any] = None
     ) -> tuple[bool, Optional["UserBadge"]]:
         """
         Check if requesting_user can see a specific user_badge.
@@ -101,6 +110,7 @@ class BadgeQueryOptimizer:
         Args:
             requesting_user: The user making the request
             user_badge_id: The ID of the UserBadge to check
+            request: Accepted for service-layer API consistency.
 
         Returns:
             Tuple of (has_permission, user_badge_object)
@@ -110,9 +120,9 @@ class BadgeQueryOptimizer:
         from opencontractserver.badges.models import UserBadge
 
         try:
-            user_badge = cls.get_visible_user_badges(requesting_user).get(
-                id=user_badge_id
-            )
+            user_badge = cls.get_visible_user_badges(
+                requesting_user, request=request
+            ).get(id=user_badge_id)
             return True, user_badge
         except UserBadge.DoesNotExist:
             return False, None
@@ -123,6 +133,8 @@ class BadgeQueryOptimizer:
         requesting_user,
         target_user_id: int,
         include_corpus_badges: bool = True,
+        *,
+        request: Optional[Any] = None,
     ) -> QuerySet:
         """
         Get all visible badges for a specific user.
@@ -133,22 +145,25 @@ class BadgeQueryOptimizer:
             requesting_user: The user making the request
             target_user_id: The ID of the user whose badges to retrieve
             include_corpus_badges: Whether to include corpus-specific badges
+            request: Accepted for service-layer API consistency.
 
         Returns:
             QuerySet of UserBadge objects for the target user
         """
-        from opencontractserver.users.query_optimizer import UserQueryOptimizer
+        from opencontractserver.users.services import UserService
 
         # First check if the target user is visible
-        if not UserQueryOptimizer.check_user_visibility(
-            requesting_user, target_user_id
+        if not UserService.check_user_visibility(
+            requesting_user, target_user_id, request=request
         ):
             from opencontractserver.badges.models import UserBadge
 
             return UserBadge.objects.none()
 
         # Get badges for that user
-        qs = cls.get_visible_user_badges(requesting_user, user_id=target_user_id)
+        qs = cls.get_visible_user_badges(
+            requesting_user, user_id=target_user_id, request=request
+        )
 
         # Optionally filter out corpus-specific badges
         if not include_corpus_badges:
