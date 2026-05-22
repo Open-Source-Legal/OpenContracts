@@ -41,11 +41,29 @@ interface SidebarControlBarProps {
   hasActiveSearch?: boolean;
 }
 
+/**
+ * Shared "calm, layered, native-quality" depth tokens — mirrors the mobile DKB
+ * ``mobileTheme.ts`` so the feed control bar reads as one cohesive surface on
+ * both desktop and mobile. Depth over borders: soft layered shadows + a subtle
+ * surface tint replace flat hairline outlines.
+ */
+const RADIUS_CONTROL = "12px";
+const RADIUS_MENU = "14px";
+const SHADOW_SUBTLE =
+  "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)";
+const SHADOW_RAISED =
+  "0 2px 8px rgba(15, 23, 42, 0.06), 0 6px 20px rgba(15, 23, 42, 0.07)";
+const SHADOW_MENU =
+  "0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.1)";
+const FOCUS_RING = "0 0 0 3px rgba(15, 118, 110, 0.16)";
+
 /* Styled Components */
 const ControlBarContainer = styled.div`
   background: white;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  padding: 1.25rem;
+  /* Depth over borders: a soft downward shadow instead of a hairline. */
+  border-bottom: none;
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.05);
+  padding: 1rem 1.1rem;
   position: relative;
   z-index: 20;
 `;
@@ -53,38 +71,49 @@ const ControlBarContainer = styled.div`
 const FilterSection = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.7rem;
 `;
 
 const FilterRow = styled.div`
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
   align-items: stretch;
 
   > * {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
   }
 `;
 
 const DropdownContainer = styled.div`
   position: relative;
+  min-width: 0;
 `;
 
+/**
+ * Soft-tinted ghost control. Lighter and less boxy than a heavy outlined box:
+ * a faint surface tint at rest, an inset hairline for definition, and an
+ * accent ring + lift when open.
+ */
 const MultiSelectDropdown = styled.div<{ $isOpen: boolean }>`
   position: relative;
-  background: white;
-  border: 1px solid
-    ${(props) =>
-      props.$isOpen ? OS_LEGAL_COLORS.primaryBlue : OS_LEGAL_COLORS.border};
-  border-radius: 8px;
+  background: ${(props) =>
+    props.$isOpen ? "white" : OS_LEGAL_COLORS.surfaceHover};
+  border: none;
+  border-radius: ${RADIUS_CONTROL};
+  box-shadow: ${(props) =>
+    props.$isOpen
+      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
+      : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
 
   &:hover {
-    border-color: ${(props) =>
+    background: white;
+    box-shadow: ${(props) =>
       props.$isOpen
-        ? OS_LEGAL_COLORS.primaryBlue
-        : OS_LEGAL_COLORS.borderHover};
+        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
+        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW_SUBTLE}`};
   }
 `;
 
@@ -92,53 +121,100 @@ const DropdownHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
-  gap: 0.75rem;
-  min-height: 48px;
+  padding: 0.6rem 0.75rem;
+  gap: 0.4rem;
+  min-height: 44px;
+  min-width: 0;
 `;
 
 const DropdownLabel = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  font-size: 0.9375rem;
+  gap: 0.45rem;
+  font-size: 0.875rem;
   color: ${OS_LEGAL_COLORS.textPrimary};
   font-weight: 500;
+  min-width: 0;
+  /* Defect fix: never let "Content Types" / "Page Number" wrap to two lines —
+     keep the label on one line and truncate gracefully when space is tight. */
+  white-space: nowrap;
+
+  /* The label text segment shrinks/ellipsises; icon + badge stay fixed. */
+  > span.control-label-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
 
   svg {
-    width: 18px;
-    height: 18px;
-    color: ${OS_LEGAL_COLORS.textSecondary};
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+    color: ${OS_LEGAL_COLORS.accent};
   }
 `;
 
 const SelectedCount = styled.span`
-  background: ${OS_LEGAL_COLORS.primaryBlue};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  background: ${OS_LEGAL_COLORS.accent};
   color: white;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  margin-left: 0.4rem;
 `;
 
 const ChevronIcon = styled(ChevronDown)<{ $isOpen: boolean }>`
-  width: 18px;
-  height: 18px;
-  color: ${OS_LEGAL_COLORS.textSecondary};
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: ${OS_LEGAL_COLORS.textMuted};
   transform: rotate(${(props) => (props.$isOpen ? 180 : 0)}deg);
   transition: transform 0.2s ease;
 `;
 
+/**
+ * Surface for the Sort trigger render-prop. The ``@os-legal/ui`` Dropdown
+ * renders the ``trigger`` node directly, so this matches {@link
+ * MultiSelectDropdown} to keep both feed controls visually consistent.
+ */
+const SortTriggerSurface = styled.div<{ $isOpen: boolean }>`
+  position: relative;
+  background: ${(props) =>
+    props.$isOpen ? "white" : OS_LEGAL_COLORS.surfaceHover};
+  border-radius: ${RADIUS_CONTROL};
+  box-shadow: ${(props) =>
+    props.$isOpen
+      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
+      : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover {
+    background: white;
+    box-shadow: ${(props) =>
+      props.$isOpen
+        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
+        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW_SUBTLE}`};
+  }
+`;
+
 const DropdownMenu = styled(motion.div)`
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  border: none;
+  border-radius: ${RADIUS_MENU};
+  box-shadow: ${SHADOW_MENU};
   z-index: 50;
   overflow: hidden;
 `;
@@ -147,73 +223,73 @@ const DropdownMenuItem = styled.div<{ $isSelected?: boolean }>`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.875rem 1rem;
+  padding: 0.75rem 1rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
   background: ${(props) =>
-    props.$isSelected ? OS_LEGAL_COLORS.infoSurface : "transparent"};
-  border-left: 3px solid
-    ${(props) =>
-      props.$isSelected ? OS_LEGAL_COLORS.primaryBlue : "transparent"};
+    props.$isSelected ? OS_LEGAL_COLORS.accentSurface : "transparent"};
+  box-shadow: inset 3px 0 0
+    ${(props) => (props.$isSelected ? OS_LEGAL_COLORS.accent : "transparent")};
 
   &:hover {
     background: ${(props) =>
-      props.$isSelected ? "#e0f2fe" : OS_LEGAL_COLORS.surfaceHover};
-  }
-
-  &:not(:last-child) {
-    border-bottom: 1px solid ${OS_LEGAL_COLORS.surfaceLight};
+      props.$isSelected
+        ? OS_LEGAL_COLORS.accentLight
+        : OS_LEGAL_COLORS.surfaceHover};
   }
 `;
 
 const MenuItemLabel = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 0.9375rem;
+  gap: 0.625rem;
+  font-size: 0.875rem;
   color: ${OS_LEGAL_COLORS.textPrimary};
   font-weight: 500;
 
   svg {
-    width: 18px;
-    height: 18px;
+    width: 17px;
+    height: 17px;
   }
 `;
 
 const CheckIcon = styled(Check)`
-  width: 18px;
-  height: 18px;
-  color: ${OS_LEGAL_COLORS.primaryBlue};
+  width: 17px;
+  height: 17px;
+  color: ${OS_LEGAL_COLORS.accent};
 `;
 
 const QuickActions = styled.div`
   display: flex;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid ${OS_LEGAL_COLORS.surfaceLight};
+  padding: 0.7rem 0.85rem;
   background: ${OS_LEGAL_COLORS.surfaceHover};
 `;
 
+/** Soft-tinted ghost button — lighter than a flat outlined box. */
 const QuickActionButton = styled.button`
   flex: 1;
   background: white;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border: none;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.07);
   color: ${OS_LEGAL_COLORS.textSecondary};
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   padding: 0.5rem 0.875rem;
-  border-radius: 6px;
-  transition: all 0.2s ease;
+  border-radius: 9px;
+  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease,
+    transform 0.12s ease;
 
   &:hover {
-    background: ${OS_LEGAL_COLORS.surfaceHover};
-    border-color: ${OS_LEGAL_COLORS.borderHover};
+    background: white;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW_SUBTLE};
     color: ${OS_LEGAL_COLORS.textTertiary};
   }
 
   &:active {
-    transform: scale(0.98);
+    transform: scale(0.97);
+    background: ${OS_LEGAL_COLORS.surfaceLight};
   }
 `;
 
@@ -236,25 +312,31 @@ const SearchIconWrapper = styled.div`
   }
 `;
 
+/** Crisp elevated search field — depth over borders, accent focus ring. */
 const StyledSearchInput = styled.input`
   width: 100%;
-  padding: 0.75rem 1rem 0.75rem 2.75rem;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 8px;
-  font-size: 0.9375rem;
+  padding: 0.7rem 0.95rem 0.7rem 2.6rem;
+  border: none;
+  border-radius: ${RADIUS_CONTROL};
+  font-size: 0.9rem;
   color: ${OS_LEGAL_COLORS.textPrimary};
   background: white;
-  transition: all 0.2s ease;
-  min-height: 48px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.07), ${SHADOW_SUBTLE};
+  transition: box-shadow 0.18s ease;
+  min-height: 44px;
 
   &::placeholder {
     color: ${OS_LEGAL_COLORS.textMuted};
   }
 
+  &:hover {
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW_SUBTLE};
+  }
+
   &:focus {
     outline: none;
-    border-color: ${OS_LEGAL_COLORS.primaryBlue};
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING},
+      ${SHADOW_RAISED};
   }
 `;
 
@@ -410,7 +492,7 @@ export const SidebarControlBar: React.FC<SidebarControlBarProps> = memo(
                 <DropdownHeader>
                   <DropdownLabel>
                     <Filter />
-                    Content Types
+                    <span className="control-label-text">Content Types</span>
                     {selectedCount > 0 && (
                       <SelectedCount>{selectedCount}</SelectedCount>
                     )}
@@ -477,16 +559,20 @@ export const SidebarControlBar: React.FC<SidebarControlBarProps> = memo(
               onChange={(value) => onSortChange(value as SortOption)}
               placeholder="Sort by..."
               trigger={(state) => (
-                <DropdownHeader>
-                  <DropdownLabel>
-                    <ArrowUpDown />
-                    {state.selectedOption &&
-                    !Array.isArray(state.selectedOption)
-                      ? state.selectedOption.label
-                      : state.placeholder}
-                  </DropdownLabel>
-                  <ChevronIcon $isOpen={state.isOpen} />
-                </DropdownHeader>
+                <SortTriggerSurface $isOpen={state.isOpen}>
+                  <DropdownHeader>
+                    <DropdownLabel>
+                      <ArrowUpDown />
+                      <span className="control-label-text">
+                        {state.selectedOption &&
+                        !Array.isArray(state.selectedOption)
+                          ? state.selectedOption.label
+                          : state.placeholder}
+                      </span>
+                    </DropdownLabel>
+                    <ChevronIcon $isOpen={state.isOpen} />
+                  </DropdownHeader>
+                </SortTriggerSurface>
               )}
             />
           </FilterRow>
