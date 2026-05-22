@@ -244,11 +244,9 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_all_structural_annotations(self, info, annotation_ids=None) -> Any:
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
-        qs = AnnotationQueryOptimizer.get_document_annotations(
+        qs = AnnotationService.get_document_annotations(
             document_id=self.id,
             user=getattr(info.context, "user", None),
             structural=True,
@@ -270,9 +268,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_all_annotations(
         self, info, corpus_id=None, analysis_id=None, is_structural=None
     ) -> Any:
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         user = getattr(info.context, "user", None)
         corpus_pk: int | None = int(from_global_id(corpus_id)[1]) if corpus_id else None
@@ -281,7 +277,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             analysis_pk = (
                 0 if analysis_id == "__none__" else int(from_global_id(analysis_id)[1])
             )
-        return AnnotationQueryOptimizer.get_document_annotations(
+        return AnnotationService.get_document_annotations(
             document_id=self.id,
             user=user,
             corpus_id=corpus_pk,
@@ -303,9 +299,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         self, info, corpus_id=None, analysis_id=None, is_structural=None
     ) -> Any:
         """Resolve all relationships using the optimizer."""
-        from opencontractserver.annotations.query_optimizer import (
-            RelationshipQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import RelationshipService
 
         try:
             corpus_pk: int | None = None
@@ -321,7 +315,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             # Get user from context
             user = info.context.user if hasattr(info.context, "user") else None
 
-            return RelationshipQueryOptimizer.get_document_relationships(
+            return RelationshipService.get_document_relationships(
                 document_id=self.id,
                 user=user,
                 corpus_id=corpus_pk,
@@ -351,9 +345,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         frontend can lazy-load them alongside structural annotations
         instead of hauling them down on every initial document open.
         """
-        from opencontractserver.annotations.query_optimizer import (
-            RelationshipQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import RelationshipService
 
         try:
             user = getattr(info.context, "user", None)
@@ -361,7 +353,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             # targeted deep-link fetches (relationship_ids supplied) bypass
             # it because the cached queryset is shaped for the bulk path
             # and would mask the id-filter we apply below.
-            qs = RelationshipQueryOptimizer.get_document_relationships(
+            qs = RelationshipService.get_document_relationships(
                 document_id=self.id,
                 user=user,
                 structural=True,
@@ -1003,9 +995,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         extract_id=None,
     ) -> Any:
         """Resolve annotations for specific page(s) using optimized queries."""
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         corpus_pk = int(from_global_id(corpus_id)[1])
         analysis_pk: int | None = None
@@ -1029,7 +1019,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if page_list is None:
             return []
 
-        return AnnotationQueryOptimizer.get_document_annotations(
+        return AnnotationService.get_document_annotations(
             document_id=self.id,
             user=user,
             corpus_id=corpus_pk,
@@ -1051,9 +1041,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         strict_extract_mode=False,
     ) -> Any:
         """Resolve relationships for specific page(s) using the optimizer."""
-        from opencontractserver.annotations.query_optimizer import (
-            RelationshipQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import RelationshipService
 
         corpus_pk = int(from_global_id(corpus_id)[1])
         analysis_pk: int | None = None
@@ -1068,7 +1056,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         user = self._assert_user_can_read(info)
 
-        return RelationshipQueryOptimizer.get_document_relationships(
+        return RelationshipService.get_document_relationships(
             document_id=self.id,
             user=user,
             corpus_id=corpus_pk,
@@ -1094,28 +1082,24 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_relationship_summary(self, info, corpus_id) -> Any:
-        from opencontractserver.annotations.query_optimizer import (
-            RelationshipQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import RelationshipService
 
         user = self._assert_user_can_read(info)
 
         corpus_pk = int(from_global_id(corpus_id)[1])
-        summary = RelationshipQueryOptimizer.get_relationship_summary(
+        summary = RelationshipService.get_relationship_summary(
             document_id=self.id, corpus_id=corpus_pk, user=user
         )
         return summary
 
     def resolve_extract_annotation_summary(self, info, extract_id) -> Any:
         """Get summary of annotations in extract."""
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         user = self._assert_user_can_read(info)
         extract_pk = int(from_global_id(extract_id)[1])
 
-        return AnnotationQueryOptimizer.get_extract_annotation_summary(
+        return AnnotationService.get_extract_annotation_summary(
             document_id=self.id, extract_id=extract_pk, user=user, use_cache=True
         )
 

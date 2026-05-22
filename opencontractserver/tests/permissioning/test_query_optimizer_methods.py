@@ -4,24 +4,24 @@ Comprehensive tests for Query Optimizer methods with permission filtering.
 This test suite provides comprehensive coverage for query optimizer methods that were
 previously untested, focusing on:
 
-1. AnnotationQueryOptimizer.get_extract_annotation_summary()
+1. AnnotationService.get_extract_annotation_summary()
    - Tests annotation summaries for extracts with various permission levels
    - Tests label counting and page aggregation
    - Tests access control based on document and corpus permissions
 
-2. RelationshipQueryOptimizer.get_document_relationships()
+2. RelationshipService.get_document_relationships()
    - Tests relationship retrieval with permission filtering
    - Tests corpus/document/analysis scoping
    - Tests structural vs non-structural relationships
    - Tests extract-based relationship filtering (strict and non-strict modes)
    - Tests page filtering
 
-3. RelationshipQueryOptimizer.get_relationship_summary()
+3. RelationshipService.get_relationship_summary()
    - Tests relationship counting by type
    - Tests permission-based visibility
    - Tests aggregation across multiple relationship types
 
-4. ExtractQueryOptimizer.get_visible_extracts()
+4. ExtractService.get_visible_extracts()
    - Tests extract visibility based on hybrid permission model
    - Tests corpus-level filtering
    - Tests that extract permission + corpus permission both required
@@ -43,14 +43,14 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     Relationship,
 )
-from opencontractserver.annotations.query_optimizer import (
-    AnnotationQueryOptimizer,
-    ExtractQueryOptimizer,
-    RelationshipQueryOptimizer,
+from opencontractserver.annotations.services import (
+    AnnotationService,
+    RelationshipService,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
+from opencontractserver.extracts.services import ExtractService
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -59,9 +59,9 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-class AnnotationQueryOptimizerTestCase(TestCase):
+class AnnotationServiceTestCase(TestCase):
     """
-    Tests for AnnotationQueryOptimizer.get_extract_annotation_summary()
+    Tests for AnnotationService.get_extract_annotation_summary()
     """
 
     def setUp(self):
@@ -195,7 +195,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
-        summary = AnnotationQueryOptimizer.get_extract_annotation_summary(
+        summary = AnnotationService.get_extract_annotation_summary(
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.owner,
@@ -228,7 +228,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
             self.stranger, self.corpus, [PermissionTypes.READ]
         )
 
-        summary = AnnotationQueryOptimizer.get_extract_annotation_summary(
+        summary = AnnotationService.get_extract_annotation_summary(
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.stranger,
@@ -252,7 +252,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
 
         # Don't grant any explicit permissions to superuser
 
-        summary = AnnotationQueryOptimizer.get_extract_annotation_summary(
+        summary = AnnotationService.get_extract_annotation_summary(
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.superuser,
@@ -277,7 +277,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
-        summary = AnnotationQueryOptimizer.get_extract_annotation_summary(
+        summary = AnnotationService.get_extract_annotation_summary(
             document_id=self.doc1.id,
             extract_id=99999,  # Non-existent ID
             user=self.owner,
@@ -315,7 +315,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
             can_update,
             can_delete,
             can_comment,
-        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+        ) = AnnotationService._compute_effective_permissions(
             user=anon_user, document_id=self.doc1.id, corpus_id=self.corpus.id
         )
 
@@ -349,7 +349,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
             can_update,
             can_delete,
             can_comment,
-        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+        ) = AnnotationService._compute_effective_permissions(
             user=anon_user, document_id=self.doc1.id, corpus_id=self.corpus.id
         )
 
@@ -386,7 +386,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
             can_update,
             can_delete,
             can_comment,
-        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+        ) = AnnotationService._compute_effective_permissions(
             user=anon_user, document_id=self.doc1.id, corpus_id=self.corpus.id
         )
 
@@ -401,9 +401,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         """
         from django.contrib.auth.models import AnonymousUser
 
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
 
         logger.info("\n" + "=" * 80)
         logger.info("TEST: Anonymous user sees only public analyses")
@@ -437,7 +435,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
 
         anon_user = AnonymousUser()
 
-        visible = AnalysisQueryOptimizer.get_visible_analyses(
+        visible = AnalysisService.get_visible_analyses(
             user=anon_user, corpus_id=self.corpus.id
         )
 
@@ -470,7 +468,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
             can_update,
             can_delete,
             can_comment,
-        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+        ) = AnnotationService._compute_effective_permissions(
             user=anon_user, document_id=self.doc1.id, corpus_id=None
         )
 
@@ -504,7 +502,7 @@ class AnnotationQueryOptimizerTestCase(TestCase):
             can_update,
             can_delete,
             can_comment,
-        ) = AnnotationQueryOptimizer._compute_effective_permissions(
+        ) = AnnotationService._compute_effective_permissions(
             user=anon_user, document_id=nonexistent_id, corpus_id=None
         )
 
@@ -518,9 +516,9 @@ class AnnotationQueryOptimizerTestCase(TestCase):
         logger.info("✓ Nonexistent document properly denied")
 
 
-class RelationshipQueryOptimizerTestCase(TestCase):
+class RelationshipServiceTestCase(TestCase):
     """
-    Tests for RelationshipQueryOptimizer methods:
+    Tests for RelationshipService methods:
     - get_document_relationships()
     - get_relationship_summary()
     """
@@ -738,7 +736,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -761,7 +759,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
 
         # Don't grant any permissions to stranger
 
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
@@ -782,7 +780,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
 
         set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
 
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=None,  # No corpus
@@ -806,7 +804,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -832,7 +830,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         # Filter to only page 1
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -858,7 +856,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         # Non-strict mode: either source or target in extract
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -871,7 +869,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         self.assertGreater(qs.count(), 0)
 
         # Strict mode: both source and target must be in extract
-        qs_strict = RelationshipQueryOptimizer.get_document_relationships(
+        qs_strict = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -895,7 +893,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Superuser sees all relationships")
         logger.info("=" * 80)
 
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.superuser,
             corpus_id=self.corpus.id,
@@ -923,7 +921,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
         # Filter to only non-structural
-        qs = RelationshipQueryOptimizer.get_document_relationships(
+        qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -988,7 +986,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         private_rel.target_annotations.add(self.ann2)
 
         # Owner should see it (they created the analysis)
-        qs_owner = RelationshipQueryOptimizer.get_document_relationships(
+        qs_owner = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -998,7 +996,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         self.assertGreater(qs_owner.count(), 0)
 
         # Stranger should NOT see it (no access to private analysis)
-        qs_stranger = RelationshipQueryOptimizer.get_document_relationships(
+        qs_stranger = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
@@ -1052,7 +1050,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         private_rel.target_annotations.add(self.ann2)
 
         # Owner should see it (they created the extract)
-        qs_owner = RelationshipQueryOptimizer.get_document_relationships(
+        qs_owner = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
@@ -1063,7 +1061,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         self.assertGreater(owner_count, 0)
 
         # Stranger should see the 3 manual relationships but NOT the extract-created one
-        qs_stranger = RelationshipQueryOptimizer.get_document_relationships(
+        qs_stranger = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
@@ -1079,7 +1077,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         )
 
         # Now stranger should see the extract-created relationship too
-        qs_stranger_with_access = RelationshipQueryOptimizer.get_document_relationships(
+        qs_stranger_with_access = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
@@ -1106,7 +1104,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(self.owner, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.READ])
 
-        summary = RelationshipQueryOptimizer.get_relationship_summary(
+        summary = RelationshipService.get_relationship_summary(
             document_id=self.doc1.id, corpus_id=self.corpus.id, user=self.owner
         )
 
@@ -1129,7 +1127,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: No permission = empty summary")
         logger.info("=" * 80)
 
-        summary = RelationshipQueryOptimizer.get_relationship_summary(
+        summary = RelationshipService.get_relationship_summary(
             document_id=self.doc1.id, corpus_id=self.corpus.id, user=self.stranger
         )
 
@@ -1147,7 +1145,7 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Superuser sees complete summary")
         logger.info("=" * 80)
 
-        summary = RelationshipQueryOptimizer.get_relationship_summary(
+        summary = RelationshipService.get_relationship_summary(
             document_id=self.doc1.id, corpus_id=self.corpus.id, user=self.superuser
         )
 
@@ -1159,9 +1157,9 @@ class RelationshipQueryOptimizerTestCase(TestCase):
         logger.info("✓ Superuser sees complete summary")
 
 
-class ExtractQueryOptimizerTestCase(TestCase):
+class ExtractServiceTestCase(TestCase):
     """
-    Tests for ExtractQueryOptimizer.get_visible_extracts()
+    Tests for ExtractService.get_visible_extracts()
     """
 
     def setUp(self):
@@ -1265,7 +1263,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Owner sees all their extracts")
         logger.info("=" * 80)
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.owner)
+        qs = ExtractService.get_visible_extracts(user=self.owner)
 
         # Should see all 4 extracts
         self.assertEqual(qs.count(), 4)
@@ -1286,7 +1284,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
             self.collaborator, self.extract1, [PermissionTypes.READ]
         )
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.collaborator)
+        qs = ExtractService.get_visible_extracts(user=self.collaborator)
 
         # Should NOT see extract1 (no corpus permission)
         extract_names = [e.name for e in qs]
@@ -1310,7 +1308,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
             self.collaborator, self.corpus1, [PermissionTypes.READ]
         )
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.collaborator)
+        qs = ExtractService.get_visible_extracts(user=self.collaborator)
 
         # Should see extract1
         extract_names = [e.name for e in qs]
@@ -1332,7 +1330,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
             self.collaborator, self.extract_public, [PermissionTypes.READ]
         )
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.collaborator)
+        qs = ExtractService.get_visible_extracts(user=self.collaborator)
 
         # Should see extract_public
         extract_names = [e.name for e in qs]
@@ -1353,7 +1351,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
             self.collaborator, self.extract_no_corpus, [PermissionTypes.READ]
         )
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.collaborator)
+        qs = ExtractService.get_visible_extracts(user=self.collaborator)
 
         # Should see extract_no_corpus
         extract_names = [e.name for e in qs]
@@ -1374,7 +1372,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
             self.owner, self.corpus1, [PermissionTypes.READ]
         )
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(
+        qs = ExtractService.get_visible_extracts(
             user=self.owner, corpus_id=self.corpus1.id
         )
 
@@ -1392,7 +1390,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
         logger.info("TEST: Superuser sees all extracts")
         logger.info("=" * 80)
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.superuser)
+        qs = ExtractService.get_visible_extracts(user=self.superuser)
 
         # Should see all 4 extracts
         self.assertEqual(qs.count(), 4)
@@ -1407,7 +1405,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
         logger.info("TEST: No permissions = no extracts")
         logger.info("=" * 80)
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.stranger)
+        qs = ExtractService.get_visible_extracts(user=self.stranger)
 
         # Should see nothing
         self.assertEqual(qs.count(), 0)
@@ -1442,7 +1440,7 @@ class ExtractQueryOptimizerTestCase(TestCase):
             self.collaborator, collab_extract, [PermissionTypes.READ]
         )
 
-        qs = ExtractQueryOptimizer.get_visible_extracts(user=self.collaborator)
+        qs = ExtractService.get_visible_extracts(user=self.collaborator)
 
         # Collaborator should see the extract (they created the corpus)
         extract_names = [e.name for e in qs]
@@ -1454,8 +1452,8 @@ class ExtractQueryOptimizerTestCase(TestCase):
 class DocumentPermissionFilterQueryCountTestCase(TestCase):
     """
     Pins the O(1)-queries contract for the document-permission filter in
-    ``AnalysisQueryOptimizer.get_analysis_annotations`` and
-    ``ExtractQueryOptimizer.get_extract_datacells``.
+    ``AnalysisService.get_analysis_annotations`` and
+    ``ExtractService.get_extract_datacells``.
 
     Issue #1692 replaced per-document ``doc.user_can(...)`` Python loops with a
     single ``Document.objects.visible_to_user(user).filter(id__in=...)``
@@ -1565,14 +1563,10 @@ class DocumentPermissionFilterQueryCountTestCase(TestCase):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
 
         with CaptureQueriesContext(connection) as captured:
-            qs = AnalysisQueryOptimizer.get_analysis_annotations(
-                self.analysis, self.reader
-            )
+            qs = AnalysisService.get_analysis_annotations(self.analysis, self.reader)
             returned_ids = sorted(qs.values_list("id", flat=True))
 
         expected_ids = sorted(
@@ -1605,7 +1599,7 @@ class DocumentPermissionFilterQueryCountTestCase(TestCase):
         from django.test.utils import CaptureQueriesContext
 
         with CaptureQueriesContext(connection) as captured:
-            qs = ExtractQueryOptimizer.get_extract_datacells(self.extract, self.reader)
+            qs = ExtractService.get_extract_datacells(self.extract, self.reader)
             returned_ids = sorted(qs.values_list("id", flat=True))
 
         expected_ids = sorted(
@@ -1628,12 +1622,10 @@ class DocumentPermissionFilterQueryCountTestCase(TestCase):
         When the reader has no READ permission on any analyzed document the
         method must short-circuit to ``Annotation.objects.none()``.
         """
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
 
         stranger = User.objects.create_user(username="dpf_stranger", password="x")
-        qs = AnalysisQueryOptimizer.get_analysis_annotations(self.analysis, stranger)
+        qs = AnalysisService.get_analysis_annotations(self.analysis, stranger)
         self.assertEqual(qs.count(), 0)
 
     def test_get_extract_datacells_returns_none_when_no_readable_docs(self):
@@ -1641,5 +1633,5 @@ class DocumentPermissionFilterQueryCountTestCase(TestCase):
         Mirror of the analysis case for ``get_extract_datacells``.
         """
         stranger = User.objects.create_user(username="dpf_stranger2", password="x")
-        qs = ExtractQueryOptimizer.get_extract_datacells(self.extract, stranger)
+        qs = ExtractService.get_extract_datacells(self.extract, stranger)
         self.assertEqual(qs.count(), 0)

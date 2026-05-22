@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, TransactionTestCase
 
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.tests.base import BaseFixtureTestCase
 
 
@@ -78,7 +78,7 @@ class PerformanceTestCase(NoEmbeddingsMixin, TestCase):
         clone.__dict__.update(original.__dict__)
         if hasattr(original, "META"):
             clone.META = original.META.copy()
-        AnnotationQueryOptimizer.clear_permission_caches()
+        AnnotationService.clear_permission_caches()
         return clone
 
 
@@ -100,7 +100,7 @@ class PerformanceTransactionTestCase(NoEmbeddingsMixin, TransactionTestCase):
         clone.__dict__.update(original.__dict__)
         if hasattr(original, "META"):
             clone.META = original.META.copy()
-        AnnotationQueryOptimizer.clear_permission_caches()
+        AnnotationService.clear_permission_caches()
         return clone
 
 

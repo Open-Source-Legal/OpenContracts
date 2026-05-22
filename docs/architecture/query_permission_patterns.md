@@ -29,14 +29,15 @@ Both layers work together: the manager/queryset produces the base filtered set, 
 
 | Optimizer | File | Scope |
 |-----------|------|-------|
-| `AnnotationQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:16-667` | Annotation + Relationship bulk permissions |
-| `AnalysisQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:946-1148` | Analysis visibility with corpus checks |
-| `ExtractQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:1150-1349` | Extract visibility with corpus checks |
+| `AnnotationService` | `opencontractserver/annotations/services/annotation_service.py` | Annotation bulk permissions |
+| `RelationshipService` | `opencontractserver/annotations/services/relationship_service.py` | Relationship bulk permissions |
+| `AnalysisService` | `opencontractserver/analyzer/services/analysis_service.py` | Analysis visibility with corpus checks |
+| `ExtractService` | `opencontractserver/extracts/services/extract_service.py` | Extract visibility with corpus checks |
 | `ConversationQueryOptimizer` | `opencontractserver/conversations/query_optimizer.py:18-204` | Request-level caching for corpus/doc visibility |
 | `PermissionQueryOptimizer` | `opencontractserver/utils/permission_optimizer.py` | Per-request `user_can` cache for any visibility-managed model |
 | `DocumentActionsQueryOptimizer` | `opencontractserver/documents/query_optimizer.py:16-312` | Document action permissions |
 | `DocumentRelationshipQueryOptimizer` | `opencontractserver/documents/query_optimizer.py:314-668` | Document relationship permissions |
-| `MetadataQueryOptimizer` | `opencontractserver/extracts/query_optimizer.py:19-572` | Extract metadata permissions |
+| `MetadataService` | `opencontractserver/extracts/services/metadata.py` | Extract metadata permissions |
 | `BadgeQueryOptimizer` | `opencontractserver/badges/query_optimizer.py:16-158` | Badge visibility |
 | `UserQueryOptimizer` | `opencontractserver/users/query_optimizer.py:15-237` | User profile permissions |
 

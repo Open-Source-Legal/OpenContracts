@@ -165,7 +165,7 @@ def import_annotations(
         # is derived from doc + corpus (+ structural flag, creator,
         # analysis/extract privacy) — see:
         #   * AnnotationQuerySet.visible_to_user (shared/QuerySets.py)
-        #   * AnnotationQueryOptimizer._compute_effective_permissions
+        #   * AnnotationService._compute_effective_permissions
         #   * AnnotationManager.user_can (special-cases annotations)
         # None of those consult AnnotationUserObjectPermission rows, so
         # writing ~14 DB ops per annotation here is dead work. Locked in

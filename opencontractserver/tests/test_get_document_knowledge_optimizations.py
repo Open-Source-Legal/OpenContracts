@@ -27,7 +27,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.feedback.models import UserFeedback
@@ -72,14 +72,14 @@ class ComputeEffectivePermissionsCacheTests(TestCase):
 
     def test_permissions_cached_on_context(self) -> None:
         ctx = _superuser_request_context()
-        first = AnnotationQueryOptimizer._compute_effective_permissions(
+        first = AnnotationService._compute_effective_permissions(
             self.owner, self.document.pk, self.corpus.pk, context=ctx
         )
         cache = ctx._effective_perms_cache
         self.assertIn((self.owner.pk, self.document.pk, self.corpus.pk), cache)
 
         # The second call must consult the cache (same context, same key).
-        second = AnnotationQueryOptimizer._compute_effective_permissions(
+        second = AnnotationService._compute_effective_permissions(
             self.owner, self.document.pk, self.corpus.pk, context=ctx
         )
         self.assertEqual(first, second)
@@ -94,15 +94,15 @@ class ComputeEffectivePermissionsCacheTests(TestCase):
         ctx = _superuser_request_context()
 
         with CaptureQueriesContext(connection) as queries_first:
-            AnnotationQueryOptimizer._get_document_for_request(self.document.pk, ctx)
-            AnnotationQueryOptimizer._get_corpus_for_request(self.corpus.pk, ctx)
+            AnnotationService._get_document_for_request(self.document.pk, ctx)
+            AnnotationService._get_corpus_for_request(self.corpus.pk, ctx)
         self.assertGreater(len(queries_first), 0)
 
         with CaptureQueriesContext(connection) as queries_second:
-            doc_again = AnnotationQueryOptimizer._get_document_for_request(
+            doc_again = AnnotationService._get_document_for_request(
                 self.document.pk, ctx
             )
-            corpus_again = AnnotationQueryOptimizer._get_corpus_for_request(
+            corpus_again = AnnotationService._get_corpus_for_request(
                 self.corpus.pk, ctx
             )
         self.assertEqual(len(queries_second), 0)
@@ -112,7 +112,7 @@ class ComputeEffectivePermissionsCacheTests(TestCase):
     def test_no_context_falls_through_without_crashing(self) -> None:
         """``context=None`` must still work — the helper is callable from
         non-GraphQL code paths."""
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             self.owner, self.document.pk, self.corpus.pk, context=None
         )
         self.assertEqual(result, (True, True, True, True, True))
@@ -170,7 +170,7 @@ class AnnotationFeedbackPrefetchTests(TestCase):
         batch SELECT. We verify by counting queries while iterating the full
         result and accessing the prefetched cache.
         """
-        qs = AnnotationQueryOptimizer.get_document_annotations(
+        qs = AnnotationService.get_document_annotations(
             document_id=self.document.pk,
             user=self.owner,
             corpus_id=self.corpus.pk,
@@ -205,7 +205,7 @@ class AnnotationFeedbackPrefetchTests(TestCase):
         """
         from config.graphql.annotation_types import AnnotationType
 
-        qs = AnnotationQueryOptimizer.get_document_annotations(
+        qs = AnnotationService.get_document_annotations(
             document_id=self.document.pk,
             user=self.owner,
             corpus_id=self.corpus.pk,
@@ -257,7 +257,7 @@ class ComputeEffectivePermissionsBranchTests(TestCase):
     def test_anonymous_reads_public_doc_with_no_corpus(self) -> None:
         from django.contrib.auth.models import AnonymousUser
 
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             AnonymousUser(), self.public_doc.pk, None
         )
         self.assertEqual(result, (True, False, False, False, False))
@@ -265,7 +265,7 @@ class ComputeEffectivePermissionsBranchTests(TestCase):
     def test_anonymous_blocked_on_private_doc(self) -> None:
         from django.contrib.auth.models import AnonymousUser
 
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             AnonymousUser(), self.private_doc.pk, None
         )
         self.assertEqual(result, (False, False, False, False, False))
@@ -273,7 +273,7 @@ class ComputeEffectivePermissionsBranchTests(TestCase):
     def test_anonymous_blocked_when_corpus_is_private(self) -> None:
         from django.contrib.auth.models import AnonymousUser
 
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             AnonymousUser(), self.public_doc.pk, self.private_corpus.pk
         )
         self.assertEqual(result, (False, False, False, False, False))
@@ -281,20 +281,20 @@ class ComputeEffectivePermissionsBranchTests(TestCase):
     def test_anonymous_reads_public_doc_in_public_corpus(self) -> None:
         from django.contrib.auth.models import AnonymousUser
 
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             AnonymousUser(), self.public_doc.pk, self.public_corpus.pk
         )
         self.assertEqual(result, (True, False, False, False, False))
 
     def test_missing_document_denies_everything(self) -> None:
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             self.owner, 9_999_999, None
         )
         # Superusers short-circuit before fetching, so use a non-superuser.
         regular = UserModel.objects.create_user(
             username="regular_branch", email="r@b.com", password="x"
         )
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             regular, 9_999_999, None
         )
         self.assertEqual(result, (False, False, False, False, False))
@@ -307,7 +307,7 @@ class ComputeEffectivePermissionsBranchTests(TestCase):
         regular = UserModel.objects.create_user(
             username="regular_no_perm", email="r2@b.com", password="x"
         )
-        result = AnnotationQueryOptimizer._compute_effective_permissions(
+        result = AnnotationService._compute_effective_permissions(
             regular, self.private_doc.pk, None
         )
         self.assertEqual(result, (False, False, False, False, False))
@@ -374,7 +374,7 @@ class GetDocumentAnnotationsBranchTests(TestCase):
         )
 
     def test_corpus_less_call_returns_only_structural(self) -> None:
-        qs = AnnotationQueryOptimizer.get_document_annotations(
+        qs = AnnotationService.get_document_annotations(
             document_id=self.document.pk,
             user=self.owner,
             corpus_id=None,
@@ -384,7 +384,7 @@ class GetDocumentAnnotationsBranchTests(TestCase):
         self.assertGreaterEqual(len(results), 1)
 
     def test_corpus_less_call_with_structural_false_returns_empty(self) -> None:
-        qs = AnnotationQueryOptimizer.get_document_annotations(
+        qs = AnnotationService.get_document_annotations(
             document_id=self.document.pk,
             user=self.owner,
             corpus_id=None,
@@ -400,7 +400,7 @@ class GetDocumentAnnotationsBranchTests(TestCase):
         """
         ghost_doc = Document.objects.create(title="Ghost", creator=self.owner)
         # No DocumentPath created — version-aware check should bail.
-        qs = AnnotationQueryOptimizer.get_document_annotations(
+        qs = AnnotationService.get_document_annotations(
             document_id=ghost_doc.pk,
             user=self.owner,
             corpus_id=self.corpus.pk,
@@ -437,7 +437,7 @@ class GetAnnotationsForPathTests(TestCase):
         )
 
     def test_resolves_current_version(self) -> None:
-        qs = AnnotationQueryOptimizer.get_annotations_for_path(
+        qs = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.pk,
             path="/contracts/active.pdf",
             user=self.owner,
@@ -447,7 +447,7 @@ class GetAnnotationsForPathTests(TestCase):
         self.assertEqual(qs.count(), 0)
 
     def test_returns_empty_for_unknown_path(self) -> None:
-        qs = AnnotationQueryOptimizer.get_annotations_for_path(
+        qs = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.pk,
             path="/contracts/missing.pdf",
             user=self.owner,
@@ -455,7 +455,7 @@ class GetAnnotationsForPathTests(TestCase):
         self.assertEqual(qs.count(), 0)
 
     def test_returns_empty_when_specific_version_missing(self) -> None:
-        qs = AnnotationQueryOptimizer.get_annotations_for_path(
+        qs = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.pk,
             path="/contracts/active.pdf",
             user=self.owner,
@@ -485,44 +485,36 @@ class RequestCachedFetcherTests(TestCase):
         cls.corpus = Corpus.objects.create(title="Cache Corpus", creator=cls.owner)
 
     def test_get_document_with_no_context_returns_instance(self) -> None:
-        instance = AnnotationQueryOptimizer._get_document_for_request(
-            self.document.pk, None
-        )
+        instance = AnnotationService._get_document_for_request(self.document.pk, None)
         self.assertIsNotNone(instance)
         self.assertEqual(instance.pk, self.document.pk)
 
     def test_get_document_with_no_context_returns_none_for_missing(self) -> None:
-        self.assertIsNone(
-            AnnotationQueryOptimizer._get_document_for_request(9_999_999, None)
-        )
+        self.assertIsNone(AnnotationService._get_document_for_request(9_999_999, None))
 
     def test_get_corpus_with_no_context_returns_instance(self) -> None:
-        instance = AnnotationQueryOptimizer._get_corpus_for_request(
-            self.corpus.pk, None
-        )
+        instance = AnnotationService._get_corpus_for_request(self.corpus.pk, None)
         self.assertIsNotNone(instance)
         self.assertEqual(instance.pk, self.corpus.pk)
 
     def test_get_corpus_with_no_context_returns_none_for_missing(self) -> None:
-        self.assertIsNone(
-            AnnotationQueryOptimizer._get_corpus_for_request(9_999_999, None)
-        )
+        self.assertIsNone(AnnotationService._get_corpus_for_request(9_999_999, None))
 
     def test_missing_document_caches_none_for_subsequent_calls(self) -> None:
         ctx = SimpleNamespace()
-        first = AnnotationQueryOptimizer._get_document_for_request(9_999_999, ctx)
+        first = AnnotationService._get_document_for_request(9_999_999, ctx)
         self.assertIsNone(first)
         # Second call must hit the cache (zero queries).
         with CaptureQueriesContext(connection) as captured:
-            second = AnnotationQueryOptimizer._get_document_for_request(9_999_999, ctx)
+            second = AnnotationService._get_document_for_request(9_999_999, ctx)
         self.assertIsNone(second)
         self.assertEqual(len(captured.captured_queries), 0)
 
     def test_missing_corpus_caches_none_for_subsequent_calls(self) -> None:
         ctx = SimpleNamespace()
-        first = AnnotationQueryOptimizer._get_corpus_for_request(9_999_999, ctx)
+        first = AnnotationService._get_corpus_for_request(9_999_999, ctx)
         self.assertIsNone(first)
         with CaptureQueriesContext(connection) as captured:
-            second = AnnotationQueryOptimizer._get_corpus_for_request(9_999_999, ctx)
+            second = AnnotationService._get_corpus_for_request(9_999_999, ctx)
         self.assertIsNone(second)
         self.assertEqual(len(captured.captured_queries), 0)

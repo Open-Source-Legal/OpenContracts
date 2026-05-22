@@ -32,7 +32,7 @@ def _exclude_soft_deleted_doc_orphans(qs: _QS) -> _QS:
     keep working.
 
     Mirrors the same predicate as ``Corpus._get_active_documents()`` and
-    ``AnnotationQueryOptimizer.get_corpus_annotations()`` so visibility
+    ``AnnotationService.get_corpus_annotations()`` so visibility
     is consistent across the codebase.
     """
     from opencontractserver.documents.models import DocumentPath
@@ -396,7 +396,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
     ) -> "AnnotationQuerySet":
         """
         Override to properly handle annotation privacy model.
-        This ensures that even when AnnotationQueryOptimizer isn't used,
+        This ensures that even when AnnotationService isn't used,
         the privacy model is still respected.
 
         Soft-deleted documents stay in the DB so that "Restore from trash"
@@ -407,7 +407,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         ``_exclude_soft_deleted_doc_orphans`` helper applies the same
         ``DocumentPath(is_current=True, is_deleted=False)`` predicate used
         by ``Corpus._get_active_documents()`` and
-        ``AnnotationQueryOptimizer.get_corpus_annotations()``.
+        ``AnnotationService.get_corpus_annotations()``.
         """
         from django.contrib.auth.models import AnonymousUser
 
