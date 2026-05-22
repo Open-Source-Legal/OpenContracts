@@ -41,7 +41,7 @@ drf-extra-fields==3.7.0  # https://github.com/Hipo/drf-extra-fields
 pypdf>=6.12.0,<7  # https://github.com/py-pdf/pypdf
 plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image>=1.17.0
-openai>=2.37.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
+openai>=2.38.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
 # Bumping pydantic-ai is a deliberate decision: this codebase relies on the
 # precedence rule that ``instructions=`` (not ``system_prompt=``) is the only
 # way to deliver a system instruction when ``message_history`` is non-empty
