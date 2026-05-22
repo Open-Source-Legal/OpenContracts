@@ -31,7 +31,7 @@ import { WebSocketSources } from "../components/chat/types";
 export interface RequestDocumentsInputs {
   textSearch?: string;
   corpusId?: string;
-  inFolderId?: string; // Use "__root__" for root documents, folder ID, or omit for all
+  inFolderId?: string; // "__root__" (or omit) = all corpus docs; a folder ID = that folder + sub-folders
   annotateDocLabels?: boolean;
   hasLabelWithId?: string;
 }
