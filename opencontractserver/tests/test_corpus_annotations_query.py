@@ -424,16 +424,3 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
         # No visible documents = no annotations
         self.assertEqual(result.count(), 0)
-
-    def test_apply_permission_filter_deprecated_method(self):
-        """Test the deprecated _apply_permission_filter method."""
-        from opencontractserver.annotations.models import Annotation
-
-        qs = Annotation.objects.all()
-        result = AnnotationService._apply_permission_filter(
-            qs, self.owner, self.private_corpus.id
-        )
-
-        # Should filter by corpus_id
-        for annotation in result:
-            self.assertEqual(annotation.corpus_id, self.private_corpus.id)

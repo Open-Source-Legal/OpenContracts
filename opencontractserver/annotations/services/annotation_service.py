@@ -635,15 +635,6 @@ class AnnotationService(BaseService):
         return can_read
 
     @classmethod
-    def _apply_permission_filter(cls, qs, user, corpus_id):
-        """Apply permission-based filtering.
-        DEPRECATED: Permissions are now checked at document+corpus level.
-        This method now just filters by corpus_id.
-        """
-        # Simply filter by corpus since permissions are already checked
-        return qs.filter(corpus_id=corpus_id)
-
-    @classmethod
     def get_corpus_annotations(
         cls,
         corpus_id: int,
