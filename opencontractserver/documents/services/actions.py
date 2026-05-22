@@ -99,7 +99,11 @@ class DocumentActionsService(BaseService):
                 CorpusAction.objects.visible_to_user(user).filter(corpus=corpus)
             )
 
-        # Get extracts using ExtractQueryOptimizer
+        # Get extracts using ExtractQueryOptimizer.
+        # ``context=request`` (not ``request=request``) is intentional:
+        # ``annotations/query_optimizer.py`` is out of Phase 4 scope and still
+        # uses the legacy ``context=`` kwarg. Update this call site when those
+        # optimizers are migrated to the BaseService convention.
         visible_extracts = ExtractQueryOptimizer.get_visible_extracts(
             user, corpus_id=corpus_id, context=request
         )
