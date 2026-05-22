@@ -449,6 +449,50 @@ test("the annotation feed renders rows and a row opens the detail sheet", async 
   ).toBeVisible({ timeout: LONG_TIMEOUT });
 });
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * 5b. More sheet — sub-surface navigation.
+ *
+ * MobileMoreSheet swaps its own body between the menu list and a chosen Tier-2
+ * surface (Discussions / Notes / Info) with a back affordance. This exercises
+ * the Discussions and Notes sub-surfaces — both of which embed the real
+ * RightPanelContent — and the back-to-menu transition between them.
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the More sheet navigates into the Discussions and Notes sub-surfaces", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  await page.getByRole("tab", { name: "More" }).click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // Documentation capture: the More sheet's Tier-2 surface menu.
+  await docScreenshot(page, "knowledge-base--mobile--more-menu");
+
+  // Discussions sub-surface.
+  await page.getByTestId("mobile-more-discussions").click();
+  await expect(page.getByTestId("mobile-more-discussions-surface")).toBeVisible(
+    { timeout: LONG_TIMEOUT }
+  );
+
+  // Back returns to the menu list.
+  await page.getByTestId("mobile-more-back").click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
+
+  // Notes sub-surface.
+  await page.getByTestId("mobile-more-notes").click();
+  await expect(page.getByTestId("mobile-more-notes-surface")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // Back again returns to the menu list.
+  await page.getByTestId("mobile-more-back").click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
+});
+
 /** Reads the document zoom percentage off the MobileDocToolbar "Fit width" chip. */
 async function readZoomPercent(page: Page): Promise<number> {
   const chip = page.locator('[aria-label="Fit width"]');
