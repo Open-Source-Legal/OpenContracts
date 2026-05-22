@@ -60,17 +60,13 @@ export const ResultBoundary = ({
   const height = bounds.bottom - bounds.top;
   const rotateY = width < 0 ? -180 : 0;
   const rotateX = height < 0 ? -180 : 0;
-  let { r, g, b } = hexToRgb(color);
-  let opacity = BOUNDARY_OPACITY_UNSELECTED;
-
-  if (!showBoundingBox || hidden) {
-    r = 255;
-    g = 255;
-    b = 255;
-    opacity = 0.0;
-  } else if (selected) {
-    opacity = BOUNDARY_OPACITY_SELECTED;
-  }
+  const { r, g, b } = hexToRgb(color);
+  // Fill ignores showBoundingBox so multi-line inter-row gaps don't stripe through as white.
+  const opacity = hidden
+    ? 0
+    : selected
+    ? BOUNDARY_OPACITY_SELECTED
+    : BOUNDARY_OPACITY_UNSELECTED;
 
   const boxShadow =
     showBoundingBox && !hidden

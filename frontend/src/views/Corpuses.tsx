@@ -856,8 +856,14 @@ export const Corpuses = () => {
     if (corpus_id) {
       // console.log("handleDeleteCorpus", corpus_id)
       tryDeleteCorpus({ variables: { id: corpus_id } })
-        .then((data) => {
-          toast.success("SUCCESS! Deleted corpus.");
+        .then(({ data }) => {
+          if (data?.deleteCorpus?.ok) {
+            toast.success("SUCCESS! Deleted corpus.");
+          } else {
+            toast.error(
+              data?.deleteCorpus?.message ?? "ERROR! Could not delete corpus."
+            );
+          }
         })
         .catch((err) => {
           toast.error("ERROR! Could not delete corpus.");

@@ -24,10 +24,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -165,42 +162,22 @@ class RelationshipMutationPermissionTestCase(TestCase):
 
         # Collaborator should be able to READ
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.READ)
         )
 
         # But NOT UPDATE or DELETE
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
     def test_granting_update_permission_allows_modification(self):
         """Test that granting UPDATE permission on doc+corpus allows modification."""
         # Initially collaborator can't update (only has READ)
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
 
         # Grant UPDATE permission on both doc and corpus
@@ -213,28 +190,13 @@ class RelationshipMutationPermissionTestCase(TestCase):
 
         # Now collaborator should be able to modify relationship
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.READ)
         )
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
     def test_structural_relationship_is_read_only(self):
@@ -249,62 +211,20 @@ class RelationshipMutationPermissionTestCase(TestCase):
         )
 
         # Owner (with full permissions on doc+corpus) can READ
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.owner,
-                structural_rel,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(structural_rel.user_can(self.owner, PermissionTypes.READ))
 
         # But NOT UPDATE or DELETE (structural is read-only)
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.owner,
-                structural_rel,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.owner,
-                structural_rel,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertFalse(structural_rel.user_can(self.owner, PermissionTypes.UPDATE))
+        self.assertFalse(structural_rel.user_can(self.owner, PermissionTypes.DELETE))
 
     def test_superuser_always_has_permissions(self):
         """Test that superusers bypass all permission checks."""
         superuser = User.objects.create_superuser(username="super", password="test")
 
         # Superuser should have all permissions even without explicit grants
-        self.assertTrue(
-            user_has_permission_for_obj(
-                superuser,
-                self.relationship,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                superuser,
-                self.relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(
-                superuser,
-                self.relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(self.relationship.user_can(superuser, PermissionTypes.READ))
+        self.assertTrue(self.relationship.user_can(superuser, PermissionTypes.UPDATE))
+        self.assertTrue(self.relationship.user_can(superuser, PermissionTypes.DELETE))
 
     def test_relationship_with_no_annotations(self):
         """Test that relationships can exist with no source or target annotations."""
@@ -420,30 +340,15 @@ class RelationshipMutationPermissionTestCase(TestCase):
         # Effective permission should be READ (most restrictive)
         # Collaborator can READ
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.READ)
         )
 
         # But NOT UPDATE or DELETE (doc only has READ)
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
     def test_missing_corpus_permission_blocks_update(self):
@@ -461,28 +366,13 @@ class RelationshipMutationPermissionTestCase(TestCase):
         # Effective permission should be READ (most restrictive)
         # Collaborator can READ
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.READ)
         )
 
         # But NOT UPDATE or DELETE (corpus only has READ)
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.UPDATE)
         )
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.collaborator,
-                self.relationship,
-                PermissionTypes.DELETE,
-                include_group_permissions=True,
-            )
+            self.relationship.user_can(self.collaborator, PermissionTypes.DELETE)
         )

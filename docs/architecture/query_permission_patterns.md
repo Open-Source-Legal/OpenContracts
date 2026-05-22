@@ -146,7 +146,7 @@ Annotations created by analyses or extracts inherit visibility from those parent
 
 ### IDOR Protection
 Mutations use `visible_to_user()` filtering with unified error messages to prevent object ID enumeration.
-- Utility: `opencontractserver/utils/permissioning.py:286-559` (`user_has_permission_for_obj`)
+- Single-object check: `Manager.user_can()` / `obj.user_can()` (`opencontractserver/utils/permissioning.py` — `_default_user_can`)
 - Permission assignment: `opencontractserver/utils/permissioning.py:20-163` (`set_permissions_for_obj_to_user`)
 
 ### Structural Annotation Handling

@@ -32,7 +32,10 @@ from opencontractserver.utils.mention_parser import (
     link_message_to_resources,
     parse_mentions_from_content,
 )
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    set_permissions_for_obj_to_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,28 +106,41 @@ class CreateThreadMutation(graphene.Mutation):
                     obj=None,
                 )
 
-            # Resolve corpus if provided -- use visible_to_user() to prevent
-            # IDOR enumeration (same error for missing vs no-permission).
+            # Resolve corpus / document if provided. Both go through
+            # ``get_for_user_or_none`` so missing pk and inaccessible pk
+            # converge on the same response per the Phase D IDOR contract.
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope rather
+            # than the generic "Failed to create thread" outer handler.
             if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
                 try:
-                    corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-                except Corpus.DoesNotExist:
+                    corpus_pk = from_global_id(corpus_id)[1]
+                except Exception:
+                    return CreateThreadMutation(
+                        ok=False,
+                        message="You do not have permission to create threads in this corpus",
+                        obj=None,
+                    )
+                corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+                if corpus is None:
                     return CreateThreadMutation(
                         ok=False,
                         message="You do not have permission to create threads in this corpus",
                         obj=None,
                     )
 
-            # Resolve document if provided -- use visible_to_user() to
-            # prevent IDOR enumeration.
             if document_id:
-                document_pk = from_global_id(document_id)[1]
                 try:
-                    document = Document.objects.visible_to_user(user).get(
-                        pk=document_pk
+                    document_pk = from_global_id(document_id)[1]
+                except Exception:
+                    return CreateThreadMutation(
+                        ok=False,
+                        message="You do not have permission to create threads for this document",
+                        obj=None,
                     )
-                except Document.DoesNotExist:
+                document = get_for_user_or_none(Document, document_pk, user)
+                if document is None:
                     return CreateThreadMutation(
                         ok=False,
                         message="You do not have permission to create threads for this document",
@@ -212,13 +228,19 @@ class CreateThreadMessageMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            conversation_pk = from_global_id(conversation_id)[1]
-            # Use visible_to_user() to prevent IDOR enumeration
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
             try:
-                conversation = Conversation.objects.visible_to_user(user).get(
-                    pk=conversation_pk
+                conversation_pk = from_global_id(conversation_id)[1]
+            except Exception:
+                return CreateThreadMessageMutation(
+                    ok=False,
+                    message="Cannot post in this thread",
+                    obj=None,
                 )
-            except Conversation.DoesNotExist:
+            conversation = get_for_user_or_none(Conversation, conversation_pk, user)
+            if conversation is None:
                 return CreateThreadMessageMutation(
                     ok=False,
                     message="Cannot post in this thread",
@@ -304,14 +326,20 @@ class ReplyToMessageMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            parent_pk = from_global_id(parent_message_id)[1]
-
-            # Use .visible_to_user() pattern to prevent enumeration
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
             try:
-                parent_message = ChatMessage.objects.visible_to_user(user).get(
-                    pk=parent_pk
+                parent_pk = from_global_id(parent_message_id)[1]
+            except Exception:
+                return ReplyToMessageMutation(
+                    ok=False,
+                    message="You do not have permission to reply to this message",
+                    obj=None,
                 )
-            except ChatMessage.DoesNotExist:
+
+            parent_message = get_for_user_or_none(ChatMessage, parent_pk, user)
+            if parent_message is None:
                 return ReplyToMessageMutation(
                     ok=False,
                     message="You do not have permission to reply to this message",
@@ -409,15 +437,19 @@ class DeleteConversationMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            conversation_pk = from_global_id(conversation_id)[1]
-
-            # Use .visible_to_user() pattern to prevent IDOR enumeration
-            # Returns same error whether object doesn't exist or user lacks permission
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
             try:
-                conversation = Conversation.objects.visible_to_user(user).get(
-                    pk=conversation_pk
+                conversation_pk = from_global_id(conversation_id)[1]
+            except Exception:
+                return DeleteConversationMutation(
+                    ok=False,
+                    message="You do not have permission to delete this conversation",
                 )
-            except Conversation.DoesNotExist:
+
+            conversation = get_for_user_or_none(Conversation, conversation_pk, user)
+            if conversation is None:
                 return DeleteConversationMutation(
                     ok=False,
                     message="You do not have permission to delete this conversation",
@@ -658,15 +690,19 @@ class DeleteMessageMutation(graphene.Mutation):
 
         try:
             user = info.context.user
-            message_pk = from_global_id(message_id)[1]
-
-            # Use .visible_to_user() pattern to prevent IDOR enumeration
-            # Returns same error whether object doesn't exist or user lacks permission
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
             try:
-                chat_message = ChatMessage.objects.visible_to_user(user).get(
-                    pk=message_pk
+                message_pk = from_global_id(message_id)[1]
+            except Exception:
+                return DeleteMessageMutation(
+                    ok=False,
+                    message="You do not have permission to delete this message",
                 )
-            except ChatMessage.DoesNotExist:
+
+            chat_message = get_for_user_or_none(ChatMessage, message_pk, user)
+            if chat_message is None:
                 return DeleteMessageMutation(
                     ok=False,
                     message="You do not have permission to delete this message",

@@ -22,6 +22,7 @@ from functools import lru_cache
 from typing import Any, Optional, TypedDict
 
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
+from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import (
     FILE_TYPE_LABELS,
     FILE_TYPE_TO_MIME,
@@ -45,6 +46,7 @@ class ComponentType(str, Enum):
     EMBEDDER = "embedder"
     THUMBNAILER = "thumbnailer"
     POST_PROCESSOR = "post_processor"
+    ENRICHER = "enricher"
     RERANKER = "reranker"
 
 
@@ -145,6 +147,7 @@ class PipelineComponentRegistry:
         self._embedders: tuple[PipelineComponentDefinition, ...] = ()
         self._thumbnailers: tuple[PipelineComponentDefinition, ...] = ()
         self._post_processors: tuple[PipelineComponentDefinition, ...] = ()
+        self._enrichers: tuple[PipelineComponentDefinition, ...] = ()
         self._rerankers: tuple[PipelineComponentDefinition, ...] = ()
 
         # Name -> Definition lookup for fast access
@@ -159,6 +162,7 @@ class PipelineComponentRegistry:
         self._post_processors_by_filetype: dict[
             str, list[PipelineComponentDefinition]
         ] = {}
+        self._enrichers_by_filetype: dict[str, list[PipelineComponentDefinition]] = {}
 
         # Perform discovery
         self._discover_all_components()
@@ -370,6 +374,20 @@ class PipelineComponentRegistry:
                 self._post_processors_by_filetype.setdefault(ft, []).append(defn)
         self._post_processors = tuple(post_processors)
 
+        # Discover enrichers
+        enricher_classes = self._discover_subclasses(
+            "opencontractserver.pipeline.enrichers", BaseEnricher
+        )
+        enrichers = []
+        for cls in enricher_classes:
+            defn = self._create_definition(cls, ComponentType.ENRICHER)
+            enrichers.append(defn)
+            self._by_name[defn.name] = defn
+            self._by_class_name[defn.class_name] = defn
+            for ft in defn.supported_file_types:
+                self._enrichers_by_filetype.setdefault(ft, []).append(defn)
+        self._enrichers = tuple(enrichers)
+
         # Discover rerankers
         reranker_classes = self._discover_subclasses(
             "opencontractserver.pipeline.rerankers", BaseReranker
@@ -388,6 +406,7 @@ class PipelineComponentRegistry:
             f"{len(self._embedders)} embedders, "
             f"{len(self._thumbnailers)} thumbnailers, "
             f"{len(self._post_processors)} post-processors, "
+            f"{len(self._enrichers)} enrichers, "
             f"{len(self._rerankers)} rerankers"
         )
 
@@ -414,6 +433,11 @@ class PipelineComponentRegistry:
     def post_processors(self) -> tuple[PipelineComponentDefinition, ...]:
         """Get all registered post-processors."""
         return self._post_processors
+
+    @property
+    def enrichers(self) -> tuple[PipelineComponentDefinition, ...]:
+        """Get all registered enrichers."""
+        return self._enrichers
 
     @property
     def rerankers(self) -> tuple[PipelineComponentDefinition, ...]:
@@ -452,6 +476,12 @@ class PipelineComponentRegistry:
         """Get post-processors compatible with a file type."""
         return self._post_processors_by_filetype.get(file_type, [])
 
+    def get_enrichers_for_filetype(
+        self, file_type: str
+    ) -> list[PipelineComponentDefinition]:
+        """Get enrichers compatible with a file type."""
+        return self._enrichers_by_filetype.get(file_type, [])
+
 
 # =============================================================================
 # MODULE-LEVEL CONVENIENCE FUNCTIONS
@@ -489,6 +519,11 @@ def get_all_post_processors_cached() -> tuple[PipelineComponentDefinition, ...]:
     return get_registry().post_processors
 
 
+def get_all_enrichers_cached() -> tuple[PipelineComponentDefinition, ...]:
+    """Get all registered enrichers (cached)."""
+    return get_registry().enrichers
+
+
 def get_all_rerankers_cached() -> tuple[PipelineComponentDefinition, ...]:
     """Get all registered rerankers (cached)."""
     return get_registry().rerankers
@@ -508,7 +543,8 @@ def get_components_by_mimetype_cached(
     Args:
         mimetype: MIME type string (e.g., "application/pdf")
 
-    Returns dict with keys: parsers, embedders, thumbnailers, post_processors
+    Returns dict with keys: parsers, embedders, thumbnailers, post_processors,
+    enrichers, rerankers
     """
     registry = get_registry()
 
@@ -521,6 +557,7 @@ def get_components_by_mimetype_cached(
             "embedders": [],
             "thumbnailers": [],
             "post_processors": [],
+            "enrichers": [],
         }
 
     return {
@@ -528,6 +565,7 @@ def get_components_by_mimetype_cached(
         "embedders": list(registry.embedders),  # Embedders work on all text
         "thumbnailers": registry.get_thumbnailers_for_filetype(file_type_value),
         "post_processors": registry.get_post_processors_for_filetype(file_type_value),
+        "enrichers": registry.get_enrichers_for_filetype(file_type_value),
         "rerankers": list(registry.rerankers),  # Rerankers work on all text
     }
 
@@ -536,7 +574,8 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
     """
     Get all components grouped by type (cached).
 
-    Returns dict with keys: parsers, embedders, thumbnailers, post_processors
+    Returns dict with keys: parsers, embedders, thumbnailers, post_processors,
+    enrichers, rerankers
     """
     registry = get_registry()
     return {
@@ -544,6 +583,7 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "embedders": registry.embedders,
         "thumbnailers": registry.thumbnailers,
         "post_processors": registry.post_processors,
+        "enrichers": registry.enrichers,
         "rerankers": registry.rerankers,
     }
 

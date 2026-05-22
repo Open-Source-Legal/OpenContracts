@@ -147,6 +147,7 @@ class Command(BaseCommand):
         all_components.extend(registry.embedders)
         all_components.extend(registry.thumbnailers)
         all_components.extend(registry.post_processors)
+        all_components.extend(registry.enrichers)
 
         # Filter to specific component if requested
         if specific_component:
@@ -355,6 +356,7 @@ class Command(BaseCommand):
         all_components.extend(registry.embedders)
         all_components.extend(registry.thumbnailers)
         all_components.extend(registry.post_processors)
+        all_components.extend(registry.enrichers)
 
         all_valid = True
         missing_by_component: dict[str, list[str]] = {}
@@ -490,6 +492,7 @@ class Command(BaseCommand):
             ("preferred_parsers", "PREFERRED_PARSERS", {}),
             ("preferred_embedders", "PREFERRED_EMBEDDERS", {}),
             ("preferred_thumbnailers", "PREFERRED_THUMBNAILERS", {}),
+            ("preferred_enrichers", "PREFERRED_ENRICHERS", {}),
             ("parser_kwargs", "PARSER_KWARGS", {}),
             ("default_embedder", "DEFAULT_EMBEDDER", ""),
             ("enabled_components", "ENABLED_COMPONENTS", []),
@@ -594,6 +597,7 @@ class Command(BaseCommand):
             ("Embedders", registry.embedders),
             ("Thumbnailers", registry.thumbnailers),
             ("Post-Processors", registry.post_processors),
+            ("Enrichers", registry.enrichers),
         ]
 
         self.stdout.write("\n" + "=" * 70)

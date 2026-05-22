@@ -19,6 +19,7 @@ from opencontractserver.pipeline.registry import (
     PipelineComponentRegistry,
     get_all_components_cached,
     get_all_embedders_cached,
+    get_all_enrichers_cached,
     get_all_parsers_cached,
     get_all_post_processors_cached,
     get_all_thumbnailers_cached,
@@ -601,3 +602,52 @@ class TestFileTypeEnum(TestCase):
         self.assertEqual(FileTypeEnum.PDF.label, "PDF")
         self.assertEqual(FileTypeEnum.TXT.label, "Plain Text")
         self.assertEqual(FileTypeEnum.DOCX.label, "Word Document")
+
+
+class TestEnricherRegistry(TestCase):
+    """Tests that the registry discovers ingest-time enrichers."""
+
+    def setUp(self):
+        reset_registry()
+
+    def tearDown(self):
+        reset_registry()
+
+    def test_component_type_has_enricher(self):
+        """The ENRICHER component type is defined."""
+        self.assertEqual(ComponentType.ENRICHER.value, "enricher")
+
+    def test_pdf_outline_enricher_discovered(self):
+        """PdfOutlineEnricher is auto-discovered as an ENRICHER component."""
+        enrichers = get_all_enrichers_cached()
+        self.assertIsInstance(enrichers, tuple)
+        self.assertIn("PdfOutlineEnricher", {e.name for e in enrichers})
+        for enricher in enrichers:
+            self.assertEqual(enricher.component_type, ComponentType.ENRICHER)
+
+    def test_enrichers_for_pdf_filetype(self):
+        """PdfOutlineEnricher is registered for the PDF file type."""
+        registry = get_registry()
+        pdf_enrichers = registry.get_enrichers_for_filetype("pdf")
+        self.assertIn("PdfOutlineEnricher", {e.name for e in pdf_enrichers})
+
+    def test_get_by_name_resolves_enricher(self):
+        """The enricher is resolvable by class name through the registry."""
+        defn = get_registry().get_by_name("PdfOutlineEnricher")
+        self.assertIsNotNone(defn)
+        self.assertEqual(defn.component_type, ComponentType.ENRICHER)
+
+    def test_components_by_mimetype_includes_enrichers(self):
+        """get_components_by_mimetype_cached exposes an 'enrichers' key."""
+        result = get_components_by_mimetype_cached("application/pdf")
+        self.assertIn("enrichers", result)
+        self.assertIn("PdfOutlineEnricher", {e.name for e in result["enrichers"]})
+        # Unknown MIME types still return the key (as an empty list).
+        unknown = get_components_by_mimetype_cached("application/x-nope-test")
+        self.assertEqual(unknown["enrichers"], [])
+
+    def test_all_components_includes_enrichers(self):
+        """get_all_components_cached groups enrichers under 'enrichers'."""
+        result = get_all_components_cached()
+        self.assertIn("enrichers", result)
+        self.assertIsInstance(result["enrichers"], tuple)

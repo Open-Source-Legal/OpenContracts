@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import functools
 import hashlib
+import logging
 import uuid
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser
 
     from opencontractserver.corpuses.models import Corpus
+
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentProcessingStatus(models.TextChoices):
@@ -1027,6 +1031,11 @@ class PipelineSettings(django.db.models.Model):
             Example: {"application/pdf":
                 "opencontractserver.pipeline.thumbnailers...PdfThumbnailGenerator"}
 
+        preferred_enrichers: Dict mapping MIME types to ORDERED LISTS of
+            enricher class paths (the ingest-time enrichment chain)
+            Example: {"application/pdf":
+                ["opencontractserver.pipeline.enrichers...PdfOutlineEnricher"]}
+
         parser_kwargs: Dict mapping parser class paths to their configuration kwargs
             Example: {"opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser": {"force_ocr": false}}
 
@@ -1071,6 +1080,20 @@ class PipelineSettings(django.db.models.Model):
         default=dict,
         blank=True,
         help_text="Mapping of MIME types to preferred thumbnailer class paths",
+    )
+
+    # Preferred enrichers per MIME type. Unlike parsers/embedders/thumbnailers
+    # (one component per MIME type), enrichers are an ORDERED LIST: the
+    # ingest-time enrichment chain runs them in sequence between parsing and
+    # persistence, each transforming the parsed OpenContractDocExport. An
+    # empty mapping (the default) means no enrichment runs.
+    preferred_enrichers = NullableJSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Mapping of MIME types to ordered lists of enricher class paths "
+            "(the enrichment chain run between parsing and persistence)"
+        ),
     )
 
     # Parser-specific kwargs
@@ -1251,6 +1274,9 @@ class PipelineSettings(django.db.models.Model):
                         django_settings, "PREFERRED_EMBEDDERS", {}
                     ),
                     "preferred_thumbnailers": {},  # No default in Django settings
+                    "preferred_enrichers": getattr(
+                        django_settings, "PREFERRED_ENRICHERS", {}
+                    ),
                     "parser_kwargs": getattr(django_settings, "PARSER_KWARGS", {}),
                     "component_settings": getattr(
                         django_settings, "PIPELINE_SETTINGS", {}
@@ -1319,6 +1345,40 @@ class PipelineSettings(django.db.models.Model):
         if self.preferred_thumbnailers and mimetype in self.preferred_thumbnailers:
             return self.preferred_thumbnailers[mimetype]
         return None
+
+    def get_preferred_enrichers(self, mimetype: str) -> list[str]:
+        """
+        Get the ordered list of enricher class paths for a MIME type.
+
+        Unlike parsers/embedders/thumbnailers (a single class path per MIME
+        type), enrichers form a chain, so this returns a list. List order is
+        the order the enrichers run in.
+
+        Database is the single source of truth at runtime. Initial values are
+        populated from Django settings via get_instance().
+
+        Args:
+            mimetype: The MIME type (e.g., "application/pdf")
+
+        Returns:
+            Ordered list of enricher class paths (empty if none configured).
+        """
+        if self.preferred_enrichers and mimetype in self.preferred_enrichers:
+            configured = self.preferred_enrichers[mimetype]
+            if configured is None:
+                return []
+            if isinstance(configured, list):
+                return configured
+            # A misconfigured non-list value (e.g. a bare string) would make
+            # run_enrichers iterate characters — ignore it rather than run a
+            # garbage chain.
+            logger.warning(
+                "PipelineSettings.preferred_enrichers[%r] is %s, not a list; "
+                "ignoring.",
+                mimetype,
+                type(configured).__name__,
+            )
+        return []
 
     def get_parser_kwargs(self, parser_class_path: str) -> dict:
         """

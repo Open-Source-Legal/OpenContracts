@@ -49,10 +49,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -805,22 +802,12 @@ class ExtractMetadataPermissionTestCase(TestCase):
         # This would need actual GraphQL query implementation for manual metadata
         # For now, we just verify the permission check works
         self.assertTrue(
-            user_has_permission_for_obj(
-                self.user,
-                self.doc,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            ),
+            self.doc.user_can(self.user, PermissionTypes.READ),
             "User should have read permission on document",
         )
 
         self.assertFalse(
-            user_has_permission_for_obj(
-                self.other_user,
-                self.doc,
-                PermissionTypes.READ,
-                include_group_permissions=True,
-            ),
+            self.doc.user_can(self.other_user, PermissionTypes.READ),
             "Other user should NOT have read permission on document",
         )
 

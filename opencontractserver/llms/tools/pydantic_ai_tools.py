@@ -117,9 +117,8 @@ async def _check_user_permissions(
         raise PermissionError(f"User {user_id} not found")
 
     if document_id:
-        # Use visible_to_user() queryset which properly handles creator access,
-        # public status, and guardian permissions — unlike user_has_permission_for_obj
-        # which misses creator-based access (see its docstring warning).
+        # Use visible_to_user() queryset which properly handles creator
+        # access, public status, and guardian permissions.
         # Use Django's native aexists() to avoid thread-hopping via
         # database_sync_to_async, which breaks under TestCase transaction isolation.
         has_perm = await sync_to_async(

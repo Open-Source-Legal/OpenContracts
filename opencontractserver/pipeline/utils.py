@@ -7,12 +7,16 @@ from typing import Any, Optional, Union
 
 from opencontractserver.pipeline.base.base_component import PipelineComponentBase
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
+from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
 from opencontractserver.pipeline.base.reranker import BaseReranker
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
-from opencontractserver.types.dicts import OpenContractsExportDataJsonPythonType
+from opencontractserver.types.dicts import (
+    OpenContractDocExport,
+    OpenContractsExportDataJsonPythonType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +284,7 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
                     or issubclass(obj, BaseEmbedder)
                     or issubclass(obj, BaseThumbnailGenerator)
                     or issubclass(obj, BasePostProcessor)
+                    or issubclass(obj, BaseEnricher)
                     or issubclass(obj, BaseReranker)
                 ):
                     return obj
@@ -292,6 +297,7 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
         "opencontractserver.pipeline.embedders",
         "opencontractserver.pipeline.thumbnailers",
         "opencontractserver.pipeline.post_processors",
+        "opencontractserver.pipeline.enrichers",
         "opencontractserver.pipeline.rerankers",
     ]
 
@@ -307,6 +313,7 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
                         and obj != BaseThumbnailGenerator
                     )
                     or (issubclass(obj, BasePostProcessor) and obj != BasePostProcessor)
+                    or (issubclass(obj, BaseEnricher) and obj != BaseEnricher)
                     or (issubclass(obj, BaseReranker) and obj != BaseReranker)
                 ):
                     return obj
@@ -510,6 +517,70 @@ def run_post_processors(
             raise
 
     return current_zip_bytes, current_export_data
+
+
+def run_enrichers(
+    enricher_paths: list[str],
+    user_id: int,
+    doc_id: int,
+    export_data: OpenContractDocExport,
+    input_kwargs: Optional[dict[str, Any]] = None,
+) -> OpenContractDocExport:
+    """
+    Run a configured, ordered chain of enrichers over a parsed document's
+    export data.
+
+    Each enricher receives the output of the previous one
+    (``OpenContractDocExport -> OpenContractDocExport``), so enrichers compose.
+    This is the ingest-time analogue of :func:`run_post_processors`.
+
+    Enrichment is additive and OPTIONAL: any failure — a class path that will
+    not load, a component that is not a ``BaseEnricher`` subclass, or an
+    exception raised inside the enricher — is logged at WARNING level and that
+    enricher is skipped. The chain continues with the last good ``export_data``
+    so a misbehaving enricher can never fail document ingestion.
+
+    Args:
+        enricher_paths: Ordered list of fully-qualified enricher class paths.
+        user_id: ID of the user the document is being ingested for.
+        doc_id: ID of the document being ingested.
+        export_data: The parsed document data produced by the parser.
+        input_kwargs: Optional kwargs forwarded to every enricher's
+            ``enrich_document`` call (these override PipelineSettings component
+            settings).
+
+    Returns:
+        OpenContractDocExport: The final, possibly-enriched document data.
+    """
+    current_export_data = export_data
+    kwargs = input_kwargs or {}
+
+    for path in enricher_paths:
+        try:
+            logger.info(f"Loading enricher: {path}")
+            enricher_class = get_component_by_name(path)
+            if not issubclass(enricher_class, BaseEnricher):
+                logger.warning(
+                    f"Skipping enricher '{path}': not a BaseEnricher subclass"
+                )
+                continue
+            enricher = enricher_class()
+            logger.info(f"Running enricher: {enricher.title or path}")
+            result = enricher.enrich_document(
+                user_id, doc_id, current_export_data, **kwargs
+            )
+            if result is not None:
+                current_export_data = result
+        except Exception as e:
+            # Enrichment is non-fatal: log and continue so a misbehaving
+            # enricher never blocks document ingestion.
+            logger.warning(
+                f"Enricher '{path}' failed for doc {doc_id}; skipping "
+                f"(ingestion continues): {e}",
+                exc_info=True,
+            )
+
+    return current_export_data
 
 
 # --------------------------------------------------------------------------- #

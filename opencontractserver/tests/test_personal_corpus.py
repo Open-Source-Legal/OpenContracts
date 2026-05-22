@@ -28,7 +28,6 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.files import base_64_encode_bytes
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 User = get_user_model()
 
@@ -69,18 +68,10 @@ class TestPersonalCorpusCreation(TestCase):
         personal_corpus = Corpus.objects.get(creator=user, is_personal=True)
 
         # Check user has all permissions
-        self.assertTrue(
-            user_has_permission_for_obj(user, personal_corpus, PermissionTypes.CREATE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(user, personal_corpus, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(user, personal_corpus, PermissionTypes.EDIT)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(user, personal_corpus, PermissionTypes.DELETE)
-        )
+        self.assertTrue(personal_corpus.user_can(user, PermissionTypes.CREATE))
+        self.assertTrue(personal_corpus.user_can(user, PermissionTypes.READ))
+        self.assertTrue(personal_corpus.user_can(user, PermissionTypes.EDIT))
+        self.assertTrue(personal_corpus.user_can(user, PermissionTypes.DELETE))
 
 
 class TestGetOrCreatePersonalCorpus(TestCase):
@@ -989,9 +980,11 @@ class TestPersonalCorpusDeletionProtection(TestCase):
         variables = {"id": to_global_id("CorpusType", personal_corpus.pk)}
         result = self.client.execute(self.delete_mutation, variable_values=variables)
 
-        # Should return an error
-        self.assertIn("errors", result)
-        error_message = result["errors"][0]["message"]
+        # DeleteCorpusMutation returns the failure via the unified IDOR-safe
+        # envelope (ok=False + message) rather than a raw GraphQL error.
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["deleteCorpus"]["ok"])
+        error_message = result["data"]["deleteCorpus"]["message"]
         self.assertIn("Cannot delete", error_message)
         self.assertIn("My Documents", error_message)
 
@@ -1147,18 +1140,10 @@ class TestDeleteAndRecreatePersonalCorpus(TestCase):
         new_corpus = Corpus.get_or_create_personal_corpus(user)
 
         # Check all permission types
-        self.assertTrue(
-            user_has_permission_for_obj(user, new_corpus, PermissionTypes.CREATE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(user, new_corpus, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(user, new_corpus, PermissionTypes.EDIT)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(user, new_corpus, PermissionTypes.DELETE)
-        )
+        self.assertTrue(new_corpus.user_can(user, PermissionTypes.CREATE))
+        self.assertTrue(new_corpus.user_can(user, PermissionTypes.READ))
+        self.assertTrue(new_corpus.user_can(user, PermissionTypes.EDIT))
+        self.assertTrue(new_corpus.user_can(user, PermissionTypes.DELETE))
 
     def test_only_one_personal_corpus_exists_after_recreate(self):
         """Only one personal corpus should exist after delete-and-recreate."""
