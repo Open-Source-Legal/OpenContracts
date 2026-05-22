@@ -218,3 +218,4 @@ class CorpusService(BaseService):
             ],
             request=request,
         )
+        cls.log_action("Granted creator permissions on", corpus, user)
