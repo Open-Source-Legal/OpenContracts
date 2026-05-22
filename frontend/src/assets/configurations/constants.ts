@@ -417,44 +417,6 @@ export const MIME_TO_SHORT_LABEL: Record<string, string> = Object.fromEntries(
   SUPPORTED_MIME_TYPES.map((m) => [m.value, m.shortLabel])
 );
 
-// Message count badge color constants (used by chatUtils.ts getMessageCountColor)
-export const MESSAGE_COUNT_COLORS = {
-  /** Zero-count badge gradient start */
-  ZERO_GRADIENT_START: "#EDF2F7",
-  /** Zero-count badge gradient end */
-  ZERO_GRADIENT_END: "#E2E8F0",
-  /** Zero-count badge text color */
-  ZERO_TEXT: "#4A5568",
-  /** Primary gradient color (blue) - RGB components */
-  PRIMARY_R: 43,
-  PRIMARY_G: 108,
-  PRIMARY_B: 176,
-  /** Secondary gradient color (dark blue) - RGB components */
-  SECONDARY_R: 44,
-  SECONDARY_G: 82,
-  SECONDARY_B: 130,
-  /** Base opacity for gradient start */
-  BASE_ALPHA_START: 0.7,
-  /** Intensity multiplier for gradient start alpha */
-  INTENSITY_ALPHA_START: 0.3,
-  /** Base opacity for gradient end */
-  BASE_ALPHA_END: 0.8,
-  /** Intensity multiplier for gradient end alpha */
-  INTENSITY_ALPHA_END: 0.2,
-  /** Base badge opacity */
-  BASE_OPACITY: 0.8,
-  /** Intensity multiplier for badge opacity */
-  INTENSITY_OPACITY: 0.2,
-  /** Intensity threshold for switching text color to light */
-  LIGHT_TEXT_THRESHOLD: 0.3,
-  /** Light text color (used on dark backgrounds) */
-  LIGHT_TEXT: "white",
-  /** Dark text color (used on light backgrounds) */
-  DARK_TEXT: "#1A202C",
-  /** Zero-count badge opacity */
-  ZERO_OPACITY: 0.9,
-} as const;
-
 // Warning color for partially supported file types (amber/yellow)
 export const PARTIALLY_SUPPORTED_WARNING_COLOR = "#D69E2E";
 
