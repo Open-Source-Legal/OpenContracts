@@ -2,6 +2,7 @@ import React from "react";
 import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import { HighlightItem } from "../../../../annotator/sidebar/HighlightItem";
 import { useAllAnnotations } from "../../../../annotator/hooks/useAllAnnotations";
 import { useStructuralAnnotations } from "../../../../annotator/hooks/AnnotationHooks";
@@ -14,6 +15,41 @@ const EmptyState = styled.div`
   font-size: 14px;
   color: ${OS_LEGAL_COLORS.textSecondary};
   text-align: center;
+`;
+
+/**
+ * Mobile frame for the shared {@link HighlightItem} detail.
+ *
+ * `HighlightItem` always renders here in its `selected` state, which paints an
+ * arbitrary green tint and green glow on its inner container. On mobile this
+ * detail card should read as a calm white surface, so this wrapper neutralises
+ * that tint and re-grounds the inner container as a clean elevated card —
+ * scoped strictly to the mobile sheet, leaving the desktop sidebar untouched.
+ * It also refines the quoted-text blockquote into a soft slate-tinted quote.
+ */
+const Card = styled.div`
+  padding: 8px 6px 16px;
+
+  /* HighlightItem's outer container — drop the green selected tint/glow. */
+  & > div {
+    margin: 8px 8px 0;
+    background-color: ${OS_LEGAL_COLORS.surface} !important;
+    border-radius: ${MOBILE_RADIUS.lg};
+    box-shadow: ${MOBILE_SHADOW.raised} !important;
+    cursor: default;
+  }
+
+  & > div:hover {
+    transform: none;
+    background-color: ${OS_LEGAL_COLORS.surface} !important;
+    box-shadow: ${MOBILE_SHADOW.raised} !important;
+  }
+
+  /* Quoted text — a refined soft slate blockquote. */
+  & blockquote {
+    background-color: ${OS_LEGAL_COLORS.surfaceLight} !important;
+    border-radius: ${MOBILE_RADIUS.sm} !important;
+  }
 `;
 
 interface MobileAnnotationDetailProps {
@@ -59,14 +95,16 @@ export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
   }
 
   return (
-    <HighlightItem
-      annotation={annotation}
-      relations={pdfAnnotations.relations}
-      read_only={readOnly}
-      onSelect={() => {}}
-      onDelete={readOnly ? undefined : handleDeleteAnnotation}
-      contentModalities={annotation.contentModalities}
-    />
+    <Card>
+      <HighlightItem
+        annotation={annotation}
+        relations={pdfAnnotations.relations}
+        read_only={readOnly}
+        onSelect={() => {}}
+        onDelete={readOnly ? undefined : handleDeleteAnnotation}
+        contentModalities={annotation.contentModalities}
+      />
+    </Card>
   );
 };
 

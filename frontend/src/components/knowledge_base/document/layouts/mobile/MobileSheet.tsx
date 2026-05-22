@@ -3,6 +3,11 @@ import styled from "styled-components";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import {
+  MOBILE_RADIUS,
+  MOBILE_SHADOW,
+  MOBILE_SURFACE_TINT,
+} from "./mobileTheme";
 
 export interface MobileSheetProps {
   open: boolean;
@@ -24,38 +29,49 @@ const Panel = styled(motion.div)`
   z-index: 51;
   display: flex;
   flex-direction: column;
-  background: ${OS_LEGAL_COLORS.background};
+  background: ${MOBILE_SURFACE_TINT};
 `;
 
+/** Header chrome: floats on a soft downward shadow instead of a hairline. */
 const Header = styled.div`
   flex-shrink: 0;
-  height: 48px;
+  height: 56px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  background: white;
+  padding: 0 14px;
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.header};
+  z-index: 1;
 `;
 
 const Title = styled.div`
   flex: 1;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: ${OS_LEGAL_COLORS.textPrimary};
 `;
 
+/** Clean ghost circular close button with press feedback. */
 const CloseButton = styled.button`
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 8px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
+  border-radius: ${MOBILE_RADIUS.pill};
+  background: ${OS_LEGAL_COLORS.surfaceLight};
   color: ${OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, background 0.16s ease;
+
+  &:active {
+    transform: scale(0.9);
+    background: ${OS_LEGAL_COLORS.border};
+  }
 `;
 
 const Body = styled.div`

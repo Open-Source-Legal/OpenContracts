@@ -4,6 +4,7 @@ import { useAtomValue } from "jotai";
 import { List } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import { structuralAnnotationsAtom } from "../../../../annotator/context/AnnotationAtoms";
 import { showStructuralAnnotations } from "../../../../../graphql/cache";
 
@@ -17,25 +18,44 @@ export interface MobileSectionsSheetProps {
 const List_ = styled.div`
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  padding: 16px 14px;
 `;
 
 const Row = styled.button`
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 13px 14px;
   border: none;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  background: white;
+  border-radius: ${MOBILE_RADIUS.md};
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
   text-align: left;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 500;
   color: ${OS_LEGAL_COLORS.textPrimary};
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, box-shadow 0.16s ease;
 
   &:active {
-    background: ${OS_LEGAL_COLORS.surfaceHover};
+    transform: scale(0.985);
+    box-shadow: ${MOBILE_SHADOW.raised};
   }
+`;
+
+/** Soft rounded tinted container holding the section icon. */
+const RowIcon = styled.span`
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: ${MOBILE_RADIUS.sm};
+  background: ${OS_LEGAL_COLORS.accentLight};
 `;
 
 const RowLabel = styled.span`
@@ -47,7 +67,11 @@ const RowLabel = styled.span`
 
 const PageBadge = styled.span`
   flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: ${MOBILE_RADIUS.pill};
+  background: ${OS_LEGAL_COLORS.surfaceLight};
   font-size: 11px;
+  font-weight: 600;
   color: ${OS_LEGAL_COLORS.textSecondary};
 `;
 
@@ -97,7 +121,9 @@ export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
           .replace(/\s+/g, " ");
         return (
           <Row key={ann.id} onClick={() => onNavigate(ann.id)}>
-            <List size={14} color={OS_LEGAL_COLORS.textSecondary} />
+            <RowIcon>
+              <List size={15} color={OS_LEGAL_COLORS.accent} />
+            </RowIcon>
             <RowLabel>{label || "Section"}</RowLabel>
             <PageBadge>p.{ann.page + 1}</PageBadge>
           </Row>

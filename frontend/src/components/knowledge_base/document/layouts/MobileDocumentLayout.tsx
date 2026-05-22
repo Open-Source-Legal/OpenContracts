@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import { MOBILE_SURFACE_TINT } from "./mobile/mobileTheme";
 import { useAnnotationSelection } from "../../../annotator/context/UISettingsAtom";
 import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import { FullScreenModal } from "../LayoutComponents";
@@ -33,7 +34,8 @@ const Root = styled.div`
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: ${OS_LEGAL_COLORS.background};
+  /* Warm-neutral surface tint so white cards and chrome visibly float. */
+  background: ${MOBILE_SURFACE_TINT};
   position: relative;
   overflow: hidden;
 `;

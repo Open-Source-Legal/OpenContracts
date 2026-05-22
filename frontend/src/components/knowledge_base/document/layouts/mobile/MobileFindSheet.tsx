@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { ChevronDown, ChevronUp, Search } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { MOBILE_FOCUS_RING, MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import {
   useSearchText,
   useTextSearchState,
@@ -23,20 +24,25 @@ const SearchRow = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+  padding: 16px 14px 10px;
 `;
 
+/** Crisp white elevated input — teal reserved for the focus ring. */
 const InputShell = styled.div`
   flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 10px;
-  background: white;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: ${MOBILE_RADIUS.md};
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
+  transition: box-shadow 0.18s ease;
+
+  &:focus-within {
+    box-shadow: ${MOBILE_SHADOW.subtle}, ${MOBILE_FOCUS_RING};
+  }
 `;
 
 const Input = styled.input`
@@ -46,20 +52,31 @@ const Input = styled.input`
   font-size: 14px;
   background: transparent;
   color: ${OS_LEGAL_COLORS.textPrimary};
+
+  &::placeholder {
+    color: ${OS_LEGAL_COLORS.textMuted};
+  }
 `;
 
 const StepButton = styled.button`
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 8px;
-  background: white;
+  border: none;
+  border-radius: ${MOBILE_RADIUS.md};
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
   color: ${OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, box-shadow 0.16s ease;
+
+  &:active:not(:disabled) {
+    transform: scale(0.92);
+  }
 
   &:disabled {
     opacity: 0.4;
@@ -68,7 +85,7 @@ const StepButton = styled.button`
 `;
 
 const Status = styled.div`
-  padding: 12px 16px;
+  padding: 6px 18px 16px;
   font-size: 13px;
   color: ${OS_LEGAL_COLORS.textSecondary};
 `;

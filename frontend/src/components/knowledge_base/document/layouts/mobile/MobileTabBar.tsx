@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { FileText, BookOpen, Bookmark, MoreHorizontal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 
 export type MobileTabId = "document" | "summary" | "annotations" | "more";
 
@@ -18,12 +19,16 @@ const TABS: { id: MobileTabId; label: string; Icon: LucideIcon }[] = [
   { id: "more", label: "More", Icon: MoreHorizontal },
 ];
 
+/**
+ * Bottom navigation chrome. Floats above the surface on a soft upward shadow
+ * (no hard hairline border) and respects the device safe-area inset.
+ */
 const Bar = styled.div`
   flex-shrink: 0;
-  height: 56px;
   display: flex;
-  background: white;
-  border-top: 1px solid ${OS_LEGAL_COLORS.border};
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.chrome};
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
 `;
 
 const Tab = styled.button<{ $active: boolean }>`
@@ -32,14 +37,38 @@ const Tab = styled.button<{ $active: boolean }>`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
+  padding: 4px 0;
   border: none;
   background: none;
   cursor: pointer;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: ${(p) => (p.$active ? 600 : 500)};
   color: ${(p) =>
     p.$active ? OS_LEGAL_COLORS.accent : OS_LEGAL_COLORS.textSecondary};
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.16s ease;
+
+  &:active {
+    opacity: 0.7;
+  }
+`;
+
+/** Soft accent-tinted pill that sits behind the active tab's icon. */
+const IconWell = styled.span<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 30px;
+  border-radius: ${MOBILE_RADIUS.pill};
+  background: ${(p) =>
+    p.$active ? OS_LEGAL_COLORS.accentLight : "transparent"};
+  transition: background 0.18s ease, transform 0.12s ease;
+
+  ${Tab}:active & {
+    transform: scale(0.94);
+  }
 `;
 
 export const MobileTabBar: React.FC<MobileTabBarProps> = ({
@@ -47,18 +76,29 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
   onSelect,
 }) => (
   <Bar role="tablist">
-    {TABS.map(({ id, label, Icon }) => (
-      <Tab
-        key={id}
-        role="tab"
-        aria-selected={active === id}
-        aria-label={label}
-        $active={active === id}
-        onClick={() => onSelect(id)}
-      >
-        <Icon size={20} />
-        {label}
-      </Tab>
-    ))}
+    {TABS.map(({ id, label, Icon }) => {
+      const isActive = active === id;
+      return (
+        <Tab
+          key={id}
+          role="tab"
+          aria-selected={isActive}
+          aria-label={label}
+          $active={isActive}
+          onClick={() => onSelect(id)}
+        >
+          <IconWell $active={isActive}>
+            <Icon
+              size={21}
+              strokeWidth={isActive ? 2.4 : 2}
+              fill={
+                isActive && id !== "more" ? OS_LEGAL_COLORS.accentLight : "none"
+              }
+            />
+          </IconWell>
+          {label}
+        </Tab>
+      );
+    })}
   </Bar>
 );

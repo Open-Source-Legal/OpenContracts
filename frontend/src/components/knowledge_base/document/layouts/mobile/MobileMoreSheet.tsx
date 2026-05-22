@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import { getCreatorDisplay } from "../../../../../utils/userDisplay";
 import { formatShortDate } from "../../../../../utils/formatters";
 import {
@@ -74,26 +75,45 @@ const Container = styled.div`
   min-height: 0;
 `;
 
+/** Refined grouped list — inset spacing, no full-width dividers. */
 const Menu = styled.div`
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 16px 14px;
 `;
 
 const Row = styled.button`
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  padding: 16px;
+  padding: 14px;
   border: none;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  background: white;
+  border-radius: ${MOBILE_RADIUS.md};
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, box-shadow 0.16s ease;
 
   &:active {
-    background: ${OS_LEGAL_COLORS.surfaceHover};
+    transform: scale(0.985);
+    box-shadow: ${MOBILE_SHADOW.raised};
   }
+`;
+
+/** Soft rounded tinted container holding a row's lead icon. */
+const RowIcon = styled.span`
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: ${MOBILE_RADIUS.sm};
+  background: ${OS_LEGAL_COLORS.accentLight};
 `;
 
 const RowText = styled.div`
@@ -121,23 +141,30 @@ const SubHeader = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  background: white;
+  padding: 10px 14px;
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
 `;
 
 const BackButton = styled.button`
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 7px 12px 7px 10px;
   border: none;
-  border-radius: 8px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
+  border-radius: ${MOBILE_RADIUS.pill};
+  background: ${OS_LEGAL_COLORS.surfaceLight};
   color: ${OS_LEGAL_COLORS.textSecondary};
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, background 0.16s ease;
+
+  &:active {
+    transform: scale(0.95);
+    background: ${OS_LEGAL_COLORS.border};
+  }
 `;
 
 /** Wrapper that fills the sheet body so embedded `height: 100%` panels size. */
@@ -150,15 +177,32 @@ const InfoList = styled.div`
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 14px;
 `;
 
 const InfoRow = styled.div`
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+  gap: 14px;
+  padding: 14px;
+  border-radius: ${MOBILE_RADIUS.md};
+  background: ${OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
+`;
+
+/** Soft rounded tinted container holding an info-row icon. */
+const InfoIcon = styled.span`
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: ${MOBILE_RADIUS.sm};
+  background: ${OS_LEGAL_COLORS.accentLight};
 `;
 
 const InfoText = styled.div`
@@ -183,7 +227,7 @@ const InfoValue = styled.span`
   word-break: break-word;
 `;
 
-const ICON_COLOR = OS_LEGAL_COLORS.primaryBlue;
+const ICON_COLOR = OS_LEGAL_COLORS.accent;
 
 /**
  * Body of the "More" {@link MobileSheet}: a tappable list of the Tier-2
@@ -252,32 +296,38 @@ export const MobileMoreSheet: React.FC<MobileMoreSheetProps> = ({
             setView("discussions");
           }}
         >
-          <MessagesSquare size={20} color={ICON_COLOR} />
+          <RowIcon>
+            <MessagesSquare size={19} color={ICON_COLOR} />
+          </RowIcon>
           <RowText>
             <RowLabel>Discussions</RowLabel>
             <RowDescription>
               Threaded conversations on this document
             </RowDescription>
           </RowText>
-          <ChevronRight size={18} color={OS_LEGAL_COLORS.textSecondary} />
+          <ChevronRight size={17} color={OS_LEGAL_COLORS.textMuted} />
         </Row>
 
         <Row data-testid="mobile-more-notes" onClick={() => setView("notes")}>
-          <StickyNote size={20} color={ICON_COLOR} />
+          <RowIcon>
+            <StickyNote size={19} color={ICON_COLOR} />
+          </RowIcon>
           <RowText>
             <RowLabel>Notes</RowLabel>
             <RowDescription>Notes attached to this document</RowDescription>
           </RowText>
-          <ChevronRight size={18} color={OS_LEGAL_COLORS.textSecondary} />
+          <ChevronRight size={17} color={OS_LEGAL_COLORS.textMuted} />
         </Row>
 
         <Row data-testid="mobile-more-info" onClick={() => setView("info")}>
-          <Info size={20} color={ICON_COLOR} />
+          <RowIcon>
+            <Info size={19} color={ICON_COLOR} />
+          </RowIcon>
           <RowText>
             <RowLabel>Document info &amp; versions</RowLabel>
             <RowDescription>Metadata and version details</RowDescription>
           </RowText>
-          <ChevronRight size={18} color={OS_LEGAL_COLORS.textSecondary} />
+          <ChevronRight size={17} color={OS_LEGAL_COLORS.textMuted} />
         </Row>
       </Menu>
     );
@@ -336,28 +386,36 @@ export const MobileMoreSheet: React.FC<MobileMoreSheetProps> = ({
       {backToMenu}
       <InfoList>
         <InfoRow>
-          <FileText size={18} color={ICON_COLOR} />
+          <InfoIcon>
+            <FileText size={17} color={ICON_COLOR} />
+          </InfoIcon>
           <InfoText>
             <InfoLabel>Title</InfoLabel>
             <InfoValue>{metadata.title || "Untitled Document"}</InfoValue>
           </InfoText>
         </InfoRow>
         <InfoRow>
-          <FileType size={18} color={ICON_COLOR} />
+          <InfoIcon>
+            <FileType size={17} color={ICON_COLOR} />
+          </InfoIcon>
           <InfoText>
             <InfoLabel>File type</InfoLabel>
             <InfoValue>{metadata.fileType || "Unknown"}</InfoValue>
           </InfoText>
         </InfoRow>
         <InfoRow>
-          <User size={18} color={ICON_COLOR} />
+          <InfoIcon>
+            <User size={17} color={ICON_COLOR} />
+          </InfoIcon>
           <InfoText>
             <InfoLabel>Creator</InfoLabel>
             <InfoValue>{creatorDisplay || "Unknown"}</InfoValue>
           </InfoText>
         </InfoRow>
         <InfoRow>
-          <Calendar size={18} color={ICON_COLOR} />
+          <InfoIcon>
+            <Calendar size={17} color={ICON_COLOR} />
+          </InfoIcon>
           <InfoText>
             <InfoLabel>Created</InfoLabel>
             <InfoValue>
