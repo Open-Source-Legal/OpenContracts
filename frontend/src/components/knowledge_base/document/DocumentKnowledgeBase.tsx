@@ -814,7 +814,6 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     floatingControlsState,
     mode,
     setMode,
-    isMobile,
     isDragging,
     handleResizeStart,
     handlePanelMouseEnter,

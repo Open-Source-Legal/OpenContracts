@@ -130,7 +130,6 @@ export interface DesktopDocumentLayoutProps {
   /* ----- Panel width / resize ----- */
   mode: ChatPanelWidthMode;
   setMode: (mode: ChatPanelWidthMode) => void;
-  isMobile: boolean;
   isDragging: boolean;
   handleResizeStart: (e: React.MouseEvent) => void;
   handlePanelMouseEnter: () => void;
@@ -241,7 +240,6 @@ export const DesktopDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     floatingControlsState,
     mode,
     setMode,
-    isMobile,
     isDragging,
     handleResizeStart,
     handlePanelMouseEnter,
@@ -378,7 +376,6 @@ export const DesktopDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
                   isVisible={true}
                   isInKnowledgeLayer={activeLayer === "knowledge"}
                   readOnly={readOnly}
-                  isMobile={isMobile}
                   onSwitchToKnowledge={(content?: string) => {
                     setActiveLayer("knowledge");
                     setShowRightPanel(false);
@@ -448,7 +445,6 @@ export const DesktopDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
                 onPanelWidthChange={setMode}
                 autoZoomEnabled={autoZoomEnabled}
                 onAutoZoomChange={setAutoZoomEnabled}
-                isMobile={isMobile}
                 hideDocumentTools={showRightPanel && sidebarViewMode === "chat"}
               />
 
