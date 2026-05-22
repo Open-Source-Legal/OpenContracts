@@ -17,6 +17,7 @@ import { MobileDKB } from "./MobileDocumentKnowledgeBase.harness";
 import React from "react";
 import fs from "fs";
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import type { Page } from "@playwright/test";
 import type { MockedResponse } from "@apollo/client/testing";
 import {
@@ -317,6 +318,9 @@ test("has no horizontal overflow at 390px", async ({ mount, page }) => {
   );
   console.log(`[TEST] documentElement horizontal overflow: ${overflow}px`);
   expect(overflow).toBeLessThanOrEqual(1);
+
+  // Documentation capture: the mobile Document surface at fit-to-width zoom.
+  await docScreenshot(page, "knowledge-base--mobile--document");
 });
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -342,6 +346,9 @@ test("tab navigation activates each surface", async ({ mount, page }) => {
   await expect(page.getByTestId("mobile-surface-summary")).toBeVisible({
     timeout: LONG_TIMEOUT,
   });
+
+  // Documentation capture: the mobile Summary surface, active.
+  await docScreenshot(page, "knowledge-base--mobile--summary");
 
   // Annotations tab.
   await page.getByRole("tab", { name: "Annotations" }).click();
@@ -380,6 +387,9 @@ test("the Ask bar opens the Chat sheet", async ({ mount, page }) => {
   await expect(
     page.getByRole("button", { name: "Close" }).last()
   ).toBeVisible();
+
+  // Documentation capture: the mobile Chat sheet, open.
+  await docScreenshot(page, "knowledge-base--mobile--chat-sheet");
 });
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -424,6 +434,9 @@ test("the annotation feed renders rows and a row opens the detail sheet", async 
     .evaluate((el) => (el as HTMLElement).offsetHeight);
   console.log(`[TEST] feed-viewport height: ${feedViewportHeight}px`);
   expect(feedViewportHeight).toBeGreaterThan(0);
+
+  // Documentation capture: the mobile Annotations surface with the feed rendered.
+  await docScreenshot(page, "knowledge-base--mobile--annotations");
 
   // Tapping a row selects the annotation and opens the "Annotation" sheet.
   await row.click();
