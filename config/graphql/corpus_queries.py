@@ -137,8 +137,11 @@ class CorpusQueryMixin:
         user = info.context.user
         visible = Corpus.objects.visible_to_user(user)
         if text_search:
+            # icontains to mirror CorpusFilter.text_search_method — the tab
+            # badge counts must agree with the case-insensitive result set
+            # the user actually sees when searching.
             visible = visible.filter(
-                Q(description__contains=text_search) | Q(title__contains=text_search)
+                Q(description__icontains=text_search) | Q(title__icontains=text_search)
             )
 
         # Single aggregation produces all four counts in one query plan

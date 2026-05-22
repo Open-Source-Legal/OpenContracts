@@ -137,8 +137,11 @@ class CorpusFilter(django_filters.FilterSet):
     text_search = filters.CharFilter(method="text_search_method")
 
     def text_search_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        # icontains (ILIKE), not contains (LIKE): a search box must match
+        # regardless of case — a lowercase "merger" has to find a
+        # Title-Cased "Merger Agreements" corpus.
         return queryset.filter(
-            Q(description__contains=value) | Q(title__contains=value)
+            Q(description__icontains=value) | Q(title__icontains=value)
         )
 
     uses_labelset_id = filters.CharFilter(method="uses_labelset_id_method")
@@ -628,6 +631,13 @@ class ConversationFilter(django_filters.FilterSet):
     corpus_id = filters.CharFilter(method="filter_by_corpus_id")
     has_corpus = filters.BooleanFilter(method="filter_has_corpus")
     has_document = filters.BooleanFilter(method="filter_has_document")
+    # Case-insensitive title search. Declared explicitly instead of via the
+    # Meta ``"title": ["contains"]`` shortcut so the lookup is ILIKE rather
+    # than case-sensitive LIKE — a search-box query like "merger" must match
+    # a Title-Cased "Merger ..." thread. Deliberately named ``title__contains``
+    # so the generated GraphQL argument stays ``title_Contains`` and existing
+    # clients (discover search, thread lists) need no change.
+    title__contains = filters.CharFilter(field_name="title", lookup_expr="icontains")
 
     def filter_by_document_id(
         self, queryset: QuerySet, name: str, value: Any
@@ -659,9 +669,11 @@ class ConversationFilter(django_filters.FilterSet):
 
     class Meta:
         model = Conversation
+        # ``title`` is intentionally absent here — its ``contains`` lookup is
+        # provided by the declared ``title__contains`` filter above so the
+        # match is case-insensitive.
         fields = {
             "created_at": ["gte", "lte"],
-            "title": ["contains"],
             "conversation_type": ["exact"],
         }
 

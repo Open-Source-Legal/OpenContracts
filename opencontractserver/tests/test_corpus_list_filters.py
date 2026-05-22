@@ -151,6 +151,26 @@ class CorpusListFiltersAndCountsTestCase(GraphQLTestCase):
         )
         self.assertEqual(self._titles(response), {f"{PREFIX}Alice Public"})
 
+    def test_text_search_is_case_insensitive(self) -> None:
+        # Fixtures are Title-Cased ("ZZF_Alice Private"); a fully lowercased
+        # query must still match. Before the fix the filter used a
+        # case-sensitive LIKE and returned nothing for a lowercase search.
+        response = self.query(CORPUSES_QUERY, variables={"textSearch": "zzf_alice"})
+        self.assertResponseNoErrors(response)
+        self.assertEqual(
+            self._titles(response),
+            {f"{PREFIX}Alice Private", f"{PREFIX}Alice Public"},
+        )
+
+    def test_counts_are_case_insensitive(self) -> None:
+        # corpusFilterCounts must agree with the case-insensitive result set
+        # the user sees when searching (mirrors test_counts_respect_text_search
+        # but with a lowercased query).
+        response = self.query(COUNTS_QUERY, variables={"textSearch": "zzf_alice"})
+        counts = response.json()["data"]["corpusFilterCounts"]
+        # Matches Alice Private + Alice Public — both mine, one public.
+        self.assertEqual(counts, {"all": 2, "mine": 2, "shared": 0, "public": 1})
+
     def test_counts_match_filtered_lists(self) -> None:
         response = self.query(COUNTS_QUERY, variables={"textSearch": PREFIX})
         self.assertResponseNoErrors(response)

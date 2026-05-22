@@ -480,6 +480,42 @@ class MentionSearchResolverTest(TestCase):
         labels = {ann["node"]["annotationLabel"]["text"] for ann in annotations}
         self.assertIn("Important Finding", labels)
 
+    def test_search_annotations_matches_partial_words(self):
+        """Search must match mid-word fragments, not just whole stemmed words.
+
+        Full-text search alone misses "bitrat" inside "Arbitration" — FTS only
+        matches whole, stemmed lexemes. The raw_text icontains clause
+        (pg_trgm-backed) catches the substring. annotation_label is left null
+        so only the raw_text matcher can satisfy the query.
+        """
+        Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            annotation_label=None,
+            raw_text="Arbitration shall resolve all disputes",
+            creator=self.user,
+        )
+        query = """
+            query SearchAnnotationsForMention($textSearch: String) {
+                searchAnnotationsForMention(textSearch: $textSearch) {
+                    edges {
+                        node {
+                            id
+                            rawText
+                        }
+                    }
+                }
+            }
+        """
+        result = self.client.execute(query, variables={"textSearch": "bitrat"})
+
+        self.assertIsNone(result.get("errors"))
+        raw_texts = {
+            edge["node"]["rawText"]
+            for edge in result["data"]["searchAnnotationsForMention"]["edges"]
+        }
+        self.assertIn("Arbitration shall resolve all disputes", raw_texts)
+
     def test_search_users_for_mention(self):
         """Test search_users_for_mention with text search."""
         query = """

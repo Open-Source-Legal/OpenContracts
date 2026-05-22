@@ -1331,6 +1331,15 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 fields=["search_vector"],
                 name="annotation_search_vector_gin",
             ),
+            # pg_trgm GIN index so case-insensitive substring search on
+            # raw_text (icontains / ILIKE) stays index-backed instead of
+            # degrading to a sequential scan as the table grows. Used by
+            # the @-mention / discover annotation search.
+            GinIndex(
+                fields=["raw_text"],
+                name="annotation_raw_text_trgm_gin",
+                opclasses=["gin_trgm_ops"],
+            ),
         ]
 
         constraints = [
