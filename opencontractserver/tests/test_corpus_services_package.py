@@ -24,10 +24,11 @@ See ``docs/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan.m
 
 from __future__ import annotations
 
+import warnings
+
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.corpuses.services import (
     CorpusDocumentService,
@@ -37,6 +38,15 @@ from opencontractserver.corpuses.services import (
 )
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.shared.services.base import BaseService
+
+# The shim module emits a DeprecationWarning at import time, by design — it is
+# the runtime signal Phase 2C uses for call-site discovery. Import it under a
+# warnings filter so test collection stays clean even if pytest is later run
+# with ``filterwarnings = error``. ``test_shim_import_emits_deprecation_warning``
+# still asserts the warning fires (it re-triggers it via ``importlib.reload``).
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 
 User = get_user_model()
 
@@ -192,6 +202,14 @@ class TestCorpusObjsServiceShimFacade(SimpleTestCase):
 
         from opencontractserver.corpuses import corpus_objs_service as shim
 
+        # The shim's ``warnings.warn`` fires at module-execution time, and the
+        # module is already cached (imported at this file's top), so the
+        # warning has long since fired and been deduplicated. ``reload``
+        # re-executes the module body to fire it again; it must run inside
+        # ``catch_warnings`` so the re-emission is observed in isolation.
+        # ``reload`` is safe here only because the shim and the segmented
+        # service modules have no module-level side effects beyond that single
+        # ``warnings.warn`` (no signal registration, no global mutation).
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             importlib.reload(shim)

@@ -9,6 +9,14 @@ nodes via
 Split out of the former ``corpus_objs_service.py`` monolith — see
 ``docs/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan.md``
 (issue #1716, service-layer centralization Phase 2).
+
+.. note::
+    TODO (issue #1716, Phase 2C): at ~1,300 lines this module exceeds the
+    ~800-line service-module guideline (design doc §5.2). It ships as-is for
+    Phase 2A because it is one cohesive responsibility plus heavily-commented
+    concurrency rationale; a future split of ``FolderService``'s 16 methods
+    into ``FolderCRUDService`` + ``FolderDocumentService`` is a candidate
+    tidy-up that would preserve the flat-service contract.
 """
 
 from __future__ import annotations

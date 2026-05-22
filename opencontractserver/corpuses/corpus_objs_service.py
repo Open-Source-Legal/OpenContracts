@@ -18,12 +18,13 @@ responsibilities in a single ``CorpusObjsService`` class. As of issue #1716
 multiply-inherits the four segmented services, so existing imports
 (``from opencontractserver.corpuses.corpus_objs_service import
 CorpusObjsService``) and every ``CorpusObjsService.<method>`` call site keep
-working unchanged for one release.
+working unchanged until all call sites are migrated (issue #1716, Phase 2C).
 
 .. deprecated::
     Import the specific service you need from
     :mod:`opencontractserver.corpuses.services` directly. This shim module
-    will be removed once all call sites are migrated (issue #1716, Phase C).
+    will be removed in a follow-up PR once all call sites are migrated
+    (issue #1716, Phase 2C).
 """
 
 from __future__ import annotations
