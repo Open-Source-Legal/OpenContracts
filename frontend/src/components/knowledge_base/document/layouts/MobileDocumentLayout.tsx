@@ -4,6 +4,7 @@ import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { useAnnotationSelection } from "../../../annotator/context/UISettingsAtom";
 import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
+import { FullScreenModal } from "../LayoutComponents";
 import { HeaderBar } from "../document_kb/HeaderBar";
 import { RightPanelContent } from "../document_kb/RightPanelContent";
 import { MobileAnnotationDetail } from "./mobile/MobileAnnotationDetail";
@@ -21,6 +22,11 @@ import UnifiedKnowledgeLayer from "../layers/UnifiedKnowledgeLayer";
 /**
  * Root flex column: chrome (header / ask bar / tab bar) stays fixed while
  * only the surface area scrolls.
+ *
+ * Sits inside {@link FullScreenModal} (a `position: fixed`, genuinely
+ * viewport-sized container), so `height: 100%` resolves to the real viewport
+ * height — the bottom chrome pins to the viewport bottom and the `flex: 1`
+ * surface gets real height to fill.
  */
 const Root = styled.div`
   display: flex;
@@ -227,51 +233,161 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
   };
 
   return (
-    <Root>
-      <HeaderBar
-        metadata={metadata}
-        documentId={documentId}
-        corpusId={corpusId}
-        hasCorpus={Boolean(hasCorpus)}
-        readOnly={readOnly}
-        onAddToCorpus={() => setShowAddToCorpusModal(true)}
-        onClose={handleClose}
-      />
+    <FullScreenModal
+      id="mobile-knowledge-base-modal"
+      open={true}
+      onClose={handleClose}
+    >
+      <Root>
+        <HeaderBar
+          metadata={metadata}
+          documentId={documentId}
+          corpusId={corpusId}
+          hasCorpus={Boolean(hasCorpus)}
+          readOnly={readOnly}
+          onAddToCorpus={() => setShowAddToCorpusModal(true)}
+          onClose={handleClose}
+        />
 
-      <Surface>
-        {activeTab === "document" && (
-          <DocumentSurface data-testid="mobile-surface-document">
-            <MobileDocToolbar
-              zoomPercent={zoomLevel * 100}
-              onFitWidth={fitToWidth}
-              onSections={() => setSectionsSheetOpen(true)}
-              onFind={() => setFindSheetOpen(true)}
-            />
-            <ViewerArea>{viewerContent}</ViewerArea>
-          </DocumentSurface>
-        )}
-        {activeTab === "summary" && (
-          <SummarySurface data-testid="mobile-surface-summary">
-            {corpusId ? (
-              <UnifiedKnowledgeLayer
+        <Surface>
+          {activeTab === "document" && (
+            <DocumentSurface data-testid="mobile-surface-document">
+              <MobileDocToolbar
+                zoomPercent={zoomLevel * 100}
+                onFitWidth={fitToWidth}
+                onSections={() => setSectionsSheetOpen(true)}
+                onFind={() => setFindSheetOpen(true)}
+              />
+              <ViewerArea>{viewerContent}</ViewerArea>
+            </DocumentSurface>
+          )}
+          {activeTab === "summary" && (
+            <SummarySurface data-testid="mobile-surface-summary">
+              {corpusId ? (
+                <UnifiedKnowledgeLayer
+                  documentId={documentId}
+                  corpusId={corpusId}
+                  metadata={metadata}
+                  parentLoading={props.loading}
+                  readOnly={readOnly}
+                />
+              ) : (
+                <SummaryEmptyState>
+                  Add this document to a corpus to view its summary.
+                </SummaryEmptyState>
+              )}
+            </SummarySurface>
+          )}
+          {activeTab === "annotations" && (
+            <AnnotationsSurface data-testid="mobile-surface-annotations">
+              <RightPanelContent
+                showRightPanel={true}
+                sidebarViewMode="feed"
+                setSidebarViewMode={setSidebarViewMode}
+                feedFilters={feedFilters}
+                setFeedFilters={setFeedFilters}
+                feedSortBy={feedSortBy}
+                setFeedSortBy={setFeedSortBy}
+                searchText={searchText}
+                selectedAnalysis={selectedAnalysis}
+                selectedExtract={selectedExtract}
+                dataCells={dataCells}
+                columns={columns}
+                notes={notes}
+                loading={loading}
+                readOnly={readOnly}
                 documentId={documentId}
                 corpusId={corpusId}
-                metadata={metadata}
-                parentLoading={props.loading}
-                readOnly={readOnly}
+                setActiveLayer={setActiveLayer}
+                setSelectedNote={setSelectedNote}
+                pendingChatMessage={pendingChatMessage}
               />
-            ) : (
-              <SummaryEmptyState>
-                Add this document to a corpus to view its summary.
-              </SummaryEmptyState>
-            )}
-          </SummarySurface>
-        )}
-        {activeTab === "annotations" && (
-          <AnnotationsSurface data-testid="mobile-surface-annotations">
+            </AnnotationsSurface>
+          )}
+        </Surface>
+
+        <MobileAskBar
+          onActivate={() => {
+            setSidebarViewMode("chat");
+            setChatOpen(true);
+          }}
+          onSubmit={(text) => {
+            setPendingChatMessage(text);
+            setSidebarViewMode("chat");
+            setChatOpen(true);
+          }}
+        />
+
+        <MobileTabBar active={activeTab} onSelect={handleSelectTab} />
+
+        <MobileSheet
+          open={sectionsSheetOpen}
+          title="Sections"
+          onClose={() => setSectionsSheetOpen(false)}
+        >
+          <MobileSectionsSheet
+            open={sectionsSheetOpen}
+            onNavigate={(annotationId) => {
+              setSelectedAnnotations([annotationId]);
+              setSectionsSheetOpen(false);
+            }}
+          />
+        </MobileSheet>
+
+        <MobileSheet
+          open={findSheetOpen}
+          title="Find in document"
+          onClose={() => setFindSheetOpen(false)}
+        >
+          <MobileFindSheet open={findSheetOpen} />
+        </MobileSheet>
+
+        {/* More sheet — a tappable list of the Tier-2 surfaces (Discussions,
+          Notes, Document info & versions). MobileMoreSheet swaps its own body
+          between the menu list and the chosen surface with a back affordance,
+          so only one sheet is ever open. Discussions and Notes reuse
+          RightPanelContent; the info view is a read-only render of `metadata`. */}
+        <MobileSheet
+          open={moreSheetOpen}
+          title="More"
+          onClose={() => setMoreSheetOpen(false)}
+        >
+          <MobileMoreSheet
+            metadata={metadata}
+            setSidebarViewMode={setSidebarViewMode}
+            feedFilters={feedFilters}
+            setFeedFilters={setFeedFilters}
+            feedSortBy={feedSortBy}
+            setFeedSortBy={setFeedSortBy}
+            searchText={searchText}
+            selectedAnalysis={selectedAnalysis}
+            selectedExtract={selectedExtract}
+            dataCells={dataCells}
+            columns={columns}
+            notes={notes}
+            loading={loading}
+            readOnly={readOnly}
+            documentId={documentId}
+            corpusId={corpusId}
+            setActiveLayer={setActiveLayer}
+            setSelectedNote={setSelectedNote}
+          />
+        </MobileSheet>
+
+        {/* Chat sheet — the persistent Ask bar opens the AI chat full-screen.
+          Reuses RightPanelContent in `chat` mode (the same ChatTray-backed
+          component the desktop right tray renders), with `showRightPanel`
+          forced true so the content is never gated off. `pendingChatMessage`
+          is threaded straight through to ChatTray's `initialMessage`. */}
+        <MobileSheet
+          open={chatOpen}
+          title="Chat"
+          onClose={() => setChatOpen(false)}
+        >
+          <ChatSurface data-testid="mobile-surface-chat">
             <RightPanelContent
               showRightPanel={true}
-              sidebarViewMode="feed"
+              sidebarViewMode="chat"
               setSidebarViewMode={setSidebarViewMode}
               feedFilters={feedFilters}
               setFeedFilters={setFeedFilters}
@@ -291,126 +407,22 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
               setSelectedNote={setSelectedNote}
               pendingChatMessage={pendingChatMessage}
             />
-          </AnnotationsSurface>
-        )}
-      </Surface>
+          </ChatSurface>
+        </MobileSheet>
 
-      <MobileAskBar
-        onActivate={() => {
-          setSidebarViewMode("chat");
-          setChatOpen(true);
-        }}
-        onSubmit={(text) => {
-          setPendingChatMessage(text);
-          setSidebarViewMode("chat");
-          setChatOpen(true);
-        }}
-      />
-
-      <MobileTabBar active={activeTab} onSelect={handleSelectTab} />
-
-      <MobileSheet
-        open={sectionsSheetOpen}
-        title="Sections"
-        onClose={() => setSectionsSheetOpen(false)}
-      >
-        <MobileSectionsSheet
-          open={sectionsSheetOpen}
-          onNavigate={(annotationId) => {
-            setSelectedAnnotations([annotationId]);
-            setSectionsSheetOpen(false);
-          }}
-        />
-      </MobileSheet>
-
-      <MobileSheet
-        open={findSheetOpen}
-        title="Find in document"
-        onClose={() => setFindSheetOpen(false)}
-      >
-        <MobileFindSheet open={findSheetOpen} />
-      </MobileSheet>
-
-      {/* More sheet — a tappable list of the Tier-2 surfaces (Discussions,
-          Notes, Document info & versions). MobileMoreSheet swaps its own body
-          between the menu list and the chosen surface with a back affordance,
-          so only one sheet is ever open. Discussions and Notes reuse
-          RightPanelContent; the info view is a read-only render of `metadata`. */}
-      <MobileSheet
-        open={moreSheetOpen}
-        title="More"
-        onClose={() => setMoreSheetOpen(false)}
-      >
-        <MobileMoreSheet
-          metadata={metadata}
-          setSidebarViewMode={setSidebarViewMode}
-          feedFilters={feedFilters}
-          setFeedFilters={setFeedFilters}
-          feedSortBy={feedSortBy}
-          setFeedSortBy={setFeedSortBy}
-          searchText={searchText}
-          selectedAnalysis={selectedAnalysis}
-          selectedExtract={selectedExtract}
-          dataCells={dataCells}
-          columns={columns}
-          notes={notes}
-          loading={loading}
-          readOnly={readOnly}
-          documentId={documentId}
-          corpusId={corpusId}
-          setActiveLayer={setActiveLayer}
-          setSelectedNote={setSelectedNote}
-        />
-      </MobileSheet>
-
-      {/* Chat sheet — the persistent Ask bar opens the AI chat full-screen.
-          Reuses RightPanelContent in `chat` mode (the same ChatTray-backed
-          component the desktop right tray renders), with `showRightPanel`
-          forced true so the content is never gated off. `pendingChatMessage`
-          is threaded straight through to ChatTray's `initialMessage`. */}
-      <MobileSheet
-        open={chatOpen}
-        title="Chat"
-        onClose={() => setChatOpen(false)}
-      >
-        <ChatSurface data-testid="mobile-surface-chat">
-          <RightPanelContent
-            showRightPanel={true}
-            sidebarViewMode="chat"
-            setSidebarViewMode={setSidebarViewMode}
-            feedFilters={feedFilters}
-            setFeedFilters={setFeedFilters}
-            feedSortBy={feedSortBy}
-            setFeedSortBy={setFeedSortBy}
-            searchText={searchText}
-            selectedAnalysis={selectedAnalysis}
-            selectedExtract={selectedExtract}
-            dataCells={dataCells}
-            columns={columns}
-            notes={notes}
-            loading={loading}
-            readOnly={readOnly}
-            documentId={documentId}
-            corpusId={corpusId}
-            setActiveLayer={setActiveLayer}
-            setSelectedNote={setSelectedNote}
-            pendingChatMessage={pendingChatMessage}
-          />
-        </ChatSurface>
-      </MobileSheet>
-
-      {/* Annotation detail sheet — single rendering site for both open paths:
+        {/* Annotation detail sheet — single rendering site for both open paths:
           tapping a feed row in the Annotations surface and tapping a highlight
           in the Document-tab viewer. Both set the shared `selectedAnnotations`
           selection; closing the sheet clears it. */}
-      <MobileSheet
-        open={selectedAnnotations.length > 0}
-        title="Annotation"
-        onClose={() => setSelectedAnnotations([])}
-      >
-        <MobileAnnotationDetail readOnly={readOnly} />
-      </MobileSheet>
-    </Root>
+        <MobileSheet
+          open={selectedAnnotations.length > 0}
+          title="Annotation"
+          onClose={() => setSelectedAnnotations([])}
+        >
+          <MobileAnnotationDetail readOnly={readOnly} />
+        </MobileSheet>
+      </Root>
+    </FullScreenModal>
   );
 };
 
