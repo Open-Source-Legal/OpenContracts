@@ -14,6 +14,7 @@ import {
   Notebook,
   Eye,
   ArrowUpDown,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Dropdown } from "@os-legal/ui";
 import {
@@ -39,7 +40,26 @@ interface SidebarControlBarProps {
   onSortChange: (sort: SortOption) => void;
   /** Whether there's an active document search */
   hasActiveSearch?: boolean;
+  /**
+   * Compact / mobile consumption mode. When true the always-visible filter +
+   * sort chrome collapses behind a single "Filter & sort" control (with a
+   * count badge when any filter or sort deviates from defaults). Tapping it
+   * reveals the full control set inline; collapsed by default so the feed
+   * starts high and breathes. Desktop leaves this unset for byte-identical
+   * rendering.
+   */
+  compact?: boolean;
 }
+
+/** The content-type set the feed ships with — all types selected. */
+const DEFAULT_CONTENT_TYPES: ReadonlyArray<ContentItemType> = [
+  "note",
+  "annotation",
+  "relationship",
+  "search",
+];
+/** The feed's default sort. */
+const DEFAULT_SORT: SortOption = "page";
 
 /**
  * Shared "calm, layered, native-quality" depth tokens — mirrors the mobile DKB
@@ -365,6 +385,100 @@ const AnnotationFiltersWrapper = styled(motion.div)`
   margin-top: 0.75rem;
 `;
 
+/* ── Compact (mobile) "Filter & sort" chrome ──────────────────────────────
+ * On mobile the four desktop controls collapse behind a single trigger so the
+ * annotation list starts high. Soft-tinted ghost styling mirrors the desktop
+ * controls; depth over borders. */
+
+/** Slim container for the collapsed mobile control — no heavy chrome padding. */
+const CompactControlBar = styled.div`
+  background: white;
+  border-bottom: none;
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.05);
+  padding: 0.55rem 0.7rem;
+  position: relative;
+  z-index: 20;
+`;
+
+/** Single soft-tinted "Filter & sort" toggle. */
+const CompactToggle = styled.button<{ $isOpen: boolean; $isActive: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-radius: ${RADIUS_CONTROL};
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  background: ${(props) =>
+    props.$isOpen || props.$isActive
+      ? OS_LEGAL_COLORS.accentSurface
+      : OS_LEGAL_COLORS.surfaceHover};
+  color: ${(props) =>
+    props.$isOpen || props.$isActive
+      ? OS_LEGAL_COLORS.accent
+      : OS_LEGAL_COLORS.textSecondary};
+  box-shadow: ${(props) =>
+    props.$isOpen || props.$isActive
+      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accentMedium}`
+      : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
+  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+
+  &:hover {
+    background: ${(props) =>
+      props.$isOpen || props.$isActive ? OS_LEGAL_COLORS.accentLight : "white"};
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
+
+  > .compact-toggle-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: ${(props) =>
+      props.$isOpen || props.$isActive
+        ? OS_LEGAL_COLORS.accent
+        : OS_LEGAL_COLORS.accent};
+  }
+
+  > .compact-toggle-label {
+    flex: 1;
+    min-width: 0;
+  }
+`;
+
+/** Teal count badge — number of filter/sort dimensions deviating from default. */
+const CompactBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.4rem;
+  background: ${OS_LEGAL_COLORS.accent};
+  color: white;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+`;
+
+/** Inline expandable panel holding the full control set. */
+const CompactExpandPanel = styled(motion.div)`
+  overflow: hidden;
+`;
+
+/** Inner padding wrapper so the height animation has no padding jump. */
+const CompactExpandInner = styled.div`
+  padding-top: 0.6rem;
+`;
+
 /**
  * SidebarControlBar provides controls for switching between chat/feed views
  * and filtering content in the unified feed. Memoized to prevent unnecessary rerenders.
@@ -378,9 +492,13 @@ export const SidebarControlBar: React.FC<SidebarControlBarProps> = memo(
     sortBy,
     onSortChange,
     hasActiveSearch = false,
+    compact = false,
   }) => {
     const [searchQuery, setSearchQuery] = useState(filters.searchQuery || "");
     const [showContentDropdown, setShowContentDropdown] = useState(false);
+    /* Mobile-only: the collapsed "Filter & sort" panel — closed by default so
+       the annotation list starts high. */
+    const [compactExpanded, setCompactExpanded] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown when clicking outside
@@ -460,143 +578,188 @@ export const SidebarControlBar: React.FC<SidebarControlBarProps> = memo(
     const showAnnotationFilters =
       viewMode === "feed" && filters.contentTypes.has("annotation");
 
+    /* Mobile badge: how many filter/sort dimensions deviate from the feed's
+       defaults (all content types, sort by page, no search). */
+    const contentTypesAreDefault =
+      filters.contentTypes.size === DEFAULT_CONTENT_TYPES.length &&
+      DEFAULT_CONTENT_TYPES.every((t) => filters.contentTypes.has(t));
+    const compactActiveCount =
+      (contentTypesAreDefault ? 0 : 1) +
+      (sortBy !== DEFAULT_SORT ? 1 : 0) +
+      (searchQuery.trim() ? 1 : 0);
+
     // Don't show control bar in chat mode at all
     if (viewMode === "chat") {
       return null;
     }
 
-    return (
-      <ControlBarContainer>
-        {/* Feed Filters (only shown in feed mode) */}
-        <FilterSection>
-          {/* Search Input */}
-          <SearchInputWrapper>
-            <SearchIconWrapper>
-              <Search />
-            </SearchIconWrapper>
-            <StyledSearchInput
-              placeholder="Search in content..."
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-            />
-          </SearchInputWrapper>
+    /* Shared control set — identical markup for desktop (always visible) and
+       mobile (revealed inside the collapsed "Filter & sort" panel). */
+    const filterSection = (
+      <FilterSection>
+        {/* Search Input */}
+        <SearchInputWrapper>
+          <SearchIconWrapper>
+            <Search />
+          </SearchIconWrapper>
+          <StyledSearchInput
+            placeholder="Search in content..."
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+          />
+        </SearchInputWrapper>
 
-          {/* Content Types and Sort Row */}
-          <FilterRow>
-            {/* Content Type Multi-Select */}
-            <DropdownContainer ref={dropdownRef}>
-              <MultiSelectDropdown
-                $isOpen={showContentDropdown}
-                onClick={() => setShowContentDropdown(!showContentDropdown)}
-              >
+        {/* Content Types and Sort Row */}
+        <FilterRow>
+          {/* Content Type Multi-Select */}
+          <DropdownContainer ref={dropdownRef}>
+            <MultiSelectDropdown
+              $isOpen={showContentDropdown}
+              onClick={() => setShowContentDropdown(!showContentDropdown)}
+            >
+              <DropdownHeader>
+                <DropdownLabel>
+                  <Filter />
+                  <span className="control-label-text">Content Types</span>
+                  {selectedCount > 0 && (
+                    <SelectedCount>{selectedCount}</SelectedCount>
+                  )}
+                </DropdownLabel>
+                <ChevronIcon $isOpen={showContentDropdown} />
+              </DropdownHeader>
+            </MultiSelectDropdown>
+
+            <AnimatePresence>
+              {showContentDropdown && (
+                <DropdownMenu
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  {availableContentTypes.map((type) => (
+                    <DropdownMenuItem
+                      key={type}
+                      $isSelected={filters.contentTypes.has(type)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleContentTypeToggle(type);
+                      }}
+                    >
+                      <MenuItemLabel style={{ color: contentTypeColors[type] }}>
+                        {contentTypeIcons[type]}
+                        {contentTypeLabels[type]}
+                      </MenuItemLabel>
+                      {filters.contentTypes.has(type) && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                  <QuickActions>
+                    <QuickActionButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectAll();
+                      }}
+                    >
+                      Select All
+                    </QuickActionButton>
+                    <QuickActionButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleClearAll();
+                      }}
+                    >
+                      Clear All
+                    </QuickActionButton>
+                  </QuickActions>
+                </DropdownMenu>
+              )}
+            </AnimatePresence>
+          </DropdownContainer>
+
+          {/* Sort Dropdown */}
+          <Dropdown
+            mode="select"
+            fluid
+            options={sortOptions}
+            value={sortBy}
+            onChange={(value) => onSortChange(value as SortOption)}
+            placeholder="Sort by..."
+            trigger={(state) => (
+              <SortTriggerSurface $isOpen={state.isOpen}>
                 <DropdownHeader>
                   <DropdownLabel>
-                    <Filter />
-                    <span className="control-label-text">Content Types</span>
-                    {selectedCount > 0 && (
-                      <SelectedCount>{selectedCount}</SelectedCount>
-                    )}
+                    <ArrowUpDown />
+                    <span className="control-label-text">
+                      {state.selectedOption &&
+                      !Array.isArray(state.selectedOption)
+                        ? state.selectedOption.label
+                        : state.placeholder}
+                    </span>
                   </DropdownLabel>
-                  <ChevronIcon $isOpen={showContentDropdown} />
+                  <ChevronIcon $isOpen={state.isOpen} />
                 </DropdownHeader>
-              </MultiSelectDropdown>
+              </SortTriggerSurface>
+            )}
+          />
+        </FilterRow>
 
-              <AnimatePresence>
-                {showContentDropdown && (
-                  <DropdownMenu
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    {availableContentTypes.map((type) => (
-                      <DropdownMenuItem
-                        key={type}
-                        $isSelected={filters.contentTypes.has(type)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleContentTypeToggle(type);
-                        }}
-                      >
-                        <MenuItemLabel
-                          style={{ color: contentTypeColors[type] }}
-                        >
-                          {contentTypeIcons[type]}
-                          {contentTypeLabels[type]}
-                        </MenuItemLabel>
-                        {filters.contentTypes.has(type) && <CheckIcon />}
-                      </DropdownMenuItem>
-                    ))}
-                    <QuickActions>
-                      <QuickActionButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectAll();
-                        }}
-                      >
-                        Select All
-                      </QuickActionButton>
-                      <QuickActionButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleClearAll();
-                        }}
-                      >
-                        Clear All
-                      </QuickActionButton>
-                    </QuickActions>
-                  </DropdownMenu>
-                )}
-              </AnimatePresence>
-            </DropdownContainer>
+        {/* Annotation-specific Filters - Collapsible */}
+        <AnimatePresence>
+          {showAnnotationFilters && (
+            <AnnotationFiltersWrapper
+              initial={{ opacity: 0, height: 0, marginTop: 0 }}
+              animate={{
+                opacity: 1,
+                height: "auto",
+                marginTop: "0.75rem",
+              }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <CollapsibleAnnotationControls showLabelFilters />
+            </AnnotationFiltersWrapper>
+          )}
+        </AnimatePresence>
+      </FilterSection>
+    );
 
-            {/* Sort Dropdown */}
-            <Dropdown
-              mode="select"
-              fluid
-              options={sortOptions}
-              value={sortBy}
-              onChange={(value) => onSortChange(value as SortOption)}
-              placeholder="Sort by..."
-              trigger={(state) => (
-                <SortTriggerSurface $isOpen={state.isOpen}>
-                  <DropdownHeader>
-                    <DropdownLabel>
-                      <ArrowUpDown />
-                      <span className="control-label-text">
-                        {state.selectedOption &&
-                        !Array.isArray(state.selectedOption)
-                          ? state.selectedOption.label
-                          : state.placeholder}
-                      </span>
-                    </DropdownLabel>
-                    <ChevronIcon $isOpen={state.isOpen} />
-                  </DropdownHeader>
-                </SortTriggerSurface>
-              )}
-            />
-          </FilterRow>
-
-          {/* Annotation-specific Filters - Collapsible */}
-          <AnimatePresence>
-            {showAnnotationFilters && (
-              <AnnotationFiltersWrapper
-                initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                animate={{
-                  opacity: 1,
-                  height: "auto",
-                  marginTop: "0.75rem",
-                }}
-                exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                transition={{ duration: 0.2 }}
+    /* Mobile: collapse the whole control set behind one "Filter & sort"
+       trigger so the annotation list starts high and breathes. */
+    if (compact) {
+      return (
+        <CompactControlBar>
+          <CompactToggle
+            type="button"
+            $isOpen={compactExpanded}
+            $isActive={compactActiveCount > 0}
+            onClick={() => setCompactExpanded((v) => !v)}
+            aria-expanded={compactExpanded}
+            data-testid="compact-filter-sort-toggle"
+          >
+            <SlidersHorizontal className="compact-toggle-icon" />
+            <span className="compact-toggle-label">Filter &amp; sort</span>
+            {compactActiveCount > 0 && (
+              <CompactBadge>{compactActiveCount}</CompactBadge>
+            )}
+            <ChevronIcon $isOpen={compactExpanded} />
+          </CompactToggle>
+          <AnimatePresence initial={false}>
+            {compactExpanded && (
+              <CompactExpandPanel
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
               >
-                <CollapsibleAnnotationControls showLabelFilters />
-              </AnnotationFiltersWrapper>
+                <CompactExpandInner>{filterSection}</CompactExpandInner>
+              </CompactExpandPanel>
             )}
           </AnimatePresence>
-        </FilterSection>
-      </ControlBarContainer>
-    );
+        </CompactControlBar>
+      );
+    }
+
+    return <ControlBarContainer>{filterSection}</ControlBarContainer>;
   }
 );
 

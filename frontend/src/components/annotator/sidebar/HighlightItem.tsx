@@ -150,6 +150,13 @@ interface HighlightItemProps {
   onToggleMultiSelect?: () => void;
   isMultiSelected?: boolean;
   contentModalities?: string[];
+  /**
+   * Compact / read-only consumption mode (mobile). When true the row hides the
+   * authoring affordances — the multi-select checkbox and the delete (trash)
+   * icon — so the feed reads as a calm review surface. Desktop leaves this
+   * unset, preserving the existing checkbox + delete behavior byte-for-byte.
+   */
+  compact?: boolean;
 }
 
 export const HighlightItem: React.FC<HighlightItemProps> = ({
@@ -162,6 +169,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
   onToggleMultiSelect,
   isMultiSelected = false,
   contentModalities,
+  compact = false,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -215,7 +223,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
       onClick={handleClick}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        {onToggleMultiSelect && (
+        {!compact && onToggleMultiSelect && (
           <span
             style={{
               cursor: "pointer",
@@ -239,7 +247,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
           {annotation.annotationLabel.text}
         </AnnotationLabel>
         <ModalityBadge modalities={contentModalities || []} />
-        {canDeleteAnnotation(annotation, read_only) && onDelete && (
+        {!compact && canDeleteAnnotation(annotation, read_only) && onDelete && (
           <DeleteButton
             aria-label="Delete annotation"
             onClick={(e: React.MouseEvent) => {

@@ -283,6 +283,7 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
           {activeTab === "annotations" && (
             <AnnotationsSurface data-testid="mobile-surface-annotations">
               <RightPanelContent
+                compact
                 showRightPanel={true}
                 sidebarViewMode="feed"
                 setSidebarViewMode={setSidebarViewMode}
