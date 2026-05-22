@@ -25,6 +25,7 @@ from opencontractserver.corpuses.models import (
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
+from opencontractserver.types.enums import PermissionTypes
 
 User = get_user_model()
 
@@ -713,6 +714,162 @@ class CorpusActionExecutionPermissionsTestCase(TestCase):
         # Should return CorpusActionExecutionQuerySet with custom methods
         self.assertTrue(hasattr(result, "for_corpus"))
         self.assertTrue(hasattr(result, "pending"))
+
+
+class CorpusActionExecutionGroupVisibilityTest(TestCase):
+    """Regression coverage for issue #1731 — the un-overridden
+    ``BaseVisibilityManager.visible_to_user`` body must honour *group*
+    object-permissions, not just *user* ones.
+
+    ``CorpusActionExecution`` is the model the issue calls out as reaching
+    that body un-tuned: ``CorpusActionExecutionManager.visible_to_user``
+    only re-wraps ``super().visible_to_user(...)`` in a custom QuerySet.
+    ``Manager.user_can`` resolves group grants (``_default_user_can`` runs
+    with ``include_group_permissions=True``), so before the fix a user
+    whose sole READ grant on an execution was via a group passed
+    ``user_can(READ)`` yet was excluded from ``visible_to_user`` — the
+    same filter/check drift #1714 closed for the ``shared/QuerySets.py``
+    bodies.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        self.owner = User.objects.create_user(username="cae_grp_owner", password="x")
+        # ``group_user``'s ONLY path to the execution below is group
+        # membership — no creator status, no direct user grant, nothing
+        # public. This isolates the group-permission code path.
+        self.group_user = User.objects.create_user(
+            username="cae_grp_member", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="cae_grp_stranger", password="x"
+        )
+
+        self.group = Group.objects.create(name="cae_visibility_test_group")
+        self.group_user.groups.add(self.group)
+
+        self.corpus = Corpus.objects.create(
+            title="CAE Group Corpus", creator=self.owner, is_public=False
+        )
+        self.fieldset = Fieldset.objects.create(
+            name="CAE Group Fieldset", creator=self.owner
+        )
+        self.action = CorpusAction.objects.create(
+            name="CAE Group Action",
+            corpus=self.corpus,
+            fieldset=self.fieldset,
+            trigger=CorpusActionTrigger.ADD_DOCUMENT,
+            creator=self.owner,
+        )
+        self.document = Document.objects.create(
+            title="CAE Group Doc", creator=self.owner
+        )
+
+        # Private execution, READ-shared with the group ONLY.
+        self.group_exec = CorpusActionExecution.objects.create(
+            corpus_action=self.action,
+            document=self.document,
+            corpus=self.corpus,
+            action_type=CorpusActionExecution.ActionType.FIELDSET,
+            trigger=CorpusActionTrigger.ADD_DOCUMENT,
+            queued_at=timezone.now(),
+            creator=self.owner,
+        )
+        assign_perm("read_corpusactionexecution", self.group, self.group_exec)
+
+        # Control: a private execution not shared with the group at all.
+        self.unshared_exec = CorpusActionExecution.objects.create(
+            corpus_action=self.action,
+            document=self.document,
+            corpus=self.corpus,
+            action_type=CorpusActionExecution.ActionType.FIELDSET,
+            trigger=CorpusActionTrigger.ADD_DOCUMENT,
+            queued_at=timezone.now(),
+            creator=self.owner,
+        )
+
+    def test_group_grant_appears_in_visible_to_user(self):
+        """An execution READ-granted to the user's group is included in
+        ``CorpusActionExecution.objects.visible_to_user`` (issue #1731)."""
+        visible_ids = set(
+            CorpusActionExecution.objects.visible_to_user(self.group_user).values_list(
+                "pk", flat=True
+            )
+        )
+        self.assertIn(self.group_exec.pk, visible_ids)
+        # Control: an execution not shared with the group stays hidden.
+        self.assertNotIn(self.unshared_exec.pk, visible_ids)
+
+    def test_group_filter_check_equivalence(self):
+        """``user_can(READ)`` and ``visible_to_user(...).exists()`` agree
+        for a group-shared user — the invariant the drift broke."""
+        check = self.group_exec.user_can(self.group_user, PermissionTypes.READ)
+        in_filter = (
+            CorpusActionExecution.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_exec.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group-level READ grant")
+        self.assertTrue(in_filter, "visible_to_user must honour the group grant")
+        self.assertEqual(check, in_filter)
+
+    def test_group_read_grant_does_not_widen_to_writes(self):
+        """SECURITY: a group READ grant authorizes READ but never
+        UPDATE/DELETE — the read/write asymmetry must hold."""
+        self.assertTrue(self.group_exec.user_can(self.group_user, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                self.group_exec.user_can(self.group_user, perm),
+                f"group READ grant silently widened to {perm} — leak!",
+            )
+
+    def test_stranger_without_group_membership_stays_excluded(self):
+        """A user who is NOT in the group sees none of the group-shared
+        executions — the fix must not widen visibility beyond members."""
+        in_filter = (
+            CorpusActionExecution.objects.visible_to_user(self.stranger)
+            .filter(pk=self.group_exec.pk)
+            .exists()
+        )
+        self.assertFalse(in_filter, "non-member saw the group-shared execution — leak!")
+        self.assertFalse(self.group_exec.user_can(self.stranger, PermissionTypes.READ))
+
+    def test_visible_to_user_degrades_when_guardian_tables_missing(self):
+        """DEFENSIVE: if the guardian ``*userobjectpermission`` /
+        ``*groupobjectpermission`` tables cannot be resolved, the
+        ``BaseVisibilityManager.visible_to_user`` body falls back
+        gracefully instead of raising — each ``except LookupError`` branch
+        zeroes out its own permitted-id set. Splitting the user- and
+        group-table lookups into separate ``try`` blocks means a missing
+        group table never discards already-resolved user grants.
+        """
+        from unittest.mock import patch
+
+        from django.apps import apps
+
+        real_get_model = apps.get_model
+
+        def fake_get_model(app_label, model_name=None, *args, **kwargs):
+            name = model_name if model_name is not None else app_label
+            if "userobjectpermission" in name or "groupobjectpermission" in name:
+                raise LookupError(f"simulated missing table: {name}")
+            return real_get_model(app_label, model_name, *args, **kwargs)
+
+        with patch.object(apps, "get_model", side_effect=fake_get_model):
+            # Must not raise — the except LookupError branches handle the
+            # missing tables.
+            visible_ids = set(
+                CorpusActionExecution.objects.visible_to_user(
+                    self.group_user
+                ).values_list("pk", flat=True)
+            )
+
+        # With guardian resolution unavailable, the group-only user loses
+        # access to the execution reachable solely via the group grant —
+        # visibility degrades to creator/public, never crashes.
+        self.assertNotIn(self.group_exec.pk, visible_ids)
 
 
 class PackageActionTrailTestCase(TestCase):
