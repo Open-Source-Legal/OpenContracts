@@ -192,8 +192,6 @@ export const Z_INDEX = {
   APP_MODAL_CHILD: 3100,
   /** Mobile annotation tools rendered via portal into document.body. */
   MOBILE_ANNOTATION_TOOLS: 3048,
-  /** Mobile floating document-controls FAB (orbit menu) rendered via portal. */
-  MOBILE_FLOATING_CONTROLS: 3050,
   /** Mobile annotation-label modal — sits above APP_MODAL_CHILD so the label
    *  picker remains tappable even when a nested dialog is open inside the DKB
    *  fullscreen modal. */
@@ -222,12 +220,6 @@ export const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
  * inset and mobile chrome.
  */
 export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
-/**
- * Bottom offset for the settings popover anchored above the floating speed
- * dial on mobile. Computed to clear ``MOBILE_FLOATING_CONTROLS_BOTTOM`` plus
- * the dial's own height.
- */
-export const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
 /**
  * Maximum height of the tool popover in pixels.
  * Must match ToolPopoverBody max-height (400px) + header height (~100px).
