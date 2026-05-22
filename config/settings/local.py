@@ -77,6 +77,10 @@ _csp = SECURE_CSP_DIRECTIVES.copy() if SECURE_CSP_DIRECTIVES else {}
 _csp["connect-src"] = ["'self'", "ws://localhost:*", "wss://localhost:*"]
 SECURE_CSP_DIRECTIVES = _csp
 
+# Set DEBUG based on env variable, defaulting to False for better performance
+# You can override this with DJANGO_DEBUG=True in your .env file when needed
+DEBUG = env.bool("DJANGO_DEBUG", False)
+
 # Your stuff...
 # ------------------------------------------------------------------------------
 if DEBUG and USE_SILK:
@@ -85,10 +89,6 @@ if DEBUG and USE_SILK:
         "silk.middleware.SilkyMiddleware",
     ]
     SILKY_PYTHON_PROFILER = True
-
-# Set DEBUG based on env variable, defaulting to False for better performance
-# You can override this with DJANGO_DEBUG=True in your .env file when needed
-DEBUG = env.bool("DJANGO_DEBUG", False)
 
 # In local dev, use simple static file serving (no manifest required).
 # The base.py CompressedManifestStaticFilesStorage requires collectstatic
