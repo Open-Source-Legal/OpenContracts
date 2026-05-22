@@ -23,9 +23,19 @@ if TYPE_CHECKING:
 User = get_user_model()
 
 
-# Legacy type hint for streaming message events (used in async handlers)
+# Type hint for streaming message events emitted by the unified agent
+# WebSocket consumer (config/websocket/consumers/unified_agent_conversation.py).
 StreamingMessageType = Literal[
-    "ASYNC_START", "ASYNC_CONTENT", "ASYNC_FINISH", "SYNC_CONTENT"
+    "ASYNC_START",
+    "ASYNC_CONTENT",
+    "ASYNC_THOUGHT",
+    "ASYNC_SOURCES",
+    "ASYNC_APPROVAL_NEEDED",
+    "ASYNC_APPROVAL_RESULT",
+    "ASYNC_RESUME",
+    "ASYNC_ERROR",
+    "ASYNC_FINISH",
+    "SYNC_CONTENT",
 ]
 
 # For backwards compatibility - alias to the new name
