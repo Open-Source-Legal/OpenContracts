@@ -26,7 +26,10 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
-import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
+import {
+  MOBILE_VIEW_BREAKPOINT,
+  WORKER_TABLE_MIN_WIDTH_PX,
+} from "../../assets/configurations/constants";
 import {
   CardSegment as StyledSegment,
   ScrollableTableWrapper,
@@ -332,7 +335,7 @@ export const WorkerAccountManagement: React.FC = () => {
           </InfoMessage>
         ) : (
           <ScrollableTableWrapper
-            $minWidth="760px"
+            $minWidth={`${WORKER_TABLE_MIN_WIDTH_PX}px`}
             data-testid="worker-accounts-table-scroll"
           >
             <Table variant="minimal">

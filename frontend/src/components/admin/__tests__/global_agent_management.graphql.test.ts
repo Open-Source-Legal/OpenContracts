@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type {
-  DocumentNode,
-  FieldNode,
-  OperationDefinitionNode,
-} from "graphql";
+import type { DocumentNode, FieldNode, OperationDefinitionNode } from "graphql";
 import {
   GET_GLOBAL_AGENTS,
   CREATE_GLOBAL_AGENT_CONFIGURATION,

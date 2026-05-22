@@ -16,6 +16,14 @@ export const TABLET_LANDSCAPE_BREAKPOINT = 1024;
 // Cookie consent modal collapses its two-column data grid below this width.
 export const COOKIE_CONSENT_GRID_BREAKPOINT = 720;
 
+// Minimum table widths feeding the `ScrollableTableWrapper` $minWidth prop on
+// each admin/badges view. Below the wrapper's parent width the table scrolls
+// horizontally; above it the table fills naturally. Tuned per-table so columns
+// stay readable instead of column-crushed on narrow viewports.
+export const BADGE_TABLE_MIN_WIDTH_PX = 600;
+export const AGENT_TABLE_MIN_WIDTH_PX = 720;
+export const WORKER_TABLE_MIN_WIDTH_PX = 760;
+
 // Icon defaults
 /** Default pixel size for DynamicIcon width and height */
 export const DYNAMIC_ICON_DEFAULT_SIZE = 16;

@@ -34,14 +34,17 @@ import {
 import { ConfirmModal } from "../widgets/modals/ConfirmModal";
 import * as LucideIcons from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
+import {
+  MOBILE_VIEW_BREAKPOINT,
+  BADGE_TABLE_MIN_WIDTH_PX,
+} from "../../assets/configurations/constants";
 import {
   GradientSegment as StyledSegment,
   ScrollableTableWrapper,
 } from "../layout/SharedSegments";
 
 const Container = styled.div`
-  padding: 2em;
+  padding: 2rem;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     padding: 1rem;
@@ -211,7 +214,7 @@ export const BadgeManagement: React.FC<BadgeManagementProps> = ({
         </PageHeader>
 
         <ScrollableTableWrapper
-          $minWidth="600px"
+          $minWidth={`${BADGE_TABLE_MIN_WIDTH_PX}px`}
           data-testid="badge-management-table-scroll"
         >
           <Table variant="bordered">

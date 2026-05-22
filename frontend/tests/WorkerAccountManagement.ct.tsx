@@ -220,7 +220,9 @@ test.describe("WorkerAccountManagement", () => {
       },
     ];
 
-    await mount(<WorkerAccountManagementTestWrapper mocks={mocks} />);
+    const component = await mount(
+      <WorkerAccountManagementTestWrapper mocks={mocks} />
+    );
 
     await expect(page.getByText("Pipeline Uploader")).toBeVisible({
       timeout: 10000,
@@ -236,5 +238,7 @@ test.describe("WorkerAccountManagement", () => {
       (el) => el.scrollWidth > el.clientWidth
     );
     expect(scrolls).toBe(true);
+
+    await component.unmount();
   });
 });

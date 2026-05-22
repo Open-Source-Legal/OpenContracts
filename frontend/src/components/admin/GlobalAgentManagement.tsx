@@ -23,7 +23,10 @@ import {
   AgentConfigurationTypeEdge,
 } from "../../types/graphql-api";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
+import {
+  MOBILE_VIEW_BREAKPOINT,
+  AGENT_TABLE_MIN_WIDTH_PX,
+} from "../../assets/configurations/constants";
 import {
   CardSegment as StyledSegment,
   ScrollableTableWrapper,
@@ -388,7 +391,7 @@ export const GlobalAgentManagement: React.FC = () => {
           </InfoMessage>
         ) : (
           <ScrollableTableWrapper
-            $minWidth="720px"
+            $minWidth={`${AGENT_TABLE_MIN_WIDTH_PX}px`}
             data-testid="global-agents-table-scroll"
           >
             <Table variant="minimal">
