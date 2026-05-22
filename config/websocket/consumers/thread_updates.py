@@ -285,6 +285,9 @@ class ThreadUpdatesConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         attached to ``self.conversation`` for downstream use; the connect path
         wants this side effect, the refresh path does not.
         """
+        if self.conversation_id is None:
+            return False
+
         try:
             conversation = Conversation.objects.get(pk=self.conversation_id)
         except Conversation.DoesNotExist:

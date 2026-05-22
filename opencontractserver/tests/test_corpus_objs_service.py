@@ -17,6 +17,7 @@ The two ``check_user_upload_quota`` / ``validate_file_type`` test classes test
 methods that live on ``DocumentService`` rather than ``CorpusObjsService``.
 """
 
+import warnings
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -29,11 +30,20 @@ from opencontractserver.constants.document_processing import (
     MAX_PATH_DISAMBIGUATION_SUFFIX,
     PATH_CONFLICT_MSG,
 )
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+
+# The shim module emits a DeprecationWarning at import time, by design — it is
+# the runtime signal Phase 2C uses for call-site discovery. This behavioural
+# regression suite still exercises the facade on purpose, so suppress the
+# warning at import to keep CI output clean and stay robust if the test suite
+# ever adopts ``filterwarnings = error``.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusFolder,
 )
+from opencontractserver.corpuses.services import CorpusPathService
 from opencontractserver.documents.document_service import DocumentService
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
@@ -124,8 +134,14 @@ class TestPermission_SuperuserBypassesAllChecks(TestCase):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
         )
+        # Username must be globally unique, not a generic "admin": under
+        # ``pytest -n --dist loadscope`` a single worker DB is shared across
+        # many test files, and a plain "admin" superuser collides with ones
+        # created by other modules on that worker.
         self.superuser = User.objects.create_superuser(
-            username="admin", email="admin@test.com", password="test"
+            username="su_bypass_admin",
+            email="su_bypass_admin@test.com",
+            password="test",
         )
         self.corpus = Corpus.objects.create(
             title="Private Corpus", creator=self.owner, is_public=False
@@ -2508,7 +2524,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         )
         self.assertEqual(current.path, "/summary.pdf")
 
-    @patch("opencontractserver.corpuses.corpus_objs_service.post_save")
+    @patch("opencontractserver.corpuses.services.paths.post_save")
     def test_delete_folder_dispatches_post_save_for_each_created_path(
         self, mock_signal
     ):
@@ -2649,7 +2665,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             DocumentPath.objects.filter(document=doc2, corpus=self.corpus).count(), 1
         )
 
-    @patch("opencontractserver.corpuses.corpus_objs_service.post_save")
+    @patch("opencontractserver.corpuses.services.paths.post_save")
     def test_bulk_move_dispatches_post_save_for_each_created_path(self, mock_signal):
         """bulk_create bypasses Django signals; verify manual dispatch fires once per doc."""
         doc1, _ = self._create_doc_at_root("Doc 1", "doc1.pdf")
@@ -3138,7 +3154,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         )
 
         with patch.object(
-            CorpusObjsService,
+            CorpusPathService,
             "_disambiguate_path",
             side_effect=ValueError("all suffixes exhausted"),
         ):
@@ -3204,7 +3220,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             return original_disambiguate(base_path, corpus, **kwargs)
 
         with patch.object(
-            CorpusObjsService,
+            CorpusPathService,
             "_disambiguate_path",
             staticmethod(fail_on_second),
         ):
@@ -3256,7 +3272,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
 
         # First attempt: fails
         with patch.object(
-            CorpusObjsService,
+            CorpusPathService,
             "_disambiguate_path",
             side_effect=ValueError("temporary failure"),
         ):
@@ -3307,7 +3323,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         )
 
         with patch.object(
-            CorpusObjsService,
+            CorpusPathService,
             "_disambiguate_path",
             side_effect=ValueError("blocked"),
         ):
@@ -3408,7 +3424,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(_CorpusObjsServiceFolderTestBase
     def test_disambiguate_exhaustion_returns_error(self):
         """ValueError from _disambiguate_path is surfaced as a user-facing error."""
         with patch.object(
-            CorpusObjsService,
+            CorpusPathService,
             "_disambiguate_path",
             side_effect=ValueError("all suffixes exhausted"),
         ):
@@ -3478,7 +3494,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             return original_disambiguate(base_path, corpus, **kwargs)
 
         with patch.object(
-            CorpusObjsService, "_disambiguate_path", staticmethod(selective_fail)
+            CorpusPathService, "_disambiguate_path", staticmethod(selective_fail)
         ):
             moved_count, error = CorpusObjsService.move_documents_to_folder(
                 user=self.owner,
@@ -3525,7 +3541,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
 
         # First attempt: fails
         with patch.object(
-            CorpusObjsService,
+            CorpusPathService,
             "_disambiguate_path",
             side_effect=ValueError("temporary failure"),
         ):

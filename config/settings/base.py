@@ -4,6 +4,7 @@ Base settings to build other settings files upon.
 
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import environ
 
@@ -610,7 +611,7 @@ if USE_AUTH0:
     SECURE_CSP_DIRECTIVES["frame-src"] = [f"https://{AUTH0_DOMAIN}"]
 
 # Permissions-Policy — opt out of browser features not needed by the app.
-SECURE_PERMISSIONS_POLICY = {
+SECURE_PERMISSIONS_POLICY: dict[str, list[str]] = {
     "camera": [],
     "microphone": [],
     "geolocation": [],
@@ -1240,7 +1241,7 @@ ANALYZER_KWARGS = {
 # Pipeline-specific settings that override global settings
 # These are only set if you want to override the global settings for specific components
 # Otherwise, components will fall back to the global settings (which read from env vars)
-PIPELINE_SETTINGS = {
+PIPELINE_SETTINGS: dict[str, dict[str, Any]] = {
     # Example: To override settings for a specific component:
     # "opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder": {
     #     "embeddings_microservice_url": "https://custom-url-for-this-component",
