@@ -26,7 +26,11 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
-import { CardSegment as StyledSegment } from "../layout/SharedSegments";
+import { MOBILE_VIEW_BREAKPOINT } from "../../assets/configurations/constants";
+import {
+  CardSegment as StyledSegment,
+  ScrollableTableWrapper,
+} from "../layout/SharedSegments";
 import { StatusBadge } from "../agents/AgentBadges";
 import { backendUserObj } from "../../graphql/cache";
 
@@ -87,6 +91,10 @@ const Container = styled.div`
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 1rem;
+  }
 `;
 
 const BackLink = styled.button`
@@ -110,8 +118,10 @@ const BackLink = styled.button`
 
 const PageHeader = styled.div`
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 1rem;
   margin-bottom: 2rem;
 `;
 
@@ -321,60 +331,67 @@ export const WorkerAccountManagement: React.FC = () => {
             pipelines.
           </InfoMessage>
         ) : (
-          <Table variant="minimal">
-            <Table.Head>
-              <Table.Row>
-                <Table.HeadCell>Name</Table.HeadCell>
-                <Table.HeadCell>Description</Table.HeadCell>
-                <Table.HeadCell>Status</Table.HeadCell>
-                <Table.HeadCell>Tokens</Table.HeadCell>
-                <Table.HeadCell>Creator</Table.HeadCell>
-                <Table.HeadCell>Created</Table.HeadCell>
-                <Table.HeadCell>Actions</Table.HeadCell>
-              </Table.Row>
-            </Table.Head>
-            <Table.Body>
-              {accounts.map((account) => (
-                <Table.Row key={account.id}>
-                  <Table.Cell>
-                    <strong>{account.name}</strong>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <TruncatedCell>{account.description || "-"}</TruncatedCell>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <StatusBadge $active={account.isActive}>
-                      {account.isActive ? "Active" : "Inactive"}
-                    </StatusBadge>
-                  </Table.Cell>
-                  <Table.Cell>{account.tokenCount}</Table.Cell>
-                  <Table.Cell>{account.creatorName}</Table.Cell>
-                  <Table.Cell>
-                    {new Date(account.created).toLocaleDateString()}
-                  </Table.Cell>
-                  <Table.Cell>
-                    {account.isActive ? (
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => handleToggleActive(account)}
-                      >
-                        Deactivate
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        onClick={() => handleToggleActive(account)}
-                      >
-                        Activate
-                      </Button>
-                    )}
-                  </Table.Cell>
+          <ScrollableTableWrapper
+            $minWidth="760px"
+            data-testid="worker-accounts-table-scroll"
+          >
+            <Table variant="minimal">
+              <Table.Head>
+                <Table.Row>
+                  <Table.HeadCell>Name</Table.HeadCell>
+                  <Table.HeadCell>Description</Table.HeadCell>
+                  <Table.HeadCell>Status</Table.HeadCell>
+                  <Table.HeadCell>Tokens</Table.HeadCell>
+                  <Table.HeadCell>Creator</Table.HeadCell>
+                  <Table.HeadCell>Created</Table.HeadCell>
+                  <Table.HeadCell>Actions</Table.HeadCell>
                 </Table.Row>
-              ))}
-            </Table.Body>
-          </Table>
+              </Table.Head>
+              <Table.Body>
+                {accounts.map((account) => (
+                  <Table.Row key={account.id}>
+                    <Table.Cell>
+                      <strong>{account.name}</strong>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <TruncatedCell>
+                        {account.description || "-"}
+                      </TruncatedCell>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <StatusBadge $active={account.isActive}>
+                        {account.isActive ? "Active" : "Inactive"}
+                      </StatusBadge>
+                    </Table.Cell>
+                    <Table.Cell>{account.tokenCount}</Table.Cell>
+                    <Table.Cell>{account.creatorName}</Table.Cell>
+                    <Table.Cell>
+                      {new Date(account.created).toLocaleDateString()}
+                    </Table.Cell>
+                    <Table.Cell>
+                      {account.isActive ? (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleToggleActive(account)}
+                        >
+                          Deactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => handleToggleActive(account)}
+                        >
+                          Activate
+                        </Button>
+                      )}
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
+          </ScrollableTableWrapper>
         )}
       </StyledSegment>
 

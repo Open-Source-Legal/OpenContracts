@@ -9,10 +9,16 @@ import { gql } from "@apollo/client";
  * These are intentionally separate from the corpus-scoped agent operations
  * in `src/graphql/{queries,mutations}.ts`: the global form omits `slug` and
  * `corpusId`, and trims the selection set to what the admin list needs.
+ *
+ * NOTE: `scope` is the `AgentsAgentConfigurationScopeChoices` GraphQL enum
+ * (graphene-django derives it from the `AgentConfiguration.scope` model
+ * choices). It must be written as the bare enum literal `GLOBAL` — a quoted
+ * string `"GLOBAL"` fails query validation with
+ * `Argument 'scope' has invalid value "GLOBAL"` (issue #1750).
  */
 export const GET_GLOBAL_AGENTS = gql`
   query GetGlobalAgents {
-    agentConfigurations(scope: "GLOBAL") {
+    agentConfigurations(scope: GLOBAL) {
       edges {
         node {
           id

@@ -199,4 +199,42 @@ test.describe("WorkerAccountManagement", () => {
 
     await docScreenshot(page, "admin--worker-accounts--create-modal");
   });
+
+  test("keeps the worker account table horizontally scrollable on mobile", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard for issue #1749: the wide worker-account table must
+    // scroll horizontally on small viewports rather than crush its columns.
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const mocks = [
+      {
+        request: { query: GET_WORKER_ACCOUNTS },
+        variableMatcher: () => true,
+        result: {
+          data: {
+            workerAccounts: mockWorkerAccounts,
+          },
+        },
+      },
+    ];
+
+    await mount(<WorkerAccountManagementTestWrapper mocks={mocks} />);
+
+    await expect(page.getByText("Pipeline Uploader")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const scroll = page.getByTestId("worker-accounts-table-scroll");
+    await expect(scroll).toBeVisible();
+    const overflowX = await scroll.evaluate(
+      (el) => getComputedStyle(el).overflowX
+    );
+    expect(overflowX).toBe("auto");
+    const scrolls = await scroll.evaluate(
+      (el) => el.scrollWidth > el.clientWidth
+    );
+    expect(scrolls).toBe(true);
+  });
 });
