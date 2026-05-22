@@ -21,7 +21,7 @@ from django.test import SimpleTestCase
 from opencontractserver.shared.services import BaseService
 
 
-class TestPhase3ServicePackages(SimpleTestCase):
+class Phase3ServiceRelocationTests(SimpleTestCase):
     """SCENARIO: the five relocated services live in per-app ``services/``
     packages and inherit the shared ``BaseService`` foundation.
 
