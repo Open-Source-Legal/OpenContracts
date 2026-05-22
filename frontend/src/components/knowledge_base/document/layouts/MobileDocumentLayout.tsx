@@ -72,8 +72,15 @@ const SummarySurface = styled.div`
  * Annotations surface wrapper: fills the {@link Surface} so the unified feed's
  * `AutoSizer` (which needs a measured parent) and `height: 100%` panels size
  * correctly. The feed owns its own internal scrolling.
+ *
+ * Must be a flex column: {@link RightPanelContent} renders the feed inside a
+ * `FlexColumnPanel` (`flex: 1`), which collapses to zero height — taking the
+ * feed's virtualized `AutoSizer` with it — unless its parent establishes a
+ * flex context.
  */
 const AnnotationsSurface = styled.div`
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
 `;
