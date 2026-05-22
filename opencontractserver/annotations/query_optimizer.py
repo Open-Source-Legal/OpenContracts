@@ -55,7 +55,7 @@ class AnnotationQueryOptimizer:
         cached on ``context._effective_perms_cache`` keyed by
         ``(user_id, document_id, corpus_id)`` so subsequent resolvers in the
         same request reuse the answer instead of re-running the 10
-        ``user_has_permission_for_obj`` round-trips and the
+        ``user_can`` round-trips and the
         ``Document``/``Corpus`` ``.get()`` lookups. The cache is also primed
         with the fetched ORM instances so other resolvers inside this request
         can avoid re-fetching them.
@@ -110,10 +110,8 @@ class AnnotationQueryOptimizer:
 
         # Authenticated user — document permissions first.
         # NOTE: Routes through ``Document.objects.user_can`` / ``Corpus.objects.user_can``
-        # (instead of the deprecated ``user_has_permission_for_obj``) so creator
-        # status is honored. This is the Phase A bug-fix posture: the legacy
-        # function ignored creator, producing False-denials when the same
-        # user owned both the annotation and its parent document/corpus.
+        # so creator status is honored — a user who owns both the annotation
+        # and its parent document/corpus is not False-denied.
         #
         # Forward ``context`` as ``request`` so the Tier 2
         # ``PermissionQueryOptimizer`` (PR #1665) dedupes the guardian

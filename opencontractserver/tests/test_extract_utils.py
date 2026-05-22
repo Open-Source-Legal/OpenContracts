@@ -16,7 +16,6 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Extract, Fieldset
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.extract import create_and_setup_extract
-from opencontractserver.utils.permissioning import user_has_permission_for_obj
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +72,7 @@ class CreateAndSetupExtractTestCase(TestCase):
             PermissionTypes.DELETE,
         ):
             self.assertTrue(
-                user_has_permission_for_obj(
-                    self.user,
-                    extract,
-                    permission,
-                    include_group_permissions=True,
-                ),
+                extract.user_can(self.user, permission),
                 f"creator should have {permission.name} on Extract "
                 f"created via the framework helper",
             )

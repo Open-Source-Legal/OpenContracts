@@ -7,7 +7,7 @@ from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
-from opencontractserver.annotations.models import Annotation
+from opencontractserver.annotations.models import Annotation, AnnotationLabel, Note
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
@@ -197,10 +197,13 @@ class ComprehensivePermissionTestCase(TestCase):
         )
         variables = {"id": to_global_id("CorpusType", corpus_to_delete.id)}
 
-        # Test for regular user (should fail)
+        # Test for regular user (should fail with unified ok=False envelope).
+        # Phase D #1658: DeleteCorpusMutation now returns ok=False instead of
+        # raising Corpus.DoesNotExist so the response shape doesn't leak
+        # existence-vs-permission to enumerating callers.
         result = self.regular_client.execute(mutation, variable_values=variables)
-        self.assertIsNone(result["data"]["deleteCorpus"])
-        self.assertIn("errors", result)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["deleteCorpus"]["ok"])
 
         # Verify corpus still exists in database
         self.assertTrue(Corpus.objects.filter(id=corpus_to_delete.id).exists())
@@ -229,10 +232,14 @@ class ComprehensivePermissionTestCase(TestCase):
         )
         variables = {"id": to_global_id("CorpusType", private_corpus.id)}
 
-        # Test for collaborator (should fail)
+        # Test for collaborator (should fail with unified ok=False envelope).
+        # Phase D #1658: same IDOR-safe response whether the corpus is hidden
+        # by visibility or visible-but-undeletable; previously the unauthorized
+        # branch raised Corpus.DoesNotExist which surfaced as a GraphQL errors
+        # entry.
         result = self.collaborator_client.execute(mutation, variable_values=variables)
-        self.assertIsNone(result["data"]["deleteCorpus"])
-        self.assertIn("errors", result)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["deleteCorpus"]["ok"])
 
         # Verify corpus still exists in database
         self.assertTrue(Corpus.objects.filter(id=private_corpus.id).exists())
@@ -243,6 +250,38 @@ class ComprehensivePermissionTestCase(TestCase):
 
         # Verify corpus is actually deleted from database
         self.assertFalse(Corpus.objects.filter(id=private_corpus.id).exists())
+
+    def test_delete_personal_corpus_returns_unified_envelope(self):
+        """Phase D #1658: even the ``is_personal`` rejection must travel via
+        ``{ok: false, message}`` rather than ``GraphQLError``, so frontend
+        consumers can pattern-match a single response shape.
+        """
+        mutation = """
+        mutation($id: String!) {
+          deleteCorpus(id: $id) {
+            ok
+            message
+          }
+        }
+        """
+        # The owner's personal corpus is auto-created by the user signal —
+        # the ``one_personal_corpus_per_user`` constraint forbids a second.
+        personal_corpus = Corpus.objects.get(creator=self.owner, is_personal=True)
+        set_permissions_for_obj_to_user(
+            self.owner.id, personal_corpus, [PermissionTypes.CRUD]
+        )
+        variables = {"id": to_global_id("CorpusType", personal_corpus.id)}
+
+        result = self.owner_client.execute(mutation, variable_values=variables)
+
+        # No raw GraphQL errors must surface — all rejections live in
+        # ``data.deleteCorpus.{ok,message}``.
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["deleteCorpus"]["ok"])
+        self.assertIn("personal", result["data"]["deleteCorpus"]["message"].lower())
+
+        # Corpus remains in the database.
+        self.assertTrue(Corpus.objects.filter(id=personal_corpus.id).exists())
 
     def test_permission_change_effect(self):
         query = """
@@ -760,17 +799,17 @@ class CorpusPublicPropagationEdgeCasesTest(TestCase):
         self.assertTrue(copy.is_public)
 
 
-class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
+class UserCanPrefetchFastPathTest(TestCase):
     """
-    Verifies that ``user_has_permission_for_obj`` consumes the per-user
-    permission prefetches set up by ``_apply_document_prefetches`` rather
-    than issuing a guardian query per row.
+    Verifies that ``user_can`` consumes the per-user permission prefetches
+    set up by ``_apply_document_prefetches`` rather than issuing a guardian
+    query per row.
 
     Regression coverage for issue #1555: ``DocumentType.canViewHistory`` and
     ``DocumentType.canRetry`` are selected by the shared ``GET_DOCUMENTS``
     query, so any paginated ``documents`` resolver was previously paying an
-    N+1 cost per page (each call to ``user_has_permission_for_obj`` did a
-    fresh ``.filter()`` on the related manager, bypassing the prefetch).
+    N+1 cost per page (each call to ``user_can`` did a fresh ``.filter()``
+    on the related manager, bypassing the prefetch).
     """
 
     def setUp(self):
@@ -825,60 +864,31 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
                 f"Expected {group_attr} to be set by _apply_document_prefetches",
             )
 
-    def test_user_has_permission_for_obj_no_n_plus_1_with_prefetch(self):
+    def test_user_can_no_n_plus_1_with_prefetch(self):
         """
-        With prefetched docs, calling ``user_has_permission_for_obj`` per row
-        must NOT issue any new queries — independent of N. The previous
-        implementation issued one query per row per call (and a second one for
-        the permission-id-to-name map plus a third for group perms).
+        With prefetched docs, calling ``user_can`` per row must NOT issue
+        any new queries — independent of N. The previous implementation
+        issued one query per row per call (and a second one for the
+        permission-id-to-name map plus a third for group perms).
         """
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         # Materialize the queryset (includes the prefetches).
         docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
         self.assertEqual(len(docs), 5)
 
-        # ZERO queries for direct READ checks across all rows: every lookup
-        # is satisfied from the prefetched ``_prefetched_user_perms_uid_*``
-        # list (already filtered by user_id and joined to permission codename).
+        # ZERO queries for READ checks across all rows: every lookup is
+        # satisfied from the prefetched ``_prefetched_user_perms_uid_*``
+        # list, with group perms from the matching
+        # ``_prefetched_user_group_perms_uid_*`` list (both filtered by
+        # user_id at prefetch time — ``user_can`` resolves group perms
+        # by default).
         with self.assertNumQueries(0):
             for d in docs:
-                self.assertTrue(
-                    user_has_permission_for_obj(self.viewer, d, PermissionTypes.READ)
-                )
-
-        # Same for include_group_permissions=True — group perms come from the
-        # ``_prefetched_user_group_perms_uid_*`` list, filtered to the user's
-        # groups at prefetch time.
-        with self.assertNumQueries(0):
-            for d in docs:
-                self.assertTrue(
-                    user_has_permission_for_obj(
-                        self.viewer,
-                        d,
-                        PermissionTypes.READ,
-                        include_group_permissions=True,
-                    )
-                )
+                self.assertTrue(d.user_can(self.viewer, PermissionTypes.READ))
 
         # Doc[0] has UPDATE via group membership — group prefetch path must
         # surface it. Doc[1..] only have READ, so UPDATE is denied there.
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.viewer,
-                docs[0],
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(
-                self.viewer,
-                docs[1],
-                PermissionTypes.UPDATE,
-                include_group_permissions=True,
-            )
-        )
+        self.assertTrue(docs[0].user_can(self.viewer, PermissionTypes.UPDATE))
+        self.assertFalse(docs[1].user_can(self.viewer, PermissionTypes.UPDATE))
 
     def test_is_public_grants_read_on_prefetched_path(self):
         """
@@ -935,13 +945,9 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         the fast path is silently skipped and the legacy guardian queries
         still produce the correct answer.
         """
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         doc = Document.objects.get(pk=self.docs[0].pk)
         self.assertFalse(hasattr(doc, f"_prefetched_user_perms_uid_{self.viewer.id}"))
-        self.assertTrue(
-            user_has_permission_for_obj(self.viewer, doc, PermissionTypes.READ)
-        )
+        self.assertTrue(doc.user_can(self.viewer, PermissionTypes.READ))
 
     def test_different_user_lookup_falls_through_to_guardian(self):
         """
@@ -954,8 +960,6 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         path was actually taken — a silently-cached attribute would still
         produce ``False`` for ``other_user`` but would issue zero queries.
         """
-        from opencontractserver.utils.permissioning import user_has_permission_for_obj
-
         docs = list(Document.objects.visible_to_user(self.viewer, lightweight=True))
         # ``other_user`` has no perms on any of these docs; the prefetch is
         # filtered by viewer.id so its presence must not cause us to
@@ -965,11 +969,7 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         # than silently reusing the viewer's prefetched list).
         with CaptureQueriesContext(connection) as ctx:
             for d in docs:
-                self.assertFalse(
-                    user_has_permission_for_obj(
-                        self.other_user, d, PermissionTypes.READ
-                    )
-                )
+                self.assertFalse(d.user_can(self.other_user, PermissionTypes.READ))
         # Legacy path issues at least 2 queries per row (user-perm filter +
         # permission-id-to-name map). Asserting >= 2 * len(docs) pins both —
         # >= len(docs) alone would mask a partial regression.
@@ -1040,3 +1040,254 @@ class UserHasPermissionForObjPrefetchFastPathTest(TestCase):
         perms = set(result["data"]["corpus"]["myPermissions"])
         self.assertIn("read_corpus", perms)
         self.assertIn("update_corpus", perms)
+
+
+class GroupObjectPermissionVisibilityTest(TestCase):
+    """Regression coverage for issue #1714 — ``QuerySet.visible_to_user``
+    must honour *group* object-permissions, not just *user* ones.
+
+    ``Manager.user_can`` resolves group grants: ``_default_user_can``
+    runs with ``include_group_permissions=True``. Before the fix, the
+    ``PermissionQuerySet`` / ``DocumentQuerySet`` / ``AnnotationQuerySet``
+    bodies in ``shared/QuerySets.py`` only joined the *user*
+    object-permission table, so a user whose sole READ grant was via a
+    group passed ``user_can(READ)`` yet was excluded from
+    ``visible_to_user`` — a filter/check drift. ``Note`` drifted
+    transitively (it composes ``Document.objects.visible_to_user``).
+
+    These tests pin the filter/check equivalence for a group-shared
+    user across Document, Annotation, Note, and the generic
+    ``PermissionQuerySet`` fallback body.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        self.owner = User.objects.create_user(username="grp_owner", password="x")
+        # ``group_user``'s ONLY path to the objects below is group
+        # membership — no creator status, no direct user grant, nothing
+        # public. This isolates the group-permission code path.
+        self.group_user = User.objects.create_user(username="grp_member", password="x")
+        self.stranger = User.objects.create_user(username="grp_stranger", password="x")
+
+        self.group = Group.objects.create(name="visibility_test_group")
+        self.group_user.groups.add(self.group)
+
+        # Private doc + corpus, each READ-shared with the group ONLY.
+        self.group_doc = Document.objects.create(
+            title="Group-Shared Doc", creator=self.owner, is_public=False
+        )
+        self.group_corpus = Corpus.objects.create(
+            title="Group-Shared Corpus", creator=self.owner, is_public=False
+        )
+        assign_perm("read_document", self.group, self.group_doc)
+        assign_perm("read_corpus", self.group, self.group_corpus)
+
+        # Control: a private doc not shared with the group at all.
+        self.unshared_doc = Document.objects.create(
+            title="Unshared Doc", creator=self.owner, is_public=False
+        )
+
+        self.label = AnnotationLabel.objects.create(
+            text="grp_label", label_type="TOKEN_LABEL", creator=self.owner
+        )
+        # Plain annotation (non-structural, no analysis/extract privacy
+        # fields) on the group-shared doc + corpus.
+        self.group_annotation = Annotation.objects.create(
+            raw_text="group ann",
+            json={"x": 1},
+            page=1,
+            annotation_label=self.label,
+            creator=self.owner,
+            document=self.group_doc,
+            corpus=self.group_corpus,
+        )
+        self.group_note = Note.objects.create(
+            title="Group Note",
+            content="x",
+            creator=self.owner,
+            document=self.group_doc,
+            corpus=self.group_corpus,
+            is_public=False,
+        )
+
+    def test_document_group_grant_appears_in_visible_to_user(self):
+        """A document READ-granted to the user's group is included in
+        ``Document.objects.visible_to_user`` (issue #1714)."""
+        visible_ids = set(
+            Document.objects.visible_to_user(self.group_user).values_list(
+                "pk", flat=True
+            )
+        )
+        self.assertIn(self.group_doc.pk, visible_ids)
+        # Control: a doc not shared with the group stays hidden.
+        self.assertNotIn(self.unshared_doc.pk, visible_ids)
+
+    def test_document_group_filter_check_equivalence(self):
+        """``user_can(READ)`` and ``visible_to_user(...).exists()`` agree
+        for a group-shared user — the invariant the drift broke."""
+        check = self.group_doc.user_can(self.group_user, PermissionTypes.READ)
+        in_filter = (
+            Document.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_doc.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group-level READ grant")
+        self.assertTrue(in_filter, "visible_to_user must honour the group grant")
+        self.assertEqual(check, in_filter)
+
+    def test_group_read_grant_does_not_widen_to_writes(self):
+        """SECURITY: a group READ grant authorizes READ but never
+        UPDATE/DELETE — the read/write asymmetry must hold."""
+        self.assertTrue(self.group_doc.user_can(self.group_user, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(
+                self.group_doc.user_can(self.group_user, perm),
+                f"group READ grant silently widened to {perm} — leak!",
+            )
+
+    def test_permission_queryset_generic_body_honors_group_perms(self):
+        """The generic ``PermissionQuerySet.visible_to_user`` fallback
+        body (used by direct ``PermissionManager`` consumers) also
+        consults the ``*groupobjectpermission`` table."""
+        from opencontractserver.shared.QuerySets import PermissionQuerySet
+
+        qs = PermissionQuerySet(model=Document, using=connection.alias)
+        visible_ids = set(
+            qs.visible_to_user(self.group_user).values_list("pk", flat=True)
+        )
+        self.assertIn(self.group_doc.pk, visible_ids)
+        self.assertNotIn(self.unshared_doc.pk, visible_ids)
+
+    def test_annotation_group_grant_filter_check_equivalence(self):
+        """An annotation whose parent doc + corpus are READ-granted to
+        the user's group is in ``Annotation.objects.visible_to_user``
+        and passes ``user_can(READ)`` (issue #1714)."""
+        check = Annotation.objects.user_can(
+            self.group_user, self.group_annotation, PermissionTypes.READ
+        )
+        in_filter = (
+            Annotation.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_annotation.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group grant on doc + corpus")
+        self.assertTrue(in_filter, "visible_to_user must honour the group grant")
+        self.assertEqual(check, in_filter)
+
+    def test_note_group_grant_filter_check_equivalence(self):
+        """A note inherits visibility from its parent doc + corpus; a
+        group READ grant on both makes it visible and keeps
+        ``user_can`` / ``visible_to_user`` aligned (issue #1714)."""
+        check = Note.objects.user_can(
+            self.group_user, self.group_note, PermissionTypes.READ
+        )
+        in_filter = (
+            Note.objects.visible_to_user(self.group_user)
+            .filter(pk=self.group_note.pk)
+            .exists()
+        )
+        self.assertTrue(check, "user_can must honour the group-level READ grant")
+        self.assertTrue(
+            in_filter, "visible_to_user must honour the group-level READ grant"
+        )
+        self.assertEqual(
+            check, in_filter, "user_can and visible_to_user must agree for the note"
+        )
+
+    def test_stranger_without_group_membership_stays_excluded(self):
+        """A user who is NOT in the group sees none of the group-shared
+        objects — the fix must not widen visibility beyond members."""
+        for model, instance in (
+            (Document, self.group_doc),
+            (Annotation, self.group_annotation),
+            (Note, self.group_note),
+        ):
+            in_filter = (
+                model.objects.visible_to_user(self.stranger)
+                .filter(pk=instance.pk)
+                .exists()
+            )
+            self.assertFalse(
+                in_filter,
+                f"non-member saw {model.__name__} pk={instance.pk} — leak!",
+            )
+            self.assertFalse(
+                model.objects.user_can(self.stranger, instance, PermissionTypes.READ)
+            )
+
+    def test_group_lookup_uses_subquery_not_per_group_round_trips(self):
+        """PERFORMANCE: group grants resolve via a SQL subquery, so the
+        query count to materialize ``visible_to_user`` is independent of
+        how many groups the user belongs to (issue #1714 perf check)."""
+        from django.contrib.auth.models import Group
+
+        # A second user in five groups (incl. the shared one) — the
+        # extra groups must not each cost a round-trip.
+        many_group_user = User.objects.create_user(username="grp_many", password="x")
+        many_group_user.groups.add(self.group)
+        for i in range(4):
+            many_group_user.groups.add(Group.objects.create(name=f"perf_grp_{i}"))
+
+        # lightweight=True skips the heavy prefetch fan-outs so the
+        # captured query count reflects only the core visibility query —
+        # exactly the part group resolution touches.
+        with CaptureQueriesContext(connection) as one_group_ctx:
+            list(Document.objects.visible_to_user(self.group_user, lightweight=True))
+        with CaptureQueriesContext(connection) as many_group_ctx:
+            list(Document.objects.visible_to_user(many_group_user, lightweight=True))
+
+        self.assertEqual(
+            len(many_group_ctx.captured_queries),
+            len(one_group_ctx.captured_queries),
+            "group-permission resolution must not add a round-trip per group",
+        )
+
+    def test_visible_to_user_degrades_when_guardian_tables_missing(self):
+        """DEFENSIVE: if the guardian ``*userobjectpermission`` /
+        ``*groupobjectpermission`` tables cannot be resolved, the
+        ``visible_to_user`` bodies fall back gracefully instead of
+        raising — each ``except LookupError`` branch zeroes out its own
+        permitted-id set. Splitting the user- and group-table lookups
+        into separate ``try`` blocks (issue #1714 review) means a
+        missing group table never discards already-resolved user grants.
+        """
+        from unittest.mock import patch
+
+        from django.apps import apps
+
+        from opencontractserver.shared.QuerySets import PermissionQuerySet
+
+        real_get_model = apps.get_model
+
+        def fake_get_model(app_label, model_name=None, *args, **kwargs):
+            name = model_name if model_name is not None else app_label
+            if "userobjectpermission" in name or "groupobjectpermission" in name:
+                raise LookupError(f"simulated missing table: {name}")
+            return real_get_model(app_label, model_name, *args, **kwargs)
+
+        with patch.object(apps, "get_model", side_effect=fake_get_model):
+            # None of these may raise — the except LookupError branches
+            # in every queryset body must handle the missing tables.
+            doc_visible = set(
+                Document.objects.visible_to_user(self.group_user).values_list(
+                    "pk", flat=True
+                )
+            )
+            generic_qs = PermissionQuerySet(model=Document, using=connection.alias)
+            generic_visible = set(
+                generic_qs.visible_to_user(self.group_user).values_list("pk", flat=True)
+            )
+            annotation_visible = set(
+                Annotation.objects.visible_to_user(self.group_user).values_list(
+                    "pk", flat=True
+                )
+            )
+
+        # With guardian resolution unavailable, the group-only user
+        # loses access to every object reachable solely via a group
+        # grant — visibility degrades to creator/public, never crashes.
+        self.assertNotIn(self.group_doc.pk, doc_visible)
+        self.assertNotIn(self.group_doc.pk, generic_visible)
+        self.assertNotIn(self.group_annotation.pk, annotation_visible)

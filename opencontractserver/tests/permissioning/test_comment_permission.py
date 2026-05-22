@@ -27,10 +27,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -176,8 +173,8 @@ class CommentPermissionTestCase(TestCase):
             "User should NOT have COMMENT permission (corpus restriction applies)",
         )
 
-    def test_comment_permission_via_user_has_permission(self):
-        """Test COMMENT permission check via user_has_permission_for_obj"""
+    def test_comment_permission_via_user_can(self):
+        """Test COMMENT permission check via user_can"""
         # Give commenter COMMENT on document and corpus
         set_permissions_for_obj_to_user(
             self.commenter,
@@ -190,13 +187,8 @@ class CommentPermissionTestCase(TestCase):
             [PermissionTypes.READ, PermissionTypes.COMMENT],
         )
 
-        # Test via user_has_permission_for_obj
-        has_comment = user_has_permission_for_obj(
-            self.commenter,
-            self.annotation,
-            PermissionTypes.COMMENT,
-            include_group_permissions=True,
-        )
+        # Test via user_can
+        has_comment = self.annotation.user_can(self.commenter, PermissionTypes.COMMENT)
 
         self.assertTrue(
             has_comment,

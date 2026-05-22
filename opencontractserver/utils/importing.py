@@ -166,7 +166,7 @@ def import_annotations(
         # analysis/extract privacy) — see:
         #   * AnnotationQuerySet.visible_to_user (shared/QuerySets.py)
         #   * AnnotationQueryOptimizer._compute_effective_permissions
-        #   * user_has_permission_for_obj (special-cases annotations)
+        #   * AnnotationManager.user_can (special-cases annotations)
         # None of those consult AnnotationUserObjectPermission rows, so
         # writing ~14 DB ops per annotation here is dead work. Locked in
         # by ``test_no_per_annotation_guardian_rows_are_required`` in

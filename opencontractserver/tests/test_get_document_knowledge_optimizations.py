@@ -8,7 +8,7 @@ refactor in ``query_optimizer.py`` removed:
 * ``_compute_effective_permissions`` is meant to be cached on the GraphQL
   request context — without that cache, every sibling resolver
   (``allAnnotations`` + ``allRelationships`` + ``docAnnotations``) re-runs
-  its 10 ``user_has_permission_for_obj`` round-trips.
+  its 10 permission round-trips.
 * The parent ``Document``/``Corpus`` rows are also meant to be cached on
   the context so the same row isn't re-fetched per resolver.
 * ``user_feedback`` is meant to be prefetched on the annotation queryset so

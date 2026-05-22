@@ -78,8 +78,8 @@ def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
     ``ToolDefinition`` (see ``ScanAndAnnotateRegistryTests``). The helper
     is module-private (``_``-prefix) precisely because callers outside
     the tool framework would bypass that gate. Do not promote this
-    function to public API without adding an explicit
-    ``user_has_permission_for_obj`` check first.
+    function to public API without adding an explicit ``user_can`` check
+    first.
     """
     try:
         doc = Document.objects.get(pk=document_id)

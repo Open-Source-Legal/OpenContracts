@@ -214,8 +214,8 @@ def resolve_mentioned_resources(self, info):
             document = Document.objects.get(slug=doc_slug)
 
             # Check if user can see this document in this corpus context
-            if (user_has_permission_for_obj(user, document, PermissionTypes.READ) and
-                user_has_permission_for_obj(user, corpus, PermissionTypes.READ)):
+            if (document.user_can(user, PermissionTypes.READ) and
+                corpus.user_can(user, PermissionTypes.READ)):
                 resources.append({
                     'type': 'DOCUMENT',
                     'id': str(document.id),
@@ -240,7 +240,7 @@ def resolve_mentioned_resources(self, info):
 
         try:
             corpus = Corpus.objects.get(slug=slug)
-            if user_has_permission_for_obj(user, corpus, PermissionTypes.READ):
+            if corpus.user_can(user, PermissionTypes.READ):
                 resources.append({
                     'type': 'CORPUS',
                     'id': str(corpus.id),
@@ -256,7 +256,7 @@ def resolve_mentioned_resources(self, info):
         slug = match.group(1)
         try:
             document = Document.objects.get(slug=slug)
-            if user_has_permission_for_obj(user, document, PermissionTypes.READ):
+            if document.user_can(user, PermissionTypes.READ):
                 resources.append({
                     'type': 'DOCUMENT',
                     'id': str(document.id),

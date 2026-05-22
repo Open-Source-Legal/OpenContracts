@@ -245,9 +245,8 @@ class CreateExtractIterationMutationTestCase(TestCase):
         self.source = Extract.objects.create(
             name="Source", fieldset=self.fieldset, creator=self.user
         )
-        # `user_has_permission_for_obj` (called by CreateExtractIteration) ignores
-        # creator status — it requires explicit guardian grants. Grant CRUD here so
-        # the mutation's READ check passes.
+        # Grant CRUD on the source extract so the mutation's permission
+        # checks pass.
         set_permissions_for_obj_to_user(self.user, self.source, [PermissionTypes.CRUD])
         self.source.documents.add(self.doc_v1)
 
@@ -346,8 +345,7 @@ class CompareExtractsResolverTestCase(TestCase):
         )
         self.doc = _make_doc(self.user)
         # ExtractQueryOptimizer.get_extract_datacells filters cells by document
-        # READ permission, which `user_has_permission_for_obj` checks via guardian
-        # only — creator status alone is insufficient.
+        # READ permission. Grant CRUD on the doc so its cells are included.
         set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
         self.a = Extract.objects.create(
             name="A", fieldset=self.fieldset, creator=self.user

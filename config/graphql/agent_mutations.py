@@ -14,7 +14,10 @@ from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    set_permissions_for_obj_to_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,23 +84,26 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            # Permission check: must be superuser or corpus owner
+            # Permission check: must be superuser or corpus owner. Unified
+            # message blocks IDOR enumeration — same response whether the
+            # corpus doesn't exist or the caller lacks CRUD permission on it.
             corpus = None
             if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
-                # Use visible_to_user to prevent IDOR - returns same error whether
-                # corpus doesn't exist or user lacks permission
+                # ``from_global_id`` can raise a bare ``Exception`` (via
+                # ``binascii.Error``) on malformed base64 input. The
+                # malformed-id and the not-found / no-permission branches
+                # return the *same* string so a caller can't distinguish a
+                # bad id from a genuinely missing/inaccessible corpus.
                 try:
-                    corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-                except Corpus.DoesNotExist:
+                    corpus_pk = from_global_id(corpus_id)[1]
+                except Exception:
                     return CreateAgentConfigurationMutation(
                         ok=False,
                         message="Corpus not found",
                         agent=None,
                     )
-
-                # Check if user has permission for this corpus
-                if not corpus.user_can(
+                corpus = get_for_user_or_none(Corpus, corpus_pk, user)
+                if corpus is None or not corpus.user_can(
                     user, PermissionTypes.CRUD, request=info.context
                 ):
                     return CreateAgentConfigurationMutation(
@@ -207,21 +213,22 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            agent_pk = from_global_id(agent_id)[1]
-            # Use visible_to_user to prevent IDOR
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope rather
+            # than the generic "Failed to update" outer-handler message.
             try:
-                agent = AgentConfiguration.objects.visible_to_user(user).get(
-                    pk=agent_pk
-                )
-            except AgentConfiguration.DoesNotExist:
+                agent_pk = from_global_id(agent_id)[1]
+            except Exception:
                 return UpdateAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",
                     agent=None,
                 )
-
-            # Permission check
-            if not agent.user_can(user, PermissionTypes.CRUD, request=info.context):
+            agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
+            if agent is None or not agent.user_can(
+                user, PermissionTypes.CRUD, request=info.context
+            ):
                 return UpdateAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",
@@ -283,20 +290,21 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            agent_pk = from_global_id(agent_id)[1]
-            # Use visible_to_user to prevent IDOR
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope rather
+            # than the generic "Failed to delete" outer-handler message.
             try:
-                agent = AgentConfiguration.objects.visible_to_user(user).get(
-                    pk=agent_pk
-                )
-            except AgentConfiguration.DoesNotExist:
+                agent_pk = from_global_id(agent_id)[1]
+            except Exception:
                 return DeleteAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",
                 )
-
-            # Permission check
-            if not agent.user_can(user, PermissionTypes.CRUD, request=info.context):
+            agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
+            if agent is None or not agent.user_can(
+                user, PermissionTypes.CRUD, request=info.context
+            ):
                 return DeleteAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",

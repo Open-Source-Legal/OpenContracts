@@ -219,8 +219,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         to re-extract it from ``info.context``).
 
         Uses the canonical ``Document.objects.visible_to_user(user)`` manager
-        method so corpus-inherited and group permissions are honoured (per the
-        warning in ``user_has_permission_for_obj``'s docstring). Public
+        method so corpus-inherited and group permissions are honoured. Public
         documents short-circuit with no DB hit so high-traffic public reads are
         not penalised.
         """

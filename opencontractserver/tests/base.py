@@ -3,26 +3,24 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.db import connection, connections
 from django.db.utils import OperationalError
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from graphql_jwt.shortcuts import get_token
 
 from config.asgi import application
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.users.models import User
 
-User = get_user_model()
 logger = logging.getLogger(__name__)
 
-
-@pytest.mark.django_db
-@override_settings(
+# Settings shared by both fixture-backed base classes.
+_FIXTURE_TEST_SETTINGS = dict(
     STORAGES={
         "default": {
             "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -34,20 +32,211 @@ logger = logging.getLogger(__name__)
     MEDIA_ROOT="test_media/",
     CELERY_TASK_ALWAYS_EAGER=True,
 )
-class BaseFixtureTestCase(TransactionTestCase):
-    """
-    Base test case that loads fixtures using natural keys and disables signals.
 
-    This test case:
-    1. Loads the test fixtures automatically (split into contenttypes and test_data).
-    2. Disables document and annotation processing signals.
-    3. Provides helper methods to access test data.
-    4. Handles file field storage and cleanup.
+# Document file fields materialised from opencontractserver/tests/fixtures/files/.
+_FIXTURE_FILE_FIELDS: tuple[str, ...] = (
+    "pdf_file",
+    "txt_extract_file",
+    "pawls_parse_file",
+    "icon",
+    "md_summary_file",
+)
+
+
+class _FixtureSetupMixin:
+    """Shared fixture-backed test-data construction.
+
+    Mixed into both :class:`BaseFixtureTestCase` (``TestCase``) and
+    :class:`TransactionFixtureTestCase` (``TransactionTestCase``). Setup splits
+    into two cooperating phases:
+
+    * :meth:`_build_corpus_fixture_state` — pure DB work: load the ``testuser``
+      account, normalise the fixture documents' file-field paths, create the
+      test corpus, add the documents with corpus isolation, and grant
+      django-guardian permissions. For the ``TestCase`` variant this runs
+      **once per class** in ``setUpTestData`` (inside the class transaction);
+      for the ``TransactionTestCase`` variant it runs **once per test** in
+      ``setUp``, because committed-data semantics require a fresh build that
+      survives the per-test database flush.
+    * :meth:`_materialize_fixture_files` — copies the fixture files into the
+      live ``MEDIA_ROOT``. Always per-test: the autouse ``media_storage``
+      fixture (``opencontractserver/conftest.py``) repoints ``MEDIA_ROOT`` at a
+      fresh tmpdir for every test, so the files must be re-copied into it.
+
+    The fixture (``test_data.json``) itself is loaded by Django's fixture
+    machinery — once per class for ``TestCase``, once per test for
+    ``TransactionTestCase``.
     """
 
     fixtures: ClassVar[list[str]] = [
         "opencontractserver/tests/fixtures/test_data.json",
     ]
+
+    # Populated by _build_corpus_fixture_state (class attrs for the TestCase
+    # variant, instance attrs for the TransactionTestCase variant).
+    user: ClassVar[User]
+    docs: ClassVar[list[Document]]
+    corpus: ClassVar[Corpus]
+
+    @property
+    def doc(self) -> Document:
+        """First corpus document — kept identity-consistent with ``docs[0]``."""
+        return self.docs[0]
+
+    @property
+    def doc2(self) -> Document:
+        """Second corpus document."""
+        return self.docs[1]
+
+    @property
+    def doc3(self) -> Document:
+        """Third corpus document."""
+        return self.docs[2]
+
+    @staticmethod
+    def copy_fixture_file(fixture_path: str, dest_path: str) -> None:
+        """Copy a file from the fixtures directory into the test media directory.
+
+        Args:
+            fixture_path: Path relative to the 'files' directory in
+                'opencontractserver/tests/fixtures' (a leading 'files/' is
+                stripped if present).
+            dest_path: Destination path relative to ``MEDIA_ROOT``.
+        """
+        if fixture_path.startswith("files/"):
+            fixture_path = fixture_path.replace("files/", "", 1)
+
+        src = Path("opencontractserver/tests/fixtures/files") / fixture_path
+        dest = Path(settings.MEDIA_ROOT) / dest_path
+
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+        with open(src, "rb") as f:
+            file_contents = f.read()
+
+        with open(dest, "wb") as f:
+            f.write(file_contents)
+
+    @classmethod
+    def _build_corpus_fixture_state(cls, ns: Any) -> None:
+        """Build the corpus/document test state on ``ns``.
+
+        ``ns`` is the namespace to populate — the class itself when called from
+        ``TestCase.setUpTestData``, or a test instance when called from
+        ``TransactionTestCase.setUp``.
+        """
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        ns.user = User.objects.get(username="testuser")
+
+        fixture_docs = list(Document.objects.all().order_by("id"))
+        if not fixture_docs:
+            ns.docs = []
+            return
+
+        # Normalise fixture file-field paths to media-relative form. The
+        # fixture stores them prefixed with "files/"; strip that so the stored
+        # path matches where copy_fixture_file() writes them under MEDIA_ROOT.
+        for doc in fixture_docs:
+            for field in _FIXTURE_FILE_FIELDS:
+                file_field = getattr(doc, field, None)
+                if file_field and str(file_field.name).startswith("files/"):
+                    setattr(doc, field, str(file_field.name).replace("files/", "", 1))
+            doc.save()
+
+        # Create the test corpus and grant the creator full permissions
+        # (django-guardian requires explicit assignment).
+        ns.corpus = Corpus.objects.create(
+            title="Test Corpus",
+            description="A collection of contracts.",
+            creator=ns.user,
+            backend_lock=False,
+        )
+        set_permissions_for_obj_to_user(ns.user, ns.corpus, [PermissionTypes.ALL])
+
+        # Add documents to the corpus. add_document() creates corpus-isolated
+        # copies; tests interact with those copies, not the raw fixture docs.
+        ns.docs = []
+        for doc in fixture_docs:
+            corpus_doc, _, _ = ns.corpus.add_document(document=doc, user=ns.user)
+            set_permissions_for_obj_to_user(ns.user, corpus_doc, [PermissionTypes.ALL])
+            ns.docs.append(corpus_doc)
+
+    def _materialize_fixture_files(self) -> None:
+        """Copy every corpus document's fixture files into the current MEDIA_ROOT.
+
+        Runs per-test because the autouse ``media_storage`` fixture points
+        ``MEDIA_ROOT`` at a fresh tmpdir for each test.
+        """
+        for doc in self.docs:
+            for field in _FIXTURE_FILE_FIELDS:
+                file_field = getattr(doc, field, None)
+                if file_field and file_field.name:
+                    self.copy_fixture_file(file_field.name, file_field.name)
+
+
+@pytest.mark.django_db
+@override_settings(**_FIXTURE_TEST_SETTINGS)
+class BaseFixtureTestCase(_FixtureSetupMixin, TestCase):
+    """Fixture-backed base test case (``TestCase`` variant — the default).
+
+    The 18 MB ``test_data.json`` fixture and the derived corpus/document state
+    load **once per class** (``setUpTestData``), inside the class-level
+    transaction, instead of once per test. Each test still runs in its own
+    savepoint, so per-test database mutations are rolled back.
+
+    Use the ``TransactionTestCase``-backed variants instead when a test needs
+    committed-data semantics — i.e. data must be visible across database
+    connections (async consumers, websockets, Celery-eager tasks that read the
+    database from a worker thread). Those are :class:`TransactionFixtureTestCase`,
+    :class:`WebsocketFixtureBaseTestCase` and :class:`CeleryEagerModeFixtureTestCase`.
+
+    Signal management is handled globally by the ``conftest.py`` fixture
+    ``disable_document_processing_signals``.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+        super().setUpClass()
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        """Build the corpus/document fixture state once per class."""
+        cls._build_corpus_fixture_state(cls)
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._materialize_fixture_files()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            super().tearDownClass()
+        finally:
+            if os.path.exists(settings.MEDIA_ROOT):
+                shutil.rmtree(settings.MEDIA_ROOT)
+
+
+@pytest.mark.django_db
+@override_settings(**_FIXTURE_TEST_SETTINGS)
+class TransactionFixtureTestCase(_FixtureSetupMixin, TransactionTestCase):
+    """Fixture-backed base test case (``TransactionTestCase`` variant).
+
+    Backed by ``TransactionTestCase``: the fixture and the derived
+    corpus/document state are rebuilt for **every test**, committed (not rolled
+    back). Required for tests whose code under test reads the database across
+    connections — async consumers, websockets, Celery-eager tasks. Slower than
+    :class:`BaseFixtureTestCase`; use it only when committed data is genuinely
+    needed.
+
+    Keeps explicit database-connection management because ``TransactionTestCase``
+    truncates and reloads between tests, and async/Celery code can leave
+    connections lingering.
+    """
 
     @classmethod
     def _terminate_other_connections(cls) -> None:
@@ -84,11 +273,7 @@ class BaseFixtureTestCase(TransactionTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         """
-        Set up test class.
-        Also closes any lingering DB connections before continuing.
-
-        Note: Signal management is handled globally by conftest.py fixture
-        `disable_document_processing_signals` - no need to disconnect here.
+        Set up test class, closing any lingering DB connections before continuing.
         """
         os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
 
@@ -101,10 +286,8 @@ class BaseFixtureTestCase(TransactionTestCase):
     @classmethod
     def _pre_setup(cls):
         """
-        Additional setup before each test, which includes ensuring
-        no stale database connections remain.
-
-        In Django 5.2 this became a classmethod called from setUpClass().
+        Additional setup before each test, ensuring no stale database
+        connections remain.
         """
         for conn in connections.all():
             conn.close()
@@ -123,10 +306,6 @@ class BaseFixtureTestCase(TransactionTestCase):
     def tearDownClass(cls) -> None:
         """
         Clean up test media and database connections.
-
-        Note: Signal management is handled globally by conftest.py fixture
-        `disable_document_processing_signals` - signals stay disconnected
-        for the entire test session.
         """
         try:
             # First, just close connections normally without terminating
@@ -162,313 +341,31 @@ class BaseFixtureTestCase(TransactionTestCase):
             if os.path.exists(settings.MEDIA_ROOT):
                 shutil.rmtree(settings.MEDIA_ROOT)
 
-    def copy_fixture_file(self, fixture_path: str, dest_path: str) -> None:
-        """
-        Copy a file from fixtures to the test media directory.
-
-        Args:
-            fixture_path: Path relative to the 'files' directory in 'opencontractserver/tests/fixtures'
-            dest_path: Destination path in test media directory
-        """
-        # If the fixture path starts with "files/", remove that portion so we can build the local path
-        if fixture_path.startswith("files/"):
-            fixture_path = fixture_path.replace("files/", "", 1)
-
-        src = Path("opencontractserver/tests/fixtures/files") / fixture_path
-        dest = Path(settings.MEDIA_ROOT) / dest_path
-
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-
-        with open(src, "rb") as f:
-            file_contents = f.read()
-
-        with open(dest, "wb") as f:
-            f.write(file_contents)
-
     def setUp(self) -> None:
         """
-        Set up test instance with commonly needed objects, including user
-        and any documents that were loaded in the fixtures.
+        Rebuild the fixture-backed corpus/document state for each test, then
+        materialize the fixture files into MEDIA_ROOT.
         """
         super().setUp()
-
-        self.user = User.objects.get(username="testuser")
-
-        self.docs = list(Document.objects.all().order_by("id"))
-        if not self.docs:
-            return
-
-        self.doc = self.docs[0]
-        if len(self.docs) > 1:
-            self.doc2 = self.docs[1]
-        if len(self.docs) > 2:
-            self.doc3 = self.docs[2]
-
-        # ------------------------------------------------------------------ #
-        # 0. Migrate old-style structural annotations to StructuralAnnotationSet
-        # ------------------------------------------------------------------ #
-        from opencontractserver.annotations.models import (
-            Annotation,
-            Relationship,
-            StructuralAnnotationSet,
-        )
-
-        for doc in self.docs:
-            # Check if document has old-style structural annotations (document FK set)
-            old_structural = Annotation.objects.filter(
-                document=doc, structural=True, structural_set__isnull=True
-            )
-
-            if old_structural.exists() and not doc.structural_annotation_set:
-                # Create a StructuralAnnotationSet for this document
-                content_hash = doc.pdf_file_hash or f"test_doc_{doc.pk}"
-                struct_set, created = StructuralAnnotationSet.objects.get_or_create(
-                    content_hash=content_hash,
-                    defaults={
-                        "creator": self.user,
-                        "parser_name": "FixtureMigration",
-                        "parser_version": "1.0",
-                        "page_count": doc.page_count,
-                        "pawls_parse_file": doc.pawls_parse_file,
-                        "txt_extract_file": doc.txt_extract_file,
-                    },
-                )
-
-                # Migrate annotations to the structural set
-                for annot in old_structural:
-                    annot.structural_set = struct_set
-                    annot.document = None  # Remove document link (XOR constraint)
-                    annot.save()
-
-                # Migrate relationships between structural annotations
-                # Get relationships where both source and target are structural annotations
-                old_structural_ids = set(old_structural.values_list("id", flat=True))
-                old_relationships = Relationship.objects.filter(
-                    document=doc, structural_set__isnull=True
-                ).filter(
-                    source_annotations__id__in=old_structural_ids,
-                    target_annotations__id__in=old_structural_ids,
-                )
-
-                for rel in old_relationships:
-                    rel.structural_set = struct_set
-                    rel.document = None  # Remove document link (XOR constraint)
-                    rel.save()
-
-                # Update document to reference the structural set
-                doc.structural_annotation_set = struct_set
-                doc.save()
-
-                logger.info(
-                    f"Migrated {old_structural.count()} structural annotations "
-                    f"and {old_relationships.count()} relationships "
-                    f"from doc {doc.pk} to StructuralAnnotationSet {struct_set.pk}"
-                )
-
-        # ------------------------------------------------------------------ #
-        # 1. Copy existing fixture files  +  ensure md_summary_file is copied #
-        # ------------------------------------------------------------------ #
-        FILE_FIELDS: tuple[str, ...] = (
-            "pdf_file",
-            "txt_extract_file",
-            "pawls_parse_file",
-            "icon",
-            "md_summary_file",  # <- NEW
-        )
-
-        for doc in self.docs:
-            for field in FILE_FIELDS:
-                file_field = getattr(doc, field, None)
-                if file_field:
-                    file_path = str(file_field.name)
-                    if file_path.startswith("files/"):
-                        media_path = file_path.replace("files/", "", 1)
-                        self.copy_fixture_file(file_path, media_path)
-                        setattr(doc, field, media_path)
-                    # Else, if not starting with "files/", assume it's already a relative media path
-                    # and self.copy_fixture_file is not needed as it's presumably already in MEDIA_ROOT
-                    # or the path on the model is already correct.
-
-            # -------------------------------------------------------------- #
-            #  Handle md_summary_file: Prioritize manual, then generate.     #
-            # -------------------------------------------------------------- #
-            placeholder_phrase: str = (
-                "Autogenerated test summary – replace with real content if needed."
-            )
-            doc_summary_final_media_rel_path: str | None = (
-                None  # This will be the relative path in MEDIA_ROOT
-            )
-
-            # Step 1: Check if md_summary_file was already set (e.g., by test_data.json and copied above)
-            # If it was, doc_summary_final_media_rel_path is its media-relative path.
-            # If not, it's None.
-            potential_summary_from_fixture = getattr(doc, "md_summary_file", None)
-            if potential_summary_from_fixture and isinstance(
-                potential_summary_from_fixture, str
-            ):
-                # Assume it has been converted to a media-relative path by the loop above
-                # or was already a correct relative path.
-                doc_summary_final_media_rel_path = potential_summary_from_fixture
-
-            # Step 2: If no summary from test_data.json, try to load a manual one by convention
-            if not doc_summary_final_media_rel_path:
-                manual_summary_fixture_rel_path = (
-                    f"files/md_summaries/{doc.pk}_summary.md"
-                )
-                manual_summary_fixture_abs_path = (
-                    Path("opencontractserver/tests/fixtures")
-                    / manual_summary_fixture_rel_path
-                )
-
-                if manual_summary_fixture_abs_path.exists():
-                    # Destination in media: md_summaries/{doc.pk}_summary.md
-                    target_media_rel_path = f"md_summaries/{doc.pk}_summary.md"
-                    self.copy_fixture_file(
-                        manual_summary_fixture_rel_path, target_media_rel_path
-                    )
-                    doc_summary_final_media_rel_path = target_media_rel_path
-                    # We've copied it to media, so set it on the doc object
-                    # setattr(doc, "md_summary_file", target_media_rel_path) # This will be done before doc.save()
-
-            # Step 3: Ensure the summary (whether from test_data.json, manual file, or to-be-generated)
-            # is useful. If not (missing or placeholder), generate it.
-            summary_abs_path_in_media: Path | None = None
-            regenerate_summary_content = False
-
-            if doc_summary_final_media_rel_path:
-                summary_abs_path_in_media = (
-                    Path(settings.MEDIA_ROOT) / doc_summary_final_media_rel_path
-                )
-                if summary_abs_path_in_media.exists():
-                    try:
-                        existing_content = summary_abs_path_in_media.read_text(
-                            encoding="utf-8", errors="ignore"
-                        )
-                        if (
-                            placeholder_phrase in existing_content
-                            and len(existing_content.strip())
-                            <= len(placeholder_phrase) + 50
-                        ):  # Allow some minor variation
-                            regenerate_summary_content = True
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not read existing summary {summary_abs_path_in_media}: {e}"
-                        )
-                        regenerate_summary_content = True  # Treat as if placeholder
-                else:
-                    # File path is set on doc, but file doesn't exist in media_root
-                    regenerate_summary_content = True
-            else:
-                # No summary file path determined yet, so we definitely need to generate one.
-                regenerate_summary_content = True
-                # Create a conventional path for the new summary
-                doc_summary_final_media_rel_path = f"md_summaries/{doc.pk}_summary.md"
-                summary_abs_path_in_media = (
-                    Path(settings.MEDIA_ROOT) / doc_summary_final_media_rel_path
-                )
-
-            if (
-                regenerate_summary_content and summary_abs_path_in_media
-            ):  # summary_abs_path_in_media must be set
-                summary_abs_path_in_media.parent.mkdir(parents=True, exist_ok=True)
-
-                excerpt: str = ""
-                txt_field = getattr(doc, "txt_extract_file", None)
-                txt_rel_path: str | None = str(txt_field.name) if txt_field else None
-
-                if txt_rel_path:  # txt_rel_path should be a media-relative path now
-                    txt_abs_path_in_media = Path(settings.MEDIA_ROOT) / txt_rel_path
-                    if txt_abs_path_in_media.exists():
-                        try:
-                            raw_text = txt_abs_path_in_media.read_text(
-                                encoding="utf-8", errors="ignore"
-                            )
-                            excerpt = raw_text.strip()[:2000]
-                        except Exception as e:
-                            logger.warning(
-                                f"Could not read txt_extract_file {txt_abs_path_in_media} for doc {doc.pk}: {e}"
-                            )
-
-                final_excerpt = excerpt if excerpt else placeholder_phrase
-
-                summary_md: str = (
-                    f"# Summary for Document {doc.title or f'ID {doc.pk}'}\\n\\n"
-                    f"{placeholder_phrase}\\n\\n"  # Keep for VCR compatibility
-                    f"---\\n\\n"
-                    f"{final_excerpt}"
-                )
-                try:
-                    summary_abs_path_in_media.write_text(summary_md, encoding="utf-8")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to write summary for doc {doc.pk} to {summary_abs_path_in_media}: {e}"
-                    )
-
-            # Step 4: Ensure doc.md_summary_file is set to the final relative path before saving
-            if doc_summary_final_media_rel_path:
-                setattr(doc, "md_summary_file", doc_summary_final_media_rel_path)
-            else:
-                # This case should ideally not be reached if logic is correct,
-                # as a path should always be determined or generated.
-                # But as a fallback, remove it if it's somehow None.
-                if hasattr(
-                    doc, "md_summary_file"
-                ):  # Should not be necessary, but defensive
-                    setattr(doc, "md_summary_file", None)
-
-            doc.save()
-
-        # -------------------------------------------------------------- #
-        # 2. Create a corpus with a proper description                   #
-        # -------------------------------------------------------------- #
-        from opencontractserver.types.enums import PermissionTypes
-        from opencontractserver.utils.permissioning import (
-            set_permissions_for_obj_to_user,
-        )
-
-        self.corpus = Corpus.objects.create(
-            title="Test Corpus",
-            description="A collection of contracts.",
-            creator=self.user,
-            backend_lock=False,
-        )
-
-        # Grant full permissions to the creator (django-guardian requires explicit assignment)
-        set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.ALL])
-
-        # -------------------------------------------------------------- #
-        # 3. Add documents to corpus (corpus isolation)                  #
-        # -------------------------------------------------------------- #
-        # Update self.doc(s) to point to corpus-isolated copies
-        for i, doc in enumerate(self.docs):
-            corpus_doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
-            self.docs[i] = corpus_doc
-            # Grant full permissions to the creator on each document
-            set_permissions_for_obj_to_user(
-                self.user, corpus_doc, [PermissionTypes.ALL]
-            )
-
-        # Update individual doc references
-        if self.docs:
-            self.doc = self.docs[0]
-        if len(self.docs) > 1:
-            self.doc2 = self.docs[1]
-        if len(self.docs) > 2:
-            self.doc3 = self.docs[2]
+        self._build_corpus_fixture_state(self)
+        self._materialize_fixture_files()
 
 
-class WebsocketFixtureBaseTestCase(BaseFixtureTestCase):
+class WebsocketFixtureBaseTestCase(TransactionFixtureTestCase):
     """
-    Inherits from BaseFixtureTestCase to load fixtures (test_data.json) and
-    provide a realistic set of data for WebSocket tests. This ensures that
-    we have a user named 'testuser' and at least one Document from the fixtures.
+    TransactionTestCase-backed fixture base for WebSocket tests.
+
+    WebSocket consumers run inside their own database connection, so they need
+    the committed-data semantics of :class:`TransactionFixtureTestCase`. Adds a
+    JWT token for the fixture user and the default agent configurations the
+    UnifiedAgentConsumer expects.
     """
 
     def setUp(self) -> None:
         """
-        Hooks into the BaseFixtureTestCase setUp, which loads a user (self.user)
-        and any documents (self.doc, self.docs, etc.) from the fixture.
-        We then create a token for the fixture user and agent configurations.
+        Build the fixture state (user, documents, corpus), then create a token
+        for the fixture user and the agent configurations WebSocket connections
+        require.
         """
         super().setUp()
         self.token = get_token(user=self.user)
@@ -527,16 +424,19 @@ class CeleryEagerModeTestCase(TransactionTestCase):
         super().tearDown()
 
 
-class CeleryEagerModeFixtureTestCase(BaseFixtureTestCase, CeleryEagerModeTestCase):
+class CeleryEagerModeFixtureTestCase(
+    TransactionFixtureTestCase, CeleryEagerModeTestCase
+):
     """
-    Combines BaseFixtureTestCase with CeleryEagerModeTestCase.
+    Combines :class:`TransactionFixtureTestCase` with :class:`CeleryEagerModeTestCase`.
 
-    Use this for tests that need both fixtures and Celery eager mode.
+    Use this for tests that need both fixtures and Celery eager mode with
+    committed-data semantics.
     """
 
     def setUp(self):
         # Call both parent setUp methods
-        BaseFixtureTestCase.setUp(self)
+        TransactionFixtureTestCase.setUp(self)
         CeleryEagerModeTestCase.setUp(self)
 
         # Ensure we have fresh connections before running async tasks
@@ -563,4 +463,4 @@ class CeleryEagerModeFixtureTestCase(BaseFixtureTestCase, CeleryEagerModeTestCas
 
         # Call both parent tearDown methods in reverse order
         CeleryEagerModeTestCase.tearDown(self)
-        BaseFixtureTestCase.tearDown(self)
+        TransactionFixtureTestCase.tearDown(self)

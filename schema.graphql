@@ -4555,7 +4555,7 @@ type Mutation {
   """
   Restore a soft-deleted document path within a corpus.
 
-  Delegates to DocumentFolderService.restore_document() for:
+  Delegates to CorpusObjsService.restore_document() for:
   - Permission checking (corpus UPDATE permission)
   - Creating new DocumentPath with is_deleted=False
   """
@@ -4678,7 +4678,7 @@ type Mutation {
   """
   Add existing documents to a corpus.
 
-  Delegates to DocumentFolderService.add_documents_to_corpus() for:
+  Delegates to CorpusObjsService.add_documents_to_corpus() for:
   - Permission checking (corpus UPDATE permission)
   - Document validation (user owns or public)
   - Dual-system update (DocumentPath + corpus.add_document)
@@ -4694,7 +4694,7 @@ type Mutation {
   """
   Remove documents from a corpus (soft-delete).
 
-  Delegates to DocumentFolderService.remove_documents_from_corpus() for:
+  Delegates to CorpusObjsService.remove_documents_from_corpus() for:
   - Permission checking (corpus UPDATE permission)
   - Soft-delete via DocumentPath (creates is_deleted=True record)
   - Audit trail
@@ -4815,7 +4815,7 @@ type Mutation {
   """
   Create a new folder in a corpus.
 
-  Delegates to DocumentFolderService.create_folder() for:
+  Delegates to CorpusObjsService.create_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (unique name, parent in same corpus)
   - Folder creation
@@ -4846,7 +4846,7 @@ type Mutation {
   """
   Update folder properties (name, description, color, icon, tags).
 
-  Delegates to DocumentFolderService.update_folder() for:
+  Delegates to CorpusObjsService.update_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (unique name within parent)
   - Folder update
@@ -4874,7 +4874,7 @@ type Mutation {
   """
   Move a folder to a different parent (or to root if parent_id is null).
 
-  Delegates to DocumentFolderService.move_folder() for:
+  Delegates to CorpusObjsService.move_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (no self-move, no move into descendants, same corpus)
   - Folder move
@@ -4890,7 +4890,7 @@ type Mutation {
   """
   Delete a folder and optionally its contents.
 
-  Delegates to DocumentFolderService.delete_folder() for:
+  Delegates to CorpusObjsService.delete_folder() for:
   - Permission checking (corpus DELETE permission)
   - Child folder handling (reparent or cascade)
   - Document folder assignment cleanup via DocumentPath
@@ -4906,7 +4906,7 @@ type Mutation {
   """
   Move a document to a specific folder (or to corpus root if folder_id is null).
 
-  Delegates to DocumentFolderService.move_document_to_folder() for:
+  Delegates to CorpusObjsService.move_document_to_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (document in corpus, folder in corpus)
   - DocumentPath folder assignment update
@@ -4925,7 +4925,7 @@ type Mutation {
   """
   Move multiple documents to a specific folder in bulk.
 
-  Delegates to DocumentFolderService.move_documents_to_folder() for:
+  Delegates to CorpusObjsService.move_documents_to_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (all documents in corpus, folder in corpus)
   - Bulk DocumentPath folder assignment update
@@ -5893,7 +5893,7 @@ type UploadDocumentsZip {
 """
 Restore a soft-deleted document path within a corpus.
 
-Delegates to DocumentFolderService.restore_document() for:
+Delegates to CorpusObjsService.restore_document() for:
 - Permission checking (corpus UPDATE permission)
 - Creating new DocumentPath with is_deleted=False
 """
@@ -6008,7 +6008,7 @@ type DeleteCorpusMutation {
 """
 Add existing documents to a corpus.
 
-Delegates to DocumentFolderService.add_documents_to_corpus() for:
+Delegates to CorpusObjsService.add_documents_to_corpus() for:
 - Permission checking (corpus UPDATE permission)
 - Document validation (user owns or public)
 - Dual-system update (DocumentPath + corpus.add_document)
@@ -6021,7 +6021,7 @@ type AddDocumentsToCorpus {
 """
 Remove documents from a corpus (soft-delete).
 
-Delegates to DocumentFolderService.remove_documents_from_corpus() for:
+Delegates to CorpusObjsService.remove_documents_from_corpus() for:
 - Permission checking (corpus UPDATE permission)
 - Soft-delete via DocumentPath (creates is_deleted=True record)
 - Audit trail
@@ -6070,7 +6070,7 @@ type DeleteCorpusAction {
 """
 Create a new folder in a corpus.
 
-Delegates to DocumentFolderService.create_folder() for:
+Delegates to CorpusObjsService.create_folder() for:
 - Permission checking (corpus UPDATE permission)
 - Validation (unique name, parent in same corpus)
 - Folder creation
@@ -6084,7 +6084,7 @@ type CreateCorpusFolderMutation {
 """
 Update folder properties (name, description, color, icon, tags).
 
-Delegates to DocumentFolderService.update_folder() for:
+Delegates to CorpusObjsService.update_folder() for:
 - Permission checking (corpus UPDATE permission)
 - Validation (unique name within parent)
 - Folder update
@@ -6098,7 +6098,7 @@ type UpdateCorpusFolderMutation {
 """
 Move a folder to a different parent (or to root if parent_id is null).
 
-Delegates to DocumentFolderService.move_folder() for:
+Delegates to CorpusObjsService.move_folder() for:
 - Permission checking (corpus UPDATE permission)
 - Validation (no self-move, no move into descendants, same corpus)
 - Folder move
@@ -6112,7 +6112,7 @@ type MoveCorpusFolderMutation {
 """
 Delete a folder and optionally its contents.
 
-Delegates to DocumentFolderService.delete_folder() for:
+Delegates to CorpusObjsService.delete_folder() for:
 - Permission checking (corpus DELETE permission)
 - Child folder handling (reparent or cascade)
 - Document folder assignment cleanup via DocumentPath
@@ -6125,7 +6125,7 @@ type DeleteCorpusFolderMutation {
 """
 Move a document to a specific folder (or to corpus root if folder_id is null).
 
-Delegates to DocumentFolderService.move_document_to_folder() for:
+Delegates to CorpusObjsService.move_document_to_folder() for:
 - Permission checking (corpus UPDATE permission)
 - Validation (document in corpus, folder in corpus)
 - DocumentPath folder assignment update
@@ -6139,7 +6139,7 @@ type MoveDocumentToFolderMutation {
 """
 Move multiple documents to a specific folder in bulk.
 
-Delegates to DocumentFolderService.move_documents_to_folder() for:
+Delegates to CorpusObjsService.move_documents_to_folder() for:
 - Permission checking (corpus UPDATE permission)
 - Validation (all documents in corpus, folder in corpus)
 - Bulk DocumentPath folder assignment update

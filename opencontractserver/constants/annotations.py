@@ -59,6 +59,38 @@ DOCUMENT_ANNOTATION_INDEX_LIMIT = 500
 # (deeper nesting is valid data but won't be visible in the UI).
 DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH = 6
 
+# --------------------------------------------------------------------------- #
+# PDF outline enrichment (PdfOutlineEnricher)                                 #
+# --------------------------------------------------------------------------- #
+# Minimum difflib similarity ratio (0.0-1.0) for fuzzy-matching a PDF bookmark
+# title against text on its destination page. A bookmark whose title cannot be
+# located on its page at or above this ratio is dropped, and its children are
+# re-parented to the nearest matched ancestor.
+PDF_OUTLINE_FUZZY_MATCH_THRESHOLD = 0.82
+
+# Hard cap on the number of OC_SECTION entries a single PdfOutlineEnricher run
+# emits. Bounded by the document-index limit so the enricher never produces
+# more section annotations than the index is allowed to hold.
+PDF_OUTLINE_MAX_ENTRIES = DOCUMENT_ANNOTATION_INDEX_LIMIT
+
+# Maximum /Outlines nesting depth walked by the enricher. Matches the document
+# annotation index depth cap; deeper bookmark branches are pruned with a
+# warning rather than emitted.
+PDF_OUTLINE_MAX_DEPTH = DOCUMENT_ANNOTATION_INDEX_MAX_DEPTH
+
+# Minimum difflib ratio between a bookmark title's first word and a candidate
+# start token. A cheap pre-filter so the fuzzy match only does real work on
+# plausible starting tokens.
+PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO = 0.6
+
+# Multiplier applied to PDF_OUTLINE_MAX_ENTRIES to derive the processed-item
+# cap for the /Outlines tree walk. The walk may visit nodes (bare nested
+# lists, empty-title or unresolvable-destination entries) that never become
+# emitted annotations, so the item cap is set higher than the entry cap to
+# avoid aborting a legitimate-but-sparse outline while still bounding work on
+# malformed/cyclic data.
+PDF_OUTLINE_WALK_ITEM_MULTIPLIER = 4
+
 # Maximum number of document relationships returned in a single query.
 # Set high to accommodate Table of Contents hierarchies.
 DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT = 500

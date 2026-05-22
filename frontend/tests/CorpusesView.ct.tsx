@@ -2,6 +2,7 @@ import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { CorpusesTestWrapper } from "./CorpusesTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 import { openedCorpus } from "../src/graphql/cache";
 import {
   GET_CORPUSES,
@@ -9,6 +10,7 @@ import {
   GET_CORPUS_METADATA,
   GET_DOCUMENTS,
 } from "../src/graphql/queries";
+import { DELETE_CORPUS } from "../src/graphql/mutations";
 import { PermissionTypes } from "../src/components/types";
 import { CorpusType } from "../src/types/graphql-api";
 
@@ -277,4 +279,67 @@ test("sidebar expands and tab navigation works", async ({ mount, page }) => {
   await expect(
     page.getByPlaceholder("Search for annotated text in corpus...")
   ).toBeVisible();
+
+  await docScreenshot(page, "corpus--workspace-view--annotations-tab");
+});
+
+/* -------------------------------------------------------------------------- */
+/* handleDeleteCorpus — ok / error envelope handling                          */
+/* -------------------------------------------------------------------------- */
+
+const deleteCorpusMock = (
+  ok: boolean,
+  message: string | null
+): MockedResponse => ({
+  request: { query: DELETE_CORPUS, variables: { id: dummyCorpus.id } },
+  result: {
+    data: {
+      deleteCorpus: { ok, message, __typename: "DeleteCorpusMutation" },
+    },
+  },
+});
+
+const CONFIRM_DELETE_MESSAGE = "Are you sure you want to delete corpus?";
+
+test("delete corpus confirmation runs the ok=false branch of handleDeleteCorpus", async ({
+  mount,
+  page,
+}) => {
+  // DeleteCorpusMutation now returns { ok:false, message } instead of raising
+  // (e.g. rejecting deletion of a personal corpus). handleDeleteCorpus must
+  // route that resolved-but-unsuccessful response through the failure branch
+  // rather than the success branch. The confirm modal is seeded directly via
+  // the wrapper so the corpus-card context menu does not need to be driven.
+  await mount(
+    <CorpusesTestWrapper
+      mocks={[...mocks, deleteCorpusMock(false, "Cannot delete this corpus.")]}
+      initialDeletingCorpus={dummyCorpus}
+    />
+  );
+
+  await expect(page.getByText(CONFIRM_DELETE_MESSAGE)).toBeVisible();
+  await page.getByRole("button", { name: "Yes" }).click();
+
+  // Confirming dismisses the modal and fires DeleteCorpusMutation; the
+  // resolved ok=false envelope is handled without surfacing the modal again.
+  await expect(page.getByText(CONFIRM_DELETE_MESSAGE)).toBeHidden();
+  await page.waitForTimeout(1000);
+});
+
+test("delete corpus confirmation runs the ok=true branch of handleDeleteCorpus", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <CorpusesTestWrapper
+      mocks={[...mocks, deleteCorpusMock(true, null)]}
+      initialDeletingCorpus={dummyCorpus}
+    />
+  );
+
+  await expect(page.getByText(CONFIRM_DELETE_MESSAGE)).toBeVisible();
+  await page.getByRole("button", { name: "Yes" }).click();
+
+  await expect(page.getByText(CONFIRM_DELETE_MESSAGE)).toBeHidden();
+  await page.waitForTimeout(1000);
 });

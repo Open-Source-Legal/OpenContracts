@@ -21,6 +21,7 @@ import {
   selectedExtractIds,
   corpusDetailView,
   corpusPowerUserMode,
+  deletingCorpus,
 } from "../src/graphql/cache";
 import { mergeArrayByIdFieldPolicy } from "../src/graphql/cache";
 import {
@@ -276,6 +277,12 @@ interface WrapperProps {
   initialCorpus?: CorpusType | null;
   /** Set to false to test unauthenticated state */
   authenticated?: boolean;
+  /**
+   * Seeds the `deletingCorpus` reactive var so the delete-confirmation
+   * modal is visible on mount. Lets a test exercise `handleDeleteCorpus`
+   * without driving the corpus-card context menu.
+   */
+  initialDeletingCorpus?: CorpusType | null;
 }
 
 export const CorpusesTestWrapper: React.FC<WrapperProps> = ({
@@ -283,6 +290,7 @@ export const CorpusesTestWrapper: React.FC<WrapperProps> = ({
   initialEntries = ["/corpuses"],
   initialCorpus = null,
   authenticated = true,
+  initialDeletingCorpus = null,
 }) => {
   // Set up authentication state BEFORE useEffect runs
   // This ensures auth is available when components first render
@@ -320,6 +328,11 @@ export const CorpusesTestWrapper: React.FC<WrapperProps> = ({
     selectedExtractIds([]);
   }, [initialCorpus]);
 
+  // Seed the delete-confirmation modal when a test asks for it.
+  React.useEffect(() => {
+    deletingCorpus(initialDeletingCorpus);
+  }, [initialDeletingCorpus]);
+
   // Cleanup on unmount
   React.useEffect(() => {
     return () => {
@@ -332,6 +345,7 @@ export const CorpusesTestWrapper: React.FC<WrapperProps> = ({
       selectedExtractIds([]);
       corpusDetailView("landing");
       corpusPowerUserMode(false);
+      deletingCorpus(null);
     };
   }, []);
 

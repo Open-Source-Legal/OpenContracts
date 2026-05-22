@@ -14,7 +14,6 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_users_permissions_for_obj,
     set_permissions_for_obj_to_user,
-    user_has_permission_for_obj,
 )
 
 User = get_user_model()
@@ -152,15 +151,9 @@ class DocumentAnalysisRowTestCase(TestCase):
             other_user, self.row, [PermissionTypes.READ, PermissionTypes.UPDATE]
         )
 
-        self.assertTrue(
-            user_has_permission_for_obj(other_user, self.row, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(other_user, self.row, PermissionTypes.UPDATE)
-        )
-        self.assertFalse(
-            user_has_permission_for_obj(other_user, self.row, PermissionTypes.DELETE)
-        )
+        self.assertTrue(self.row.user_can(other_user, PermissionTypes.READ))
+        self.assertTrue(self.row.user_can(other_user, PermissionTypes.UPDATE))
+        self.assertFalse(self.row.user_can(other_user, PermissionTypes.DELETE))
 
     def test_document_analysis_row_crud_permissions(self):
         logging.info("XOXOX - START")
@@ -181,42 +174,17 @@ class DocumentAnalysisRowTestCase(TestCase):
             ],
         )
 
-        self.assertTrue(
-            user_has_permission_for_obj(
-                self.user,
-                self.row,
-                PermissionTypes.CREATE,
-                include_group_permissions=True,
-            )
-        )  # noqa
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.UPDATE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.DELETE)
-        )
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.CREATE))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.READ))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.UPDATE))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.DELETE))
 
     def test_document_analysis_row_all_permissions(self):
         set_permissions_for_obj_to_user(self.user, self.row, [PermissionTypes.ALL])
 
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.CREATE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.READ)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.UPDATE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.DELETE)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.PUBLISH)
-        )
-        self.assertTrue(
-            user_has_permission_for_obj(self.user, self.row, PermissionTypes.PERMISSION)
-        )
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.CREATE))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.READ))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.UPDATE))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.DELETE))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.PUBLISH))
+        self.assertTrue(self.row.user_can(self.user, PermissionTypes.PERMISSION))

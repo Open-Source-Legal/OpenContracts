@@ -383,7 +383,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
         Verify structural annotations from structural_set are included when querying.
 
         NOTE: Structural protection (read-only enforcement) happens at mutation time via
-        user_has_permission_for_obj in permissioning.py:297-303, not at query time.
+        the ``user_can`` permission checks, not at query time.
         The query optimizer computes permissions at document+corpus level.
         """
         # Grant full CRUD permissions to user

@@ -17,10 +17,7 @@ from django.test import TestCase
 
 from opencontractserver.annotations.models import TOKEN_LABEL, AnnotationLabel, LabelSet
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    get_users_permissions_for_obj,
-    user_has_permission_for_obj,
-)
+from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -131,56 +128,36 @@ class CreatorBasedPermissionsTestCase(TestCase):
             f"Other user should have no permissions on private label, got: {permissions}",
         )
 
-    def test_user_has_permission_for_obj_read_creator(self):
-        """user_has_permission_for_obj should return True for creator reading."""
-        has_read = user_has_permission_for_obj(
-            user_val=self.user1,
-            instance=self.annotation_label,
-            permission=PermissionTypes.READ,
-        )
+    def test_user_can_read_creator(self):
+        """user_can should return True for creator reading."""
+        has_read = self.annotation_label.user_can(self.user1, PermissionTypes.READ)
         self.assertTrue(has_read, "Creator should have READ permission")
 
-    def test_user_has_permission_for_obj_update_creator(self):
-        """user_has_permission_for_obj should return True for creator updating."""
-        has_update = user_has_permission_for_obj(
-            user_val=self.user1,
-            instance=self.annotation_label,
-            permission=PermissionTypes.UPDATE,
-        )
+    def test_user_can_update_creator(self):
+        """user_can should return True for creator updating."""
+        has_update = self.annotation_label.user_can(self.user1, PermissionTypes.UPDATE)
         self.assertTrue(has_update, "Creator should have UPDATE permission")
 
-    def test_user_has_permission_for_obj_delete_creator(self):
-        """user_has_permission_for_obj should return True for creator deleting."""
-        has_delete = user_has_permission_for_obj(
-            user_val=self.user1,
-            instance=self.annotation_label,
-            permission=PermissionTypes.DELETE,
-        )
+    def test_user_can_delete_creator(self):
+        """user_can should return True for creator deleting."""
+        has_delete = self.annotation_label.user_can(self.user1, PermissionTypes.DELETE)
         self.assertTrue(has_delete, "Creator should have DELETE permission")
 
-    def test_user_has_permission_for_obj_read_other_user(self):
-        """user_has_permission_for_obj should return False for other user reading private."""
-        has_read = user_has_permission_for_obj(
-            user_val=self.user2,
-            instance=self.annotation_label,
-            permission=PermissionTypes.READ,
-        )
+    def test_user_can_read_other_user(self):
+        """user_can should return False for other user reading private."""
+        has_read = self.annotation_label.user_can(self.user2, PermissionTypes.READ)
         self.assertFalse(
             has_read, "Other user should NOT have READ permission on private label"
         )
 
-    def test_user_has_permission_for_obj_superuser(self):
-        """user_has_permission_for_obj should return True for superuser on any permission."""
+    def test_user_can_superuser(self):
+        """user_can should return True for superuser on any permission."""
         for perm in [
             PermissionTypes.READ,
             PermissionTypes.UPDATE,
             PermissionTypes.DELETE,
         ]:
-            has_perm = user_has_permission_for_obj(
-                user_val=self.superuser,
-                instance=self.annotation_label,
-                permission=perm,
-            )
+            has_perm = self.annotation_label.user_can(self.superuser, perm)
             self.assertTrue(has_perm, f"Superuser should have {perm} permission")
 
 
@@ -233,7 +210,7 @@ class GuardianModelSuperuserPermissionsTestCase(TestCase):
         )
 
     def test_superuser_has_each_permission_type(self):
-        """Verify user_has_permission_for_obj returns True for every permission type."""
+        """Verify user_can returns True for every permission type."""
         for perm in [
             PermissionTypes.READ,
             PermissionTypes.CREATE,
@@ -244,11 +221,7 @@ class GuardianModelSuperuserPermissionsTestCase(TestCase):
             PermissionTypes.PERMISSION,
             PermissionTypes.ALL,
         ]:
-            has_perm = user_has_permission_for_obj(
-                user_val=self.superuser,
-                instance=self.corpus,
-                permission=perm,
-            )
+            has_perm = self.corpus.user_can(self.superuser, perm)
             self.assertTrue(
                 has_perm,
                 f"Superuser should have {perm} permission on corpus, but got False",
@@ -382,7 +355,7 @@ class CreatorBasedPermissionsEdgeCasesTestCase(TestCase):
             )
 
     def test_permissions_with_user_id_instead_of_user_object(self):
-        """user_has_permission_for_obj should work with user ID as well as user object."""
+        """user_can should work with user ID as well as user object."""
         with transaction.atomic():
             label = AnnotationLabel.objects.create(
                 text="ID Test Label",
@@ -394,19 +367,11 @@ class CreatorBasedPermissionsEdgeCasesTestCase(TestCase):
             )
 
         # Test with user ID (integer)
-        has_read = user_has_permission_for_obj(
-            user_val=self.user1.id,
-            instance=label,
-            permission=PermissionTypes.READ,
-        )
+        has_read = label.user_can(self.user1.id, PermissionTypes.READ)
         self.assertTrue(has_read, "Should work with user ID")
 
         # Test with user ID (string)
-        has_read_str = user_has_permission_for_obj(
-            user_val=str(self.user1.id),
-            instance=label,
-            permission=PermissionTypes.READ,
-        )
+        has_read_str = label.user_can(str(self.user1.id), PermissionTypes.READ)
         self.assertTrue(has_read_str, "Should work with user ID as string")
 
     def test_crud_permission_check(self):
@@ -422,17 +387,9 @@ class CreatorBasedPermissionsEdgeCasesTestCase(TestCase):
             )
 
         # Creator should have CRUD
-        has_crud = user_has_permission_for_obj(
-            user_val=self.user1,
-            instance=label,
-            permission=PermissionTypes.CRUD,
-        )
+        has_crud = label.user_can(self.user1, PermissionTypes.CRUD)
         self.assertTrue(has_crud, "Creator should have CRUD permissions")
 
         # Other user should NOT have CRUD
-        has_crud_other = user_has_permission_for_obj(
-            user_val=self.user2,
-            instance=label,
-            permission=PermissionTypes.CRUD,
-        )
+        has_crud_other = label.user_can(self.user2, PermissionTypes.CRUD)
         self.assertFalse(has_crud_other, "Other user should NOT have CRUD permissions")
