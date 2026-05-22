@@ -3,12 +3,13 @@ import {
   usePages,
   useScrollContainerRef,
 } from "../../../../annotator/context/DocumentAtom";
+import {
+  ZOOM_MIN,
+  ZOOM_MAX,
+} from "../../../../../assets/configurations/constants";
 
 /** Horizontal padding (px) inside the viewer container, kept off both edges. */
 const FIT_WIDTH_MARGIN = 16;
-/** Zoom bounds shared with the rest of the document zoom system. */
-const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 4;
 
 interface UseMobileFitToWidthParams {
   /** Whether the Document surface is the active mobile tab. */
@@ -59,7 +60,7 @@ export function useMobileFitToWidth({
     if (!pageWidth || !containerWidth) return null;
 
     const raw = (containerWidth - FIT_WIDTH_MARGIN) / pageWidth;
-    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, raw));
+    return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, raw));
   }, [pages, scrollContainerRef]);
 
   const fitToWidth = useCallback(() => {

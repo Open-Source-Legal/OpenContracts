@@ -22,6 +22,15 @@ export const DYNAMIC_ICON_DEFAULT_SIZE = 16;
 /** Icon size for FilterTabItem icons in tab bars */
 export const FILTER_TAB_ICON_SIZE = 14;
 
+// Document zoom bounds
+// Shared by every zoom surface (ZoomControls, useZoomManager wheel/keyboard/
+// pinch handlers, and the mobile fit-to-width hook) so the clamp is defined
+// in exactly one place.
+/** Minimum document zoom level (50%). */
+export const ZOOM_MIN = 0.5;
+/** Maximum document zoom level (400%). */
+export const ZOOM_MAX = 4;
+
 // Mention search configuration
 // Debounce delay before firing search queries (ms)
 export const MENTION_SEARCH_DEBOUNCE_MS = 300;

@@ -5,9 +5,11 @@ import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalSty
 import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import { HighlightItem } from "../../../../annotator/sidebar/HighlightItem";
 import { useAllAnnotations } from "../../../../annotator/hooks/useAllAnnotations";
-import { useStructuralAnnotations } from "../../../../annotator/hooks/AnnotationHooks";
-import { usePdfAnnotations } from "../../../../annotator/hooks/AnnotationHooks";
-import { useDeleteAnnotation } from "../../../../annotator/hooks/AnnotationHooks";
+import {
+  useStructuralAnnotations,
+  usePdfAnnotations,
+  useDeleteAnnotation,
+} from "../../../../annotator/hooks/AnnotationHooks";
 import { useAnnotationSelection } from "../../../../annotator/context/UISettingsAtom";
 
 const EmptyState = styled.div`
