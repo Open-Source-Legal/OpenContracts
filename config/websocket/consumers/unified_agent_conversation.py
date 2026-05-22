@@ -65,6 +65,7 @@ from opencontractserver.llms.tools.delegation_tools import (
     build_delegation_tool,
     filter_by_scope,
 )
+from opencontractserver.llms.types import AgentFramework
 from opencontractserver.types.enums import PermissionTypes
 
 logger = logging.getLogger(__name__)
@@ -656,6 +657,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             agent_kwargs["tools"] = list(extra_tools)
 
         # Choose factory method based on context
+        framework = AgentFramework(settings.LLMS_DEFAULT_AGENT_FRAMEWORK)
         if self.document:
             # Document-level agent (with or without corpus)
             agent_kwargs["document"] = self.document
@@ -667,9 +669,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 if embedder_path:
                     agent_kwargs["embedder"] = embedder_path
 
-            self.agent = await agents.for_document(
-                **agent_kwargs, framework=settings.LLMS_DEFAULT_AGENT_FRAMEWORK
-            )
+            self.agent = await agents.for_document(**agent_kwargs, framework=framework)
         elif self.corpus:
             # Corpus-level agent
             agent_kwargs["corpus"] = self.corpus_id
@@ -680,9 +680,7 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             ):
                 agent_kwargs["embedder"] = self.corpus.preferred_embedder
 
-            self.agent = await agents.for_corpus(
-                **agent_kwargs, framework=settings.LLMS_DEFAULT_AGENT_FRAMEWORK
-            )
+            self.agent = await agents.for_corpus(**agent_kwargs, framework=framework)
         else:
             raise ValueError("No valid context for agent initialization")
 
@@ -1102,6 +1100,16 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 fragile monkey-patch pattern that hid the box on a private
                 attribute of the factory callable.
         """
+        if self.agent is None:
+            logger.error(
+                f"[Session {self.session_id}] Agent not initialized for streaming."
+            )
+            await self._send_safe(
+                msg_type="SYNC_CONTENT",
+                data={"error": "Agent not initialized."},
+            )
+            return
+
         # When OC_LLM_VCR_MODE is set, wrap the LLM HTTP traffic in a vcr.py
         # cassette so the e2e websocket-auth workflow can replay a recorded
         # conversation rather than making real OpenAI/Anthropic calls.

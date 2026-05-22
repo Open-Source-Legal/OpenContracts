@@ -10,6 +10,8 @@ Usage:
       django pytest opencontractserver/tests/test_redis_integration.py -v
 """
 
+from typing import Any
+
 from .test import *  # noqa
 from .test import env
 
@@ -20,7 +22,7 @@ REDIS_URL = env("REDIS_URL", default="redis://redis:6379/0")
 
 # Cache — real django-redis instead of LocMemCache
 # ------------------------------------------------------------------------------
-CACHES = {
+_caches: dict[str, dict[str, Any]] = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,
@@ -30,6 +32,7 @@ CACHES = {
         },
     }
 }
+CACHES = _caches
 
 # Channels — real Redis instead of InMemoryChannelLayer
 # channels_redis supports URL strings directly in the hosts list.
