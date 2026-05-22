@@ -513,9 +513,9 @@ class DocumentFilter(django_filters.FilterSet):
         filer/form-type folder that only contains sub-folders surfaces no
         documents even though documents are nested beneath it.
 
-        Note: This filter works in conjunction with ``in_corpus``. The queryset
-        is already filtered to documents in a specific corpus, so we just need
-        to intersect with the folder subtree's DocumentPath rows.
+        When the request also supplies ``inCorpusWithId``, the folder must
+        belong to that corpus — otherwise the filter returns no documents
+        (rather than silently falling through to a cross-corpus intersection).
         """
         from opencontractserver.corpuses.models import CorpusFolder
         from opencontractserver.documents.models import DocumentPath
@@ -523,10 +523,21 @@ class DocumentFilter(django_filters.FilterSet):
         if value == "__root__":
             return queryset
 
-        # ``from_global_id`` returns a ``str`` PK; coerce to int so the
-        # ``folder`` lookup matches the FK type.
-        folder_pk = int(from_global_id(value)[1])
-        folder = CorpusFolder.objects.filter(pk=folder_pk).first()
+        # A malformed global id (wrong type, empty, non-numeric) must not
+        # surface as a 500 — treat it the same as a missing folder.
+        try:
+            folder_pk = int(from_global_id(value)[1])
+        except (ValueError, TypeError, IndexError):
+            return queryset.none()
+
+        folder_lookup = {"pk": folder_pk}
+        corpus_value = self.data.get("in_corpus_with_id")
+        if corpus_value:
+            try:
+                folder_lookup["corpus_id"] = int(from_global_id(corpus_value)[1])
+            except (ValueError, TypeError, IndexError):
+                return queryset.none()
+        folder = CorpusFolder.objects.filter(**folder_lookup).first()
         if folder is None:
             return queryset.none()
 
@@ -536,7 +547,7 @@ class DocumentFilter(django_filters.FilterSet):
             folder__in=folder.get_descendant_folders(),
             is_current=True,
             is_deleted=False,
-        ).values("document_id")
+        ).values_list("document_id", flat=True)
         return queryset.filter(id__in=doc_ids).distinct()
 
     def has_label_title(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:

@@ -196,3 +196,21 @@ class DocumentFolderFilterQueryTestCase(TestCase):
             self._titles("__root__"),
             ["Leaf Doc A", "Leaf Doc B", "Root Doc"],
         )
+
+    def test_cross_corpus_folder_returns_empty(self):
+        """A folder from a different corpus must not leak documents through.
+
+        ``in_folder`` validates that the folder belongs to the corpus named
+        in ``inCorpusWithId``; mismatches are scoped to no rows rather than
+        silently intersecting two corpora.
+        """
+        other_corpus = Corpus.objects.create(title="Other Corpus", creator=self.user)
+        other_folder = CorpusFolder.objects.create(
+            corpus=other_corpus, name="Other", creator=self.user
+        )
+        other_gid = to_global_id("CorpusFolderType", other_folder.id)
+        self.assertEqual(self._titles(other_gid), [])
+
+    def test_malformed_folder_id_returns_empty(self):
+        """A folder id that cannot be decoded must produce zero rows, not a 500."""
+        self.assertEqual(self._titles("not-a-global-id"), [])
