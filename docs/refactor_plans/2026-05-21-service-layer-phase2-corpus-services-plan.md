@@ -27,7 +27,7 @@ each independently shippable and each leaving the tree green:
 
 | Phase | Deliverable | Risk | Touches |
 |-------|-------------|------|---------|
-| **A** | Split the monolith into the `corpuses/services/` package (`folders`, `corpus_documents`, `lifecycle`, `paths`); keep `corpus_objs_service.py` as a thin re-export shim with a backward-compatible `CorpusObjsService` facade. | Low — pure relocation, no behaviour change, no call site touched. | `corpuses/` only |
+| **A** | Split the monolith into the `corpuses/services/` package (`folders`, `folder_documents`, `corpus_documents`, `lifecycle`, `paths`); keep `corpus_objs_service.py` as a thin re-export shim with a backward-compatible `CorpusObjsService` facade. | Low — pure relocation, no behaviour change, no call site touched. | `corpuses/` only |
 | **B** | Add `corpus_service.py` for **Corpus-row CRUD** (`create` / `update` / `delete` / visibility), migrating the logic currently inline in `config/graphql/corpus_mutations.py` (`CreateCorpusMutation`, `UpdateCorpusMutation`, `UpdateCorpusDescription`, `DeleteCorpusMutation`, `SetCorpusVisibility`). | Medium — moves logic out of GraphQL mutations. | `corpuses/`, `config/graphql/corpus_mutations.py` |
 | **C** | Migrate the ~37 caller files off the `CorpusObjsService` facade onto the segmented services; delete the `corpus_objs_service.py` shim (no-dead-code rule). | Medium — wide but mechanical. | `config/graphql/`, `mcp/`, `llms/`, `tasks/`, `discovery/`, tests |
 
@@ -42,17 +42,18 @@ continuity and will be delivered as follow-up PRs against #1716.
 opencontractserver/corpuses/
   corpus_objs_service.py       # was 2,920 lines — now a ~75-line shim
   services/
-    __init__.py                # re-exports the four services
+    __init__.py                # re-exports the five services
     paths.py                   # CorpusPathService(BaseService)
     corpus_documents.py        # CorpusDocumentService(BaseService)
     lifecycle.py               # DocumentLifecycleService(BaseService)
-    folders.py                 # FolderService(BaseService)
+    folders.py                 # FolderCRUDService(BaseService)
+    folder_documents.py        # FolderDocumentService(BaseService)
 ```
 
 ### 3.2 Method → module mapping
 
 All 40 methods of the former `CorpusObjsService` are relocated, byte-for-byte,
-into exactly one of the four services. Method order within each module
+into exactly one of the five services. Method order within each module
 preserves the monolith's logical grouping.
 
 **`paths.py` — `CorpusPathService`** (6 methods — `DocumentPath`
@@ -75,13 +76,16 @@ document-in-corpus reads / writes + membership):
 restore / trash): `get_deleted_documents`, `soft_delete_document`,
 `restore_document`, `permanently_delete_document`, `empty_trash`.
 
-**`folders.py` — `FolderService`** (16 methods — folder CRUD + the folder
-tree + document-in-folder placement): `get_visible_folders`,
-`get_folder_by_id`, `get_folder_tree`, `get_folder_documents`,
-`get_folder_document_ids`, `get_folder_document_count`, `create_folder`,
-`update_folder`, `move_folder`, `delete_folder`, `move_document_to_folder`,
-`move_documents_to_folder`, `get_document_folder`, `get_folder_path`,
-`search_folders`, `create_folder_structure_from_paths`.
+**`folders.py` — `FolderCRUDService`** (10 methods — folder CRUD + the folder
+tree + search + bulk structure creation): `get_visible_folders`,
+`get_folder_by_id`, `get_folder_tree`, `create_folder`, `update_folder`,
+`move_folder`, `delete_folder`, `get_folder_path`, `search_folders`,
+`create_folder_structure_from_paths`.
+
+**`folder_documents.py` — `FolderDocumentService`** (6 methods —
+document-in-folder placement, listing, and counts): `get_folder_documents`,
+`get_folder_document_ids`, `get_folder_document_count`,
+`move_document_to_folder`, `move_documents_to_folder`, `get_document_folder`.
 
 ### 3.3 Cross-module reference strategy
 
@@ -92,31 +96,32 @@ lived on one class. After the split, calls fall into two categories:
   service's own MRO (e.g. `get_folder_tree` → `cls.get_visible_folders`,
   `get_corpus_document_by_id` → `cls.get_corpus_documents`).
 - **Cross-module** calls are rewritten to an **explicit service-class
-  reference** — `FolderService` / `DocumentLifecycleService` call
-  `CorpusPathService._disambiguate_path(...)` and
-  `CorpusDocumentService._check_document_in_corpus(...)` directly.
+  reference** — `FolderCRUDService` / `FolderDocumentService` /
+  `DocumentLifecycleService` call `CorpusPathService._disambiguate_path(...)`
+  and `CorpusDocumentService._check_document_in_corpus(...)` directly.
 
-Exactly **14 call sites** are rewritten (12 in `folders.py`, 2 in
-`lifecycle.py`); every other line of every method body is identical to the
-monolith. Explicit references were chosen over `cls.`-via-inheritance so each
-service is a flat `BaseService` subclass (matching design doc §5.2), method
-behaviour is independent of the entry point (facade vs standalone), and a
-reader of `folders.py` can see exactly which service owns each helper.
+Exactly **14 call sites** are rewritten, spread across `folders.py`,
+`folder_documents.py`, and `lifecycle.py`; every other line of every method
+body is identical to the monolith. Explicit references were chosen over
+`cls.`-via-inheritance so each service is a flat `BaseService` subclass
+(matching design doc §5.2), method behaviour is independent of the entry
+point (facade vs standalone), and a reader can see exactly which service owns
+each helper.
 
 ### 3.4 The `CorpusObjsService` facade
 
-`corpus_objs_service.py` becomes a thin shim that re-exports the four services
+`corpus_objs_service.py` becomes a thin shim that re-exports the five services
 and defines a deprecated facade:
 
 ```python
 class CorpusObjsService(
-    FolderService, CorpusDocumentService,
+    FolderCRUDService, FolderDocumentService, CorpusDocumentService,
     DocumentLifecycleService, CorpusPathService,
 ):
     pass
 ```
 
-Because the four services are flat `BaseService` subclasses with **disjoint
+Because the five services are flat `BaseService` subclasses with **disjoint
 method names**, the C3 linearisation is unambiguous and every one of the 40
 methods remains callable as `CorpusObjsService.<method>`. This keeps all ~37
 existing caller files and all 290+ tests in `test_corpus_objs_service.py`
@@ -174,7 +179,7 @@ design doc §3 Problem 3 gap ("corpus-level CRUD … has no service").
 ## 5. Phase C — outline (follow-up)
 
 Migrate the ~37 files that import `CorpusObjsService` onto the segmented
-services (`from opencontractserver.corpuses.services import FolderService`,
+services (`from opencontractserver.corpuses.services import FolderCRUDService`,
 etc.), then delete `corpus_objs_service.py` and the `CorpusObjsService` facade
 (CLAUDE.md no-dead-code rule). Update CLAUDE.md rule 7, the consolidated
 permissioning guide, and `docs/architecture/query_permission_patterns.md` to
@@ -184,11 +189,11 @@ reference the segmented package.
 
 - **Flat services, explicit cross-references (not mixin inheritance).** Each
   service extends `BaseService` directly; cross-module helpers are reached by
-  explicit class reference. The alternative — having `FolderService` inherit
-  `CorpusPathService` so `cls.`-dispatch keeps working — would minimise the
-  test diff but produce a mixin web where a service's behaviour depends on the
-  entry point and `paths.py` leaks into `FolderService`'s surface. The flat
-  layout matches design doc §5.2 and keeps the facade's MRO trivially valid.
+  explicit class reference. The alternative — having `FolderCRUDService`
+  inherit `CorpusPathService` so `cls.`-dispatch keeps working — would minimise
+  the test diff but produce a mixin web where a service's behaviour depends on
+  the entry point and `paths.py` leaks into `FolderCRUDService`'s surface. The
+  flat layout matches design doc §5.2 and keeps the facade's MRO trivially valid.
 - **Facade in the shim, not in the package.** `CorpusObjsService` is defined
   in `corpus_objs_service.py`, not in `services/`. The `services/` package is
   born clean — it never contains the deprecated facade — and Phase C deletes
@@ -220,18 +225,20 @@ reference the segmented package.
   imports the package. Model imports stay deferred inside method bodies exactly
   as in the monolith. The new top-level imports are a strict subset of what the
   monolith already imported, so import-time behaviour is unchanged.
-- **Facade method collisions.** The four services have disjoint method names
+- **Facade method collisions.** The five services have disjoint method names
   (pinned by `test_segmented_services_share_no_method_names`), so the facade's
   MRO cannot silently shadow a method.
-- **`folders.py` size (~1,300 lines).** Above the design doc's ~800-line
-  guideline, but the file is heavily commented (the move / delete methods carry
-  long concurrency-rationale docstrings) and holds one cohesive responsibility.
-  The issue scopes exactly four modules; a further `folders` / `folder_documents`
-  split is a possible future tidy-up, not Phase A scope.
+- **Module size.** The original `corpus_objs_service.py` folder logic would
+  have produced a ~1,300-line `folders.py`, above the design doc's ~800-line
+  guideline. It is therefore split along its natural seam into `folders.py`
+  (`FolderCRUDService`, ~800 lines — folder CRUD, tree, search) and
+  `folder_documents.py` (`FolderDocumentService`, ~560 lines —
+  document-in-folder placement and queries); the two classes have no
+  interdependency, so the split adds no cross-service coupling.
 
 ## 9. Success criteria
 
-- The `corpus_objs_service.py` monolith is split into four cohesive,
+- The `corpus_objs_service.py` monolith is split into five cohesive,
   `BaseService`-inheriting modules; the file is a thin shim.
 - Every `CorpusObjsService.<method>` call site and every
   `test_corpus_objs_service.py` scenario keeps working unchanged.

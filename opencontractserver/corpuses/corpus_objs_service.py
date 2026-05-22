@@ -5,8 +5,10 @@ responsibilities in a single ``CorpusObjsService`` class. As of issue #1716
 (service-layer centralization, Phase 2) it has been split into the segmented
 :mod:`opencontractserver.corpuses.services` package:
 
-- :class:`~opencontractserver.corpuses.services.folders.FolderService`
-  — folder CRUD, the folder tree, and document-in-folder placement.
+- :class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`
+  — folder CRUD, the folder tree, search, and bulk structure creation.
+- :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`
+  — document-in-folder placement, listing, and counts.
 - :class:`~opencontractserver.corpuses.services.corpus_documents.CorpusDocumentService`
   — document-in-corpus reads / writes and corpus membership.
 - :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`
@@ -15,7 +17,7 @@ responsibilities in a single ``CorpusObjsService`` class. As of issue #1716
   — low-level :class:`DocumentPath` disambiguation internals.
 
 ``CorpusObjsService`` is retained here ONLY as a deprecated facade that
-multiply-inherits the four segmented services, so existing imports
+multiply-inherits the five segmented services, so existing imports
 (``from opencontractserver.corpuses.corpus_objs_service import
 CorpusObjsService``) and every ``CorpusObjsService.<method>`` call site keep
 working unchanged until all call sites are migrated (issue #1716, Phase 2C).
@@ -35,7 +37,8 @@ from opencontractserver.corpuses.services import (
     CorpusDocumentService,
     CorpusPathService,
     DocumentLifecycleService,
-    FolderService,
+    FolderCRUDService,
+    FolderDocumentService,
 )
 
 warnings.warn(
@@ -44,12 +47,16 @@ warnings.warn(
     "opencontractserver.corpuses.services instead. This shim is removed once all "
     "call sites are migrated (issue #1716, Phase 2C).",
     DeprecationWarning,
-    stacklevel=1,
+    # stacklevel=2 so the warning names the file that imported the shim, not
+    # this module — making each deprecated call site directly actionable for
+    # the Phase 2C migration.
+    stacklevel=2,
 )
 
 __all__ = [
     "CorpusObjsService",
-    "FolderService",
+    "FolderCRUDService",
+    "FolderDocumentService",
     "CorpusDocumentService",
     "DocumentLifecycleService",
     "CorpusPathService",
@@ -57,21 +64,23 @@ __all__ = [
 
 
 class CorpusObjsService(
-    FolderService,
+    FolderCRUDService,
+    FolderDocumentService,
     CorpusDocumentService,
     DocumentLifecycleService,
     CorpusPathService,
 ):
     """DEPRECATED facade — use the segmented services directly.
 
-    Multiply-inherits the four segmented corpus services so that every method
+    Multiply-inherits the five segmented corpus services so that every method
     previously defined on the ``corpus_objs_service`` monolith remains callable
     as ``CorpusObjsService.<method>`` while call sites are migrated (issue
-    #1716). The four parent services each inherit ``BaseService`` directly and
+    #1716). The five parent services each inherit ``BaseService`` directly and
     share no method names, so the method resolution order is unambiguous.
 
     New code MUST import the specific service it needs
-    (:class:`~opencontractserver.corpuses.services.folders.FolderService`,
+    (:class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`,
+    :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`,
     :class:`~opencontractserver.corpuses.services.corpus_documents.CorpusDocumentService`,
     :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`,
     :class:`~opencontractserver.corpuses.services.paths.CorpusPathService`)

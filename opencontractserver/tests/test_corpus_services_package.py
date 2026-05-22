@@ -9,13 +9,13 @@ backward-compatible ``CorpusObjsService`` facade).
 
 This module instead covers the *structural contract* of Phase A:
 
-1. PACKAGE STRUCTURE — the four services exist, are importable, and each
+1. PACKAGE STRUCTURE — the segmented services exist, are importable, and each
    inherits ``BaseService``.
 2. SHIM / FACADE — ``CorpusObjsService`` remains importable from its old
-   location, aggregates all four services, and adds no behaviour of its own.
+   location, aggregates all segmented services, and adds no behaviour of its own.
 3. STANDALONE OPERATION — each segmented service works when called directly,
    without going through the facade (the whole point of the split).
-4. CROSS-SERVICE DELEGATION — ``FolderService`` / ``DocumentLifecycleService``
+4. CROSS-SERVICE DELEGATION — ``FolderCRUDService`` / ``FolderDocumentService``
    correctly reach helpers that now live on ``CorpusPathService`` /
    ``CorpusDocumentService``, both standalone and via the facade.
 
@@ -34,7 +34,8 @@ from opencontractserver.corpuses.services import (
     CorpusDocumentService,
     CorpusPathService,
     DocumentLifecycleService,
-    FolderService,
+    FolderCRUDService,
+    FolderDocumentService,
 )
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.shared.services.base import BaseService
@@ -50,9 +51,10 @@ with warnings.catch_warnings():
 
 User = get_user_model()
 
-# The four segmented services, in the order they are documented in the issue.
+# The five segmented services, in the order they are documented in the issue.
 SEGMENTED_SERVICES = (
-    FolderService,
+    FolderCRUDService,
+    FolderDocumentService,
     CorpusDocumentService,
     DocumentLifecycleService,
     CorpusPathService,
@@ -78,14 +80,15 @@ class TestServicesPackageStructure(SimpleTestCase):
             with self.subTest(service=service.__name__):
                 self.assertTrue(issubclass(service, BaseService))
 
-    def test_package_reexports_the_four_services(self):
+    def test_package_reexports_the_segmented_services(self):
         from opencontractserver.corpuses import services
 
         self.assertEqual(
             sorted(services.__all__),
             sorted(
                 [
-                    "FolderService",
+                    "FolderCRUDService",
+                    "FolderDocumentService",
                     "CorpusDocumentService",
                     "DocumentLifecycleService",
                     "CorpusPathService",
@@ -106,7 +109,7 @@ class TestServicesPackageStructure(SimpleTestCase):
                 )
 
     def test_segmented_services_share_no_method_names(self):
-        """The facade relies on the four services having disjoint methods.
+        """The facade relies on the segmented services having disjoint methods.
 
         If two services defined a method with the same name, the facade's
         method-resolution order would silently pick one — a latent bug. Pin
@@ -139,8 +142,8 @@ class TestCorpusObjsServiceShimFacade(SimpleTestCase):
     BUSINESS RULE: existing callers import ``CorpusObjsService`` from
     ``opencontractserver.corpuses.corpus_objs_service`` and call its methods.
     The shim keeps that import path and every ``CorpusObjsService.<method>``
-    call working for one release, by multiply-inheriting the four segmented
-    services. The facade itself adds no behaviour.
+    call working until call sites are migrated, by multiply-inheriting the
+    five segmented services. The facade itself adds no behaviour.
     """
 
     def test_facade_subclasses_every_segmented_service(self):
@@ -180,7 +183,7 @@ class TestCorpusObjsServiceShimFacade(SimpleTestCase):
                     self.assertIs(facade_fn, service_fn)
 
     def test_facade_mro_is_unambiguous(self):
-        """C3 linearisation succeeds and visits all four services + BaseService."""
+        """C3 linearisation succeeds and visits all segmented services + BaseService."""
         mro = CorpusObjsService.__mro__
         for service in SEGMENTED_SERVICES:
             self.assertIn(service, mro)
@@ -189,7 +192,8 @@ class TestCorpusObjsServiceShimFacade(SimpleTestCase):
     def test_shim_module_reexports_the_segmented_services_too(self):
         from opencontractserver.corpuses import corpus_objs_service as shim
 
-        self.assertIs(shim.FolderService, FolderService)
+        self.assertIs(shim.FolderCRUDService, FolderCRUDService)
+        self.assertIs(shim.FolderDocumentService, FolderDocumentService)
         self.assertIs(shim.CorpusDocumentService, CorpusDocumentService)
         self.assertIs(shim.DocumentLifecycleService, DocumentLifecycleService)
         self.assertIs(shim.CorpusPathService, CorpusPathService)
@@ -225,12 +229,12 @@ class TestCorpusObjsServiceShimFacade(SimpleTestCase):
 # =============================================================================
 
 
-class TestFolderServiceStandalone(TestCase):
-    """SCENARIO: ``FolderService`` is usable directly, without the facade.
+class TestFolderCRUDServiceStandalone(TestCase):
+    """SCENARIO: ``FolderCRUDService`` is usable directly, without the facade.
 
     BUSINESS RULE: new code imports and calls the segmented service
-    (``FolderService.create_folder(...)``) — it does not need, and should not
-    use, the deprecated ``CorpusObjsService`` facade.
+    (``FolderCRUDService.create_folder(...)``) — it does not need, and should
+    not use, the deprecated ``CorpusObjsService`` facade.
     """
 
     def setUp(self):
@@ -238,30 +242,95 @@ class TestFolderServiceStandalone(TestCase):
             username="fs_owner", email="fs_owner@test.com", password="test"
         )
         self.corpus = Corpus.objects.create(
-            title="FolderService Corpus", creator=self.owner, is_public=False
+            title="FolderCRUDService Corpus", creator=self.owner, is_public=False
         )
 
     def test_create_read_update_delete_folder_directly(self):
-        folder, error = FolderService.create_folder(
+        folder, error = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Contracts"
         )
         self.assertEqual(error, "")
         self.assertIsNotNone(folder)
         assert folder is not None
 
-        visible = FolderService.get_visible_folders(self.owner, self.corpus.id)
+        visible = FolderCRUDService.get_visible_folders(self.owner, self.corpus.id)
         self.assertIn(folder.id, {f.id for f in visible})
 
-        ok, error = FolderService.update_folder(
+        ok, error = FolderCRUDService.update_folder(
             user=self.owner, folder=folder, name="Renamed"
         )
         self.assertTrue(ok)
         folder.refresh_from_db()
         self.assertEqual(folder.name, "Renamed")
 
-        ok, error = FolderService.delete_folder(user=self.owner, folder=folder)
+        ok, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
         self.assertTrue(ok)
         self.assertFalse(CorpusFolder.objects.filter(id=folder.id).exists())
+
+
+class TestFolderDocumentServiceStandalone(TestCase):
+    """SCENARIO: ``FolderDocumentService`` is usable directly, without the facade.
+
+    BUSINESS RULE: document-in-folder placement, lookup, and listing resolve
+    through the segmented service. ``FolderDocumentService`` reaches folder-CRUD
+    helpers only through explicit sibling-service references, so it works
+    standalone — it does not depend on the facade or on ``FolderCRUDService``
+    being mixed in.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="fds_owner", email="fds_owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="FolderDocumentService Corpus",
+            creator=self.owner,
+            is_public=False,
+        )
+        folder, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Inbox"
+        )
+        assert folder is not None
+        self.folder = folder
+        self.document = Document.objects.create(
+            title="Doc", creator=self.owner, pdf_file="fds.pdf"
+        )
+        DocumentPath.objects.create(
+            document=self.document,
+            corpus=self.corpus,
+            creator=self.owner,
+            folder=None,
+            path="/fds.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+
+    def test_move_then_list_and_lookup_document_in_folder(self):
+        ok, error = FolderDocumentService.move_document_to_folder(
+            user=self.owner,
+            document=self.document,
+            corpus=self.corpus,
+            folder=self.folder,
+        )
+        self.assertTrue(ok, error)
+
+        current_folder = FolderDocumentService.get_document_folder(
+            user=self.owner, document=self.document, corpus=self.corpus
+        )
+        self.assertIsNotNone(current_folder)
+        assert current_folder is not None
+        self.assertEqual(current_folder.id, self.folder.id)
+
+        docs_in_folder = FolderDocumentService.get_folder_documents(
+            user=self.owner, corpus_id=self.corpus.id, folder_id=self.folder.id
+        )
+        self.assertIn(self.document.id, {d.id for d in docs_in_folder})
+
+        count = FolderDocumentService.get_folder_document_count(
+            user=self.owner, folder=self.folder
+        )
+        self.assertEqual(count, 1)
 
 
 class TestCorpusDocumentServiceStandalone(TestCase):
@@ -403,11 +472,12 @@ class TestCorpusPathServiceStandalone(SimpleTestCase):
 class TestCrossServiceDelegation(TestCase):
     """SCENARIO: folder write operations reach helpers on sibling services.
 
-    BUSINESS RULE: ``FolderService`` move/delete operations delegate path
-    disambiguation to ``CorpusPathService`` and membership checks to
-    ``CorpusDocumentService`` via explicit class references. The relocation
-    must work when ``FolderService`` is used STANDALONE — the explicit
-    references do not depend on being reached through the facade.
+    BUSINESS RULE: ``FolderDocumentService`` move operations and
+    ``FolderCRUDService.delete_folder`` delegate path disambiguation to
+    ``CorpusPathService`` and membership checks to ``CorpusDocumentService``
+    via explicit class references. The relocation must work when those
+    services are used STANDALONE — the explicit references do not depend on
+    being reached through the facade.
     """
 
     def setUp(self):
@@ -417,7 +487,7 @@ class TestCrossServiceDelegation(TestCase):
         self.corpus = Corpus.objects.create(
             title="CrossService Corpus", creator=self.owner, is_public=False
         )
-        folder, _ = FolderService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
         assert folder is not None
@@ -440,8 +510,8 @@ class TestCrossServiceDelegation(TestCase):
             self.documents.append(doc)
 
     def test_move_document_to_folder_standalone_uses_path_service(self):
-        """``FolderService.move_document_to_folder`` -> ``CorpusPathService``."""
-        ok, error = FolderService.move_document_to_folder(
+        """``FolderDocumentService.move_document_to_folder`` -> ``CorpusPathService``."""
+        ok, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.documents[0],
             corpus=self.corpus,
@@ -457,11 +527,11 @@ class TestCrossServiceDelegation(TestCase):
         self.assertEqual(current.folder_id, self.folder.id)
 
     def test_bulk_move_standalone_uses_path_service(self):
-        """``FolderService.move_documents_to_folder`` disambiguates paths via
-        ``CorpusPathService`` even though the two now live in separate
+        """``FolderDocumentService.move_documents_to_folder`` disambiguates paths
+        via ``CorpusPathService`` even though the two now live in separate
         modules."""
         doc_ids = [d.id for d in self.documents]
-        moved, error = FolderService.move_documents_to_folder(
+        moved, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=doc_ids,
             corpus=self.corpus,
@@ -479,15 +549,15 @@ class TestCrossServiceDelegation(TestCase):
             self.assertEqual(current.folder_id, self.folder.id)
 
     def test_delete_folder_standalone_relocates_documents(self):
-        """``FolderService.delete_folder`` displaces documents to root via the
-        ``CorpusPathService`` disambiguation helpers."""
-        FolderService.move_documents_to_folder(
+        """``FolderCRUDService.delete_folder`` displaces documents to root via
+        the ``CorpusPathService`` disambiguation helpers."""
+        FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[d.id for d in self.documents],
             corpus=self.corpus,
             folder=self.folder,
         )
-        ok, error = FolderService.delete_folder(user=self.owner, folder=self.folder)
+        ok, error = FolderCRUDService.delete_folder(user=self.owner, folder=self.folder)
         self.assertTrue(ok, error)
         for doc in self.documents:
             current = DocumentPath.objects.get(
@@ -520,7 +590,7 @@ class TestFacadeEquivalence(TestCase):
         via_facade, facade_err = CorpusObjsService.create_folder(
             user=self.owner, corpus=self.corpus, name="ViaFacade"
         )
-        via_service, service_err = FolderService.create_folder(
+        via_service, service_err = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ViaService"
         )
         self.assertEqual(facade_err, "")
@@ -533,13 +603,13 @@ class TestFacadeEquivalence(TestCase):
     def test_bulk_move_via_facade_matches_segmented_service(self):
         """A cross-module operation (bulk move -> path disambiguation) behaves
         identically whether dispatched through the facade or the service."""
-        folder, _ = FolderService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Dest"
         )
         results = {}
         for label, entrypoint in (
             ("facade", CorpusObjsService),
-            ("service", FolderService),
+            ("service", FolderDocumentService),
         ):
             doc = Document.objects.create(
                 title=f"Doc {label}",

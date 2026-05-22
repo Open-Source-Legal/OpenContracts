@@ -41,7 +41,9 @@ class CorpusPathService(BaseService):
 
     All methods are internal helpers (underscore-prefixed) shared by the
     folder write operations in
-    :class:`~opencontractserver.corpuses.services.folders.FolderService`.
+    :class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`
+    and
+    :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`.
     They perform NO permission checks — the calling service is responsible
     for gating corpus permissions first.
     """
