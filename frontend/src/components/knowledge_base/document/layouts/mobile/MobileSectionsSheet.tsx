@@ -1,12 +1,13 @@
 import React, { useEffect } from "react";
 import styled from "styled-components";
 import { useAtomValue } from "jotai";
+import { useLocation, useNavigate } from "react-router-dom";
 import { List } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
 import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import { structuralAnnotationsAtom } from "../../../../annotator/context/AnnotationAtoms";
-import { showStructuralAnnotations } from "../../../../../graphql/cache";
+import { updateAnnotationDisplayParams } from "../../../../../utils/navigationUtils";
 
 export interface MobileSectionsSheetProps {
   /** Whether the sheet is open — gates the structural-annotation fetch. */
@@ -87,22 +88,29 @@ const Empty = styled.div`
  *
  * Renders the document's structural annotations (headers / sections) as a flat
  * tappable index. Tapping a row routes the viewer to that annotation via the
- * standard `?ann=` deep-link path. Opening the sheet flips the
- * `showStructuralAnnotations` reactive var so {@link useStructuralAnnotations}
- * (mounted by DocumentKnowledgeBase) lazily fetches the structural set.
+ * standard `?ann=` deep-link path. Opening the sheet sets the `structural`
+ * URL param so {@link useStructuralAnnotations} (mounted by
+ * DocumentKnowledgeBase) lazily fetches the structural set.
  */
 export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
   open,
   onNavigate,
 }) => {
   const structuralAnnotations = useAtomValue(structuralAnnotationsAtom);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // Opening the sheet is the user signalling intent to browse structure — use
-  // it as the trigger to lazily load the structural annotation set.
+  // it as the trigger to lazily load the structural annotation set. The
+  // `showStructuralAnnotations` reactive var is URL-driven, so flip it via the
+  // URL (per the routing write-discipline rule) rather than setting it directly.
   useEffect(() => {
     if (open) {
-      showStructuralAnnotations(true);
+      updateAnnotationDisplayParams(location, navigate, {
+        showStructural: true,
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (structuralAnnotations.length === 0) {
