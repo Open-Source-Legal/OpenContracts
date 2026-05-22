@@ -17,6 +17,7 @@ The two ``check_user_upload_quota`` / ``validate_file_type`` test classes test
 methods that live on ``DocumentService`` rather than ``CorpusObjsService``.
 """
 
+import warnings
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -29,7 +30,15 @@ from opencontractserver.constants.document_processing import (
     MAX_PATH_DISAMBIGUATION_SUFFIX,
     PATH_CONFLICT_MSG,
 )
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+
+# The shim module emits a DeprecationWarning at import time, by design — it is
+# the runtime signal Phase 2C uses for call-site discovery. This behavioural
+# regression suite still exercises the facade on purpose, so suppress the
+# warning at import to keep CI output clean and stay robust if the test suite
+# ever adopts ``filterwarnings = error``.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusFolder,
