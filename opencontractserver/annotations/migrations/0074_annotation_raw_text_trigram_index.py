@@ -35,6 +35,16 @@ class Migration(migrations.Migration):
     operations = [
         # pg_trgm provides the gin_trgm_ops operator class used by the
         # index below. Must run before the index is created.
+        #
+        # Reversal hazard: TrigramExtension.reverse runs ``DROP EXTENSION
+        # pg_trgm`` unconditionally. Rolling 0074 backwards in a database
+        # where any *other* object still uses ``gin_trgm_ops`` (a different
+        # trigram index, a pre-existing external use, or a partial-forward
+        # state) will raise ``cannot drop extension pg_trgm because other
+        # objects depend on it`` and leave the migration state inconsistent.
+        # Forward path is safe (IF NOT EXISTS is idempotent); reversal must
+        # only be attempted on databases known to have no other pg_trgm
+        # dependencies.
         TrigramExtension(),
         migrations.SeparateDatabaseAndState(
             state_operations=[
