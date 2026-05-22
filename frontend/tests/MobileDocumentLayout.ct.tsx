@@ -106,3 +106,16 @@ test("the mobile layout locks body scroll while mounted", async ({
   // full-screen mobile layout cannot scroll.
   await expect(page.locator("body.document-kb-scroll-lock")).toHaveCount(1);
 });
+
+test("surfaces a query error instead of the tab surfaces", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <MobileLayoutHarness queryErrorMessage="Document failed to load" />
+  );
+  await expect(page.getByText("Error loading document")).toBeVisible();
+  await expect(page.getByText(/Document failed to load/)).toBeVisible();
+  // The error replaces the tab surfaces — the Document surface must not render.
+  await expect(page.getByTestId("mobile-surface-document")).toHaveCount(0);
+});

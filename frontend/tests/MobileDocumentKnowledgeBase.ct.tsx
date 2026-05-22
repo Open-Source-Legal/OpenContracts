@@ -449,50 +449,6 @@ test("the annotation feed renders rows and a row opens the detail sheet", async 
   ).toBeVisible({ timeout: LONG_TIMEOUT });
 });
 
-/* ───────────────────────────────────────────────────────────────────────────
- * 5b. More sheet — sub-surface navigation.
- *
- * MobileMoreSheet swaps its own body between the menu list and a chosen Tier-2
- * surface (Discussions / Notes / Info) with a back affordance. This exercises
- * the Discussions and Notes sub-surfaces — both of which embed the real
- * RightPanelContent — and the back-to-menu transition between them.
- * ─────────────────────────────────────────────────────────────────────────── */
-test("the More sheet navigates into the Discussions and Notes sub-surfaces", async ({
-  mount,
-  page,
-}) => {
-  await mount(mobileDkb());
-  await waitForDocumentReady(page);
-
-  await page.getByRole("tab", { name: "More" }).click();
-  await expect(page.getByTestId("mobile-more-menu")).toBeVisible({
-    timeout: LONG_TIMEOUT,
-  });
-
-  // Documentation capture: the More sheet's Tier-2 surface menu.
-  await docScreenshot(page, "knowledge-base--mobile--more-menu");
-
-  // Discussions sub-surface.
-  await page.getByTestId("mobile-more-discussions").click();
-  await expect(page.getByTestId("mobile-more-discussions-surface")).toBeVisible(
-    { timeout: LONG_TIMEOUT }
-  );
-
-  // Back returns to the menu list.
-  await page.getByTestId("mobile-more-back").click();
-  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
-
-  // Notes sub-surface.
-  await page.getByTestId("mobile-more-notes").click();
-  await expect(page.getByTestId("mobile-more-notes-surface")).toBeVisible({
-    timeout: LONG_TIMEOUT,
-  });
-
-  // Back again returns to the menu list.
-  await page.getByTestId("mobile-more-back").click();
-  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
-});
-
 /** Reads the document zoom percentage off the MobileDocToolbar "Fit width" chip. */
 async function readZoomPercent(page: Page): Promise<number> {
   const chip = page.locator('[aria-label="Fit width"]');
@@ -599,4 +555,96 @@ test("pinch-zoom adjusts the document zoom in the mobile layout", async ({
   const zoomedOut = await readZoomPercent(page);
   console.log(`[TEST] zoom after pinch-in: ${zoomedOut}%`);
   expect(zoomedOut).toBeLessThan(zoomedIn);
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 7. The document toolbar opens the Sections and Find sheets
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the document toolbar opens the Sections and Find sheets", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  // Sections — opens a MobileSheet over the structural index (the list, or the
+  // empty state when the document carries no structural annotations).
+  await page.getByRole("button", { name: /sections/i }).click();
+  await expect(
+    page
+      .getByTestId("mobile-sections-list")
+      .or(page.getByTestId("mobile-sections-empty"))
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+  await page.getByRole("button", { name: "Close" }).last().click();
+  await page.waitForTimeout(500);
+
+  // Find — opens the in-document text-search sheet.
+  await page.getByRole("button", { name: /find/i }).click();
+  await expect(page.getByTestId("mobile-find-sheet")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 8. The More sheet navigates through its Tier-2 sub-views
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the More sheet navigates through its sub-views", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  await page.getByRole("tab", { name: "More" }).click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // Documentation capture: the More sheet's Tier-2 surface menu.
+  await docScreenshot(page, "knowledge-base--mobile--more-menu");
+
+  // Discussions sub-view.
+  await page.getByTestId("mobile-more-discussions").click();
+  await expect(page.getByTestId("mobile-more-discussions-surface")).toBeVisible(
+    { timeout: LONG_TIMEOUT }
+  );
+  await page.getByTestId("mobile-more-back").click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
+
+  // Notes sub-view.
+  await page.getByTestId("mobile-more-notes").click();
+  await expect(page.getByTestId("mobile-more-notes-surface")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+  await page.getByTestId("mobile-more-back").click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
+
+  // Document info & versions — a mock-free read-only metadata view.
+  await page.getByTestId("mobile-more-info").click();
+  await expect(page.getByTestId("mobile-more-info-surface")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 9. The annotations filter bar expands its compact controls
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the annotations filter bar expands its compact controls", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  await page.getByRole("tab", { name: "Annotations" }).click();
+  await expect(page.getByTestId("mobile-surface-annotations")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // The compact "Filter & sort" toggle reveals the full content-type and sort
+  // control set inline (SidebarControlBar's compact branch).
+  const toggle = page.getByTestId("compact-filter-sort-toggle");
+  await expect(toggle).toBeVisible({ timeout: LONG_TIMEOUT });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 });

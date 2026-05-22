@@ -108,10 +108,23 @@ const stubProps: DesktopDocumentLayoutProps = {
   setChatSourceState: noop,
 };
 
-export const MobileLayoutHarness: React.FC = () => (
+/**
+ * @param queryErrorMessage - when set, the layout is rendered with a
+ *   `queryError`. The `Error` is constructed here (browser-side) rather than
+ *   passed in: Playwright CT serializes `mount()` props, which strips an
+ *   `Error` instance down to an empty object and loses `.message`.
+ */
+export const MobileLayoutHarness: React.FC<{ queryErrorMessage?: string }> = ({
+  queryErrorMessage,
+}) => (
   <MemoryRouter>
     <div style={{ height: 844, width: 390 }}>
-      <MobileDocumentLayout {...stubProps} />
+      <MobileDocumentLayout
+        {...stubProps}
+        queryError={
+          queryErrorMessage ? new Error(queryErrorMessage) : undefined
+        }
+      />
     </div>
   </MemoryRouter>
 );
