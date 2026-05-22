@@ -52,12 +52,10 @@ class TestCorpusAgentContextInitialize(TestCase):
     def test_initialize_loads_when_documents_empty(self) -> None:
         """Empty list triggers the corpus fetch (the new "not self.documents"
         branch). ``CorpusAgentContext.initialize`` now routes through
-        :class:`CorpusObjsService.get_corpus_documents` so corpus-READ is
+        :class:`CorpusDocumentService.get_corpus_documents` so corpus-READ is
         enforced uniformly — mock that classmethod so the test does not
         need a real document fixture."""
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         ctx = CorpusAgentContext(
             corpus=self.corpus, config=AgentConfig(user_id=self.user.id)
@@ -65,7 +63,7 @@ class TestCorpusAgentContextInitialize(TestCase):
 
         sentinel_doc = MagicMock(spec=Document)
         with patch.object(
-            CorpusObjsService,
+            CorpusDocumentService,
             "get_corpus_documents",
             return_value=[sentinel_doc],
         ):
@@ -76,9 +74,7 @@ class TestCorpusAgentContextInitialize(TestCase):
     def test_initialize_skips_load_when_documents_prepopulated(self) -> None:
         """A non-empty list short-circuits the load — the corpus fetch must
         NOT be called."""
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         existing = MagicMock(spec=Document)
         ctx = CorpusAgentContext(
@@ -87,7 +83,7 @@ class TestCorpusAgentContextInitialize(TestCase):
             documents=[existing],
         )
 
-        with patch.object(CorpusObjsService, "get_corpus_documents") as mock_get:
+        with patch.object(CorpusDocumentService, "get_corpus_documents") as mock_get:
             async_to_sync(ctx.initialize)()
             mock_get.assert_not_called()
 

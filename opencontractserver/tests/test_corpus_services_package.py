@@ -4,27 +4,23 @@ Phase 2 of the service-layer centralization roadmap split the ~2,900-line
 ``corpus_objs_service.py`` monolith into the segmented
 ``opencontractserver.corpuses.services`` package. The behaviour of every
 relocated method is regression-covered, unchanged, by
-``test_corpus_objs_service.py`` (which exercises the methods through the
-backward-compatible ``CorpusObjsService`` facade).
+``test_corpus_objs_service.py``; Corpus-row CRUD is covered by
+``test_corpus_service.py``.
 
-This module instead covers the *structural contract* of Phase A:
+This module instead covers the *structural contract* of the package:
 
 1. PACKAGE STRUCTURE — the segmented services exist, are importable, and each
    inherits ``BaseService``.
-2. SHIM / FACADE — ``CorpusObjsService`` remains importable from its old
-   location, aggregates all segmented services, and adds no behaviour of its own.
-3. STANDALONE OPERATION — each segmented service works when called directly,
-   without going through the facade (the whole point of the split).
-4. CROSS-SERVICE DELEGATION — ``FolderCRUDService`` / ``FolderDocumentService``
+2. STANDALONE OPERATION — each segmented service works when called directly.
+3. CROSS-SERVICE DELEGATION — ``FolderCRUDService`` / ``FolderDocumentService``
    correctly reach helpers that now live on ``CorpusPathService`` /
-   ``CorpusDocumentService``, both standalone and via the facade.
+   ``CorpusDocumentService``.
 
-See ``docs/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan.md``.
+See ``docs/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan.md``
+and ``docs/refactor_plans/2026-05-22-service-layer-phase2bc-corpus-service-and-caller-migration.md``.
 """
 
 from __future__ import annotations
-
-import warnings
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
@@ -33,6 +29,7 @@ from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.corpuses.services import (
     CorpusDocumentService,
     CorpusPathService,
+    CorpusService,
     DocumentLifecycleService,
     FolderCRUDService,
     FolderDocumentService,
@@ -40,22 +37,14 @@ from opencontractserver.corpuses.services import (
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.shared.services.base import BaseService
 
-# The shim module emits a DeprecationWarning at import time, by design — it is
-# the runtime signal Phase 2C uses for call-site discovery. Import it under a
-# warnings filter so test collection stays clean even if pytest is later run
-# with ``filterwarnings = error``. ``test_shim_import_emits_deprecation_warning``
-# still asserts the warning fires (it re-triggers it via ``importlib.reload``).
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", DeprecationWarning)
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
-
 User = get_user_model()
 
-# The five segmented services, in the order they are documented in the issue.
+# The six segmented services that make up the corpus service layer.
 SEGMENTED_SERVICES = (
     FolderCRUDService,
     FolderDocumentService,
     CorpusDocumentService,
+    CorpusService,
     DocumentLifecycleService,
     CorpusPathService,
 )
@@ -90,6 +79,7 @@ class TestServicesPackageStructure(SimpleTestCase):
                     "FolderCRUDService",
                     "FolderDocumentService",
                     "CorpusDocumentService",
+                    "CorpusService",
                     "DocumentLifecycleService",
                     "CorpusPathService",
                 ]
@@ -109,11 +99,11 @@ class TestServicesPackageStructure(SimpleTestCase):
                 )
 
     def test_segmented_services_share_no_method_names(self):
-        """The facade relies on the segmented services having disjoint methods.
+        """The segmented services have disjoint method names.
 
-        If two services defined a method with the same name, the facade's
-        method-resolution order would silently pick one — a latent bug. Pin
-        the disjointness so a future name collision fails loudly here.
+        Each responsibility lives on exactly one service; a name appearing on
+        two services would signal a botched split. Pin the disjointness so a
+        future collision fails loudly here.
         """
         seen: dict[str, str] = {}
         for service in SEGMENTED_SERVICES:
@@ -132,109 +122,15 @@ class TestServicesPackageStructure(SimpleTestCase):
 
 
 # =============================================================================
-# 2. SHIM / FACADE BACKWARD COMPATIBILITY
-# =============================================================================
-
-
-class TestCorpusObjsServiceShimFacade(SimpleTestCase):
-    """SCENARIO: ``CorpusObjsService`` survives the split as a deprecated facade.
-
-    BUSINESS RULE: existing callers import ``CorpusObjsService`` from
-    ``opencontractserver.corpuses.corpus_objs_service`` and call its methods.
-    The shim keeps that import path and every ``CorpusObjsService.<method>``
-    call working until call sites are migrated, by multiply-inheriting the
-    five segmented services. The facade itself adds no behaviour.
-    """
-
-    def test_facade_subclasses_every_segmented_service(self):
-        for service in SEGMENTED_SERVICES:
-            with self.subTest(service=service.__name__):
-                self.assertTrue(issubclass(CorpusObjsService, service))
-
-    def test_facade_is_a_base_service(self):
-        self.assertTrue(issubclass(CorpusObjsService, BaseService))
-
-    def test_facade_defines_no_methods_of_its_own(self):
-        """The facade is a pure aggregation point — it overrides nothing."""
-        own = {
-            name
-            for name, value in vars(CorpusObjsService).items()
-            if not name.startswith("__")
-        }
-        self.assertEqual(own, set())
-
-    def test_facade_exposes_every_segmented_method(self):
-        """Every public + private method of each service is callable via the
-        facade — this is what keeps the 300+ existing call sites working."""
-        for service in SEGMENTED_SERVICES:
-            for name, value in vars(service).items():
-                if name.startswith("__") or not callable(getattr(service, name)):
-                    continue
-                with self.subTest(method=name):
-                    # The facade attribute resolves (via MRO) to the very same
-                    # underlying function defined on the owning segmented
-                    # service. ``classmethod`` access yields a bound method, so
-                    # compare the underlying ``__func__``; ``staticmethod``
-                    # access yields the plain function (no ``__func__``).
-                    facade_attr = getattr(CorpusObjsService, name)
-                    service_attr = getattr(service, name)
-                    facade_fn = getattr(facade_attr, "__func__", facade_attr)
-                    service_fn = getattr(service_attr, "__func__", service_attr)
-                    self.assertIs(facade_fn, service_fn)
-
-    def test_facade_mro_is_unambiguous(self):
-        """C3 linearisation succeeds and visits all segmented services + BaseService."""
-        mro = CorpusObjsService.__mro__
-        for service in SEGMENTED_SERVICES:
-            self.assertIn(service, mro)
-        self.assertIn(BaseService, mro)
-
-    def test_shim_module_reexports_the_segmented_services_too(self):
-        from opencontractserver.corpuses import corpus_objs_service as shim
-
-        self.assertIs(shim.FolderCRUDService, FolderCRUDService)
-        self.assertIs(shim.FolderDocumentService, FolderDocumentService)
-        self.assertIs(shim.CorpusDocumentService, CorpusDocumentService)
-        self.assertIs(shim.DocumentLifecycleService, DocumentLifecycleService)
-        self.assertIs(shim.CorpusPathService, CorpusPathService)
-
-    def test_shim_import_emits_deprecation_warning(self):
-        """Importing the shim fires a ``DeprecationWarning`` — the runtime
-        signal Phase 2C relies on for call-site discovery."""
-        import importlib
-        import warnings
-
-        from opencontractserver.corpuses import corpus_objs_service as shim
-
-        # The shim's ``warnings.warn`` fires at module-execution time, and the
-        # module is already cached (imported at this file's top), so the
-        # warning has long since fired and been deduplicated. ``reload``
-        # re-executes the module body to fire it again; it must run inside
-        # ``catch_warnings`` so the re-emission is observed in isolation.
-        # ``reload`` is safe here only because the shim and the segmented
-        # service modules have no module-level side effects beyond that single
-        # ``warnings.warn`` (no signal registration, no global mutation).
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            importlib.reload(shim)
-
-        self.assertTrue(
-            any(issubclass(w.category, DeprecationWarning) for w in caught),
-            "shim import should emit a DeprecationWarning",
-        )
-
-
-# =============================================================================
 # 3. STANDALONE OPERATION OF EACH SEGMENTED SERVICE
 # =============================================================================
 
 
 class TestFolderCRUDServiceStandalone(TestCase):
-    """SCENARIO: ``FolderCRUDService`` is usable directly, without the facade.
+    """SCENARIO: ``FolderCRUDService`` is usable directly.
 
-    BUSINESS RULE: new code imports and calls the segmented service
-    (``FolderCRUDService.create_folder(...)``) — it does not need, and should
-    not use, the deprecated ``CorpusObjsService`` facade.
+    BUSINESS RULE: code imports and calls the segmented service
+    (``FolderCRUDService.create_folder(...)``) directly.
     """
 
     def setUp(self):
@@ -269,13 +165,12 @@ class TestFolderCRUDServiceStandalone(TestCase):
 
 
 class TestFolderDocumentServiceStandalone(TestCase):
-    """SCENARIO: ``FolderDocumentService`` is usable directly, without the facade.
+    """SCENARIO: ``FolderDocumentService`` is usable directly.
 
     BUSINESS RULE: document-in-folder placement, lookup, and listing resolve
     through the segmented service. ``FolderDocumentService`` reaches folder-CRUD
     helpers only through explicit sibling-service references, so it works
-    standalone — it does not depend on the facade or on ``FolderCRUDService``
-    being mixed in.
+    standalone — it does not depend on ``FolderCRUDService`` being mixed in.
     """
 
     def setUp(self):
@@ -567,72 +462,3 @@ class TestCrossServiceDelegation(TestCase):
                 is_deleted=False,
             )
             self.assertIsNone(current.folder_id)
-
-
-class TestFacadeEquivalence(TestCase):
-    """SCENARIO: the facade and the segmented service produce identical results.
-
-    BUSINESS RULE: routing a call through ``CorpusObjsService`` (legacy) or
-    through the segmented service directly (new code) must behave identically —
-    the facade is a pure pass-through, so the migration of call sites in later
-    phases is a no-op behaviourally.
-    """
-
-    def setUp(self):
-        self.owner = User.objects.create_user(
-            username="fe_owner", email="fe_owner@test.com", password="test"
-        )
-        self.corpus = Corpus.objects.create(
-            title="FacadeEquivalence Corpus", creator=self.owner, is_public=False
-        )
-
-    def test_create_folder_via_facade_matches_segmented_service(self):
-        via_facade, facade_err = CorpusObjsService.create_folder(
-            user=self.owner, corpus=self.corpus, name="ViaFacade"
-        )
-        via_service, service_err = FolderCRUDService.create_folder(
-            user=self.owner, corpus=self.corpus, name="ViaService"
-        )
-        self.assertEqual(facade_err, "")
-        self.assertEqual(service_err, "")
-        assert via_facade is not None
-        assert via_service is not None
-        self.assertEqual(via_facade.corpus_id, via_service.corpus_id)
-        self.assertEqual(type(via_facade), type(via_service))
-
-    def test_bulk_move_via_facade_matches_segmented_service(self):
-        """A cross-module operation (bulk move -> path disambiguation) behaves
-        identically whether dispatched through the facade or the service."""
-        folder, _ = FolderCRUDService.create_folder(
-            user=self.owner, corpus=self.corpus, name="Dest"
-        )
-        results = {}
-        for label, entrypoint in (
-            ("facade", CorpusObjsService),
-            ("service", FolderDocumentService),
-        ):
-            doc = Document.objects.create(
-                title=f"Doc {label}",
-                creator=self.owner,
-                pdf_file=f"fe_{label}.pdf",
-            )
-            DocumentPath.objects.create(
-                document=doc,
-                corpus=self.corpus,
-                creator=self.owner,
-                folder=None,
-                path=f"/fe_{label}.pdf",
-                version_number=1,
-                is_current=True,
-                is_deleted=False,
-            )
-            moved, error = entrypoint.move_documents_to_folder(
-                user=self.owner,
-                document_ids=[doc.id],
-                corpus=self.corpus,
-                folder=folder,
-            )
-            results[label] = (moved, error)
-
-        self.assertEqual(results["facade"], results["service"])
-        self.assertEqual(results["facade"], (1, ""))

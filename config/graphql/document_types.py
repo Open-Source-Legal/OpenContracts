@@ -1130,18 +1130,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         Get folder assignment for this document in a specific corpus.
 
-        Delegates to CorpusObjsService.get_document_folder() for
+        Delegates to FolderDocumentService.get_document_folder() for
         permission checking and dual-system consistency.
         """
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
         from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.corpuses.services import FolderDocumentService
 
         _, corpus_pk = from_global_id(corpus_id)
         try:
             corpus = Corpus.objects.get(pk=corpus_pk)
-            return CorpusObjsService.get_document_folder(
+            return FolderDocumentService.get_document_folder(
                 user=info.context.user,
                 document=self,
                 corpus=corpus,

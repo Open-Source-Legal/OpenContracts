@@ -338,7 +338,7 @@ class DeleteCorpusMutation(graphene.Mutation):
 class AddDocumentsToCorpus(graphene.Mutation):
     """Add existing documents to a corpus.
 
-    Delegates to CorpusObjsService.add_documents_to_corpus() for:
+    Delegates to CorpusDocumentService.add_documents_to_corpus() for:
     - Permission checking (corpus UPDATE permission)
     - Document validation (user owns or public)
     - Dual-system update (DocumentPath + corpus.add_document)
@@ -359,9 +359,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
 
     @login_required
     def mutate(root, info, corpus_id, document_ids) -> "AddDocumentsToCorpus":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         # Unified message prevents enumeration of corpora the caller cannot see/edit
         not_found_msg = (
@@ -389,12 +387,14 @@ class AddDocumentsToCorpus(graphene.Mutation):
                 return AddDocumentsToCorpus(message=not_found_msg, ok=False)
 
             # Delegate to service - handles permission checks, validation, dual-system update
-            added_count, added_ids, error = CorpusObjsService.add_documents_to_corpus(
-                user=user,
-                document_ids=doc_pks,
-                corpus=corpus,
-                folder=None,  # No folder specified - add to root
-                request=info.context,
+            added_count, added_ids, error = (
+                CorpusDocumentService.add_documents_to_corpus(
+                    user=user,
+                    document_ids=doc_pks,
+                    corpus=corpus,
+                    folder=None,  # No folder specified - add to root
+                    request=info.context,
+                )
             )
 
             if error:
@@ -412,7 +412,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
 class RemoveDocumentsFromCorpus(graphene.Mutation):
     """Remove documents from a corpus (soft-delete).
 
-    Delegates to CorpusObjsService.remove_documents_from_corpus() for:
+    Delegates to CorpusDocumentService.remove_documents_from_corpus() for:
     - Permission checking (corpus UPDATE permission)
     - Soft-delete via DocumentPath (creates is_deleted=True record)
     - Audit trail
@@ -435,9 +435,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
     def mutate(
         root, info, corpus_id, document_ids_to_remove
     ) -> "RemoveDocumentsFromCorpus":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         # Unified message prevents enumeration of corpora the caller cannot see/edit
         not_found_msg = (
@@ -467,7 +465,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
 
             # Delegate to service - handles permission checks, soft-delete, audit trail
-            removed_count, error = CorpusObjsService.remove_documents_from_corpus(
+            removed_count, error = CorpusDocumentService.remove_documents_from_corpus(
                 user=user,
                 document_ids=doc_pks,
                 corpus=corpus,

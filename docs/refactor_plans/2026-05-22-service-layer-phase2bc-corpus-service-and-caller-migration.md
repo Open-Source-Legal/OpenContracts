@@ -1,5 +1,8 @@
 # Service Layer Centralization — Phase 2B & 2C Implementation Plan
 
+> **Status:** Implemented (issue #1716). This document is retained as the
+> design record for Phases 2B and 2C.
+>
 > **For agentic workers:** Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `CorpusService` owning Corpus-row CRUD (Phase 2B), then migrate

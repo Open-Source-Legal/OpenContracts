@@ -3,7 +3,7 @@ Tests for permanent document deletion in OpenContracts.
 
 This module tests the permanent deletion (empty trash) functionality including:
 - Core deletion logic in versioning.py
-- Service layer methods in corpus_objs_service.py
+- Service layer methods on DocumentLifecycleService (corpuses/services/lifecycle.py)
 - GraphQL mutations for permanent deletion and empty trash
 - Permission checks
 - Cascade cleanup of related data
@@ -26,8 +26,8 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     Relationship,
 )
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
+from opencontractserver.corpuses.services import DocumentLifecycleService
 from opencontractserver.documents.models import (
     Document,
     DocumentPath,
@@ -726,7 +726,7 @@ class TestPermanentDeletionPermissions(TestCase):
         )
 
         # Try to permanently delete via service layer
-        success, message = CorpusObjsService.permanently_delete_document(
+        success, message = DocumentLifecycleService.permanently_delete_document(
             self.other_user, self.doc, self.corpus
         )
         self.assertFalse(success)
@@ -736,7 +736,7 @@ class TestPermanentDeletionPermissions(TestCase):
         """Test that users without any permission cannot permanently delete."""
         # other_user has no permissions on corpus
 
-        success, message = CorpusObjsService.permanently_delete_document(
+        success, message = DocumentLifecycleService.permanently_delete_document(
             self.other_user, self.doc, self.corpus
         )
         self.assertFalse(success)
@@ -744,14 +744,14 @@ class TestPermanentDeletionPermissions(TestCase):
 
     def test_permanent_delete_allowed_for_corpus_creator(self):
         """Test that corpus creator can permanently delete."""
-        success, message = CorpusObjsService.permanently_delete_document(
+        success, message = DocumentLifecycleService.permanently_delete_document(
             self.owner, self.doc, self.corpus
         )
         self.assertTrue(success)
 
     def test_permanent_delete_allowed_for_superuser(self):
         """Test that superuser can permanently delete any document."""
-        success, message = CorpusObjsService.permanently_delete_document(
+        success, message = DocumentLifecycleService.permanently_delete_document(
             self.superuser, self.doc, self.corpus
         )
         self.assertTrue(success)
@@ -765,7 +765,9 @@ class TestPermanentDeletionPermissions(TestCase):
             [PermissionTypes.READ],
         )
 
-        count, message = CorpusObjsService.empty_trash(self.other_user, self.corpus)
+        count, message = DocumentLifecycleService.empty_trash(
+            self.other_user, self.corpus
+        )
         self.assertEqual(count, 0)
         self.assertIn("permission denied", message.lower())
 
@@ -788,7 +790,7 @@ class TestPermanentDeletionPermissions(TestCase):
         )
         delete_document(self.corpus, "/perm_test_doc_2.pdf", self.owner)
 
-        success, message = CorpusObjsService.permanently_delete_document(
+        success, message = DocumentLifecycleService.permanently_delete_document(
             self.other_user, doc2, self.corpus
         )
         self.assertTrue(success, f"Expected success but got: {message}")

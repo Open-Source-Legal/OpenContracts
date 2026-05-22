@@ -40,7 +40,7 @@ class DocumentsConfig(AppConfig):
             # The custom M2M manager has been removed. All code must now use:
             # - corpus.add_document(document=doc, user=user) instead of corpus.documents.add(doc)
             # - corpus.remove_document(document=doc, user=user) instead of corpus.documents.remove(doc)
-            # - CorpusObjsService.get_corpus_documents(user, corpus) in user-context code, or
+            # - CorpusDocumentService.get_corpus_documents(user, corpus) in user-context code, or
             #   corpus._get_active_documents() in internal/task code,
             #   instead of corpus.documents.all() or corpus.get_documents()
             # - corpus.document_count() instead of corpus.documents.count()

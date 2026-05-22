@@ -22,10 +22,6 @@ Each service inherits :class:`opencontractserver.shared.services.base.BaseServic
 Import the specific service you need from this package::
 
     from opencontractserver.corpuses.services import FolderCRUDService
-
-The legacy ``CorpusObjsService`` facade in
-``opencontractserver.corpuses.corpus_objs_service`` is deprecated and will be
-removed once all call sites are migrated.
 """
 
 from opencontractserver.corpuses.services.corpus_documents import (
