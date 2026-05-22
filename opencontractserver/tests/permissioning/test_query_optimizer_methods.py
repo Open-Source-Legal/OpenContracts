@@ -1448,6 +1448,208 @@ class ExtractServiceTestCase(TestCase):
 
         logger.info("✓ Corpus creator can see permitted extracts on their corpus")
 
+    def test_check_extract_permission_superuser_sees_anything(self):
+        """Superuser branch returns the extract regardless of permissions."""
+        ok, extract = ExtractService.check_extract_permission(
+            self.superuser, self.extract1.id
+        )
+        self.assertTrue(ok)
+        self.assertEqual(extract, self.extract1)
+
+    def test_check_extract_permission_creator_passes(self):
+        """Creator-owned extract is visible to its owner."""
+        ok, extract = ExtractService.check_extract_permission(
+            self.owner, self.extract1.id
+        )
+        self.assertTrue(ok)
+        self.assertEqual(extract, self.extract1)
+
+    def test_check_extract_permission_unknown_id_returns_false(self):
+        """A non-existent extract id resolves cleanly to (False, None)."""
+        ok, extract = ExtractService.check_extract_permission(self.owner, 99999999)
+        self.assertFalse(ok)
+        self.assertIsNone(extract)
+
+    def test_check_extract_permission_blocked_by_extract_perm(self):
+        """Stranger with neither extract nor corpus access is denied."""
+        ok, extract = ExtractService.check_extract_permission(
+            self.stranger, self.extract1.id
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(extract)
+
+    def test_check_extract_permission_extract_ok_but_corpus_blocks(self):
+        """Extract READ alone is not enough when the parent corpus is private."""
+        set_permissions_for_obj_to_user(
+            self.stranger, self.extract1, [PermissionTypes.READ]
+        )
+        ok, extract = ExtractService.check_extract_permission(
+            self.stranger, self.extract1.id
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(extract)
+
+    def test_check_extract_permission_no_corpus_extract(self):
+        """Corpus check is skipped when the extract has no corpus."""
+        set_permissions_for_obj_to_user(
+            self.stranger, self.extract_no_corpus, [PermissionTypes.READ]
+        )
+        ok, extract = ExtractService.check_extract_permission(
+            self.stranger, self.extract_no_corpus.id
+        )
+        self.assertTrue(ok)
+        self.assertEqual(extract, self.extract_no_corpus)
+
+    def test_get_visible_extracts_anonymous_only_public(self):
+        """Anonymous users see only public extracts in public/no corpora."""
+        from django.contrib.auth.models import AnonymousUser
+
+        # Mark the public extract truly public.
+        self.extract_public.is_public = True
+        self.extract_public.save()
+
+        qs = ExtractService.get_visible_extracts(user=AnonymousUser())
+        names = {e.name for e in qs}
+        self.assertIn("Extract Public", names)
+        self.assertNotIn("Extract 1 (Corpus 1)", names)
+
+    def test_get_visible_extracts_corpus_id_unknown_returns_none(self):
+        """A non-existent corpus_id resolves to an empty queryset (not 500)."""
+        qs = ExtractService.get_visible_extracts(user=self.owner, corpus_id=99999999)
+        self.assertEqual(qs.count(), 0)
+
+
+class AnalysisServicePermissionTestCase(TestCase):
+    """Tests for ``AnalysisService.check_analysis_permission`` covering the
+    branches that were not exercised by the existing visibility-queryset
+    suite — superuser, unknown id, denied-by-analysis, and denied-by-corpus
+    paths plus the no-corpus skip."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.analyzer.models import Analysis, Analyzer
+        from opencontractserver.documents.models import Document
+
+        cls.owner = User.objects.create_user(username="asp_owner", password="test123")
+        cls.stranger = User.objects.create_user(
+            username="asp_stranger", password="test123"
+        )
+        cls.superuser = User.objects.create_superuser(
+            username="asp_superuser", password="admin"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="ASP Corpus", creator=cls.owner, is_public=False
+        )
+        cls.doc = Document.objects.create(
+            title="ASP Doc", creator=cls.owner, is_public=False
+        )
+        cls.corpus.add_document(document=cls.doc, user=cls.owner)
+        cls.gremlin = GremlinEngine.objects.create(
+            url="http://asp-gremlin:8000", creator=cls.owner
+        )
+        cls.analyzer = Analyzer.objects.create(
+            id="ASP.ANALYZER", host_gremlin=cls.gremlin, creator=cls.owner
+        )
+        cls.analysis = Analysis.objects.create(
+            analyzer=cls.analyzer,
+            analyzed_corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=False,
+        )
+        cls.standalone_analysis = Analysis.objects.create(
+            analyzer=cls.analyzer,
+            analyzed_corpus=None,
+            creator=cls.owner,
+            is_public=False,
+        )
+
+    def test_superuser_branch_resolves_analysis(self):
+        from opencontractserver.analyzer.services import AnalysisService
+
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.superuser, self.analysis.id
+        )
+        self.assertTrue(ok)
+        self.assertEqual(analysis, self.analysis)
+
+    def test_superuser_branch_unknown_id_returns_false(self):
+        from opencontractserver.analyzer.services import AnalysisService
+
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.superuser, 99999999
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(analysis)
+
+    def test_creator_passes(self):
+        from opencontractserver.analyzer.services import AnalysisService
+
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.owner, self.analysis.id
+        )
+        self.assertTrue(ok)
+        self.assertEqual(analysis, self.analysis)
+
+    def test_unknown_id_returns_false(self):
+        from opencontractserver.analyzer.services import AnalysisService
+
+        ok, analysis = AnalysisService.check_analysis_permission(self.owner, 99999999)
+        self.assertFalse(ok)
+        self.assertIsNone(analysis)
+
+    def test_stranger_blocked_by_analysis_perm(self):
+        from opencontractserver.analyzer.services import AnalysisService
+
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.stranger, self.analysis.id
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(analysis)
+
+    def test_analysis_ok_but_corpus_blocks(self):
+        """READ on the analysis is not enough when the parent corpus is private."""
+        from opencontractserver.analyzer.services import AnalysisService
+
+        set_permissions_for_obj_to_user(
+            self.stranger, self.analysis, [PermissionTypes.READ]
+        )
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.stranger, self.analysis.id
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(analysis)
+
+    def test_standalone_analysis_skips_corpus_check(self):
+        """An analysis with analyzed_corpus=None does not gate on corpus READ."""
+        from opencontractserver.analyzer.services import AnalysisService
+
+        set_permissions_for_obj_to_user(
+            self.stranger, self.standalone_analysis, [PermissionTypes.READ]
+        )
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.stranger, self.standalone_analysis.id
+        )
+        self.assertTrue(ok)
+        self.assertEqual(analysis, self.standalone_analysis)
+
+    def test_get_visible_analyses_corpus_id_unknown_returns_none(self):
+        """A non-existent corpus_id resolves cleanly to an empty queryset."""
+        from opencontractserver.analyzer.services import AnalysisService
+
+        qs = AnalysisService.get_visible_analyses(user=self.owner, corpus_id=99999999)
+        self.assertEqual(qs.count(), 0)
+
+    def test_get_visible_analyses_anonymous_blocked_by_private_corpus(self):
+        """Anonymous user with corpus_id pointing at a private corpus gets none."""
+        from django.contrib.auth.models import AnonymousUser
+
+        from opencontractserver.analyzer.services import AnalysisService
+
+        qs = AnalysisService.get_visible_analyses(
+            user=AnonymousUser(), corpus_id=self.corpus.id
+        )
+        self.assertEqual(qs.count(), 0)
+
 
 class DocumentPermissionFilterQueryCountTestCase(TestCase):
     """
