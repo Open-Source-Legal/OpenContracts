@@ -56,3 +56,16 @@ test("the More sheet shows the read-only document info view", async ({
   await page.getByTestId("mobile-more-back").click();
   await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
 });
+
+test("surfaces a query error instead of the tab surfaces", async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <MobileLayoutHarness queryErrorMessage="Document failed to load" />
+  );
+  await expect(page.getByText("Error loading document")).toBeVisible();
+  await expect(page.getByText(/Document failed to load/)).toBeVisible();
+  // The error replaces the tab surfaces — the Document surface must not render.
+  await expect(page.getByTestId("mobile-surface-document")).toHaveCount(0);
+});

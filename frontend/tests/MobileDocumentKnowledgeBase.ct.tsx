@@ -556,3 +556,92 @@ test("pinch-zoom adjusts the document zoom in the mobile layout", async ({
   console.log(`[TEST] zoom after pinch-in: ${zoomedOut}%`);
   expect(zoomedOut).toBeLessThan(zoomedIn);
 });
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 7. The document toolbar opens the Sections and Find sheets
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the document toolbar opens the Sections and Find sheets", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  // Sections — opens a MobileSheet over the structural index (the list, or the
+  // empty state when the document carries no structural annotations).
+  await page.getByRole("button", { name: /sections/i }).click();
+  await expect(
+    page
+      .getByTestId("mobile-sections-list")
+      .or(page.getByTestId("mobile-sections-empty"))
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+  await page.getByRole("button", { name: "Close" }).last().click();
+  await page.waitForTimeout(500);
+
+  // Find — opens the in-document text-search sheet.
+  await page.getByRole("button", { name: /find/i }).click();
+  await expect(page.getByTestId("mobile-find-sheet")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 8. The More sheet navigates through its Tier-2 sub-views
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the More sheet navigates through its sub-views", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  await page.getByRole("tab", { name: "More" }).click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // Discussions sub-view.
+  await page.getByTestId("mobile-more-discussions").click();
+  await expect(page.getByTestId("mobile-more-discussions-surface")).toBeVisible(
+    { timeout: LONG_TIMEOUT }
+  );
+  await page.getByTestId("mobile-more-back").click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
+
+  // Notes sub-view.
+  await page.getByTestId("mobile-more-notes").click();
+  await expect(page.getByTestId("mobile-more-notes-surface")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+  await page.getByTestId("mobile-more-back").click();
+  await expect(page.getByTestId("mobile-more-menu")).toBeVisible();
+
+  // Document info & versions — a mock-free read-only metadata view.
+  await page.getByTestId("mobile-more-info").click();
+  await expect(page.getByTestId("mobile-more-info-surface")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 9. The annotations filter bar expands its compact controls
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("the annotations filter bar expands its compact controls", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  await page.getByRole("tab", { name: "Annotations" }).click();
+  await expect(page.getByTestId("mobile-surface-annotations")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // The compact "Filter & sort" toggle reveals the full content-type and sort
+  // control set inline (SidebarControlBar's compact branch).
+  const toggle = page.getByTestId("compact-filter-sort-toggle");
+  await expect(toggle).toBeVisible({ timeout: LONG_TIMEOUT });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+});
