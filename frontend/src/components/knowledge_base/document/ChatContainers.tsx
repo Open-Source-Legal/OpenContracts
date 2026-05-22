@@ -512,23 +512,21 @@ export const Creator = styled.span`
  * Message-count treatment. A light, soft teal-tinted chip that sits inline in
  * the card's meta row — intentional, not a heavy oval bolted to the edge.
  */
-export const MessageCount = styled(motion.div)`
+export const MessageCount = styled(motion.div)<{ $count: number }>`
   display: inline-flex;
   align-items: baseline;
   gap: 0.1875rem;
   flex-shrink: 0;
   padding: 0.1875rem 0.5rem;
   border-radius: 999px;
-  background: ${(props) =>
-    props.children === "0"
+  background: ${({ $count }) =>
+    $count === 0
       ? OS_LEGAL_COLORS.surfaceLight
       : OS_LEGAL_COLORS.accentSurface};
-  color: ${(props) =>
-    props.children === "0"
-      ? OS_LEGAL_COLORS.textSecondary
-      : OS_LEGAL_COLORS.accent};
-  box-shadow: ${(props) =>
-    props.children === "0"
+  color: ${({ $count }) =>
+    $count === 0 ? OS_LEGAL_COLORS.textSecondary : OS_LEGAL_COLORS.accent};
+  box-shadow: ${({ $count }) =>
+    $count === 0
       ? "inset 0 0 0 1px rgba(15, 23, 42, 0.06)"
       : `inset 0 0 0 1px ${accentAlpha(0.16)}`};
   font-size: 0.75rem;
@@ -538,7 +536,7 @@ export const MessageCount = styled(motion.div)`
   transition: background 0.22s ease, box-shadow 0.22s ease;
 
   &::after {
-    content: ${(props) => (props.children === "0" ? "'new'" : "'msgs'")};
+    content: ${({ $count }) => ($count === 0 ? "'new'" : "'msgs'")};
     font-size: 0.6875rem;
     font-weight: 500;
     opacity: 0.85;

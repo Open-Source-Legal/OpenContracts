@@ -6,6 +6,7 @@ import { MOBILE_SURFACE_TINT } from "./mobile/mobileTheme";
 import { useAnnotationSelection } from "../../../annotator/context/UISettingsAtom";
 import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import { FullScreenModal } from "../LayoutComponents";
+import { ErrorMessage } from "../../../widgets/feedback";
 import { HeaderBar } from "../document_kb/HeaderBar";
 import { RightPanelContent } from "../document_kb/RightPanelContent";
 import { MobileAnnotationDetail } from "./mobile/MobileAnnotationDetail";
@@ -114,6 +115,12 @@ const SummaryEmptyState = styled.div`
   text-align: center;
 `;
 
+/** Centered padded container for the GraphQL load-failure message. */
+const ErrorSurface = styled.div`
+  padding: 32px 16px;
+  text-align: center;
+`;
+
 /**
  * Mobile layout for the DocumentKnowledgeBase.
  *
@@ -180,6 +187,7 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     columns,
     notes,
     loading,
+    queryError,
     setSelectedNote,
     pendingChatMessage,
   } = props;
@@ -252,7 +260,14 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
         />
 
         <Surface>
-          {activeTab === "document" && (
+          {queryError && (
+            <ErrorSurface data-testid="mobile-surface-error">
+              <ErrorMessage title="Error loading document">
+                {queryError.message}
+              </ErrorMessage>
+            </ErrorSurface>
+          )}
+          {!queryError && activeTab === "document" && (
             <DocumentSurface data-testid="mobile-surface-document">
               <MobileDocToolbar
                 zoomPercent={zoomLevel * 100}
@@ -263,7 +278,7 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
               <ViewerArea>{viewerContent}</ViewerArea>
             </DocumentSurface>
           )}
-          {activeTab === "summary" && (
+          {!queryError && activeTab === "summary" && (
             <SummarySurface data-testid="mobile-surface-summary">
               {corpusId ? (
                 <UnifiedKnowledgeLayer
@@ -280,7 +295,7 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
               )}
             </SummarySurface>
           )}
-          {activeTab === "annotations" && (
+          {!queryError && activeTab === "annotations" && (
             <AnnotationsSurface data-testid="mobile-surface-annotations">
               <RightPanelContent
                 compact

@@ -260,6 +260,7 @@ export const DocumentConversationListView: React.FC<
                   </TimeStamp>
                   <Creator>{getCreatorDisplay(conv.creator)}</Creator>
                   <MessageCount
+                    $count={conv.chatMessages?.totalCount ?? 0}
                     style={{ marginLeft: "auto" }}
                     initial={{ scale: 0.6, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
@@ -270,7 +271,7 @@ export const DocumentConversationListView: React.FC<
                       delay: index * 0.05 + 0.15,
                     }}
                   >
-                    {conv.chatMessages?.totalCount || 0}
+                    {conv.chatMessages?.totalCount ?? 0}
                   </MessageCount>
                 </CardMeta>
               </CardContent>

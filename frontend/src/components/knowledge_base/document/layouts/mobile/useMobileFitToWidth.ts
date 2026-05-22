@@ -55,7 +55,15 @@ export function useMobileFitToWidth({
     const container = scrollContainerRef?.current;
     if (!firstPage || !container) return null;
 
-    const pageWidth = firstPage.page.getViewport({ scale: 1 }).width;
+    // `firstPage.page` is a PDF.js PDFPageProxy that can be destroyed between
+    // this guard and the call (navigation / unmount). A destroyed proxy throws
+    // from getViewport — treat that the same as "geometry not ready".
+    let pageWidth: number;
+    try {
+      pageWidth = firstPage.page.getViewport({ scale: 1 }).width;
+    } catch {
+      return null;
+    }
     const containerWidth = container.getBoundingClientRect().width;
     if (!pageWidth || !containerWidth) return null;
 

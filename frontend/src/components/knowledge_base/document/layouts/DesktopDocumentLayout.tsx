@@ -43,6 +43,10 @@ import {
   NoteType,
 } from "../../../../types/graphql-api";
 import { PdfAnnotations } from "../../../annotator/types/annotations";
+import {
+  ZOOM_MIN,
+  ZOOM_MAX,
+} from "../../../../assets/configurations/constants";
 import { useChatSourceState } from "../../../annotator/context/ChatSourceAtom";
 import {
   useAnnotationControls,
@@ -327,11 +331,11 @@ export const DesktopDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
               <ZoomControls
                 zoomLevel={zoomLevel}
                 onZoomIn={() => {
-                  setZoomLevel(Math.min(zoomLevel + 0.1, 4));
+                  setZoomLevel(Math.min(zoomLevel + 0.1, ZOOM_MAX));
                   showZoomFeedback();
                 }}
                 onZoomOut={() => {
-                  setZoomLevel(Math.max(zoomLevel - 0.1, 0.5));
+                  setZoomLevel(Math.max(zoomLevel - 0.1, ZOOM_MIN));
                   showZoomFeedback();
                 }}
               />
