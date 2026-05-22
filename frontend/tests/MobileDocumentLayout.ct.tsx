@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { MobileLayoutHarness } from "./MobileDocumentLayout.harness";
 
 test.use({ viewport: { width: 390, height: 844 } });

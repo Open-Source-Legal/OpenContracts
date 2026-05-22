@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { MobileTabBar } from "./MobileTabBar.harness";
 
 test("renders all four tabs", async ({ mount }) => {

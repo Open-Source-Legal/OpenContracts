@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { MobileSheet } from "./MobileSheet.harness";
 
 test("renders title and content when open", async ({ mount }) => {

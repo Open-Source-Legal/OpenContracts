@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { MobileDocToolbar } from "./MobileDocToolbar.harness";
 
 test("renders the three controls", async ({ mount }) => {
