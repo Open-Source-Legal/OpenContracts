@@ -64,6 +64,7 @@ import { useJumpToRelationship } from "./document_kb/useJumpToRelationship";
 import { useDocumentLoader } from "./document_kb/useDocumentLoader";
 import { useContainerWidth } from "./document_kb/useContainerWidth";
 import { DesktopDocumentLayout } from "./layouts/DesktopDocumentLayout";
+import { MobileDocumentLayout } from "./layouts/MobileDocumentLayout";
 
 // Setting worker path to worker bundle.
 GlobalWorkerOptions.workerSrc = workerSrc;
@@ -767,81 +768,85 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     setSidebarViewMode("feed");
   }, [location, navigate]);
 
-  return (
-    <DesktopDocumentLayout
-      documentId={documentId}
-      corpusId={corpusId}
-      readOnly={readOnly}
-      showCorpusInfo={showCorpusInfo}
-      showSuccessMessage={showSuccessMessage}
-      activeLayer={activeLayer}
-      setActiveLayer={setActiveLayer}
-      showRightPanel={showRightPanel}
-      setShowRightPanel={setShowRightPanel}
-      sidebarViewMode={sidebarViewMode}
-      setSidebarViewMode={setSidebarViewMode}
-      showGraph={showGraph}
-      setShowGraph={setShowGraph}
-      selectedNote={selectedNote}
-      setSelectedNote={setSelectedNote}
-      editingNoteId={editingNoteId}
-      setEditingNoteId={setEditingNoteId}
-      showNewNoteModal={showNewNoteModal}
-      setShowNewNoteModal={setShowNewNoteModal}
-      showAddToCorpusModal={showAddToCorpusModal}
-      setShowAddToCorpusModal={setShowAddToCorpusModal}
-      feedFilters={feedFilters}
-      setFeedFilters={setFeedFilters}
-      feedSortBy={feedSortBy}
-      setFeedSortBy={setFeedSortBy}
-      showAnalysesPanel={showAnalysesPanel}
-      setShowAnalysesPanel={setShowAnalysesPanel}
-      showExtractsPanel={showExtractsPanel}
-      setShowExtractsPanel={setShowExtractsPanel}
-      pendingChatMessage={pendingChatMessage}
-      setPendingChatMessage={setPendingChatMessage}
-      setSelectedSummaryContent={setSelectedSummaryContent}
-      metadata={metadata}
-      hasCorpus={Boolean(hasCorpus)}
-      zoomLevel={zoomLevel}
-      setZoomLevel={setZoomLevel}
-      showZoomIndicator={showZoomIndicator}
-      showZoomFeedback={showZoomFeedback}
-      autoZoomEnabled={autoZoomEnabled}
-      setAutoZoomEnabled={setAutoZoomEnabled}
-      mainLayerContent={mainLayerContent}
-      viewerContent={viewerContent}
-      floatingControlsState={floatingControlsState}
-      mode={mode}
-      setMode={setMode}
-      isMobile={isMobile}
-      isDragging={isDragging}
-      handleResizeStart={handleResizeStart}
-      handlePanelMouseEnter={handlePanelMouseEnter}
-      getPanelWidthPercentage={getPanelWidthPercentage}
-      handleClose={handleClose}
-      handleClearAnalysisExtractSelection={handleClearAnalysisExtractSelection}
-      pdfAnnotations={pdfAnnotations}
-      analyses={analyses}
-      extracts={extracts}
-      selectedAnalysis={selectedAnalysis}
-      selectedExtract={selectedExtract}
-      threadCount={threadCount}
-      dataCells={dataCells}
-      columns={columns}
-      notes={notes}
-      loading={loading}
-      queryError={queryError}
-      corpusData={corpusData}
-      combinedDocumentData={combinedData?.document}
-      refetch={refetch}
-      corpusMdContent={corpusMdContent}
-      searchText={searchText}
-      canEdit={canEdit}
-      activeSpanLabel={activeSpanLabel}
-      setActiveSpanLabel={setActiveSpanLabel}
-      setChatSourceState={setChatSourceState}
-    />
+  const layoutProps = {
+    documentId,
+    corpusId,
+    readOnly,
+    showCorpusInfo,
+    showSuccessMessage,
+    activeLayer,
+    setActiveLayer,
+    showRightPanel,
+    setShowRightPanel,
+    sidebarViewMode,
+    setSidebarViewMode,
+    showGraph,
+    setShowGraph,
+    selectedNote,
+    setSelectedNote,
+    editingNoteId,
+    setEditingNoteId,
+    showNewNoteModal,
+    setShowNewNoteModal,
+    showAddToCorpusModal,
+    setShowAddToCorpusModal,
+    feedFilters,
+    setFeedFilters,
+    feedSortBy,
+    setFeedSortBy,
+    showAnalysesPanel,
+    setShowAnalysesPanel,
+    showExtractsPanel,
+    setShowExtractsPanel,
+    pendingChatMessage,
+    setPendingChatMessage,
+    setSelectedSummaryContent,
+    metadata,
+    hasCorpus: Boolean(hasCorpus),
+    zoomLevel,
+    setZoomLevel,
+    showZoomIndicator,
+    showZoomFeedback,
+    autoZoomEnabled,
+    setAutoZoomEnabled,
+    mainLayerContent,
+    viewerContent,
+    floatingControlsState,
+    mode,
+    setMode,
+    isMobile,
+    isDragging,
+    handleResizeStart,
+    handlePanelMouseEnter,
+    getPanelWidthPercentage,
+    handleClose,
+    handleClearAnalysisExtractSelection,
+    pdfAnnotations,
+    analyses,
+    extracts,
+    selectedAnalysis,
+    selectedExtract,
+    threadCount,
+    dataCells,
+    columns,
+    notes,
+    loading,
+    queryError,
+    corpusData,
+    combinedDocumentData: combinedData?.document,
+    refetch,
+    corpusMdContent,
+    searchText,
+    canEdit,
+    activeSpanLabel,
+    setActiveSpanLabel,
+    setChatSourceState,
+  };
+
+  return isMobile ? (
+    <MobileDocumentLayout {...layoutProps} />
+  ) : (
+    <DesktopDocumentLayout {...layoutProps} />
   );
 };
 
