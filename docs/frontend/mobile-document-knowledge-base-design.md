@@ -35,8 +35,8 @@ overlapping overlays. Mobile support is not *absent* — it is *uncoordinated*.
 - A real mobile layout for the DKB: the document gets the full viewport;
   controls and surfaces are composed deliberately, not floated.
 - Mobile is a **consumption + light-review** surface — read the document,
-  read the summary/annotations, ask the AI, and comment/vote/approve on
-  annotations.
+  read the summary/annotations, ask the AI, and inspect annotation detail.
+  Vote/approve remain reachable via the existing in-viewer highlight tooltip.
 - Fix the root cause: a single mobile layout *owner*, not N uncoordinated
   `isMobile` branches.
 
@@ -55,8 +55,9 @@ overlapping overlays. Mobile support is not *absent* — it is *uncoordinated*.
 
 ## 3. Use case & surface tiering
 
-The primary mobile job is **read & ask**, with some **review** (comment,
-vote, approve). Surfaces are tiered accordingly:
+The primary mobile job is **read & ask**, with some **review** (inspect
+annotation detail; vote/approve via the in-viewer highlight tooltip).
+Surfaces are tiered accordingly:
 
 | Tier | Surfaces | Treatment |
 |------|----------|-----------|
@@ -119,8 +120,8 @@ the user to the tab they were on.
 
 ### Annotations tab
 
-- A scrollable list of annotation rows (quoted text, label, vote/comment
-  counts). One filter affordance at the top (All / by label).
+- A scrollable list of annotation rows (quoted text, label, relationships,
+  page). One filter affordance at the top (All / by label).
 - Tapping a row opens the **annotation detail sheet**.
 
 ### Chat (Ask bar → Chat sheet)
@@ -132,11 +133,22 @@ the user to the tab they were on.
 
 ### Annotation detail sheet (the review / "B" capability)
 
-- **One shared component**, opened two ways: tapping a highlight in the
-  Document tab, or tapping a row in the Annotations tab.
-- Contents: the quoted text, the label, **vote** (up/down + count),
-  **Approve**, the comment thread, and a comment composer.
-- This sheet is the entire mobile review capability — vote, approve, comment.
+- **One shared component** (`MobileAnnotationDetail`), opened two ways:
+  tapping a highlight in the Document tab, or tapping a row in the
+  Annotations tab.
+- Contents: it reuses the existing desktop `HighlightItem` card — quoted
+  text, label, relationships, and page.
+- Vote and Approve remain reachable on the Document tab via the existing
+  in-viewer highlight tooltip; they are not duplicated into this sheet.
+
+> **Scope note:** Annotation-level commenting does not exist anywhere in the
+> OpenContracts codebase — commenting is document/corpus-level only — and
+> vote/approve are not a reusable panel (they live in the in-viewer highlight
+> tooltip). This mobile-layout initiative is a *layout* effort, not a
+> collaboration-feature effort, so building an annotation comment thread or a
+> dedicated vote/approve panel was deliberately left out of scope. The mobile
+> annotation detail sheet surfaces the existing `HighlightItem` card;
+> vote/approve stay on the existing in-viewer highlight tooltip.
 
 ## 6. Component architecture
 
@@ -225,8 +237,8 @@ Mounted through `DocumentKnowledgeBaseTestWrapper` at a 390px viewport
   routes to `sidebarViewMode="chat"`; a source chip closes the sheet and
   jumps the Document tab.
 - **Annotation review:** tapping a highlight opens the detail sheet; tapping
-  an Annotations-list row opens the *same* sheet; vote, Approve, and posting
-  a comment each work and persist.
+  an Annotations-list row opens the *same* sheet; the sheet renders the
+  existing `HighlightItem` card (quoted text, label, relationships, page).
 - **Sheets:** an open sheet covers the chrome; closing returns to the prior
   tab; only one sheet is open at a time.
 - **Layout invariants:** no horizontal overflow at 390px; the document

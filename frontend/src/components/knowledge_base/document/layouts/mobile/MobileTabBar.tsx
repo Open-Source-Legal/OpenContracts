@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { FileText, BookOpen, Bookmark, MoreHorizontal } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
 
 export type MobileTabId = "document" | "summary" | "annotations" | "more";
@@ -10,7 +11,7 @@ export interface MobileTabBarProps {
   onSelect: (id: MobileTabId) => void;
 }
 
-const TABS: { id: MobileTabId; label: string; Icon: React.FC<any> }[] = [
+const TABS: { id: MobileTabId; label: string; Icon: LucideIcon }[] = [
   { id: "document", label: "Document", Icon: FileText },
   { id: "summary", label: "Summary", Icon: BookOpen },
   { id: "annotations", label: "Annotations", Icon: Bookmark },

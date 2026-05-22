@@ -75,7 +75,6 @@ const stubProps: DesktopDocumentLayoutProps = {
 
   mode: "quarter",
   setMode: noop,
-  isMobile: true,
   isDragging: false,
   handleResizeStart: noop,
   handlePanelMouseEnter: noop,

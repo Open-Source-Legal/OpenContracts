@@ -268,7 +268,7 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
                   documentId={documentId}
                   corpusId={corpusId}
                   metadata={metadata}
-                  parentLoading={props.loading}
+                  parentLoading={loading}
                   readOnly={readOnly}
                 />
               ) : (
