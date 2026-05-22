@@ -6,10 +6,8 @@ import {
 import {
   ZOOM_MIN,
   ZOOM_MAX,
+  FIT_WIDTH_MARGIN,
 } from "../../../../../assets/configurations/constants";
-
-/** Horizontal padding (px) inside the viewer container, kept off both edges. */
-const FIT_WIDTH_MARGIN = 16;
 
 interface UseMobileFitToWidthParams {
   /** Whether the Document surface is the active mobile tab. */

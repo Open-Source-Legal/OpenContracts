@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import styled from "styled-components";
 import { ChevronDown, ChevronUp, Search } from "lucide-react";
 
@@ -110,6 +110,14 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({ open }) => {
 
   const matchCount = textSearchMatches.length;
 
+  // Focus the input each time the sheet opens. `autoFocus` only fires on the
+  // initial mount, so it would not re-focus when the sheet is closed and
+  // reopened while this component stays mounted.
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
   // Scroll the selected match into view whenever the selection changes.
   useEffect(() => {
     if (matchCount === 0) return;
@@ -137,7 +145,7 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({ open }) => {
         <InputShell>
           <Search size={15} color={OS_LEGAL_COLORS.textSecondary} />
           <Input
-            autoFocus={open}
+            ref={inputRef}
             placeholder="Find in document"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}

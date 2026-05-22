@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useMemo } from "react";
 import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
 import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
-import { HighlightItem } from "../../../../annotator/sidebar/HighlightItem";
+import {
+  HighlightItem,
+  HighlightItemCard,
+} from "../../../../annotator/sidebar/HighlightItem";
 import { useAllAnnotations } from "../../../../annotator/hooks/useAllAnnotations";
 import {
   useStructuralAnnotations,
@@ -28,23 +31,29 @@ const EmptyState = styled.div`
  * that tint and re-grounds the inner container as a clean elevated card —
  * scoped strictly to the mobile sheet, leaving the desktop sidebar untouched.
  * It also refines the quoted-text blockquote into a soft slate-tinted quote.
+ *
+ * The override targets the exported {@link HighlightItemCard} styled component
+ * by reference rather than a positional `& > div`, so it stays correct if
+ * `HighlightItem`'s internal markup changes. The reference selector also
+ * out-specifies `HighlightItemCard`'s own (single-class) rules, so no
+ * `!important` is needed on the container overrides.
  */
 const Card = styled.div`
   padding: 8px 6px 16px;
 
   /* HighlightItem's outer container — drop the green selected tint/glow. */
-  & > div {
+  & > ${HighlightItemCard} {
     margin: 8px 8px 0;
-    background-color: ${OS_LEGAL_COLORS.surface} !important;
+    background-color: ${OS_LEGAL_COLORS.surface};
     border-radius: ${MOBILE_RADIUS.lg};
-    box-shadow: ${MOBILE_SHADOW.raised} !important;
+    box-shadow: ${MOBILE_SHADOW.raised};
     cursor: default;
   }
 
-  & > div:hover {
+  & > ${HighlightItemCard}:hover {
     transform: none;
-    background-color: ${OS_LEGAL_COLORS.surface} !important;
-    box-shadow: ${MOBILE_SHADOW.raised} !important;
+    background-color: ${OS_LEGAL_COLORS.surface};
+    box-shadow: ${MOBILE_SHADOW.raised};
   }
 
   /* Quoted text — a refined soft slate blockquote. */
@@ -87,10 +96,13 @@ export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
 
   // Look across user-editable AND structural annotations so a highlight tapped
   // in the viewer (which may be structural) still resolves to a detail card.
-  const annotation =
-    [...allAnnotations, ...(structuralAnnotations || [])].find(
-      (a) => a.id === selectedId
-    ) ?? null;
+  const annotation = useMemo(
+    () =>
+      [...allAnnotations, ...(structuralAnnotations || [])].find(
+        (a) => a.id === selectedId
+      ) ?? null,
+    [allAnnotations, structuralAnnotations, selectedId]
+  );
 
   if (!annotation) {
     return <EmptyState>This annotation is no longer available.</EmptyState>;
@@ -109,5 +121,3 @@ export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
     </Card>
   );
 };
-
-export default MobileAnnotationDetail;

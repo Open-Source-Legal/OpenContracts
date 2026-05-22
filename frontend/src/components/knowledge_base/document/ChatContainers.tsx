@@ -4,21 +4,7 @@ import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../../../assets/configurations/osLegalStyles";
-
-/* ---------------------------------------------------------------------------
- * Conversation-list depth tokens.
- *
- * ChatTray is shared/desktop code, so it must not import the mobile-layout
- * theme module. These mirror the "calm, layered, native-quality" values from
- * layouts/mobile/mobileTheme.ts locally: soft layered shadows (depth over
- * borders), refined radii, and a teal accent so the conversation list reads
- * as one app with the rest of the polished DKB.
- * ------------------------------------------------------------------------- */
-const CONV_RADIUS_CARD = "14px";
-const CONV_SHADOW_SUBTLE =
-  "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)";
-const CONV_SHADOW_RAISED =
-  "0 2px 8px rgba(15, 23, 42, 0.06), 0 6px 20px rgba(15, 23, 42, 0.07)";
+import { RADIUS, SHADOW } from "../../../assets/configurations/designTokens";
 
 export const BackButton = styled.button`
   position: sticky;
@@ -427,10 +413,10 @@ export const ConversationCard = styled(motion.div)`
   display: flex;
   flex-direction: column;
   background: white;
-  border-radius: ${CONV_RADIUS_CARD};
+  border-radius: ${RADIUS.md};
   padding: 1.125rem 1.25rem;
   cursor: pointer;
-  box-shadow: ${CONV_SHADOW_SUBTLE};
+  box-shadow: ${SHADOW.subtle};
   transition: box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -449,7 +435,7 @@ export const ConversationCard = styled(motion.div)`
   }
 
   &:hover {
-    box-shadow: ${CONV_SHADOW_RAISED};
+    box-shadow: ${SHADOW.raised};
     transform: translateY(-2px);
 
     &::before {
@@ -458,7 +444,7 @@ export const ConversationCard = styled(motion.div)`
   }
 
   &:active {
-    box-shadow: ${CONV_SHADOW_SUBTLE};
+    box-shadow: ${SHADOW.subtle};
   }
 `;
 
@@ -536,7 +522,8 @@ export const MessageCount = styled(motion.div)<{ $count: number }>`
   transition: background 0.22s ease, box-shadow 0.22s ease;
 
   &::after {
-    content: ${({ $count }) => ($count === 0 ? "'new'" : "'msgs'")};
+    /* Zero state shows just "0" — a "0 new" suffix reads oddly. */
+    content: ${({ $count }) => ($count === 0 ? "''" : "'msgs'")};
     font-size: 0.6875rem;
     font-weight: 500;
     opacity: 0.85;

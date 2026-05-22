@@ -110,6 +110,8 @@ export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
         showStructural: true,
       });
     }
+    // location and navigate are stable router refs; this effect must fire
+    // only on the `open` transition, not on every navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

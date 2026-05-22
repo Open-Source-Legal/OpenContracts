@@ -367,9 +367,13 @@ export const MobileMoreSheet: React.FC<MobileMoreSheetProps> = ({
         {backToMenu}
         <SurfaceFill>
           {/* Fixed notes-only filter: the unified feed is the canonical notes
-              surface, and we must not clobber the live Annotations filters. */}
+              surface, and we must not clobber the live Annotations filters.
+              `compact` collapses the feed's filter chrome so the inert
+              `setFeedFilters` no-op is not surfaced as working-but-ignored
+              controls on this fixed-filter surface. */}
           <RightPanelContent
             {...panelProps}
+            compact
             sidebarViewMode="feed"
             feedFilters={NOTES_ONLY_FILTER}
             setFeedFilters={() => {}}
@@ -427,5 +431,3 @@ export const MobileMoreSheet: React.FC<MobileMoreSheetProps> = ({
     </Container>
   );
 };
-
-export default MobileMoreSheet;

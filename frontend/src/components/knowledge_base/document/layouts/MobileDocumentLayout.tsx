@@ -336,7 +336,15 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
           }}
         />
 
-        <MobileTabBar active={activeTab} onSelect={handleSelectTab} />
+        {/* While the More sheet is open the underlying surface is unchanged
+          (the sheet is an overlay, not a tab surface), so `activeTab` keeps
+          its real value. Derive the tab bar's selected state so the More tab
+          still reads as selected — and reverts on close — without disturbing
+          the surface or needing previous-tab restore logic. */}
+        <MobileTabBar
+          active={moreSheetOpen ? "more" : activeTab}
+          onSelect={handleSelectTab}
+        />
 
         <MobileSheet
           open={sectionsSheetOpen}
@@ -443,5 +451,3 @@ export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     </FullScreenModal>
   );
 };
-
-export default MobileDocumentLayout;

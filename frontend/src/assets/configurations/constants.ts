@@ -30,6 +30,11 @@ export const FILTER_TAB_ICON_SIZE = 14;
 export const ZOOM_MIN = 0.5;
 /** Maximum document zoom level (400%). */
 export const ZOOM_MAX = 4;
+/**
+ * Horizontal padding (px) the mobile fit-to-width hook keeps off both edges of
+ * the viewer container so the fitted page does not touch the screen edges.
+ */
+export const FIT_WIDTH_MARGIN = 16;
 
 // Mention search configuration
 // Debounce delay before firing search queries (ms)
@@ -224,9 +229,9 @@ export const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
  */
 export const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
 /**
- * Bottom offset for the FloatingDocumentControls speed dial on mobile.
- * Used inside ``visualViewportAwareBottom`` so the dial clears the safe-area
- * inset and mobile chrome.
+ * Bottom offset applied by FloatingDocumentControls' narrow-viewport
+ * (``max-width: 768px``) media query. Passed through
+ * ``visualViewportAwareBottom`` so the controls clear the safe-area inset.
  */
 export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
 /**

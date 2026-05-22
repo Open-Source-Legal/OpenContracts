@@ -3,6 +3,11 @@ import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import {
+  FOCUS_RING,
+  RADIUS,
+  SHADOW,
+} from "../../../../assets/configurations/designTokens";
+import {
   MessageSquare,
   FileText,
   Filter,
@@ -61,22 +66,6 @@ const DEFAULT_CONTENT_TYPES: ReadonlyArray<ContentItemType> = [
 /** The feed's default sort. */
 const DEFAULT_SORT: SortOption = "page";
 
-/**
- * Shared "calm, layered, native-quality" depth tokens — mirrors the mobile DKB
- * ``mobileTheme.ts`` so the feed control bar reads as one cohesive surface on
- * both desktop and mobile. Depth over borders: soft layered shadows + a subtle
- * surface tint replace flat hairline outlines.
- */
-const RADIUS_CONTROL = "12px";
-const RADIUS_MENU = "14px";
-const SHADOW_SUBTLE =
-  "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)";
-const SHADOW_RAISED =
-  "0 2px 8px rgba(15, 23, 42, 0.06), 0 6px 20px rgba(15, 23, 42, 0.07)";
-const SHADOW_MENU =
-  "0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.1)";
-const FOCUS_RING = "0 0 0 3px rgba(15, 118, 110, 0.16)";
-
 /* Styled Components */
 const ControlBarContainer = styled.div`
   background: white;
@@ -120,10 +109,10 @@ const MultiSelectDropdown = styled.div<{ $isOpen: boolean }>`
   background: ${(props) =>
     props.$isOpen ? "white" : OS_LEGAL_COLORS.surfaceHover};
   border: none;
-  border-radius: ${RADIUS_CONTROL};
+  border-radius: ${RADIUS.control};
   box-shadow: ${(props) =>
     props.$isOpen
-      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
+      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW.subtle}`
       : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
   cursor: pointer;
   transition: background 0.18s ease, box-shadow 0.18s ease;
@@ -132,8 +121,8 @@ const MultiSelectDropdown = styled.div<{ $isOpen: boolean }>`
     background: white;
     box-shadow: ${(props) =>
       props.$isOpen
-        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
-        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW_SUBTLE}`};
+        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW.subtle}`
+        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW.subtle}`};
   }
 `;
 
@@ -209,10 +198,10 @@ const SortTriggerSurface = styled.div<{ $isOpen: boolean }>`
   position: relative;
   background: ${(props) =>
     props.$isOpen ? "white" : OS_LEGAL_COLORS.surfaceHover};
-  border-radius: ${RADIUS_CONTROL};
+  border-radius: ${RADIUS.control};
   box-shadow: ${(props) =>
     props.$isOpen
-      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
+      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW.subtle}`
       : `inset 0 0 0 1px rgba(15, 23, 42, 0.06)`};
   cursor: pointer;
   transition: background 0.18s ease, box-shadow 0.18s ease;
@@ -221,8 +210,8 @@ const SortTriggerSurface = styled.div<{ $isOpen: boolean }>`
     background: white;
     box-shadow: ${(props) =>
       props.$isOpen
-        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW_SUBTLE}`
-        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW_SUBTLE}`};
+        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING}, ${SHADOW.subtle}`
+        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW.subtle}`};
   }
 `;
 
@@ -233,8 +222,8 @@ const DropdownMenu = styled(motion.div)`
   right: 0;
   background: white;
   border: none;
-  border-radius: ${RADIUS_MENU};
-  box-shadow: ${SHADOW_MENU};
+  border-radius: ${RADIUS.md};
+  box-shadow: ${SHADOW.menu};
   z-index: 50;
   overflow: hidden;
 `;
@@ -303,7 +292,7 @@ const QuickActionButton = styled.button`
 
   &:hover {
     background: white;
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW_SUBTLE};
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW.subtle};
     color: ${OS_LEGAL_COLORS.textTertiary};
   }
 
@@ -337,11 +326,11 @@ const StyledSearchInput = styled.input`
   width: 100%;
   padding: 0.7rem 0.95rem 0.7rem 2.6rem;
   border: none;
-  border-radius: ${RADIUS_CONTROL};
+  border-radius: ${RADIUS.control};
   font-size: 0.9rem;
   color: ${OS_LEGAL_COLORS.textPrimary};
   background: white;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.07), ${SHADOW_SUBTLE};
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.07), ${SHADOW.subtle};
   transition: box-shadow 0.18s ease;
   min-height: 44px;
 
@@ -350,13 +339,13 @@ const StyledSearchInput = styled.input`
   }
 
   &:hover {
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW_SUBTLE};
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), ${SHADOW.subtle};
   }
 
   &:focus {
     outline: none;
     box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING},
-      ${SHADOW_RAISED};
+      ${SHADOW.raised};
   }
 `;
 
@@ -409,7 +398,7 @@ const CompactToggle = styled.button<{ $isOpen: boolean; $isActive: boolean }>`
   min-height: 44px;
   padding: 0.55rem 0.75rem;
   border: none;
-  border-radius: ${RADIUS_CONTROL};
+  border-radius: ${RADIUS.control};
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 600;
@@ -444,7 +433,7 @@ const CompactToggle = styled.button<{ $isOpen: boolean; $isActive: boolean }>`
     color: ${(props) =>
       props.$isOpen || props.$isActive
         ? OS_LEGAL_COLORS.accent
-        : OS_LEGAL_COLORS.accent};
+        : OS_LEGAL_COLORS.textSecondary};
   }
 
   > .compact-toggle-label {

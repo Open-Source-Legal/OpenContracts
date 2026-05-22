@@ -4,23 +4,11 @@ import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../../../assets/configurations/osLegalStyles";
-
-/* ---------------------------------------------------------------------------
- * Conversation-list filter chrome.
- *
- * Replicates the "calm, layered, native-quality" depth tokens established by
- * the mobile DKB polish (see layouts/mobile/mobileTheme.ts) locally — ChatTray
- * is shared/desktop code and must not import the mobile-layout module. Depth
- * over borders: soft layered shadows, refined radii, and the teal accent so
- * this surface reads as one app with the rest of the DKB.
- * ------------------------------------------------------------------------- */
-const RADIUS_CONTROL = "10px";
-const RADIUS_MENU = "14px";
-const SHADOW_SUBTLE =
-  "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)";
-const SHADOW_MENU =
-  "0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.1)";
-const FOCUS_RING = "0 0 0 3px rgba(15, 118, 110, 0.16)";
+import {
+  FOCUS_RING,
+  RADIUS,
+  SHADOW,
+} from "../../../assets/configurations/designTokens";
 
 /**
  * The conversation-list header. Hosts the "Chat" title and the inline filter
@@ -55,7 +43,7 @@ export const FilterTitle = styled.h2`
 export const IconButton = styled(motion.button)<{ $isActive?: boolean }>`
   width: 36px;
   height: 36px;
-  border-radius: ${RADIUS_CONTROL};
+  border-radius: ${RADIUS.sm};
   border: none;
   background: ${(props) =>
     props.$isActive
@@ -81,8 +69,8 @@ export const IconButton = styled(motion.button)<{ $isActive?: boolean }>`
       props.$isActive ? OS_LEGAL_COLORS.accentHover : OS_LEGAL_COLORS.accent};
     box-shadow: ${(props) =>
       props.$isActive
-        ? `inset 0 0 0 1px ${accentAlpha(0.35)}, ${SHADOW_SUBTLE}`
-        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW_SUBTLE}`};
+        ? `inset 0 0 0 1px ${accentAlpha(0.35)}, ${SHADOW.subtle}`
+        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW.subtle}`};
   }
 
   &:active {
@@ -110,7 +98,7 @@ export const ExpandingInput = styled(motion.div)`
     box-sizing: border-box;
     padding: 0.5rem 0.875rem;
     border: none;
-    border-radius: ${RADIUS_CONTROL};
+    border-radius: ${RADIUS.sm};
     font-size: 0.875rem;
     font-family: inherit;
     color: ${OS_LEGAL_COLORS.textPrimary};
@@ -136,8 +124,8 @@ export const DatePickerExpanded = styled(motion.div)`
   right: 0;
   margin-top: 0.5rem;
   background: white;
-  border-radius: ${RADIUS_MENU};
-  box-shadow: ${SHADOW_MENU};
+  border-radius: ${RADIUS.md};
+  box-shadow: ${SHADOW.menu};
   padding: 1rem;
   z-index: 20;
   display: flex;

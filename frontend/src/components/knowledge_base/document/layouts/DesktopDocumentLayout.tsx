@@ -29,10 +29,7 @@ import { FloatingInputWrapper, ZoomIndicator } from "../document_kb/styles";
 import { RightPanelContent } from "../document_kb/RightPanelContent";
 import { DocumentModals } from "../document_kb/DocumentModals";
 import { AnalysisExtractContextBar } from "../document_kb/ContextBar";
-import {
-  DesktopSidebarTabs,
-  MobileSidebarTabs,
-} from "../document_kb/SidebarTabs";
+import { DesktopSidebarTabs } from "../document_kb/SidebarTabs";
 import { HeaderBar, DocumentMetadata } from "../document_kb/HeaderBar";
 
 import {
@@ -520,18 +517,6 @@ export const DesktopDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
                       whileHover={{ scale: 1.02 }}
                     />
 
-                    {/* Mobile Tab Bar - horizontal tabs at top for mobile */}
-                    <MobileSidebarTabs
-                      sidebarViewMode={sidebarViewMode}
-                      setSidebarViewMode={setSidebarViewMode}
-                      showRightPanel={showRightPanel}
-                      setShowRightPanel={setShowRightPanel}
-                      setMode={setMode}
-                      selectedAnalysis={selectedAnalysis}
-                      selectedExtract={selectedExtract}
-                      threadCount={threadCount}
-                    />
-
                     {/* Tabs when panel is open - positioned on left edge of panel (desktop only) */}
                     <DesktopSidebarTabs
                       panelOpen={true}
@@ -594,5 +579,3 @@ export const DesktopDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
     </FullScreenModal>
   );
 };
-
-export default DesktopDocumentLayout;

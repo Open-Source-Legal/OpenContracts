@@ -25,7 +25,14 @@ interface HighlightContainerProps {
   selected?: boolean;
 }
 
-const HighlightContainer = styled.div<HighlightContainerProps>`
+/**
+ * The card container for a single {@link HighlightItem}. Exported so wrapping
+ * surfaces (e.g. the mobile annotation-detail sheet) can re-skin it via a
+ * styled-component reference selector rather than a fragile positional
+ * `& > div` — keeping such overrides stable if this component's internal
+ * markup changes.
+ */
+export const HighlightItemCard = styled.div<HighlightContainerProps>`
   border-left: 4px solid ${(props) => props.color || OS_LEGAL_COLORS.border};
   background-color: ${(props) =>
     props.selected ? "rgba(46, 204, 113, 0.08)" : "white"};
@@ -214,7 +221,7 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
   };
 
   return (
-    <HighlightContainer
+    <HighlightItemCard
       color={annotation?.annotationLabel?.color}
       selected={selected}
       className={`sidebar__annotation ${className || ""}`}
@@ -320,6 +327,6 @@ export const HighlightItem: React.FC<HighlightItemProps> = ({
       {(annotation instanceof ServerTokenAnnotation || annotation.page > 0) && (
         <LocationText>Page {annotation.page + 1}</LocationText>
       )}
-    </HighlightContainer>
+    </HighlightItemCard>
   );
 };

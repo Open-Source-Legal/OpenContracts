@@ -1,41 +1,27 @@
 /**
- * Shared visual-design tokens for the mobile DocumentKnowledgeBase layout.
+ * Mobile-named aliases for the shared DocumentKnowledgeBase design tokens.
  *
- * Keeps the "calm, layered, native-quality" aesthetic DRY: a deliberate radius
- * scale, a soft layered-shadow scale (depth over borders) and a warm-neutral
- * surface tint so white cards and chrome visibly float. Colors stay sourced
- * from {@link OS_LEGAL_COLORS} — these tokens add structure, not new hues.
+ * The actual values live in
+ * {@link ../../../../../assets/configurations/designTokens} — the single
+ * source of truth shared with the desktop chat/filter/control surfaces. This
+ * module only re-exports them under the `MOBILE_*` names the mobile layout
+ * already consumes, so editing a token in one place updates both layouts.
  */
+import {
+  FOCUS_RING,
+  RADIUS,
+  SHADOW,
+  SURFACE_TINT,
+} from "../../../../../assets/configurations/designTokens";
 
 /** Corner-radius scale. Apply deliberately by element size. */
-export const MOBILE_RADIUS = {
-  /** Small controls — chips, step buttons. */
-  sm: "10px",
-  /** Medium surfaces — cards, inputs, icon containers. */
-  md: "14px",
-  /** Large surfaces — sheets, prominent cards. */
-  lg: "18px",
-  /** Fully rounded — pills, circular buttons. */
-  pill: "999px",
-} as const;
+export const MOBILE_RADIUS = RADIUS;
 
 /** Soft layered-shadow scale. Replaces flat 1px hairline borders. */
-export const MOBILE_SHADOW = {
-  /** Barely-there lift for resting cards and chips. */
-  subtle: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)",
-  /** Floating cards, inputs, menu rows. */
-  raised: "0 2px 8px rgba(15, 23, 42, 0.06), 0 6px 20px rgba(15, 23, 42, 0.07)",
-  /** Bottom chrome (tab bar / ask bar) — a soft upward shadow. */
-  chrome: "0 -2px 16px rgba(15, 23, 42, 0.07)",
-  /** Header chrome — a soft downward shadow. */
-  header: "0 2px 12px rgba(15, 23, 42, 0.06)",
-} as const;
+export const MOBILE_SHADOW = SHADOW;
 
-/**
- * Warm-neutral page surface tint. Slightly cooler-warm than pure white so
- * white cards and chrome read as layered rather than stark white-on-white.
- */
-export const MOBILE_SURFACE_TINT = "#f5f6f8";
+/** Warm-neutral page surface tint so white cards and chrome visibly float. */
+export const MOBILE_SURFACE_TINT = SURFACE_TINT;
 
 /** Teal-tinted focus ring for inputs. */
-export const MOBILE_FOCUS_RING = "0 0 0 3px rgba(15, 118, 110, 0.16)";
+export const MOBILE_FOCUS_RING = FOCUS_RING;
