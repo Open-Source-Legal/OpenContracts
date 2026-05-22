@@ -54,7 +54,16 @@ class TestCorpusServiceUpdateDescription(TestCase):
 
 
 class TestCorpusServiceDeleteCorpus(TestCase):
-    """``CorpusService.delete_corpus`` — personal / lock / permission gates."""
+    """``CorpusService.delete_corpus`` — personal / lock / permission gates.
+
+    Corpora here are created via ``Corpus.objects.create()`` rather than
+    ``CreateCorpusMutation``, so no guardian object permissions are granted.
+    The creator still clears ``require_permission(..., DELETE)`` via the
+    creator short-circuit in ``_default_user_can`` (``creator_id == user.id``
+    → True); the ``test_non_owner_without_permission_is_denied`` case proves
+    a *non*-creator without an explicit grant is correctly denied, so the
+    creator paths are not passing vacuously.
+    """
 
     def setUp(self):
         self.creator = User.objects.create_user(
@@ -104,7 +113,14 @@ class TestCorpusServiceDeleteCorpus(TestCase):
 
 
 class TestCorpusServiceSetVisibility(TestCase):
-    """``CorpusService.set_visibility`` — PERMISSION-gated visibility change."""
+    """``CorpusService.set_visibility`` — PERMISSION-gated visibility change.
+
+    As in ``TestCorpusServiceDeleteCorpus``, the corpus is created directly
+    (no guardian grants). The creator clears ``require_permission(...,
+    PERMISSION)`` via the creator short-circuit in ``_default_user_can``;
+    ``test_user_without_permission_is_denied`` proves a non-creator without
+    an explicit grant is denied, so the creator paths are not vacuous.
+    """
 
     def setUp(self):
         self.creator = User.objects.create_user(

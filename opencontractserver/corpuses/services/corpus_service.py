@@ -148,6 +148,8 @@ class CorpusService(BaseService):
         if is_public:
             # Cascade public visibility to all child objects (documents,
             # annotations, analyses, ...) via the existing async task.
+            # Imported locally to avoid a circular import: the tasks module
+            # imports from the corpuses package at module load time.
             from opencontractserver.tasks.permissioning_tasks import (
                 make_corpus_public_task,
             )
@@ -177,6 +179,11 @@ class CorpusService(BaseService):
         as that would create inconsistent embeddings within the corpus — the
         ``reEmbedCorpus`` mutation is the controlled migration path. Returns a
         human-readable error string when the change is disallowed.
+
+        Deliberately returns a plain ``str`` rather than ``ServiceResult``:
+        this is a pre-save guard whose only output is an optional error
+        message, so the ``ServiceResult`` success/value channel would be
+        dead weight. Do not "normalise" it to ``ServiceResult``.
         """
         if new_embedder != corpus.preferred_embedder and corpus.has_documents():
             return (

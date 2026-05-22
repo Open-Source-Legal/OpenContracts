@@ -98,6 +98,17 @@ class TestServicesPackageStructure(SimpleTestCase):
                     )
                 )
 
+    def test_corpus_objs_service_shim_is_deleted(self):
+        """The deprecated ``corpus_objs_service`` re-export shim is gone.
+
+        Phase 2C deleted ``opencontractserver/corpuses/corpus_objs_service.py``
+        and the ``CorpusObjsService`` facade (CLAUDE.md no-dead-code rule).
+        Importing it must fail — this pins the deletion so the module cannot
+        be silently resurrected.
+        """
+        with self.assertRaises(ModuleNotFoundError):
+            import opencontractserver.corpuses.corpus_objs_service  # noqa: F401
+
     def test_segmented_services_share_no_method_names(self):
         """The segmented services have disjoint method names.
 
