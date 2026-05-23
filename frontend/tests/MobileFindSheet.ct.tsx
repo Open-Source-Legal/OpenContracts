@@ -99,6 +99,34 @@ test("tapping a result row updates the selection and fires onClose", async ({
   expect(closeCount).toBe(1);
 });
 
+test("tapping the first result row selects index 0", async ({ mount }) => {
+  // Selection starts at index 0 in the seeded state, so tapping a non-first
+  // row (above) proves the index moves; tapping the first row proves the
+  // tap path also handles 0 explicitly — guards against an off-by-one where
+  // the row's onClick passes (index + 1) or similar.
+  let closeCount = 0;
+  const c = await mount(
+    <MobileFindSheetHarness
+      open
+      matchCount={3}
+      onClose={() => (closeCount += 1)}
+    />
+  );
+  await c.getByPlaceholder(/find in document/i).fill("clause");
+
+  // Move selection off index 0 first so tapping row 0 is a real change.
+  await c.getByRole("button", { name: /next match/i }).click();
+  await expect(c.getByTestId("mobile-find-status")).toHaveText(
+    "2 of 3 matches"
+  );
+
+  await c.getByTestId("mobile-find-result-0").click();
+  await expect(c.getByTestId("mobile-find-status")).toHaveText(
+    "1 of 3 matches"
+  );
+  expect(closeCount).toBe(1);
+});
+
 test("span-style matches render via the text fallback", async ({ mount }) => {
   // Span matches still carry a fullContext; the row uses it when present.
   // This test guards the fallback path renders a string when fullContext

@@ -330,6 +330,12 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
             setChatOpen(true);
           }}
           onOpenHistory={() => {
+            // Clear any prior pending message so the chat sheet lands on the
+            // conversation-list view. pendingChatMessage doubles as the
+            // autoStartNewChat signal below; without this clear, a stale
+            // post-submit value (during the 100ms DKB clear window) would
+            // route the history tap into new-chat mode instead of the list.
+            setPendingChatMessage(undefined);
             setSidebarViewMode("chat");
             setChatOpen(true);
           }}
@@ -434,6 +440,12 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
               setActiveLayer={setActiveLayer}
               setSelectedNote={setSelectedNote}
               pendingChatMessage={pendingChatMessage}
+              // autoStartNewChat is a one-shot init flag inside ChatTray's
+              // useState — it only takes effect when ChatTray (re)mounts. This
+              // wiring relies on MobileSheet's AnimatePresence unmounting its
+              // children on close, so each open re-runs the init. If
+              // MobileSheet ever switches to display:none for performance,
+              // this signal will stop taking effect after the first open.
               autoStartNewChat={Boolean(pendingChatMessage)}
             />
           </ChatSurface>

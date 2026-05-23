@@ -273,16 +273,13 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
       {matchCount > 0 && (
         <ResultsList data-testid="mobile-find-results">
           {textSearchMatches.map((result, index) => {
-            const isToken = isTokenResult(result);
-            const pageLabel = isToken
+            const pageLabel = isTokenResult(result)
               ? result.start_page === result.end_page
                 ? `Page ${result.start_page + 1}`
                 : `Pages ${result.start_page + 1}–${result.end_page + 1}`
               : "Text match";
             const snippetNode = result.fullContext;
-            const fallbackText = !isToken
-              ? (result as TextSearchSpanResult).text
-              : "";
+            const fallbackText = isTokenResult(result) ? "" : result.text;
             return (
               <ResultRow
                 key={result.id}

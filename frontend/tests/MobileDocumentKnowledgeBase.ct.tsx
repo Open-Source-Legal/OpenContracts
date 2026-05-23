@@ -379,11 +379,21 @@ test("focusing the Ask bar does not open the Chat sheet", async ({
   await mount(mobileDkb());
   await waitForDocumentReady(page);
 
-  await page.getByPlaceholder(/ask anything/i).click();
-  await page.waitForTimeout(400);
+  const ask = page.getByPlaceholder(/ask anything/i);
+  await ask.click();
+  // Type a character to confirm focus actually landed in the bar. If the
+  // chat sheet had opened on focus it would have stolen focus (or covered
+  // the bar entirely), and this fill would land in the wrong element or
+  // fail. This replaces a brittle wall-clock waitForTimeout — the typed
+  // value is the positive signal that focus stayed put.
+  await ask.fill("x");
+  await expect(ask).toHaveValue("x");
 
   // The chat sheet must NOT have opened on focus.
   await expect(page.getByTestId("mobile-surface-chat")).toHaveCount(0);
+
+  // Clear the bar so other tests sharing the page start clean.
+  await ask.fill("");
 });
 
 /* ───────────────────────────────────────────────────────────────────────────
