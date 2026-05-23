@@ -40,7 +40,6 @@ class RelationshipService(BaseService):
         structural: Optional[bool] = None,
         extract_id: Optional[int] = None,
         strict_extract_mode: bool = False,
-        use_cache: bool = True,  # Ignored
         context=None,
     ) -> QuerySet:
         """

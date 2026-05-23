@@ -254,7 +254,6 @@ class AnnotationService(BaseService):
         analysis_id: Optional[int] = None,
         extract_id: Optional[int] = None,
         structural: Optional[bool] = None,  # Filter for structural annotations
-        use_cache: bool = True,  # Kept for backward compatibility, ignored
         check_current_version: bool = True,  # NEW: Check if document is current and has active path
         context=None,
     ) -> QuerySet:
@@ -565,7 +564,7 @@ class AnnotationService(BaseService):
 
     @classmethod
     def get_extract_annotation_summary(
-        cls, document_id: int, extract_id: int, user, use_cache: bool = True  # Ignored
+        cls, document_id: int, extract_id: int, user
     ) -> dict:
         """
         Get summary of annotations used in specific extract.
@@ -622,17 +621,6 @@ class AnnotationService(BaseService):
         }
 
         return summary
-
-    @classmethod
-    def _check_document_permission(cls, user, document_id) -> bool:
-        """Check if user has permission to access document.
-        DEPRECATED: Use _compute_effective_permissions instead.
-        Kept for backwards compatibility.
-        """
-        can_read, _, _, _, _ = cls._compute_effective_permissions(
-            user, document_id, None
-        )
-        return can_read
 
     @classmethod
     def get_corpus_annotations(

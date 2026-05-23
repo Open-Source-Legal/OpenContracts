@@ -199,7 +199,6 @@ class AnnotationServiceTestCase(TestCase):
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.owner,
-            use_cache=False,
         )
 
         # Should see all 3 annotations
@@ -232,7 +231,6 @@ class AnnotationServiceTestCase(TestCase):
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.stranger,
-            use_cache=False,
         )
 
         # Should see nothing
@@ -256,7 +254,6 @@ class AnnotationServiceTestCase(TestCase):
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.superuser,
-            use_cache=False,
         )
 
         # Should see all 3 annotations
@@ -281,7 +278,6 @@ class AnnotationServiceTestCase(TestCase):
             document_id=self.doc1.id,
             extract_id=99999,  # Non-existent ID
             user=self.owner,
-            use_cache=False,
         )
 
         # Should return empty summary
@@ -740,7 +736,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
-            use_cache=False,
         )
 
         # Should see only manual relationships (rel1, rel2, rel3)
@@ -763,7 +758,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
-            use_cache=False,
         )
 
         self.assertEqual(qs.count(), 0)
@@ -784,7 +778,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=None,  # No corpus
-            use_cache=False,
         )
 
         # Should see only structural relationship
@@ -809,7 +802,6 @@ class RelationshipServiceTestCase(TestCase):
             user=self.owner,
             corpus_id=self.corpus.id,
             analysis_id=self.analysis.id,
-            use_cache=False,
         )
 
         # Should see only the analysis relationship
@@ -835,7 +827,6 @@ class RelationshipServiceTestCase(TestCase):
             user=self.owner,
             corpus_id=self.corpus.id,
             pages=[1],
-            use_cache=False,
         )
 
         # Should see relationships with at least one annotation on page 1
@@ -862,7 +853,6 @@ class RelationshipServiceTestCase(TestCase):
             corpus_id=self.corpus.id,
             extract_id=self.extract.id,
             strict_extract_mode=False,
-            use_cache=False,
         )
 
         # Should see relationships involving ann1 or ann2 (in extract)
@@ -875,7 +865,6 @@ class RelationshipServiceTestCase(TestCase):
             corpus_id=self.corpus.id,
             extract_id=self.extract.id,
             strict_extract_mode=True,
-            use_cache=False,
         )
 
         # Should only see relationships where both ends are in extract
@@ -897,7 +886,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.superuser,
             corpus_id=self.corpus.id,
-            use_cache=False,
         )
 
         # Should see manual corpus-based relationships (rel1, rel2, rel3)
@@ -926,7 +914,6 @@ class RelationshipServiceTestCase(TestCase):
             user=self.owner,
             corpus_id=self.corpus.id,
             structural=False,
-            use_cache=False,
         )
 
         # All our manual corpus relationships are non-structural (rel1, rel2, rel3)
@@ -991,7 +978,6 @@ class RelationshipServiceTestCase(TestCase):
             user=self.owner,
             corpus_id=self.corpus.id,
             analysis_id=private_analysis.id,
-            use_cache=False,
         )
         self.assertGreater(qs_owner.count(), 0)
 
@@ -1001,7 +987,6 @@ class RelationshipServiceTestCase(TestCase):
             user=self.stranger,
             corpus_id=self.corpus.id,
             analysis_id=private_analysis.id,
-            use_cache=False,
         )
         self.assertEqual(qs_stranger.count(), 0)
 
@@ -1054,7 +1039,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.owner,
             corpus_id=self.corpus.id,
-            use_cache=False,
         )
         # Count includes manual relationships + extract relationship
         owner_count = qs_owner.count()
@@ -1065,7 +1049,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
-            use_cache=False,
         )
         # Should see 3 manual relationships (rel1, rel2, rel3) but NOT the extract-created one
         stranger_count_before = qs_stranger.count()
@@ -1081,7 +1064,6 @@ class RelationshipServiceTestCase(TestCase):
             document_id=self.doc1.id,
             user=self.stranger,
             corpus_id=self.corpus.id,
-            use_cache=False,
         )
         # Should now see 4 relationships (3 manual + 1 extract-created)
         self.assertEqual(qs_stranger_with_access.count(), 4)
