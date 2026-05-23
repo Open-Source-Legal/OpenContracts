@@ -854,8 +854,8 @@ def import_zip_with_folder_structure(
         - Document IDs and error messages
     """
     from opencontractserver.constants.zip_import import ZIP_DOCUMENT_BATCH_SIZE
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
+    from opencontractserver.corpuses.services import FolderCRUDService
     from opencontractserver.utils.zip_security import validate_zip_for_import
 
     results: dict[str, Any] = {
@@ -980,7 +980,7 @@ def import_zip_with_folder_structure(
             # Phase 2: Create folder structure
             if manifest.folder_paths:
                 folder_map, created, reused, folder_error = (
-                    CorpusObjsService.create_folder_structure_from_paths(
+                    FolderCRUDService.create_folder_structure_from_paths(
                         user=user_obj,
                         corpus=corpus_obj,
                         folder_paths=manifest.folder_paths,

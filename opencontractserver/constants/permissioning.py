@@ -55,9 +55,9 @@ REQUEST_OPTIMIZER_ATTR = "_permission_query_optimizer"
 """Attribute on a Django/Graphene request that stores the shared
 ``PermissionQueryOptimizer`` instance for the request lifetime.
 
-Tier 2 of the two-tier mitigation. Mirrors the
-``_conversation_query_optimizer`` naming used by
-``opencontractserver.conversations.query_optimizer.get_request_optimizer``.
+Tier 2 of the two-tier mitigation — the request lazily acquires one shared
+``PermissionQueryOptimizer`` instance for its lifetime via
+``get_request_optimizer``.
 
 Non-HTTP staleness boundary: Tier 2 is *absent* (not stale) for callers
 outside the HTTP lifecycle — ``get_request_optimizer(None)`` returns a

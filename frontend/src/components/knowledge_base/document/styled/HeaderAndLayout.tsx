@@ -1,31 +1,33 @@
 import styled from "styled-components";
 import { Z_INDEX } from "../../../../assets/configurations/constants";
+import { SHADOW } from "../../../../assets/configurations/designTokens";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 
 export const HeaderContainer = styled.div`
   margin: 0;
   border-radius: 0;
-  padding: 1rem 1.25rem 0.875rem;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  padding: 1rem 1.25rem 0.9rem;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  /* Depth over borders: soft downward shadow instead of a hairline. */
+  border-bottom: none;
+  box-shadow: ${SHADOW.header};
   position: relative;
   z-index: ${Z_INDEX.HEADER};
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.45rem;
+  gap: 0.55rem;
   flex-shrink: 0;
   min-width: 0;
 
   @media (max-width: 768px) {
-    padding: 0.875rem 1rem 0.75rem;
-    gap: 0.4rem;
+    padding: 0.875rem 1rem 0.8rem;
+    gap: 0.5rem;
   }
 
   @media (max-width: 480px) {
-    padding: 0.7rem 0.8rem 0.6rem;
+    padding: 0.75rem 0.85rem 0.7rem;
   }
 `;
 
@@ -46,9 +48,10 @@ export const HeaderTitleBlock = styled.div`
 export const HeaderTitle = styled.h2`
   margin: 0;
   color: ${OS_LEGAL_COLORS.textPrimary};
-  font-size: 1.375rem;
+  font-size: 1.35rem;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -59,54 +62,68 @@ export const HeaderTitle = styled.h2`
     text-overflow: ellipsis;
   }
 
+  @media (max-width: 768px) {
+    font-size: 1.25rem;
+  }
+
   @media (max-width: 480px) {
-    font-size: 1.2rem;
+    font-size: 1.15rem;
   }
 `;
 
+/**
+ * Metadata row: soft-tinted chips (depth over borders) for filetype, creator
+ * and created-date. The version selector is dropped in alongside them.
+ */
 export const MetadataRow = styled.div`
   display: flex;
   flex-wrap: wrap;
-  column-gap: 1rem;
-  row-gap: 0.35rem;
+  align-items: center;
+  column-gap: 0.4rem;
+  row-gap: 0.4rem;
   color: ${OS_LEGAL_COLORS.textSecondary};
-  margin-top: 0;
-  font-size: 0.82rem;
+  margin-top: 0.05rem;
+  font-size: 0.78rem;
   line-height: 1.2;
   min-width: 0;
 
   > span {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.375rem;
     min-width: 0;
     max-width: 100%;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+    font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: color 0.2s ease;
+    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 
     &:hover {
+      background: ${OS_LEGAL_COLORS.surfaceLight};
       color: ${OS_LEGAL_COLORS.textTertiary};
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
     }
 
     svg {
-      width: 14px;
-      height: 14px;
+      width: 13px;
+      height: 13px;
       flex-shrink: 0;
-      color: ${OS_LEGAL_COLORS.textMuted};
+      color: ${OS_LEGAL_COLORS.accent};
     }
   }
 
   @media (max-width: 768px) {
-    column-gap: 0.875rem;
-    row-gap: 0.3rem;
-    font-size: 0.78rem;
+    column-gap: 0.35rem;
+    row-gap: 0.35rem;
+    font-size: 0.74rem;
   }
 
   @media (max-width: 480px) {
-    column-gap: 0.75rem;
-
     .metadata-created-prefix {
       display: none;
     }

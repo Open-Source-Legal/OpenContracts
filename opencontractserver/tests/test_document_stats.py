@@ -213,7 +213,7 @@ class DocumentStatsTestCase(GraphQLTestCase):
         # ``DocumentFilter.in_corpus`` looks up membership via
         # ``DocumentPath`` (corpus_id + is_current + not is_deleted), so
         # the test directly seeds those rows rather than going through the
-        # heavier ``CorpusObjsService.add_document_to_corpus`` flow,
+        # heavier ``CorpusDocumentService.add_document_to_corpus`` flow,
         # which clones the document into a corpus-isolated copy.
         corpus = Corpus.objects.create(
             title=f"{PREFIX}corpus",

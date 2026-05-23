@@ -1,5 +1,5 @@
 """
-Tests for ``DocumentVersionQueryOptimizer.get_version_counts_by_tree``.
+Tests for ``DocumentVersionService.get_version_counts_by_tree``.
 
 The method replaces the per-document ``.count()`` pattern in
 ``resolve_version_count`` (config/graphql/document_types.py) with a single
@@ -12,7 +12,7 @@ These tests cover:
 2. Multiple trees: trees are independent of each other.
 3. Visibility scope: a user only counts versions they can read.
 4. Outsider: a user with no permissions sees no counts.
-5. Request-level cache: the result is memoised on the GraphQL context.
+5. Request-level cache: the result is memoised on the request object.
 6. Resolver integration: ``resolve_version_count`` collapses to a dict lookup
    after the first call and avoids the per-row ``COUNT(*)``.
 """
@@ -27,9 +27,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.documents.models import Document
-from opencontractserver.documents.query_optimizer import (
-    DocumentVersionQueryOptimizer,
-)
+from opencontractserver.documents.services import DocumentVersionService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -88,7 +86,7 @@ class GetVersionCountsByTreeTestCase(TestCase):
 
     def test_returns_one_count_per_tree(self):
         """Each version contributes 1 to its tree's count."""
-        counts = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
+        counts = DocumentVersionService.get_version_counts_by_tree(
             user=self.owner,
         )
         self.assertEqual(counts.get(self.tree_a), 3)
@@ -96,7 +94,7 @@ class GetVersionCountsByTreeTestCase(TestCase):
 
     def test_outsider_sees_no_counts(self):
         """A user with no permissions sees no counts (and no leak)."""
-        counts = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
+        counts = DocumentVersionService.get_version_counts_by_tree(
             user=self.outsider,
         )
         self.assertEqual(counts.get(self.tree_a, 0), 0)
@@ -114,7 +112,7 @@ class GetVersionCountsByTreeTestCase(TestCase):
         # Grant READ on only one version of tree A.
         set_permissions_for_obj_to_user(partial_user, self.a_v3, [PermissionTypes.READ])
 
-        counts = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
+        counts = DocumentVersionService.get_version_counts_by_tree(
             user=partial_user,
         )
         self.assertEqual(counts.get(self.tree_a, 0), 1)
@@ -126,23 +124,23 @@ class GetVersionCountsByTreeTestCase(TestCase):
         superuser = User.objects.create_superuser(
             username="versions_super", password="x", email="s@example.com"
         )
-        counts = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
+        counts = DocumentVersionService.get_version_counts_by_tree(
             user=superuser,
         )
         self.assertEqual(counts.get(self.tree_a), 3)
         self.assertEqual(counts.get(self.tree_b), 2)
 
     def test_request_level_cache_returns_same_result(self):
-        """A second call with the same context should return the cached dict."""
-        context = SimpleNamespace()
-        first = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
-            user=self.owner, context=context
+        """A second call with the same request should return the cached dict."""
+        request = SimpleNamespace()
+        first = DocumentVersionService.get_version_counts_by_tree(
+            user=self.owner, request=request
         )
         # Mutate the underlying data to confirm the cache is being hit.
         Document.objects.filter(pk=self.a_v3.pk).delete()
 
-        second = DocumentVersionQueryOptimizer.get_version_counts_by_tree(
-            user=self.owner, context=context
+        second = DocumentVersionService.get_version_counts_by_tree(
+            user=self.owner, request=request
         )
         self.assertIs(first, second)
         # Cached value still reflects pre-deletion count.
@@ -213,7 +211,7 @@ class ResolveVersionCountIntegrationTestCase(TestCase):
         from config.graphql.document_types import DocumentType
 
         info = SimpleNamespace(context=SimpleNamespace(user=self.owner))
-        # Pre-populate the optimizer's cache with only an unrelated tree so
+        # Pre-populate the service's cache with only an unrelated tree so
         # the lookup for self.docs[0].version_tree_id misses and falls back
         # to the default of 1.
         cache_key = f"_doc_version_counts_by_tree_{self.owner.id}"

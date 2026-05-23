@@ -1,11 +1,11 @@
 {
-  "total": 438,
+  "total": 437,
   "byArea": {
     "components_other": 114,
     "annotator": 90,
     "utils": 79,
-    "knowledge_base": 28,
     "graphql": 27,
+    "knowledge_base": 27,
     "types": 27,
     "other": 24,
     "widgets_other": 19,

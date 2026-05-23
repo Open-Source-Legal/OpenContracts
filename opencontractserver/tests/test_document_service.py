@@ -1,5 +1,5 @@
 """
-Smoke + structural tests for the split DocumentService / CorpusObjsService,
+Smoke + structural tests for the split DocumentService / corpus services,
 plus behavioural coverage of every public method on :class:`DocumentService`.
 
 The structural cases verify that the service-layer split preserves:
@@ -23,7 +23,11 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+from opencontractserver.corpuses.services import (
+    CorpusDocumentService,
+    DocumentLifecycleService,
+    FolderCRUDService,
+)
 from opencontractserver.documents.document_service import DocumentService
 from opencontractserver.documents.models import Document
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
@@ -35,30 +39,37 @@ User = get_user_model()
 
 class TestServiceSplit_MethodPartition(TestCase):
     """
-    SCENARIO: DocumentService and CorpusObjsService own disjoint methods.
+    SCENARIO: DocumentService and the corpus services own disjoint methods.
 
     BUSINESS RULE: The split is along the seam *"is the document the noun,
-    or is the corpus context the noun?"*. The two classes must not define
-    methods with the same name; if they did, a shared subclass's MRO would
-    silently pick one and the merge would be inconsistent.
+    or is the corpus context the noun?"*. ``DocumentService`` must not define
+    a method that also lives on a corpus service; an accidental overlap would
+    blur the seam and make "which service owns this?" ambiguous.
     """
 
-    def test_document_service_and_corpus_objs_service_have_no_method_collisions(self):
+    def test_document_service_and_corpus_services_have_no_method_collisions(self):
         ds_methods = {
             name
             for name, value in vars(DocumentService).items()
             if callable(value) and not name.startswith("__")
         }
-        cos_methods = {
-            name
-            for name, value in vars(CorpusObjsService).items()
-            if callable(value) and not name.startswith("__")
-        }
-        overlap = ds_methods & cos_methods
+        corpus_methods = set()
+        for service in (
+            CorpusDocumentService,
+            DocumentLifecycleService,
+            FolderCRUDService,
+        ):
+            corpus_methods |= {
+                name
+                for name, value in vars(service).items()
+                if callable(value) and not name.startswith("__")
+            }
+        overlap = ds_methods & corpus_methods
         self.assertFalse(
             overlap,
-            f"DocumentService and CorpusObjsService share methods: {sorted(overlap)}. "
-            f"The split must be disjoint — pick one home for each method.",
+            f"DocumentService and the corpus services share methods: "
+            f"{sorted(overlap)}. The split must be disjoint — pick one home "
+            f"for each method.",
         )
 
 
@@ -86,48 +97,59 @@ class TestServiceSplit_DocumentServiceSurface(TestCase):
         self.assertTrue(hasattr(DocumentService, "set_document_permissions"))
 
 
-class TestServiceSplit_CorpusObjsServiceSurface(TestCase):
+class TestServiceSplit_CorpusServicesSurface(TestCase):
     """
-    SCENARIO: CorpusObjsService exposes corpus-scoped operations.
+    SCENARIO: the segmented corpus services expose corpus-scoped operations.
 
     BUSINESS RULE: Anything of the form *"give me X inside corpus Y for
-    user Z"* lives here, including the new convenience methods that close
-    the legacy fusion pattern.
+    user Z"* lives on a corpus service, with each method owned by exactly
+    one segmented service.
     """
 
-    def test_corpus_objs_service_exposes_get_corpus_documents(self):
-        self.assertTrue(hasattr(CorpusObjsService, "get_corpus_documents"))
-
-    def test_corpus_objs_service_exposes_new_get_corpus_document_by_slug(self):
-        self.assertTrue(hasattr(CorpusObjsService, "get_corpus_document_by_slug"))
-
-    def test_corpus_objs_service_exposes_new_get_corpus_document_by_id(self):
-        self.assertTrue(hasattr(CorpusObjsService, "get_corpus_document_by_id"))
-
-    def test_corpus_objs_service_exposes_new_is_document_in_corpus(self):
-        self.assertTrue(hasattr(CorpusObjsService, "is_document_in_corpus"))
-
-    def test_corpus_objs_service_exposes_folder_crud(self):
-        for name in ("create_folder", "update_folder", "move_folder", "delete_folder"):
-            self.assertTrue(
-                hasattr(CorpusObjsService, name),
-                f"CorpusObjsService missing folder method {name!r}",
-            )
-
-    def test_corpus_objs_service_exposes_corpus_doc_lifecycle(self):
+    def test_corpus_document_service_exposes_corpus_doc_reads(self):
         for name in (
-            "upload_document_to_corpus",
-            "add_document_to_corpus",
-            "remove_document_from_corpus",
-            "soft_delete_document",
-            "restore_document",
-            "permanently_delete_document",
-            "empty_trash",
+            "get_corpus_documents",
+            "get_corpus_document_by_slug",
+            "get_corpus_document_by_id",
+            "is_document_in_corpus",
         ):
             self.assertTrue(
-                hasattr(CorpusObjsService, name),
-                f"CorpusObjsService missing lifecycle method {name!r}",
+                hasattr(CorpusDocumentService, name),
+                f"CorpusDocumentService missing method {name!r}",
             )
+
+    def test_folder_crud_service_exposes_folder_crud(self):
+        for name in ("create_folder", "update_folder", "move_folder", "delete_folder"):
+            self.assertTrue(
+                hasattr(FolderCRUDService, name),
+                f"FolderCRUDService missing folder method {name!r}",
+            )
+
+    def test_corpus_doc_lifecycle_methods_on_owning_services(self):
+        for service, names in (
+            (
+                CorpusDocumentService,
+                (
+                    "upload_document_to_corpus",
+                    "add_document_to_corpus",
+                    "remove_document_from_corpus",
+                ),
+            ),
+            (
+                DocumentLifecycleService,
+                (
+                    "soft_delete_document",
+                    "restore_document",
+                    "permanently_delete_document",
+                    "empty_trash",
+                ),
+            ),
+        ):
+            for name in names:
+                self.assertTrue(
+                    hasattr(service, name),
+                    f"{service.__name__} missing lifecycle method {name!r}",
+                )
 
 
 class TestDocumentService_QuotaSmoke(TestCase):

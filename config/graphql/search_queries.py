@@ -367,14 +367,14 @@ class SearchQueryMixin:
         the response, allowing search-by-email would confirm membership).
 
         PERFORMANCE NOTES:
-        - Uses UserQueryOptimizer for efficient visibility filtering
+        - Uses UserService for efficient visibility filtering
         - Searches slug and handle (both indexed)
 
         @param text_search: Search query for slug or display handle
         """
         from django.contrib.auth import get_user_model
 
-        from opencontractserver.users.query_optimizer import UserQueryOptimizer
+        from opencontractserver.users.services import UserService
 
         User = get_user_model()
         user = info.context.user
@@ -383,8 +383,8 @@ class SearchQueryMixin:
         if user.is_anonymous:
             return User.objects.none()
 
-        # Use UserQueryOptimizer for visibility filtering
-        qs = UserQueryOptimizer.get_visible_users(user)
+        # Use UserService for visibility filtering
+        qs = UserService.get_visible_users(user, request=info.context)
 
         if text_search:
             # Only search public identifiers — never username (OAuth sub) or email.

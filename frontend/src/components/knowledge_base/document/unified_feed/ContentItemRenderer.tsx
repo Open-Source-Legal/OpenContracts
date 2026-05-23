@@ -35,6 +35,12 @@ interface ContentItemRendererProps {
   onToggleMultiSelect?: () => void;
   isMultiSelected?: boolean;
   readOnly?: boolean;
+  /**
+   * Compact / mobile consumption mode. Forwarded to {@link HighlightItem} so
+   * annotation rows hide their authoring affordances (multi-select checkbox,
+   * delete icon). Desktop leaves this unset for byte-identical rendering.
+   */
+  compact?: boolean;
 }
 
 /* Styled Components */
@@ -137,6 +143,7 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
   onToggleMultiSelect,
   isMultiSelected = false,
   readOnly = false,
+  compact = false,
 }) => {
   const { annotationElementRefs } = useAnnotationRefs();
   const { pdfAnnotations } = usePdfAnnotations();
@@ -219,6 +226,7 @@ export const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({
           onToggleMultiSelect={onToggleMultiSelect}
           isMultiSelected={isMultiSelected}
           contentModalities={annotation.contentModalities}
+          compact={compact}
         />
       </ItemContainer>
     );
