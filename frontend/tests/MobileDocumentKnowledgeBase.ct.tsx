@@ -368,28 +368,95 @@ test("tab navigation activates each surface", async ({ mount, page }) => {
 });
 
 /* ───────────────────────────────────────────────────────────────────────────
- * 4. Ask bar opens the Chat sheet
+ * 4a. Focusing the Ask bar no longer opens the Chat sheet (regression for the
+ *    type-to-launch behavior — users type inline on the main view, the sheet
+ *    appears only after submit or history tap).
  * ─────────────────────────────────────────────────────────────────────────── */
-test("the Ask bar opens the Chat sheet", async ({ mount, page }) => {
+test("focusing the Ask bar does not open the Chat sheet", async ({
+  mount,
+  page,
+}) => {
   await mount(mobileDkb());
   await waitForDocumentReady(page);
 
-  // Activating the Ask bar opens a MobileSheet titled "Chat".
-  await page.getByPlaceholder(/ask anything/i).click();
+  const ask = page.getByPlaceholder(/ask anything/i);
+  await ask.click();
+  // Type a character to confirm focus actually landed in the bar. If the
+  // chat sheet had opened on focus it would have stolen focus (or covered
+  // the bar entirely), and this fill would land in the wrong element or
+  // fail. This replaces a brittle wall-clock waitForTimeout — the typed
+  // value is the positive signal that focus stayed put.
+  await ask.fill("x");
+  await expect(ask).toHaveValue("x");
 
-  await expect(page.getByText("Chat", { exact: true })).toBeVisible({
-    timeout: LONG_TIMEOUT,
-  });
+  // The chat sheet must NOT have opened on focus.
+  await expect(page.getByTestId("mobile-surface-chat")).toHaveCount(0);
+
+  // Clear the bar so other tests sharing the page start clean.
+  await ask.fill("");
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 4b. Submitting from the Ask bar opens the Chat sheet directly in new-chat
+ *    mode so the typed message starts a fresh conversation immediately,
+ *    instead of being dropped on the conversation-list view.
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("submitting from the Ask bar opens the Chat sheet in new-chat mode", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  // Type and submit on the main view.
+  const ask = page.getByPlaceholder(/ask anything/i);
+  await ask.fill("what is the term length?");
+  await ask.press("Enter");
+
+  // The Chat sheet opens.
   await expect(page.getByTestId("mobile-surface-chat")).toBeVisible({
     timeout: LONG_TIMEOUT,
   });
-  // The sheet exposes a Close affordance.
+  // The new-chat composer is on screen — its WebSocket-gated textarea uses one
+  // of three placeholders depending on connection state. (The stub WebSocket
+  // in beforeEach reports readyState=1, so we usually land on "Type your
+  // message..." but allow the others to keep the assertion resilient.)
   await expect(
-    page.getByRole("button", { name: "Close" }).last()
-  ).toBeVisible();
+    page
+      .getByPlaceholder(/type your message/i)
+      .or(page.getByPlaceholder(/waiting for connection/i))
+      .or(page.getByPlaceholder(/assistant is responding/i))
+  ).toBeVisible({ timeout: LONG_TIMEOUT });
+  // And NOT the conversation-list view (which carries the "Search by title…"
+  // input). This is the distinguishing signal: new-chat mode skips the list.
+  await expect(page.getByPlaceholder(/search by title/i)).toHaveCount(0);
 
-  // Documentation capture: the mobile Chat sheet, open.
-  await docScreenshot(page, "knowledge-base--mobile--chat-sheet");
+  // Documentation capture: the mobile Chat sheet opened straight into a new chat.
+  await docScreenshot(page, "dkb--mobile--chat-type-to-launch");
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 4c. The history affordance on the Ask bar opens the Chat sheet to the
+ *    conversation list (the old focus-opens-sheet path, preserved behind an
+ *    explicit control).
+ * ─────────────────────────────────────────────────────────────────────────── */
+test("tapping the history button opens the Chat sheet to the conversation list", async ({
+  mount,
+  page,
+}) => {
+  await mount(mobileDkb());
+  await waitForDocumentReady(page);
+
+  await page
+    .getByRole("button", { name: /open conversation history/i })
+    .click();
+
+  await expect(page.getByTestId("mobile-surface-chat")).toBeVisible({
+    timeout: LONG_TIMEOUT,
+  });
+
+  // Documentation capture: the mobile Chat sheet, opened to the conversation list.
+  await docScreenshot(page, "dkb--mobile--chat-history-affordance");
 });
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -447,6 +514,20 @@ test("the annotation feed renders rows and a row opens the detail sheet", async 
   await expect(
     page.getByText(mockAnnotationNonStructural1.rawText).first()
   ).toBeVisible({ timeout: LONG_TIMEOUT });
+
+  // Mobile UX: the row tap also switches the active tab to Document so the
+  // annotation is visible in the viewer the moment the detail sheet is
+  // dismissed (instead of leaving the user on the Annotations feed).
+  await expect(page.getByRole("tab", { name: "Document" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  await expect(page.getByRole("tab", { name: "Annotations" })).toHaveAttribute(
+    "aria-selected",
+    "false"
+  );
+
+  await docScreenshot(page, "dkb--mobile--annotations-tap-switches-tab");
 });
 
 /** Reads the document zoom percentage off the MobileDocToolbar "Fit width" chip. */

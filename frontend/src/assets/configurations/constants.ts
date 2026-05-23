@@ -249,6 +249,15 @@ export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
  */
 export const POPOVER_MAX_HEIGHT = 500;
 
+/**
+ * Cap on rendered rows in the mobile Find sheet results list. Searches for
+ * common words in long documents can produce hundreds of matches; rendering
+ * them all causes frame drops on mobile scroll. The prev/next chevrons and
+ * the status counter still operate over the full match set — only the
+ * in-sheet list view is truncated.
+ */
+export const MOBILE_FIND_MAX_VISIBLE_RESULTS = 100;
+
 // Conversation type constants (matches backend ConversationTypeChoices)
 export const CONVERSATION_TYPE = {
   CHAT: "CHAT",
