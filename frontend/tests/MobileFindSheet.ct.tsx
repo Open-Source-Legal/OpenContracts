@@ -141,3 +141,51 @@ test("span-style matches render via the text fallback", async ({ mount }) => {
     "Text match"
   );
 });
+
+test("caps the rendered list and shows an overflow notice", async ({
+  mount,
+}) => {
+  // 150 > MOBILE_FIND_MAX_VISIBLE_RESULTS (100); the list should render the
+  // first 100 rows and a single notice li telling the user how to reach the
+  // rest (via the prev/next chevrons, which still operate over the full set).
+  const c = await mount(<MobileFindSheetHarness open matchCount={150} />);
+  await c.getByPlaceholder(/find in document/i).fill("clause");
+
+  // First 100 rows are present.
+  await expect(c.getByTestId("mobile-find-result-0")).toBeVisible();
+  await expect(c.getByTestId("mobile-find-result-99")).toHaveCount(1);
+  // Row 100 is not rendered (cap is exclusive).
+  await expect(c.getByTestId("mobile-find-result-100")).toHaveCount(0);
+
+  // The overflow notice carries both the cap and the true total.
+  const notice = c.getByTestId("mobile-find-overflow-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("first 100 of 150");
+
+  // The status counter still reflects the full match set (cap is render-only).
+  await expect(c.getByTestId("mobile-find-status")).toHaveText(
+    "1 of 150 matches"
+  );
+});
+
+test("does not show an overflow notice when results fit", async ({ mount }) => {
+  const c = await mount(<MobileFindSheetHarness open matchCount={3} />);
+  await c.getByPlaceholder(/find in document/i).fill("clause");
+  await expect(c.getByTestId("mobile-find-overflow-notice")).toHaveCount(0);
+});
+
+test("token results with null fullContext render the unavailable placeholder", async ({
+  mount,
+}) => {
+  // Token matches don't carry a raw-text fallback in their type, so a null
+  // fullContext (upstream context-builder failure) used to render an empty
+  // row. The row now renders an explicit "Match preview unavailable"
+  // placeholder.
+  const c = await mount(
+    <MobileFindSheetHarness open matchCount={2} nullFullContext />
+  );
+  await c.getByPlaceholder(/find in document/i).fill("clause");
+  await expect(c.getByTestId("mobile-find-result-0")).toContainText(
+    "Match preview unavailable"
+  );
+});

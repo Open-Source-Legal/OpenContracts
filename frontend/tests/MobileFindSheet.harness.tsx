@@ -10,19 +10,28 @@ import type {
 
 /**
  * Builds a synthetic token-style match (the PDF path). Each match gets a unique
- * id, a non-null React `fullContext` (so the result row has a snippet to
- * render) and page bounds the row meta line formats as "Page N".
+ * id, a `fullContext` ReactElement (so the result row has a snippet to render)
+ * and page bounds the row meta line formats as "Page N".
+ *
+ * Pass `nullFullContext: true` to simulate an upstream context-builder
+ * failure — the row should fall back to the "Match preview unavailable"
+ * placeholder rather than rendering an empty snippet.
  */
-const makeTokenMatch = (id: number): TextSearchTokenResult => ({
+const makeTokenMatch = (
+  id: number,
+  opts: { nullFullContext?: boolean } = {}
+): TextSearchTokenResult => ({
   id,
   tokens: {},
-  fullContext: React.createElement(
-    "span",
-    null,
-    "fixture match ",
-    React.createElement("mark", { key: "m" }, "clause"),
-    ` #${id + 1}`
-  ),
+  fullContext: opts.nullFullContext
+    ? null
+    : React.createElement(
+        "span",
+        null,
+        "fixture match ",
+        React.createElement("mark", { key: "m" }, "clause"),
+        ` #${id + 1}`
+      ),
   start_page: 0,
   end_page: 0,
 });
@@ -53,17 +62,20 @@ const makeSpanMatch = (id: number): TextSearchSpanResult => ({
 const MatchSeeder: React.FC<{
   matchCount: number;
   matchType: "token" | "span";
-}> = ({ matchCount, matchType }) => {
+  nullFullContext: boolean;
+}> = ({ matchCount, matchType, nullFullContext }) => {
   const setTextSearchState = useSetAtom(textSearchStateAtom);
   useEffect(() => {
     const matches = Array.from({ length: matchCount }, (_, i) =>
-      matchType === "token" ? makeTokenMatch(i) : makeSpanMatch(i)
+      matchType === "token"
+        ? makeTokenMatch(i, { nullFullContext })
+        : makeSpanMatch(i)
     );
     setTextSearchState({
       matches: matches as (TextSearchTokenResult | TextSearchSpanResult)[],
       selectedIndex: 0,
     });
-  }, [matchCount, matchType, setTextSearchState]);
+  }, [matchCount, matchType, nullFullContext, setTextSearchState]);
   return null;
 };
 
@@ -75,10 +87,22 @@ export const MobileFindSheetHarness: React.FC<{
   open?: boolean;
   matchCount?: number;
   matchType?: "token" | "span";
+  /** Seed token matches with `fullContext: null` to exercise the placeholder. */
+  nullFullContext?: boolean;
   onClose?: () => void;
-}> = ({ open = true, matchCount = 0, matchType = "token", onClose }) => (
+}> = ({
+  open = true,
+  matchCount = 0,
+  matchType = "token",
+  nullFullContext = false,
+  onClose,
+}) => (
   <Provider>
-    <MatchSeeder matchCount={matchCount} matchType={matchType} />
+    <MatchSeeder
+      matchCount={matchCount}
+      matchType={matchType}
+      nullFullContext={nullFullContext}
+    />
     <MobileFindSheet open={open} onClose={onClose} />
   </Provider>
 );

@@ -164,6 +164,29 @@ const ResultSnippet = styled.div`
   }
 `;
 
+/** Snippet rendered when a token result's fullContext is null upstream. */
+const SnippetPlaceholder = styled.span`
+  font-style: italic;
+  color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
+/** Notice rendered at the end of the list when results are capped. */
+const OverflowNotice = styled.li`
+  list-style: none;
+  padding: 8px 14px 4px;
+  font-size: 12px;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  text-align: center;
+`;
+
+/**
+ * Cap on rendered rows. Searches for common words in long documents can
+ * produce hundreds of matches; rendering them all causes frame drops on
+ * mobile scroll. The prev/next chevrons + the status counter still operate
+ * over the full match set — only the in-sheet list view is truncated.
+ */
+const MOBILE_FIND_MAX_VISIBLE_RESULTS = 100;
+
 function isTokenResult(
   result: TextSearchTokenResult | TextSearchSpanResult
 ): result is TextSearchTokenResult {
@@ -272,30 +295,48 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
       </Status>
       {matchCount > 0 && (
         <ResultsList data-testid="mobile-find-results">
-          {textSearchMatches.map((result, index) => {
-            const pageLabel = isTokenResult(result)
-              ? result.start_page === result.end_page
-                ? `Page ${result.start_page + 1}`
-                : `Pages ${result.start_page + 1}–${result.end_page + 1}`
-              : "Text match";
-            const snippetNode = result.fullContext;
-            const fallbackText = isTokenResult(result) ? "" : result.text;
-            return (
-              <ResultRow
-                key={result.id}
-                type="button"
-                $selected={index === selectedTextSearchMatchIndex}
-                onClick={() => handleSelectResult(index)}
-                data-testid={`mobile-find-result-${index}`}
-              >
-                <ResultMeta>
-                  <ResultIndex>Match {index + 1}</ResultIndex>
-                  <span>{pageLabel}</span>
-                </ResultMeta>
-                <ResultSnippet>{snippetNode ?? fallbackText}</ResultSnippet>
-              </ResultRow>
-            );
-          })}
+          {textSearchMatches
+            .slice(0, MOBILE_FIND_MAX_VISIBLE_RESULTS)
+            .map((result, index) => {
+              const pageLabel = isTokenResult(result)
+                ? result.start_page === result.end_page
+                  ? `Page ${result.start_page + 1}`
+                  : `Pages ${result.start_page + 1}–${result.end_page + 1}`
+                : "Text match";
+              const snippetNode = result.fullContext;
+              // Token results don't carry a raw-text fallback in their shape,
+              // so render an explicit placeholder when fullContext is null
+              // (an upstream context-builder failure) instead of an empty
+              // row.
+              const fallback = isTokenResult(result) ? (
+                <SnippetPlaceholder>
+                  Match preview unavailable
+                </SnippetPlaceholder>
+              ) : (
+                result.text
+              );
+              return (
+                <ResultRow
+                  key={result.id}
+                  type="button"
+                  $selected={index === selectedTextSearchMatchIndex}
+                  onClick={() => handleSelectResult(index)}
+                  data-testid={`mobile-find-result-${index}`}
+                >
+                  <ResultMeta>
+                    <ResultIndex>Match {index + 1}</ResultIndex>
+                    <span>{pageLabel}</span>
+                  </ResultMeta>
+                  <ResultSnippet>{snippetNode ?? fallback}</ResultSnippet>
+                </ResultRow>
+              );
+            })}
+          {matchCount > MOBILE_FIND_MAX_VISIBLE_RESULTS && (
+            <OverflowNotice data-testid="mobile-find-overflow-notice">
+              Showing first {MOBILE_FIND_MAX_VISIBLE_RESULTS} of {matchCount}{" "}
+              matches — use the chevrons to step through the rest.
+            </OverflowNotice>
+          )}
         </ResultsList>
       )}
     </Wrap>
