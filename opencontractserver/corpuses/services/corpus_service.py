@@ -21,6 +21,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
 from opencontractserver.types.enums import PermissionTypes
@@ -154,7 +156,15 @@ class CorpusService(BaseService):
                 make_corpus_public_task,
             )
 
-            make_corpus_public_task.si(corpus_id=corpus.pk).apply_async()
+            # Defer dispatch to commit: under ``ATOMIC_REQUESTS`` an
+            # unwrapped ``apply_async`` would race the worker against
+            # uncommitted state (and fire against rolled-back state on
+            # error). Capture ``corpus.pk`` in a local so the closure
+            # doesn't depend on ``corpus`` still being attached at commit.
+            corpus_pk = corpus.pk
+            transaction.on_commit(
+                lambda: make_corpus_public_task.si(corpus_id=corpus_pk).apply_async()
+            )
             cls.log_action("Made public", corpus, user)
             return ServiceResult.success(
                 "Making corpus public. This may take a moment for large corpuses."

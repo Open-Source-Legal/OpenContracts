@@ -315,13 +315,20 @@ class SearchQueryMixin:
             qs = qs.filter(corpus_id=int(corpus_pk))
 
         if text_search:
-            # Use PostgreSQL full-text search on search_vector (GIN-indexed)
-            # for raw_text matching, combined with B-tree index on label text.
-            # The OR means annotations matching either label text or full-text
-            # search are returned; search_vector is populated by a DB trigger.
+            # Three complementary matchers, OR'd together, so the search box
+            # behaves the way users expect as they type:
+            #   1. annotation_label.text — case-insensitive substring match.
+            #   2. raw_text icontains   — case-insensitive substring match,
+            #      backed by a pg_trgm GIN index. Catches prefixes/fragments
+            #      (e.g. "indemn") that full-text search misses, because FTS
+            #      only matches whole, stemmed lexemes — not substrings.
+            #   3. search_vector        — full-text search; keeps stemming and
+            #      ranking (e.g. "running" finds "ran"), which raw substring
+            #      matching cannot. Populated from raw_text by a DB trigger.
             search_query = SearchQuery(text_search, config=FTS_CONFIG)
             qs = qs.filter(
                 Q(annotation_label__text__icontains=text_search)
+                | Q(raw_text__icontains=text_search)
                 | Q(search_vector=search_query)
             )
 

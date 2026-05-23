@@ -196,6 +196,37 @@ class GraphQLConversationTestCase(TestCase):
         returned_contents = [msg["node"]["content"] for msg in msg_edges]
         self.assertEqual(returned_contents, expected_contents)
 
+    def test_conversations_title_search_is_case_insensitive(self):
+        """A lowercase title_Contains query must match a Title-Cased thread
+        title — the discover / discussions search box is case-insensitive.
+        Before the fix the filter used case-sensitive LIKE."""
+        query = """
+        query GetConversations($titleContains: String) {
+            conversations(title_Contains: $titleContains) {
+                edges {
+                    node {
+                        id
+                        title
+                    }
+                }
+            }
+        }
+        """
+        response = self.client.execute(
+            query, variables={"titleContains": "conversation with corpus"}
+        )
+        self.assertIsNone(
+            response.get("errors"),
+            f"GraphQL returned errors: {response.get('errors')}",
+        )
+        titles = {
+            edge["node"]["title"] for edge in response["data"]["conversations"]["edges"]
+        }
+        # Case-insensitive substring match finds the corpus thread...
+        self.assertIn("Test Conversation with Corpus", titles)
+        # ...and the filter still narrows: the document thread is excluded.
+        self.assertNotIn("Test Conversation with Document", titles)
+
     def test_resolve_conversations_with_document_id(self):
         """
         Test the conversations resolver by filtering with a documentId.
