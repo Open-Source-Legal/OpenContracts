@@ -62,7 +62,7 @@ class DocumentQueryMixin:
         # When the client asks for the ``doc_label_annotations`` alias
         # (the corpus list view's DOC_TYPE_LABEL badge), opt in to a
         # focused prefetch so the per-document
-        # AnnotationQueryOptimizer.get_document_annotations fall-through
+        # AnnotationService.get_document_annotations fall-through
         # in resolve_doc_annotations_optimized doesn't fire N times.
         return Document.objects.visible_to_user(
             info.context.user,

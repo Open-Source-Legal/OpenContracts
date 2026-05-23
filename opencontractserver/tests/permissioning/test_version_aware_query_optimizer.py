@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.versioning import (
     delete_document,
@@ -24,7 +24,7 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-class TestVersionAwareAnnotationQueryOptimizer(TestCase):
+class TestVersionAwareAnnotationService(TestCase):
     """Test version-aware annotation query functionality."""
 
     def setUp(self):
@@ -102,7 +102,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         self.assertTrue(doc_v2.is_current)
 
         # Query v1 directly - should return empty by default
-        result = AnnotationQueryOptimizer.get_document_annotations(
+        result = AnnotationService.get_document_annotations(
             document_id=doc_v1.id,
             user=self.user,
             corpus_id=self.corpus.id,
@@ -115,7 +115,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Query v2 (current) - should return annotations
-        result = AnnotationQueryOptimizer.get_document_annotations(
+        result = AnnotationService.get_document_annotations(
             document_id=doc_v2.id, user=self.user, corpus_id=self.corpus.id
         )
         self.assertEqual(result.count(), 1)
@@ -150,7 +150,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Explicitly query old version with check disabled
-        result = AnnotationQueryOptimizer.get_document_annotations(
+        result = AnnotationService.get_document_annotations(
             document_id=doc_v1.id,
             user=self.user,
             corpus_id=self.corpus.id,
@@ -201,7 +201,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Path-based query should return current version
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/contract.pdf", user=self.user
         )
 
@@ -251,7 +251,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Request specific version 1
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id,
             path="/evolving.pdf",
             user=self.user,
@@ -262,7 +262,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         self.assertEqual(result.first().id, anno_v1.id)
 
         # Request specific version 2
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id,
             path="/evolving.pdf",
             user=self.user,
@@ -296,7 +296,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Query before delete - should find annotation
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/deleteme.pdf", user=self.user
         )
         self.assertEqual(result.count(), 1)
@@ -305,7 +305,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         delete_document(self.corpus, "/deleteme.pdf", self.user)
 
         # Query after delete - should return empty
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/deleteme.pdf", user=self.user
         )
         self.assertEqual(
@@ -313,7 +313,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Direct query with version checking should also return empty
-        result = AnnotationQueryOptimizer.get_document_annotations(
+        result = AnnotationService.get_document_annotations(
             document_id=doc.id,
             user=self.user,
             corpus_id=self.corpus.id,
@@ -324,7 +324,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Can still access if we bypass version checking (for recovery scenarios)
-        result = AnnotationQueryOptimizer.get_document_annotations(
+        result = AnnotationService.get_document_annotations(
             document_id=doc.id,
             user=self.user,
             corpus_id=self.corpus.id,
@@ -366,14 +366,14 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         )
 
         # Query at new path - should find annotation
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/new/location.pdf", user=self.user
         )
         self.assertEqual(result.count(), 1)
         self.assertEqual(result.first().id, anno.id)
 
         # Query at old path - should return empty
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/original/location.pdf", user=self.user
         )
         self.assertEqual(result.count(), 0, "Old path should not return annotations")
@@ -427,7 +427,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         # Query for current version should only return v2 structural
         # Note: Structural annotations have corpus=None, so we query without corpus_id
         # The version-awareness is based on the document version itself
-        result = AnnotationQueryOptimizer.get_document_annotations(
+        result = AnnotationService.get_document_annotations(
             document_id=doc_v2.id,
             user=self.user,
             corpus_id=None,  # Structural annotations don't have corpus
@@ -440,7 +440,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         self.assertEqual(anno_ids[0], structural_v2.id)
 
         # Verify that querying v1 (old version) returns v1's structural annotation
-        result_v1 = AnnotationQueryOptimizer.get_document_annotations(
+        result_v1 = AnnotationService.get_document_annotations(
             document_id=doc_v1.id,
             user=self.user,
             corpus_id=None,
@@ -515,13 +515,13 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
         self.assertTrue(doc.is_current)
 
         # Query in corpus 1 - should return empty (deleted)
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/shared.pdf", user=self.user
         )
         self.assertEqual(result.count(), 0)
 
         # Query in corpus 2 - should return annotations (not deleted)
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=corpus2.id, path="/shared.pdf", user=self.user
         )
         self.assertEqual(result.count(), 1)
@@ -531,7 +531,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
 
     def test_nonexistent_path_returns_empty(self):
         """Test that querying nonexistent paths returns empty queryset."""
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/nonexistent.pdf", user=self.user
         )
         self.assertEqual(result.count(), 0)
@@ -569,7 +569,7 @@ class TestVersionAwareAnnotationQueryOptimizer(TestCase):
 
         # Time the query for current version
         start = time.time()
-        result = AnnotationQueryOptimizer.get_annotations_for_path(
+        result = AnnotationService.get_annotations_for_path(
             corpus_id=self.corpus.id, path="/perf_test.pdf", user=self.user
         )
         count = result.count()

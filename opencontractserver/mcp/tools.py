@@ -183,7 +183,7 @@ def list_annotations(
     Returns:
         Dict with total_count and list of annotations
     """
-    from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+    from opencontractserver.annotations.services import AnnotationService
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.corpuses.services import CorpusDocumentService
 
@@ -196,7 +196,7 @@ def list_annotations(
     )
 
     # Use query optimizer - eliminates N+1 permission queries
-    qs = AnnotationQueryOptimizer.get_document_annotations(
+    qs = AnnotationService.get_document_annotations(
         document_id=document.id, user=user, corpus_id=corpus.id
     )
 

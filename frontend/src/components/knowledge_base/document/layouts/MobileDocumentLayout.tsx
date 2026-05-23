@@ -195,6 +195,15 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [findSheetOpen, setFindSheetOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // How the chat sheet was opened: "new-chat" when the ask bar submitted a
+  // message (skip the conversation list, start fresh) vs "history" when the
+  // history button was tapped (show the list). Declared explicitly at the
+  // open site so ChatTray's autoStartNewChat is not inferred from the
+  // truthiness of pendingChatMessage — which used to conflate "delivers the
+  // typed text" with "skip the list" and could race the 100ms DKB clear.
+  const [chatOpenMode, setChatOpenMode] = useState<
+    "new-chat" | "history" | null
+  >(null);
 
   const { selectedAnnotations, setSelectedAnnotations } =
     useAnnotationSelection();
@@ -317,18 +326,24 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 setActiveLayer={setActiveLayer}
                 setSelectedNote={setSelectedNote}
                 pendingChatMessage={pendingChatMessage}
+                onFeedItemSelected={() => setActiveTab("document")}
               />
             </AnnotationsSurface>
           )}
         </Surface>
 
         <MobileAskBar
-          onActivate={() => {
+          onSubmit={(text) => {
+            setPendingChatMessage(text);
+            setChatOpenMode("new-chat");
             setSidebarViewMode("chat");
             setChatOpen(true);
           }}
-          onSubmit={(text) => {
-            setPendingChatMessage(text);
+          onOpenHistory={() => {
+            // Also clear pendingChatMessage so any in-flight initialMessage
+            // from a prior submit doesn't get re-delivered to ChatTray.
+            setPendingChatMessage(undefined);
+            setChatOpenMode("history");
             setSidebarViewMode("chat");
             setChatOpen(true);
           }}
@@ -363,7 +378,10 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
           title="Find in document"
           onClose={() => setFindSheetOpen(false)}
         >
-          <MobileFindSheet open={findSheetOpen} />
+          <MobileFindSheet
+            open={findSheetOpen}
+            onClose={() => setFindSheetOpen(false)}
+          />
         </MobileSheet>
 
         {/* More sheet — a tappable list of the Tier-2 surfaces (Discussions,
@@ -406,10 +424,28 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
         <MobileSheet
           open={chatOpen}
           title="Chat"
-          onClose={() => setChatOpen(false)}
+          onClose={() => {
+            setChatOpen(false);
+            // Reset the open-mode so a subsequent open through any path
+            // starts from a clean slate (no stale "new-chat"/"history"
+            // carry-over).
+            setChatOpenMode(null);
+            // Clear the pending submit text too — without this, a user who
+            // submits text, closes the sheet, then opens history could see
+            // the stale text re-delivered to ChatTray's initialMessage.
+            setPendingChatMessage(undefined);
+          }}
         >
           <ChatSurface data-testid="mobile-surface-chat">
             <RightPanelContent
+              // `key` forces a fresh ChatTray mount whenever the open
+              // mode flips between new-chat / history. autoStartNewChat
+              // is a one-shot init flag inside ChatTray's `useState`, so
+              // it only takes effect on mount. Keying on `chatOpenMode`
+              // makes the remount intent explicit at the JSX site (and
+              // is resilient to MobileSheet ever switching from
+              // AnimatePresence to a display:none keep-alive).
+              key={chatOpenMode ?? "default"}
               showRightPanel={true}
               sidebarViewMode="chat"
               setSidebarViewMode={setSidebarViewMode}
@@ -430,6 +466,7 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
               setActiveLayer={setActiveLayer}
               setSelectedNote={setSelectedNote}
               pendingChatMessage={pendingChatMessage}
+              autoStartNewChat={chatOpenMode === "new-chat"}
             />
           </ChatSurface>
         </MobileSheet>

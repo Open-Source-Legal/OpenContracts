@@ -217,7 +217,7 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
 
     ``AnnotationUserObjectPermission`` rows are NOT consulted by:
         * ``AnnotationQuerySet.visible_to_user`` (uses doc/corpus + structural + creator)
-        * ``AnnotationQueryOptimizer._compute_effective_permissions`` (doc/corpus only)
+        * ``AnnotationService._compute_effective_permissions`` (doc/corpus only)
         * ``user_can`` for annotations (delegates to optimizer)
 
     These tests exist so any future regression that re-introduces a

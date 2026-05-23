@@ -94,6 +94,20 @@ export interface RightPanelContentProps {
    * this for byte-identical rendering.
    */
   compact?: boolean;
+  /**
+   * Mobile hook fired after the user taps an annotation or relationship row in
+   * the unified feed. The mobile layout uses this to auto-switch the active
+   * tab to `document` so the underlying surface is the viewer (and the
+   * annotation is visible once the detail sheet is dismissed). Desktop leaves
+   * this unset.
+   */
+  onFeedItemSelected?: () => void;
+  /**
+   * When true, the embedded {@link ChatTray} starts in new-chat mode instead
+   * of the conversation list — used on mobile when the ask bar submits a
+   * message so the typed text launches a fresh conversation directly.
+   */
+  autoStartNewChat?: boolean;
 }
 
 /**
@@ -122,6 +136,8 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
   setSelectedNote,
   pendingChatMessage,
   compact = false,
+  onFeedItemSelected,
+  autoStartNewChat = false,
 }) => {
   const isIndexExpanded = useReactiveVar(tocExpandAll);
 
@@ -257,6 +273,7 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
             // Handle item selection based on type
             if (item.type === "annotation" || item.type === "relationship") {
               setActiveLayer("document");
+              onFeedItemSelected?.();
             }
             // For notes, we could open the note modal
             if (item.type === "note" && "creator" in item.data) {
@@ -287,6 +304,7 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
         corpusId={corpusId}
         initialMessage={pendingChatMessage}
         readOnly={readOnly}
+        autoStartNewChat={autoStartNewChat}
       />
     </FlexColumnPanel>
   );

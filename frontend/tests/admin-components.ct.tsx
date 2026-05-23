@@ -28,7 +28,7 @@ import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 // never speculatively widen the selection set "for safety".
 const GET_GLOBAL_AGENTS = gql`
   query GetGlobalAgents {
-    agentConfigurations(scope: "GLOBAL") {
+    agentConfigurations(scope: GLOBAL) {
       edges {
         node {
           id

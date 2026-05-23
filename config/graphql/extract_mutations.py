@@ -366,7 +366,7 @@ class SetMetadataValue(graphene.Mutation):
     Permission model:
     - Requires Corpus UPDATE permission + Document READ permission
     - Metadata is a corpus-level feature, so corpus permission controls editing
-    - Uses MetadataQueryOptimizer for consistent permission checking
+    - Uses MetadataService for consistent permission checking
     """
 
     class Arguments:
@@ -385,7 +385,7 @@ class SetMetadataValue(graphene.Mutation):
     ) -> "SetMetadataValue":
         from django.utils import timezone
 
-        from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+        from opencontractserver.extracts.services import MetadataService
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import (
             set_permissions_for_obj_to_user,
@@ -398,19 +398,15 @@ class SetMetadataValue(graphene.Mutation):
             local_column_id = int(from_global_id(column_id)[1])
 
             # Check permissions: Corpus UPDATE + Document READ
-            has_perm, error_msg = (
-                MetadataQueryOptimizer.check_metadata_mutation_permission(
-                    user, local_doc_id, local_corpus_id, "UPDATE"
-                )
+            has_perm, error_msg = MetadataService.check_metadata_mutation_permission(
+                user, local_doc_id, local_corpus_id, "UPDATE"
             )
             if not has_perm:
                 return SetMetadataValue(ok=False, message=error_msg)
 
             # Validate column belongs to corpus metadata schema
-            is_valid, error_msg, column = (
-                MetadataQueryOptimizer.validate_metadata_column(
-                    local_column_id, local_corpus_id
-                )
+            is_valid, error_msg, column = MetadataService.validate_metadata_column(
+                local_column_id, local_corpus_id
             )
             if not is_valid or column is None:
                 return SetMetadataValue(ok=False, message=error_msg)
@@ -457,7 +453,7 @@ class DeleteMetadataValue(graphene.Mutation):
     Permission model:
     - Requires Corpus DELETE permission + Document READ permission
     - Metadata is a corpus-level feature, so corpus permission controls deletion
-    - Uses MetadataQueryOptimizer for consistent permission checking
+    - Uses MetadataService for consistent permission checking
     """
 
     class Arguments:
@@ -470,7 +466,7 @@ class DeleteMetadataValue(graphene.Mutation):
 
     @login_required
     def mutate(root, info, document_id, corpus_id, column_id) -> "DeleteMetadataValue":
-        from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+        from opencontractserver.extracts.services import MetadataService
 
         try:
             user = info.context.user
@@ -479,19 +475,15 @@ class DeleteMetadataValue(graphene.Mutation):
             local_column_id = int(from_global_id(column_id)[1])
 
             # Check document + corpus permissions using optimizer (MIN logic)
-            has_perm, error_msg = (
-                MetadataQueryOptimizer.check_metadata_mutation_permission(
-                    user, local_doc_id, local_corpus_id, "DELETE"
-                )
+            has_perm, error_msg = MetadataService.check_metadata_mutation_permission(
+                user, local_doc_id, local_corpus_id, "DELETE"
             )
             if not has_perm:
                 return DeleteMetadataValue(ok=False, message=error_msg)
 
             # Validate column belongs to corpus metadata schema
-            is_valid, error_msg, column = (
-                MetadataQueryOptimizer.validate_metadata_column(
-                    local_column_id, local_corpus_id
-                )
+            is_valid, error_msg, column = MetadataService.validate_metadata_column(
+                local_column_id, local_corpus_id
             )
             if not is_valid:
                 return DeleteMetadataValue(ok=False, message=error_msg)

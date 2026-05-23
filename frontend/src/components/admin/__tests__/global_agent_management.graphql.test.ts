@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { DocumentNode } from "graphql";
+import type { DocumentNode, FieldNode, OperationDefinitionNode } from "graphql";
 import {
   GET_GLOBAL_AGENTS,
   CREATE_GLOBAL_AGENT_CONFIGURATION,
@@ -51,5 +51,27 @@ describe("global_agent_management.graphql documents", () => {
     expect(opName(DELETE_GLOBAL_AGENT_CONFIGURATION)).toBe(
       "DeleteGlobalAgentConfiguration"
     );
+  });
+
+  it("passes the scope argument as a GraphQL enum literal, not a string", () => {
+    // Regression guard for #1750: scope is an enum; "GLOBAL" (StringValue) is rejected by the server.
+    const operation = GET_GLOBAL_AGENTS.definitions.find(
+      (def): def is OperationDefinitionNode =>
+        def.kind === "OperationDefinition"
+    );
+    expect(operation).toBeDefined();
+
+    const agentField = operation!.selectionSet.selections.find(
+      (sel): sel is FieldNode =>
+        sel.kind === "Field" && sel.name.value === "agentConfigurations"
+    );
+    expect(agentField).toBeDefined();
+
+    const scopeArg = agentField!.arguments?.find(
+      (arg) => arg.name.value === "scope"
+    );
+    expect(scopeArg).toBeDefined();
+    expect(scopeArg!.value.kind).toBe("EnumValue");
+    expect((scopeArg!.value as { value: string }).value).toBe("GLOBAL");
   });
 });

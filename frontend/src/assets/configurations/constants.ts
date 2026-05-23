@@ -16,6 +16,14 @@ export const TABLET_LANDSCAPE_BREAKPOINT = 1024;
 // Cookie consent modal collapses its two-column data grid below this width.
 export const COOKIE_CONSENT_GRID_BREAKPOINT = 720;
 
+// Minimum table widths feeding the `ScrollableTableWrapper` $minWidth prop on
+// each admin/badges view. Below the wrapper's parent width the table scrolls
+// horizontally; above it the table fills naturally. Tuned per-table so columns
+// stay readable instead of column-crushed on narrow viewports.
+export const BADGE_TABLE_MIN_WIDTH_PX = 600;
+export const AGENT_TABLE_MIN_WIDTH_PX = 720;
+export const WORKER_TABLE_MIN_WIDTH_PX = 760;
+
 // Icon defaults
 /** Default pixel size for DynamicIcon width and height */
 export const DYNAMIC_ICON_DEFAULT_SIZE = 16;
@@ -240,6 +248,15 @@ export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
  * If ToolPopoverBody max-height changes, update this value accordingly.
  */
 export const POPOVER_MAX_HEIGHT = 500;
+
+/**
+ * Cap on rendered rows in the mobile Find sheet results list. Searches for
+ * common words in long documents can produce hundreds of matches; rendering
+ * them all causes frame drops on mobile scroll. The prev/next chevrons and
+ * the status counter still operate over the full match set — only the
+ * in-sheet list view is truncated.
+ */
+export const MOBILE_FIND_MAX_VISIBLE_RESULTS = 100;
 
 // Conversation type constants (matches backend ConversationTypeChoices)
 export const CONVERSATION_TYPE = {

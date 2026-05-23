@@ -58,7 +58,7 @@ class FieldsetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_column_count(self, info) -> int:
         # Reads the ``fieldset__columns`` prefetch populated by
-        # ``ExtractQueryOptimizer`` to avoid N+1 COUNTs on the list view.
+        # ``ExtractService`` to avoid N+1 COUNTs on the list view.
         # No per-column permission filter — columns inherit fieldset
         # visibility, matching ``resolve_full_column_list``.
         cache = getattr(self, "_prefetched_objects_cache", {})
@@ -93,14 +93,11 @@ def _get_datacell_qs(extract, user) -> Any:
     The queryset itself is lazy (no DB hit until evaluated), so constructing
     it twice is cheap.
     """
-    # Inline import to avoid circular dependency with the annotations module.
-    # TODO: Move ExtractQueryOptimizer to a standalone module so this becomes
-    # a top-level import (tracked as part of issue #1256 follow-ups).
-    from opencontractserver.annotations.query_optimizer import (
-        ExtractQueryOptimizer,
-    )
+    # Imported inside the function rather than at module scope to keep this
+    # GraphQL type module's import graph flat.
+    from opencontractserver.extracts.services import ExtractService
 
-    return ExtractQueryOptimizer.get_extract_datacells(
+    return ExtractService.get_extract_datacells(
         extract, user, document_id=None
     ).order_by("document_id", "column_id", "id")
 
@@ -165,9 +162,9 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         Override the default node resolution to apply permission checks.
         """
-        from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
+        from opencontractserver.extracts.services import ExtractService
 
-        has_perm, extract = ExtractQueryOptimizer.check_extract_permission(
+        has_perm, extract = ExtractService.check_extract_permission(
             info.context.user, int(id), context=info.context
         )
         return extract if has_perm else None
@@ -204,7 +201,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # ``resolve_full_document_list`` so the count never exceeds the list
         # length the same viewer would observe (effective permission is
         # ``MIN(document, corpus)`` per CLAUDE.md). Reads from the prefetch
-        # populated by ``ExtractQueryOptimizer.get_visible_extracts`` to avoid
+        # populated by ``ExtractService.get_visible_extracts`` to avoid
         # the per-extract SQL N+1; the in-Python permission loop is still
         # ``O(n_docs)`` per row — acceptable while extracts stay small.
         # ``_prefetched_objects_cache`` is a Django private API; the
@@ -244,7 +241,7 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return readable_docs
 
     def resolve_full_iteration_list(self, info) -> Any:
-        # Permission filter is handled by ExtractQueryOptimizer for the
+        # Permission filter is handled by ExtractService for the
         # individual iteration view; here we return all direct children
         # (FK is set, parent is visible by definition).
         return self.iterations.all().order_by("created", "id")
@@ -315,16 +312,14 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_full_annotation_list(self, info, document_id=None) -> Any:
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
 
         if document_id is not None:
             document_pk = int(from_global_id(document_id)[1])
         else:
             document_pk = None
 
-        return AnalysisQueryOptimizer.get_analysis_annotations(
+        return AnalysisService.get_analysis_annotations(
             self, info.context.user, document_id=document_pk
         )
 
@@ -333,11 +328,9 @@ class AnalysisType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         Override the default node resolution to apply permission checks.
         """
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
 
-        has_perm, analysis = AnalysisQueryOptimizer.check_analysis_permission(
+        has_perm, analysis = AnalysisService.check_analysis_permission(
             info.context.user, int(id), context=info.context
         )
         return analysis if has_perm else None

@@ -344,7 +344,7 @@ class CompareExtractsResolverTestCase(TestCase):
             creator=self.user,
         )
         self.doc = _make_doc(self.user)
-        # ExtractQueryOptimizer.get_extract_datacells filters cells by document
+        # ExtractService.get_extract_datacells filters cells by document
         # READ permission. Grant CRUD on the doc so its cells are included.
         set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
         self.a = Extract.objects.create(

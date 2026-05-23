@@ -1369,7 +1369,7 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
                 ),
             ),
             # Ensure annotations in a structural_set must have structural=True
-            # This enforces data integrity for the assumption in query_optimizer.py
+            # This enforces data integrity for the assumption in the annotation service
             django.db.models.CheckConstraint(
                 condition=(
                     django.db.models.Q(structural_set__isnull=True)

@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, TransactionTestCase
 
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
 from opencontractserver.tests.base import BaseFixtureTestCase
 
 
@@ -65,21 +64,7 @@ class PerformanceTestCase(NoEmbeddingsMixin, TestCase):
     Base TestCase for performance tests.
     Disables embedding calculations by default.
     Inherits from TestCase for tests that don't need real transactions.
-    Provides a helper for isolating GraphQL contexts per request.
     """
-
-    def new_context(self):
-        """Return a shallow copy of the existing GraphQL context for isolation."""
-        original = getattr(self, "context", None)
-        if original is None:
-            return None
-
-        clone = type(original)()
-        clone.__dict__.update(original.__dict__)
-        if hasattr(original, "META"):
-            clone.META = original.META.copy()
-        AnnotationQueryOptimizer.clear_permission_caches()
-        return clone
 
 
 class PerformanceTransactionTestCase(NoEmbeddingsMixin, TransactionTestCase):
@@ -87,21 +72,7 @@ class PerformanceTransactionTestCase(NoEmbeddingsMixin, TransactionTestCase):
     Base TransactionTestCase for performance tests.
     Disables embedding calculations by default.
     Use for tests that need real database transactions.
-    Provides a helper for isolating GraphQL contexts per request.
     """
-
-    def new_context(self):
-        """Return a shallow copy of the existing GraphQL context for isolation."""
-        original = getattr(self, "context", None)
-        if original is None:
-            return None
-
-        clone = type(original)()
-        clone.__dict__.update(original.__dict__)
-        if hasattr(original, "META"):
-            clone.META = original.META.copy()
-        AnnotationQueryOptimizer.clear_permission_caches()
-        return clone
 
 
 class FastTestCase(NoEmbeddingsMixin, TestCase):
