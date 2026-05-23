@@ -29,6 +29,7 @@ import {
 } from "../../assets/configurations/constants";
 import {
   CardSegment as StyledSegment,
+  PageHeader,
   ScrollableTableWrapper,
 } from "../layout/SharedSegments";
 import {
@@ -46,15 +47,6 @@ const Container = styled.div`
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     padding: 1rem;
   }
-`;
-
-const PageHeader = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
 `;
 
 const PageTitle = styled.h1`

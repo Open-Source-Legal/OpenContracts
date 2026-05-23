@@ -32,6 +32,7 @@ import {
 } from "../../assets/configurations/constants";
 import {
   CardSegment as StyledSegment,
+  PageHeader as BasePageHeader,
   ScrollableTableWrapper,
 } from "../layout/SharedSegments";
 import { StatusBadge } from "../agents/AgentBadges";
@@ -119,13 +120,8 @@ const BackLink = styled.button`
   }
 `;
 
-const PageHeader = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
+const PageHeader = styled(BasePageHeader)`
   align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 2rem;
 `;
 
 const PageTitleGroup = styled.div``;

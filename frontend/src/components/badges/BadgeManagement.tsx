@@ -40,6 +40,7 @@ import {
 } from "../../assets/configurations/constants";
 import {
   GradientSegment as StyledSegment,
+  PageHeader as BasePageHeader,
   ScrollableTableWrapper,
 } from "../layout/SharedSegments";
 
@@ -51,12 +52,7 @@ const Container = styled.div`
   }
 `;
 
-const PageHeader = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
+const PageHeader = styled(BasePageHeader)`
   margin-bottom: 1em;
 
   h2 {

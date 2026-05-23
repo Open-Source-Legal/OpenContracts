@@ -39,3 +39,16 @@ export const ScrollableTableWrapper = styled.div<{ $minWidth: string }>`
     min-width: ${({ $minWidth }) => $minWidth};
   }
 `;
+
+/**
+ * Shared admin/badges page-header row.
+ * Variants override `align-items` / `margin-bottom` via `styled(PageHeader)`.
+ */
+export const PageHeader = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+`;
