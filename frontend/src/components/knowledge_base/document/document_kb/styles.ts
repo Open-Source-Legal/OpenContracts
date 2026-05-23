@@ -112,30 +112,71 @@ export const HeaderButton = styled.button<{
   }
 `;
 
-export const FloatingInputWrapper = styled.div<{ $panelOffset: number }>`
+/**
+ * Single anchored home for desktop document-level floating controls
+ * (issue #1735). Replaces the three independently-positioned floaters
+ * (FloatingSummaryPreview bottom-left, FloatingDocumentInput bottom-center,
+ * EnhancedLabelSelector bottom-right) with a shared toolbar that pins them
+ * to the same baseline at the bottom of MainContentArea.
+ *
+ * Mobile is unaffected — MobileDocumentLayout uses its own toolbar.
+ */
+export const DocumentBottomBar = styled.div<{ $panelOffset: number }>`
   position: absolute;
-  bottom: 4rem; /* Increased from 2rem to give more space from bottom */
+  bottom: 2rem;
   left: 0;
   right: ${(props) => props.$panelOffset}px;
-  display: flex;
-  justify-content: center;
-  pointer-events: none; /* allow clicks only on children */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 1rem;
+  padding: 0 2rem;
+  pointer-events: none; /* allow clicks to pass through gaps */
   z-index: 850;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   @media (max-width: 768px) {
-    /* On mobile, position below zoom controls with higher z-index to prevent covering */
+    /* Mobile uses its own toolbar — keep the bar in place only for the
+       FloatingDocumentInput which the mobile sheet portals into. */
     position: absolute;
-    top: 80px; /* Below zoom controls */
+    top: 80px;
     left: 1rem;
-    right: auto; /* Don't constrain right side for collapsed state */
+    right: auto;
     bottom: auto;
-    width: auto; /* Let child determine width */
+    width: auto;
     display: block;
-    pointer-events: none;
-    box-sizing: border-box;
-    /* Fix Issue #1: Increase z-index above zoom controls (900) to prevent mobile tray from covering input */
     z-index: 950;
   }
+`;
+
+/** Left slot: anchors the summary entry-point to the bar's left edge. */
+export const DocumentBottomBarLeft = styled.div`
+  justify-self: start;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: auto;
+`;
+
+/** Center slot: holds the search/chat input, content-sized so it can expand. */
+export const DocumentBottomBarCenter = styled.div`
+  justify-self: center;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: auto;
+
+  @media (max-width: 768px) {
+    /* Mobile retains the legacy collapsed-pill layout. */
+    width: auto;
+    display: block;
+  }
+`;
+
+/** Right slot: anchors the active-label indicator to the bar's right edge. */
+export const DocumentBottomBarRight = styled.div`
+  justify-self: end;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: auto;
 `;
 
 export const ZoomIndicator = styled.div`

@@ -6,7 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import { createPortal } from "react-dom";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
   MOBILE_ANNOTATION_TOOLS_BOTTOM,
@@ -60,6 +60,12 @@ interface EnhancedLabelSelectorProps {
   panelOffset?: number;
   hideControls?: boolean;
   readOnly?: boolean;
+  /**
+   * Render using `position: fixed` (default) or allow the parent to control
+   * positioning. When `false`, the selector sits in normal flow so it can
+   * be docked inside a shared toolbar (see DocumentBottomBar).
+   */
+  fixed?: boolean;
 }
 
 const MOBILE_ANNOTATION_TOOLS_Z_INDEX = Z_INDEX.MOBILE_ANNOTATION_TOOLS;
@@ -74,6 +80,7 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
   panelOffset = 0,
   hideControls = false,
   readOnly = false,
+  fixed = true,
 }) => {
   const { width } = useWindowDimensions();
   const isMobile = width <= 768;
@@ -342,7 +349,8 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
   // Hide controls when needed - but show in read-only mode for tests
   if (hideControls && !readOnly) return null;
 
-  // Calculate position based on panel offset
+  // Calculate position based on panel offset. Only used when `fixed === true`;
+  // inline mode lets the parent toolbar (DocumentBottomBar) place the control.
   const calculatePosition = () => {
     if (isMobile) {
       return { $bottom: "1rem", $right: "1rem" };
@@ -357,6 +365,7 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
     <>
       <StyledEnhancedSelector
         {...calculatePosition()}
+        $fixed={fixed}
         $isExpanded={isExpanded}
         $isReadOnly={isReadOnlyMode}
         onMouseEnter={handleMouseEnter}
@@ -759,18 +768,29 @@ interface StyledEnhancedSelectorProps {
   $isReadOnly: boolean;
   $bottom: string;
   $right: string;
+  $fixed: boolean;
 }
 
 const StyledEnhancedSelector = styled.div<StyledEnhancedSelectorProps>`
-  position: fixed;
-  bottom: ${(props) => props.$bottom};
-  right: ${(props) => props.$right};
-  z-index: 1000;
+  ${(props) =>
+    props.$fixed
+      ? css`
+          position: fixed;
+          bottom: ${props.$bottom};
+          right: ${props.$right};
+          z-index: 1000;
+        `
+      : css`
+          position: relative;
+        `}
   transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
   opacity: ${(props) => (props.$isReadOnly ? 0.6 : 1)};
   filter: ${(props) => (props.$isReadOnly ? "grayscale(0.3)" : "none")};
 
   @media (max-width: 768px) {
+    /* Mobile is portalled to document.body and always uses fixed positioning,
+       regardless of the desktop \`fixed\` prop. */
+    position: fixed;
     bottom: ${visualViewportAwareBottom(MOBILE_ANNOTATION_TOOLS_BOTTOM)};
     right: 1rem;
     z-index: ${MOBILE_ANNOTATION_TOOLS_Z_INDEX};
