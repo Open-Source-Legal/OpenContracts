@@ -522,37 +522,68 @@ class DocumentFilter(django_filters.FilterSet):
 
     def in_folder(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
         """
-        Filter documents by folder assignment.
+        Filter documents by folder assignment — descendant-aware.
 
         Uses DocumentPath as the source of truth for folder assignments.
 
-        Special handling: value="__root__" returns documents in corpus root
-        (no folder). Otherwise filters to a specific folder ID.
+        Special handling: value="__root__" means "no folder selected" and
+        applies no folder filter at all — the corpus-scoping ``in_corpus``
+        filter alone defines the set, so the default corpus view shows every
+        document in the corpus. (A corpus whose documents are all nested in
+        sub-folders would otherwise render an empty "root" view.) ``"__root__"``
+        is only meaningful when paired with ``inCorpusWithId``; called alone
+        it would otherwise yield every visible document, so the absence of a
+        corpus context returns no documents.
 
-        Note: This filter works in conjunction with ``in_corpus``. The queryset
-        is already filtered to documents in a specific corpus, so we just need
-        to intersect with the folder's DocumentPath rows.
+        Any other value is a folder global id; the filter returns documents in
+        that folder *and all of its descendant folders*. Without this, a
+        filer/form-type folder that only contains sub-folders surfaces no
+        documents even though documents are nested beneath it.
+
+        When the request also supplies ``inCorpusWithId``, the folder must
+        belong to that corpus — otherwise the filter returns no documents
+        (rather than silently falling through to a cross-corpus intersection).
+        The ``"in_corpus_with_id"`` key must stay in sync with the sibling
+        ``in_corpus_with_id`` filter field declaration; if that field is ever
+        renamed, this cross-corpus guard silently stops enforcing.
         """
+        from opencontractserver.corpuses.models import CorpusFolder
         from opencontractserver.documents.models import DocumentPath
 
         if value == "__root__":
-            # Root documents: those whose DocumentPath has folder=NULL.
-            # Use a lazy values queryset so Django emits a SQL subquery for
-            # ``__in`` instead of materialising IDs into Python.
-            root_doc_ids = DocumentPath.objects.filter(
-                folder__isnull=True, is_current=True, is_deleted=False
-            ).values("document_id")
-            # ``.distinct()`` mirrors the non-root branch and guards against
-            # any pathological case where the same ``document_id`` appears in
-            # multiple matching ``DocumentPath`` rows.
-            return queryset.filter(id__in=root_doc_ids).distinct()
+            if not self.data.get("in_corpus_with_id"):
+                return queryset.none()
+            return queryset
 
-        # ``from_global_id`` returns a ``str`` PK; coerce to int so the
-        # ``folder_id`` lookup matches the FK type.
-        folder_pk = int(from_global_id(value)[1])
+        # A malformed global id (wrong type, empty, non-numeric) must not
+        # surface as a 500 — treat it the same as a missing folder.
+        try:
+            folder_pk = int(from_global_id(value)[1])
+        except (ValueError, TypeError, IndexError):
+            return queryset.none()
+
+        folder_lookup = {"pk": folder_pk}
+        corpus_value = self.data.get("in_corpus_with_id")
+        if corpus_value:
+            try:
+                folder_lookup["corpus_id"] = int(from_global_id(corpus_value)[1])
+            except (ValueError, TypeError, IndexError):
+                return queryset.none()
+        folder = CorpusFolder.objects.filter(**folder_lookup).first()
+        if folder is None:
+            return queryset.none()
+
+        # ``get_descendant_folders`` includes the folder itself, so this
+        # covers documents directly in the folder and in every sub-folder.
+        # Scope the path lookup to ``folder.corpus_id`` so the subquery is
+        # self-contained and not implicitly reliant on ``in_corpus`` having
+        # already filtered the queryset.
         doc_ids = DocumentPath.objects.filter(
-            folder_id=folder_pk, is_current=True, is_deleted=False
-        ).values("document_id")
+            folder__in=folder.get_descendant_folders(),
+            corpus_id=folder.corpus_id,
+            is_current=True,
+            is_deleted=False,
+        ).values_list("document_id", flat=True)
         return queryset.filter(id__in=doc_ids).distinct()
 
     def has_label_title(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
