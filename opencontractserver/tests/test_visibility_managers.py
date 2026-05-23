@@ -557,7 +557,7 @@ class NoteVisibilityTest(TestCase):
 
 
 class StructuralAnnotationOptimizerTests(TestCase):
-    """``AnnotationQueryOptimizer._compute_effective_permissions`` must
+    """``AnnotationService._compute_effective_permissions`` must
     handle structural annotations (``corpus_id=None``) by deriving
     perms from the document alone — never reaching for
     ``AnnotationUserObjectPermission`` rows.
@@ -623,11 +623,9 @@ class StructuralAnnotationOptimizerTests(TestCase):
             )
 
     def _compute(self, user, doc):
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
-        return AnnotationQueryOptimizer._compute_effective_permissions(
+        return AnnotationService._compute_effective_permissions(
             user=user, document_id=doc.id, corpus_id=None
         )
 

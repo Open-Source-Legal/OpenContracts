@@ -158,9 +158,7 @@ class AnalysisAnnotationImportTestCase(TestCase):
         )
 
         # Import the query optimizer to test visibility
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
         from opencontractserver.types.enums import PermissionTypes
         from opencontractserver.utils.permissioning import (
             set_permissions_for_obj_to_user,
@@ -171,7 +169,7 @@ class AnalysisAnnotationImportTestCase(TestCase):
         set_permissions_for_obj_to_user(other_user, self.corpus, [PermissionTypes.READ])
 
         # Other user should NOT see the annotation
-        visible_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        visible_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=other_user, corpus_id=self.corpus.id
         )
         self.assertNotIn(private_annotation, visible_annotations)
@@ -180,7 +178,7 @@ class AnalysisAnnotationImportTestCase(TestCase):
         set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.READ])
 
-        owner_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        owner_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.user, corpus_id=self.corpus.id
         )
         self.assertIn(private_annotation, owner_annotations)

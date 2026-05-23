@@ -92,14 +92,11 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
     # If no filters and no special arguments, just return the queryset
     if not has_filters:
         # Use optimizer for permission filtering
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         optimizer_kwargs = {
             "document_id": self.id,
             "user": getattr(info.context, "user", None),
-            "use_cache": True,
             "context": info.context,
         }
 
@@ -111,7 +108,7 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
         if corpus_pk is not None:
             optimizer_kwargs["corpus_id"] = corpus_pk
 
-        return AnnotationQueryOptimizer.get_document_annotations(**optimizer_kwargs)
+        return AnnotationService.get_document_annotations(**optimizer_kwargs)
 
     prefetched = getattr(self, "_prefetched_doc_annotations", None)
     if prefetched is None:
@@ -123,7 +120,6 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
         optimizer_kwargs = {
             "document_id": self.id,
             "user": getattr(info.context, "user", None),
-            "use_cache": True,
             "context": info.context,
         }
 
@@ -138,7 +134,7 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
             optimizer_kwargs["corpus_id"] = corpus_pk
 
         annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(**optimizer_kwargs)
+            AnnotationService.get_document_annotations(**optimizer_kwargs)
         )
 
     if not annotations:

@@ -1,5 +1,5 @@
 """
-Integration tests for AnnotationQueryOptimizer and RelationshipQueryOptimizer
+Integration tests for AnnotationService and RelationshipService
 with StructuralAnnotationSet support.
 
 These tests verify that the query optimizers correctly return:
@@ -20,9 +20,9 @@ from opencontractserver.annotations.models import (
     Relationship,
     StructuralAnnotationSet,
 )
-from opencontractserver.annotations.query_optimizer import (
-    AnnotationQueryOptimizer,
-    RelationshipQueryOptimizer,
+from opencontractserver.annotations.services import (
+    AnnotationService,
+    RelationshipService,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -151,11 +151,11 @@ class QueryOptimizerStructuralSetTests(TestCase):
 
     def test_query_optimizer_returns_structural_set_annotations(self):
         """
-        CRITICAL TEST: Verify AnnotationQueryOptimizer returns structural annotations
+        CRITICAL TEST: Verify AnnotationService returns structural annotations
         from structural sets (not just from document FK).
         """
         annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,
@@ -177,11 +177,11 @@ class QueryOptimizerStructuralSetTests(TestCase):
 
     def test_query_optimizer_returns_structural_set_relationships(self):
         """
-        CRITICAL TEST: Verify RelationshipQueryOptimizer returns structural relationships
+        CRITICAL TEST: Verify RelationshipService returns structural relationships
         from structural sets (not just from document FK).
         """
         relationships = list(
-            RelationshipQueryOptimizer.get_document_relationships(
+            RelationshipService.get_document_relationships(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,
@@ -198,7 +198,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
         Verify structural=True filter includes structural_set annotations.
         """
         structural_only = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,
@@ -217,7 +217,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
         Verify structural=False filter excludes structural_set annotations.
         """
         non_structural_only = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,
@@ -257,7 +257,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
 
         # Query annotations for corpus B copy
         corpus_b_annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=corpus_b_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_b.id,
@@ -300,7 +300,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
 
         # Query should work and return only direct annotation
         annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=corpus_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,
@@ -315,7 +315,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
         Verify that querying without corpus_id returns only structural annotations.
         """
         annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=None,  # No corpus
@@ -332,7 +332,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
         Verify permissions are computed at document+corpus level and applied to all.
         All annotations should have the same permission flags.
         """
-        annotations = AnnotationQueryOptimizer.get_document_annotations(
+        annotations = AnnotationService.get_document_annotations(
             document_id=self.corpus_a_doc.id,
             user=self.user,
             corpus_id=self.corpus_a.id,
@@ -364,7 +364,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
 
         # Query only page 1
         page1_annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,
@@ -396,7 +396,7 @@ class QueryOptimizerStructuralSetTests(TestCase):
 
         # Query all annotations
         annotations = list(
-            AnnotationQueryOptimizer.get_document_annotations(
+            AnnotationService.get_document_annotations(
                 document_id=self.corpus_a_doc.id,
                 user=self.user,
                 corpus_id=self.corpus_a.id,

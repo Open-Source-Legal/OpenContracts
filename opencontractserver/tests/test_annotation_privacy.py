@@ -14,7 +14,7 @@ from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
 )
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.extracts.models import Column, Extract, Fieldset
@@ -145,7 +145,7 @@ class AnnotationPrivacyTestCase(TestCase):
         )
 
         # Viewer should see it (has doc and corpus permissions)
-        visible_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        visible_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.viewer, corpus_id=self.corpus.id
         )
 
@@ -168,14 +168,14 @@ class AnnotationPrivacyTestCase(TestCase):
         )
 
         # Viewer should NOT see it (no analysis permission)
-        visible_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        visible_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.viewer, corpus_id=self.corpus.id
         )
 
         self.assertNotIn(private_annotation, visible_annotations)
 
         # Owner should see it (has analysis permission as creator)
-        owner_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        owner_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.owner, corpus_id=self.corpus.id
         )
 
@@ -195,14 +195,14 @@ class AnnotationPrivacyTestCase(TestCase):
         )
 
         # Viewer should NOT see it (no extract permission)
-        visible_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        visible_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.viewer, corpus_id=self.corpus.id
         )
 
         self.assertNotIn(private_annotation, visible_annotations)
 
         # Owner should see it (has extract permission as creator)
-        owner_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        owner_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.owner, corpus_id=self.corpus.id
         )
 
@@ -238,7 +238,7 @@ class AnnotationPrivacyTestCase(TestCase):
         )
 
         # Initially viewer can't see it
-        visible = AnnotationQueryOptimizer.get_document_annotations(
+        visible = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.viewer, corpus_id=self.corpus.id
         )
         self.assertNotIn(private_annotation, visible)
@@ -249,7 +249,7 @@ class AnnotationPrivacyTestCase(TestCase):
         )
 
         # Now viewer should see it
-        visible = AnnotationQueryOptimizer.get_document_annotations(
+        visible = AnnotationService.get_document_annotations(
             document_id=self.doc.id, user=self.viewer, corpus_id=self.corpus.id
         )
         self.assertIn(private_annotation, visible)
@@ -271,7 +271,7 @@ class AnnotationPrivacyTestCase(TestCase):
         )
 
         # Viewer should see it even without analysis permission (structural trumps privacy)
-        visible_annotations = AnnotationQueryOptimizer.get_document_annotations(
+        visible_annotations = AnnotationService.get_document_annotations(
             document_id=self.doc.id,
             user=self.viewer,
             corpus_id=self.corpus.id,

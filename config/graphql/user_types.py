@@ -497,7 +497,7 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from django.db.models import QuerySet
 
         # When the parent resolver prefetched the reverse relation
-        # (see ``AnnotationQueryOptimizer.get_document_annotations`` which
+        # (see ``AnnotationService.get_document_annotations`` which
         # registers a ``Prefetch("user_feedback", ...)``), the manager passed
         # in here has its parent's ``_prefetched_objects_cache`` populated.
         # Re-applying ``.visible_to_user(...)`` invalidates that cache and

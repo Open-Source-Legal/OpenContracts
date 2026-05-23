@@ -56,12 +56,10 @@ class DocumentActionsService(BaseService):
             - extracts: list of Extract objects
             - analysis_rows: list of DocumentAnalysisRow objects
         """
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-            ExtractQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
         from opencontractserver.corpuses.models import Corpus, CorpusAction
         from opencontractserver.documents.models import Document
+        from opencontractserver.extracts.services import ExtractService
 
         result: dict[str, list[Any]] = {
             "corpus_actions": [],
@@ -99,12 +97,11 @@ class DocumentActionsService(BaseService):
                 CorpusAction.objects.visible_to_user(user).filter(corpus=corpus)
             )
 
-        # Get extracts using ExtractQueryOptimizer.
-        # ``context=request`` (not ``request=request``) is intentional:
-        # ``annotations/query_optimizer.py`` is out of Phase 4 scope and still
-        # uses the legacy ``context=`` kwarg. Update this call site when those
-        # optimizers are migrated to the BaseService convention.
-        visible_extracts = ExtractQueryOptimizer.get_visible_extracts(
+        # Get extracts using ExtractService.
+        # ``context=request`` (not ``request=request``) is intentional: the
+        # service's ``get_visible_extracts`` signature still uses ``context=``
+        # (carried over from the legacy ``ExtractQueryOptimizer`` API).
+        visible_extracts = ExtractService.get_visible_extracts(
             user, corpus_id=corpus_id, context=request
         )
         # Filter to extracts that include this document
@@ -112,7 +109,7 @@ class DocumentActionsService(BaseService):
 
         # Get analysis rows
         # Filter to analyses user can see, then get their rows for this document
-        visible_analyses = AnalysisQueryOptimizer.get_visible_analyses(
+        visible_analyses = AnalysisService.get_visible_analyses(
             user, corpus_id=corpus_id, context=request
         )
         result["analysis_rows"] = list(
@@ -180,11 +177,9 @@ class DocumentActionsService(BaseService):
         Returns:
             QuerySet of Extract objects
         """
-        from opencontractserver.annotations.query_optimizer import (
-            ExtractQueryOptimizer,
-        )
         from opencontractserver.documents.models import Document
         from opencontractserver.extracts.models import Extract
+        from opencontractserver.extracts.services import ExtractService
         from opencontractserver.types.enums import PermissionTypes
 
         # Check document permission
@@ -197,7 +192,7 @@ class DocumentActionsService(BaseService):
             return Extract.objects.none()
 
         # Get visible extracts
-        visible_extracts = ExtractQueryOptimizer.get_visible_extracts(
+        visible_extracts = ExtractService.get_visible_extracts(
             user, corpus_id=corpus_id, context=request
         )
 
@@ -226,9 +221,7 @@ class DocumentActionsService(BaseService):
         Returns:
             QuerySet of DocumentAnalysisRow objects
         """
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
         from opencontractserver.documents.models import Document, DocumentAnalysisRow
         from opencontractserver.types.enums import PermissionTypes
 
@@ -242,7 +235,7 @@ class DocumentActionsService(BaseService):
             return DocumentAnalysisRow.objects.none()
 
         # Get visible analyses
-        visible_analyses = AnalysisQueryOptimizer.get_visible_analyses(
+        visible_analyses = AnalysisService.get_visible_analyses(
             user, corpus_id=corpus_id, context=request
         )
 

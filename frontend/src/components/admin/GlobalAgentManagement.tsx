@@ -23,7 +23,15 @@ import {
   AgentConfigurationTypeEdge,
 } from "../../types/graphql-api";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { CardSegment as StyledSegment } from "../layout/SharedSegments";
+import {
+  MOBILE_VIEW_BREAKPOINT,
+  AGENT_TABLE_MIN_WIDTH_PX,
+} from "../../assets/configurations/constants";
+import {
+  CardSegment as StyledSegment,
+  PageHeader,
+  ScrollableTableWrapper,
+} from "../layout/SharedSegments";
 import {
   GET_GLOBAL_AGENTS,
   CREATE_GLOBAL_AGENT_CONFIGURATION,
@@ -35,13 +43,10 @@ const Container = styled.div`
   padding: 2rem;
   max-width: 1400px;
   margin: 0 auto;
-`;
 
-const PageHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 1rem;
+  }
 `;
 
 const PageTitle = styled.h1`
@@ -377,86 +382,91 @@ export const GlobalAgentManagement: React.FC = () => {
             corpuses.
           </InfoMessage>
         ) : (
-          <Table variant="minimal">
-            <Table.Head>
-              <Table.Row>
-                <Table.HeadCell>Name</Table.HeadCell>
-                <Table.HeadCell>Slug</Table.HeadCell>
-                <Table.HeadCell>Description</Table.HeadCell>
-                <Table.HeadCell>Tools</Table.HeadCell>
-                <Table.HeadCell>Status</Table.HeadCell>
-                <Table.HeadCell>Actions</Table.HeadCell>
-              </Table.Row>
-            </Table.Head>
-            <Table.Body>
-              {agents.map((agent) => (
-                <Table.Row key={agent.id}>
-                  <Table.Cell>
-                    <strong>{agent.name}</strong>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <code>{agent.slug || "-"}</code>
-                  </Table.Cell>
-                  <Table.Cell>
-                    {agent.description?.substring(0, 100)}
-                    {(agent.description?.length || 0) > 100 ? "..." : ""}
-                  </Table.Cell>
-                  <Table.Cell>
-                    <ToolsList>
-                      {(Array.isArray(agent.availableTools)
-                        ? agent.availableTools
-                        : []
-                      )
-                        .slice(0, 3)
-                        .map((tool) => (
-                          <ToolBadge key={tool}>{tool}</ToolBadge>
-                        ))}
-                      {(Array.isArray(agent.availableTools)
-                        ? agent.availableTools
-                        : []
-                      ).length > 3 && (
-                        <ToolBadge>
-                          +
-                          {(Array.isArray(agent.availableTools)
-                            ? agent.availableTools
-                            : []
-                          ).length - 3}
-                        </ToolBadge>
-                      )}
-                    </ToolsList>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <StatusBadge $active={agent.isActive}>
-                      {agent.isActive ? "Active" : "Inactive"}
-                    </StatusBadge>
-                  </Table.Cell>
-                  <Table.Cell>
-                    <div style={{ display: "flex", gap: "0.25rem" }}>
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        aria-label="Edit agent"
-                        onClick={() => openEditModal(agent)}
-                      >
-                        <Edit size={14} />
-                      </IconButton>
-                      <IconButton
-                        variant="danger"
-                        size="sm"
-                        onClick={() => {
-                          setAgentToDelete(agent);
-                          setDeleteModalOpen(true);
-                        }}
-                        aria-label="Delete agent"
-                      >
-                        <Trash2 size={14} />
-                      </IconButton>
-                    </div>
-                  </Table.Cell>
+          <ScrollableTableWrapper
+            $minWidth={`${AGENT_TABLE_MIN_WIDTH_PX}px`}
+            data-testid="global-agents-table-scroll"
+          >
+            <Table variant="minimal">
+              <Table.Head>
+                <Table.Row>
+                  <Table.HeadCell>Name</Table.HeadCell>
+                  <Table.HeadCell>Slug</Table.HeadCell>
+                  <Table.HeadCell>Description</Table.HeadCell>
+                  <Table.HeadCell>Tools</Table.HeadCell>
+                  <Table.HeadCell>Status</Table.HeadCell>
+                  <Table.HeadCell>Actions</Table.HeadCell>
                 </Table.Row>
-              ))}
-            </Table.Body>
-          </Table>
+              </Table.Head>
+              <Table.Body>
+                {agents.map((agent) => (
+                  <Table.Row key={agent.id}>
+                    <Table.Cell>
+                      <strong>{agent.name}</strong>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <code>{agent.slug || "-"}</code>
+                    </Table.Cell>
+                    <Table.Cell>
+                      {agent.description?.substring(0, 100)}
+                      {(agent.description?.length || 0) > 100 ? "..." : ""}
+                    </Table.Cell>
+                    <Table.Cell>
+                      <ToolsList>
+                        {(Array.isArray(agent.availableTools)
+                          ? agent.availableTools
+                          : []
+                        )
+                          .slice(0, 3)
+                          .map((tool) => (
+                            <ToolBadge key={tool}>{tool}</ToolBadge>
+                          ))}
+                        {(Array.isArray(agent.availableTools)
+                          ? agent.availableTools
+                          : []
+                        ).length > 3 && (
+                          <ToolBadge>
+                            +
+                            {(Array.isArray(agent.availableTools)
+                              ? agent.availableTools
+                              : []
+                            ).length - 3}
+                          </ToolBadge>
+                        )}
+                      </ToolsList>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <StatusBadge $active={agent.isActive}>
+                        {agent.isActive ? "Active" : "Inactive"}
+                      </StatusBadge>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div style={{ display: "flex", gap: "0.25rem" }}>
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
+                          aria-label="Edit agent"
+                          onClick={() => openEditModal(agent)}
+                        >
+                          <Edit size={14} />
+                        </IconButton>
+                        <IconButton
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            setAgentToDelete(agent);
+                            setDeleteModalOpen(true);
+                          }}
+                          aria-label="Delete agent"
+                        >
+                          <Trash2 size={14} />
+                        </IconButton>
+                      </div>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
+          </ScrollableTableWrapper>
         )}
       </StyledSegment>
 

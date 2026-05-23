@@ -1,36 +1,36 @@
 """
-Comprehensive tests for MetadataQueryOptimizer permission filtering.
+Comprehensive tests for MetadataService permission filtering.
 
 This test suite covers:
 
-1. MetadataQueryOptimizer._compute_effective_permissions()
+1. MetadataService._compute_effective_permissions()
    - Tests MIN(document_permission, corpus_permission) logic for READ
    - Tests superuser, anonymous, and authenticated user handling
 
-2. MetadataQueryOptimizer.get_corpus_metadata_columns()
+2. MetadataService.get_corpus_metadata_columns()
    - Tests column retrieval with corpus permission filtering
    - Tests manual_only parameter
 
-3. MetadataQueryOptimizer.get_document_metadata()
+3. MetadataService.get_document_metadata()
    - Tests single document metadata retrieval
    - Tests document + corpus permission requirements
 
-4. MetadataQueryOptimizer.get_documents_metadata_batch()
+4. MetadataService.get_documents_metadata_batch()
    - Tests batch metadata retrieval (N+1 fix)
    - Tests permission filtering across multiple documents
    - Tests that only readable documents are included
 
-5. MetadataQueryOptimizer.get_metadata_completion_status()
+5. MetadataService.get_metadata_completion_status()
    - Tests completion percentage calculation
    - Tests required field detection
 
-6. MetadataQueryOptimizer.check_metadata_mutation_permission()
+6. MetadataService.check_metadata_mutation_permission()
    - Tests UPDATE/DELETE permission checks
    - Tests corpus-primary model: Corpus UPDATE + Doc READ = can edit
    - NOTE: Metadata differs from annotations - corpus permission controls
      write access, not MIN(doc, corpus) logic
 
-7. MetadataQueryOptimizer.validate_metadata_column()
+7. MetadataService.validate_metadata_column()
    - Tests column validation for corpus schema
    - Tests manual entry requirement
 """
@@ -45,7 +45,7 @@ from django.test import TestCase
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
-from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+from opencontractserver.extracts.services import MetadataService
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -54,9 +54,9 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-class MetadataQueryOptimizerTestCase(TestCase):
+class MetadataServiceTestCase(TestCase):
     """
-    Tests for MetadataQueryOptimizer permission handling.
+    Tests for MetadataService permission handling.
     """
 
     def setUp(self):
@@ -212,7 +212,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_superuser_has_all(self):
         """Superuser should have all permissions."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.superuser, self.doc1.id, self.corpus.id
             )
         )
@@ -224,7 +224,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_anonymous_no_access_private(self):
         """Anonymous user should not access private document/corpus."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.anonymous, self.doc1.id, self.corpus.id
             )
         )
@@ -236,7 +236,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_anonymous_read_public(self):
         """Anonymous user should have read access to public document/corpus."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.anonymous, self.public_doc.id, self.public_corpus.id
             )
         )
@@ -248,7 +248,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_owner_has_all(self):
         """Owner should have all permissions on their document/corpus."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.owner, self.doc1.id, self.corpus.id
             )
         )
@@ -260,7 +260,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_collaborator_read_only(self):
         """Collaborator with READ permission should only have read access."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.collaborator, self.doc1.id, self.corpus.id
             )
         )
@@ -272,7 +272,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_stranger_no_access(self):
         """Stranger should have no access to private document/corpus."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.stranger, self.doc1.id, self.corpus.id
             )
         )
@@ -291,7 +291,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
             self.stranger, self.doc1, [PermissionTypes.READ]
         )
 
-        can_read, _, _, _ = MetadataQueryOptimizer._compute_effective_permissions(
+        can_read, _, _, _ = MetadataService._compute_effective_permissions(
             self.stranger, self.doc1.id, self.corpus.id
         )
         # Should be False because stranger doesn't have corpus permission
@@ -300,7 +300,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_nonexistent_document(self):
         """Should return no permissions for nonexistent document."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.owner, 99999, self.corpus.id
             )
         )
@@ -309,7 +309,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_nonexistent_corpus(self):
         """Should return no permissions for nonexistent corpus."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.owner, self.doc1.id, 99999
             )
         )
@@ -318,7 +318,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_query_count_superuser_is_zero(self):
         """Superuser short-circuit must not touch the database (issue #1690)."""
         with self.assertNumQueries(0):
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.superuser, self.doc1.id, self.corpus.id
             )
 
@@ -342,12 +342,12 @@ class MetadataQueryOptimizerTestCase(TestCase):
         """
         # Warm any process-level caches (content type lookups, etc.)
         # that aren't part of the per-invocation work we want to bound.
-        MetadataQueryOptimizer._compute_effective_permissions(
+        MetadataService._compute_effective_permissions(
             self.collaborator, self.doc1.id, self.corpus.id
         )
 
         with self.assertNumQueries(14):
-            can_read, _, _, _ = MetadataQueryOptimizer._compute_effective_permissions(
+            can_read, _, _, _ = MetadataService._compute_effective_permissions(
                 self.collaborator, self.doc1.id, self.corpus.id
             )
         self.assertTrue(can_read)
@@ -358,7 +358,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_get_columns_owner_sees_manual_only(self):
         """Owner should see manual entry columns only by default."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.owner, self.corpus.id, manual_only=True
         )
         self.assertEqual(columns.count(), 2)  # column1 and column2
@@ -369,28 +369,28 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_get_columns_owner_sees_all(self):
         """Owner should see all columns when manual_only=False."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.owner, self.corpus.id, manual_only=False
         )
         self.assertEqual(columns.count(), 3)
 
     def test_get_columns_collaborator_sees_columns(self):
         """Collaborator with READ permission should see columns."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.collaborator, self.corpus.id
         )
         self.assertEqual(columns.count(), 2)
 
     def test_get_columns_stranger_no_access(self):
         """Stranger should not see any columns for private corpus."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.stranger, self.corpus.id
         )
         self.assertEqual(columns.count(), 0)
 
     def test_get_columns_anonymous_public_corpus(self):
         """Anonymous user should see columns for public corpus."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.anonymous, self.public_corpus.id
         )
         self.assertEqual(columns.count(), 1)
@@ -398,9 +398,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_get_columns_ordered_by_display_order(self):
         """Columns should be ordered by display_order."""
         columns = list(
-            MetadataQueryOptimizer.get_corpus_metadata_columns(
-                self.owner, self.corpus.id
-            )
+            MetadataService.get_corpus_metadata_columns(self.owner, self.corpus.id)
         )
         self.assertEqual(columns[0].display_order, 0)
         self.assertEqual(columns[1].display_order, 1)
@@ -412,7 +410,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(
             self.owner, corpus_no_schema, [PermissionTypes.READ]
         )
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.owner, corpus_no_schema.id
         )
         self.assertEqual(columns.count(), 0)
@@ -423,28 +421,28 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_get_document_metadata_owner(self):
         """Owner should see all metadata for their document."""
-        datacells = MetadataQueryOptimizer.get_document_metadata(
+        datacells = MetadataService.get_document_metadata(
             self.owner, self.doc1.id, self.corpus.id
         )
         self.assertEqual(datacells.count(), 2)
 
     def test_get_document_metadata_collaborator(self):
         """Collaborator with READ should see metadata."""
-        datacells = MetadataQueryOptimizer.get_document_metadata(
+        datacells = MetadataService.get_document_metadata(
             self.collaborator, self.doc1.id, self.corpus.id
         )
         self.assertEqual(datacells.count(), 2)
 
     def test_get_document_metadata_stranger_no_access(self):
         """Stranger should not see metadata."""
-        datacells = MetadataQueryOptimizer.get_document_metadata(
+        datacells = MetadataService.get_document_metadata(
             self.stranger, self.doc1.id, self.corpus.id
         )
         self.assertEqual(datacells.count(), 0)
 
     def test_get_document_metadata_includes_column_relation(self):
         """Datacells should have column relation loaded."""
-        datacells = MetadataQueryOptimizer.get_document_metadata(
+        datacells = MetadataService.get_document_metadata(
             self.owner, self.doc1.id, self.corpus.id
         )
         for dc in datacells:
@@ -458,7 +456,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_batch_owner_gets_all_documents(self):
         """Owner should get metadata for all requested documents."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.owner, [self.doc1.id, self.doc2.id], self.corpus.id
         )
         self.assertIn(self.doc1.id, result)
@@ -468,7 +466,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_batch_collaborator_sees_only_permitted_docs(self):
         """Collaborator should only see docs they have permission for."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.collaborator, [self.doc1.id, self.doc2.id], self.corpus.id
         )
         # Collaborator has permission on doc1 only
@@ -477,21 +475,21 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_batch_stranger_no_access(self):
         """Stranger should not see any documents."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.stranger, [self.doc1.id, self.doc2.id], self.corpus.id
         )
         self.assertEqual(len(result), 0)
 
     def test_batch_superuser_sees_all(self):
         """Superuser should see all documents."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.superuser, [self.doc1.id, self.doc2.id], self.corpus.id
         )
         self.assertEqual(len(result), 2)
 
     def test_batch_empty_list(self):
         """Empty document list should return empty result."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.owner, [], self.corpus.id
         )
         self.assertEqual(len(result), 0)
@@ -502,7 +500,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         user = User.objects.create_user(username="doconly", password="test")
         set_permissions_for_obj_to_user(user, self.doc1, [PermissionTypes.READ])
 
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             user, [self.doc1.id], self.corpus.id
         )
         self.assertEqual(len(result), 0)
@@ -516,7 +514,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         doc3 = self._create_document("Doc 3", self.owner)
         self.corpus.add_document(document=doc3, user=self.owner)
 
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.owner, [self.doc1.id, doc3.id], self.corpus.id
         )
         self.assertIn(doc3.id, result)
@@ -528,7 +526,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_completion_status_fully_filled(self):
         """Document with all fields filled should show 100%."""
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.owner, self.doc1.id, self.corpus.id
         )
         self.assertEqual(status["total_fields"], 2)
@@ -539,7 +537,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_completion_status_partially_filled(self):
         """Document with some fields filled should show correct percentage."""
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.owner, self.doc2.id, self.corpus.id
         )
         self.assertEqual(status["total_fields"], 2)
@@ -553,14 +551,14 @@ class MetadataQueryOptimizerTestCase(TestCase):
         doc3 = self._create_document("Doc 3", self.owner)
         self.corpus.add_document(document=doc3, user=self.owner)
 
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.owner, doc3.id, self.corpus.id
         )
         self.assertIn("Contract Type", status["missing_required"])
 
     def test_completion_status_no_permission(self):
         """Stranger should get None for completion status."""
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.stranger, self.doc1.id, self.corpus.id
         )
         self.assertIsNone(status)
@@ -574,7 +572,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
             self.owner, corpus_no_schema, [PermissionTypes.CRUD]
         )
 
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.owner, doc.id, corpus_no_schema.id
         )
         self.assertEqual(status["total_fields"], 0)
@@ -586,7 +584,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_mutation_permission_superuser(self):
         """Superuser should always have mutation permission."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.superuser, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertTrue(has_perm)
@@ -594,7 +592,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_mutation_permission_anonymous(self):
         """Anonymous user should be denied mutation permission."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.anonymous, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertFalse(has_perm)
@@ -602,21 +600,21 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_mutation_permission_owner_update(self):
         """Owner should have UPDATE permission."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.owner, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertTrue(has_perm)
 
     def test_mutation_permission_owner_delete(self):
         """Owner should have DELETE permission."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.owner, self.doc1.id, self.corpus.id, "DELETE"
         )
         self.assertTrue(has_perm)
 
     def test_mutation_permission_collaborator_read_only(self):
         """Collaborator with only READ should be denied mutation."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.collaborator, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertFalse(has_perm)
@@ -629,7 +627,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(user, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(user, self.corpus, [PermissionTypes.READ])
 
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             user, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertFalse(has_perm)
@@ -641,7 +639,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         # Give corpus UPDATE but no doc visibility (user can't see the document)
         set_permissions_for_obj_to_user(user, self.corpus, [PermissionTypes.UPDATE])
 
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             user, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertFalse(has_perm)
@@ -662,7 +660,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(user, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(user, self.corpus, [PermissionTypes.UPDATE])
 
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             user, self.doc1.id, self.corpus.id, "UPDATE"
         )
         self.assertTrue(has_perm)
@@ -670,7 +668,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_mutation_permission_nonexistent_document(self):
         """Should return error for nonexistent document."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.owner, 99999, self.corpus.id, "UPDATE"
         )
         self.assertFalse(has_perm)
@@ -678,7 +676,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_mutation_permission_nonexistent_corpus(self):
         """Should return error for nonexistent corpus."""
-        has_perm, msg = MetadataQueryOptimizer.check_metadata_mutation_permission(
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.owner, self.doc1.id, 99999, "UPDATE"
         )
         self.assertFalse(has_perm)
@@ -690,7 +688,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_validate_column_valid(self):
         """Valid column should pass validation."""
-        is_valid, msg, column = MetadataQueryOptimizer.validate_metadata_column(
+        is_valid, msg, column = MetadataService.validate_metadata_column(
             self.column1.id, self.corpus.id
         )
         self.assertTrue(is_valid)
@@ -699,7 +697,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_validate_column_not_manual_entry(self):
         """Non-manual entry column should fail validation."""
-        is_valid, msg, column = MetadataQueryOptimizer.validate_metadata_column(
+        is_valid, msg, column = MetadataService.validate_metadata_column(
             self.column3.id, self.corpus.id  # column3 is not manual entry
         )
         self.assertFalse(is_valid)
@@ -708,7 +706,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_validate_column_wrong_corpus(self):
         """Column from different corpus should fail validation."""
-        is_valid, msg, column = MetadataQueryOptimizer.validate_metadata_column(
+        is_valid, msg, column = MetadataService.validate_metadata_column(
             self.column1.id, self.public_corpus.id
         )
         self.assertFalse(is_valid)
@@ -717,7 +715,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_validate_column_nonexistent(self):
         """Nonexistent column should fail validation."""
-        is_valid, msg, column = MetadataQueryOptimizer.validate_metadata_column(
+        is_valid, msg, column = MetadataService.validate_metadata_column(
             99999, self.corpus.id
         )
         self.assertFalse(is_valid)
@@ -726,7 +724,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_validate_column_nonexistent_corpus(self):
         """Nonexistent corpus should fail validation."""
-        is_valid, msg, column = MetadataQueryOptimizer.validate_metadata_column(
+        is_valid, msg, column = MetadataService.validate_metadata_column(
             self.column1.id, 99999
         )
         self.assertFalse(is_valid)
@@ -740,7 +738,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_anonymous_nonexistent_document(self):
         """Anonymous user with nonexistent document should get no permissions."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.anonymous, 99999, self.public_corpus.id
             )
         )
@@ -752,7 +750,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
     def test_compute_permissions_anonymous_nonexistent_corpus(self):
         """Anonymous user with nonexistent corpus should get no permissions."""
         can_read, can_create, can_update, can_delete = (
-            MetadataQueryOptimizer._compute_effective_permissions(
+            MetadataService._compute_effective_permissions(
                 self.anonymous, self.public_doc.id, 99999
             )
         )
@@ -763,14 +761,14 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_get_columns_anonymous_private_corpus(self):
         """Anonymous user should not see columns for private corpus."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(
+        columns = MetadataService.get_corpus_metadata_columns(
             self.anonymous, self.corpus.id
         )
         self.assertEqual(columns.count(), 0)
 
     def test_get_columns_nonexistent_corpus(self):
         """Should return empty queryset for nonexistent corpus."""
-        columns = MetadataQueryOptimizer.get_corpus_metadata_columns(self.owner, 99999)
+        columns = MetadataService.get_corpus_metadata_columns(self.owner, 99999)
         self.assertEqual(columns.count(), 0)
 
     def test_get_document_metadata_no_schema(self):
@@ -782,28 +780,28 @@ class MetadataQueryOptimizerTestCase(TestCase):
             self.owner, corpus_no_schema, [PermissionTypes.CRUD]
         )
 
-        datacells = MetadataQueryOptimizer.get_document_metadata(
+        datacells = MetadataService.get_document_metadata(
             self.owner, self.doc1.id, corpus_no_schema.id
         )
         self.assertEqual(datacells.count(), 0)
 
     def test_get_document_metadata_nonexistent_corpus(self):
         """Should return empty for nonexistent corpus."""
-        datacells = MetadataQueryOptimizer.get_document_metadata(
+        datacells = MetadataService.get_document_metadata(
             self.owner, self.doc1.id, 99999
         )
         self.assertEqual(datacells.count(), 0)
 
     def test_batch_nonexistent_corpus(self):
         """Should return empty for nonexistent corpus."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.owner, [self.doc1.id], 99999
         )
         self.assertEqual(len(result), 0)
 
     def test_batch_anonymous_private_corpus(self):
         """Anonymous user should not see documents for private corpus."""
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.anonymous, [self.doc1.id], self.corpus.id
         )
         self.assertEqual(len(result), 0)
@@ -817,7 +815,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
             self.owner, corpus_no_schema, [PermissionTypes.CRUD]
         )
 
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.owner, [self.doc1.id], corpus_no_schema.id
         )
         self.assertEqual(len(result), 0)
@@ -833,7 +831,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
             creator=self.owner,
         )
 
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.anonymous, [self.public_doc.id], self.public_corpus.id
         )
         self.assertIn(self.public_doc.id, result)
@@ -845,7 +843,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         private_doc = self._create_document("Private in Public", self.owner)
         self.public_corpus.add_document(document=private_doc, user=self.owner)
 
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             self.anonymous, [private_doc.id], self.public_corpus.id
         )
         # Private document should not be in result for anonymous user
@@ -853,7 +851,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
 
     def test_completion_status_nonexistent_corpus(self):
         """Should return None for nonexistent corpus."""
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.owner, self.doc1.id, 99999
         )
         self.assertIsNone(status)
@@ -881,7 +879,7 @@ class MetadataQueryOptimizerTestCase(TestCase):
         doc = self._create_document("Auto Doc", self.owner)
         corpus_auto.add_document(document=doc, user=self.owner)
 
-        status = MetadataQueryOptimizer.get_metadata_completion_status(
+        status = MetadataService.get_metadata_completion_status(
             self.owner, doc.id, corpus_auto.id
         )
         self.assertEqual(status["total_fields"], 0)
@@ -899,15 +897,15 @@ class MetadataQueryOptimizerTestCase(TestCase):
         set_permissions_for_obj_to_user(solo_user, self.doc1, [PermissionTypes.READ])
         set_permissions_for_obj_to_user(solo_user, self.corpus, [PermissionTypes.READ])
 
-        result = MetadataQueryOptimizer.get_documents_metadata_batch(
+        result = MetadataService.get_documents_metadata_batch(
             solo_user, [self.doc1.id], self.corpus.id
         )
         self.assertIn(self.doc1.id, result)
 
 
-class MetadataQueryOptimizerDefensiveCodeTestCase(TestCase):
+class MetadataServiceDefensiveCodeTestCase(TestCase):
     """
-    Tests for defensive code paths in MetadataQueryOptimizer.
+    Tests for defensive code paths in MetadataService.
 
     These tests use mocking to hit code paths that are normally unreachable
     due to prior permission checks, but exist for defensive purposes
@@ -941,12 +939,12 @@ class MetadataQueryOptimizerDefensiveCodeTestCase(TestCase):
 
         # Mock _compute_effective_permissions to return True for can_read
         with patch.object(
-            MetadataQueryOptimizer,
+            MetadataService,
             "_compute_effective_permissions",
             return_value=(True, False, False, False),
         ):
             # Call with non-existent corpus ID - this should hit lines 264-265
-            datacells = MetadataQueryOptimizer.get_document_metadata(
+            datacells = MetadataService.get_document_metadata(
                 self.user, self.doc.id, 99999
             )
             self.assertEqual(datacells.count(), 0)
@@ -962,12 +960,12 @@ class MetadataQueryOptimizerDefensiveCodeTestCase(TestCase):
 
         # Mock _compute_effective_permissions to return True for can_read
         with patch.object(
-            MetadataQueryOptimizer,
+            MetadataService,
             "_compute_effective_permissions",
             return_value=(True, False, False, False),
         ):
             # Call with non-existent corpus ID - this should hit lines 397-398
-            status = MetadataQueryOptimizer.get_metadata_completion_status(
+            status = MetadataService.get_metadata_completion_status(
                 self.user, self.doc.id, 99999
             )
             self.assertIsNone(status)
@@ -997,7 +995,7 @@ class MetadataQueryOptimizerDefensiveCodeTestCase(TestCase):
 
             # Call _get_readable_document_ids_bulk directly - should return empty set
             documents = Document.objects.filter(pk=self.doc.id)
-            result = MetadataQueryOptimizer._get_readable_document_ids_bulk(
+            result = MetadataService._get_readable_document_ids_bulk(
                 self.user, [self.doc.id], documents
             )
             self.assertEqual(result, set())

@@ -200,6 +200,36 @@ test.describe("GlobalAgentManagement — agent list rendering", () => {
 
     await component.unmount();
   });
+
+  test("keeps the agent table horizontally scrollable on mobile", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard for issue #1749: the wide agent table must scroll
+    // horizontally on small viewports rather than crush its columns.
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const component = await mount(
+      <GlobalAgentManagementWrapper mocks={[singleAgentMock]} />
+    );
+
+    await expect(page.locator("text=Research Assistant")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const scroll = page.getByTestId("global-agents-table-scroll");
+    await expect(scroll).toBeVisible();
+    const overflowX = await scroll.evaluate(
+      (el) => getComputedStyle(el).overflowX
+    );
+    expect(overflowX).toBe("auto");
+    const scrolls = await scroll.evaluate(
+      (el) => el.scrollWidth > el.clientWidth
+    );
+    expect(scrolls).toBe(true);
+
+    await component.unmount();
+  });
 });
 
 test.describe("GlobalAgentManagement — create flow", () => {

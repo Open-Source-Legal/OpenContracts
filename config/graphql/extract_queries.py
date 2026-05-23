@@ -154,10 +154,10 @@ class ExtractQueryMixin:
     extract = relay.Node.Field(ExtractType)
 
     def resolve_extract(self, info, **kwargs) -> Any:
-        from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
+        from opencontractserver.extracts.services import ExtractService
 
         django_pk = from_global_id(kwargs["id"])[1]
-        has_perm, extract = ExtractQueryOptimizer.check_extract_permission(
+        has_perm, extract = ExtractService.check_extract_permission(
             info.context.user, int(django_pk), context=info.context
         )
         return extract if has_perm else None
@@ -172,7 +172,7 @@ class ExtractQueryMixin:
     )
 
     def resolve_extracts(self, info, **kwargs) -> Any:
-        from opencontractserver.annotations.query_optimizer import ExtractQueryOptimizer
+        from opencontractserver.extracts.services import ExtractService
 
         corpus_id = kwargs.get("corpus_id")
         if corpus_id:
@@ -180,7 +180,7 @@ class ExtractQueryMixin:
         else:
             corpus_django_pk = None
 
-        return ExtractQueryOptimizer.get_visible_extracts(
+        return ExtractService.get_visible_extracts(
             info.context.user, corpus_id=corpus_django_pk, context=info.context
         )
 
@@ -193,10 +193,8 @@ class ExtractQueryMixin:
 
     @login_required
     def resolve_compare_extracts(self, info, extract_a_id, extract_b_id) -> Any:
-        from opencontractserver.annotations.query_optimizer import (
-            ExtractQueryOptimizer,
-        )
         from opencontractserver.extracts.diff import diff_extracts, summarise
+        from opencontractserver.extracts.services import ExtractService
 
         user = info.context.user
         a_pk = int(from_global_id(extract_a_id)[1])
@@ -204,19 +202,19 @@ class ExtractQueryMixin:
 
         # Permission check leverages the same optimizer the extract node
         # resolver uses, so visibility rules stay consistent.
-        a_ok, extract_a = ExtractQueryOptimizer.check_extract_permission(
+        a_ok, extract_a = ExtractService.check_extract_permission(
             user, a_pk, context=info.context
         )
-        b_ok, extract_b = ExtractQueryOptimizer.check_extract_permission(
+        b_ok, extract_b = ExtractService.check_extract_permission(
             user, b_pk, context=info.context
         )
         if not (a_ok and b_ok and extract_a and extract_b):
             return None
 
-        cells_a = ExtractQueryOptimizer.get_extract_datacells(
+        cells_a = ExtractService.get_extract_datacells(
             extract_a, user, document_id=None
         )
-        cells_b = ExtractQueryOptimizer.get_extract_datacells(
+        cells_b = ExtractService.get_extract_datacells(
             extract_b, user, document_id=None
         )
 
@@ -303,28 +301,28 @@ class ExtractQueryMixin:
     )
 
     def resolve_document_metadata_datacells(self, info, document_id, corpus_id) -> Any:
-        """Get metadata datacells for a document using MetadataQueryOptimizer."""
-        from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+        """Get metadata datacells for a document using MetadataService."""
+        from opencontractserver.extracts.services import MetadataService
 
         user = info.context.user
         local_doc_id = int(from_global_id(document_id)[1])
         local_corpus_id = int(from_global_id(corpus_id)[1])
 
-        return MetadataQueryOptimizer.get_document_metadata(
+        return MetadataService.get_document_metadata(
             user, local_doc_id, local_corpus_id, manual_only=True
         )
 
     def resolve_metadata_completion_status_v2(
         self, info, document_id, corpus_id
     ) -> Any:
-        """Get metadata completion status using MetadataQueryOptimizer."""
-        from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+        """Get metadata completion status using MetadataService."""
+        from opencontractserver.extracts.services import MetadataService
 
         user = info.context.user
         local_doc_id = int(from_global_id(document_id)[1])
         local_corpus_id = int(from_global_id(corpus_id)[1])
 
-        return MetadataQueryOptimizer.get_metadata_completion_status(
+        return MetadataService.get_metadata_completion_status(
             user, local_doc_id, local_corpus_id
         )
 
@@ -332,13 +330,13 @@ class ExtractQueryMixin:
         self, info, document_ids, corpus_id
     ) -> Any:
         """
-        Get metadata datacells for multiple documents using MetadataQueryOptimizer.
+        Get metadata datacells for multiple documents using MetadataService.
 
         This batch query solves the N+1 problem when loading metadata for a grid view.
-        Uses the centralized MetadataQueryOptimizer which applies proper permission
+        Uses the centralized MetadataService which applies proper permission
         filtering: Effective Permission = MIN(document_permission, corpus_permission)
         """
-        from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+        from opencontractserver.extracts.services import MetadataService
 
         user = info.context.user
         local_corpus_id = int(from_global_id(corpus_id)[1])
@@ -352,7 +350,7 @@ class ExtractQueryMixin:
             local_id_by_global[global_id] = local_id_int
 
         # Use optimizer to get batch metadata with proper permissions
-        datacells_by_doc = MetadataQueryOptimizer.get_documents_metadata_batch(
+        datacells_by_doc = MetadataService.get_documents_metadata_batch(
             user,
             local_doc_ids,
             local_corpus_id,
@@ -423,12 +421,10 @@ class ExtractQueryMixin:
         analysis = relay.Node.Field(AnalysisType)
 
         def resolve_analysis(self, info, **kwargs) -> Any:
-            from opencontractserver.annotations.query_optimizer import (
-                AnalysisQueryOptimizer,
-            )
+            from opencontractserver.analyzer.services import AnalysisService
 
             django_pk = from_global_id(kwargs["id"])[1]
-            has_perm, analysis = AnalysisQueryOptimizer.check_analysis_permission(
+            has_perm, analysis = AnalysisService.check_analysis_permission(
                 info.context.user, int(django_pk), context=info.context
             )
             return analysis if has_perm else None
@@ -439,9 +435,7 @@ class ExtractQueryMixin:
 
         @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
         def resolve_analyses(self, info, **kwargs) -> Any:
-            from opencontractserver.annotations.query_optimizer import (
-                AnalysisQueryOptimizer,
-            )
+            from opencontractserver.analyzer.services import AnalysisService
 
             corpus_id = kwargs.get("corpus_id")
             if corpus_id:
@@ -449,6 +443,6 @@ class ExtractQueryMixin:
             else:
                 corpus_django_pk = None
 
-            return AnalysisQueryOptimizer.get_visible_analyses(
+            return AnalysisService.get_visible_analyses(
                 info.context.user, corpus_id=corpus_django_pk, context=info.context
             )
