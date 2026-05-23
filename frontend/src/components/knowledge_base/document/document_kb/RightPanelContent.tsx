@@ -86,6 +86,14 @@ export interface RightPanelContentProps {
   setSelectedNote: Dispatch<SetStateAction<NoteType | null>>;
   /** Pending chat message to send */
   pendingChatMessage?: string;
+  /**
+   * Compact / mobile consumption mode. When true the feed restructures as a
+   * calm review surface: the filter + sort chrome collapses behind a single
+   * "Filter & sort" control (collapsed by default) and feed rows drop their
+   * authoring affordances (multi-select checkbox, delete icon). Desktop omits
+   * this for byte-identical rendering.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -113,6 +121,7 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
   setActiveLayer,
   setSelectedNote,
   pendingChatMessage,
+  compact = false,
 }) => {
   const isIndexExpanded = useReactiveVar(tocExpandAll);
 
@@ -128,6 +137,7 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
       sortBy={feedSortBy}
       onSortChange={setFeedSortBy}
       hasActiveSearch={!!searchText}
+      compact={compact}
     />
   );
 
@@ -242,6 +252,7 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
           isLoading={loading}
           readOnly={readOnly}
           documentId={documentId}
+          compact={compact}
           onItemSelect={(item) => {
             // Handle item selection based on type
             if (item.type === "annotation" || item.type === "relationship") {

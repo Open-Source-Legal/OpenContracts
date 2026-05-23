@@ -12,6 +12,8 @@ Each service inherits :class:`opencontractserver.shared.services.base.BaseServic
   — document-in-folder placement, listing, and counts.
 - :class:`~opencontractserver.corpuses.services.corpus_documents.CorpusDocumentService`
   — document-in-corpus reads / writes and corpus membership.
+- :class:`~opencontractserver.corpuses.services.corpus_service.CorpusService`
+  — Corpus-row CRUD: delete, visibility, and description versioning.
 - :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`
   — soft-delete / restore / trash.
 - :class:`~opencontractserver.corpuses.services.paths.CorpusPathService`
@@ -20,15 +22,12 @@ Each service inherits :class:`opencontractserver.shared.services.base.BaseServic
 Import the specific service you need from this package::
 
     from opencontractserver.corpuses.services import FolderCRUDService
-
-The legacy ``CorpusObjsService`` facade in
-``opencontractserver.corpuses.corpus_objs_service`` is deprecated and will be
-removed once all call sites are migrated.
 """
 
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
 )
+from opencontractserver.corpuses.services.corpus_service import CorpusService
 from opencontractserver.corpuses.services.folder_documents import (
     FolderDocumentService,
 )
@@ -40,6 +39,7 @@ __all__ = [
     "FolderCRUDService",
     "FolderDocumentService",
     "CorpusDocumentService",
+    "CorpusService",
     "DocumentLifecycleService",
     "CorpusPathService",
 ]

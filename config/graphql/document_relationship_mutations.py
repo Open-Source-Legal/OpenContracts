@@ -11,12 +11,10 @@ from graphql_relay import from_global_id
 
 from config.graphql.graphene_types import DocumentRelationshipType
 from opencontractserver.annotations.models import AnnotationLabel
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services import CorpusDocumentService
 from opencontractserver.documents.models import Document, DocumentRelationship
-from opencontractserver.documents.query_optimizer import (
-    DocumentRelationshipQueryOptimizer,
-)
+from opencontractserver.documents.services import DocumentRelationshipService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import get_for_user_or_none
 
@@ -252,12 +250,11 @@ class UpdateDocumentRelationship(graphene.Mutation):
             # Decode global ID
             doc_rel_pk = from_global_id(document_relationship_id)[1]
 
-            # Use optimizer for IDOR-safe fetch with visibility check
-            doc_relationship = (
-                DocumentRelationshipQueryOptimizer.get_relationship_by_id(
-                    user=info.context.user,
-                    relationship_id=int(doc_rel_pk),
-                )
+            # Use service for IDOR-safe fetch with visibility check
+            doc_relationship = DocumentRelationshipService.get_relationship_by_id(
+                user=info.context.user,
+                relationship_id=int(doc_rel_pk),
+                request=info.context,
             )
 
             # IDOR protection: same message for not found or not accessible
@@ -269,10 +266,11 @@ class UpdateDocumentRelationship(graphene.Mutation):
                 )
 
             # Check UPDATE permission (inherited from source_doc + target_doc + corpus)
-            if not DocumentRelationshipQueryOptimizer.user_has_permission(
+            if not DocumentRelationshipService.user_has_permission(
                 info.context.user,
                 doc_relationship,
                 "UPDATE",
+                request=info.context,
             ):
                 return UpdateDocumentRelationship(
                     ok=False,
@@ -352,7 +350,7 @@ class UpdateDocumentRelationship(graphene.Mutation):
                     # Routes through the canonical service so corpus READ is
                     # enforced against the requesting user.
                     docs_in_corpus = (
-                        CorpusObjsService.get_corpus_documents(
+                        CorpusDocumentService.get_corpus_documents(
                             user=info.context.user, corpus=corpus
                         )
                         .filter(
@@ -417,12 +415,11 @@ class DeleteDocumentRelationship(graphene.Mutation):
             # Decode global ID
             doc_rel_pk = from_global_id(document_relationship_id)[1]
 
-            # Use optimizer for IDOR-safe fetch with visibility check
-            doc_relationship = (
-                DocumentRelationshipQueryOptimizer.get_relationship_by_id(
-                    user=info.context.user,
-                    relationship_id=int(doc_rel_pk),
-                )
+            # Use service for IDOR-safe fetch with visibility check
+            doc_relationship = DocumentRelationshipService.get_relationship_by_id(
+                user=info.context.user,
+                relationship_id=int(doc_rel_pk),
+                request=info.context,
             )
 
             # IDOR protection: same message for not found or not accessible
@@ -432,10 +429,11 @@ class DeleteDocumentRelationship(graphene.Mutation):
                 )
 
             # Check DELETE permission (inherited from source_doc + target_doc + corpus)
-            if not DocumentRelationshipQueryOptimizer.user_has_permission(
+            if not DocumentRelationshipService.user_has_permission(
                 info.context.user,
                 doc_relationship,
                 "DELETE",
+                request=info.context,
             ):
                 return DeleteDocumentRelationship(
                     ok=False,
@@ -486,8 +484,8 @@ class DeleteDocumentRelationships(graphene.Mutation):
 
             # Fetch all relationships in a single query (fixes N+1)
             visible_relationships = (
-                DocumentRelationshipQueryOptimizer.get_visible_relationships(
-                    user=user
+                DocumentRelationshipService.get_visible_relationships(
+                    user=user, request=info.context
                 ).filter(id__in=relationship_pks)
             )
 
@@ -506,10 +504,11 @@ class DeleteDocumentRelationships(graphene.Mutation):
             # Check DELETE permission for each relationship
             # (inherited from source_doc + target_doc + corpus)
             for pk, doc_relationship in relationship_map.items():
-                if not DocumentRelationshipQueryOptimizer.user_has_permission(
+                if not DocumentRelationshipService.user_has_permission(
                     user,
                     doc_relationship,
                     "DELETE",
+                    request=info.context,
                 ):
                     return DeleteDocumentRelationships(
                         ok=False,

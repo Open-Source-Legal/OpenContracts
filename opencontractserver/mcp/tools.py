@@ -91,8 +91,8 @@ def list_documents(
     Returns:
         Dict with total_count and list of document summaries
     """
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     limit = min(limit, 100)
     user = user or AnonymousUser()
@@ -100,9 +100,9 @@ def list_documents(
     # Get corpus (raises Corpus.DoesNotExist if not found or not public)
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    # Use CorpusObjsService for optimized single-query document retrieval
+    # Use CorpusDocumentService for optimized single-query document retrieval
     # This handles corpus membership and visibility in one query
-    qs = CorpusObjsService.get_corpus_documents(
+    qs = CorpusDocumentService.get_corpus_documents(
         user=user, corpus=corpus, include_deleted=False
     )
 
@@ -131,17 +131,17 @@ def get_document_text(
     Returns:
         Dict with document slug, page count, and full text
     """
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-    # Route document lookup through CorpusObjsService so tools.py uses
+    # Route document lookup through CorpusDocumentService so tools.py uses
     # the same permission chain as resources.py (corpus READ gate +
     # corpus membership) and IDOR-safely raises Document.DoesNotExist
     # for slug-misses, hidden corpora, and cross-corpus lookups alike.
-    document = CorpusObjsService.get_corpus_document_by_slug(
+    document = CorpusDocumentService.get_corpus_document_by_slug(
         user=user, corpus=corpus, slug=document_slug
     )
 
@@ -184,14 +184,14 @@ def list_annotations(
         Dict with total_count and list of annotations
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     limit = min(limit, 100)
     user = user or AnonymousUser()
 
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
-    document = CorpusObjsService.get_corpus_document_by_slug(
+    document = CorpusDocumentService.get_corpus_document_by_slug(
         user=user, corpus=corpus, slug=document_slug
     )
 
@@ -232,8 +232,8 @@ def search_corpus(
     Returns:
         Dict with query and ranked results
     """
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     limit = min(limit, 50)
     user = user or AnonymousUser()
@@ -247,7 +247,7 @@ def search_corpus(
         if query_vector:
             # Single canonical entry point: corpus-as-gate doc set for this user.
             doc_results = list(
-                CorpusObjsService.get_corpus_documents(
+                CorpusDocumentService.get_corpus_documents(
                     user=user, corpus=corpus
                 ).search_by_embedding(  # type: ignore[attr-defined]
                     query_vector, embedder_path, top_k=limit
@@ -283,11 +283,11 @@ def _text_search_fallback(
     corpus: Corpus, query: str, limit: int, user: UserOrAnonymous
 ) -> dict:
     """Fallback to text search when embeddings are unavailable."""
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     # Single canonical entry point: corpus-as-gate doc set for this user.
     documents = list(
-        CorpusObjsService.get_corpus_documents(user=user, corpus=corpus).filter(
+        CorpusDocumentService.get_corpus_documents(user=user, corpus=corpus).filter(
             Q(title__icontains=query) | Q(description__icontains=query)
         )[:limit]
     )
@@ -329,8 +329,8 @@ def list_threads(
         Conversation,
         ConversationTypeChoices,
     )
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     limit = min(limit, 100)
     user = user or AnonymousUser()
@@ -345,7 +345,7 @@ def list_threads(
     )
 
     if document_slug:
-        document = CorpusObjsService.get_corpus_document_by_slug(
+        document = CorpusDocumentService.get_corpus_document_by_slug(
             user=user, corpus=corpus, slug=document_slug
         )
         qs = qs.filter(chat_with_document=document)

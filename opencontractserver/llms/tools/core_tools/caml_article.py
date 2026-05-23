@@ -151,14 +151,14 @@ def _looks_like_prose(text: str) -> bool:
 def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     """Return the corpus's ``Readme.CAML`` document if visible to ``user``.
 
-    Delegates to :meth:`CorpusObjsService.get_corpus_caml_articles`, which
+    Delegates to :meth:`CorpusDocumentService.get_corpus_caml_articles`, which
     gates by corpus READ and applies the ``Readme.CAML`` / ``text/markdown``
     filter. Returns the same opaque "not found" message for both "corpus
     does not exist" and "user lacks permission" so the message cannot be
     used for enumeration.
     """
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     not_found = (
         f"Corpus id={corpus_id} has no Readme.CAML article visible to this user."
@@ -169,7 +169,7 @@ def _load_caml_document_for_user(corpus_id: int, user) -> Document:
     except Corpus.DoesNotExist:
         raise ValueError(not_found)
 
-    doc = CorpusObjsService.get_corpus_caml_articles(user, corpus).first()
+    doc = CorpusDocumentService.get_corpus_caml_articles(user, corpus).first()
     if doc is None:
         raise ValueError(not_found)
     return doc

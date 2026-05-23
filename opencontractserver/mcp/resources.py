@@ -65,12 +65,12 @@ def get_document_resource(
     URI: document://{corpus_slug}/{document_slug}
     Returns: JSON with document metadata and extracted text
 
-    Note: Document membership is resolved through CorpusObjsService so
+    Note: Document membership is resolved through CorpusDocumentService so
     corpus read access and current DocumentPath state are enforced consistently
     with list_documents.
     """
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     user = user or AnonymousUser()
 
@@ -79,7 +79,7 @@ def get_document_resource(
     # Source of truth for corpus-scoped document lookup; raises
     # ``Document.DoesNotExist`` IDOR-safely when the slug isn't in the
     # corpus or the user lacks corpus READ.
-    document = CorpusObjsService.get_corpus_document_by_slug(
+    document = CorpusDocumentService.get_corpus_document_by_slug(
         user=user, corpus=corpus, slug=document_slug
     )
 
@@ -119,13 +119,13 @@ def get_annotation_resource(
     URI: annotation://{corpus_slug}/{document_slug}/{annotation_id}
     Returns: JSON with annotation details including label and bounding box
 
-    Note: Document membership is resolved through CorpusObjsService, then
+    Note: Document membership is resolved through CorpusDocumentService, then
     annotations are filtered through AnnotationQueryOptimizer's effective
     permission checks.
     """
     from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     user = user or AnonymousUser()
 
@@ -134,7 +134,7 @@ def get_annotation_resource(
     # Source of truth for corpus-scoped document lookup; raises
     # ``Document.DoesNotExist`` IDOR-safely when the slug isn't in the
     # corpus or the user lacks corpus READ.
-    document = CorpusObjsService.get_corpus_document_by_slug(
+    document = CorpusDocumentService.get_corpus_document_by_slug(
         user=user, corpus=corpus, slug=document_slug
     )
 

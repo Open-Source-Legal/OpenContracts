@@ -12,7 +12,7 @@ pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
 djangorestframework-stubs==3.17.0  # https://github.com/typeddjango/djangorestframework-stubs
-responses==0.26.0  # https://github.com/getsentry/responses
+responses==0.26.1  # https://github.com/getsentry/responses
 vcrpy==8.1.1
 
 # Profiling

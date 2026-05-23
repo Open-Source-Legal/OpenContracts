@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { ZOOM_MIN, ZOOM_MAX } from "../../../assets/configurations/constants";
 import { ZoomIn, ZoomOut } from "lucide-react";
 
 interface ZoomControlsProps {
@@ -85,9 +86,6 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
   zoomLevel,
   className,
 }) => {
-  const minZoom = 0.5;
-  const maxZoom = 4;
-
   return (
     <StyledZoomControls className={className}>
       <div className="zoom-group">
@@ -95,7 +93,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
           <button
             onClick={onZoomOut}
             title="Zoom Out"
-            disabled={zoomLevel <= minZoom}
+            disabled={zoomLevel <= ZOOM_MIN}
           >
             <ZoomOut />
           </button>
@@ -103,7 +101,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
           <button
             onClick={onZoomIn}
             title="Zoom In"
-            disabled={zoomLevel >= maxZoom}
+            disabled={zoomLevel >= ZOOM_MAX}
           >
             <ZoomIn />
           </button>

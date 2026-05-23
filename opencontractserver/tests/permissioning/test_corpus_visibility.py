@@ -95,7 +95,7 @@ class TestSetCorpusVisibilityMutation(TestCase):
 
         # Mock the celery task to avoid async issues in tests
         with patch(
-            "config.graphql.corpus_mutations.make_corpus_public_task"
+            "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
         ) as mock_task:
             mock_task.si.return_value.apply_async.return_value = None
             result = client.execute(self.MUTATION, variable_values=variables)
@@ -106,8 +106,10 @@ class TestSetCorpusVisibilityMutation(TestCase):
             "public", result["data"]["setCorpusVisibility"]["message"].lower()
         )
 
-        # Verify task was called
-        mock_task.si.assert_called_once_with(corpus_id=str(self.corpus.id))
+        # Verify task was called. ``CorpusService.set_visibility`` passes the
+        # corpus's integer pk; the former inline mutation passed the string
+        # returned by ``from_global_id`` — the task accepts either.
+        mock_task.si.assert_called_once_with(corpus_id=self.corpus.id)
 
     def test_owner_can_make_corpus_private(self):
         """Owner can make their corpus private."""
@@ -156,7 +158,7 @@ class TestSetCorpusVisibilityMutation(TestCase):
         client = Client(schema, context_value=TestContext(self.other_user))
 
         with patch(
-            "config.graphql.corpus_mutations.make_corpus_public_task"
+            "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
         ) as mock_task:
             mock_task.si.return_value.apply_async.return_value = None
             result = client.execute(self.MUTATION, variable_values=variables)
@@ -174,7 +176,7 @@ class TestSetCorpusVisibilityMutation(TestCase):
         client = Client(schema, context_value=TestContext(self.superuser))
 
         with patch(
-            "config.graphql.corpus_mutations.make_corpus_public_task"
+            "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
         ) as mock_task:
             mock_task.si.return_value.apply_async.return_value = None
             result = client.execute(self.MUTATION, variable_values=variables)

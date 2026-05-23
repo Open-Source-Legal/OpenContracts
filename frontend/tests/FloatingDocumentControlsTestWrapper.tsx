@@ -94,7 +94,6 @@ interface FloatingDocumentControlsTestWrapperProps {
   panelOffset?: number;
   readOnly?: boolean;
   hideDocumentTools?: boolean;
-  isMobile?: boolean;
   showRightPanel?: boolean;
   // Test configuration props
   showBoundingBoxes?: boolean;
@@ -302,7 +301,6 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
   panelOffset = 0,
   readOnly = false,
   hideDocumentTools = false,
-  isMobile = false,
   showRightPanel = false,
   showBoundingBoxes = false,
   showStructural = false,
@@ -382,7 +380,6 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
                 panelOffset={panelOffset}
                 readOnly={readOnly}
                 hideDocumentTools={hideDocumentTools}
-                isMobile={isMobile}
                 showRightPanel={showRightPanel}
               />
             </div>

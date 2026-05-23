@@ -233,7 +233,7 @@ def _check_badge_criteria(
             # Internal (no user-context permission gate); uses the private
             # ``_get_active_documents()`` helper rather than the deprecated
             # ``get_documents()`` wrapper. User-context callers should go
-            # through CorpusObjsService.get_corpus_documents instead.
+            # through CorpusDocumentService.get_corpus_documents instead.
             doc_count = corpus._get_active_documents().filter(creator=user).count()
 
             # Count annotations in corpus
