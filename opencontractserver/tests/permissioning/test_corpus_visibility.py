@@ -93,12 +93,18 @@ class TestSetCorpusVisibilityMutation(TestCase):
 
         client = Client(schema, context_value=TestContext(self.owner))
 
-        # Mock the celery task to avoid async issues in tests
+        # Mock the celery task to avoid async issues in tests.
+        # ``CorpusService.set_visibility`` defers the cascade to
+        # ``transaction.on_commit``; under ``TestCase`` the outer
+        # transaction never commits, so ``captureOnCommitCallbacks`` runs
+        # the deferred callback synchronously so the assertion below sees
+        # the call.
         with patch(
             "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
         ) as mock_task:
             mock_task.si.return_value.apply_async.return_value = None
-            result = client.execute(self.MUTATION, variable_values=variables)
+            with self.captureOnCommitCallbacks(execute=True):
+                result = client.execute(self.MUTATION, variable_values=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["setCorpusVisibility"]["ok"])
