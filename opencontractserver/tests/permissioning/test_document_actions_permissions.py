@@ -18,7 +18,7 @@ from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus, CorpusAction
 from opencontractserver.documents.models import Document
-from opencontractserver.documents.query_optimizer import DocumentActionsQueryOptimizer
+from opencontractserver.documents.services import DocumentActionsService
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -93,7 +93,7 @@ class TestDocumentActionsPermissions(TestCase):
         WHEN: Owner queries for document actions
         THEN: Corpus actions should be visible
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.owner,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -118,7 +118,7 @@ class TestDocumentActionsPermissions(TestCase):
             [PermissionTypes.READ],
         )
 
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.reader,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -136,7 +136,7 @@ class TestDocumentActionsPermissions(TestCase):
         WHEN: Outsider queries for document actions
         THEN: All actions should be empty (permission denied)
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.outsider,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -188,7 +188,7 @@ class TestDocumentActionsWithoutCorpus(TestCase):
         WHEN: Querying for document actions
         THEN: corpus_actions should be empty (no corpus context)
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.owner,
             document_id=self.document.id,
             corpus_id=None,
@@ -206,7 +206,7 @@ class TestDocumentActionsWithoutCorpus(TestCase):
         WHEN: Querying for document actions
         THEN: All fields should be empty
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.viewer,
             document_id=self.document.id,
             corpus_id=None,
@@ -258,7 +258,7 @@ class TestDocumentActionsIDORProtection(TestCase):
         WHEN: User B queries for document actions on User A's document
         THEN: Empty results should be returned (same as if document didn't exist)
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.user_b,
             document_id=self.private_document.id,
             corpus_id=None,
@@ -275,7 +275,7 @@ class TestDocumentActionsIDORProtection(TestCase):
         WHEN: Querying for document actions
         THEN: Empty results should be returned
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.user_a,
             document_id=999999,  # Non-existent
             corpus_id=None,
@@ -321,7 +321,7 @@ class TestDocumentActionsAnonymousUser(TestCase):
         THEN: Should not get permission denied (document is accessible)
         """
         anonymous = AnonymousUser()
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=anonymous,
             document_id=self.public_document.id,
             corpus_id=self.public_corpus.id,
@@ -340,7 +340,7 @@ class TestDocumentActionsAnonymousUser(TestCase):
         THEN: Empty results should be returned
         """
         anonymous = AnonymousUser()
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=anonymous,
             document_id=self.private_document.id,
             corpus_id=None,
@@ -393,7 +393,7 @@ class TestDocumentActionsCorpusPermission(TestCase):
         WHEN: User queries for document actions with corpus_id
         THEN: Should return empty results (corpus permission required)
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.doc_only_user,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -457,7 +457,7 @@ class TestDocumentActionsSuperuser(TestCase):
         WHEN: Querying for document actions on private document/corpus
         THEN: All actions should be visible
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.superuser,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -525,7 +525,7 @@ class TestGetCorpusActionsForCorpus(TestCase):
         WHEN: Querying for corpus actions
         THEN: Actions should be visible
         """
-        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+        actions = DocumentActionsService.get_corpus_actions_for_corpus(
             user=self.owner,
             corpus_id=self.corpus.id,
         )
@@ -549,7 +549,7 @@ class TestGetCorpusActionsForCorpus(TestCase):
             [PermissionTypes.READ],
         )
 
-        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+        actions = DocumentActionsService.get_corpus_actions_for_corpus(
             user=self.reader,
             corpus_id=self.corpus.id,
         )
@@ -566,7 +566,7 @@ class TestGetCorpusActionsForCorpus(TestCase):
         WHEN: Querying for corpus actions
         THEN: Empty queryset should be returned
         """
-        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+        actions = DocumentActionsService.get_corpus_actions_for_corpus(
             user=self.outsider,
             corpus_id=self.corpus.id,
         )
@@ -583,7 +583,7 @@ class TestGetCorpusActionsForCorpus(TestCase):
         WHEN: Querying for corpus actions
         THEN: Empty queryset should be returned
         """
-        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+        actions = DocumentActionsService.get_corpus_actions_for_corpus(
             user=self.owner,
             corpus_id=999999,  # Non-existent
         )
@@ -611,7 +611,7 @@ class TestGetCorpusActionsForCorpus(TestCase):
             [PermissionTypes.READ],
         )
 
-        actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+        actions = DocumentActionsService.get_corpus_actions_for_corpus(
             user=self.outsider,
             corpus_id=self.corpus.id,
         )
@@ -685,7 +685,7 @@ class TestGetExtractsForDocument(TestCase):
         WHEN: Querying for extracts that include the document
         THEN: Extracts should be visible
         """
-        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+        extracts = DocumentActionsService.get_extracts_for_document(
             user=self.owner,
             document_id=self.document.id,
         )
@@ -714,7 +714,7 @@ class TestGetExtractsForDocument(TestCase):
             [PermissionTypes.READ],
         )
 
-        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+        extracts = DocumentActionsService.get_extracts_for_document(
             user=self.reader,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -732,7 +732,7 @@ class TestGetExtractsForDocument(TestCase):
         WHEN: Querying for extracts
         THEN: Empty queryset should be returned
         """
-        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+        extracts = DocumentActionsService.get_extracts_for_document(
             user=self.outsider,
             document_id=self.document.id,
         )
@@ -749,7 +749,7 @@ class TestGetExtractsForDocument(TestCase):
         WHEN: Querying for extracts
         THEN: Empty queryset should be returned
         """
-        extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+        extracts = DocumentActionsService.get_extracts_for_document(
             user=self.owner,
             document_id=999999,  # Non-existent
         )
@@ -832,7 +832,7 @@ class TestGetAnalysisRowsForDocument(TestCase):
         WHEN: Querying for analysis rows
         THEN: Analysis rows should be visible
         """
-        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+        rows = DocumentActionsService.get_analysis_rows_for_document(
             user=self.owner,
             document_id=self.document.id,
         )
@@ -861,7 +861,7 @@ class TestGetAnalysisRowsForDocument(TestCase):
             [PermissionTypes.READ],
         )
 
-        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+        rows = DocumentActionsService.get_analysis_rows_for_document(
             user=self.reader,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
@@ -879,7 +879,7 @@ class TestGetAnalysisRowsForDocument(TestCase):
         WHEN: Querying for analysis rows
         THEN: Empty queryset should be returned
         """
-        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+        rows = DocumentActionsService.get_analysis_rows_for_document(
             user=self.outsider,
             document_id=self.document.id,
         )
@@ -896,7 +896,7 @@ class TestGetAnalysisRowsForDocument(TestCase):
         WHEN: Querying for analysis rows
         THEN: Empty queryset should be returned
         """
-        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+        rows = DocumentActionsService.get_analysis_rows_for_document(
             user=self.owner,
             document_id=999999,  # Non-existent
         )
@@ -913,7 +913,7 @@ class TestGetAnalysisRowsForDocument(TestCase):
         WHEN: Querying for analysis rows
         THEN: Related objects should be prefetched (analysis, analyzer)
         """
-        rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+        rows = DocumentActionsService.get_analysis_rows_for_document(
             user=self.owner,
             document_id=self.document.id,
         )
@@ -947,7 +947,7 @@ class TestDocumentActionsNonexistentCorpus(TestCase):
         WHEN: Querying for document actions
         THEN: Should still return document-level results (extracts, analysis rows)
         """
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        actions = DocumentActionsService.get_document_actions(
             user=self.owner,
             document_id=self.document.id,
             corpus_id=999999,  # Non-existent corpus

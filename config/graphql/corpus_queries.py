@@ -137,8 +137,11 @@ class CorpusQueryMixin:
         user = info.context.user
         visible = Corpus.objects.visible_to_user(user)
         if text_search:
+            # icontains to mirror CorpusFilter.text_search_method — the tab
+            # badge counts must agree with the case-insensitive result set
+            # the user actually sees when searching.
             visible = visible.filter(
-                Q(description__contains=text_search) | Q(title__contains=text_search)
+                Q(description__icontains=text_search) | Q(title__icontains=text_search)
             )
 
         # Single aggregation produces all four counts in one query plan
@@ -215,15 +218,13 @@ class CorpusQueryMixin:
         Get all folders in a corpus.
         Returns flat list - frontend reconstructs tree from parentId relationships.
 
-        Delegates to CorpusObjsService.get_visible_folders() for
+        Delegates to FolderCRUDService.get_visible_folders() for
         permission checking and query optimization.
         """
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import FolderCRUDService
 
         _, corpus_pk = from_global_id(corpus_id)
-        return CorpusObjsService.get_visible_folders(
+        return FolderCRUDService.get_visible_folders(
             user=info.context.user,
             corpus_id=int(corpus_pk),
             request=info.context,
@@ -240,15 +241,13 @@ class CorpusQueryMixin:
         """
         Get a single folder by ID with permission check.
 
-        Delegates to CorpusObjsService.get_folder_by_id() for
+        Delegates to FolderCRUDService.get_folder_by_id() for
         permission checking and IDOR protection.
         """
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import FolderCRUDService
 
         _, folder_pk = from_global_id(id)
-        return CorpusObjsService.get_folder_by_id(
+        return FolderCRUDService.get_folder_by_id(
             user=info.context.user,
             folder_id=int(folder_pk),
             request=info.context,
@@ -265,15 +264,13 @@ class CorpusQueryMixin:
         """
         Get all soft-deleted documents in a corpus for trash folder view.
 
-        Delegates to CorpusObjsService.get_deleted_documents() for
+        Delegates to DocumentLifecycleService.get_deleted_documents() for
         permission checking and query optimization.
         """
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import DocumentLifecycleService
 
         _, corpus_pk = from_global_id(corpus_id)
-        return CorpusObjsService.get_deleted_documents(
+        return DocumentLifecycleService.get_deleted_documents(
             user=info.context.user,
             corpus_id=int(corpus_pk),
             request=info.context,
@@ -292,19 +289,15 @@ class CorpusQueryMixin:
         - Annotations: Filtered by visible documents (inherit doc+corpus permissions)
         - Analyses: Uses AnalysisQueryOptimizer (hybrid permission model)
         - Extracts: Uses ExtractQueryOptimizer (hybrid permission model)
-        - Relationships: Uses DocumentRelationshipQueryOptimizer (inherit doc+corpus)
-        - Threads/Chats: Uses ConversationQueryOptimizer (single visibility query)
+        - Relationships: Uses DocumentRelationshipService (inherit doc+corpus)
+        - Threads/Chats: Uses ConversationService (single visibility query)
         """
         from opencontractserver.annotations.query_optimizer import (
             AnalysisQueryOptimizer,
             ExtractQueryOptimizer,
         )
-        from opencontractserver.conversations.query_optimizer import (
-            ConversationQueryOptimizer,
-        )
-        from opencontractserver.documents.query_optimizer import (
-            DocumentRelationshipQueryOptimizer,
-        )
+        from opencontractserver.conversations.services import ConversationService
+        from opencontractserver.documents.services import DocumentRelationshipService
 
         total_docs = 0
         total_annotations = 0
@@ -368,18 +361,19 @@ class CorpusQueryMixin:
                     user, corpus_id=corpus.id, context=info.context
                 ).count()
 
-                # total_threads and total_chats: Use ConversationQueryOptimizer
+                # total_threads and total_chats: Use ConversationService
                 # to execute visibility subqueries once instead of twice
-                conv_optimizer = ConversationQueryOptimizer(user)
                 total_threads, total_chats = (
-                    conv_optimizer.get_corpus_conversation_counts(corpus.id)
+                    ConversationService.get_corpus_conversation_counts(
+                        user, corpus.id, request=info.context
+                    )
                 )
 
-                # total_relationships: Uses DocumentRelationshipQueryOptimizer
+                # total_relationships: Uses DocumentRelationshipService
                 # Relationships inherit from source_doc + target_doc + corpus
                 total_relationships = (
-                    DocumentRelationshipQueryOptimizer.get_visible_relationships(
-                        user, corpus_id=corpus.id, context=info.context
+                    DocumentRelationshipService.get_visible_relationships(
+                        user, corpus_id=corpus.id, request=info.context
                     ).count()
                 )
         except Exception as e:

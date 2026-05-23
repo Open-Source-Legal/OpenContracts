@@ -81,9 +81,11 @@ class SocialQueryMixin:
         - It's the requesting user's own badges
         - For corpus-specific badges: user has access to that corpus
         """
-        from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+        from opencontractserver.badges.services import BadgeService
 
-        return BadgeQueryOptimizer.get_visible_user_badges(info.context.user)
+        return BadgeService.get_visible_user_badges(
+            info.context.user, request=info.context
+        )
 
     def resolve_user_badge(self, info, **kwargs) -> Any:
         """
@@ -92,12 +94,12 @@ class SocialQueryMixin:
         SECURITY: Returns same error whether badge doesn't exist or user lacks permission.
         This prevents enumeration attacks.
         """
-        from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+        from opencontractserver.badges.services import BadgeService
 
         django_pk = int(from_global_id(kwargs["id"])[1])
 
-        has_permission, user_badge = BadgeQueryOptimizer.check_user_badge_visibility(
-            info.context.user, django_pk
+        has_permission, user_badge = BadgeService.check_user_badge_visibility(
+            info.context.user, django_pk, request=info.context
         )
 
         if not has_permission:

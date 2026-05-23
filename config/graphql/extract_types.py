@@ -207,9 +207,9 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # populated by ``ExtractQueryOptimizer.get_visible_extracts`` to avoid
         # the per-extract SQL N+1; the in-Python permission loop is still
         # ``O(n_docs)`` per row — acceptable while extracts stay small.
-        # ``_prefetched_objects_cache`` is a Django private API (also used by
-        # ``ConversationQueryOptimizer``); the ``count()``/``all()`` fallback
-        # keeps the resolver correct if the prefetch is missing.
+        # ``_prefetched_objects_cache`` is a Django private API; the
+        # ``count()``/``all()`` fallback keeps the resolver correct if the
+        # prefetch is missing.
         from opencontractserver.types.enums import PermissionTypes
 
         if info.context.user.is_superuser:

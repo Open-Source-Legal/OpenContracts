@@ -156,7 +156,7 @@ class ConversationQuerySet(SoftDeleteQuerySet):
 
         Note on performance: This method executes subqueries for visible corpus/document
         IDs on each call. For list queries in GraphQL resolvers, consider using
-        ConversationQueryOptimizer which provides request-level caching.
+        ConversationService which provides request-level caching.
 
         Args:
             user: The user to filter visibility for. None is treated as anonymous.

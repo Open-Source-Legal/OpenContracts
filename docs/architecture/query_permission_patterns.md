@@ -32,13 +32,14 @@ Both layers work together: the manager/queryset produces the base filtered set, 
 | `AnnotationQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:16-667` | Annotation + Relationship bulk permissions |
 | `AnalysisQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:946-1148` | Analysis visibility with corpus checks |
 | `ExtractQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:1150-1349` | Extract visibility with corpus checks |
-| `ConversationQueryOptimizer` | `opencontractserver/conversations/query_optimizer.py:18-204` | Request-level caching for corpus/doc visibility |
+| `ConversationService` | `opencontractserver/conversations/services/conversation_service.py` | Request-level caching for corpus/doc visibility |
 | `PermissionQueryOptimizer` | `opencontractserver/utils/permission_optimizer.py` | Per-request `user_can` cache for any visibility-managed model |
-| `DocumentActionsQueryOptimizer` | `opencontractserver/documents/query_optimizer.py:16-312` | Document action permissions |
-| `DocumentRelationshipQueryOptimizer` | `opencontractserver/documents/query_optimizer.py:314-668` | Document relationship permissions |
+| `DocumentActionsService` | `opencontractserver/documents/services/actions.py` | Document action permissions |
+| `DocumentRelationshipService` | `opencontractserver/documents/services/relationships.py` | Document relationship permissions |
+| `DocumentVersionService` | `opencontractserver/documents/services/versions.py` | Document version-tree counts |
 | `MetadataQueryOptimizer` | `opencontractserver/extracts/query_optimizer.py:19-572` | Extract metadata permissions |
-| `BadgeQueryOptimizer` | `opencontractserver/badges/query_optimizer.py:16-158` | Badge visibility |
-| `UserQueryOptimizer` | `opencontractserver/users/query_optimizer.py:15-237` | User profile permissions |
+| `BadgeService` | `opencontractserver/badges/services/badge_service.py` | Badge visibility |
+| `UserService` | `opencontractserver/users/services/user_service.py` | User profile permissions |
 
 ## Permission Models by Object Type
 
@@ -65,8 +66,8 @@ For models with direct guardian permissions, query the `{model}userobjectpermiss
 - Also: `opencontractserver/shared/QuerySets.py:210-225` (DocumentQuerySet)
 
 ### Request-Level Caching
-`ConversationQueryOptimizer` caches corpus and document visibility subqueries per request to avoid repeated permission checks.
-- Implementation: `opencontractserver/conversations/query_optimizer.py`
+`ConversationService` caches corpus and document visibility subqueries per request to avoid repeated permission checks.
+- Implementation: `opencontractserver/conversations/services/conversation_service.py`
 
 ### Two-Tier `user_can` Caching (issue #1640)
 Authorization checks via the centralized `Manager.user_can` / `obj.user_can` /

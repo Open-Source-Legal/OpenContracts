@@ -297,16 +297,14 @@ class ActionQueryMixin:
         Resolve document actions (corpus actions, extracts, analysis rows) with proper
         permission filtering.
 
-        SECURITY: Uses DocumentActionsQueryOptimizer which follows the least-privilege model:
+        SECURITY: Uses DocumentActionsService which follows the least-privilege model:
         - Document permissions are primary
         - Corpus permissions are secondary
         - Effective permission = MIN(document_permission, corpus_permission)
 
         This prevents unauthorized access to document-related data.
         """
-        from opencontractserver.documents.query_optimizer import (
-            DocumentActionsQueryOptimizer,
-        )
+        from opencontractserver.documents.services import DocumentActionsService
 
         user = info.context.user
 
@@ -318,12 +316,12 @@ class ActionQueryMixin:
         if not document_pk:
             raise GraphQLError("documentId is required and must be a valid ID")
 
-        # Use centralized permission-aware optimizer
-        actions = DocumentActionsQueryOptimizer.get_document_actions(
+        # Use centralized permission-aware service
+        actions = DocumentActionsService.get_document_actions(
             user=user,
             document_id=int(document_pk),
             corpus_id=int(corpus_pk) if corpus_pk else None,
-            context=info.context,
+            request=info.context,
         )
 
         return DocumentCorpusActionsType(

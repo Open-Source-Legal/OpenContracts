@@ -1275,7 +1275,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         deprecated ``get_documents()`` public alias.
 
         User-context code MUST go through
-        ``CorpusObjsService.get_corpus_documents(user, corpus)`` so that
+        ``CorpusDocumentService.get_corpus_documents(user, corpus)`` so that
         corpus READ is enforced uniformly.
 
         Args:
@@ -1301,7 +1301,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         """
         DEPRECATED user-facing wrapper around ``_get_active_documents``.
 
-        Use ``CorpusObjsService.get_corpus_documents(user, corpus)`` in any
+        Use ``CorpusDocumentService.get_corpus_documents(user, corpus)`` in any
         user-context code (request handlers, MCP tools, LLM tools, GraphQL
         resolvers).  For internal/task code without a user, call
         ``corpus._get_active_documents()`` directly to opt out of the
@@ -1318,7 +1318,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
         warnings.warn(
             "Corpus.get_documents() is deprecated. Use "
-            "CorpusObjsService.get_corpus_documents(user, corpus) in any "
+            "CorpusDocumentService.get_corpus_documents(user, corpus) in any "
             "user-context code (request handlers, MCP tools, LLM tools, "
             "GraphQL resolvers). For internal use (Celery tasks, signal "
             "handlers), call corpus._get_active_documents() instead.",
@@ -2014,7 +2014,7 @@ class CorpusFolder(InstanceUserCanMixin, TreeNode):
         check guardian grants on the folder row, which never exist, so a
         shared reader would receive a silent ``False``. Delegate to
         ``self.corpus.user_can(user, perm)`` to keep the answer consistent
-        with the rest of the permissioning surface (``CorpusObjsService``
+        with the rest of the permissioning surface (the corpus services
         and every call site already go through the corpus).
 
         ``request`` is threaded through unchanged so the request-scoped

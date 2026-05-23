@@ -38,7 +38,10 @@ def move_document(
     """
     from django.contrib.auth import get_user_model
 
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+    from opencontractserver.corpuses.services import (
+        FolderCRUDService,
+        FolderDocumentService,
+    )
 
     User = get_user_model()
 
@@ -65,7 +68,7 @@ def move_document(
 
     target_folder = None
     if target_folder_id is not None:
-        target_folder = CorpusObjsService.get_folder_by_id(user, target_folder_id)
+        target_folder = FolderCRUDService.get_folder_by_id(user, target_folder_id)
         # Early cross-corpus check: reject folders from other corpuses with
         # the same generic error as not-found/inaccessible (IDOR prevention).
         # Note: move_document_to_folder also validates this, but we check here
@@ -78,7 +81,7 @@ def move_document(
                 "or is not accessible."
             )
 
-    success, error = CorpusObjsService.move_document_to_folder(
+    success, error = FolderDocumentService.move_document_to_folder(
         user=user,
         document=document,
         corpus=corpus,

@@ -2733,14 +2733,14 @@ When you add a new model whose rows must be permission-filtered, work through th
 
 **Cache invalidation.** `set_permissions_for_obj_to_user(user, obj, perms, request=info.context)` invalidates both tiers for that `(user, obj)` pair after the grant lands, so later `user_can` checks in the same request see the new state. Group-permission changes (`user.groups.add(...)`, `assign_perm(perm, group, obj)`) do **not** flow through that helper — a caller mutating group membership mid-request must invalidate manually (`delattr(instance, INSTANCE_PERMS_CACHE_ATTR)` and/or `get_request_optimizer(request).invalidate(user_id=user.id)`).
 
-### Service Layer: `CorpusObjsService` and `DocumentService`
+### Service Layer: corpus services and `DocumentService`
 
-Authorization checks answer "may this user do X to this object." *Fetching* the right objects for a user is the job of the service layer (PR #1685), and request-context code should go through it rather than composing `visible_to_user` filters by hand:
+Authorization checks answer "may this user do X to this object." *Fetching* the right objects for a user is the job of the service layer, and request-context code should go through it rather than composing `visible_to_user` filters by hand:
 
 - **`DocumentService`** (`opencontractserver/documents/document_service.py`) — the single source of truth for document-level operations: creation, quota, lifecycle, document-level permissions, and standalone single-document lookup. Use it when the document is the noun and corpus context is incidental.
-- **`CorpusObjsService`** (`opencontractserver/corpuses/corpus_objs_service.py`) — the single source of truth for corpus-scoped reads: "give me X inside corpus Y for user Z" (`get_corpus_document_by_slug`, `get_corpus_document_by_id`, `is_document_in_corpus`, folder lookups, CAML articles).
+- **The `opencontractserver/corpuses/services/` package** — the single source of truth for corpus-scoped operations: "give me X inside corpus Y for user Z" (issue #1716 split the former `CorpusObjsService` monolith into segmented services). Import the specific service from `opencontractserver.corpuses.services`: `CorpusDocumentService` (document-in-corpus reads/writes + membership: `get_corpus_document_by_slug`, `get_corpus_document_by_id`, `is_document_in_corpus`, CAML articles), `FolderCRUDService` (folder CRUD, tree, search), `FolderDocumentService` (document-in-folder placement), `DocumentLifecycleService` (soft-delete/restore/trash), `CorpusPathService` (`DocumentPath` disambiguation internals), and `CorpusService` (Corpus-row CRUD: delete, visibility, description versioning).
 
-**IDOR safety:** never fuse `corpus.get_documents().values_list("id", flat=True)` with `Document.objects.visible_to_user(user)` by hand — that copy-paste pattern is IDOR-prone. `CorpusObjsService` is the canonical entry point and returns an empty queryset (not a leak, not an error) on permission denial. `corpus.get_documents()` itself now emits a `DeprecationWarning`; internal/task code without a user must call `corpus._get_active_documents()` explicitly.
+**IDOR safety:** never fuse `corpus.get_documents().values_list("id", flat=True)` with `Document.objects.visible_to_user(user)` by hand — that copy-paste pattern is IDOR-prone. `CorpusDocumentService` is the canonical entry point and returns an empty queryset (not a leak, not an error) on permission denial. `corpus.get_documents()` itself now emits a `DeprecationWarning`; internal/task code without a user must call `corpus._get_active_documents()` explicitly.
 
 ---
 

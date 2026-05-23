@@ -6,7 +6,8 @@ This module implements folder management functionality including:
 - Moving documents to/from folders
 - Bulk document operations
 
-All mutations delegate to CorpusObjsService for business logic,
+All mutations delegate to the segmented corpus services
+(``FolderCRUDService`` / ``FolderDocumentService``) for business logic,
 permission checks, and consistency via DocumentPath.
 """
 
@@ -19,10 +20,13 @@ from graphql_relay import from_global_id
 
 from config.graphql.graphene_types import CorpusFolderType, DocumentType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusFolder,
+)
+from opencontractserver.corpuses.services import (
+    FolderCRUDService,
+    FolderDocumentService,
 )
 from opencontractserver.documents.models import Document
 
@@ -33,7 +37,7 @@ logger = logging.getLogger(__name__)
 class CreateCorpusFolderMutation(graphene.Mutation):
     """Create a new folder in a corpus.
 
-    Delegates to CorpusObjsService.create_folder() for:
+    Delegates to FolderCRUDService.create_folder() for:
     - Permission checking (corpus UPDATE permission)
     - Validation (unique name, parent in same corpus)
     - Folder creation
@@ -83,7 +87,7 @@ class CreateCorpusFolderMutation(graphene.Mutation):
                 parent = CorpusFolder.objects.get(pk=parent_pk, corpus=corpus)
 
             # Delegate to service - handles permission checks, validation, creation
-            folder, error = CorpusObjsService.create_folder(
+            folder, error = FolderCRUDService.create_folder(
                 user=user,
                 corpus=corpus,
                 name=name,
@@ -126,7 +130,7 @@ class CreateCorpusFolderMutation(graphene.Mutation):
 class UpdateCorpusFolderMutation(graphene.Mutation):
     """Update folder properties (name, description, color, icon, tags).
 
-    Delegates to CorpusObjsService.update_folder() for:
+    Delegates to FolderCRUDService.update_folder() for:
     - Permission checking (corpus UPDATE permission)
     - Validation (unique name within parent)
     - Folder update
@@ -170,7 +174,7 @@ class UpdateCorpusFolderMutation(graphene.Mutation):
                 raise CorpusFolder.DoesNotExist
 
             # Delegate to service - handles permission checks, validation, update
-            success, error = CorpusObjsService.update_folder(
+            success, error = FolderCRUDService.update_folder(
                 user=user,
                 folder=folder,
                 name=name,
@@ -215,7 +219,7 @@ class UpdateCorpusFolderMutation(graphene.Mutation):
 class MoveCorpusFolderMutation(graphene.Mutation):
     """Move a folder to a different parent (or to root if parent_id is null).
 
-    Delegates to CorpusObjsService.move_folder() for:
+    Delegates to FolderCRUDService.move_folder() for:
     - Permission checking (corpus UPDATE permission)
     - Validation (no self-move, no move into descendants, same corpus)
     - Folder move
@@ -257,7 +261,7 @@ class MoveCorpusFolderMutation(graphene.Mutation):
                 )
 
             # Delegate to service - handles permission checks, validation, move
-            success, error = CorpusObjsService.move_folder(
+            success, error = FolderCRUDService.move_folder(
                 user=user,
                 folder=folder,
                 new_parent=new_parent,
@@ -298,7 +302,7 @@ class MoveCorpusFolderMutation(graphene.Mutation):
 class DeleteCorpusFolderMutation(graphene.Mutation):
     """Delete a folder and optionally its contents.
 
-    Delegates to CorpusObjsService.delete_folder() for:
+    Delegates to FolderCRUDService.delete_folder() for:
     - Permission checking (corpus DELETE permission)
     - Child folder handling (reparent or cascade)
     - Document folder assignment cleanup via DocumentPath
@@ -334,7 +338,7 @@ class DeleteCorpusFolderMutation(graphene.Mutation):
                 raise CorpusFolder.DoesNotExist
 
             # Delegate to service - handles permission checks, cleanup, deletion
-            success, error = CorpusObjsService.delete_folder(
+            success, error = FolderCRUDService.delete_folder(
                 user=user,
                 folder=folder,
                 move_children_to_parent=not delete_contents,
@@ -368,7 +372,7 @@ class DeleteCorpusFolderMutation(graphene.Mutation):
 class MoveDocumentToFolderMutation(graphene.Mutation):
     """Move a document to a specific folder (or to corpus root if folder_id is null).
 
-    Delegates to CorpusObjsService.move_document_to_folder() for:
+    Delegates to FolderDocumentService.move_document_to_folder() for:
     - Permission checking (corpus UPDATE permission)
     - Validation (document in corpus, folder in corpus)
     - DocumentPath folder assignment update
@@ -410,7 +414,7 @@ class MoveDocumentToFolderMutation(graphene.Mutation):
                 folder = CorpusFolder.objects.get(pk=folder_pk)
 
             # Delegate to service - handles permission checks, validation, dual-system update
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=user,
                 document=document,
                 corpus=corpus,
@@ -461,7 +465,7 @@ class MoveDocumentToFolderMutation(graphene.Mutation):
 class MoveDocumentsToFolderMutation(graphene.Mutation):
     """Move multiple documents to a specific folder in bulk.
 
-    Delegates to CorpusObjsService.move_documents_to_folder() for:
+    Delegates to FolderDocumentService.move_documents_to_folder() for:
     - Permission checking (corpus UPDATE permission)
     - Validation (all documents in corpus, folder in corpus)
     - Bulk DocumentPath folder assignment update
@@ -504,7 +508,7 @@ class MoveDocumentsToFolderMutation(graphene.Mutation):
             doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
 
             # Delegate to service - handles permission checks, validation, bulk update
-            moved_count, error = CorpusObjsService.move_documents_to_folder(
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=user,
                 document_ids=doc_pks,
                 corpus=corpus,

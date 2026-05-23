@@ -1,5 +1,5 @@
 """
-Tests for ``DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document``.
+Tests for ``DocumentRelationshipService.get_relationship_counts_by_document``.
 
 The method replaces the per-document ``.count()`` pattern in
 ``resolve_doc_relationship_count`` with a single pair of aggregated queries.
@@ -10,7 +10,7 @@ These tests cover:
    contributes once to that document's count, not twice.
 3. Corpus filter: ``corpus_id`` argument restricts counts to that corpus.
 4. Permission boundary: counts respect document/corpus visibility.
-5. Request-level cache: the result is memoised on the GraphQL context.
+5. Request-level cache: the result is memoised on the request object.
 """
 
 import logging
@@ -27,9 +27,7 @@ from opencontractserver.documents.models import (
     DocumentPath,
     DocumentRelationship,
 )
-from opencontractserver.documents.query_optimizer import (
-    DocumentRelationshipQueryOptimizer,
-)
+from opencontractserver.documents.services import DocumentRelationshipService
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_TWO_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -116,7 +114,7 @@ class GetRelationshipCountsByDocumentTestCase(TestCase):
 
     def test_each_side_of_relationship_counts_once(self):
         """A and C each appear in one relationship; B is in both."""
-        counts = DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
+        counts = DocumentRelationshipService.get_relationship_counts_by_document(
             user=self.owner,
         )
         self.assertEqual(counts.get(self.doc_a.pk, 0), 1)
@@ -142,7 +140,7 @@ class GetRelationshipCountsByDocumentTestCase(TestCase):
             ]
         )
 
-        counts = DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
+        counts = DocumentRelationshipService.get_relationship_counts_by_document(
             user=self.owner,
         )
         # doc_a now has its original A↔B relationship plus 1 self-relationship,
@@ -162,12 +160,12 @@ class GetRelationshipCountsByDocumentTestCase(TestCase):
         )
 
         counts_in_main = (
-            DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
+            DocumentRelationshipService.get_relationship_counts_by_document(
                 user=self.owner, corpus_id=self.corpus.pk
             )
         )
         counts_in_other = (
-            DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
+            DocumentRelationshipService.get_relationship_counts_by_document(
                 user=self.owner, corpus_id=other_corpus.pk
             )
         )
@@ -176,7 +174,7 @@ class GetRelationshipCountsByDocumentTestCase(TestCase):
 
     def test_outsider_sees_no_counts(self):
         """An outsider with no document/corpus permissions sees no counts."""
-        counts = DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
+        counts = DocumentRelationshipService.get_relationship_counts_by_document(
             user=self.outsider,
         )
         self.assertEqual(counts.get(self.doc_a.pk, 0), 0)
@@ -201,24 +199,24 @@ class GetRelationshipCountsByDocumentTestCase(TestCase):
             partial_user, self.corpus, [PermissionTypes.READ]
         )
 
-        counts = DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
+        counts = DocumentRelationshipService.get_relationship_counts_by_document(
             user=partial_user,
         )
         self.assertEqual(counts.get(self.doc_a.pk, 0), 0)
         self.assertEqual(counts.get(self.doc_b.pk, 0), 0)
 
     def test_request_level_cache_returns_same_result(self):
-        """A second call with the same context should return the cached dict."""
-        context = SimpleNamespace()
-        first = DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
-            user=self.owner, context=context
+        """A second call with the same request should return the cached dict."""
+        request = SimpleNamespace()
+        first = DocumentRelationshipService.get_relationship_counts_by_document(
+            user=self.owner, request=request
         )
         # Mutate the underlying data to confirm the cache is being hit
         # (a fresh query would now return different numbers).
         DocumentRelationship.objects.filter(pk=self.rel_ab.pk).delete()
 
-        second = DocumentRelationshipQueryOptimizer.get_relationship_counts_by_document(
-            user=self.owner, context=context
+        second = DocumentRelationshipService.get_relationship_counts_by_document(
+            user=self.owner, request=request
         )
         self.assertIs(first, second)
         self.assertEqual(second.get(self.doc_a.pk, 0), 1)

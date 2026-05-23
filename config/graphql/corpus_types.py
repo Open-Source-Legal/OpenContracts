@@ -202,7 +202,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         document-level visibility.
 
         Delegates to
-        ``CorpusObjsService.get_corpus_documents_visible_to_user``, which
+        ``CorpusDocumentService.get_corpus_documents_visible_to_user``, which
         enforces the MIN-permission semantic::
 
             Effective Permission = MIN(document_permission, corpus_permission)
@@ -218,10 +218,10 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         from django.contrib.auth.models import AnonymousUser
 
-        from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         user = getattr(info.context, "user", None) or AnonymousUser()
-        return CorpusObjsService.get_corpus_documents_visible_to_user(
+        return CorpusDocumentService.get_corpus_documents_visible_to_user(
             user, self, include_caml=True, request=info.context
         )
 

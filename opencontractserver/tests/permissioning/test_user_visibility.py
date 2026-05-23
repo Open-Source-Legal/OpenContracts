@@ -2,7 +2,7 @@
 Tests for User Profile Visibility System
 
 These tests verify that user profiles respect privacy settings and corpus membership rules.
-The UserQueryOptimizer provides centralized logic for determining user visibility.
+The UserService provides centralized logic for determining user visibility.
 
 Visibility Rules:
 - Own profile: always visible
@@ -19,7 +19,7 @@ from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.users.query_optimizer import UserQueryOptimizer
+from opencontractserver.users.services import UserService
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
@@ -54,7 +54,7 @@ class TestUserProfilePrivacy(TestCase):
         WHEN: Another user (Carol) queries for visible users
         THEN: Alice's profile should be in the results
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.viewer)
+        visible_users = UserService.get_visible_users(self.viewer)
 
         self.assertIn(
             self.public_user,
@@ -69,7 +69,7 @@ class TestUserProfilePrivacy(TestCase):
         WHEN: Carol queries for visible users
         THEN: Bob's profile should NOT be in the results
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.viewer)
+        visible_users = UserService.get_visible_users(self.viewer)
 
         self.assertNotIn(
             self.private_user,
@@ -83,7 +83,7 @@ class TestUserProfilePrivacy(TestCase):
         WHEN: Bob queries for visible users
         THEN: Bob should see his own profile in the results
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.private_user)
+        visible_users = UserService.get_visible_users(self.private_user)
 
         self.assertIn(
             self.private_user,
@@ -99,21 +99,19 @@ class TestUserProfilePrivacy(TestCase):
         """
         # Public user is visible to viewer
         self.assertTrue(
-            UserQueryOptimizer.check_user_visibility(self.viewer, self.public_user.id),
+            UserService.check_user_visibility(self.viewer, self.public_user.id),
             "Public user should be visible",
         )
 
         # Private user is not visible to unrelated viewer
         self.assertFalse(
-            UserQueryOptimizer.check_user_visibility(self.viewer, self.private_user.id),
+            UserService.check_user_visibility(self.viewer, self.private_user.id),
             "Private user should not be visible to unrelated user",
         )
 
         # User can see themselves
         self.assertTrue(
-            UserQueryOptimizer.check_user_visibility(
-                self.private_user, self.private_user.id
-            ),
+            UserService.check_user_visibility(self.private_user, self.private_user.id),
             "User should always be able to see themselves",
         )
 
@@ -161,7 +159,7 @@ class TestUserVisibilityViaCorpusMembership(TestCase):
         WHEN: Owner queries for visible users
         THEN: Collaborator's profile should be visible
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.corpus_owner)
+        visible_users = UserService.get_visible_users(self.corpus_owner)
 
         self.assertIn(
             self.private_collaborator,
@@ -176,7 +174,7 @@ class TestUserVisibilityViaCorpusMembership(TestCase):
         WHEN: Outsider queries for visible users
         THEN: Collaborator's profile should NOT be visible
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.outsider)
+        visible_users = UserService.get_visible_users(self.outsider)
 
         self.assertNotIn(
             self.private_collaborator,
@@ -204,7 +202,7 @@ class TestUserVisibilityViaCorpusMembership(TestCase):
             [PermissionTypes.READ],
         )
 
-        visible_users = UserQueryOptimizer.get_visible_users(read_only_user)
+        visible_users = UserService.get_visible_users(read_only_user)
 
         self.assertNotIn(
             self.private_collaborator,
@@ -219,7 +217,7 @@ class TestUserVisibilityViaCorpusMembership(TestCase):
         WHEN: Owner queries for visible users
         THEN: The collaborator should be visible (owner has implicit full access)
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.corpus_owner)
+        visible_users = UserService.get_visible_users(self.corpus_owner)
 
         self.assertIn(
             self.private_collaborator,
@@ -253,7 +251,7 @@ class TestUserVisibilityAnonymousUser(TestCase):
         THEN: Public profiles should be visible
         """
         anonymous = AnonymousUser()
-        visible_users = UserQueryOptimizer.get_visible_users(anonymous)
+        visible_users = UserService.get_visible_users(anonymous)
 
         self.assertIn(
             self.public_user,
@@ -268,7 +266,7 @@ class TestUserVisibilityAnonymousUser(TestCase):
         THEN: Private profiles should NOT be visible
         """
         anonymous = AnonymousUser()
-        visible_users = UserQueryOptimizer.get_visible_users(anonymous)
+        visible_users = UserService.get_visible_users(anonymous)
 
         self.assertNotIn(
             self.private_user,
@@ -282,7 +280,7 @@ class TestUserVisibilityAnonymousUser(TestCase):
         WHEN: Querying for visible users
         THEN: Should behave same as anonymous user
         """
-        visible_users = UserQueryOptimizer.get_visible_users(None)
+        visible_users = UserService.get_visible_users(None)
 
         self.assertIn(
             self.public_user,
@@ -327,7 +325,7 @@ class TestInactiveUserVisibility(TestCase):
         WHEN: Another user queries for visible users
         THEN: The inactive user should NOT be visible
         """
-        visible_users = UserQueryOptimizer.get_visible_users(self.viewer)
+        visible_users = UserService.get_visible_users(self.viewer)
 
         self.assertNotIn(
             self.inactive_user,
@@ -348,7 +346,7 @@ class TestInactiveUserVisibility(TestCase):
             email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
             password="adminpass123",
         )
-        visible_users = UserQueryOptimizer.get_visible_users(superuser)
+        visible_users = UserService.get_visible_users(superuser)
 
         # Active users should definitely be visible
         self.assertIn(self.active_user, visible_users)
@@ -384,7 +382,7 @@ class TestUserSearchForMention(TestCase):
         WHEN: Searching by username substring
         THEN: Only matching public users are returned
         """
-        results = UserQueryOptimizer.get_users_for_mention(self.searcher, "alice")
+        results = UserService.get_users_for_mention(self.searcher, "alice")
 
         self.assertIn(self.alice, results, "Alice should be found by username search")
         self.assertNotIn(self.bob, results, "Bob is private and should not be found")
@@ -395,9 +393,7 @@ class TestUserSearchForMention(TestCase):
         WHEN: Searching by email substring
         THEN: Only matching visible users are returned
         """
-        results = UserQueryOptimizer.get_users_for_mention(
-            self.searcher, "alice@example"
-        )
+        results = UserService.get_users_for_mention(self.searcher, "alice@example")
 
         self.assertIn(self.alice, results, "Alice should be found by email search")
 
@@ -408,7 +404,7 @@ class TestUserSearchForMention(TestCase):
         THEN: Empty queryset is returned
         """
         anonymous = AnonymousUser()
-        results = UserQueryOptimizer.get_users_for_mention(anonymous, "alice")
+        results = UserService.get_users_for_mention(anonymous, "alice")
 
         self.assertEqual(
             results.count(), 0, "Anonymous users cannot search for mentions"
@@ -420,7 +416,7 @@ class TestUserSearchForMention(TestCase):
         WHEN: Attempting to search for mentions
         THEN: Empty queryset is returned
         """
-        results = UserQueryOptimizer.get_users_for_mention(None, "alice")
+        results = UserService.get_users_for_mention(None, "alice")
 
         self.assertEqual(results.count(), 0, "None user cannot search for mentions")
 
@@ -430,7 +426,7 @@ class TestUserSearchForMention(TestCase):
         WHEN: Searching for mentions
         THEN: Returns all visible users (up to limit)
         """
-        results = UserQueryOptimizer.get_users_for_mention(self.searcher)
+        results = UserService.get_users_for_mention(self.searcher)
 
         # Should return visible users (searcher and alice are visible)
         self.assertIn(self.searcher, results, "Searcher should be visible")
@@ -442,7 +438,7 @@ class TestUserSearchForMention(TestCase):
         WHEN: Searching for mentions
         THEN: Results should not exceed the limit
         """
-        results = UserQueryOptimizer.get_users_for_mention(
+        results = UserService.get_users_for_mention(
             self.searcher, text_search=None, corpus_id=None, limit=1
         )
 
@@ -467,9 +463,7 @@ class TestUserVisibilityIncludeSelf(TestCase):
         WHEN: Querying with include_self=True (default)
         THEN: User's own profile should be included
         """
-        visible_users = UserQueryOptimizer.get_visible_users(
-            self.user, include_self=True
-        )
+        visible_users = UserService.get_visible_users(self.user, include_self=True)
 
         self.assertIn(
             self.user,
@@ -483,9 +477,7 @@ class TestUserVisibilityIncludeSelf(TestCase):
         WHEN: Querying with include_self=False
         THEN: User's own profile should NOT be included
         """
-        visible_users = UserQueryOptimizer.get_visible_users(
-            self.user, include_self=False
-        )
+        visible_users = UserService.get_visible_users(self.user, include_self=False)
 
         self.assertNotIn(
             self.user,
@@ -535,7 +527,7 @@ class TestUserVisibilityCorpusFilter(TestCase):
         WHEN: Querying with corpus_id filter
         THEN: Only corpus members should be returned
         """
-        visible_users = UserQueryOptimizer.get_visible_users(
+        visible_users = UserService.get_visible_users(
             self.corpus_owner, corpus_id=self.corpus.id
         )
 
@@ -556,7 +548,7 @@ class TestUserVisibilityCorpusFilter(TestCase):
         WHEN: Querying with corpus_id filter
         THEN: Non-member should NOT be in results (filtered by corpus scope)
         """
-        visible_users = UserQueryOptimizer.get_visible_users(
+        visible_users = UserService.get_visible_users(
             self.corpus_owner, corpus_id=self.corpus.id
         )
 
@@ -572,7 +564,7 @@ class TestUserVisibilityCorpusFilter(TestCase):
         WHEN: Querying with that corpus_id
         THEN: Should handle gracefully (only return self if include_self=True)
         """
-        visible_users = UserQueryOptimizer.get_visible_users(
+        visible_users = UserService.get_visible_users(
             self.corpus_owner, corpus_id=999999  # Non-existent
         )
 
@@ -589,7 +581,7 @@ class TestUserVisibilityCorpusFilter(TestCase):
         WHEN: Querying with corpus_id filter
         THEN: Corpus creator should be included
         """
-        visible_users = UserQueryOptimizer.get_visible_users(
+        visible_users = UserService.get_visible_users(
             self.corpus_member, corpus_id=self.corpus.id
         )
 
@@ -605,7 +597,7 @@ class TestUserVisibilityCorpusFilter(TestCase):
         WHEN: Searching for mentions with corpus_id
         THEN: Only corpus members matching search should be returned
         """
-        results = UserQueryOptimizer.get_users_for_mention(
+        results = UserService.get_users_for_mention(
             self.corpus_owner,
             text_search="corpus",
             corpus_id=self.corpus.id,

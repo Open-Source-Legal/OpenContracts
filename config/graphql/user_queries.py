@@ -56,14 +56,14 @@ class UserQueryMixin:
         """
         from django.contrib.auth import get_user_model
 
-        from opencontractserver.users.query_optimizer import UserQueryOptimizer
+        from opencontractserver.users.services import UserService
 
         User = get_user_model()
         try:
             # Use visibility filtering instead of direct query
-            return UserQueryOptimizer.get_visible_users(info.context.user).get(
-                slug=slug
-            )
+            return UserService.get_visible_users(
+                info.context.user, request=info.context
+            ).get(slug=slug)
         except User.DoesNotExist:
             return None
 

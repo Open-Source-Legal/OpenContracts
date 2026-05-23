@@ -30,9 +30,7 @@ from opencontractserver.documents.models import (
     DocumentPath,
     DocumentRelationship,
 )
-from opencontractserver.documents.query_optimizer import (
-    DocumentRelationshipQueryOptimizer,
-)
+from opencontractserver.documents.services import DocumentRelationshipService
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_TWO_PATH
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -155,21 +153,21 @@ class DocumentRelationshipPermissionTestCase(TestCase):
         """Test that owner has full CRUD permissions on underlying documents."""
         # Owner has CRUD on source document
         self.assertTrue(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.owner,
                 self.relationship,
                 "READ",
             )
         )
         self.assertTrue(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.owner,
                 self.relationship,
                 "UPDATE",
             )
         )
         self.assertTrue(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.owner,
                 self.relationship,
                 "DELETE",
@@ -180,7 +178,7 @@ class DocumentRelationshipPermissionTestCase(TestCase):
         """Test that collaborator with READ permission cannot update or delete."""
         # Can READ (inherited from docs/corpus)
         self.assertTrue(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.collaborator,
                 self.relationship,
                 "READ",
@@ -188,7 +186,7 @@ class DocumentRelationshipPermissionTestCase(TestCase):
         )
         # Cannot UPDATE (inherited permission is READ only)
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.collaborator,
                 self.relationship,
                 "UPDATE",
@@ -196,7 +194,7 @@ class DocumentRelationshipPermissionTestCase(TestCase):
         )
         # Cannot DELETE (inherited permission is READ only)
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.collaborator,
                 self.relationship,
                 "DELETE",
@@ -207,21 +205,21 @@ class DocumentRelationshipPermissionTestCase(TestCase):
         """Test that outsider has no permissions on relationship."""
         # Outsider has no permissions on source/target docs or corpus
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.outsider,
                 self.relationship,
                 "READ",
             )
         )
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.outsider,
                 self.relationship,
                 "UPDATE",
             )
         )
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.outsider,
                 self.relationship,
                 "DELETE",
@@ -338,7 +336,7 @@ class DocumentRelationshipVisibilityTestCase(TestCase):
         permission support in visible_to_user(), a custom manager implementation
         would be needed. This test verifies the current behavior where only public
         relationships are visible via visible_to_user(), but individual permission
-        checks via DocumentRelationshipQueryOptimizer work correctly.
+        checks via DocumentRelationshipService work correctly.
         """
         # Share with other_user via documents and corpus (inherited permission model)
         set_permissions_for_obj_to_user(
@@ -356,9 +354,9 @@ class DocumentRelationshipVisibilityTestCase(TestCase):
         self.assertEqual(visible.count(), 1)
         self.assertIn(self.public_relationship, visible)
 
-        # However, individual permission check via QueryOptimizer uses inherited model
+        # However, individual permission check via the service uses inherited model
         self.assertTrue(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.other_user,
                 self.private_relationship,
                 "READ",
@@ -460,7 +458,7 @@ class DocumentRelationshipPermissionEscalationTestCase(TestCase):
         """Test that attacker cannot update relationship they don't have permission for."""
         # Attacker has READ on docs but no corpus permission, so inherited UPDATE = False
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.attacker,
                 self.relationship,
                 "UPDATE",
@@ -471,7 +469,7 @@ class DocumentRelationshipPermissionEscalationTestCase(TestCase):
         """Test that attacker cannot delete relationship they don't have permission for."""
         # Attacker has READ on docs but no corpus permission, so inherited DELETE = False
         self.assertFalse(
-            DocumentRelationshipQueryOptimizer.user_has_permission(
+            DocumentRelationshipService.user_has_permission(
                 self.attacker,
                 self.relationship,
                 "DELETE",
@@ -606,7 +604,7 @@ class DocumentRelationshipAnonymousAccessTestCase(TestCase):
 
     def test_anonymous_can_see_public_relationships_via_optimizer(self):
         """Anonymous user can see relationships where docs and corpus are public."""
-        visible = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        visible = DocumentRelationshipService.get_visible_relationships(
             user=self.anonymous_user,
             corpus_id=self.public_corpus.id,
         )
@@ -614,7 +612,7 @@ class DocumentRelationshipAnonymousAccessTestCase(TestCase):
 
     def test_anonymous_cannot_see_private_relationships_via_optimizer(self):
         """Anonymous user cannot see relationships on private resources."""
-        visible = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        visible = DocumentRelationshipService.get_visible_relationships(
             user=self.anonymous_user,
             corpus_id=self.private_corpus.id,
         )
@@ -623,7 +621,7 @@ class DocumentRelationshipAnonymousAccessTestCase(TestCase):
 
     def test_anonymous_gets_read_only_permissions(self):
         """Anonymous user should only get read permissions on public relationships."""
-        visible = DocumentRelationshipQueryOptimizer.get_visible_relationships(
+        visible = DocumentRelationshipService.get_visible_relationships(
             user=self.anonymous_user,
             corpus_id=self.public_corpus.id,
         )

@@ -775,7 +775,7 @@ def get_for_user_or_none(
     UPDATE-vs-READ branches stay indistinguishable to the caller.
 
     For DOCUMENT lookups in a CORPUS context, prefer
-    :meth:`opencontractserver.corpuses.corpus_objs_service.CorpusObjsService.get_corpus_document_by_id`
+    :meth:`opencontractserver.corpuses.services.corpus_documents.CorpusDocumentService.get_corpus_document_by_id`
     instead — it enforces corpus READ as the gate (the more restrictive
     check) and is the canonical service-layer entry point for the
     "is this document in this corpus, for this user" question. Phase D

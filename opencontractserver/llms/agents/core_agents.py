@@ -30,8 +30,8 @@ from opencontractserver.conversations.models import (
     MessageStateChoices,
     MessageTypeChoices,
 )
-from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services import CorpusDocumentService
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.context_guardrails import (
     CompactionConfig,
@@ -361,7 +361,7 @@ class CorpusAgentContext:
         load-trigger now.
         """
         if not self.documents:
-            # Route through CorpusObjsService so corpus READ is enforced
+            # Route through CorpusDocumentService so corpus READ is enforced
             # uniformly. ``config.user_id is None`` maps to AnonymousUser()
             # so public corpuses remain readable in anonymous sessions
             # (matches the ``_assert_access`` semantic invoked at context
@@ -371,7 +371,7 @@ class CorpusAgentContext:
 
             def _load_corpus_documents() -> list[Document]:
                 return list(
-                    CorpusObjsService.get_corpus_documents(
+                    CorpusDocumentService.get_corpus_documents(
                         user=resolve_user_or_anon(user_id), corpus=corpus
                     )
                 )
@@ -1123,7 +1123,7 @@ class CoreCorpusAgentFactory:
         # Permission check – anonymous sessions cannot access private corpuses
         _assert_access(corpus_obj, config.user_id)
 
-        # Route through CorpusObjsService so corpus READ is enforced
+        # Route through CorpusDocumentService so corpus READ is enforced
         # uniformly. ``_assert_access`` already ran above, so the user is
         # known to satisfy the gate; we still pass an AnonymousUser sentinel
         # for ``user_id is None`` to keep the public-corpus path working.
@@ -1131,7 +1131,7 @@ class CoreCorpusAgentFactory:
 
         def _load_corpus_documents() -> list[Document]:
             return list(
-                CorpusObjsService.get_corpus_documents(
+                CorpusDocumentService.get_corpus_documents(
                     user=resolve_user_or_anon(user_id), corpus=corpus_obj
                 )
             )
