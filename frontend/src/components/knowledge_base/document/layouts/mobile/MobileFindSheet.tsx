@@ -24,6 +24,12 @@ export interface MobileFindSheetProps {
   onClose?: () => void;
 }
 
+/**
+ * Sheet body wrapper. `height: 100%` requires the parent (`MobileSheet`'s
+ * content area) to give us a bounded height; without that the inner
+ * `ResultsList`'s `flex: 1` + `overflow-y: auto` won't scroll. The
+ * `MobileSheet` shell satisfies that today via its own flex column.
+ */
 const Wrap = styled.div`
   display: flex;
   flex-direction: column;
@@ -253,8 +259,6 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
     onClose?.();
   };
 
-  const trimmed = searchText.trim();
-
   return (
     <Wrap data-testid="mobile-find-sheet">
       <SearchRow>
@@ -284,7 +288,7 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
         </StepButton>
       </SearchRow>
       <Status data-testid="mobile-find-status">
-        {trimmed === ""
+        {searchText.trim() === ""
           ? "Type to search the document text."
           : matchCount === 0
           ? "No matches."

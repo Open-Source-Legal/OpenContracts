@@ -430,10 +430,22 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
             // starts from a clean slate (no stale "new-chat"/"history"
             // carry-over).
             setChatOpenMode(null);
+            // Clear the pending submit text too — without this, a user who
+            // submits text, closes the sheet, then opens history could see
+            // the stale text re-delivered to ChatTray's initialMessage.
+            setPendingChatMessage(undefined);
           }}
         >
           <ChatSurface data-testid="mobile-surface-chat">
             <RightPanelContent
+              // `key` forces a fresh ChatTray mount whenever the open
+              // mode flips between new-chat / history. autoStartNewChat
+              // is a one-shot init flag inside ChatTray's `useState`, so
+              // it only takes effect on mount. Keying on `chatOpenMode`
+              // makes the remount intent explicit at the JSX site (and
+              // is resilient to MobileSheet ever switching from
+              // AnimatePresence to a display:none keep-alive).
+              key={chatOpenMode ?? "default"}
               showRightPanel={true}
               sidebarViewMode="chat"
               setSidebarViewMode={setSidebarViewMode}
@@ -454,12 +466,6 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
               setActiveLayer={setActiveLayer}
               setSelectedNote={setSelectedNote}
               pendingChatMessage={pendingChatMessage}
-              // autoStartNewChat is a one-shot init flag inside ChatTray's
-              // useState — it only takes effect when ChatTray (re)mounts. The
-              // wiring relies on MobileSheet's AnimatePresence unmounting its
-              // children on close so each open re-runs the init. If
-              // MobileSheet ever switches to display:none for performance,
-              // this signal will stop taking effect after the first open.
               autoStartNewChat={chatOpenMode === "new-chat"}
             />
           </ChatSurface>
