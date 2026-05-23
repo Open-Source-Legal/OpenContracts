@@ -75,12 +75,29 @@ export const MobileTab = styled.button<{ $active?: boolean }>`
   }
 `;
 
-export const SidebarTabsContainer = styled.div<{ $panelOpen: boolean }>`
-  position: ${(props) => (props.$panelOpen ? "absolute" : "fixed")};
-  left: ${(props) => (props.$panelOpen ? "-48px" : "auto")};
-  right: ${(props) => (props.$panelOpen ? "auto" : "0")};
-  top: 50%;
-  transform: translateY(-50%);
+/**
+ * Vertical container for the sidebar tabs.
+ *
+ * Three positioning modes (mutually exclusive):
+ * - `$panelOpen=true`  → anchored to the left edge of the open right panel
+ *   (`position: absolute; left: -48px`).
+ * - `$bare=true`       → no positioning of its own; the parent (e.g. the
+ *   unified `RightEdgeRail` in DesktopDocumentLayout) handles placement so
+ *   the tabs sit in a single coherent column with sibling controls.
+ * - default            → fixed to the right edge of the viewport, vertically
+ *   centered. Used by the standalone test harness.
+ */
+export const SidebarTabsContainer = styled.div<{
+  $panelOpen: boolean;
+  $bare?: boolean;
+}>`
+  position: ${(props) =>
+    props.$bare ? "relative" : props.$panelOpen ? "absolute" : "fixed"};
+  left: ${(props) =>
+    props.$bare ? "auto" : props.$panelOpen ? "-48px" : "auto"};
+  right: ${(props) => (props.$bare ? "auto" : props.$panelOpen ? "auto" : "0")};
+  top: ${(props) => (props.$bare ? "auto" : "50%")};
+  transform: ${(props) => (props.$bare ? "none" : "translateY(-50%)")};
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -92,11 +109,25 @@ export const SidebarTabsContainer = styled.div<{ $panelOpen: boolean }>`
   }
 `;
 
+/**
+ * A single icon-only rail button used for sidebar tabs and the unified rail's
+ * action buttons. The text label is rendered visually-hidden (.tab-label) so
+ * screen readers still announce it; the visible affordance is the icon plus
+ * the optional CSS-only tooltip rendered through the data-tooltip attribute.
+ * Replaces the previous rotated writing-mode label called out in issue #1734
+ * as hard to scan.
+ *
+ * The optional $accent prop tints the icon at rest / on hover, used by the
+ * rail's action buttons (extracts / analyses / create) to differentiate them
+ * from the navigation tabs while sharing the pill shape and footprint.
+ */
 export const SidebarTab = styled(motion.button)<{
   $isActive: boolean;
   $panelOpen: boolean;
+  $accent?: string;
 }>`
-  width: ${(props) => (props.$panelOpen ? "44px" : "36px")};
+  width: 44px;
+  height: 44px;
   background: ${(props) =>
     props.$isActive
       ? "linear-gradient(90deg, rgba(66, 153, 225, 0.95) 0%, rgba(59, 130, 246, 0.95) 100%)"
@@ -112,11 +143,9 @@ export const SidebarTab = styled(motion.button)<{
   border-radius: 12px 0 0 12px;
   cursor: pointer;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.375rem;
-  padding: 0.5rem 0.375rem;
+  padding: 0;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: ${(props) =>
     props.$isActive
@@ -127,44 +156,86 @@ export const SidebarTab = styled(motion.button)<{
       ? "2px 0 8px rgba(0, 0, 0, 0.05)"
       : "-2px 0 8px rgba(0, 0, 0, 0.05)"};
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 
-  /* Subtle gradient overlay */
+  /* Subtle gradient overlay (sits inside the pill, clipped by border-radius). */
   &::before {
     content: "";
     position: absolute;
     inset: 0;
+    border-radius: inherit;
     background: ${(props) =>
       props.$isActive
         ? "linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%)"
         : "linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, transparent 100%)"};
     opacity: ${(props) => (props.$isActive ? 1 : 0)};
     transition: opacity 0.3s ease;
+    pointer-events: none;
   }
 
   svg {
     width: 18px;
     height: 18px;
     color: ${(props) =>
-      props.$isActive ? "white" : OS_LEGAL_COLORS.textSecondary};
+      props.$isActive
+        ? "white"
+        : props.$accent || OS_LEGAL_COLORS.textSecondary};
     transition: all 0.3s ease;
     position: relative;
     z-index: 1;
     flex-shrink: 0;
   }
 
+  /*
+   * The tab text remains in the DOM (for screen readers + tests grepping
+   * by visible text), but is visually hidden. This replaces the previous
+   * rotated "writing-mode: vertical-rl" rendering called out in
+   * issue #1734 as hard to scan.
+   */
   .tab-label {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: ${(props) =>
-      props.$isActive ? "white" : OS_LEGAL_COLORS.textSecondary};
-    text-transform: uppercase;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
     white-space: nowrap;
-    position: relative;
-    z-index: 1;
+    border: 0;
+  }
+
+  /*
+   * CSS-only hover tooltip. The trigger is the optional "data-tooltip"
+   * attribute (set in DesktopSidebarTabs / FloatingDocumentControls), so
+   * this single styled component serves both the navigation tabs and the
+   * unified-rail action buttons with a consistent affordance.
+   */
+  &[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: ${(props) => (props.$panelOpen ? "calc(100% + 8px)" : "auto")};
+    right: ${(props) => (props.$panelOpen ? "auto" : "calc(100% + 8px)")};
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 4px 10px;
+    background: rgba(15, 23, 42, 0.92);
+    color: white;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    border-radius: 6px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    z-index: 5;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  }
+
+  &:hover[data-tooltip]::after,
+  &:focus-visible[data-tooltip]::after {
+    opacity: 1;
   }
 
   &:hover {
@@ -197,12 +268,9 @@ export const SidebarTab = styled(motion.button)<{
     svg {
       transform: ${(props) => (props.$isActive ? "scale(1.1)" : "scale(1.05)")};
       color: ${(props) =>
-        props.$isActive ? "white" : OS_LEGAL_COLORS.primaryBlue};
-    }
-
-    .tab-label {
-      color: ${(props) =>
-        props.$isActive ? "white" : OS_LEGAL_COLORS.primaryBlue};
+        props.$isActive
+          ? "white"
+          : props.$accent || OS_LEGAL_COLORS.primaryBlue};
     }
   }
 
@@ -232,16 +300,28 @@ export const SidebarTab = styled(motion.button)<{
     width: 48px;
     height: 48px;
     border-radius: 12px;
-    gap: 0;
     padding: 0.5rem;
-
-    .tab-label {
-      display: none;
-    }
 
     svg {
       width: 24px;
       height: 24px;
     }
+  }
+`;
+
+/**
+ * Subtle horizontal separator used inside the unified RightEdgeRail to split
+ * the navigation tabs (top) from the document tool buttons (bottom). Matches
+ * the pill width so the rail still reads as a single coherent column.
+ */
+export const RailDivider = styled.div`
+  width: 28px;
+  height: 1px;
+  background: ${OS_LEGAL_COLORS.border};
+  margin: 4px auto;
+  opacity: 0.7;
+
+  @media (max-width: 768px) {
+    display: none;
   }
 `;

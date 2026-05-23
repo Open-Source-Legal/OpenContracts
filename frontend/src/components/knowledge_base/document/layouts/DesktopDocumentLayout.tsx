@@ -1,4 +1,5 @@
 import React from "react";
+import styled from "styled-components";
 import { AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 
@@ -30,6 +31,7 @@ import { DocumentModals } from "../document_kb/DocumentModals";
 import { AnalysisExtractContextBar } from "../document_kb/ContextBar";
 import { DesktopSidebarTabs } from "../document_kb/SidebarTabs";
 import { HeaderBar } from "../document_kb/HeaderBar";
+import { RailDivider } from "../styled/SidebarTabs";
 
 import {
   ZOOM_MIN,
@@ -37,6 +39,40 @@ import {
 } from "../../../../assets/configurations/constants";
 
 import { DocumentLayoutProps } from "./types";
+
+/**
+ * Unified right-edge control rail. Anchors against the viewport's right edge,
+ * vertically centered, and stacks the {@link DesktopSidebarTabs} (top) above
+ * the {@link FloatingDocumentControls} action buttons (bottom) as a single
+ * coherent column — resolving the "two competing vertical stacks" desktop
+ * polish issue (#1734). Only used when the right panel is closed; when the
+ * panel is open the tabs anchor to its left edge and the action buttons
+ * keep their own bottom-right placement.
+ *
+ * Hidden on narrow viewports — the mobile layout handles the equivalent
+ * affordances via its dedicated tab bar / ask bar.
+ */
+const RightEdgeRail = styled.div`
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  z-index: 1999;
+  pointer-events: none;
+
+  /* Children own their own pointer events so the rail itself is hit-through. */
+  > * {
+    pointer-events: auto;
+  }
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
 
 /**
  * Desktop layout for the DocumentKnowledgeBase. Renders the full-screen modal
@@ -260,47 +296,6 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 </ZoomIndicator>
               )}
 
-              {/* Floating Document Controls - only in document layer */}
-              <FloatingDocumentControls
-                visible={activeLayer === "document"}
-                showRightPanel={showRightPanel}
-                onAnalysesClick={() => {
-                  if (!corpusId) {
-                    toast.info("Add document to corpus to run analyses");
-                    setShowAddToCorpusModal(true);
-                  } else {
-                    setShowAnalysesPanel(!showAnalysesPanel);
-                  }
-                }}
-                onExtractsClick={() => {
-                  if (!corpusId) {
-                    toast.info("Add document to corpus for data extraction");
-                    setShowAddToCorpusModal(true);
-                  } else {
-                    setShowExtractsPanel(!showExtractsPanel);
-                  }
-                }}
-                onSummaryClick={() => {
-                  setActiveLayer("knowledge");
-                  setShowRightPanel(false);
-                  setSelectedSummaryContent(null);
-                  setChatSourceState((prev) => ({
-                    ...prev,
-                    selectedMessageId: null,
-                    selectedSourceIndex: null,
-                  }));
-                }}
-                analysesOpen={showAnalysesPanel}
-                extractsOpen={showExtractsPanel}
-                panelOffset={floatingControlsState.offset}
-                readOnly={readOnly}
-                panelWidthMode={mode === "custom" ? "half" : mode}
-                onPanelWidthChange={setMode}
-                autoZoomEnabled={autoZoomEnabled}
-                onAutoZoomChange={setAutoZoomEnabled}
-                hideDocumentTools={showRightPanel && sidebarViewMode === "chat"}
-              />
-
               {/* Floating Analyses Panel - only show with corpus and when no analysis selected (results now in sidebar) */}
               {corpusId && (
                 <FloatingAnalysesPanel
@@ -331,19 +326,122 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 />
               )}
 
-              {/* Sidebar View Mode Tabs - shown to the right of the document
-                  while the panel is closed; the panel-open variant lives
-                  inside the SlidingPanel below. */}
+              {/*
+               * Panel CLOSED: unified right-edge rail combining the navigation
+               * tabs (top) and the document tool buttons (bottom) into a
+               * single coherent vertical column. Resolves issue #1734
+               * (two competing right-edge stacks).
+               *
+               * Panel OPEN: the tabs anchor to the left edge of the open
+               * panel (rendered inside SlidingPanel below) and the action
+               * buttons keep their own bottom-right placement so the
+               * panel-width FAB can ride alongside the open panel.
+               */}
               {!showRightPanel && (
-                <DesktopSidebarTabs
-                  panelOpen={false}
-                  sidebarViewMode={sidebarViewMode}
-                  setSidebarViewMode={setSidebarViewMode}
-                  setShowRightPanel={setShowRightPanel}
-                  setMode={setMode}
-                  selectedAnalysis={selectedAnalysis}
-                  selectedExtract={selectedExtract}
-                  threadCount={threadCount}
+                <RightEdgeRail data-testid="right-edge-rail">
+                  <DesktopSidebarTabs
+                    panelOpen={false}
+                    bareContainer
+                    sidebarViewMode={sidebarViewMode}
+                    setSidebarViewMode={setSidebarViewMode}
+                    setShowRightPanel={setShowRightPanel}
+                    setMode={setMode}
+                    selectedAnalysis={selectedAnalysis}
+                    selectedExtract={selectedExtract}
+                    threadCount={threadCount}
+                  />
+                  <RailDivider aria-hidden="true" />
+                  <FloatingDocumentControls
+                    visible={activeLayer === "document"}
+                    bareContainer
+                    showRightPanel={false}
+                    onAnalysesClick={() => {
+                      if (!corpusId) {
+                        toast.info("Add document to corpus to run analyses");
+                        setShowAddToCorpusModal(true);
+                      } else {
+                        setShowAnalysesPanel(!showAnalysesPanel);
+                      }
+                    }}
+                    onExtractsClick={() => {
+                      if (!corpusId) {
+                        toast.info(
+                          "Add document to corpus for data extraction"
+                        );
+                        setShowAddToCorpusModal(true);
+                      } else {
+                        setShowExtractsPanel(!showExtractsPanel);
+                      }
+                    }}
+                    onSummaryClick={() => {
+                      setActiveLayer("knowledge");
+                      setShowRightPanel(false);
+                      setSelectedSummaryContent(null);
+                      setChatSourceState((prev) => ({
+                        ...prev,
+                        selectedMessageId: null,
+                        selectedSourceIndex: null,
+                      }));
+                    }}
+                    analysesOpen={showAnalysesPanel}
+                    extractsOpen={showExtractsPanel}
+                    panelOffset={0}
+                    readOnly={readOnly}
+                    panelWidthMode={mode === "custom" ? "half" : mode}
+                    onPanelWidthChange={setMode}
+                    autoZoomEnabled={autoZoomEnabled}
+                    onAutoZoomChange={setAutoZoomEnabled}
+                    hideDocumentTools={false}
+                  />
+                </RightEdgeRail>
+              )}
+
+              {/*
+               * Panel OPEN: the action-buttons cluster stays at the bottom
+               * right (offset to clear the open panel) so the panel-width
+               * FAB is reachable alongside the open panel. The navigation
+               * tabs render inside the SlidingPanel (below) and are
+               * therefore omitted from the rail when the panel is open.
+               */}
+              {showRightPanel && (
+                <FloatingDocumentControls
+                  visible={activeLayer === "document"}
+                  showRightPanel
+                  onAnalysesClick={() => {
+                    if (!corpusId) {
+                      toast.info("Add document to corpus to run analyses");
+                      setShowAddToCorpusModal(true);
+                    } else {
+                      setShowAnalysesPanel(!showAnalysesPanel);
+                    }
+                  }}
+                  onExtractsClick={() => {
+                    if (!corpusId) {
+                      toast.info("Add document to corpus for data extraction");
+                      setShowAddToCorpusModal(true);
+                    } else {
+                      setShowExtractsPanel(!showExtractsPanel);
+                    }
+                  }}
+                  onSummaryClick={() => {
+                    setActiveLayer("knowledge");
+                    setShowRightPanel(false);
+                    setSelectedSummaryContent(null);
+                    setChatSourceState((prev) => ({
+                      ...prev,
+                      selectedMessageId: null,
+                      selectedSourceIndex: null,
+                    }));
+                  }}
+                  analysesOpen={showAnalysesPanel}
+                  extractsOpen={showExtractsPanel}
+                  panelOffset={floatingControlsState.offset}
+                  readOnly={readOnly}
+                  panelWidthMode={mode === "custom" ? "half" : mode}
+                  onPanelWidthChange={setMode}
+                  autoZoomEnabled={autoZoomEnabled}
+                  onAutoZoomChange={setAutoZoomEnabled}
+                  hideDocumentTools={sidebarViewMode === "chat"}
                 />
               )}
 

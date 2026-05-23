@@ -26,58 +26,64 @@ import {
   DESKTOP_FLOATING_CONTROLS_BOTTOM,
   MOBILE_FLOATING_CONTROLS_BOTTOM,
 } from "../../../assets/configurations/constants";
+import { SidebarTab } from "./styled/SidebarTabs";
 
-const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
-  position: fixed;
-  bottom: ${DESKTOP_FLOATING_CONTROLS_BOTTOM};
-  right: ${(props) =>
-    props.$panelOffset ? `${props.$panelOffset + 32}px` : "2rem"};
-  z-index: 2001;
-  display: flex;
-  flex-direction: column-reverse;
-  align-items: flex-end;
-  gap: 0.75rem;
-  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+/**
+ * Vertical container for the floating document controls.
+ *
+ * Three positioning modes:
+ * - `$bare=true`     → no positioning of its own; the parent (the unified
+ *   `RightEdgeRail` in DesktopDocumentLayout, panel-closed case) stacks the
+ *   action buttons directly below the navigation tabs in a single coherent
+ *   rail. Closes the two-stack visual called out in issue #1734.
+ * - panel open       → bottom-right with `$panelOffset` so the cluster
+ *   clears the open right panel.
+ * - panel closed and not bare → legacy bottom-right placement (kept for
+ *   mobile and for the standalone component test wrapper).
+ */
+const ControlsContainer = styled(motion.div)<{
+  $panelOffset?: number;
+  $bare?: boolean;
+}>`
+  ${(props) =>
+    props.$bare
+      ? `
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  `
+      : `
+    position: fixed;
+    bottom: ${DESKTOP_FLOATING_CONTROLS_BOTTOM};
+    right: ${props.$panelOffset ? `${props.$panelOffset + 32}px` : "2rem"};
+    z-index: 2001;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    gap: 0.75rem;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  @media (max-width: 768px) {
-    right: 1rem;
-    bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
-  }
+    @media (max-width: 768px) {
+      right: 1rem;
+      bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
+    }
+  `}
 `;
 
-const ActionButton = styled(motion.button)<{ $color?: string }>`
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: ${(props) => props.$color || "white"};
-  border: 2px solid ${OS_LEGAL_COLORS.border};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s ease;
-
-  svg {
-    width: 24px;
-    height: 24px;
-    color: ${(props) =>
-      props.$color ? "white" : OS_LEGAL_COLORS.textSecondary};
-    transition: transform 0.3s ease;
-  }
-
-  &:hover {
-    border-color: ${(props) => props.$color || OS_LEGAL_COLORS.primaryBlue};
-    box-shadow: 0 6px 20px
-      ${(props) =>
-        props.$color ? `${props.$color}30` : "rgba(59, 130, 246, 0.15)"};
-
-    svg {
-      color: ${(props) =>
-        props.$color ? "white" : OS_LEGAL_COLORS.primaryBlue};
-    }
-  }
-
+/**
+ * Action button (extracts / analyses / create / settings / width). Shares the
+ * `SidebarTab` pill shape and footprint so the unified RightEdgeRail reads as
+ * a single coherent control region — the rotated-tabs vs floating-FABs
+ * mismatch flagged in issue #1734 is gone.
+ *
+ * The optional `$accent` color tints the icon at rest and on hover, used to
+ * keep the lightweight per-action color cues (analyses=amber, extracts=violet,
+ * create=green) without the heavy colored-circle treatment.
+ */
+const ActionButton = styled(SidebarTab)`
+  /* Expanded state (settings / width menu open) rotates the icon. */
   &[data-expanded="true"] svg {
     transform: rotate(45deg);
   }
@@ -291,6 +297,14 @@ interface FloatingDocumentControlsProps {
    * control is kept since it's directly relevant to the open panel.
    */
   hideDocumentTools?: boolean;
+  /**
+   * When true, render without the legacy bottom-right fixed positioning so a
+   * parent container (the unified `RightEdgeRail` in DesktopDocumentLayout)
+   * can stack these action buttons directly below the navigation tabs as one
+   * coherent vertical rail (issue #1734). Overlay popovers (settings,
+   * panel-width menu) still position relative to this container.
+   */
+  bareContainer?: boolean;
 }
 
 export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
@@ -310,6 +324,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
       autoZoomEnabled = true,
       onAutoZoomChange,
       hideDocumentTools = false,
+      bareContainer = false,
     }) => {
       const [expandedSettings, setExpandedSettings] = useState(false);
       const [expandedWidthMenu, setExpandedWidthMenu] = useState(false);
@@ -356,7 +371,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
 
       // Desktop Layout
       return (
-        <ControlsContainer $panelOffset={panelOffset}>
+        <ControlsContainer $panelOffset={panelOffset} $bare={bareContainer}>
           <AnimatePresence>
             {expandedWidthMenu && showRightPanel && (
               <ControlPanel
@@ -461,8 +476,13 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           {/* Width control button - only show when right panel is open */}
           {showRightPanel && (
             <ActionButton
+              $isActive={expandedWidthMenu}
+              $panelOpen={false}
               data-expanded={expandedWidthMenu}
               data-testid="width-button"
+              data-tooltip="Panel width"
+              aria-label="Panel width"
+              aria-expanded={expandedWidthMenu}
               onClick={() => setExpandedWidthMenu(!expandedWidthMenu)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -475,8 +495,13 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           {/* Only show Settings button when right panel is closed */}
           {!showRightPanel && (
             <ActionButton
+              $isActive={expandedSettings}
+              $panelOpen={false}
               data-expanded={expandedSettings}
               data-testid="settings-button"
+              data-tooltip="Annotation filters"
+              aria-label="Annotation filters"
+              aria-expanded={expandedSettings}
               onClick={() => setExpandedSettings(!expandedSettings)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -489,8 +514,13 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           {!hideDocumentTools && (
             <>
               <ActionButton
-                $color="#8b5cf6"
+                $isActive={extractsOpen}
+                $panelOpen={false}
+                $accent="#8b5cf6"
                 data-testid="extracts-button"
+                data-tooltip="View extracts"
+                aria-label="View extracts"
+                aria-pressed={extractsOpen}
                 onClick={() => {
                   /*
                    * Ensure exclusivity: if the analyses panel is open we close it before
@@ -513,8 +543,13 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
               </ActionButton>
 
               <ActionButton
-                $color={OS_LEGAL_COLORS.folderIcon}
+                $isActive={analysesOpen}
+                $panelOpen={false}
+                $accent={OS_LEGAL_COLORS.folderIcon}
                 data-testid="analyses-button"
+                data-tooltip="View analyses"
+                aria-label="View analyses"
+                aria-pressed={analysesOpen}
                 onClick={() => {
                   /*
                    * Mirror logic for analyses button.
@@ -536,8 +571,12 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
 
               {canCreateAnalysis && !readOnly && selectedCorpus && (
                 <ActionButton
-                  $color={OS_LEGAL_COLORS.greenMedium}
+                  $isActive={false}
+                  $panelOpen={false}
+                  $accent={OS_LEGAL_COLORS.greenMedium}
                   data-testid="create-analysis-button"
+                  data-tooltip="Start new analysis"
+                  aria-label="Start new analysis"
                   onClick={() => showSelectCorpusAnalyzerOrFieldsetModal(true)}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
