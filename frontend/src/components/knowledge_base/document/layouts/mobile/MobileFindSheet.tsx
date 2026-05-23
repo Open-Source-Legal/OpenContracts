@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { ChevronDown, ChevronUp, Search } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { MOBILE_FIND_MAX_VISIBLE_RESULTS } from "../../../../../assets/configurations/constants";
 import { MOBILE_FOCUS_RING, MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 import {
   useSearchText,
@@ -112,6 +113,10 @@ const ResultsList = styled.ul`
   min-height: 0;
 `;
 
+const ResultListItem = styled.li`
+  list-style: none;
+`;
+
 const ResultRow = styled.button<{ $selected: boolean }>`
   text-align: left;
   width: 100%;
@@ -178,14 +183,6 @@ const OverflowNotice = styled.li`
   color: ${OS_LEGAL_COLORS.textSecondary};
   text-align: center;
 `;
-
-/**
- * Cap on rendered rows. Searches for common words in long documents can
- * produce hundreds of matches; rendering them all causes frame drops on
- * mobile scroll. The prev/next chevrons + the status counter still operate
- * over the full match set — only the in-sheet list view is truncated.
- */
-const MOBILE_FIND_MAX_VISIBLE_RESULTS = 100;
 
 function isTokenResult(
   result: TextSearchTokenResult | TextSearchSpanResult
@@ -316,19 +313,20 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
                 result.text
               );
               return (
-                <ResultRow
-                  key={result.id}
-                  type="button"
-                  $selected={index === selectedTextSearchMatchIndex}
-                  onClick={() => handleSelectResult(index)}
-                  data-testid={`mobile-find-result-${index}`}
-                >
-                  <ResultMeta>
-                    <ResultIndex>Match {index + 1}</ResultIndex>
-                    <span>{pageLabel}</span>
-                  </ResultMeta>
-                  <ResultSnippet>{snippetNode ?? fallback}</ResultSnippet>
-                </ResultRow>
+                <ResultListItem key={result.id}>
+                  <ResultRow
+                    type="button"
+                    $selected={index === selectedTextSearchMatchIndex}
+                    onClick={() => handleSelectResult(index)}
+                    data-testid={`mobile-find-result-${index}`}
+                  >
+                    <ResultMeta>
+                      <ResultIndex>Match {index + 1}</ResultIndex>
+                      <span>{pageLabel}</span>
+                    </ResultMeta>
+                    <ResultSnippet>{snippetNode ?? fallback}</ResultSnippet>
+                  </ResultRow>
+                </ResultListItem>
               );
             })}
           {matchCount > MOBILE_FIND_MAX_VISIBLE_RESULTS && (
