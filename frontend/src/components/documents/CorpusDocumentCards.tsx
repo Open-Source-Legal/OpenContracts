@@ -113,11 +113,12 @@ export const CorpusDocumentCards = ({
           inCorpusWithId: opened_corpus_id,
           includeMetadata: true,
           includeCaml: true,
-          // Only filter by folder when inside a corpus
-          // null (corpus root) = "__root__" to show only root-level docs
-          // string = specific folder ID
-          // Note: Invalid folder IDs will return 0 results (no validation performed)
-          // This is intentional - empty folders and non-existent folders behave the same
+          // Folder filter is descendant-aware (see DocumentFilter.in_folder):
+          // null (no folder selected) = "__root__" = every document in the
+          //   corpus, regardless of folder nesting.
+          // string = a specific folder ID = documents in that folder and all
+          //   of its sub-folders.
+          // Note: invalid folder IDs return 0 results (no validation performed).
           inFolderId:
             selected_folder_id === null ? "__root__" : selected_folder_id,
         }
