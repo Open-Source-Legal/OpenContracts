@@ -3185,11 +3185,7 @@ test.describe("Desktop bottom toolbar consolidation (#1735)", () => {
 
     // Open the search/chat input so the centre slot is populated and assert
     // it lands between the summary button and the label selector.
-    const searchToggle = bar
-      .locator("button")
-      .filter({ has: page.locator('svg.lucide-search, svg[class*="search"]') })
-      .first();
-    await searchToggle.click();
+    await page.getByTestId("search-toggle-button").click();
     const searchInput = page.getByPlaceholder("Search document...");
     await expect(searchInput).toBeVisible({ timeout: LONG_TIMEOUT });
     const inputBox = await searchInput.boundingBox();

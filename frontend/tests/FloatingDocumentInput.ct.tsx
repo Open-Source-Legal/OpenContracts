@@ -71,9 +71,9 @@ test.describe("FloatingDocumentInput", () => {
       </JotaiProvider>
     );
 
-    // Chat toggle button should not be visible in read-only mode
-    const chatButton = component.locator('[data-testid="chat-toggle"]');
-    await expect(chatButton).not.toBeVisible();
+    // Chat toggle button should not be rendered in read-only mode
+    const chatButton = component.locator('[data-testid="chat-toggle-button"]');
+    await expect(chatButton).toHaveCount(0);
   });
 
   test("read-only: prevents switching to chat mode", async ({ mount }) => {

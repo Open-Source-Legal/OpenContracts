@@ -266,7 +266,11 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                     activeSpanLabel={canEdit ? activeSpanLabel ?? null : null}
                     setActiveLabel={canEdit ? setActiveSpanLabel : () => {}}
                     showRightPanel={showRightPanel}
-                    panelOffset={floatingControlsState.offset}
+                    // panelOffset is a no-op in inline (fixed=false) mode
+                    // — the parent DocumentBottomBar owns the offset via
+                    // its own `right: $panelOffset`. Passing 0 here makes
+                    // the no-op explicit.
+                    panelOffset={0}
                     hideControls={!floatingControlsState.visible || !canEdit}
                     readOnly={!canEdit}
                     fixed={false}

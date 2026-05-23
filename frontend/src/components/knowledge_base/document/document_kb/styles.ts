@@ -135,18 +135,9 @@ export const DocumentBottomBar = styled.div<{ $panelOffset: number }>`
   z-index: 850;
   transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  @media (max-width: 768px) {
-    /* Mobile uses its own toolbar — keep the bar in place only for the
-       FloatingDocumentInput which the mobile sheet portals into. */
-    position: absolute;
-    top: 80px;
-    left: 1rem;
-    right: auto;
-    bottom: auto;
-    width: auto;
-    display: block;
-    z-index: 950;
-  }
+  /* No mobile media query: DesktopDocumentLayout is only mounted by
+     DocumentKnowledgeBase when isMobile=false (width >= 768). Mobile
+     uses MobileDocumentLayout's own toolbar instead. */
 `;
 
 /** Left slot: anchors the summary entry-point to the bar's left edge. */
@@ -163,12 +154,6 @@ export const DocumentBottomBarCenter = styled.div`
   display: flex;
   align-items: flex-end;
   pointer-events: auto;
-
-  @media (max-width: 768px) {
-    /* Mobile retains the legacy collapsed-pill layout. */
-    width: auto;
-    display: block;
-  }
 `;
 
 /** Right slot: anchors the active-label indicator to the bar's right edge. */
