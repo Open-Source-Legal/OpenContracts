@@ -152,6 +152,23 @@ test.describe("DesktopSidebarTabs", () => {
     }
   });
 
+  test("discussions tab uses the singular thread form when threadCount is 1", async ({
+    mount,
+    page,
+  }) => {
+    // Pluralization edge case: threadCount={1} should announce "1 thread"
+    // not "1 threads". Pinned as its own test so the conditional in
+    // SidebarTabs.tsx stays a regression-guarded path.
+    await mount(<SidebarTabsHarness variant="desktop" threadCount={1} />);
+
+    const tab = page.getByTestId("view-mode-discussions");
+    await expect(tab).toHaveAttribute(
+      "aria-label",
+      "Document discussions, 1 thread"
+    );
+    await expect(tab).toHaveAttribute("data-tooltip", "Discussions (1)");
+  });
+
   test("tab labels are visually hidden but in the DOM for screen readers", async ({
     mount,
     page,

@@ -93,8 +93,7 @@ export const SidebarTabsContainer = styled.div<{
 }>`
   position: ${(props) =>
     props.$bare ? "relative" : props.$panelOpen ? "absolute" : "fixed"};
-  left: ${(props) =>
-    props.$bare ? "auto" : props.$panelOpen ? "-48px" : "auto"};
+  left: ${(props) => (!props.$panelOpen || props.$bare ? "auto" : "-48px")};
   right: ${(props) => (props.$bare ? "auto" : props.$panelOpen ? "auto" : "0")};
   top: ${(props) => (props.$bare ? "auto" : "50%")};
   transform: ${(props) => (props.$bare ? "none" : "translateY(-50%)")};
@@ -320,8 +319,4 @@ export const RailDivider = styled.div`
   background: ${OS_LEGAL_COLORS.border};
   margin: 4px auto;
   opacity: 0.7;
-
-  @media (max-width: 768px) {
-    display: none;
-  }
 `;

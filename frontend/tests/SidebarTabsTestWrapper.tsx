@@ -200,7 +200,6 @@ export const RightEdgeRailHarness: React.FC<RightEdgeRailHarnessProps> = ({
           $panelOpen={false}
           data-tooltip="Annotation filters"
           aria-label="Annotation filters"
-          title="Annotation filters"
         >
           <Settings />
         </SidebarTab>
@@ -210,7 +209,6 @@ export const RightEdgeRailHarness: React.FC<RightEdgeRailHarnessProps> = ({
           $accent="#8b5cf6"
           data-tooltip="View extracts"
           aria-label="View extracts"
-          title="View extracts"
         >
           <Database />
         </SidebarTab>
@@ -220,7 +218,6 @@ export const RightEdgeRailHarness: React.FC<RightEdgeRailHarnessProps> = ({
           $accent={OS_LEGAL_COLORS.folderIcon}
           data-tooltip="View analyses"
           aria-label="View analyses"
-          title="View analyses"
         >
           <BarChart3 />
         </SidebarTab>
@@ -231,7 +228,6 @@ export const RightEdgeRailHarness: React.FC<RightEdgeRailHarnessProps> = ({
             $accent={OS_LEGAL_COLORS.greenMedium}
             data-tooltip="Start new analysis"
             aria-label="Start new analysis"
-            title="Start new analysis"
           >
             <Plus />
           </SidebarTab>

@@ -106,7 +106,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         data-testid="view-mode-index"
         data-tooltip="Index"
         aria-label="Document index"
-        title="Document index"
       >
         <BookOpen />
         <span className="tab-label">Index</span>
@@ -120,7 +119,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         data-testid="view-mode-chat"
         data-tooltip="Chat"
         aria-label="Chat with this document"
-        title="Chat with this document"
       >
         <MessageSquare />
         <span className="tab-label">Chat</span>
@@ -134,7 +132,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         data-testid="view-mode-feed"
         data-tooltip="Feed"
         aria-label="Annotation feed"
-        title="Annotation feed"
       >
         <Layers />
         <span className="tab-label">Feed</span>
@@ -149,7 +146,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
           data-testid="view-mode-extract"
           data-tooltip="Extract"
           aria-label="Extract results"
-          title="Extract results"
         >
           <Database />
           <span className="tab-label">Extract</span>
@@ -165,7 +161,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
           data-testid="view-mode-analysis"
           data-tooltip="Analysis"
           aria-label="Analysis results"
-          title="Analysis results"
         >
           <BarChart3 />
           <span className="tab-label">Analysis</span>
@@ -188,7 +183,6 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
               }`
             : "Document discussions"
         }
-        title="Document discussions"
       >
         {threadCount > 0 && (
           <TabBadge $isActive={sidebarViewMode === "discussions"}>

@@ -440,7 +440,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                     onClick={() => setExpandedSettings(false)}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    title="Close"
+                    aria-label="Close annotation filters"
                     data-testid="close-settings-button"
                   >
                     <X />
@@ -486,7 +486,6 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
               onClick={() => setExpandedWidthMenu(!expandedWidthMenu)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              title="Panel Width"
             >
               <Columns />
             </ActionButton>
@@ -505,7 +504,6 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
               onClick={() => setExpandedSettings(!expandedSettings)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              title="Annotation Filters"
             >
               <Settings />
             </ActionButton>
@@ -537,7 +535,6 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                 }}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                title="View Extracts"
               >
                 <Database />
               </ActionButton>
@@ -564,7 +561,6 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                 }}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                title="View Analyses"
               >
                 <BarChart3 />
               </ActionButton>
@@ -580,7 +576,6 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
                   onClick={() => showSelectCorpusAnalyzerOrFieldsetModal(true)}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  title="Start New Analysis"
                 >
                   <Plus />
                 </ActionButton>
