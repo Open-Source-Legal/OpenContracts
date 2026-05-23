@@ -543,8 +543,12 @@ class DocumentFilter(django_filters.FilterSet):
 
         # ``get_descendant_folders`` includes the folder itself, so this
         # covers documents directly in the folder and in every sub-folder.
+        # Scope the path lookup to ``folder.corpus_id`` so the subquery is
+        # self-contained and not implicitly reliant on ``in_corpus`` having
+        # already filtered the queryset.
         doc_ids = DocumentPath.objects.filter(
             folder__in=folder.get_descendant_folders(),
+            corpus_id=folder.corpus_id,
             is_current=True,
             is_deleted=False,
         ).values_list("document_id", flat=True)
