@@ -29,15 +29,16 @@ Both layers work together: the manager/queryset produces the base filtered set, 
 
 | Optimizer | File | Scope |
 |-----------|------|-------|
-| `AnnotationQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:16-667` | Annotation + Relationship bulk permissions |
-| `AnalysisQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:946-1148` | Analysis visibility with corpus checks |
-| `ExtractQueryOptimizer` | `opencontractserver/annotations/query_optimizer.py:1150-1349` | Extract visibility with corpus checks |
+| `AnnotationService` | `opencontractserver/annotations/services/annotation_service.py` | Annotation bulk permissions |
+| `RelationshipService` | `opencontractserver/annotations/services/relationship_service.py` | Relationship bulk permissions |
+| `AnalysisService` | `opencontractserver/analyzer/services/analysis_service.py` | Analysis visibility with corpus checks |
+| `ExtractService` | `opencontractserver/extracts/services/extract_service.py` | Extract visibility with corpus checks |
 | `ConversationService` | `opencontractserver/conversations/services/conversation_service.py` | Request-level caching for corpus/doc visibility |
 | `PermissionQueryOptimizer` | `opencontractserver/utils/permission_optimizer.py` | Per-request `user_can` cache for any visibility-managed model |
 | `DocumentActionsService` | `opencontractserver/documents/services/actions.py` | Document action permissions |
 | `DocumentRelationshipService` | `opencontractserver/documents/services/relationships.py` | Document relationship permissions |
 | `DocumentVersionService` | `opencontractserver/documents/services/versions.py` | Document version-tree counts |
-| `MetadataQueryOptimizer` | `opencontractserver/extracts/query_optimizer.py:19-572` | Extract metadata permissions |
+| `MetadataService` | `opencontractserver/extracts/services/metadata.py` | Extract metadata permissions |
 | `BadgeService` | `opencontractserver/badges/services/badge_service.py` | Badge visibility |
 | `UserService` | `opencontractserver/users/services/user_service.py` | User profile permissions |
 

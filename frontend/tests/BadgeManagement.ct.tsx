@@ -231,4 +231,93 @@ test.describe("BadgeManagement", () => {
 
     await component.unmount();
   });
+
+  test("clicking the delete badge button opens the confirm modal", async ({
+    mount,
+    page,
+  }) => {
+    // Covers the delete-button onClick path (setBadgeToDelete + setDeleteModalOpen)
+    // and the ConfirmModal render branch, which the existing tests didn't reach.
+    const component = await mount(
+      <BadgeManagementTestWrapper mocks={createAllMocks()} />
+    );
+
+    await expect(page.getByText("Annotation Pro")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const deleteButtons = page.getByRole("button", { name: "Delete badge" });
+    await deleteButtons.first().click();
+
+    // ConfirmModal should appear referencing the badge name
+    await expect(page.getByText(/Annotation Pro/).first()).toBeVisible({
+      timeout: 5000,
+    });
+    // The confirm modal asks for confirmation
+    await expect(
+      page.getByText(/Are you sure you want to delete/).first()
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("toggling auto-award reveals criteria config", async ({
+    mount,
+    page,
+  }) => {
+    // Covers the isAutoAwarded checkbox onChange branch (and re-toggle path
+    // that clears criteriaConfig), plus the conditional BadgeCriteriaConfig
+    // render — none of which the existing tests touched.
+    const component = await mount(
+      <BadgeManagementTestWrapper mocks={createAllMocks()} />
+    );
+
+    await expect(page.getByText("Badge Management")).toBeVisible({
+      timeout: 10000,
+    });
+    await page.getByRole("button", { name: "Create Badge" }).click();
+    await expect(page.getByText("Create New Badge")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const autoAwardCheckbox = page.locator("input[type=checkbox]").first();
+    await autoAwardCheckbox.check();
+    await expect(autoAwardCheckbox).toBeChecked();
+
+    // Re-toggle off — exercises the else branch that resets criteriaConfig
+    await autoAwardCheckbox.uncheck();
+    await expect(autoAwardCheckbox).not.toBeChecked();
+
+    await component.unmount();
+  });
+
+  test("keeps the badge table horizontally scrollable on mobile", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard for issue #1749: the wide badge table must scroll
+    // horizontally on small viewports rather than crush its columns.
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const component = await mount(
+      <BadgeManagementTestWrapper mocks={createAllMocks()} />
+    );
+
+    await expect(page.getByText("Annotation Pro")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const scroll = page.getByTestId("badge-management-table-scroll");
+    await expect(scroll).toBeVisible();
+    const overflowX = await scroll.evaluate(
+      (el) => getComputedStyle(el).overflowX
+    );
+    expect(overflowX).toBe("auto");
+    const scrolls = await scroll.evaluate(
+      (el) => el.scrollWidth > el.clientWidth
+    );
+    expect(scrolls).toBe(true);
+
+    await component.unmount();
+  });
 });

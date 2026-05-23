@@ -34,10 +34,30 @@ import {
 import { ConfirmModal } from "../widgets/modals/ConfirmModal";
 import * as LucideIcons from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { GradientSegment as StyledSegment } from "../layout/SharedSegments";
+import {
+  MOBILE_VIEW_BREAKPOINT,
+  BADGE_TABLE_MIN_WIDTH_PX,
+} from "../../assets/configurations/constants";
+import {
+  GradientSegment as StyledSegment,
+  PageHeader as BasePageHeader,
+  ScrollableTableWrapper,
+} from "../layout/SharedSegments";
 
 const Container = styled.div`
-  padding: 2em;
+  padding: 2rem;
+
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    padding: 1rem;
+  }
+`;
+
+const PageHeader = styled(BasePageHeader)`
+  margin-bottom: 1em;
+
+  h2 {
+    margin: 0;
+  }
 `;
 
 // Get list of available lucide icons for dropdown
@@ -178,14 +198,7 @@ export const BadgeManagement: React.FC<BadgeManagementProps> = ({
   return (
     <Container>
       <StyledSegment>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "1em",
-          }}
-        >
+        <PageHeader>
           <h2>Badge Management</h2>
           <Button
             variant="primary"
@@ -194,60 +207,65 @@ export const BadgeManagement: React.FC<BadgeManagementProps> = ({
           >
             Create Badge
           </Button>
-        </div>
+        </PageHeader>
 
-        <Table variant="bordered">
-          <Table.Head>
-            <Table.Row>
-              <Table.HeadCell>Badge</Table.HeadCell>
-              <Table.HeadCell>Type</Table.HeadCell>
-              <Table.HeadCell>Description</Table.HeadCell>
-              <Table.HeadCell>Auto-Award</Table.HeadCell>
-              <Table.HeadCell>Actions</Table.HeadCell>
-            </Table.Row>
-          </Table.Head>
-          <Table.Body>
-            {badges.map((badge) => (
-              <Table.Row key={badge.id}>
-                <Table.Cell>
-                  <Badge
-                    badge={{
-                      id: badge.id,
-                      name: badge.name,
-                      description: badge.description,
-                      icon: badge.icon,
-                      color: badge.color,
-                      badgeType: badge.badgeType,
-                    }}
-                    showTooltip={false}
-                  />
-                </Table.Cell>
-                <Table.Cell>{badge.badgeType}</Table.Cell>
-                <Table.Cell>{badge.description}</Table.Cell>
-                <Table.Cell>
-                  {badge.isAutoAwarded ? (
-                    <Check size={16} color={OS_LEGAL_COLORS.success} />
-                  ) : (
-                    <X size={16} color={OS_LEGAL_COLORS.danger} />
-                  )}
-                </Table.Cell>
-                <Table.Cell>
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Delete badge"
-                    onClick={() => {
-                      setBadgeToDelete(badge);
-                      setDeleteModalOpen(true);
-                    }}
-                  >
-                    <Trash2 size={14} color={OS_LEGAL_COLORS.danger} />
-                  </IconButton>
-                </Table.Cell>
+        <ScrollableTableWrapper
+          $minWidth={`${BADGE_TABLE_MIN_WIDTH_PX}px`}
+          data-testid="badge-management-table-scroll"
+        >
+          <Table variant="bordered">
+            <Table.Head>
+              <Table.Row>
+                <Table.HeadCell>Badge</Table.HeadCell>
+                <Table.HeadCell>Type</Table.HeadCell>
+                <Table.HeadCell>Description</Table.HeadCell>
+                <Table.HeadCell>Auto-Award</Table.HeadCell>
+                <Table.HeadCell>Actions</Table.HeadCell>
               </Table.Row>
-            ))}
-          </Table.Body>
-        </Table>
+            </Table.Head>
+            <Table.Body>
+              {badges.map((badge) => (
+                <Table.Row key={badge.id}>
+                  <Table.Cell>
+                    <Badge
+                      badge={{
+                        id: badge.id,
+                        name: badge.name,
+                        description: badge.description,
+                        icon: badge.icon,
+                        color: badge.color,
+                        badgeType: badge.badgeType,
+                      }}
+                      showTooltip={false}
+                    />
+                  </Table.Cell>
+                  <Table.Cell>{badge.badgeType}</Table.Cell>
+                  <Table.Cell>{badge.description}</Table.Cell>
+                  <Table.Cell>
+                    {badge.isAutoAwarded ? (
+                      <Check size={16} color={OS_LEGAL_COLORS.success} />
+                    ) : (
+                      <X size={16} color={OS_LEGAL_COLORS.danger} />
+                    )}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Delete badge"
+                      onClick={() => {
+                        setBadgeToDelete(badge);
+                        setDeleteModalOpen(true);
+                      }}
+                    >
+                      <Trash2 size={14} color={OS_LEGAL_COLORS.danger} />
+                    </IconButton>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table>
+        </ScrollableTableWrapper>
       </StyledSegment>
 
       {/* Create Badge Modal */}

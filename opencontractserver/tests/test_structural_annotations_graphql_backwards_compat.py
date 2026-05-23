@@ -868,14 +868,12 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TestCase):
     def test_structural_relationships_accessible_after_migration(self):
         """
         Structural relationships must remain accessible after migration
-        via the RelationshipQueryOptimizer (used by GraphQL resolvers).
+        via the RelationshipService (used by GraphQL resolvers).
 
         Note: The relationships GraphQL filter doesn't expose 'structural' directly,
         but the query optimizer handles both pre and post-migration states.
         """
-        from opencontractserver.annotations.query_optimizer import (
-            RelationshipQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import RelationshipService
 
         # Pre-migration: verify relationship is attached to document
         self.struct_rel.refresh_from_db()
@@ -883,7 +881,7 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TestCase):
         self.assertIsNone(self.struct_rel.structural_set_id)
 
         # Pre-migration query via optimizer (same as GraphQL resolver uses)
-        pre_rels = RelationshipQueryOptimizer.get_document_relationships(
+        pre_rels = RelationshipService.get_document_relationships(
             document_id=self.doc.id,
             user=self.user,
             corpus_id=self.corpus.id,
@@ -919,7 +917,7 @@ class StructuralRelationshipGraphQLBackwardsCompatibilityTests(TestCase):
         self.assertIsNotNone(self.doc.structural_annotation_set)
 
         # Post-migration query - SAME OPTIMIZER SHOULD FIND THE RELATIONSHIP
-        post_rels = RelationshipQueryOptimizer.get_document_relationships(
+        post_rels = RelationshipService.get_document_relationships(
             document_id=self.doc.id,
             user=self.user,
             corpus_id=self.corpus.id,

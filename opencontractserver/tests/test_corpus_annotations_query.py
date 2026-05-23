@@ -14,7 +14,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     StructuralAnnotationSet,
 )
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import LabelType, PermissionTypes
@@ -24,7 +24,7 @@ User = get_user_model()
 
 
 class TestCorpusAnnotationsQuery(TestCase):
-    """Test the AnnotationQueryOptimizer.get_corpus_annotations method."""
+    """Test the AnnotationService.get_corpus_annotations method."""
 
     @classmethod
     def setUpTestData(cls):
@@ -134,7 +134,7 @@ class TestCorpusAnnotationsQuery(TestCase):
 
     def test_superuser_sees_all_annotations(self):
         """Superuser should see both structural and document-attached annotations."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.superuser,
         )
@@ -144,7 +144,7 @@ class TestCorpusAnnotationsQuery(TestCase):
 
     def test_owner_sees_all_annotations(self):
         """Owner should see both structural and document-attached annotations."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.owner,
         )
@@ -154,7 +154,7 @@ class TestCorpusAnnotationsQuery(TestCase):
 
     def test_viewer_with_permission_sees_annotations(self):
         """Viewer with corpus and document permissions should see annotations."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.viewer,
         )
@@ -165,7 +165,7 @@ class TestCorpusAnnotationsQuery(TestCase):
 
     def test_filter_structural_only(self):
         """Filtering by structural=True should return only structural annotations."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.owner,
             structural=True,
@@ -176,7 +176,7 @@ class TestCorpusAnnotationsQuery(TestCase):
 
     def test_filter_non_structural_only(self):
         """Filtering by structural=False should return only user annotations."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.owner,
             structural=False,
@@ -191,7 +191,7 @@ class TestCorpusAnnotationsQuery(TestCase):
             username="no_access", email="no_access@test.com", password="test123"
         )
 
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=no_access_user,
         )
@@ -206,7 +206,7 @@ class TestCorpusAnnotationsQuery(TestCase):
         self.assertTrue(self.structural_annotation.structural)
 
         # Query should still find it
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.owner,
             structural=True,
@@ -224,7 +224,7 @@ class TestCorpusAnnotationsQuery(TestCase):
         path.save()
 
         try:
-            result = AnnotationQueryOptimizer.get_corpus_annotations(
+            result = AnnotationService.get_corpus_annotations(
                 corpus_id=self.corpus.id,
                 user=self.owner,
             )
@@ -282,7 +282,7 @@ class TestAnnotationQuerySetVisibleToUser(TestCase):
 
 
 class TestCorpusAnnotationsQueryEdgeCases(TestCase):
-    """Test edge cases for AnnotationQueryOptimizer.get_corpus_annotations."""
+    """Test edge cases for AnnotationService.get_corpus_annotations."""
 
     @classmethod
     def setUpTestData(cls):
@@ -351,7 +351,7 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
     def test_nonexistent_corpus_returns_empty(self):
         """Querying a non-existent corpus should return empty queryset."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=999999,  # Non-existent
             user=self.owner,
         )
@@ -364,7 +364,7 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
         anon_user = AnonymousUser()
 
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=anon_user,
         )
@@ -373,7 +373,7 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
     def test_superuser_with_structural_filter(self):
         """Superuser can filter by structural=True."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=self.superuser,
             structural=True,
@@ -384,7 +384,7 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
     def test_superuser_with_analysis_isnull_filter(self):
         """Superuser can filter by analysis_isnull=True."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=self.superuser,
             analysis_isnull=True,
@@ -396,7 +396,7 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
     def test_regular_user_with_analysis_isnull_filter(self):
         """Regular user can filter by analysis_isnull=True."""
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=self.owner,
             analysis_isnull=True,
@@ -417,23 +417,10 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
         )
         # Deliberately NOT granting document permissions
 
-        result = AnnotationQueryOptimizer.get_corpus_annotations(
+        result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=limited_user,
         )
 
         # No visible documents = no annotations
         self.assertEqual(result.count(), 0)
-
-    def test_apply_permission_filter_deprecated_method(self):
-        """Test the deprecated _apply_permission_filter method."""
-        from opencontractserver.annotations.models import Annotation
-
-        qs = Annotation.objects.all()
-        result = AnnotationQueryOptimizer._apply_permission_filter(
-            qs, self.owner, self.private_corpus.id
-        )
-
-        # Should filter by corpus_id
-        for annotation in result:
-            self.assertEqual(annotation.corpus_id, self.private_corpus.id)

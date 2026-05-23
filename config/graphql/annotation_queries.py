@@ -79,9 +79,7 @@ class AnnotationQueryMixin:
         **kwargs,
     ) -> Any:
         # Import the query optimizer
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         document_id = kwargs.get("document_id")
         corpus_id = kwargs.get("corpus_id")
@@ -92,20 +90,19 @@ class AnnotationQueryMixin:
             corpus_django_pk = int(from_global_id(corpus_id)[1]) if corpus_id else None
 
             # Use query optimizer which handles permissions properly
-            queryset = AnnotationQueryOptimizer.get_document_annotations(
+            queryset = AnnotationService.get_document_annotations(
                 document_id=doc_django_pk,
                 user=info.context.user,
                 corpus_id=corpus_django_pk,
                 analysis_id=None,  # Will be handled below if needed
                 extract_id=None,
-                use_cache=False,
             )
 
         elif corpus_id:
             # Use corpus-wide query optimizer (handles structural annotations correctly)
             # This optimizer already applies structural, analysis_isnull, and corpus filters
             corpus_django_pk = int(from_global_id(corpus_id)[1])
-            queryset = AnnotationQueryOptimizer.get_corpus_annotations(
+            queryset = AnnotationService.get_corpus_annotations(
                 corpus_id=corpus_django_pk,
                 user=info.context.user,
                 structural=structural,

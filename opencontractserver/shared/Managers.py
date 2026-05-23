@@ -692,7 +692,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         callers (e.g. GraphQL list resolvers iterating annotations)
         SHOULD ``select_related("created_by_analysis",
         "created_by_extract")`` on their root queryset to avoid one
-        extra query per row. The ``AnnotationQueryOptimizer`` already
+        extra query per row. The ``AnnotationService`` already
         batches the MIN(doc, corpus) computation; only the privacy
         recursion path is unbatched today.
 
@@ -859,15 +859,13 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
     ) -> bool:
         """Resolve ``permission`` against the MIN(doc, corpus) tuple.
 
-        Delegates to ``AnnotationQueryOptimizer._compute_effective_permissions``
+        Delegates to ``AnnotationService._compute_effective_permissions``
         which encodes the MIN logic and BACON MODE
         (``corpus.allow_comments → COMMENT = READ``), then dispatches
         on ``PermissionTypes`` to return the relevant boolean. ALL maps
         to READ+CRUD+COMMENT for annotations (no PUBLISH/PERMISSION).
         """
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
         from opencontractserver.types.enums import PermissionTypes
 
         # Forward ``request`` as ``context`` so the optimizer's request-scoped
@@ -877,7 +875,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         # ``instance`` is statically ``Model``; ``document_id`` / ``corpus_id``
         # are Annotation FKs declared on the concrete subclass.
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 user=user,
                 document_id=instance.document_id,  # type: ignore[attr-defined]
                 corpus_id=instance.corpus_id,  # type: ignore[attr-defined]
@@ -947,7 +945,7 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
         user created it OR the document AND the corpus (or null corpus)
         are visible. Composes ``Document.objects.user_can`` and
         ``Corpus.objects.user_can`` rather than reusing
-        ``AnnotationQueryOptimizer`` (notes don't have BACON MODE).
+        ``AnnotationService`` (notes don't have BACON MODE).
 
         Performance note: both the anonymous and authenticated branches
         dereference ``instance.document`` / ``instance.corpus`` — these
@@ -1112,7 +1110,7 @@ class RelationshipManager(BaseVisibilityManager):
 
         Order: superuser bypass → structural-write-deny →
         (``document_id is None`` → False) → MIN(doc, corpus) via
-        ``AnnotationQueryOptimizer``.
+        ``AnnotationService``.
 
         **NOTE: deliberately does NOT check ``created_by_analysis``/
         ``created_by_extract``**. Although these fields exist on
@@ -1178,9 +1176,7 @@ class RelationshipManager(BaseVisibilityManager):
         if getattr(instance, "document_id", None) is None:
             return False
 
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         # Forward ``request`` as ``context`` so the optimizer's request-scoped
         # caches (effective-perms cache + Tier 2 PermissionQueryOptimizer
@@ -1189,7 +1185,7 @@ class RelationshipManager(BaseVisibilityManager):
         # ``instance`` is statically ``Model``; ``document_id`` / ``corpus_id``
         # are Relationship FKs declared on the concrete subclass.
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 user=user,
                 document_id=instance.document_id,  # type: ignore[attr-defined]
                 corpus_id=instance.corpus_id,  # type: ignore[attr-defined]

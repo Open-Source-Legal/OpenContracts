@@ -1,10 +1,13 @@
-"""
-Query Optimizer for Metadata (Datacell) queries.
+"""Metadata (Datacell) read-service — permission-filtered metadata queries.
 
-Follows the same pattern as AnnotationQueryOptimizer:
-- Direct database queries with smart prefetching
-- Permission filtering based on document + corpus (MIN logic)
-- No caching layer - just optimized queries
+Relocated verbatim from the former ``extracts/query_optimizer.py``
+``MetadataQueryOptimizer`` class as Phase 3 of the service-layer
+centralization roadmap — see
+``docs/refactor_plans/2026-05-19-service-layer-centralization-design.md``.
+
+Behaviour is preserved exactly — this is a relocation, not a rewrite.
+Permission model (same as annotations): effective permission =
+``MIN(document_permission, corpus_permission)``.
 """
 
 from __future__ import annotations
@@ -14,9 +17,10 @@ from collections import defaultdict
 from django.db.models import QuerySet
 
 from opencontractserver.extracts.models import Column, Datacell
+from opencontractserver.shared.services import BaseService
 
 
-class MetadataQueryOptimizer:
+class MetadataService(BaseService):
     """
     Optimized metadata (Datacell) queries with permission filtering.
 

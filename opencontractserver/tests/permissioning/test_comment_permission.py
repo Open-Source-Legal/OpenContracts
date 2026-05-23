@@ -22,7 +22,7 @@ from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
 )
-from opencontractserver.annotations.query_optimizer import AnnotationQueryOptimizer
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
@@ -103,7 +103,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check via query optimizer
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 self.commenter,
                 self.document.id,
                 None,  # No corpus context
@@ -132,7 +132,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check via query optimizer with corpus context
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 self.commenter,
                 self.document.id,
                 self.corpus.id,
@@ -160,7 +160,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check via query optimizer with corpus context
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 self.commenter,
                 self.document.id,
                 self.corpus.id,
@@ -210,7 +210,7 @@ class CommentPermissionTestCase(TestCase):
         )
 
         # Get annotations via query optimizer
-        annotations = AnnotationQueryOptimizer.get_document_annotations(
+        annotations = AnnotationService.get_document_annotations(
             document_id=self.document.id,
             user=self.commenter,
             corpus_id=self.corpus.id,
@@ -233,7 +233,7 @@ class CommentPermissionTestCase(TestCase):
         superuser = User.objects.create_superuser(username="super", password="admin")
 
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 superuser,
                 self.document.id,
                 self.corpus.id,
@@ -262,7 +262,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check via query optimizer
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 self.commenter,
                 self.document.id,
                 self.corpus.id,
@@ -292,7 +292,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check via query optimizer
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 self.commenter,
                 self.document.id,
                 self.corpus.id,
@@ -327,7 +327,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check via query optimizer
         can_read, can_create, can_update, can_delete, can_comment = (
-            AnnotationQueryOptimizer._compute_effective_permissions(
+            AnnotationService._compute_effective_permissions(
                 self.commenter,
                 self.document.id,
                 self.corpus.id,

@@ -287,17 +287,15 @@ class CorpusQueryMixin:
         SECURITY: All counts respect the permission model:
         - Documents: Uses visible_to_user() + DocumentPath filtering
         - Annotations: Filtered by visible documents (inherit doc+corpus permissions)
-        - Analyses: Uses AnalysisQueryOptimizer (hybrid permission model)
-        - Extracts: Uses ExtractQueryOptimizer (hybrid permission model)
+        - Analyses: Uses AnalysisService (hybrid permission model)
+        - Extracts: Uses ExtractService (hybrid permission model)
         - Relationships: Uses DocumentRelationshipService (inherit doc+corpus)
         - Threads/Chats: Uses ConversationService (single visibility query)
         """
-        from opencontractserver.annotations.query_optimizer import (
-            AnalysisQueryOptimizer,
-            ExtractQueryOptimizer,
-        )
+        from opencontractserver.analyzer.services import AnalysisService
         from opencontractserver.conversations.services import ConversationService
         from opencontractserver.documents.services import DocumentRelationshipService
+        from opencontractserver.extracts.services import ExtractService
 
         total_docs = 0
         total_annotations = 0
@@ -352,12 +350,12 @@ class CorpusQueryMixin:
                 ).count()
 
                 # total_analyses: Uses hybrid permission model (analysis perm + corpus perm)
-                total_analyses = AnalysisQueryOptimizer.get_visible_analyses(
+                total_analyses = AnalysisService.get_visible_analyses(
                     user, corpus_id=corpus.id, context=info.context
                 ).count()
 
                 # total_extracts: Uses hybrid permission model (extract perm + corpus perm)
-                total_extracts = ExtractQueryOptimizer.get_visible_extracts(
+                total_extracts = ExtractService.get_visible_extracts(
                     user, corpus_id=corpus.id, context=info.context
                 ).count()
 
@@ -399,12 +397,12 @@ class CorpusQueryMixin:
     )
 
     def resolve_corpus_metadata_columns(self, info, corpus_id) -> Any:
-        """Get metadata columns for a corpus using MetadataQueryOptimizer."""
-        from opencontractserver.extracts.query_optimizer import MetadataQueryOptimizer
+        """Get metadata columns for a corpus using MetadataService."""
+        from opencontractserver.extracts.services import MetadataService
 
         user = info.context.user
         local_corpus_id = int(from_global_id(corpus_id)[1])
 
-        return MetadataQueryOptimizer.get_corpus_metadata_columns(
+        return MetadataService.get_corpus_metadata_columns(
             user, local_corpus_id, manual_only=True
         )

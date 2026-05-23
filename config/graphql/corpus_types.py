@@ -228,12 +228,10 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_annotations(self, info) -> Any:
         """
         Custom resolver for annotations field that properly computes permissions.
-        Uses AnnotationQueryOptimizer to ensure permission flags are set.
+        Uses AnnotationService to ensure permission flags are set.
         """
         from opencontractserver.annotations.models import Annotation
-        from opencontractserver.annotations.query_optimizer import (
-            AnnotationQueryOptimizer,
-        )
+        from opencontractserver.annotations.services import AnnotationService
 
         user = getattr(info.context, "user", None)
 
@@ -246,8 +244,8 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # Collect annotations for all documents with proper permission computation
         all_annotations = Annotation.objects.none()
         for doc_id in document_ids:
-            annotations = AnnotationQueryOptimizer.get_document_annotations(
-                document_id=doc_id, user=user, corpus_id=self.id, use_cache=True
+            annotations = AnnotationService.get_document_annotations(
+                document_id=doc_id, user=user, corpus_id=self.id
             )
             all_annotations = all_annotations | annotations
 

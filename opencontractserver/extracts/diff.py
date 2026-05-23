@@ -98,7 +98,7 @@ def diff_extracts(
     """Build the aligned cell-by-cell diff for two iterations.
 
     The caller supplies pre-permission-filtered cell iterables (typically
-    from ``ExtractQueryOptimizer.get_extract_datacells``) so this helper
+    from ``ExtractService.get_extract_datacells``) so this helper
     stays free of permission concerns.
     """
     a_by_key = _index_cells(cells_a)
