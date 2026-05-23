@@ -1,42 +1,83 @@
 import { motion } from "framer-motion";
 import styled from "styled-components";
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  accentAlpha,
+} from "../../../assets/configurations/osLegalStyles";
+import {
+  FOCUS_RING,
+  RADIUS,
+  SHADOW,
+} from "../../../assets/configurations/designTokens";
 
-// Add this styled component with your other styled components
+/**
+ * The conversation-list header. Hosts the "Chat" title and the inline filter
+ * controls in a single anchored row — no stray right-floating icon band.
+ * A soft downward shadow replaces the old hairline border.
+ */
 export const FilterContainer = styled.div`
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
-  padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 0.875rem 1.125rem;
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.05);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  justify-content: flex-end;
+  gap: 0.5rem;
   width: 100%;
+`;
+
+/** "Chat" title — anchors the header so the controls have a sibling. */
+export const FilterTitle = styled.h2`
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: ${OS_LEGAL_COLORS.textPrimary};
 `;
 
 export const IconButton = styled(motion.button)<{ $isActive?: boolean }>`
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: ${RADIUS.sm};
   border: none;
-  background: ${(props) => (props.$isActive ? "#EBF8FF" : "#F7FAFC")};
-  color: ${(props) =>
+  background: ${(props) =>
     props.$isActive
-      ? OS_LEGAL_COLORS.primaryBlue
-      : OS_LEGAL_COLORS.textTertiary};
+      ? OS_LEGAL_COLORS.accentSurface
+      : OS_LEGAL_COLORS.surfaceHover};
+  color: ${(props) =>
+    props.$isActive ? OS_LEGAL_COLORS.accent : OS_LEGAL_COLORS.textTertiary};
+  box-shadow: ${(props) =>
+    props.$isActive
+      ? `inset 0 0 0 1px ${accentAlpha(0.25)}`
+      : "inset 0 0 0 1px rgba(15, 23, 42, 0.05)"};
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  flex-shrink: 0;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 
   &:hover {
     background: ${(props) =>
-      props.$isActive ? "#BEE3F8" : OS_LEGAL_COLORS.border};
+      props.$isActive ? OS_LEGAL_COLORS.accentSurface : "white"};
+    color: ${(props) =>
+      props.$isActive ? OS_LEGAL_COLORS.accentHover : OS_LEGAL_COLORS.accent};
+    box-shadow: ${(props) =>
+      props.$isActive
+        ? `inset 0 0 0 1px ${accentAlpha(0.35)}, ${SHADOW.subtle}`
+        : `inset 0 0 0 1px rgba(15, 23, 42, 0.1), ${SHADOW.subtle}`};
+  }
+
+  &:active {
+    box-shadow: ${(props) =>
+      props.$isActive
+        ? `inset 0 0 0 1px ${accentAlpha(0.35)}`
+        : "inset 0 0 0 1px rgba(15, 23, 42, 0.1)"};
   }
 
   svg {
@@ -49,25 +90,30 @@ export const IconButton = styled(motion.button)<{ $isActive?: boolean }>`
 export const ExpandingInput = styled(motion.div)`
   position: relative;
   overflow: hidden;
+  flex: 1 1 0;
+  min-width: 0;
 
   input {
-    width: 250px;
-    padding: 0.5rem 1rem;
-    border: 2px solid ${OS_LEGAL_COLORS.border};
-    border-radius: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem 0.875rem;
+    border: none;
+    border-radius: ${RADIUS.sm};
     font-size: 0.875rem;
-    background: #f7fafc;
-    transition: all 0.2s ease;
+    font-family: inherit;
+    color: ${OS_LEGAL_COLORS.textPrimary};
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+    transition: background 0.18s ease, box-shadow 0.18s ease;
 
     &:focus {
       outline: none;
-      border-color: ${OS_LEGAL_COLORS.primaryBlue};
       background: white;
-      box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+      box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING};
     }
 
     &::placeholder {
-      color: #a0aec0;
+      color: ${OS_LEGAL_COLORS.textMuted};
     }
   }
 `;
@@ -75,32 +121,38 @@ export const ExpandingInput = styled(motion.div)`
 export const DatePickerExpanded = styled(motion.div)`
   position: absolute;
   top: 100%;
-  left: 0;
+  right: 0;
   margin-top: 0.5rem;
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  border-radius: ${RADIUS.md};
+  box-shadow: ${SHADOW.menu};
   padding: 1rem;
   z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 1rem;
 
+  input {
+    padding: 0.5rem 0.625rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-family: inherit;
+    color: ${OS_LEGAL_COLORS.textPrimary};
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+    transition: box-shadow 0.18s ease;
+
+    &:focus {
+      outline: none;
+      background: white;
+      box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}, ${FOCUS_RING};
+    }
+  }
+
   .date-inputs {
     display: flex;
     gap: 1rem;
-
-    input {
-      padding: 0.5rem;
-      border: 2px solid ${OS_LEGAL_COLORS.border};
-      border-radius: 6px;
-      font-size: 0.875rem;
-
-      &:focus {
-        outline: none;
-        border-color: ${OS_LEGAL_COLORS.primaryBlue};
-      }
-    }
   }
 
   .date-actions {
@@ -110,15 +162,15 @@ export const DatePickerExpanded = styled(motion.div)`
 
     button {
       padding: 0.5rem 1rem;
-      border-radius: 6px;
+      border-radius: 8px;
       border: none;
       font-size: 0.875rem;
       cursor: pointer;
       transition: all 0.2s ease;
 
       &.cancel {
-        background: #edf2f7;
-        color: #4a5568;
+        background: ${OS_LEGAL_COLORS.surfaceLight};
+        color: ${OS_LEGAL_COLORS.textTertiary};
 
         &:hover {
           background: ${OS_LEGAL_COLORS.border};
@@ -126,11 +178,11 @@ export const DatePickerExpanded = styled(motion.div)`
       }
 
       &.apply {
-        background: ${OS_LEGAL_COLORS.primaryBlue};
+        background: ${OS_LEGAL_COLORS.accent};
         color: white;
 
         &:hover {
-          background: #3182ce;
+          background: ${OS_LEGAL_COLORS.accentHover};
         }
       }
     }

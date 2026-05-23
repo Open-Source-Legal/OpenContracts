@@ -16,61 +16,68 @@ interface CollapsibleAnnotationControlsProps {
   triggerMode?: "click" | "hover";
 }
 
+/**
+ * Soft-tinted ghost toggle — depth over borders. At rest a faint surface tint
+ * with an inset hairline; when filters are active it lifts into a teal-tinted
+ * accent surface. Consistent with the feed control bar's other controls.
+ */
 const ControlsToggleButton = styled(motion.button)<{
   $hasActiveFilters?: boolean;
 }>`
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.875rem;
+  gap: 0.45rem;
+  padding: 0.5rem 0.85rem;
+  white-space: nowrap;
   background: ${(props) =>
-    props.$hasActiveFilters ? OS_LEGAL_COLORS.blueSurface : "white"};
-  border: 1px solid
-    ${(props) =>
-      props.$hasActiveFilters
-        ? OS_LEGAL_COLORS.primaryBlue
-        : OS_LEGAL_COLORS.border};
-  border-radius: 8px;
+    props.$hasActiveFilters
+      ? OS_LEGAL_COLORS.accentSurface
+      : OS_LEGAL_COLORS.surfaceHover};
+  border: none;
+  border-radius: 12px;
+  box-shadow: ${(props) =>
+    props.$hasActiveFilters
+      ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accentMedium}`
+      : "inset 0 0 0 1px rgba(15, 23, 42, 0.06)"};
   color: ${(props) =>
     props.$hasActiveFilters
-      ? OS_LEGAL_COLORS.primaryBlue
+      ? OS_LEGAL_COLORS.accent
       : OS_LEGAL_COLORS.textSecondary};
   font-size: 0.875rem;
   font-weight: ${(props) => (props.$hasActiveFilters ? "600" : "500")};
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease,
+    transform 0.12s ease;
 
   svg {
-    width: 18px;
-    height: 18px;
+    width: 17px;
+    height: 17px;
     color: ${(props) =>
-      props.$hasActiveFilters ? OS_LEGAL_COLORS.primaryBlue : "inherit"};
+      props.$hasActiveFilters ? OS_LEGAL_COLORS.accent : "inherit"};
   }
 
   &:hover {
     background: ${(props) =>
+      props.$hasActiveFilters ? OS_LEGAL_COLORS.accentLight : "white"};
+    box-shadow: ${(props) =>
       props.$hasActiveFilters
-        ? OS_LEGAL_COLORS.blueBorder
-        : OS_LEGAL_COLORS.surfaceHover};
-    border-color: ${(props) =>
-      props.$hasActiveFilters
-        ? OS_LEGAL_COLORS.primaryBlueHover
-        : OS_LEGAL_COLORS.borderHover};
+        ? `inset 0 0 0 1px ${OS_LEGAL_COLORS.accent}`
+        : "inset 0 0 0 1px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)"};
     color: ${(props) =>
       props.$hasActiveFilters
-        ? OS_LEGAL_COLORS.primaryBlueHover
-        : OS_LEGAL_COLORS.primaryBlue};
+        ? OS_LEGAL_COLORS.accentHover
+        : OS_LEGAL_COLORS.accent};
 
     svg {
       color: ${(props) =>
         props.$hasActiveFilters
-          ? OS_LEGAL_COLORS.primaryBlueHover
-          : OS_LEGAL_COLORS.primaryBlue};
+          ? OS_LEGAL_COLORS.accentHover
+          : OS_LEGAL_COLORS.accent};
     }
   }
 
   &:active {
-    transform: scale(0.98);
+    transform: scale(0.97);
   }
 `;
 
@@ -80,9 +87,11 @@ const PopupContainer = styled(motion.div)`
   left: 0;
   right: 0;
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 10px rgba(0, 0, 0, 0.05);
-  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 14px;
+  /* Depth over borders: soft layered shadow, no hairline outline. */
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08),
+    0 12px 32px rgba(15, 23, 42, 0.1);
+  border: none;
   z-index: 100;
   overflow: hidden;
 `;
@@ -91,9 +100,9 @@ const PopupHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.875rem 1rem;
+  padding: 0.8rem 1rem;
   background: ${OS_LEGAL_COLORS.surfaceHover};
-  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+  box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.06);
 `;
 
 const PopupTitle = styled.div`
@@ -107,7 +116,7 @@ const PopupTitle = styled.div`
   svg {
     width: 20px;
     height: 20px;
-    color: ${OS_LEGAL_COLORS.primaryBlue};
+    color: ${OS_LEGAL_COLORS.accent};
   }
 `;
 
@@ -168,15 +177,16 @@ const FilterBadge = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  background: ${OS_LEGAL_COLORS.primaryBlue};
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.4rem;
+  background: ${OS_LEGAL_COLORS.accent};
   color: white;
-  border-radius: 10px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-left: 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  margin-left: 0.4rem;
 `;
 
 const ActiveIndicator = styled.div`

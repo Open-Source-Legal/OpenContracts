@@ -59,6 +59,14 @@ interface UnifiedContentFeedProps {
   readOnly?: boolean;
   /** Document ID - required for creating relationships */
   documentId?: string;
+  /**
+   * Compact / mobile consumption mode. When true the feed drops its authoring
+   * affordances — the multi-select checkbox and per-row delete icon are
+   * suppressed and the selection toolbar / relationship modal never engage —
+   * so the feed reads as a calm review surface. Desktop leaves this unset for
+   * byte-identical rendering.
+   */
+  compact?: boolean;
 }
 
 /* Styled Components */
@@ -113,18 +121,20 @@ const PageHeader = styled.div`
   }
 `;
 
-const PageNumber = styled.span`
-  background: linear-gradient(
-    135deg,
-    ${OS_LEGAL_COLORS.primaryBlue} 0%,
-    ${OS_LEGAL_COLORS.primaryBlueHover} 100%
-  );
+const PageNumber = styled.span<{ $compact?: boolean }>`
+  background: ${(props) =>
+    props.$compact
+      ? `linear-gradient(135deg, ${OS_LEGAL_COLORS.accent} 0%, ${OS_LEGAL_COLORS.accentHover} 100%)`
+      : `linear-gradient(135deg, ${OS_LEGAL_COLORS.primaryBlue} 0%, ${OS_LEGAL_COLORS.primaryBlueHover} 100%)`};
   color: white;
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   font-size: 0.8125rem;
   font-weight: 700;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+  box-shadow: ${(props) =>
+    props.$compact
+      ? "0 2px 4px rgba(15, 118, 110, 0.2)"
+      : "0 2px 4px rgba(59, 130, 246, 0.2)"};
 `;
 
 const ContentWrapper = styled.div`
@@ -184,6 +194,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
   fetchMore,
   readOnly = false,
   documentId: propDocumentId,
+  compact = false,
 }) => {
   /* Data sources - bypass showSelectedOnly filter for feed */
   const allAnnotations = useAllAnnotations();
@@ -599,7 +610,7 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
         <div style={style}>
           <PageHeader>
             <span>Page</span>
-            <PageNumber>{virtualItem.pageNumber}</PageNumber>
+            <PageNumber $compact={compact}>{virtualItem.pageNumber}</PageNumber>
           </PageHeader>
         </div>
       );
@@ -628,12 +639,13 @@ export const UnifiedContentFeed: React.FC<UnifiedContentFeedProps> = ({
               onItemSelect?.(item);
             }}
             onToggleMultiSelect={
-              isAnnotation && annotationId && !readOnly && hasCorpus
+              !compact && isAnnotation && annotationId && !readOnly && hasCorpus
                 ? () => handleToggleSelection(annotationId)
                 : undefined
             }
             isMultiSelected={isSelected}
             readOnly={readOnly}
+            compact={compact}
           />
         </ContentWrapper>
       </div>

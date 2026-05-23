@@ -13,65 +13,78 @@ export const HeaderButtonGroup = styled.div`
   min-width: 0;
 `;
 
+/**
+ * Header action button. Two intents:
+ *  - ``primary``  — a labelled teal pill (Add-to-Corpus).
+ *  - ``secondary`` — a clean ghost, circular icon button (back). Depth over
+ *    borders: no resting outline, just a hover surface tint + press feedback.
+ */
 export const HeaderButton = styled.button<{
   $variant?: "primary" | "secondary";
 }>`
   height: 36px;
-  padding: 0 ${(props) => (props.$variant === "primary" ? "14px" : "10px")};
+  ${(props) =>
+    props.$variant === "primary"
+      ? `padding: 0 14px;`
+      : `width: 36px; padding: 0; justify-content: center;`}
   background: ${(props) =>
     props.$variant === "primary"
       ? OS_LEGAL_COLORS.accentSurface
-      : OS_LEGAL_COLORS.surface};
+      : "transparent"};
   color: ${(props) =>
     props.$variant === "primary"
       ? OS_LEGAL_COLORS.accent
-      : OS_LEGAL_COLORS.textTertiary};
-  border: 1px solid
-    ${(props) =>
-      props.$variant === "primary"
-        ? OS_LEGAL_COLORS.accentMedium
-        : OS_LEGAL_COLORS.border};
-  border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
+      : OS_LEGAL_COLORS.textSecondary};
+  border: ${(props) =>
+    props.$variant === "primary"
+      ? `1px solid ${OS_LEGAL_COLORS.accentMedium}`
+      : "none"};
+  border-radius: ${(props) =>
+    props.$variant === "primary"
+      ? OS_LEGAL_SPACING.borderRadiusButton
+      : "999px"};
   font-size: ${(props) => (props.$variant === "primary" ? "13px" : "14px")};
   font-weight: ${(props) => (props.$variant === "primary" ? "600" : "500")};
   letter-spacing: 0;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease,
-    transform 0.2s ease;
+  transition: background 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease, transform 0.12s ease, color 0.18s ease;
   display: flex;
   align-items: center;
   gap: ${(props) => (props.$variant === "primary" ? "8px" : "0")};
   box-shadow: ${(props) =>
-    props.$variant === "primary"
-      ? `0 1px 2px ${accentAlpha(0.12)}`
-      : "0 1px 3px rgba(15, 23, 42, 0.06)"};
+    props.$variant === "primary" ? `0 1px 2px ${accentAlpha(0.12)}` : "none"};
   position: relative;
   overflow: hidden;
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 
   &:hover {
-    transform: translateY(-1px);
+    transform: ${(props) =>
+      props.$variant === "primary" ? "translateY(-1px)" : "none"};
     background: ${(props) =>
       props.$variant === "primary"
         ? OS_LEGAL_COLORS.accentLight
         : OS_LEGAL_COLORS.surfaceHover};
     box-shadow: ${(props) =>
-      props.$variant === "primary"
-        ? `0 3px 8px ${accentAlpha(0.16)}`
-        : "0 4px 10px rgba(15, 23, 42, 0.08)"};
+      props.$variant === "primary" ? `0 3px 8px ${accentAlpha(0.16)}` : "none"};
     border-color: ${(props) =>
+      props.$variant === "primary" ? OS_LEGAL_COLORS.accent : "transparent"};
+    color: ${(props) =>
       props.$variant === "primary"
         ? OS_LEGAL_COLORS.accent
-        : OS_LEGAL_COLORS.borderHover};
+        : OS_LEGAL_COLORS.textPrimary};
   }
 
   &:active {
-    transform: translateY(0);
-    box-shadow: ${(props) =>
+    transform: scale(0.94);
+    background: ${(props) =>
       props.$variant === "primary"
-        ? `0 1px 4px ${accentAlpha(0.12)}`
-        : "inset 0 1px 2px rgba(15, 23, 42, 0.08)"};
+        ? OS_LEGAL_COLORS.accentLight
+        : OS_LEGAL_COLORS.surfaceLight};
+    box-shadow: ${(props) =>
+      props.$variant === "primary" ? `0 1px 4px ${accentAlpha(0.12)}` : "none"};
   }
 
   svg {

@@ -828,7 +828,7 @@ def _search_within_corpus(
     query: str, corpus_slug: str, limit: int, user
 ) -> JsonResponse:
     """Search documents within a single public corpus."""
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
+    from opencontractserver.corpuses.services import CorpusDocumentService
 
     try:
         corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
@@ -836,7 +836,7 @@ def _search_within_corpus(
         return JsonResponse({"error": "Corpus not found."}, status=404)
 
     # Single canonical entry point: corpus-as-gate doc set for this user.
-    corpus_docs = CorpusObjsService.get_corpus_documents(user=user, corpus=corpus)
+    corpus_docs = CorpusDocumentService.get_corpus_documents(user=user, corpus=corpus)
     results = []
 
     # Attempt vector search first, fall through to text search on empty results

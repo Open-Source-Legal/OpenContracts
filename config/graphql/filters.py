@@ -137,9 +137,19 @@ class CorpusFilter(django_filters.FilterSet):
     text_search = filters.CharFilter(method="text_search_method")
 
     def text_search_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        # icontains (ILIKE), not contains (LIKE): a search box must match
+        # regardless of case — a lowercase "merger" has to find a
+        # Title-Cased "Merger Agreements" corpus.
         return queryset.filter(
-            Q(description__contains=value) | Q(title__contains=value)
+            Q(description__icontains=value) | Q(title__icontains=value)
         )
+
+    # Override Meta's auto-generated ``title_Contains`` GraphQL argument so it
+    # uses ``icontains`` (ILIKE) rather than the default ``contains`` (LIKE).
+    # Without this override a client querying ``title_Contains: "merger"``
+    # would silently get zero results for a Title-Cased "Merger Agreement"
+    # corpus — same root cause as the original Discover-search bug.
+    title__contains = filters.CharFilter(field_name="title", lookup_expr="icontains")
 
     uses_labelset_id = filters.CharFilter(method="uses_labelset_id_method")
 
@@ -198,7 +208,9 @@ class CorpusFilter(django_filters.FilterSet):
         fields = {
             "description": ["exact", "contains"],
             "id": ["exact"],
-            "title": ["contains"],
+            # ``title`` is intentionally absent here — its ``contains`` lookup
+            # is provided by the explicit ``title__contains`` filter above so
+            # the generated ``title_Contains`` GraphQL argument is ILIKE.
         }
 
 
@@ -344,9 +356,18 @@ class LabelsetFilter(django_filters.FilterSet):
     text_search = filters.CharFilter(method="text_search_method")
 
     def text_search_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        # icontains (ILIKE), not contains (LIKE): match a Title-Cased labelset
+        # from a lowercase search box. Mirrors CorpusFilter.text_search_method.
         return queryset.filter(
-            Q(description__contains=value) | Q(title__contains=value)
+            Q(description__icontains=value) | Q(title__icontains=value)
         )
+
+    # Override Meta's auto-generated ``title_Contains`` GraphQL argument so it
+    # backs to ``icontains`` (ILIKE) rather than ``contains`` (LIKE). The
+    # attribute is intentionally named ``title__contains`` so the GraphQL wire
+    # name stays ``title_Contains`` and clients keep working unchanged — same
+    # pattern as ConversationFilter.
+    title__contains = filters.CharFilter(field_name="title", lookup_expr="icontains")
 
     labelset_id = filters.CharFilter(method="labelset_id_method")
 
@@ -359,7 +380,10 @@ class LabelsetFilter(django_filters.FilterSet):
         fields = {
             "id": ["exact"],
             "description": ["contains"],
-            "title": ["exact", "contains"],
+            # ``title`` is intentionally absent here — its ``contains`` lookup is
+            # provided by the explicit ``title__contains`` filter above so the
+            # GraphQL ``title_Contains`` argument is ILIKE, not LIKE.
+            "title": ["exact"],
         }
 
 
@@ -628,6 +652,13 @@ class ConversationFilter(django_filters.FilterSet):
     corpus_id = filters.CharFilter(method="filter_by_corpus_id")
     has_corpus = filters.BooleanFilter(method="filter_has_corpus")
     has_document = filters.BooleanFilter(method="filter_has_document")
+    # Case-insensitive title search. Declared explicitly instead of via the
+    # Meta ``"title": ["contains"]`` shortcut so the lookup is ILIKE rather
+    # than case-sensitive LIKE — a search-box query like "merger" must match
+    # a Title-Cased "Merger ..." thread. Deliberately named ``title__contains``
+    # so the generated GraphQL argument stays ``title_Contains`` and existing
+    # clients (discover search, thread lists) need no change.
+    title__contains = filters.CharFilter(field_name="title", lookup_expr="icontains")
 
     def filter_by_document_id(
         self, queryset: QuerySet, name: str, value: Any
@@ -659,9 +690,11 @@ class ConversationFilter(django_filters.FilterSet):
 
     class Meta:
         model = Conversation
+        # ``title`` is intentionally absent here — its ``contains`` lookup is
+        # provided by the declared ``title__contains`` filter above so the
+        # match is case-insensitive.
         fields = {
             "created_at": ["gte", "lte"],
-            "title": ["contains"],
             "conversation_type": ["exact"],
         }
 

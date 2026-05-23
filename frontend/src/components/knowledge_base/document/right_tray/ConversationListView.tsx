@@ -13,6 +13,7 @@ import { Calendar, MessageSquare, Plus, Search, X } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import {
   CardContent,
+  CardMeta,
   CardTitle,
   ConversationCard,
   ConversationGrid,
@@ -25,10 +26,10 @@ import {
   DatePickerExpanded,
   ExpandingInput,
   FilterContainer,
+  FilterTitle,
   IconButton,
 } from "../FilterContainers";
 import { FetchMoreOnVisible } from "../../../widgets/infinite_scroll/FetchMoreOnVisible";
-import { calculateMessageStats, getMessageCountColor } from "./chatUtils";
 import type { ConversationType } from "../../../../types/graphql-api";
 import { getCreatorDisplay } from "../../../../utils/userDisplay";
 
@@ -105,12 +106,14 @@ export const DocumentConversationListView: React.FC<
       transition={{ duration: 0.3 }}
     >
       <FilterContainer>
-        <AnimatePresence>
-          {showSearch && (
+        <AnimatePresence exitBeforeEnter initial={false}>
+          {showSearch ? (
             <ExpandingInput
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: "auto", opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              key="search-input"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
               ref={searchInputRef as React.Ref<HTMLDivElement>}
             >
               <input
@@ -121,6 +124,8 @@ export const DocumentConversationListView: React.FC<
                 autoFocus
               />
             </ExpandingInput>
+          ) : (
+            <FilterTitle key="chat-title">Conversations</FilterTitle>
           )}
         </AnimatePresence>
 
@@ -206,11 +211,13 @@ export const DocumentConversationListView: React.FC<
                 width: 56,
                 height: 56,
                 borderRadius: "50%",
-                background: `${OS_LEGAL_COLORS.blueSurface}`,
+                background: OS_LEGAL_COLORS.accentSurface,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: OS_LEGAL_COLORS.primaryBlue,
+                color: OS_LEGAL_COLORS.accent,
+                boxShadow:
+                  "0 1px 2px rgba(15, 23, 42, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 0.6)",
               }}
             >
               <MessageSquare size={26} />
@@ -237,45 +244,36 @@ export const DocumentConversationListView: React.FC<
               key={conv.id}
               data-testid={`conversation-card-${conv.id}`}
               onClick={() => loadConversation(conv.id)}
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{
                 duration: 0.3,
                 delay: index * 0.05,
                 ease: [0.4, 0, 0.2, 1],
               }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
             >
-              <MessageCount
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{
-                  type: "spring",
-                  stiffness: 500,
-                  damping: 25,
-                  delay: index * 0.05 + 0.2,
-                }}
-                $colorStyle={getMessageCountColor(
-                  conv.chatMessages?.totalCount || 0,
-                  calculateMessageStats(conversations as any[])
-                )}
-              >
-                {conv.chatMessages?.totalCount || 0}
-              </MessageCount>
               <CardContent>
                 <CardTitle>{conv.title || "Untitled Conversation"}</CardTitle>
-                <div
-                  style={{
-                    color: OS_LEGAL_COLORS.textSecondary,
-                    fontSize: "0.875rem",
-                  }}
-                >
+                <CardMeta>
                   <TimeStamp>
                     {formatDistanceToNow(new Date(conv.createdAt))} ago
                   </TimeStamp>
                   <Creator>{getCreatorDisplay(conv.creator)}</Creator>
-                </div>
+                  <MessageCount
+                    $count={conv.chatMessages?.totalCount ?? 0}
+                    style={{ marginLeft: "auto" }}
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 500,
+                      damping: 25,
+                      delay: index * 0.05 + 0.15,
+                    }}
+                  >
+                    {conv.chatMessages?.totalCount ?? 0}
+                  </MessageCount>
+                </CardMeta>
               </CardContent>
             </ConversationCard>
           );

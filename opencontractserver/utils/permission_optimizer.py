@@ -6,8 +6,7 @@ PR #1637, which centralized authorization in ``Manager.user_can`` /
 per-instance memoization that lives inside
 ``opencontractserver.utils.permissioning.get_users_permissions_for_obj``.
 
-This module mirrors the idiom established by
-``opencontractserver.conversations.query_optimizer``:
+This module follows a self-contained request-optimizer idiom:
 
 - A small class with explicit ``invalidate`` / ``invalidate_caches`` methods.
 - A ``get_request_optimizer(request)`` helper that lazy-attaches the
@@ -36,11 +35,10 @@ class PermissionQueryOptimizer:
     """Per-request cache for ``get_users_permissions_for_obj`` results.
 
     Keyed by ``(user_id, content_type_id, instance_pk, include_group_permissions)``.
-    Unlike ``ConversationQueryOptimizer``, a single optimizer instance is
-    shared across all users active on a request — every cache entry tags
-    the ``user_id`` explicitly. This keeps the request-attribute count
-    down and lets the Manager/QuerySet ``user_can`` API stay user-agnostic
-    at the surface.
+    A single optimizer instance is shared across all users active on a
+    request — every cache entry tags the ``user_id`` explicitly. This keeps
+    the request-attribute count down and lets the Manager/QuerySet
+    ``user_can`` API stay user-agnostic at the surface.
 
     The cache stores ``frozenset[str]`` (immutable). Callers receive
     ``set[str]`` copies because the consumer in ``_default_user_can``
@@ -224,8 +222,6 @@ class PermissionQueryOptimizer:
 
     def invalidate_caches(self) -> None:
         """Clear the entire cache.
-
-        Naming parity with ``ConversationQueryOptimizer.invalidate_caches``.
 
         Implemented directly (not via ``self.invalidate()``) so the
         "prefer ``invalidate_caches`` for the clear-all intent" guidance

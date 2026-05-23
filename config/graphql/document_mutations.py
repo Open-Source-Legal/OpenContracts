@@ -1137,7 +1137,7 @@ class RestoreDeletedDocument(graphene.Mutation):
     """
     Restore a soft-deleted document path within a corpus.
 
-    Delegates to CorpusObjsService.restore_document() for:
+    Delegates to DocumentLifecycleService.restore_document() for:
     - Permission checking (corpus UPDATE permission)
     - Creating new DocumentPath with is_deleted=False
     """
@@ -1157,9 +1157,7 @@ class RestoreDeletedDocument(graphene.Mutation):
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(root, info, document_id, corpus_id) -> "RestoreDeletedDocument":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
         not_found_msg = "Document or corpus not found, or you do not have permission."
@@ -1200,7 +1198,7 @@ class RestoreDeletedDocument(graphene.Mutation):
                 )
 
             # Delegate to service - handles permission checks and restoration
-            success, error = CorpusObjsService.restore_document(
+            success, error = DocumentLifecycleService.restore_document(
                 user=user,
                 document_path=deleted_path,
                 request=info.context,
@@ -1256,9 +1254,7 @@ class PermanentlyDeleteDocument(graphene.Mutation):
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(root, info, document_id, corpus_id) -> "PermanentlyDeleteDocument":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
         not_found_msg = "Document or corpus not found, or you do not have permission."
@@ -1278,7 +1274,7 @@ class PermanentlyDeleteDocument(graphene.Mutation):
             except Corpus.DoesNotExist:
                 return PermanentlyDeleteDocument(ok=False, message=not_found_msg)
 
-            success, error = CorpusObjsService.permanently_delete_document(
+            success, error = DocumentLifecycleService.permanently_delete_document(
                 user=user,
                 document=document,
                 corpus=corpus,
@@ -1320,9 +1316,7 @@ class EmptyTrash(graphene.Mutation):
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(root, info, corpus_id) -> "EmptyTrash":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
 
@@ -1332,7 +1326,7 @@ class EmptyTrash(graphene.Mutation):
             # caller; service layer enforces write/DELETE permission afterwards
             corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
 
-            deleted_count, error = CorpusObjsService.empty_trash(
+            deleted_count, error = DocumentLifecycleService.empty_trash(
                 user=user,
                 corpus=corpus,
                 request=info.context,

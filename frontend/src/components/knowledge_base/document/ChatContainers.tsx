@@ -1,6 +1,10 @@
 import { motion } from "framer-motion";
 import styled from "styled-components";
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  accentAlpha,
+} from "../../../assets/configurations/osLegalStyles";
+import { RADIUS, SHADOW } from "../../../assets/configurations/designTokens";
 
 export const BackButton = styled.button`
   position: sticky;
@@ -394,28 +398,29 @@ export const ConversationGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr;
   grid-auto-rows: max-content;
-  gap: 0.75rem;
-  padding: 0.75rem 0.75rem 5rem;
+  gap: 0.625rem;
+  padding: 0.875rem 0.875rem 5.5rem;
   width: 100%;
   overflow-y: auto;
   position: relative;
 `;
 
+/**
+ * Conversation card — soft elevation over hard borders. A subtle teal accent
+ * rail on the left, a layered resting shadow, and a calm lift on hover.
+ */
 export const ConversationCard = styled(motion.div)`
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-areas:
-    "content"
-    "meta";
+  display: flex;
+  flex-direction: column;
   background: white;
-  border-radius: 12px;
-  padding: 1.5rem 1.75rem;
+  border-radius: ${RADIUS.md};
+  padding: 1.125rem 1.25rem;
   cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: ${SHADOW.subtle};
+  transition: box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
-  overflow: visible;
+  overflow: hidden;
 
   &::before {
     content: "";
@@ -424,156 +429,104 @@ export const ConversationCard = styled(motion.div)`
     left: 0;
     width: 3px;
     height: 100%;
-    background: linear-gradient(
-      to bottom,
-      ${OS_LEGAL_COLORS.primaryBlue},
-      #2b6cb0
-    );
-    opacity: 0.7;
-    transition: width 0.3s ease;
+    background: ${OS_LEGAL_COLORS.accent};
+    opacity: 0.85;
+    transition: width 0.22s ease;
   }
 
   &:hover {
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
-    border-color: rgba(66, 153, 225, 0.3);
+    box-shadow: ${SHADOW.raised};
     transform: translateY(-2px);
 
     &::before {
-      width: 6px;
+      width: 5px;
     }
+  }
+
+  &:active {
+    box-shadow: ${SHADOW.subtle};
   }
 `;
 
 export const CardContent = styled.div`
-  grid-area: content;
   min-width: 0;
-  padding-right: 3rem; /* Make space for the badge */
 `;
 
 export const CardTitle = styled.h3`
-  margin: 0;
-  font-size: 1.1rem;
+  margin: 0 0 0.3125rem;
+  font-size: 0.9375rem;
   font-weight: 600;
-  color: #2d3748;
+  letter-spacing: -0.01em;
+  color: ${OS_LEGAL_COLORS.textPrimary};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  position: relative;
-  padding-bottom: 0.25rem;
-
-  &::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 0;
-    height: 2px;
-    background: linear-gradient(
-      to right,
-      ${OS_LEGAL_COLORS.primaryBlue},
-      transparent
-    );
-    transition: width 0.3s ease;
-  }
-
-  ${ConversationCard}:hover & {
-    &::after {
-      width: 100%;
-    }
-  }
 `;
 
 export const CardMeta = styled.div`
-  grid-area: meta;
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-top: 0.75rem;
-  font-size: 0.875rem;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
 `;
 
 export const TimeStamp = styled.span`
-  color: #718096;
-  display: flex;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  display: inline-flex;
   align-items: center;
-
-  &::before {
-    content: "";
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background-color: ${OS_LEGAL_COLORS.primaryBlue};
-    margin-right: 6px;
-  }
 `;
 
+/**
+ * Conversation byline. Renders as a quiet middot-separated metadata segment —
+ * the old hard "| user_N" pipe rule is gone.
+ */
 export const Creator = styled.span`
-  color: #4a5568;
+  color: ${OS_LEGAL_COLORS.textSecondary};
   font-weight: 500;
-  position: relative;
-  padding-left: 12px;
+  display: inline-flex;
+  align-items: center;
 
   &::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    height: 12px;
-    width: 1px;
-    background-color: #cbd5e0;
+    content: "·";
+    margin: 0 0.5rem;
+    color: ${OS_LEGAL_COLORS.borderHover};
+    font-weight: 600;
   }
 `;
 
-export const MessageCount = styled(motion.div)<{
-  $colorStyle?: { background: string; opacity: number; textColor: string };
-}>`
-  position: absolute;
-  top: 50%;
-  right: -12px; /* Extend beyond the card boundary */
-  transform: translateY(-50%);
-  background: ${(props) =>
-    props.$colorStyle?.background ||
-    (props.children === "0"
-      ? "linear-gradient(135deg, #EDF2F7 0%, #E2E8F0 100%)"
-      : "linear-gradient(135deg, #2B6CB0 0%, #2C5282 100%)")};
-  color: ${(props) =>
-    props.$colorStyle?.textColor ||
-    (props.children === "0" ? OS_LEGAL_COLORS.textTertiary : "white")};
-  padding: 0.4rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.85rem;
+/**
+ * Message-count treatment. A light, soft teal-tinted chip that sits inline in
+ * the card's meta row — intentional, not a heavy oval bolted to the edge.
+ */
+export const MessageCount = styled(motion.div)<{ $count: number }>`
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.1875rem;
+  flex-shrink: 0;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  background: ${({ $count }) =>
+    $count === 0
+      ? OS_LEGAL_COLORS.surfaceLight
+      : OS_LEGAL_COLORS.accentSurface};
+  color: ${({ $count }) =>
+    $count === 0 ? OS_LEGAL_COLORS.textSecondary : OS_LEGAL_COLORS.accent};
+  box-shadow: ${({ $count }) =>
+    $count === 0
+      ? "inset 0 0 0 1px rgba(15, 23, 42, 0.06)"
+      : `inset 0 0 0 1px ${accentAlpha(0.16)}`};
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  opacity: ${(props) =>
-    props.$colorStyle?.opacity || (props.children === "0" ? 0.9 : 1)};
-  box-shadow: ${(props) =>
-    props.children === "0"
-      ? "0 2px 8px rgba(0, 0, 0, 0.06)"
-      : "0 4px 12px rgba(43, 108, 176, 0.15), 0 0 0 1px rgba(43, 108, 176, 0.2)"};
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2rem;
-  height: 2rem;
-  z-index: 2;
+  letter-spacing: 0;
+  line-height: 1;
+  transition: background 0.22s ease, box-shadow 0.22s ease;
 
   &::after {
-    content: ${(props) => (props.children === "0" ? "' New'" : "' msgs'")};
-    font-size: 0.7rem;
-    opacity: 0.9;
+    /* Zero state shows just "0" — a "0 new" suffix reads oddly. */
+    content: ${({ $count }) => ($count === 0 ? "''" : "'msgs'")};
+    font-size: 0.6875rem;
     font-weight: 500;
-    margin-left: 3px;
-  }
-
-  ${ConversationCard}:hover & {
-    transform: translateY(-50%) translateX(-4px);
-    box-shadow: ${(props) =>
-      props.children === "0"
-        ? "0 4px 12px rgba(0, 0, 0, 0.08)"
-        : "0 8px 16px rgba(43, 108, 176, 0.2), 0 0 0 1px rgba(43, 108, 176, 0.25)"};
+    opacity: 0.85;
   }
 `;
 
@@ -588,32 +541,50 @@ export const ErrorContainer = styled(motion.div)`
   margin: 1rem;
 `;
 
+/**
+ * New-conversation FAB — a polished teal button with soft layered depth
+ * (not a flat blue circle) and a tasteful press state.
+ */
 export const NewChatFloatingButton = styled(motion.button)`
   position: absolute;
   bottom: 1.5rem;
   right: 1.5rem;
   width: 56px;
   height: 56px;
-  border-radius: 28px;
-  background: ${OS_LEGAL_COLORS.primaryBlue};
+  border-radius: 999px;
+  background: linear-gradient(
+    150deg,
+    ${OS_LEGAL_COLORS.accent} 0%,
+    ${OS_LEGAL_COLORS.accentHover} 100%
+  );
   color: white;
   border: none;
-  box-shadow: 0 4px 12px rgba(66, 153, 225, 0.35);
+  box-shadow: 0 4px 12px ${accentAlpha(0.32)}, 0 12px 28px ${accentAlpha(0.2)},
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 5;
+  transition: box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   svg {
     width: 24px;
     height: 24px;
+    stroke-width: 2.25;
   }
 
   &:hover {
-    background: #3182ce;
     transform: translateY(-2px);
-    box-shadow: 0 6px 8px rgba(66, 153, 225, 0.3);
+    box-shadow: 0 8px 18px ${accentAlpha(0.36)},
+      0 16px 36px ${accentAlpha(0.24)}, inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  &:active {
+    transform: translateY(0) scale(0.96);
+    box-shadow: 0 2px 8px ${accentAlpha(0.3)},
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 `;
 

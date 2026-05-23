@@ -1,13 +1,34 @@
-"""
-User Query Optimizer for OpenContracts.
+"""User service — permission-aware user queries with profile privacy filtering.
 
-Provides optimized user queries with profile privacy filtering and corpus membership visibility.
+``UserService`` centralises user-visibility logic: corpus-membership-based
+privacy filtering for profiles, plus mention-autocomplete convenience helpers.
+
+Visibility model:
+- Own profile: always visible
+- Public profiles (is_profile_public=True): visible to all
+- Private profiles: visible to users who share corpus membership with > READ
+  permission
+- Inactive users: never visible (except to superusers)
+
+Permission model for corpus membership visibility:
+- Users with any of these permission codenames on the same corpus can see each
+  other:
+  - create_corpus (CREATE permission)
+  - update_corpus (UPDATE permission)
+  - remove_corpus (DELETE permission)
+- READ-only permission does NOT enable seeing private profiles
+
+Migrated from ``users/query_optimizer.py`` as Phase 4 of the service-layer
+centralization roadmap — see
+docs/refactor_plans/2026-05-19-service-layer-centralization-design.md.
 """
 
-from typing import TYPE_CHECKING, ClassVar, Optional, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, Union
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q, QuerySet
+
+from opencontractserver.shared.services import BaseService
 
 if TYPE_CHECKING:
     from opencontractserver.users.models import User
@@ -20,22 +41,15 @@ if TYPE_CHECKING:
 RequestingUser = Optional[Union["User", AnonymousUser]]
 
 
-class UserQueryOptimizer:
-    """
-    Optimized user queries with profile privacy filtering.
+class UserService(BaseService):
+    """Permission-aware user queries with profile privacy filtering.
 
-    Visibility model:
-    - Own profile: always visible
-    - Public profiles (is_profile_public=True): visible to all
-    - Private profiles: visible to users who share corpus membership with > READ permission
-    - Inactive users: never visible (except to superusers)
-
-    Permission model for corpus membership visibility:
-    - Users with any of these permission codenames on the same corpus can see each other:
-      - create_corpus (CREATE permission)
-      - update_corpus (UPDATE permission)
-      - remove_corpus (DELETE permission)
-    - READ-only permission does NOT enable seeing private profiles
+    All public methods accept an optional ``request`` kwarg for service-layer
+    API consistency (the standard ``BaseService`` convention). User visibility
+    is computed entirely from ``Q``-object filtering rather than per-object
+    ``user_can`` calls, so ``request`` is not currently forwarded — it is
+    threaded in once a request-aware path exists, mirroring
+    ``BaseService.filter_visible``.
     """
 
     # Permission codenames that indicate > READ access
@@ -51,6 +65,8 @@ class UserQueryOptimizer:
         requesting_user: RequestingUser,
         corpus_id: Optional[int] = None,
         include_self: bool = True,
+        *,
+        request: Optional[Any] = None,
     ) -> QuerySet:
         """
         Get users visible to requesting_user.
@@ -59,6 +75,7 @@ class UserQueryOptimizer:
             requesting_user: The user making the request
             corpus_id: Optional corpus to scope visibility (users with shared access)
             include_self: Whether to include the requesting user (default True)
+            request: Accepted for service-layer API consistency (see class docstring).
 
         Returns:
             QuerySet of User objects visible to the requesting user
@@ -192,7 +209,11 @@ class UserQueryOptimizer:
 
     @classmethod
     def check_user_visibility(
-        cls, requesting_user: RequestingUser, target_user_id: int
+        cls,
+        requesting_user: RequestingUser,
+        target_user_id: int,
+        *,
+        request: Optional[Any] = None,
     ) -> bool:
         """
         Check if requesting_user can see target_user.
@@ -200,11 +221,16 @@ class UserQueryOptimizer:
         Args:
             requesting_user: The user making the request
             target_user_id: The ID of the user to check visibility for
+            request: Accepted for service-layer API consistency (see class docstring).
 
         Returns:
             True if target_user is visible to requesting_user, False otherwise
         """
-        return cls.get_visible_users(requesting_user).filter(id=target_user_id).exists()
+        return (
+            cls.get_visible_users(requesting_user, request=request)
+            .filter(id=target_user_id)
+            .exists()
+        )
 
     @classmethod
     def get_users_for_mention(
@@ -213,6 +239,8 @@ class UserQueryOptimizer:
         text_search: Optional[str] = None,
         corpus_id: Optional[int] = None,
         limit: int = 20,
+        *,
+        request: Optional[Any] = None,
     ) -> QuerySet:
         """
         Get users for @ mention autocomplete.
@@ -224,6 +252,7 @@ class UserQueryOptimizer:
             text_search: Optional text to filter by username or email
             corpus_id: Optional corpus to scope visibility
             limit: Maximum number of results to return
+            request: Accepted for service-layer API consistency (see class docstring).
 
         Returns:
             QuerySet of User objects matching the search criteria
@@ -238,7 +267,9 @@ class UserQueryOptimizer:
             return User.objects.none()
 
         # Get visible users
-        qs = cls.get_visible_users(requesting_user, corpus_id=corpus_id)
+        qs = cls.get_visible_users(
+            requesting_user, corpus_id=corpus_id, request=request
+        )
 
         # Apply text search if provided
         if text_search:

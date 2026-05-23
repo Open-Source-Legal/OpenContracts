@@ -14,6 +14,8 @@ Key test scenarios:
 6. Parallel permission schemes: Same context with both CHAT and THREAD
 """
 
+from types import SimpleNamespace
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
@@ -25,9 +27,7 @@ from opencontractserver.conversations.models import (
     ConversationTypeChoices,
     MessageTypeChoices,
 )
-from opencontractserver.conversations.query_optimizer import (
-    ConversationQueryOptimizer,
-)
+from opencontractserver.conversations.services import ConversationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 
@@ -563,38 +563,60 @@ class TestChatMessageInheritedPermissions(TestCase):
         self.assertIn(message, visible_to_alice)
 
 
-class TestConversationQueryOptimizer(TestCase):
+class TestConversationService(TestCase):
     """
-    Test the ConversationQueryOptimizer helper class.
+    Test the ConversationService helper class.
+
+    ``ConversationService`` is classmethod-based: every public method takes
+    the acting ``user`` plus an optional ``request`` for request-scoped
+    caching (the standard ``BaseService`` convention). It replaced the
+    retired instance-based ``ConversationQueryOptimizer`` /
+    ``get_request_optimizer`` style in Phase 4 of the service-layer
+    centralization roadmap.
     """
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.alice = User.objects.create_user(
-            username="opt_alice",
-            email="opt_alice@test.com",
+            username="svc_alice",
+            email="svc_alice@test.com",
             password="testpass123",
         )
         cls.bob = User.objects.create_user(
-            username="opt_bob",
-            email="opt_bob@test.com",
+            username="svc_bob",
+            email="svc_bob@test.com",
+            password="testpass123",
+        )
+        cls.superuser = User.objects.create_superuser(
+            username="svc_super",
+            email="svc_super@test.com",
             password="testpass123",
         )
 
     def setUp(self):
         """Create test data."""
         self.corpus = Corpus.objects.create(
-            title="Optimizer Test Corpus",
+            title="Service Test Corpus",
             creator=self.alice,
             is_public=False,
         )
         assign_perm("read_corpus", self.bob, self.corpus)
 
+        self.document = Document.objects.create(
+            title="Service Test Document",
+            description="",
+            pdf_file="path/to/x.pdf",
+            creator=self.alice,
+            is_public=False,
+        )
+        assign_perm("read_document", self.bob, self.document)
+
     def tearDown(self):
         """Clean up."""
         ChatMessage.all_objects.all().delete()
         Conversation.all_objects.all().delete()
+        Document.objects.all().delete()
         Corpus.objects.all().delete()
 
     def test_check_conversation_visibility(self):
@@ -606,15 +628,33 @@ class TestConversationQueryOptimizer(TestCase):
             conversation_type=ConversationTypeChoices.THREAD,
         )
 
-        # Bob can see it
-        optimizer = ConversationQueryOptimizer(self.bob)
-        self.assertTrue(optimizer.check_conversation_visibility(thread.id))
+        # Bob can see it (inherits READ from the shared corpus)
+        self.assertTrue(
+            ConversationService.check_conversation_visibility(self.bob, thread.id)
+        )
 
         # Non-existent ID returns False (IDOR-safe)
-        self.assertFalse(optimizer.check_conversation_visibility(99999))
+        self.assertFalse(
+            ConversationService.check_conversation_visibility(self.bob, 99999)
+        )
+
+    def test_check_conversation_visibility_superuser(self):
+        """Superusers see any conversation that exists; non-existent IDs fail."""
+        thread = Conversation.objects.create(
+            title="Super Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+        )
+        self.assertTrue(
+            ConversationService.check_conversation_visibility(self.superuser, thread.id)
+        )
+        self.assertFalse(
+            ConversationService.check_conversation_visibility(self.superuser, 99999)
+        )
 
     def test_get_threads_for_corpus(self):
-        """Test getting visible threads for a corpus."""
+        """Test getting visible threads for a corpus (THREAD type only)."""
         thread1 = Conversation.objects.create(
             title="Thread 1",
             chat_with_corpus=self.corpus,
@@ -629,25 +669,115 @@ class TestConversationQueryOptimizer(TestCase):
             conversation_type=ConversationTypeChoices.CHAT,
         )
 
-        optimizer = ConversationQueryOptimizer(self.bob)
-        threads = optimizer.get_threads_for_corpus(self.corpus.id)
+        threads = ConversationService.get_threads_for_corpus(self.bob, self.corpus.id)
 
         self.assertEqual(threads.count(), 1)
         self.assertIn(thread1, threads)
 
-    def test_cache_invalidation(self):
-        """Test that cache invalidation works."""
-        optimizer = ConversationQueryOptimizer(self.bob)
+    def test_get_threads_for_document(self):
+        """Test getting visible threads for a document (THREAD type only)."""
+        thread = Conversation.objects.create(
+            title="Doc Thread",
+            chat_with_document=self.document,
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+        )
 
-        # Access to populate cache
-        _ = optimizer._get_visible_conversation_ids()
-        self.assertIsNotNone(optimizer._visible_conversation_ids_cache)
+        threads = ConversationService.get_threads_for_document(
+            self.bob, self.document.id
+        )
 
-        # Invalidate
-        optimizer.invalidate_caches()
+        self.assertEqual(threads.count(), 1)
+        self.assertIn(thread, threads)
 
-        # Cache should be cleared
-        self.assertIsNone(optimizer._visible_conversation_ids_cache)
+    def test_get_chats_for_user(self):
+        """get_chats_for_user returns the user's own CHAT conversations."""
+        own_chat = Conversation.objects.create(
+            title="Bob's Chat",
+            creator=self.bob,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        # A THREAD must not appear in the CHAT list.
+        Conversation.objects.create(
+            title="Bob's Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.bob,
+            conversation_type=ConversationTypeChoices.THREAD,
+        )
+
+        chats = ConversationService.get_chats_for_user(self.bob)
+
+        self.assertEqual(chats.count(), 1)
+        self.assertIn(own_chat, chats)
+
+    def test_get_corpus_conversation_counts(self):
+        """get_corpus_conversation_counts returns (thread_count, chat_count)."""
+        for idx in range(2):
+            Conversation.objects.create(
+                title=f"Count Thread {idx}",
+                chat_with_corpus=self.corpus,
+                creator=self.alice,
+                conversation_type=ConversationTypeChoices.THREAD,
+            )
+        # Bob's own CHAT linked to the corpus (visible to its creator).
+        Conversation.objects.create(
+            title="Count Chat",
+            chat_with_corpus=self.corpus,
+            creator=self.bob,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+
+        thread_count, chat_count = ConversationService.get_corpus_conversation_counts(
+            self.bob, self.corpus.id
+        )
+        self.assertEqual(thread_count, 2)
+        self.assertEqual(chat_count, 1)
+
+    def test_request_level_caching(self):
+        """check_conversation_visibility caches the visible-id set on the request."""
+        thread = Conversation.objects.create(
+            title="Cached Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+        )
+        request = SimpleNamespace()
+
+        # First call computes and caches the visible-id set on the request.
+        self.assertTrue(
+            ConversationService.check_conversation_visibility(
+                self.bob, thread.id, request=request
+            )
+        )
+
+        # Delete the conversation; a fresh visibility query would miss it.
+        Conversation.objects.filter(id=thread.id).delete()
+
+        # Second call with the same request reuses the cached set.
+        self.assertTrue(
+            ConversationService.check_conversation_visibility(
+                self.bob, thread.id, request=request
+            )
+        )
+
+    def test_no_request_recomputes_each_call(self):
+        """Without a request, each visibility check recomputes (no stale cache)."""
+        thread = Conversation.objects.create(
+            title="Uncached Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+        )
+        self.assertTrue(
+            ConversationService.check_conversation_visibility(self.bob, thread.id)
+        )
+
+        Conversation.objects.filter(id=thread.id).delete()
+
+        # No request was threaded, so the second call recomputes and misses.
+        self.assertFalse(
+            ConversationService.check_conversation_visibility(self.bob, thread.id)
+        )
 
 
 class TestEdgeCases(TestCase):
