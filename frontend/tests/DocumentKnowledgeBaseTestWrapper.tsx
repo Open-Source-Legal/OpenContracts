@@ -4350,6 +4350,7 @@ const LocationWatcher: React.FC = () => {
     const analysisId = params.get("analysis");
     const extractId = params.get("extract");
     const threadIdParam = params.get("thread");
+    const annParam = params.get("ann");
 
     if (analysisId) {
       selectedAnalysesIds([analysisId]);
@@ -4367,6 +4368,19 @@ const LocationWatcher: React.FC = () => {
       selectedThreadId(threadIdParam);
     } else {
       selectedThreadId(null);
+    }
+
+    // Mirror CentralRouteManager's `ann` → selection sync. The production
+    // annotation-selection setter (useAnnotationSelection / HighlightItem)
+    // only writes the `?ann=` URL param and relies on CentralRouteManager to
+    // push it into the `selectedAnnotationIds` reactive var. CT mounts this
+    // lightweight LocationWatcher instead of CentralRouteManager, so without
+    // this branch annotation selection (and the mobile annotation-detail
+    // sheet that opens off it) is unreachable in component tests.
+    if (annParam) {
+      selectedAnnotationIds(annParam.split(",").filter(Boolean));
+    } else {
+      selectedAnnotationIds([]);
     }
   }, [location.search]);
 

@@ -1,5 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { routingLogger } from "../../../../utils/routingLogger";
+import {
+  ZOOM_MIN,
+  ZOOM_MAX,
+} from "../../../../assets/configurations/constants";
 
 /** Calculate distance between two touch points (pure helper, no closure deps). */
 function getTouchDistance(touches: TouchList): number {
@@ -113,7 +117,9 @@ export function useZoomManager({
 
       // Calculate zoom delta (normalize across browsers)
       const delta = event.deltaY > 0 ? -0.1 : 0.1;
-      setZoomLevel(Math.max(0.5, Math.min(4, zoomLevelRef.current + delta)));
+      setZoomLevel(
+        Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomLevelRef.current + delta))
+      );
       showZoomFeedback();
     },
     [activeLayer, setZoomLevel, showZoomFeedback]
@@ -133,13 +139,13 @@ export function useZoomManager({
         case "+":
         case "=": // Handle both + and = (same key without shift)
           event.preventDefault();
-          setZoomLevel(Math.min(zoomLevelRef.current + 0.1, 4));
+          setZoomLevel(Math.min(zoomLevelRef.current + 0.1, ZOOM_MAX));
           handled = true;
           break;
         case "-":
         case "_": // Handle both - and _ (same key without shift)
           event.preventDefault();
-          setZoomLevel(Math.max(zoomLevelRef.current - 0.1, 0.5));
+          setZoomLevel(Math.max(zoomLevelRef.current - 0.1, ZOOM_MIN));
           handled = true;
           break;
         case "0":
@@ -194,7 +200,10 @@ export function useZoomManager({
       const scale = currentDistance / initialPinchDistance;
 
       // Apply zoom with limits
-      const newZoom = Math.max(0.5, Math.min(4, lastPinchZoom * scale));
+      const newZoom = Math.max(
+        ZOOM_MIN,
+        Math.min(ZOOM_MAX, lastPinchZoom * scale)
+      );
       setZoomLevel(newZoom);
 
       // Show zoom feedback
@@ -277,7 +286,7 @@ export function useZoomManager({
       const adjustedZoom = baseZoomRef.current * viewportReduction;
 
       // Clamp to valid zoom range
-      const clampedZoom = Math.max(0.5, Math.min(4, adjustedZoom));
+      const clampedZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, adjustedZoom));
 
       // Only update if there's a meaningful difference
       if (Math.abs(zoomLevel - clampedZoom) > 0.01) {
@@ -334,7 +343,10 @@ export function useZoomManager({
       const backCalculatedBase = zoomLevel / viewportReduction;
 
       // Update base zoom so when sidebar closes, it restores to the right level
-      baseZoomRef.current = Math.max(0.5, Math.min(4, backCalculatedBase));
+      baseZoomRef.current = Math.max(
+        ZOOM_MIN,
+        Math.min(ZOOM_MAX, backCalculatedBase)
+      );
     } else if (!showRightPanel && !isAdjustingZoomRef.current) {
       // Sidebar is closed, keep baseZoom in sync with current zoom
       baseZoomRef.current = zoomLevel;

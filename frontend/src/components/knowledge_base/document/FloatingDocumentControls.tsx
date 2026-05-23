@@ -1,5 +1,4 @@
 import React, { useState, useEffect, memo } from "react";
-import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -10,19 +9,14 @@ import {
   Plus,
   Columns,
   Maximize2,
-  Sparkles,
   X,
-  BookOpen,
 } from "lucide-react";
 import { useCorpusState } from "../../annotator/context/CorpusAtom";
 import {
   useDocumentPermissions,
   useDocumentState,
 } from "../../annotator/context/DocumentAtom";
-import {
-  showSelectCorpusAnalyzerOrFieldsetModal,
-  openedCorpus,
-} from "../../../graphql/cache";
+import { showSelectCorpusAnalyzerOrFieldsetModal } from "../../../graphql/cache";
 import { PermissionTypes } from "../../types";
 import { AnnotationControls } from "../../annotator/controls/AnnotationControls";
 import { ToggleSwitch } from "../../widgets/ToggleSwitch";
@@ -31,13 +25,7 @@ import { visualViewportAwareBottom } from "../../../utils/layout";
 import {
   DESKTOP_FLOATING_CONTROLS_BOTTOM,
   MOBILE_FLOATING_CONTROLS_BOTTOM,
-  MOBILE_SETTINGS_PANEL_BOTTOM,
-  Z_INDEX,
 } from "../../../assets/configurations/constants";
-
-const MOBILE_FLOATING_CONTROLS_Z_INDEX = Z_INDEX.MOBILE_FLOATING_CONTROLS;
-const MOBILE_FLOATING_BACKDROP_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX - 1;
-const MOBILE_FLOATING_PANEL_Z_INDEX = MOBILE_FLOATING_CONTROLS_Z_INDEX + 1;
 
 const ControlsContainer = styled(motion.div)<{ $panelOffset?: number }>`
   position: fixed;
@@ -270,77 +258,6 @@ const WidthMenuItem = styled(motion.button)<{ $isActive: boolean }>`
   }
 `;
 
-/* Mobile Speed Dial Components */
-const SpeedDialContainer = styled.div`
-  position: fixed;
-  bottom: ${visualViewportAwareBottom(MOBILE_FLOATING_CONTROLS_BOTTOM)};
-  right: 1rem;
-  z-index: ${MOBILE_FLOATING_CONTROLS_Z_INDEX};
-`;
-
-const SpeedDialBackdrop = styled(motion.div)`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.2);
-  z-index: ${MOBILE_FLOATING_BACKDROP_Z_INDEX};
-  backdrop-filter: blur(2px);
-`;
-
-const MainFAB = styled(motion.button)<{ $expanded: boolean }>`
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-  position: relative;
-  z-index: 2002;
-
-  svg {
-    width: 24px;
-    height: 24px;
-    color: white;
-    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-    transform: ${(props) =>
-      props.$expanded ? "rotate(180deg) scale(1.1)" : "rotate(0deg) scale(1)"};
-  }
-
-  &:active {
-    transform: scale(0.95);
-  }
-`;
-
-const OrbitButton = styled(motion.button)<{ $color?: string }>`
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: ${(props) => props.$color || "white"};
-  border: 2px solid ${OS_LEGAL_COLORS.border};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  position: absolute;
-  bottom: 0;
-  right: 0;
-
-  svg {
-    width: 20px;
-    height: 20px;
-    color: ${(props) =>
-      props.$color ? "white" : OS_LEGAL_COLORS.textSecondary};
-  }
-
-  &:active {
-    transform: scale(0.9);
-  }
-`;
-
 interface FloatingDocumentControlsProps {
   /** Whether to show the controls (e.g., only in document layer) */
   visible?: boolean;
@@ -368,8 +285,6 @@ interface FloatingDocumentControlsProps {
   autoZoomEnabled?: boolean;
   /** Callback when auto-zoom toggle changes */
   onAutoZoomChange?: (enabled: boolean) => void;
-  /** Whether to use mobile speed dial layout */
-  isMobile?: boolean;
   /**
    * When true, hides document-tool FABs (analyses, extracts, create-analysis)
    * to declutter the area around the right tray's chat input. The panel-width
@@ -394,12 +309,10 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
       onPanelWidthChange,
       autoZoomEnabled = true,
       onAutoZoomChange,
-      isMobile = false,
       hideDocumentTools = false,
     }) => {
       const [expandedSettings, setExpandedSettings] = useState(false);
       const [expandedWidthMenu, setExpandedWidthMenu] = useState(false);
-      const [speedDialExpanded, setSpeedDialExpanded] = useState(false);
 
       // Get document permissions to check if user can create analyses (not corpus permissions!)
       const { permissions: documentPermissions, setPermissions } =
@@ -441,257 +354,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
         return null;
       }
 
-      // Helper function to calculate orbital positions for mobile speed dial.
-      // CSS transform y-values grow downward, so use the upper-left quadrant
-      // and invert the sine value to keep expanded buttons out of bottom UI.
-      const getOrbitPosition = (index: number, total: number) => {
-        const radius = total > 4 ? 130 : 100; // Distance from center in pixels
-        const arcAngle = 90; // Total arc span in degrees
-        const startAngle = 90; // Start straight above the FAB
-
-        // Calculate angle for this button in the arc
-        const angle =
-          total <= 1
-            ? startAngle
-            : startAngle + (arcAngle / (total - 1)) * index;
-        const radian = (angle * Math.PI) / 180;
-
-        return {
-          x: Math.cos(radian) * radius,
-          y: -Math.sin(radian) * radius,
-        };
-      };
-
-      // Mobile Speed Dial Rendering
-      if (isMobile) {
-        // Collect all buttons that should appear in the speed dial
-        const speedDialButtons: Array<{
-          icon: JSX.Element;
-          color?: string;
-          onClick: () => void;
-          title: string;
-          testId: string;
-        }> = [];
-
-        // Settings button
-        speedDialButtons.push({
-          icon: <Settings />,
-          onClick: () => {
-            setExpandedSettings(!expandedSettings);
-            setSpeedDialExpanded(false);
-          },
-          title: "Annotation Filters",
-          testId: "settings-button",
-        });
-
-        // Summary button (if callback provided)
-        if (onSummaryClick) {
-          speedDialButtons.push({
-            icon: <BookOpen />,
-            color: OS_LEGAL_COLORS.primaryBlue,
-            onClick: () => {
-              onSummaryClick();
-              setSpeedDialExpanded(false);
-            },
-            title: "View Summary",
-            testId: "summary-button",
-          });
-        }
-
-        // Analyses button
-        if (!hideDocumentTools) {
-          speedDialButtons.push({
-            icon: <BarChart3 />,
-            color: OS_LEGAL_COLORS.folderIcon,
-            onClick: () => {
-              if (!analysesOpen && extractsOpen && onExtractsClick) {
-                onExtractsClick();
-              }
-              if (onAnalysesClick) onAnalysesClick();
-              setSpeedDialExpanded(false);
-            },
-            title: "View Analyses",
-            testId: "analyses-button",
-          });
-        }
-
-        // Extracts button
-        if (!hideDocumentTools) {
-          speedDialButtons.push({
-            icon: <Database />,
-            color: "#8b5cf6",
-            onClick: () => {
-              if (!extractsOpen && analysesOpen && onAnalysesClick) {
-                onAnalysesClick();
-              }
-              if (onExtractsClick) onExtractsClick();
-              setSpeedDialExpanded(false);
-            },
-            title: "View Extracts",
-            testId: "extracts-button",
-          });
-        }
-
-        // Create analysis button (if user has permissions)
-        if (
-          !hideDocumentTools &&
-          canCreateAnalysis &&
-          !readOnly &&
-          selectedCorpus
-        ) {
-          speedDialButtons.push({
-            icon: <Plus />,
-            color: OS_LEGAL_COLORS.greenMedium,
-            onClick: () => {
-              if (selectedCorpus) {
-                showSelectCorpusAnalyzerOrFieldsetModal(true);
-              }
-              setSpeedDialExpanded(false);
-            },
-            title: "Start New Analysis",
-            testId: "create-analysis-button",
-          });
-        }
-
-        const mobileControls = (
-          <>
-            {/* Backdrop - closes speed dial when tapped */}
-            <AnimatePresence>
-              {speedDialExpanded && (
-                <SpeedDialBackdrop
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setSpeedDialExpanded(false)}
-                />
-              )}
-            </AnimatePresence>
-
-            {/* Settings panel - show outside speed dial container */}
-            <AnimatePresence>
-              {expandedSettings && (
-                <ControlPanel
-                  data-testid="settings-panel"
-                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                  transition={{ duration: 0.2 }}
-                  style={{
-                    position: "fixed",
-                    bottom: visualViewportAwareBottom(
-                      MOBILE_SETTINGS_PANEL_BOTTOM
-                    ),
-                    right: "1rem",
-                    zIndex: MOBILE_FLOATING_PANEL_Z_INDEX,
-                  }}
-                >
-                  <PanelHeader>
-                    <PanelHeaderTitle>
-                      <Eye />
-                      Annotation Filters
-                    </PanelHeaderTitle>
-                    <CloseButton
-                      onClick={() => setExpandedSettings(false)}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      title="Close"
-                      data-testid="close-settings-button"
-                    >
-                      <X />
-                    </CloseButton>
-                  </PanelHeader>
-                  <AnnotationControls
-                    variant="floating"
-                    showLabelFilters
-                    compact
-                  />
-
-                  <Divider />
-
-                  <ControlItem>
-                    <ControlLabel>
-                      <Maximize2 />
-                      Auto-Zoom Sidebar
-                    </ControlLabel>
-                    <ToggleSwitch>
-                      <input
-                        type="checkbox"
-                        aria-label="Auto-Zoom Sidebar"
-                        checked={autoZoomEnabled}
-                        onChange={() => onAutoZoomChange?.(!autoZoomEnabled)}
-                      />
-                      <span />
-                    </ToggleSwitch>
-                  </ControlItem>
-                </ControlPanel>
-              )}
-            </AnimatePresence>
-
-            {/* Speed Dial Container */}
-            <SpeedDialContainer data-testid="speed-dial-container">
-              {/* Orbital Buttons */}
-              <AnimatePresence>
-                {speedDialExpanded &&
-                  speedDialButtons.map((button, index) => {
-                    const position = getOrbitPosition(
-                      index,
-                      speedDialButtons.length
-                    );
-                    return (
-                      <OrbitButton
-                        key={button.testId}
-                        $color={button.color}
-                        data-testid={button.testId}
-                        onClick={button.onClick}
-                        title={button.title}
-                        initial={{
-                          opacity: 0,
-                          scale: 0,
-                          x: 0,
-                          y: 0,
-                        }}
-                        animate={{
-                          opacity: 1,
-                          scale: 1,
-                          x: position.x,
-                          y: position.y,
-                        }}
-                        exit={{
-                          opacity: 0,
-                          scale: 0,
-                          x: 0,
-                          y: 0,
-                        }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 500,
-                          damping: 30,
-                          delay: index * 0.03, // Stagger animation
-                        }}
-                      >
-                        {button.icon}
-                      </OrbitButton>
-                    );
-                  })}
-              </AnimatePresence>
-
-              {/* Main FAB */}
-              <MainFAB
-                $expanded={speedDialExpanded}
-                onClick={() => setSpeedDialExpanded(!speedDialExpanded)}
-                data-testid="speed-dial-main-fab"
-                whileTap={{ scale: 0.9 }}
-              >
-                <Sparkles />
-              </MainFAB>
-            </SpeedDialContainer>
-          </>
-        );
-
-        return createPortal(mobileControls, document.body);
-      }
-
-      // Desktop Layout (original implementation)
+      // Desktop Layout
       return (
         <ControlsContainer $panelOffset={panelOffset}>
           <AnimatePresence>

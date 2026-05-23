@@ -14,19 +14,15 @@ import {
   SidebarTabsContainer,
   SidebarTab,
   TabBadge,
-  MobileTabBar,
-  MobileTab,
 } from "../styled/SidebarTabs";
 
 type ViewMode = SidebarViewMode["mode"];
 
-interface CommonProps {
+export interface DesktopSidebarTabsProps {
   /** Currently selected sidebar view mode */
   sidebarViewMode: ViewMode;
   /** Set the sidebar view mode */
   setSidebarViewMode: (mode: ViewMode) => void;
-  /** Whether the right panel is visible (used by mobile bar) */
-  showRightPanel: boolean;
   /** Set right panel visibility */
   setShowRightPanel: (open: boolean) => void;
   /** Set the chat panel width mode (for discussions tab) */
@@ -37,10 +33,6 @@ interface CommonProps {
   selectedExtract: ExtractType | null;
   /** Number of threads (rendered as discussions badge when > 0) */
   threadCount: number;
-}
-
-export interface DesktopSidebarTabsProps
-  extends Omit<CommonProps, "showRightPanel"> {
   /**
    * `false` → tabs anchored to the right edge (panel closed); clicking any tab
    * opens the panel.
@@ -167,105 +159,5 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         <span className="tab-label">Discussions</span>
       </SidebarTab>
     </SidebarTabsContainer>
-  );
-};
-
-export type MobileSidebarTabsProps = CommonProps;
-
-/**
- * Horizontal tab bar shown at the top of the open right panel on mobile only
- * (CSS-driven via `MobileTabBar` styled component). Tap behavior:
- * - inactive tab → switch view
- * - active tab → toggle panel closed (Discussions toggles panel state)
- *
- * Discussions on mobile pins the panel to "full" width so the conversation
- * thread has room to breathe on small screens.
- */
-export const MobileSidebarTabs: React.FC<MobileSidebarTabsProps> = ({
-  sidebarViewMode,
-  setSidebarViewMode,
-  showRightPanel,
-  setShowRightPanel,
-  setMode,
-  selectedAnalysis,
-  selectedExtract,
-  threadCount,
-}) => {
-  const onTabClick =
-    (mode: ViewMode, extra?: () => void, toggleOnActive = false) =>
-    () => {
-      if (sidebarViewMode === mode) {
-        setShowRightPanel(toggleOnActive ? !showRightPanel : false);
-        return;
-      }
-      setSidebarViewMode(mode);
-      extra?.();
-    };
-
-  return (
-    <MobileTabBar>
-      <MobileTab
-        $active={sidebarViewMode === "index"}
-        onClick={onTabClick("index")}
-        data-testid="mobile-view-mode-index"
-      >
-        <BookOpen />
-        <span>Index</span>
-      </MobileTab>
-      <MobileTab
-        $active={sidebarViewMode === "chat"}
-        onClick={onTabClick("chat")}
-        data-testid="mobile-view-mode-chat"
-      >
-        <MessageSquare />
-        <span>Chat</span>
-      </MobileTab>
-      <MobileTab
-        $active={sidebarViewMode === "feed"}
-        onClick={onTabClick("feed")}
-        data-testid="mobile-view-mode-feed"
-      >
-        <Layers />
-        <span>Feed</span>
-      </MobileTab>
-      {selectedExtract && (
-        <MobileTab
-          $active={sidebarViewMode === "extract"}
-          onClick={onTabClick("extract")}
-          data-testid="mobile-view-mode-extract"
-        >
-          <Database />
-          <span>Extract</span>
-        </MobileTab>
-      )}
-      {selectedAnalysis && (
-        <MobileTab
-          $active={sidebarViewMode === "analysis"}
-          onClick={onTabClick("analysis")}
-          data-testid="mobile-view-mode-analysis"
-        >
-          <BarChart3 />
-          <span>Analysis</span>
-        </MobileTab>
-      )}
-      <MobileTab
-        $active={sidebarViewMode === "discussions"}
-        onClick={onTabClick(
-          "discussions",
-          () => {
-            setShowRightPanel(true);
-            setMode("full");
-          },
-          true
-        )}
-        aria-label="Document discussions"
-      >
-        <MessagesSquare />
-        <span>
-          Discussions
-          {threadCount > 0 ? ` (${threadCount})` : ""}
-        </span>
-      </MobileTab>
-    </MobileTabBar>
   );
 };
