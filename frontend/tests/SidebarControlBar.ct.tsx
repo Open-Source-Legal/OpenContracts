@@ -125,7 +125,10 @@ test.describe("SidebarControlBar", () => {
     await page.getByText("Notes", { exact: true }).click();
 
     await expect(
-      page.locator("div").filter({ hasText: /^Content Types2$/ }).first()
+      page
+        .locator("div")
+        .filter({ hasText: /^Content Types2$/ })
+        .first()
     ).toBeVisible({ timeout: 5000 });
 
     await component.unmount();
@@ -142,13 +145,19 @@ test.describe("SidebarControlBar", () => {
     // Clear All deselects everything — the count badge disappears.
     await page.getByText("Clear All").click();
     await expect(
-      page.locator("div").filter({ hasText: /^Content Types$/ }).first()
+      page
+        .locator("div")
+        .filter({ hasText: /^Content Types$/ })
+        .first()
     ).toBeVisible({ timeout: 5000 });
 
     // Select All re-selects all three.
     await page.getByText("Select All").click();
     await expect(
-      page.locator("div").filter({ hasText: /^Content Types3$/ }).first()
+      page
+        .locator("div")
+        .filter({ hasText: /^Content Types3$/ })
+        .first()
     ).toBeVisible({ timeout: 5000 });
 
     await component.unmount();

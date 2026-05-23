@@ -1,14 +1,7 @@
 import styled from "styled-components";
 import { Z_INDEX } from "../../../../assets/configurations/constants";
+import { SHADOW } from "../../../../assets/configurations/designTokens";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-
-/**
- * Shared "calm, layered, native-quality" depth tokens — mirrors the values in
- * the mobile DKB ``mobileTheme.ts`` so the desktop + mobile header read as one
- * cohesive surface. Depth over borders: a soft downward shadow replaces the
- * flat 1px hairline divider.
- */
-const HEADER_SHADOW = "0 2px 12px rgba(15, 23, 42, 0.06)";
 
 export const HeaderContainer = styled.div`
   margin: 0;
@@ -18,7 +11,7 @@ export const HeaderContainer = styled.div`
   backdrop-filter: blur(12px);
   /* Depth over borders: soft downward shadow instead of a hairline. */
   border-bottom: none;
-  box-shadow: ${HEADER_SHADOW};
+  box-shadow: ${SHADOW.header};
   position: relative;
   z-index: ${Z_INDEX.HEADER};
   display: flex;

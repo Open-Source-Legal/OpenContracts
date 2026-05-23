@@ -18,7 +18,7 @@ import { MobileSectionsSheet } from "./mobile/MobileSectionsSheet";
 import { MobileSheet } from "./mobile/MobileSheet";
 import { MobileTabBar, MobileTabId } from "./mobile/MobileTabBar";
 import { useMobileFitToWidth } from "./mobile/useMobileFitToWidth";
-import { DesktopDocumentLayoutProps } from "./DesktopDocumentLayout";
+import { DocumentLayoutProps } from "./types";
 import UnifiedKnowledgeLayer from "../layers/UnifiedKnowledgeLayer";
 
 /**
@@ -126,12 +126,12 @@ const ErrorSurface = styled.div`
  *
  * Owns only local UI state (the active {@link MobileTabId} and which sheets
  * are open); every other value is threaded in via
- * {@link DesktopDocumentLayoutProps} — the same interface the desktop layout
+ * {@link DocumentLayoutProps} — the same interface the desktop layout
  * consumes. The two layouts are alternative presentations of identical
  * data/state.
  *
  * The Document surface renders the real document viewer
- * ({@link DesktopDocumentLayoutProps.viewerContent}) below a
+ * ({@link DocumentLayoutProps.viewerContent}) below a
  * {@link MobileDocToolbar}, defaulting to fit-to-width so the document is
  * readable on mount. Sections and Find open {@link MobileSheet}s over the
  * existing structural-annotation and text-search systems. The Summary surface
@@ -158,9 +158,7 @@ const ErrorSurface = styled.div`
  * versions). That component swaps its own body between the menu and the chosen
  * surface with a back affordance, so exactly one sheet is open at a time.
  */
-export const MobileDocumentLayout: React.FC<DesktopDocumentLayoutProps> = (
-  props
-) => {
+export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
   const {
     documentId,
     corpusId,

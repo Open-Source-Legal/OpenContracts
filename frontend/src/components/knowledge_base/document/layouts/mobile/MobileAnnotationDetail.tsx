@@ -117,6 +117,7 @@ export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
         onSelect={() => {}}
         onDelete={readOnly ? undefined : handleDeleteAnnotation}
         contentModalities={annotation.contentModalities}
+        compact
       />
     </Card>
   );
