@@ -325,3 +325,40 @@ export const RailDivider = styled.div`
   margin: 4px auto;
   opacity: 0.7;
 `;
+
+/**
+ * Unified right-edge control rail. Anchors against the viewport's right edge,
+ * vertically centered, and stacks the {@link DesktopSidebarTabs} (top) above
+ * the {@link FloatingDocumentControls} action buttons (bottom) as a single
+ * coherent column — resolving the "two competing vertical stacks" desktop
+ * polish issue (#1734). Only used when the right panel is closed; when the
+ * panel is open the tabs anchor to its left edge and the action buttons
+ * keep their own bottom-right placement.
+ *
+ * Hidden on narrow viewports — the mobile layout handles the equivalent
+ * affordances via its dedicated tab bar / ask bar.
+ *
+ * Exported so test harnesses can import the canonical primitive instead of
+ * re-implementing its positioning CSS (drift risk).
+ */
+export const RightEdgeRail = styled.div`
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  z-index: 1999;
+  pointer-events: none;
+
+  /* Children own their own pointer events so the rail itself is hit-through. */
+  > * {
+    pointer-events: auto;
+  }
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;

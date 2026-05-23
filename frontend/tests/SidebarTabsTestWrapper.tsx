@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { DesktopSidebarTabs } from "../src/components/knowledge_base/document/document_kb/SidebarTabs";
 import {
   RailDivider,
+  RightEdgeRail,
   SidebarTab,
 } from "../src/components/knowledge_base/document/styled/SidebarTabs";
 import { AnalysisType, ExtractType } from "../src/types/graphql-api";
@@ -86,6 +87,9 @@ export const SidebarTabsHarness: React.FC<SidebarTabsHarnessProps> = ({
  * permissions setup; the visual contract (shared pill shape, icon-only,
  * tooltip on hover, accent color) is identical, which is what the
  * screenshot is verifying.
+ *
+ * The outer rail is the canonical `RightEdgeRail` styled primitive imported
+ * from `styled/SidebarTabs.tsx` — same positioning + z-index as production.
  */
 const RailMockBackdrop = styled.div`
   position: relative;
@@ -94,18 +98,6 @@ const RailMockBackdrop = styled.div`
   min-height: 720px;
   background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
   overflow: hidden;
-`;
-
-const MockRail = styled.div`
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  z-index: 1999;
 `;
 
 const MockDocumentSurface = styled.div`
@@ -184,7 +176,7 @@ export const RightEdgeRailHarness: React.FC<RightEdgeRailHarnessProps> = ({
           right panel is closed.
         </p>
       </MockDocumentSurface>
-      <MockRail data-testid="right-edge-rail">
+      <RightEdgeRail data-testid="right-edge-rail">
         <DesktopSidebarTabs
           panelOpen={false}
           bareContainer
@@ -234,7 +226,7 @@ export const RightEdgeRailHarness: React.FC<RightEdgeRailHarnessProps> = ({
             <Plus />
           </SidebarTab>
         )}
-      </MockRail>
+      </RightEdgeRail>
     </RailMockBackdrop>
   );
 };

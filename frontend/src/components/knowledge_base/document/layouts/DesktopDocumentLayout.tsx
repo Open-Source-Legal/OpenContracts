@@ -1,5 +1,4 @@
-import React from "react";
-import styled from "styled-components";
+import React, { useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 
@@ -31,7 +30,7 @@ import { DocumentModals } from "../document_kb/DocumentModals";
 import { AnalysisExtractContextBar } from "../document_kb/ContextBar";
 import { DesktopSidebarTabs } from "../document_kb/SidebarTabs";
 import { HeaderBar } from "../document_kb/HeaderBar";
-import { RailDivider } from "../styled/SidebarTabs";
+import { RailDivider, RightEdgeRail } from "../styled/SidebarTabs";
 
 import {
   ZOOM_MIN,
@@ -39,40 +38,6 @@ import {
 } from "../../../../assets/configurations/constants";
 
 import { DocumentLayoutProps } from "./types";
-
-/**
- * Unified right-edge control rail. Anchors against the viewport's right edge,
- * vertically centered, and stacks the {@link DesktopSidebarTabs} (top) above
- * the {@link FloatingDocumentControls} action buttons (bottom) as a single
- * coherent column — resolving the "two competing vertical stacks" desktop
- * polish issue (#1734). Only used when the right panel is closed; when the
- * panel is open the tabs anchor to its left edge and the action buttons
- * keep their own bottom-right placement.
- *
- * Hidden on narrow viewports — the mobile layout handles the equivalent
- * affordances via its dedicated tab bar / ask bar.
- */
-const RightEdgeRail = styled.div`
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  z-index: 1999;
-  pointer-events: none;
-
-  /* Children own their own pointer events so the rail itself is hit-through. */
-  > * {
-    pointer-events: auto;
-  }
-
-  @media (max-width: 768px) {
-    display: none;
-  }
-`;
 
 /**
  * Desktop layout for the DocumentKnowledgeBase. Renders the full-screen modal
@@ -156,6 +121,42 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
     setActiveSpanLabel,
     setChatSourceState,
   } = props;
+
+  /*
+   * Both rail branches (panel-closed RightEdgeRail and panel-open
+   * floating cluster) render the same FloatingDocumentControls with
+   * identical onAnalysesClick / onExtractsClick bodies — gate on
+   * corpusId, toast + open add-to-corpus modal when missing, otherwise
+   * toggle the panel. Extracted once here so the two branches share one
+   * source of truth (issue #1734 review feedback).
+   */
+  const handleAnalysesClick = useCallback(() => {
+    if (!corpusId) {
+      toast.info("Add document to corpus to run analyses");
+      setShowAddToCorpusModal(true);
+    } else {
+      setShowAnalysesPanel(!showAnalysesPanel);
+    }
+  }, [
+    corpusId,
+    setShowAddToCorpusModal,
+    setShowAnalysesPanel,
+    showAnalysesPanel,
+  ]);
+
+  const handleExtractsClick = useCallback(() => {
+    if (!corpusId) {
+      toast.info("Add document to corpus for data extraction");
+      setShowAddToCorpusModal(true);
+    } else {
+      setShowExtractsPanel(!showExtractsPanel);
+    }
+  }, [
+    corpusId,
+    setShowAddToCorpusModal,
+    setShowExtractsPanel,
+    showExtractsPanel,
+  ]);
 
   return (
     <FullScreenModal
@@ -355,24 +356,8 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                     visible={activeLayer === "document"}
                     bareContainer
                     showRightPanel={false}
-                    onAnalysesClick={() => {
-                      if (!corpusId) {
-                        toast.info("Add document to corpus to run analyses");
-                        setShowAddToCorpusModal(true);
-                      } else {
-                        setShowAnalysesPanel(!showAnalysesPanel);
-                      }
-                    }}
-                    onExtractsClick={() => {
-                      if (!corpusId) {
-                        toast.info(
-                          "Add document to corpus for data extraction"
-                        );
-                        setShowAddToCorpusModal(true);
-                      } else {
-                        setShowExtractsPanel(!showExtractsPanel);
-                      }
-                    }}
+                    onAnalysesClick={handleAnalysesClick}
+                    onExtractsClick={handleExtractsClick}
                     analysesOpen={showAnalysesPanel}
                     extractsOpen={showExtractsPanel}
                     panelOffset={0}
@@ -397,22 +382,8 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 <FloatingDocumentControls
                   visible={activeLayer === "document"}
                   showRightPanel
-                  onAnalysesClick={() => {
-                    if (!corpusId) {
-                      toast.info("Add document to corpus to run analyses");
-                      setShowAddToCorpusModal(true);
-                    } else {
-                      setShowAnalysesPanel(!showAnalysesPanel);
-                    }
-                  }}
-                  onExtractsClick={() => {
-                    if (!corpusId) {
-                      toast.info("Add document to corpus for data extraction");
-                      setShowAddToCorpusModal(true);
-                    } else {
-                      setShowExtractsPanel(!showExtractsPanel);
-                    }
-                  }}
+                  onAnalysesClick={handleAnalysesClick}
+                  onExtractsClick={handleExtractsClick}
                   analysesOpen={showAnalysesPanel}
                   extractsOpen={showExtractsPanel}
                   panelOffset={floatingControlsState.offset}
