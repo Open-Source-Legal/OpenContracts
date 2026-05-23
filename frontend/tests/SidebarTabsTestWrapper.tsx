@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import styled from "styled-components";
 import { DesktopSidebarTabs } from "../src/components/knowledge_base/document/document_kb/SidebarTabs";
-import { RailDivider } from "../src/components/knowledge_base/document/styled/SidebarTabs";
-import { SidebarTab } from "../src/components/knowledge_base/document/styled/SidebarTabs";
+import {
+  RailDivider,
+  SidebarTab,
+} from "../src/components/knowledge_base/document/styled/SidebarTabs";
 import { AnalysisType, ExtractType } from "../src/types/graphql-api";
 import { ChatPanelWidthMode } from "../src/components/annotator/context/UISettingsAtom";
 import { SidebarViewMode } from "../src/components/knowledge_base/document/unified_feed";

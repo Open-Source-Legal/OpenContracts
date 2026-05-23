@@ -373,16 +373,6 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                         setShowExtractsPanel(!showExtractsPanel);
                       }
                     }}
-                    onSummaryClick={() => {
-                      setActiveLayer("knowledge");
-                      setShowRightPanel(false);
-                      setSelectedSummaryContent(null);
-                      setChatSourceState((prev) => ({
-                        ...prev,
-                        selectedMessageId: null,
-                        selectedSourceIndex: null,
-                      }));
-                    }}
                     analysesOpen={showAnalysesPanel}
                     extractsOpen={showExtractsPanel}
                     panelOffset={0}
@@ -422,16 +412,6 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                     } else {
                       setShowExtractsPanel(!showExtractsPanel);
                     }
-                  }}
-                  onSummaryClick={() => {
-                    setActiveLayer("knowledge");
-                    setShowRightPanel(false);
-                    setSelectedSummaryContent(null);
-                    setChatSourceState((prev) => ({
-                      ...prev,
-                      selectedMessageId: null,
-                      selectedSourceIndex: null,
-                    }));
                   }}
                   analysesOpen={showAnalysesPanel}
                   extractsOpen={showExtractsPanel}

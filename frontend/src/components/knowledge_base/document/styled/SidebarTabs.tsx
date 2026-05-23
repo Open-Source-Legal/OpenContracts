@@ -78,7 +78,7 @@ export const MobileTab = styled.button<{ $active?: boolean }>`
 /**
  * Vertical container for the sidebar tabs.
  *
- * Three positioning modes (mutually exclusive):
+ * Three positioning modes (mutually exclusive — callers should pick one):
  * - `$panelOpen=true`  → anchored to the left edge of the open right panel
  *   (`position: absolute; left: -48px`).
  * - `$bare=true`       → no positioning of its own; the parent (e.g. the
@@ -86,6 +86,11 @@ export const MobileTab = styled.button<{ $active?: boolean }>`
  *   the tabs sit in a single coherent column with sibling controls.
  * - default            → fixed to the right edge of the viewport, vertically
  *   centered. Used by the standalone test harness.
+ *
+ * Precedence note: if both `$bare` and `$panelOpen` are passed together,
+ * `$bare` wins every ternary below (panel-anchoring is silently dropped).
+ * The combination is not currently used by any caller — `$bare` is only
+ * passed in the rail (panel-closed) branch of `DesktopDocumentLayout`.
  */
 export const SidebarTabsContainer = styled.div<{
   $panelOpen: boolean;

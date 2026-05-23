@@ -273,8 +273,6 @@ interface FloatingDocumentControlsProps {
   onAnalysesClick?: () => void;
   /** Callback when extracts button is clicked */
   onExtractsClick?: () => void;
-  /** Callback when summary button is clicked */
-  onSummaryClick?: () => void;
   /** Whether analyses panel is open */
   analysesOpen?: boolean;
   /** Whether extracts panel is open */
@@ -314,7 +312,6 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
       showRightPanel = false,
       onAnalysesClick,
       onExtractsClick,
-      onSummaryClick,
       analysesOpen = false,
       extractsOpen = false,
       panelOffset = 0,
