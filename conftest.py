@@ -224,19 +224,56 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Modify test collection to handle serial tests when running with xdist."""
-    # Check if running with xdist by looking at numprocesses option
-    # Note: workerinput is only on workers, but collection happens on controller
+    """Mark serial tests, and pin class-scoped TestCase tests to one worker.
+
+    Two distinct bindings are applied here for ``-n``/xdist runs:
+
+    1. ``@pytest.mark.serial`` tests share a single ``xdist_group=serial`` so
+       xdist routes them all to one worker and runs them sequentially.
+
+    2. ``django.test.TestCase`` subclasses with class-scoped state
+       (``setUpTestData`` overridden, or ``fixtures`` set) are pinned to a
+       per-class ``xdist_group``. Under ``--dist worksteal`` the scheduler
+       otherwise steals at the test-item granularity, which would let a
+       stolen test re-trigger ``setUpClass`` / ``setUpTestData`` on whichever
+       worker picked it up — defeating the once-per-class setup that
+       ``TestCase`` is designed around. Pinning these classes keeps the
+       worksteal fan-out for the rest of the suite while preserving the
+       once-per-class setup cost for classes that benefit from it.
+
+       ``TransactionTestCase`` subclasses are deliberately excluded: they
+       rebuild fixtures per-test regardless of scheduling, so pinning gives
+       them no benefit and would only re-introduce the serial-floor problem
+       that motivated the switch away from ``--dist loadscope``.
+    """
+    # Check if running with xdist by looking at numprocesses option.
+    # Note: workerinput is only on workers, but collection happens on controller.
     numprocesses = getattr(config.option, "numprocesses", None)
     if not numprocesses:
         return
 
-    # When running with xdist, mark serial tests to run on worker gw0 only
-    # This ensures they run sequentially without interference from other workers
+    # Lazy import — pytest-django configures Django before collection runs.
+    from django.test import TestCase as DjangoTestCase
+
     for item in items:
         if item.get_closest_marker("serial"):
-            # Add xdist_group to ensure all serial tests run on same worker
             item.add_marker(pytest.mark.xdist_group(name="serial"))
+            continue
+
+        cls = getattr(item, "cls", None)
+        if cls is None or not isinstance(cls, type):
+            continue
+        if not issubclass(cls, DjangoTestCase):
+            # TransactionTestCase / SimpleTestCase subclasses don't benefit
+            # from class binding — let worksteal redistribute them freely.
+            continue
+
+        has_class_scoped_state = (
+            cls.setUpTestData.__func__ is not DjangoTestCase.setUpTestData.__func__
+            or bool(getattr(cls, "fixtures", None))
+        )
+        if has_class_scoped_state:
+            item.add_marker(pytest.mark.xdist_group(name=cls.__qualname__))
 
 
 @pytest.fixture(scope="session")
