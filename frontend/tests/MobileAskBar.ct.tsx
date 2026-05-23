@@ -1,25 +1,30 @@
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { MobileAskBar } from "./MobileAskBar.harness";
 
 test("renders the prompt", async ({ mount }) => {
-  const c = await mount(
-    <MobileAskBar onActivate={() => {}} onSubmit={() => {}} />
-  );
+  const c = await mount(<MobileAskBar onSubmit={() => {}} />);
   await expect(c.getByPlaceholder(/ask anything/i)).toBeVisible();
 });
 
-test("focusing the input fires onActivate", async ({ mount }) => {
-  let activated = false;
+test("focusing the input does not auto-open the chat sheet", async ({
+  mount,
+}) => {
+  // The bar used to fire `onActivate` on focus, which the layout used to open
+  // the chat sheet. That hop covered the bar before the user could type — now
+  // focus is a no-op so users can compose their message inline on the main
+  // view and submit only when they're ready.
+  let submitCount = 0;
+  let historyCount = 0;
   const c = await mount(
     <MobileAskBar
-      onActivate={() => {
-        activated = true;
-      }}
-      onSubmit={() => {}}
+      onSubmit={() => (submitCount += 1)}
+      onOpenHistory={() => (historyCount += 1)}
     />
   );
   await c.getByPlaceholder(/ask anything/i).focus();
-  expect(activated).toBe(true);
+  expect(submitCount).toBe(0);
+  expect(historyCount).toBe(0);
 });
 
 test("submitting non-empty text fires onSubmit with the text", async ({
@@ -28,7 +33,6 @@ test("submitting non-empty text fires onSubmit with the text", async ({
   let sent = "";
   const c = await mount(
     <MobileAskBar
-      onActivate={() => {}}
       onSubmit={(t) => {
         sent = t;
       }}
@@ -46,7 +50,6 @@ test("submitting empty or whitespace-only text does not fire onSubmit", async ({
   let submitCount = 0;
   const c = await mount(
     <MobileAskBar
-      onActivate={() => {}}
       onSubmit={() => {
         submitCount += 1;
       }}
@@ -71,7 +74,6 @@ test("submitting via the send button trims the text and clears the input", async
   let sent = "";
   const c = await mount(
     <MobileAskBar
-      onActivate={() => {}}
       onSubmit={(t) => {
         sent = t;
       }}
@@ -83,4 +85,39 @@ test("submitting via the send button trims the text and clears the input", async
   expect(sent).toBe("hello there");
   // The input is cleared after a successful submit.
   await expect(input).toHaveValue("");
+});
+
+test("the history button is only rendered when onOpenHistory is provided", async ({
+  mount,
+}) => {
+  const withoutHistory = await mount(<MobileAskBar onSubmit={() => {}} />);
+  await expect(
+    withoutHistory.getByRole("button", { name: /open conversation history/i })
+  ).toHaveCount(0);
+
+  await withoutHistory.unmount();
+
+  const withHistory = await mount(
+    <MobileAskBar onSubmit={() => {}} onOpenHistory={() => {}} />
+  );
+  await expect(
+    withHistory.getByRole("button", { name: /open conversation history/i })
+  ).toBeVisible();
+});
+
+test("clicking the history button fires onOpenHistory", async ({
+  mount,
+  page,
+}) => {
+  let historyCount = 0;
+  const c = await mount(
+    <MobileAskBar
+      onSubmit={() => {}}
+      onOpenHistory={() => (historyCount += 1)}
+    />
+  );
+  await c.getByRole("button", { name: /open conversation history/i }).click();
+  expect(historyCount).toBe(1);
+
+  await docScreenshot(page, "dkb--mobile--ask-bar-with-history");
 });

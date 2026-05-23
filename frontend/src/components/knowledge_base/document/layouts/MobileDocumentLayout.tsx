@@ -317,18 +317,19 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 setActiveLayer={setActiveLayer}
                 setSelectedNote={setSelectedNote}
                 pendingChatMessage={pendingChatMessage}
+                onFeedItemSelected={() => setActiveTab("document")}
               />
             </AnnotationsSurface>
           )}
         </Surface>
 
         <MobileAskBar
-          onActivate={() => {
+          onSubmit={(text) => {
+            setPendingChatMessage(text);
             setSidebarViewMode("chat");
             setChatOpen(true);
           }}
-          onSubmit={(text) => {
-            setPendingChatMessage(text);
+          onOpenHistory={() => {
             setSidebarViewMode("chat");
             setChatOpen(true);
           }}
@@ -363,7 +364,10 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
           title="Find in document"
           onClose={() => setFindSheetOpen(false)}
         >
-          <MobileFindSheet open={findSheetOpen} />
+          <MobileFindSheet
+            open={findSheetOpen}
+            onClose={() => setFindSheetOpen(false)}
+          />
         </MobileSheet>
 
         {/* More sheet — a tappable list of the Tier-2 surfaces (Discussions,
@@ -430,6 +434,7 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
               setActiveLayer={setActiveLayer}
               setSelectedNote={setSelectedNote}
               pendingChatMessage={pendingChatMessage}
+              autoStartNewChat={Boolean(pendingChatMessage)}
             />
           </ChatSurface>
         </MobileSheet>

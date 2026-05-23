@@ -104,6 +104,12 @@ interface ChatTrayProps {
    * When true, hides conversation history and starts a fresh conversation each time.
    */
   readOnly?: boolean;
+  /**
+   * When true, ChatTray initializes in new-chat mode instead of showing the
+   * conversation list — used on mobile so submitting from the ask bar launches
+   * a fresh conversation directly with the typed message.
+   */
+  autoStartNewChat?: boolean;
 }
 
 /**
@@ -122,6 +128,7 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   corpusId,
   initialMessage,
   readOnly = false,
+  autoStartNewChat = false,
 }) => {
   // Routing hooks for URL-driven annotation selection
   const location = useLocation();
@@ -131,8 +138,11 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
   const user_obj = useReactiveVar(userObj);
 
   // Chat state
-  // Start with new chat if readOnly OR if user is anonymous
-  const [isNewChat, setIsNewChat] = useState<boolean>(readOnly || !user_obj);
+  // Start with new chat if readOnly OR if user is anonymous OR if the caller
+  // asked us to skip the conversation list (e.g. mobile ask bar submit).
+  const [isNewChat, setIsNewChat] = useState<boolean>(
+    readOnly || !user_obj || autoStartNewChat
+  );
   const [newMessage, setNewMessage] = useState("");
   const [chat, setChat] = useState<ChatMessageProps[]>([]);
   const [wsError, setWsError] = useState<string | null>(null);

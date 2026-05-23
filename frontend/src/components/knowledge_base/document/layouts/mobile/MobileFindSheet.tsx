@@ -9,15 +9,25 @@ import {
   useTextSearchState,
 } from "../../../../annotator/context/DocumentAtom";
 import { useAnnotationRefs } from "../../../../annotator/hooks/useAnnotationRefs";
+import { TextSearchSpanResult, TextSearchTokenResult } from "../../../../types";
 
 export interface MobileFindSheetProps {
   /** Whether the sheet is open — used to focus the input on open. */
   open: boolean;
+  /**
+   * Fired when the user taps a result row. The sheet closes so the document
+   * viewer is visible and the selected match scrolls into view. Optional so
+   * the chevron-only flow (which keeps the sheet open) still works for
+   * callers that don't want the auto-close behavior.
+   */
+  onClose?: () => void;
 }
 
 const Wrap = styled.div`
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
 `;
 
 const SearchRow = styled.div`
@@ -85,10 +95,80 @@ const StepButton = styled.button`
 `;
 
 const Status = styled.div`
-  padding: 6px 18px 16px;
+  padding: 6px 18px 10px;
   font-size: 13px;
   color: ${OS_LEGAL_COLORS.textSecondary};
 `;
+
+const ResultsList = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+`;
+
+const ResultRow = styled.button<{ $selected: boolean }>`
+  text-align: left;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: none;
+  border-radius: ${MOBILE_RADIUS.md};
+  background: ${(props) =>
+    props.$selected ? OS_LEGAL_COLORS.blueSurface : OS_LEGAL_COLORS.surface};
+  box-shadow: ${MOBILE_SHADOW.subtle};
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  cursor: pointer;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, background 0.16s ease;
+
+  &:active {
+    transform: scale(0.99);
+  }
+`;
+
+const ResultMeta = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+`;
+
+const ResultIndex = styled.span`
+  font-weight: 600;
+  color: ${OS_LEGAL_COLORS.primaryBlue};
+`;
+
+const ResultSnippet = styled.div`
+  font-size: 14px;
+  line-height: 1.45;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  word-break: break-word;
+
+  /* The shared 'fullContext' ReactElement highlights the match span via
+     <mark>; keep that distinctive but mobile-soft. */
+  mark {
+    background: ${OS_LEGAL_COLORS.accent};
+    color: white;
+    padding: 0 2px;
+    border-radius: 3px;
+  }
+`;
+
+function isTokenResult(
+  result: TextSearchTokenResult | TextSearchSpanResult
+): result is TextSearchTokenResult {
+  return "tokens" in result;
+}
 
 /**
  * Body for the Document → Find sheet.
@@ -98,8 +178,17 @@ const Status = styled.div`
  * DocumentKnowledgeBase, which computes matches); the prev/next controls step
  * `selectedTextSearchMatchIndex` and scroll the corresponding match element
  * into view — the same primitive `FloatingDocumentInput` uses on desktop.
+ *
+ * On mobile we also surface every match as a tappable row. Tapping a row
+ * selects that match and closes the sheet (via the optional `onClose`
+ * callback) so the viewer is immediately visible with the match scrolled in.
+ * Search text + match results live on Jotai atoms, so reopening the sheet
+ * restores the same query, list, and selection without extra plumbing.
  */
-export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({ open }) => {
+export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({
+  open,
+  onClose,
+}) => {
   const { searchText, setSearchText } = useSearchText();
   const {
     textSearchMatches,
@@ -139,6 +228,13 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({ open }) => {
     setSelectedTextSearchMatchIndex(next);
   };
 
+  const handleSelectResult = (index: number) => {
+    setSelectedTextSearchMatchIndex(index);
+    onClose?.();
+  };
+
+  const trimmed = searchText.trim();
+
   return (
     <Wrap data-testid="mobile-find-sheet">
       <SearchRow>
@@ -149,6 +245,7 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({ open }) => {
             placeholder="Find in document"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
+            data-testid="mobile-find-input"
           />
         </InputShell>
         <StepButton
@@ -167,12 +264,43 @@ export const MobileFindSheet: React.FC<MobileFindSheetProps> = ({ open }) => {
         </StepButton>
       </SearchRow>
       <Status data-testid="mobile-find-status">
-        {searchText.trim() === ""
+        {trimmed === ""
           ? "Type to search the document text."
           : matchCount === 0
           ? "No matches."
           : `${selectedTextSearchMatchIndex + 1} of ${matchCount} matches`}
       </Status>
+      {matchCount > 0 && (
+        <ResultsList data-testid="mobile-find-results">
+          {textSearchMatches.map((result, index) => {
+            const isToken = isTokenResult(result);
+            const pageLabel = isToken
+              ? result.start_page === result.end_page
+                ? `Page ${result.start_page + 1}`
+                : `Pages ${result.start_page + 1}–${result.end_page + 1}`
+              : "Text match";
+            const snippetNode = result.fullContext;
+            const fallbackText = !isToken
+              ? (result as TextSearchSpanResult).text
+              : "";
+            return (
+              <ResultRow
+                key={result.id}
+                type="button"
+                $selected={index === selectedTextSearchMatchIndex}
+                onClick={() => handleSelectResult(index)}
+                data-testid={`mobile-find-result-${index}`}
+              >
+                <ResultMeta>
+                  <ResultIndex>Match {index + 1}</ResultIndex>
+                  <span>{pageLabel}</span>
+                </ResultMeta>
+                <ResultSnippet>{snippetNode ?? fallbackText}</ResultSnippet>
+              </ResultRow>
+            );
+          })}
+        </ResultsList>
+      )}
     </Wrap>
   );
 };
