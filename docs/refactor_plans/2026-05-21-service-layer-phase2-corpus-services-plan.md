@@ -1,6 +1,8 @@
 # Service Layer Centralization — Phase 2 (Split the `CorpusObjsService` monolith) Implementation Plan
 
-**Status:** In progress — Phase A shipped by the linked PR
+**Status:** Phase A shipped by the linked PR. Phases B and C are implemented —
+see `docs/refactor_plans/2026-05-22-service-layer-phase2bc-corpus-service-and-caller-migration.md`
+for their detailed plan.
 **Date:** 2026-05-21
 **Tracking issue:** #1716
 **Depends on:** Phase 1 (#1715 — `BaseService` foundation, merged)

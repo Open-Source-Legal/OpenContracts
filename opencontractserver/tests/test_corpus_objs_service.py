@@ -1,5 +1,5 @@
 """
-Comprehensive tests for CorpusObjsService folder + document-lifecycle operations.
+Comprehensive tests for the corpus services' folder + document-lifecycle operations.
 
 This test suite is organized into human-readable scenario groups:
 
@@ -14,10 +14,9 @@ This test suite is organized into human-readable scenario groups:
 Each test is named descriptively to serve as documentation of expected behavior.
 
 The two ``check_user_upload_quota`` / ``validate_file_type`` test classes test
-methods that live on ``DocumentService`` rather than ``CorpusObjsService``.
+methods that live on ``DocumentService`` rather than the corpus services.
 """
 
-import warnings
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -30,20 +29,17 @@ from opencontractserver.constants.document_processing import (
     MAX_PATH_DISAMBIGUATION_SUFFIX,
     PATH_CONFLICT_MSG,
 )
-
-# The shim module emits a DeprecationWarning at import time, by design — it is
-# the runtime signal Phase 2C uses for call-site discovery. This behavioural
-# regression suite still exercises the facade on purpose, so suppress the
-# warning at import to keep CI output clean and stay robust if the test suite
-# ever adopts ``filterwarnings = error``.
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", DeprecationWarning)
-    from opencontractserver.corpuses.corpus_objs_service import CorpusObjsService
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusFolder,
 )
-from opencontractserver.corpuses.services import CorpusPathService
+from opencontractserver.corpuses.services import (
+    CorpusDocumentService,
+    CorpusPathService,
+    DocumentLifecycleService,
+    FolderCRUDService,
+    FolderDocumentService,
+)
 from opencontractserver.documents.document_service import DocumentService
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
@@ -352,7 +348,7 @@ class TestFolderCreate_BasicOperations(TestCase):
 
     def test_create_folder_at_root_level(self):
         """Owner can create a folder at corpus root."""
-        folder, error = CorpusObjsService.create_folder(
+        folder, error = FolderCRUDService.create_folder(
             user=self.owner,
             corpus=self.corpus,
             name="Contracts",
@@ -371,7 +367,7 @@ class TestFolderCreate_BasicOperations(TestCase):
 
     def test_create_folder_preserves_all_metadata(self):
         """Folder should preserve all provided metadata (tags, icon, etc)."""
-        folder, error = CorpusObjsService.create_folder(
+        folder, error = FolderCRUDService.create_folder(
             user=self.owner,
             corpus=self.corpus,
             name="Tagged Folder",
@@ -387,11 +383,11 @@ class TestFolderCreate_BasicOperations(TestCase):
 
     def test_create_folder_with_duplicate_name_fails(self):
         """Cannot create two folders with same name at same level."""
-        CorpusObjsService.create_folder(
+        FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Duplicates"
         )
 
-        folder, error = CorpusObjsService.create_folder(
+        folder, error = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Duplicates"
         )
 
@@ -405,7 +401,7 @@ class TestFolderCreate_BasicOperations(TestCase):
         )
         set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
 
-        folder, error = CorpusObjsService.create_folder(
+        folder, error = FolderCRUDService.create_folder(
             user=reader, corpus=self.corpus, name="Unauthorized"
         )
 
@@ -428,7 +424,7 @@ class TestFolderUpdate_BasicOperations(TestCase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner,
             corpus=self.corpus,
             name="Original Name",
@@ -438,7 +434,7 @@ class TestFolderUpdate_BasicOperations(TestCase):
 
     def test_update_folder_name(self):
         """Owner can rename a folder."""
-        success, error = CorpusObjsService.update_folder(
+        success, error = FolderCRUDService.update_folder(
             user=self.owner, folder=self.folder, name="New Name"
         )
 
@@ -452,7 +448,7 @@ class TestFolderUpdate_BasicOperations(TestCase):
         original_description = self.folder.description
         original_color = self.folder.color
 
-        success, error = CorpusObjsService.update_folder(
+        success, error = FolderCRUDService.update_folder(
             user=self.owner, folder=self.folder, name="Changed Name Only"
         )
 
@@ -464,7 +460,7 @@ class TestFolderUpdate_BasicOperations(TestCase):
 
     def test_update_folder_multiple_fields_at_once(self):
         """Can update multiple fields in single operation."""
-        success, error = CorpusObjsService.update_folder(
+        success, error = FolderCRUDService.update_folder(
             user=self.owner,
             folder=self.folder,
             name="Fully Updated",
@@ -484,11 +480,11 @@ class TestFolderUpdate_BasicOperations(TestCase):
 
     def test_update_folder_name_conflict_with_sibling_fails(self):
         """Cannot rename to a name that conflicts with sibling folder."""
-        CorpusObjsService.create_folder(
+        FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Existing Sibling"
         )
 
-        success, error = CorpusObjsService.update_folder(
+        success, error = FolderCRUDService.update_folder(
             user=self.owner, folder=self.folder, name="Existing Sibling"
         )
 
@@ -514,12 +510,12 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
 
     def test_delete_empty_folder(self):
         """Owner can delete an empty folder."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="To Delete"
         )
         folder_id = folder.id
 
-        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        success, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         self.assertTrue(success)
         self.assertEqual(error, "")
@@ -527,18 +523,18 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
 
     def test_delete_folder_reparents_child_folders(self):
         """When deleting folder, child folders are reparented to grandparent."""
-        parent, _ = CorpusObjsService.create_folder(
+        parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
         )
-        child, _ = CorpusObjsService.create_folder(
+        child, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child", parent=parent
         )
-        grandchild, _ = CorpusObjsService.create_folder(
+        grandchild, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Grandchild", parent=child
         )
 
         # Delete the middle folder (Child)
-        success, error = CorpusObjsService.delete_folder(
+        success, error = FolderCRUDService.delete_folder(
             user=self.owner, folder=child, move_children_to_parent=True
         )
 
@@ -548,7 +544,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
 
     def test_delete_folder_moves_documents_to_root(self):
         """Documents in deleted folder are moved to corpus root with history."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder With Docs"
         )
 
@@ -568,7 +564,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         )
 
         # Delete the folder
-        CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         # Document should now have no folder (at root) via a new path record
         current = DocumentPath.objects.get(
@@ -593,7 +589,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         added to the shared set so siblings in the same batch get
         unique suffixes.
         """
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="MyFolder"
         )
 
@@ -630,7 +626,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         )
 
         # Delete the folder — both docs should move to root
-        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        success, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         self.assertTrue(success, f"delete_folder failed: {error}")
 
@@ -664,11 +660,11 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         )
         set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
 
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Protected"
         )
 
-        success, error = CorpusObjsService.delete_folder(user=reader, folder=folder)
+        success, error = FolderCRUDService.delete_folder(user=reader, folder=folder)
 
         self.assertFalse(success)
         self.assertIn("Permission denied", error)
@@ -697,16 +693,16 @@ class TestFolderHierarchy_NestedFolders(TestCase):
 
     def test_create_deeply_nested_folder_structure(self):
         """Can create folders nested multiple levels deep."""
-        level1, _ = CorpusObjsService.create_folder(
+        level1, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 1"
         )
-        level2, _ = CorpusObjsService.create_folder(
+        level2, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 2", parent=level1
         )
-        level3, _ = CorpusObjsService.create_folder(
+        level3, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 3", parent=level2
         )
-        level4, _ = CorpusObjsService.create_folder(
+        level4, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 4", parent=level3
         )
 
@@ -717,17 +713,17 @@ class TestFolderHierarchy_NestedFolders(TestCase):
 
     def test_same_name_allowed_in_different_parents(self):
         """Two folders can have same name if in different parents."""
-        parent_a, _ = CorpusObjsService.create_folder(
+        parent_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent A"
         )
-        parent_b, _ = CorpusObjsService.create_folder(
+        parent_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent B"
         )
 
-        child_in_a, error_a = CorpusObjsService.create_folder(
+        child_in_a, error_a = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Documents", parent=parent_a
         )
-        child_in_b, error_b = CorpusObjsService.create_folder(
+        child_in_b, error_b = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Documents", parent=parent_b
         )
 
@@ -738,14 +734,14 @@ class TestFolderHierarchy_NestedFolders(TestCase):
 
     def test_get_folder_tree_returns_nested_structure(self):
         """get_folder_tree() returns properly nested structure."""
-        parent, _ = CorpusObjsService.create_folder(
+        parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Root Folder"
         )
-        child, _ = CorpusObjsService.create_folder(
+        child, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child Folder", parent=parent
         )
 
-        tree = CorpusObjsService.get_folder_tree(
+        tree = FolderCRUDService.get_folder_tree(
             user=self.owner, corpus_id=self.corpus.id
         )
 
@@ -771,19 +767,19 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
             title="Test Corpus", creator=self.owner, is_public=False
         )
         # Create hierarchy: Parent -> Child -> Grandchild
-        self.parent, _ = CorpusObjsService.create_folder(
+        self.parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
         )
-        self.child, _ = CorpusObjsService.create_folder(
+        self.child, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child", parent=self.parent
         )
-        self.grandchild, _ = CorpusObjsService.create_folder(
+        self.grandchild, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Grandchild", parent=self.child
         )
 
     def test_cannot_move_folder_into_itself(self):
         """Moving folder into itself should fail."""
-        success, error = CorpusObjsService.move_folder(
+        success, error = FolderCRUDService.move_folder(
             user=self.owner, folder=self.parent, new_parent=self.parent
         )
 
@@ -792,7 +788,7 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
 
     def test_cannot_move_folder_into_direct_child(self):
         """Moving folder into its direct child should fail."""
-        success, error = CorpusObjsService.move_folder(
+        success, error = FolderCRUDService.move_folder(
             user=self.owner, folder=self.parent, new_parent=self.child
         )
 
@@ -801,7 +797,7 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
 
     def test_cannot_move_folder_into_grandchild(self):
         """Moving folder into its grandchild should fail."""
-        success, error = CorpusObjsService.move_folder(
+        success, error = FolderCRUDService.move_folder(
             user=self.owner, folder=self.parent, new_parent=self.grandchild
         )
 
@@ -810,11 +806,11 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
 
     def test_can_move_folder_to_unrelated_folder(self):
         """Moving folder to an unrelated folder should succeed."""
-        unrelated, _ = CorpusObjsService.create_folder(
+        unrelated, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Unrelated"
         )
 
-        success, error = CorpusObjsService.move_folder(
+        success, error = FolderCRUDService.move_folder(
             user=self.owner, folder=self.grandchild, new_parent=unrelated
         )
 
@@ -824,7 +820,7 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
 
     def test_can_move_folder_to_root(self):
         """Moving nested folder to root should succeed."""
-        success, error = CorpusObjsService.move_folder(
+        success, error = FolderCRUDService.move_folder(
             user=self.owner, folder=self.grandchild, new_parent=None
         )
 
@@ -850,16 +846,16 @@ class TestFolderHierarchy_CrossCorpusMovePrevented(TestCase):
         self.corpus_b = Corpus.objects.create(
             title="Corpus B", creator=self.owner, is_public=False
         )
-        self.folder_in_a, _ = CorpusObjsService.create_folder(
+        self.folder_in_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus_a, name="Folder in A"
         )
-        self.folder_in_b, _ = CorpusObjsService.create_folder(
+        self.folder_in_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus_b, name="Folder in B"
         )
 
     def test_cannot_move_folder_to_different_corpus(self):
         """Moving folder to parent in different corpus should fail."""
-        success, error = CorpusObjsService.move_folder(
+        success, error = FolderCRUDService.move_folder(
             user=self.owner, folder=self.folder_in_a, new_parent=self.folder_in_b
         )
 
@@ -887,10 +883,10 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder_a, _ = CorpusObjsService.create_folder(
+        self.folder_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder A"
         )
-        self.folder_b, _ = CorpusObjsService.create_folder(
+        self.folder_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder B"
         )
         # Create document at root
@@ -910,7 +906,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
 
     def test_move_document_from_root_to_folder(self):
         """Can move document from corpus root into a folder."""
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -929,7 +925,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
     def test_move_document_between_folders(self):
         """Can move document from one folder to another."""
         # First move to folder A
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -937,7 +933,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
         )
 
         # Then move to folder B
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -956,7 +952,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
     def test_move_document_from_folder_to_root(self):
         """Can move document from folder back to corpus root."""
         # First move to folder
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -964,7 +960,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
         )
 
         # Then move to root
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -986,7 +982,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
 
     def test_move_document_path_reflects_folder(self):
         """Moving a document updates the path string to reflect the folder."""
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -1005,7 +1001,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
         """
         original_version = self.document_path.version_number
 
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -1021,7 +1017,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
             document=self.document, corpus=self.corpus
         ).count()
 
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -1063,7 +1059,7 @@ class TestDocumentInFolder_MoveOperations(_CorpusObjsServiceFolderTestBase):
             is_deleted=False,
         )
 
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[self.document.id, doc2.id, doc3.id],
             corpus=self.corpus,
@@ -1101,7 +1097,7 @@ class TestDocumentInFolder_PermissionEnforcement(_CorpusObjsServiceFolderTestBas
             self.reader, self.corpus, [PermissionTypes.READ]
         )
 
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder"
         )
         self.document = Document.objects.create(
@@ -1120,7 +1116,7 @@ class TestDocumentInFolder_PermissionEnforcement(_CorpusObjsServiceFolderTestBas
 
     def test_reader_cannot_move_document(self):
         """User with only READ permission cannot move documents."""
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.reader,
             document=self.document,
             corpus=self.corpus,
@@ -1168,7 +1164,7 @@ class TestVersioning_SoftDeleteCreatesNewPath(_CorpusObjsServiceFolderTestBase):
 
     def test_soft_delete_marks_original_as_not_current(self):
         """Original path should be marked as is_current=False after delete."""
-        CorpusObjsService.soft_delete_document(
+        DocumentLifecycleService.soft_delete_document(
             user=self.owner, document=self.document, corpus=self.corpus
         )
 
@@ -1177,7 +1173,7 @@ class TestVersioning_SoftDeleteCreatesNewPath(_CorpusObjsServiceFolderTestBase):
 
     def test_soft_delete_creates_new_deleted_path(self):
         """Soft delete creates new DocumentPath with is_deleted=True."""
-        CorpusObjsService.soft_delete_document(
+        DocumentLifecycleService.soft_delete_document(
             user=self.owner, document=self.document, corpus=self.corpus
         )
 
@@ -1188,7 +1184,7 @@ class TestVersioning_SoftDeleteCreatesNewPath(_CorpusObjsServiceFolderTestBase):
 
     def test_soft_delete_new_path_has_parent_chain(self):
         """New deleted path should have parent pointing to original path."""
-        CorpusObjsService.soft_delete_document(
+        DocumentLifecycleService.soft_delete_document(
             user=self.owner, document=self.document, corpus=self.corpus
         )
 
@@ -1201,7 +1197,7 @@ class TestVersioning_SoftDeleteCreatesNewPath(_CorpusObjsServiceFolderTestBase):
         """Version number should be preserved in deleted path."""
         original_version = self.original_path.version_number
 
-        CorpusObjsService.soft_delete_document(
+        DocumentLifecycleService.soft_delete_document(
             user=self.owner, document=self.document, corpus=self.corpus
         )
 
@@ -1240,7 +1236,7 @@ class TestVersioning_RestoreCreatesNewPath(_CorpusObjsServiceFolderTestBase):
             is_deleted=False,
         )
         # Soft delete the document first
-        CorpusObjsService.soft_delete_document(
+        DocumentLifecycleService.soft_delete_document(
             user=self.owner, document=self.document, corpus=self.corpus
         )
         self.deleted_path = DocumentPath.objects.get(
@@ -1249,7 +1245,7 @@ class TestVersioning_RestoreCreatesNewPath(_CorpusObjsServiceFolderTestBase):
 
     def test_restore_marks_deleted_path_as_not_current(self):
         """Deleted path should be marked as is_current=False after restore."""
-        CorpusObjsService.restore_document(
+        DocumentLifecycleService.restore_document(
             user=self.owner, document_path=self.deleted_path
         )
 
@@ -1258,7 +1254,7 @@ class TestVersioning_RestoreCreatesNewPath(_CorpusObjsServiceFolderTestBase):
 
     def test_restore_creates_new_active_path(self):
         """Restore creates new DocumentPath with is_deleted=False."""
-        CorpusObjsService.restore_document(
+        DocumentLifecycleService.restore_document(
             user=self.owner, document_path=self.deleted_path
         )
 
@@ -1269,7 +1265,7 @@ class TestVersioning_RestoreCreatesNewPath(_CorpusObjsServiceFolderTestBase):
 
     def test_restore_new_path_has_parent_chain(self):
         """Restored path should have parent pointing to deleted path."""
-        CorpusObjsService.restore_document(
+        DocumentLifecycleService.restore_document(
             user=self.owner, document_path=self.deleted_path
         )
 
@@ -1283,7 +1279,7 @@ class TestVersioning_RestoreCreatesNewPath(_CorpusObjsServiceFolderTestBase):
         After delete and restore, we should have a 3-node chain:
         original -> deleted -> restored
         """
-        CorpusObjsService.restore_document(
+        DocumentLifecycleService.restore_document(
             user=self.owner, document_path=self.deleted_path
         )
 
@@ -1342,7 +1338,7 @@ class TestVersioning_DeletedDocumentsQueryable(_CorpusObjsServiceFolderTestBase)
                 is_current=True,
                 is_deleted=False,
             )
-            CorpusObjsService.soft_delete_document(
+            DocumentLifecycleService.soft_delete_document(
                 user=self.owner, document=doc, corpus=self.corpus
             )
 
@@ -1363,7 +1359,7 @@ class TestVersioning_DeletedDocumentsQueryable(_CorpusObjsServiceFolderTestBase)
 
     def test_get_deleted_documents_returns_only_deleted(self):
         """get_deleted_documents() should return only soft-deleted documents."""
-        deleted = CorpusObjsService.get_deleted_documents(
+        deleted = DocumentLifecycleService.get_deleted_documents(
             user=self.owner, corpus_id=self.corpus.id
         )
 
@@ -1373,7 +1369,7 @@ class TestVersioning_DeletedDocumentsQueryable(_CorpusObjsServiceFolderTestBase)
 
     def test_get_folder_documents_excludes_deleted_by_default(self):
         """get_folder_documents() should exclude deleted documents by default."""
-        docs = CorpusObjsService.get_folder_documents(
+        docs = FolderDocumentService.get_folder_documents(
             user=self.owner, corpus_id=self.corpus.id, folder_id=None
         )
 
@@ -1413,7 +1409,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
 
     def test_add_document_creates_new_document(self):
         """Adding document should create a NEW document, not modify original."""
-        corpus_doc, status, error = CorpusObjsService.add_document_to_corpus(
+        corpus_doc, status, error = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
@@ -1423,7 +1419,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
 
     def test_corpus_copy_has_source_document_provenance(self):
         """Corpus copy should track source_document for provenance."""
-        corpus_doc, _, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
@@ -1431,7 +1427,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
 
     def test_corpus_copy_has_independent_version_tree(self):
         """Corpus copy should have its own version_tree_id."""
-        corpus_doc, _, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
@@ -1445,7 +1441,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
         original_title = self.source_document.title
         original_description = self.source_document.description
 
-        CorpusObjsService.add_document_to_corpus(
+        CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
@@ -1455,7 +1451,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
 
     def test_corpus_copy_has_document_path(self):
         """Corpus copy should have DocumentPath linking it to corpus."""
-        corpus_doc, _, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
@@ -1495,10 +1491,10 @@ class TestCorpusIsolation_Deduplication(_CorpusObjsServiceFolderTestBase):
 
     def test_adding_same_document_twice_creates_separate_copies(self):
         """Adding document multiple times creates separate corpus copies (no dedup)."""
-        corpus_doc1, status1, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc1, status1, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.document_with_hash, corpus=self.corpus
         )
-        corpus_doc2, status2, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc2, status2, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.document_with_hash, corpus=self.corpus
         )
 
@@ -1510,10 +1506,10 @@ class TestCorpusIsolation_Deduplication(_CorpusObjsServiceFolderTestBase):
 
     def test_adding_document_without_hash_creates_new_each_time(self):
         """Documents are not deduplicated regardless of hash presence."""
-        corpus_doc1, status1, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc1, status1, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.document_without_hash, corpus=self.corpus
         )
-        corpus_doc2, status2, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc2, status2, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.document_without_hash, corpus=self.corpus
         )
 
@@ -1537,7 +1533,7 @@ class TestCorpusIsolation_AddToFolder(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target Folder"
         )
         self.source_document = Document.objects.create(
@@ -1546,7 +1542,7 @@ class TestCorpusIsolation_AddToFolder(_CorpusObjsServiceFolderTestBase):
 
     def test_add_document_to_corpus_with_folder(self):
         """Can add document directly to a folder in corpus."""
-        corpus_doc, status, error = CorpusObjsService.add_document_to_corpus(
+        corpus_doc, status, error = CorpusDocumentService.add_document_to_corpus(
             user=self.owner,
             document=self.source_document,
             corpus=self.corpus,
@@ -1585,19 +1581,19 @@ class TestEdgeCases_NonexistentResources(TestCase):
 
     def test_get_visible_folders_with_nonexistent_corpus_returns_empty(self):
         """Querying folders for nonexistent corpus returns empty queryset."""
-        folders = CorpusObjsService.get_visible_folders(
+        folders = FolderCRUDService.get_visible_folders(
             user=self.owner, corpus_id=99999
         )
         self.assertEqual(folders.count(), 0)
 
     def test_get_folder_by_id_with_nonexistent_id_returns_none(self):
         """Querying nonexistent folder returns None (IDOR protection)."""
-        folder = CorpusObjsService.get_folder_by_id(user=self.owner, folder_id=99999)
+        folder = FolderCRUDService.get_folder_by_id(user=self.owner, folder_id=99999)
         self.assertIsNone(folder)
 
     def test_get_deleted_documents_with_nonexistent_corpus_returns_empty(self):
         """Querying deleted docs for nonexistent corpus returns empty."""
-        deleted = CorpusObjsService.get_deleted_documents(
+        deleted = DocumentLifecycleService.get_deleted_documents(
             user=self.owner, corpus_id=99999
         )
         self.assertEqual(deleted.count(), 0)
@@ -1621,13 +1617,13 @@ class TestEdgeCases_IDORProtection(TestCase):
         self.corpus = Corpus.objects.create(
             title="Private Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Secret Folder"
         )
 
     def test_get_folder_by_id_returns_none_for_unauthorized_user(self):
         """Attacker cannot discover folder existence through get_folder_by_id."""
-        folder = CorpusObjsService.get_folder_by_id(
+        folder = FolderCRUDService.get_folder_by_id(
             user=self.attacker, folder_id=self.folder.id
         )
 
@@ -1636,7 +1632,7 @@ class TestEdgeCases_IDORProtection(TestCase):
 
     def test_get_visible_folders_returns_empty_for_unauthorized_user(self):
         """Attacker cannot see folders they don't have access to."""
-        folders = CorpusObjsService.get_visible_folders(
+        folders = FolderCRUDService.get_visible_folders(
             user=self.attacker, corpus_id=self.corpus.id
         )
 
@@ -1660,7 +1656,7 @@ class TestEdgeCases_DocumentNotInCorpus(_CorpusObjsServiceFolderTestBase):
         self.corpus_b = Corpus.objects.create(
             title="Corpus B", creator=self.owner, is_public=False
         )
-        self.folder_in_a, _ = CorpusObjsService.create_folder(
+        self.folder_in_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus_a, name="Folder in A"
         )
         # Document only in corpus B
@@ -1680,7 +1676,7 @@ class TestEdgeCases_DocumentNotInCorpus(_CorpusObjsServiceFolderTestBase):
 
     def test_move_document_to_wrong_corpus_folder_fails(self):
         """Cannot move document to folder in different corpus."""
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document_in_b,
             corpus=self.corpus_a,  # Wrong corpus
@@ -1698,7 +1694,7 @@ class TestEdgeCases_UploadQuota(TestCase):
     BUSINESS RULE: Usage-capped users have document limits.
 
     NOTE: ``check_user_upload_quota`` lives on ``DocumentService``, not
-    ``CorpusObjsService`` — quota is a document-creation concern, not a
+    the corpus services — quota is a document-creation concern, not a
     corpus-scoped one.
     """
 
@@ -1747,14 +1743,14 @@ class TestEdgeCases_EmptyOperations(TestCase):
 
     def test_search_folders_with_empty_query_returns_all(self):
         """Searching with empty string returns all folders."""
-        CorpusObjsService.create_folder(
+        FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder 1"
         )
-        CorpusObjsService.create_folder(
+        FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder 2"
         )
 
-        results = CorpusObjsService.search_folders(
+        results = FolderCRUDService.search_folders(
             user=self.owner, corpus_id=self.corpus.id, query=""
         )
 
@@ -1762,11 +1758,11 @@ class TestEdgeCases_EmptyOperations(TestCase):
 
     def test_search_folders_with_whitespace_query_returns_all(self):
         """Searching with whitespace-only returns all folders."""
-        CorpusObjsService.create_folder(
+        FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder"
         )
 
-        results = CorpusObjsService.search_folders(
+        results = FolderCRUDService.search_folders(
             user=self.owner, corpus_id=self.corpus.id, query="   "
         )
 
@@ -1774,7 +1770,7 @@ class TestEdgeCases_EmptyOperations(TestCase):
 
     def test_get_folder_tree_for_empty_corpus(self):
         """Getting folder tree for corpus with no folders returns empty list."""
-        tree = CorpusObjsService.get_folder_tree(
+        tree = FolderCRUDService.get_folder_tree(
             user=self.owner, corpus_id=self.corpus.id
         )
 
@@ -1806,7 +1802,7 @@ class TestM2MBackwardCompatibility(_CorpusObjsServiceFolderTestBase):
 
     def test_document_path_query_finds_added_document(self):
         """Documents can be found via DocumentPath query after add_document."""
-        corpus_doc, _, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
@@ -1842,13 +1838,13 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
         self.source_document = Document.objects.create(
             title="Source Document", creator=self.owner, pdf_file="source.pdf"
         )
-        self.corpus_doc, _, _ = CorpusObjsService.add_document_to_corpus(
+        self.corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
 
     def test_remove_document_from_corpus(self):
         """Can remove document from corpus."""
-        success, error = CorpusObjsService.remove_document_from_corpus(
+        success, error = CorpusDocumentService.remove_document_from_corpus(
             user=self.owner, document=self.corpus_doc, corpus=self.corpus
         )
 
@@ -1857,7 +1853,7 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
 
     def test_removed_document_is_soft_deleted(self):
         """Removed document should have is_deleted=True path."""
-        CorpusObjsService.remove_document_from_corpus(
+        CorpusDocumentService.remove_document_from_corpus(
             user=self.owner, document=self.corpus_doc, corpus=self.corpus
         )
 
@@ -1873,7 +1869,7 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
         )
         set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
 
-        success, error = CorpusObjsService.remove_document_from_corpus(
+        success, error = CorpusDocumentService.remove_document_from_corpus(
             user=reader, document=self.corpus_doc, corpus=self.corpus
         )
 
@@ -1885,11 +1881,11 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
         doc2 = Document.objects.create(
             title="Doc 2", creator=self.owner, pdf_file="doc2.pdf"
         )
-        corpus_doc2, _, _ = CorpusObjsService.add_document_to_corpus(
+        corpus_doc2, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=doc2, corpus=self.corpus
         )
 
-        removed_count, error = CorpusObjsService.remove_documents_from_corpus(
+        removed_count, error = CorpusDocumentService.remove_documents_from_corpus(
             user=self.owner,
             document_ids=[self.corpus_doc.id, corpus_doc2.id],
             corpus=self.corpus,
@@ -1958,10 +1954,10 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
 
     def setUp(self):
         super().setUp()
-        self.folder_a, _ = CorpusObjsService.create_folder(
+        self.folder_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder A"
         )
-        self.folder_b, _ = CorpusObjsService.create_folder(
+        self.folder_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder B"
         )
         self.document = Document.objects.create(
@@ -1980,7 +1976,7 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
 
     def test_single_move_creates_two_path_records(self):
         """One move should produce the original + one new record."""
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -1995,7 +1991,7 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
     def test_multi_move_chain_creates_correct_record_count(self):
         """Three moves should produce 4 records total (original + 3)."""
         for folder in [self.folder_a, self.folder_b, None]:
-            CorpusObjsService.move_document_to_folder(
+            FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -2009,13 +2005,13 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
 
     def test_multi_move_chain_parent_links(self):
         """Each move's parent should point to the immediately previous path."""
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
             folder=self.folder_a,
         )
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -2033,13 +2029,13 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
 
     def test_only_one_current_path_after_multiple_moves(self):
         """Only the latest path record should have is_current=True."""
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
             folder=self.folder_a,
         )
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -2056,7 +2052,7 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
 
     def test_move_does_not_change_document_content(self):
         """Moving only affects the path — document FK stays the same."""
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -2071,7 +2067,7 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
         self.document_path.is_current = False
         self.document_path.save(update_fields=["is_current"])
 
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=self.document,
             corpus=self.corpus,
@@ -2092,51 +2088,51 @@ class TestDocumentPathHistory_ComputeMovedPath(_DocumentPathHistoryTestBase):
 
     def test_move_to_root_strips_folder_prefix(self):
         """Moving to root produces /<filename>."""
-        result = CorpusObjsService._compute_moved_path(
+        result = CorpusPathService._compute_moved_path(
             "/some/deep/path/report.pdf", None
         )
         self.assertEqual(result, "/report.pdf")
 
     def test_move_to_folder_prepends_folder_path(self):
         """Moving to a folder produces /<folder_path>/<filename>."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Legal"
         )
-        result = CorpusObjsService._compute_moved_path("/report.pdf", folder)
+        result = CorpusPathService._compute_moved_path("/report.pdf", folder)
         self.assertEqual(result, "/Legal/report.pdf")
 
     def test_move_to_nested_folder(self):
         """Moving to a nested folder produces the full ancestor path."""
-        parent, _ = CorpusObjsService.create_folder(
+        parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Legal"
         )
-        child, _ = CorpusObjsService.create_folder(
+        child, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Contracts", parent=parent
         )
-        result = CorpusObjsService._compute_moved_path("/report.pdf", child)
+        result = CorpusPathService._compute_moved_path("/report.pdf", child)
         self.assertEqual(result, "/Legal/Contracts/report.pdf")
 
     def test_preserves_filename_with_special_characters(self):
         """Filenames with dots, hyphens, underscores are preserved."""
-        result = CorpusObjsService._compute_moved_path(
+        result = CorpusPathService._compute_moved_path(
             "/old-folder/my_report.v2.final.pdf", None
         )
         self.assertEqual(result, "/my_report.v2.final.pdf")
 
     def test_handles_path_without_leading_slash(self):
         """Even if the existing path lacks a leading slash, filename is extracted."""
-        result = CorpusObjsService._compute_moved_path("documents/report.pdf", None)
+        result = CorpusPathService._compute_moved_path("documents/report.pdf", None)
         self.assertEqual(result, "/report.pdf")
 
     def test_precomputed_target_folder_path_matches_on_demand(self):
         """Passing target_folder_path produces the same result as on-demand computation."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Cached"
         )
         current_path = "/old/dir/report.pdf"
 
-        on_demand = CorpusObjsService._compute_moved_path(current_path, folder)
-        precomputed = CorpusObjsService._compute_moved_path(
+        on_demand = CorpusPathService._compute_moved_path(current_path, folder)
+        precomputed = CorpusPathService._compute_moved_path(
             current_path, folder, target_folder_path=folder.get_path()
         )
 
@@ -2145,21 +2141,21 @@ class TestDocumentPathHistory_ComputeMovedPath(_DocumentPathHistoryTestBase):
 
     def test_precomputed_target_folder_path_takes_precedence(self):
         """The pre-computed value is used over the folder's actual path."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="RealName"
         )
         # Pass a different path to verify the pre-computed value wins.
-        result = CorpusObjsService._compute_moved_path(
+        result = CorpusPathService._compute_moved_path(
             "/doc.pdf", folder, target_folder_path="Override/Path"
         )
         self.assertEqual(result, "/Override/Path/doc.pdf")
 
     def test_none_target_folder_path_falls_back_to_get_path(self):
         """Only None triggers the on-demand get_path() fallback."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Fallback"
         )
-        result = CorpusObjsService._compute_moved_path(
+        result = CorpusPathService._compute_moved_path(
             "/doc.pdf", folder, target_folder_path=None
         )
         self.assertEqual(result, "/Fallback/doc.pdf")
@@ -2177,7 +2173,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
 
     def setUp(self):
         super().setUp()
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
 
@@ -2214,7 +2210,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
         )
 
         # Move doc2 to same folder as doc1 — computed path /Target/same.pdf conflicts
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=doc2,
             corpus=self.corpus,
@@ -2275,7 +2271,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
 
         # Move both to the same folder
         for doc in docs[1:]:
-            CorpusObjsService.move_document_to_folder(
+            FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=doc,
                 corpus=self.corpus,
@@ -2325,7 +2321,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
             is_deleted=False,
         )
 
-        success, _ = CorpusObjsService.move_document_to_folder(
+        success, _ = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=doc,
             corpus=self.corpus,
@@ -2371,7 +2367,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
         )
 
         # Move doc2 into the same folder — should disambiguate correctly
-        success, error = CorpusObjsService.move_document_to_folder(
+        success, error = FolderDocumentService.move_document_to_folder(
             user=self.owner,
             document=doc2,
             corpus=self.corpus,
@@ -2418,7 +2414,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
             mock_filter.return_value.values_list.return_value = all_candidates
 
             with self.assertRaises(ValueError) as ctx:
-                CorpusObjsService._disambiguate_path("/Target/report.pdf", self.corpus)
+                CorpusPathService._disambiguate_path("/Target/report.pdf", self.corpus)
 
             self.assertIn(str(MAX_PATH_DISAMBIGUATION_SUFFIX), str(ctx.exception))
 
@@ -2433,7 +2429,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
 
     def test_delete_folder_creates_history_for_each_document(self):
         """Each document in a deleted folder gets its own history node."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Doomed"
         )
         docs = []
@@ -2453,7 +2449,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
             )
             docs.append(doc)
 
-        CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         # Each document should have 2 records (original + moved-to-root)
         for doc in docs:
@@ -2474,7 +2470,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         Per path tree rule P5 (see versioning.py), version_number
         increments only on content changes.
         """
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="TempFolder"
         )
         doc = Document.objects.create(
@@ -2491,7 +2487,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
             is_deleted=False,
         )
 
-        CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         current = DocumentPath.objects.get(
             document=doc, corpus=self.corpus, is_current=True, is_deleted=False
@@ -2500,7 +2496,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
 
     def test_delete_folder_updates_path_to_root(self):
         """Documents displaced by folder deletion get root-relative paths."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Reports"
         )
         doc = Document.objects.create(
@@ -2517,7 +2513,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
             is_deleted=False,
         )
 
-        CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         current = DocumentPath.objects.get(
             document=doc, corpus=self.corpus, is_current=True, is_deleted=False
@@ -2529,7 +2525,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         self, mock_signal
     ):
         """bulk_create in delete_folder bypasses signals; verify manual dispatch fires."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ToDelete"
         )
         docs = []
@@ -2549,7 +2545,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
             )
             docs.append(doc)
 
-        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        success, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         self.assertTrue(success)
         self.assertEqual(error, "")
@@ -2577,7 +2573,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
 
     def setUp(self):
         super().setUp()
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Archive"
         )
 
@@ -2602,7 +2598,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
         doc1, _ = self._create_doc_at_root("Doc 1", "doc1.pdf")
         doc2, _ = self._create_doc_at_root("Doc 2", "doc2.pdf")
 
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[doc1.id, doc2.id],
             corpus=self.corpus,
@@ -2622,7 +2618,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
         """Bulk-moved documents have proper parent links."""
         doc1, original_path = self._create_doc_at_root("Doc 1", "doc1.pdf")
 
-        CorpusObjsService.move_documents_to_folder(
+        FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[doc1.id],
             corpus=self.corpus,
@@ -2651,7 +2647,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             is_deleted=False,
         )
 
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[doc1.id, doc2.id],
             corpus=self.corpus,
@@ -2672,7 +2668,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
         doc2, _ = self._create_doc_at_root("Doc 2", "doc2.pdf")
         doc3, _ = self._create_doc_at_root("Doc 3", "doc3.pdf")
 
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[doc1.id, doc2.id, doc3.id],
             corpus=self.corpus,
@@ -2708,7 +2704,7 @@ class TestDocumentPathHistory_BulkMoveTracking(_DocumentPathHistoryTestBase):
             pre_save.has_listeners(sender=DocumentPath),
             (
                 "DocumentPath has pre_save receivers registered — update "
-                "CorpusObjsService._dispatch_document_path_created_signals "
+                "CorpusPathService._dispatch_document_path_created_signals "
                 "to dispatch pre_save before bulk_create, or this bulk path "
                 "will silently drop the new behaviour."
             ),
@@ -2726,10 +2722,10 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
 
     def setUp(self):
         super().setUp()
-        self.folder_a, _ = CorpusObjsService.create_folder(
+        self.folder_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Active"
         )
-        self.folder_b, _ = CorpusObjsService.create_folder(
+        self.folder_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Archive"
         )
 
@@ -2752,12 +2748,12 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
         )
 
         # Move to folder A
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner, document=doc, corpus=self.corpus, folder=self.folder_a
         )
 
         # Soft delete
-        CorpusObjsService.soft_delete_document(
+        DocumentLifecycleService.soft_delete_document(
             user=self.owner, document=doc, corpus=self.corpus
         )
 
@@ -2765,7 +2761,9 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
         deleted_path = DocumentPath.objects.get(
             document=doc, corpus=self.corpus, is_current=True, is_deleted=True
         )
-        CorpusObjsService.restore_document(user=self.owner, document_path=deleted_path)
+        DocumentLifecycleService.restore_document(
+            user=self.owner, document_path=deleted_path
+        )
 
         # Get final current path and check history
         current = DocumentPath.objects.get(
@@ -2797,10 +2795,10 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
             is_deleted=False,
         )
 
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner, document=doc, corpus=self.corpus, folder=self.folder_a
         )
-        CorpusObjsService.move_document_to_folder(
+        FolderDocumentService.move_document_to_folder(
             user=self.owner, document=doc, corpus=self.corpus, folder=self.folder_b
         )
 
@@ -2835,7 +2833,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
 
         # Move through 3 folders
         for folder in [self.folder_a, self.folder_b, None]:
-            CorpusObjsService.move_document_to_folder(
+            FolderDocumentService.move_document_to_folder(
                 user=self.owner, document=doc, corpus=self.corpus, folder=folder
             )
 
@@ -2898,7 +2896,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
         """Documents displaced by folder deletion show MOVED in history."""
         from opencontractserver.documents.versioning import get_path_history
 
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Temporary"
         )
         doc = Document.objects.create(
@@ -2915,7 +2913,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
             is_deleted=False,
         )
 
-        CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        FolderCRUDService.delete_folder(user=self.owner, folder=folder)
 
         current = DocumentPath.objects.get(
             document=doc, corpus=self.corpus, is_current=True, is_deleted=False
@@ -2990,13 +2988,13 @@ class TestErrorPaths_ComputeMovedPathEdgeCases(TestCase):
     def test_root_only_path_raises_value_error(self):
         """Path '/' has no filename segment — must raise."""
         with self.assertRaises(ValueError) as ctx:
-            CorpusObjsService._compute_moved_path("/", None)
+            CorpusPathService._compute_moved_path("/", None)
         self.assertIn("empty or root-only", str(ctx.exception))
 
     def test_empty_path_raises_value_error(self):
         """Empty string has no filename — must raise."""
         with self.assertRaises(ValueError) as ctx:
-            CorpusObjsService._compute_moved_path("", None)
+            CorpusPathService._compute_moved_path("", None)
         self.assertIn("empty or root-only", str(ctx.exception))
 
 
@@ -3032,7 +3030,7 @@ class TestErrorPaths_DisambiguateExtensionless(_CorpusObjsServiceFolderTestBase)
             is_deleted=False,
         )
 
-        result = CorpusObjsService._disambiguate_path("/Makefile", self.corpus)
+        result = CorpusPathService._disambiguate_path("/Makefile", self.corpus)
         self.assertEqual(result, "/Makefile_1")
 
 
@@ -3075,7 +3073,7 @@ class TestErrorPaths_DisambiguateRootLevel(_CorpusObjsServiceFolderTestBase):
 
         # Disambiguating "/report.pdf" should return it unchanged because the
         # only existing "report.pdf" is inside "/folder/", not at root.
-        result = CorpusObjsService._disambiguate_path("/report.pdf", self.corpus)
+        result = CorpusPathService._disambiguate_path("/report.pdf", self.corpus)
         self.assertEqual(result, "/report.pdf")
 
     def test_root_disambiguation_detects_root_conflict(self):
@@ -3110,7 +3108,7 @@ class TestErrorPaths_DisambiguateRootLevel(_CorpusObjsServiceFolderTestBase):
         )
 
         # Should get "_1" suffix because root "/report.pdf" is taken.
-        result = CorpusObjsService._disambiguate_path("/report.pdf", self.corpus)
+        result = CorpusPathService._disambiguate_path("/report.pdf", self.corpus)
         self.assertEqual(result, "/report_1.pdf")
 
 
@@ -3136,7 +3134,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
     def test_delete_folder_rolls_back_all_on_failure(self):
         """When _disambiguate_path raises, the entire transaction is rolled
         back: no documents are relocated and the folder still exists."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Doomed"
         )
         doc = Document.objects.create(
@@ -3158,7 +3156,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             "_disambiguate_path",
             side_effect=ValueError("all suffixes exhausted"),
         ):
-            success, error = CorpusObjsService.delete_folder(
+            success, error = FolderCRUDService.delete_folder(
                 user=self.owner, folder=folder
             )
 
@@ -3177,7 +3175,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         """When the second document fails path disambiguation during the
         planning phase (before any DB writes), the entire operation is
         rolled back atomically and no state changes are persisted."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Mixed"
         )
 
@@ -3209,7 +3207,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             is_deleted=False,
         )
 
-        original_disambiguate = CorpusObjsService._disambiguate_path
+        original_disambiguate = CorpusPathService._disambiguate_path
         call_count = 0
 
         def fail_on_second(base_path, corpus, **kwargs):
@@ -3224,7 +3222,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             "_disambiguate_path",
             staticmethod(fail_on_second),
         ):
-            success, error = CorpusObjsService.delete_folder(
+            success, error = FolderCRUDService.delete_folder(
                 user=self.owner, folder=folder
             )
 
@@ -3253,7 +3251,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
     def test_delete_folder_retry_after_failure_succeeds(self):
         """After a failed delete_folder (full rollback), retrying with the
         underlying issue resolved should succeed cleanly."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Retryable"
         )
         doc = Document.objects.create(
@@ -3276,7 +3274,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             "_disambiguate_path",
             side_effect=ValueError("temporary failure"),
         ):
-            success, error = CorpusObjsService.delete_folder(
+            success, error = FolderCRUDService.delete_folder(
                 user=self.owner, folder=folder
             )
         self.assertFalse(success)
@@ -3285,7 +3283,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         self.assertTrue(CorpusFolder.objects.filter(pk=folder.pk).exists())
 
         # Second attempt: succeeds (no mock = real disambiguate)
-        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        success, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
         self.assertTrue(success, f"Retry should succeed, got error: {error}")
         self.assertEqual(error, "")
 
@@ -3301,10 +3299,10 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
     def test_delete_folder_child_reparenting_rolled_back_on_failure(self):
         """Child folder reparenting is also rolled back when document
         relocation fails (part of the same atomic transaction)."""
-        parent_folder, _ = CorpusObjsService.create_folder(
+        parent_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
         )
-        child_folder, _ = CorpusObjsService.create_folder(
+        child_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child", parent=parent_folder
         )
 
@@ -3327,7 +3325,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             "_disambiguate_path",
             side_effect=ValueError("blocked"),
         ):
-            success, _ = CorpusObjsService.delete_folder(
+            success, _ = FolderCRUDService.delete_folder(
                 user=self.owner, folder=parent_folder
             )
 
@@ -3352,7 +3350,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(_CorpusObjsServiceFolderTestBase
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
         self.document = Document.objects.create(
@@ -3379,7 +3377,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(_CorpusObjsServiceFolderTestBase
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -3405,7 +3403,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(_CorpusObjsServiceFolderTestBase
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=failing_create):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -3428,7 +3426,7 @@ class TestErrorPaths_MoveDocumentIntegrityError(_CorpusObjsServiceFolderTestBase
             "_disambiguate_path",
             side_effect=ValueError("all suffixes exhausted"),
         ):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -3456,7 +3454,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
 
@@ -3482,7 +3480,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             docs.append(doc)
             paths.append(p)
 
-        original_disambiguate = CorpusObjsService._disambiguate_path
+        original_disambiguate = CorpusPathService._disambiguate_path
         call_count = 0
 
         def selective_fail(base_path, corpus, **kwargs):
@@ -3496,7 +3494,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
         with patch.object(
             CorpusPathService, "_disambiguate_path", staticmethod(selective_fail)
         ):
-            moved_count, error = CorpusObjsService.move_documents_to_folder(
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[d.id for d in docs],
                 corpus=self.corpus,
@@ -3545,7 +3543,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             "_disambiguate_path",
             side_effect=ValueError("temporary failure"),
         ):
-            moved_count, error = CorpusObjsService.move_documents_to_folder(
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[d.id for d in docs],
                 corpus=self.corpus,
@@ -3562,7 +3560,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             self.assertIsNone(path.folder_id)
 
         # Second attempt: succeeds (no mock = real disambiguate)
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[d.id for d in docs],
             corpus=self.corpus,
@@ -3596,7 +3594,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
         )
 
         # Second doc with same filename but from a different source folder
-        source_folder, _ = CorpusObjsService.create_folder(
+        source_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Source"
         )
         doc2 = Document.objects.create(
@@ -3615,7 +3613,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
 
         # Move both to the same target folder — they both produce
         # "/Target/report.pdf" as the base path
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[doc1.id, doc2.id],
             corpus=self.corpus,
@@ -3671,7 +3669,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
         )
 
         # Doc B named report.pdf in a different source folder
-        source, _ = CorpusObjsService.create_folder(
+        source, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Source"
         )
         doc_b = Document.objects.create(
@@ -3688,7 +3686,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             is_deleted=False,
         )
 
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[doc_a.id, doc_b.id],
             corpus=self.corpus,
@@ -3735,13 +3733,13 @@ class TestCoverageGapComputeMovedPathTrailingSlash(TestCase):
     def test_trailing_slash_raises_value_error(self):
         """Path '/dir/' produces empty filename after rsplit — must raise."""
         with self.assertRaises(ValueError) as ctx:
-            CorpusObjsService._compute_moved_path("/dir/", None)
+            CorpusPathService._compute_moved_path("/dir/", None)
         self.assertIn("empty or root-only", str(ctx.exception))
 
     def test_nested_trailing_slash_raises_value_error(self):
         """Path '/a/b/c/' also has empty filename — must raise."""
         with self.assertRaises(ValueError) as ctx:
-            CorpusObjsService._compute_moved_path("/a/b/c/", None)
+            CorpusPathService._compute_moved_path("/a/b/c/", None)
         self.assertIn("empty or root-only", str(ctx.exception))
 
 
@@ -3756,13 +3754,13 @@ class TestCoverageGapComputeMovedPathWhitespace(TestCase):
     def test_whitespace_only_path_raises_value_error(self):
         """Path '   ' is whitespace-only — must raise."""
         with self.assertRaises(ValueError) as ctx:
-            CorpusObjsService._compute_moved_path("   ", None)
+            CorpusPathService._compute_moved_path("   ", None)
         self.assertIn("empty or root-only", str(ctx.exception))
 
     def test_whitespace_with_slash_raises_value_error(self):
         """Path '  /  ' strips to '/' — must raise."""
         with self.assertRaises(ValueError) as ctx:
-            CorpusObjsService._compute_moved_path("  /  ", None)
+            CorpusPathService._compute_moved_path("  /  ", None)
         self.assertIn("empty or root-only", str(ctx.exception))
 
 
@@ -3788,7 +3786,7 @@ class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
     def test_no_slash_path_raises_value_error(self):
         """A no-slash path raises ValueError (structurally invalid)."""
         with self.assertRaises(ValueError):
-            CorpusObjsService._disambiguate_path("report.pdf", self.corpus)
+            CorpusPathService._disambiguate_path("report.pdf", self.corpus)
 
     def test_no_slash_path_with_conflict_raises_value_error(self):
         """A no-slash path raises ValueError even when a conflict exists."""
@@ -3807,7 +3805,7 @@ class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
         )
 
         with self.assertRaises(ValueError):
-            CorpusObjsService._disambiguate_path("report.pdf", self.corpus)
+            CorpusPathService._disambiguate_path("report.pdf", self.corpus)
 
     def test_no_slash_extensionless_path_raises_value_error(self):
         """A no-slash, extensionless path raises ValueError."""
@@ -3826,7 +3824,7 @@ class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
         )
 
         with self.assertRaises(ValueError):
-            CorpusObjsService._disambiguate_path("Makefile", self.corpus)
+            CorpusPathService._disambiguate_path("Makefile", self.corpus)
 
 
 class TestCoverageGapBulkMoveIntegrityErrorRollback(_CorpusObjsServiceFolderTestBase):
@@ -3846,7 +3844,7 @@ class TestCoverageGapBulkMoveIntegrityErrorRollback(_CorpusObjsServiceFolderTest
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
 
@@ -3875,7 +3873,7 @@ class TestCoverageGapBulkMoveIntegrityErrorRollback(_CorpusObjsServiceFolderTest
         with patch.object(
             DocumentPath.objects, "bulk_create", side_effect=failing_bulk_create
         ):
-            moved_count, error = CorpusObjsService.move_documents_to_folder(
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[doc.id],
                 corpus=self.corpus,
@@ -3906,7 +3904,7 @@ class TestCoverageGapBulkMoveToRootRollback(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.source_folder, _ = CorpusObjsService.create_folder(
+        self.source_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Source"
         )
 
@@ -3932,7 +3930,7 @@ class TestCoverageGapBulkMoveToRootRollback(_CorpusObjsServiceFolderTestBase):
         with patch.object(
             DocumentPath.objects, "bulk_create", side_effect=failing_bulk_create
         ):
-            moved_count, error = CorpusObjsService.move_documents_to_folder(
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[doc.id],
                 corpus=self.corpus,
@@ -3969,7 +3967,7 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
         self.document = Document.objects.create(
@@ -4002,7 +4000,7 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=flaky_create):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -4042,7 +4040,7 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
             return original_create(**kwargs)
 
         with patch.object(DocumentPath.objects, "create", side_effect=flaky_create):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -4073,7 +4071,7 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
         with patch.object(
             DocumentPath.objects, "create", side_effect=always_failing_create
         ):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -4106,7 +4104,7 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
         with patch.object(
             DocumentPath.objects, "create", side_effect=fk_violation_create
         ):
-            success, error = CorpusObjsService.move_document_to_folder(
+            success, error = FolderDocumentService.move_document_to_folder(
                 user=self.owner,
                 document=self.document,
                 corpus=self.corpus,
@@ -4141,7 +4139,7 @@ class TestCoverageGapDeleteFolderMultiDocHistory(_CorpusObjsServiceFolderTestBas
 
     def test_delete_folder_creates_history_for_multiple_documents(self):
         """Each document in a deleted folder gets a proper history node."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ToDelete"
         )
 
@@ -4162,7 +4160,7 @@ class TestCoverageGapDeleteFolderMultiDocHistory(_CorpusObjsServiceFolderTestBas
             )
             docs_and_paths.append((doc, path))
 
-        success, error = CorpusObjsService.delete_folder(user=self.owner, folder=folder)
+        success, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
         self.assertTrue(success)
         self.assertEqual(error, "")
 
@@ -4202,7 +4200,7 @@ class TestCoverageGapBulkMoveVersionPreservation(_CorpusObjsServiceFolderTestBas
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
 
@@ -4227,7 +4225,7 @@ class TestCoverageGapBulkMoveVersionPreservation(_CorpusObjsServiceFolderTestBas
             docs.append(doc)
             original_paths.append(path)
 
-        moved_count, error = CorpusObjsService.move_documents_to_folder(
+        moved_count, error = FolderDocumentService.move_documents_to_folder(
             user=self.owner,
             document_ids=[d.id for d in docs],
             corpus=self.corpus,
@@ -4287,7 +4285,7 @@ class TestCoverageGapDeleteFolderIntegrityErrorRollback(
 
     def test_delete_folder_integrity_error_during_bulk_create_rolls_back(self):
         """IntegrityError during bulk_create rolls back delete_folder entirely."""
-        folder, _ = CorpusObjsService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ToDelete"
         )
         doc = Document.objects.create(
@@ -4310,7 +4308,7 @@ class TestCoverageGapDeleteFolderIntegrityErrorRollback(
         with patch.object(
             DocumentPath.objects, "bulk_create", side_effect=failing_bulk_create
         ):
-            success, error = CorpusObjsService.delete_folder(
+            success, error = FolderCRUDService.delete_folder(
                 user=self.owner, folder=folder
             )
 
@@ -4344,22 +4342,22 @@ class TestCoverageGapTargetDirectoryStringFromPathEdgeCases(
     def test_raises_on_empty_string(self):
         """ValueError raised when folder_path is empty after stripping."""
         with self.assertRaises(ValueError):
-            CorpusObjsService._target_directory_string_from_path("")
+            CorpusPathService._target_directory_string_from_path("")
 
     def test_slash_normalises_to_root(self):
         """Bare '/' is treated as the root directory (not an error)."""
-        self.assertEqual(CorpusObjsService._target_directory_string_from_path("/"), "/")
+        self.assertEqual(CorpusPathService._target_directory_string_from_path("/"), "/")
 
     def test_root_returns_slash(self):
         """None (root) returns '/'."""
         self.assertEqual(
-            CorpusObjsService._target_directory_string_from_path(None), "/"
+            CorpusPathService._target_directory_string_from_path(None), "/"
         )
 
     def test_normal_path(self):
         """Normal folder path returns canonical directory string."""
         self.assertEqual(
-            CorpusObjsService._target_directory_string_from_path("Legal/Contracts"),
+            CorpusPathService._target_directory_string_from_path("Legal/Contracts"),
             "/Legal/Contracts/",
         )
 
@@ -4383,7 +4381,7 @@ class TestCoverageGapBulkMoveGetPathCallCount(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = CorpusObjsService.create_folder(
+        self.folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
 
@@ -4411,7 +4409,7 @@ class TestCoverageGapBulkMoveGetPathCallCount(_CorpusObjsServiceFolderTestBase):
         with patch.object(
             CorpusFolder, "get_path", autospec=True, side_effect=original_get_path
         ) as mock_get_path:
-            moved_count, error = CorpusObjsService.move_documents_to_folder(
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=self.owner,
                 document_ids=[d.id for d in docs],
                 corpus=self.corpus,
@@ -4521,19 +4519,19 @@ class TestGetCorpusDocumentBySlug_HappyPath(CorpusObjsServiceTestBase):
     """
 
     def test_owner_can_lookup_doc_in_public_corpus(self):
-        doc = CorpusObjsService.get_corpus_document_by_slug(
+        doc = CorpusDocumentService.get_corpus_document_by_slug(
             user=self.owner, corpus=self.public_corpus, slug="shared-slug"
         )
         self.assertEqual(doc.pk, self.public_doc.pk)
 
     def test_owner_can_lookup_doc_in_private_corpus(self):
-        doc = CorpusObjsService.get_corpus_document_by_slug(
+        doc = CorpusDocumentService.get_corpus_document_by_slug(
             user=self.owner, corpus=self.private_corpus, slug="shared-slug"
         )
         self.assertEqual(doc.pk, self.private_doc.pk)
 
     def test_anonymous_can_lookup_doc_in_public_corpus(self):
-        doc = CorpusObjsService.get_corpus_document_by_slug(
+        doc = CorpusDocumentService.get_corpus_document_by_slug(
             user=self.anonymous, corpus=self.public_corpus, slug="shared-slug"
         )
         self.assertEqual(doc.pk, self.public_doc.pk)
@@ -4551,7 +4549,7 @@ class TestGetCorpusDocumentBySlug_IDORSafety(CorpusObjsServiceTestBase):
 
     def test_anonymous_lookup_in_private_corpus_raises_doesnotexist(self):
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_slug(
+            CorpusDocumentService.get_corpus_document_by_slug(
                 user=self.anonymous,
                 corpus=self.private_corpus,
                 slug="shared-slug",
@@ -4559,7 +4557,7 @@ class TestGetCorpusDocumentBySlug_IDORSafety(CorpusObjsServiceTestBase):
 
     def test_stranger_lookup_in_private_corpus_raises_doesnotexist(self):
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_slug(
+            CorpusDocumentService.get_corpus_document_by_slug(
                 user=self.stranger,
                 corpus=self.private_corpus,
                 slug="shared-slug",
@@ -4567,7 +4565,7 @@ class TestGetCorpusDocumentBySlug_IDORSafety(CorpusObjsServiceTestBase):
 
     def test_lookup_with_unknown_slug_raises_doesnotexist(self):
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_slug(
+            CorpusDocumentService.get_corpus_document_by_slug(
                 user=self.owner,
                 corpus=self.public_corpus,
                 slug="nope-not-a-real-slug",
@@ -4580,7 +4578,7 @@ class TestGetCorpusDocumentBySlug_IDORSafety(CorpusObjsServiceTestBase):
         anonymous user must not silently return the public doc.
         """
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_slug(
+            CorpusDocumentService.get_corpus_document_by_slug(
                 user=self.anonymous,
                 corpus=self.private_corpus,
                 slug="shared-slug",
@@ -4600,7 +4598,7 @@ class TestGetCorpusDocumentBySlug_GrantedAccess(CorpusObjsServiceTestBase):
         set_permissions_for_obj_to_user(
             self.stranger, self.private_corpus, [PermissionTypes.READ]
         )
-        doc = CorpusObjsService.get_corpus_document_by_slug(
+        doc = CorpusDocumentService.get_corpus_document_by_slug(
             user=self.stranger,
             corpus=self.private_corpus,
             slug="shared-slug",
@@ -4615,7 +4613,7 @@ class TestGetCorpusDocumentBySlug_GrantedAccess(CorpusObjsServiceTestBase):
 
 class TestGetCorpusDocumentById_HappyPath(CorpusObjsServiceTestBase):
     def test_owner_can_lookup_by_id_in_public_corpus(self):
-        doc = CorpusObjsService.get_corpus_document_by_id(
+        doc = CorpusDocumentService.get_corpus_document_by_id(
             user=self.owner,
             corpus=self.public_corpus,
             document_id=self.public_doc.pk,
@@ -4626,7 +4624,7 @@ class TestGetCorpusDocumentById_HappyPath(CorpusObjsServiceTestBase):
 class TestGetCorpusDocumentById_IDORSafety(CorpusObjsServiceTestBase):
     def test_anonymous_lookup_in_private_corpus_raises_doesnotexist(self):
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_id(
+            CorpusDocumentService.get_corpus_document_by_id(
                 user=self.anonymous,
                 corpus=self.private_corpus,
                 document_id=self.private_doc.pk,
@@ -4638,7 +4636,7 @@ class TestGetCorpusDocumentById_IDORSafety(CorpusObjsServiceTestBase):
         must not return it. The doc exists, just not in this corpus.
         """
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_id(
+            CorpusDocumentService.get_corpus_document_by_id(
                 user=self.owner,
                 corpus=self.private_corpus,
                 document_id=self.public_doc.pk,
@@ -4661,7 +4659,7 @@ class TestIsDocumentInCorpus_Boolean(CorpusObjsServiceTestBase):
 
     def test_returns_true_when_doc_is_in_corpus_and_user_has_read(self):
         self.assertTrue(
-            CorpusObjsService.is_document_in_corpus(
+            CorpusDocumentService.is_document_in_corpus(
                 user=self.owner,
                 corpus=self.public_corpus,
                 document_id=self.public_doc.pk,
@@ -4670,7 +4668,7 @@ class TestIsDocumentInCorpus_Boolean(CorpusObjsServiceTestBase):
 
     def test_returns_false_when_doc_is_in_different_corpus(self):
         self.assertFalse(
-            CorpusObjsService.is_document_in_corpus(
+            CorpusDocumentService.is_document_in_corpus(
                 user=self.owner,
                 corpus=self.public_corpus,
                 document_id=self.private_doc.pk,
@@ -4679,7 +4677,7 @@ class TestIsDocumentInCorpus_Boolean(CorpusObjsServiceTestBase):
 
     def test_returns_false_when_user_lacks_corpus_read(self):
         self.assertFalse(
-            CorpusObjsService.is_document_in_corpus(
+            CorpusDocumentService.is_document_in_corpus(
                 user=self.anonymous,
                 corpus=self.private_corpus,
                 document_id=self.private_doc.pk,
@@ -4688,7 +4686,7 @@ class TestIsDocumentInCorpus_Boolean(CorpusObjsServiceTestBase):
 
     def test_returns_false_when_doc_does_not_exist(self):
         self.assertFalse(
-            CorpusObjsService.is_document_in_corpus(
+            CorpusDocumentService.is_document_in_corpus(
                 user=self.owner,
                 corpus=self.public_corpus,
                 document_id=99999999,
@@ -4746,7 +4744,7 @@ class TestIsDocumentInCorpus_SoftDeleted(TestCase):
     def test_default_excludes_soft_deleted(self):
         """``include_deleted=False`` (default) hides soft-deleted docs."""
         self.assertFalse(
-            CorpusObjsService.is_document_in_corpus(
+            CorpusDocumentService.is_document_in_corpus(
                 user=self.owner,
                 corpus=self.corpus,
                 document_id=self.doc.pk,
@@ -4755,7 +4753,7 @@ class TestIsDocumentInCorpus_SoftDeleted(TestCase):
 
     def test_include_deleted_surfaces_soft_deleted(self):
         self.assertTrue(
-            CorpusObjsService.is_document_in_corpus(
+            CorpusDocumentService.is_document_in_corpus(
                 user=self.owner,
                 corpus=self.corpus,
                 document_id=self.doc.pk,
@@ -4764,7 +4762,7 @@ class TestIsDocumentInCorpus_SoftDeleted(TestCase):
         )
 
     def test_lookup_by_slug_with_include_deleted(self):
-        doc = CorpusObjsService.get_corpus_document_by_slug(
+        doc = CorpusDocumentService.get_corpus_document_by_slug(
             user=self.owner,
             corpus=self.corpus,
             slug="deleted-slug",
@@ -4774,7 +4772,7 @@ class TestIsDocumentInCorpus_SoftDeleted(TestCase):
 
     def test_lookup_by_slug_without_include_deleted_raises(self):
         with self.assertRaises(Document.DoesNotExist):
-            CorpusObjsService.get_corpus_document_by_slug(
+            CorpusDocumentService.get_corpus_document_by_slug(
                 user=self.owner,
                 corpus=self.corpus,
                 slug="deleted-slug",
@@ -4785,7 +4783,7 @@ class TestGetCorpusDocuments_CamlAndDeleted(TestCase):
     """
     SCENARIO: ``get_corpus_documents`` composes the ``include_deleted`` and
     ``include_caml`` toggles via the shared
-    :meth:`CorpusObjsService._build_corpus_documents_queryset` helper.
+    :meth:`CorpusDocumentService._build_corpus_documents_queryset` helper.
 
     BUSINESS RULE: CAML / markdown documents are excluded by default on
     BOTH branches (active-only and include-deleted) so downstream
@@ -4867,14 +4865,16 @@ class TestGetCorpusDocuments_CamlAndDeleted(TestCase):
 
     def test_default_excludes_caml_and_deleted(self):
         """Default flags drop CAML and soft-deleted; only the PDF remains."""
-        qs = CorpusObjsService.get_corpus_documents(user=self.owner, corpus=self.corpus)
+        qs = CorpusDocumentService.get_corpus_documents(
+            user=self.owner, corpus=self.corpus
+        )
         ids = set(qs.values_list("id", flat=True))
         self.assertEqual(ids, {self.pdf.id})
 
     def test_include_deleted_still_excludes_caml(self):
         """The include-deleted branch must keep filtering CAML —
         pre-fix this branch leaked CAML rows."""
-        qs = CorpusObjsService.get_corpus_documents(
+        qs = CorpusDocumentService.get_corpus_documents(
             user=self.owner, corpus=self.corpus, include_deleted=True
         )
         ids = set(qs.values_list("id", flat=True))
@@ -4890,14 +4890,14 @@ class TestGetCorpusDocuments_CamlAndDeleted(TestCase):
     def test_include_caml_surfaces_caml_but_not_deleted_by_default(self):
         """``include_caml=True`` on its own surfaces CAML but still
         keeps soft-deleted off the list."""
-        qs = CorpusObjsService.get_corpus_documents(
+        qs = CorpusDocumentService.get_corpus_documents(
             user=self.owner, corpus=self.corpus, include_caml=True
         )
         ids = set(qs.values_list("id", flat=True))
         self.assertEqual(ids, {self.pdf.id, self.caml.id})
 
     def test_both_flags_surface_everything(self):
-        qs = CorpusObjsService.get_corpus_documents(
+        qs = CorpusDocumentService.get_corpus_documents(
             user=self.owner,
             corpus=self.corpus,
             include_deleted=True,
@@ -4914,7 +4914,7 @@ class TestGetCorpusDocuments_CamlAndDeleted(TestCase):
             email="cs@test.com",
             password="test",
         )
-        qs = CorpusObjsService.get_corpus_documents(
+        qs = CorpusDocumentService.get_corpus_documents(
             user=stranger,
             corpus=self.corpus,
             include_deleted=True,
@@ -5053,7 +5053,7 @@ class TestGetCorpusCamlArticles(TestCase):
 
     def test_owner_sees_caml_article(self):
         """Owner of the corpus gets the corpus's CAML article."""
-        qs = CorpusObjsService.get_corpus_caml_articles(
+        qs = CorpusDocumentService.get_corpus_caml_articles(
             user=self.owner, corpus=self.private_corpus
         )
         ids = list(qs.values_list("id", flat=True))
@@ -5062,7 +5062,7 @@ class TestGetCorpusCamlArticles(TestCase):
     def test_empty_queryset_when_no_caml_present(self):
         """A corpus with no CAML article returns an empty queryset, not
         an exception."""
-        qs = CorpusObjsService.get_corpus_caml_articles(
+        qs = CorpusDocumentService.get_corpus_caml_articles(
             user=self.owner, corpus=self.empty_corpus
         )
         self.assertEqual(qs.count(), 0)
@@ -5070,7 +5070,7 @@ class TestGetCorpusCamlArticles(TestCase):
     def test_excludes_non_caml_markdown(self):
         """A markdown file with a different title is NOT a CAML article
         and must be excluded — the title filter is load-bearing."""
-        qs = CorpusObjsService.get_corpus_caml_articles(
+        qs = CorpusDocumentService.get_corpus_caml_articles(
             user=self.owner, corpus=self.private_corpus
         )
         ids = set(qs.values_list("id", flat=True))
@@ -5081,7 +5081,7 @@ class TestGetCorpusCamlArticles(TestCase):
     def test_stranger_gets_empty_queryset_for_private_corpus(self):
         """A user without corpus READ gets an empty queryset, not an
         exception. IDOR-safe: no signal that the CAML exists."""
-        qs = CorpusObjsService.get_corpus_caml_articles(
+        qs = CorpusDocumentService.get_corpus_caml_articles(
             user=self.stranger, corpus=self.private_corpus
         )
         self.assertEqual(qs.count(), 0)
@@ -5089,7 +5089,7 @@ class TestGetCorpusCamlArticles(TestCase):
     def test_anonymous_can_see_caml_in_public_corpus(self):
         """Anonymous user against a public corpus gets the CAML
         article — corpus READ via ``is_public=True`` is sufficient."""
-        qs = CorpusObjsService.get_corpus_caml_articles(
+        qs = CorpusDocumentService.get_corpus_caml_articles(
             user=self.anonymous, corpus=self.public_corpus
         )
         ids = list(qs.values_list("id", flat=True))
@@ -5097,7 +5097,7 @@ class TestGetCorpusCamlArticles(TestCase):
 
     def test_anonymous_blocked_from_private_corpus(self):
         """Anonymous against a private corpus → empty queryset."""
-        qs = CorpusObjsService.get_corpus_caml_articles(
+        qs = CorpusDocumentService.get_corpus_caml_articles(
             user=self.anonymous, corpus=self.private_corpus
         )
         self.assertEqual(qs.count(), 0)
@@ -5247,7 +5247,7 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
     def test_owner_sees_all_documents(self):
         """The owner can see every document at the document level (creator),
         so the MIN method returns the same active set as corpus-as-gate."""
-        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.owner, corpus=self.corpus
         )
         ids = set(qs.values_list("id", flat=True))
@@ -5257,7 +5257,7 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
         """CORE ASSERTION: a collaborator with corpus READ but no
         document-level access to ``private_doc`` must NOT see it — the
         document side of MIN(document, corpus) is load-bearing."""
-        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.collaborator, corpus=self.corpus
         )
         ids = set(qs.values_list("id", flat=True))
@@ -5276,7 +5276,7 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
         returns BOTH documents for the same collaborator — proving the two
         methods carry genuinely different semantics and the MIN result above
         is not just an empty-corpus artifact."""
-        qs = CorpusObjsService.get_corpus_documents(
+        qs = CorpusDocumentService.get_corpus_documents(
             user=self.collaborator, corpus=self.corpus
         )
         ids = set(qs.values_list("id", flat=True))
@@ -5285,21 +5285,21 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
     def test_stranger_without_corpus_read_gets_empty(self):
         """A user without corpus READ gets an empty queryset regardless of
         document-level permissions — the corpus side of MIN. IDOR-safe."""
-        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.stranger, corpus=self.corpus
         )
         self.assertEqual(qs.count(), 0)
 
     def test_anonymous_blocked_from_private_corpus(self):
         """Anonymous against a private corpus → empty queryset."""
-        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.anonymous, corpus=self.corpus
         )
         self.assertEqual(qs.count(), 0)
 
     def test_superuser_sees_everything(self):
         """A superuser bypasses both the corpus and document gates."""
-        qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.superuser, corpus=self.corpus
         )
         ids = set(qs.values_list("id", flat=True))
@@ -5308,12 +5308,12 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
     def test_include_caml_toggle_composes_with_min_filter(self):
         """``include_caml`` surfaces the CAML article, and the MIN filter
         still applies on top of it (owner sees the CAML; default excludes)."""
-        default_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        default_qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.owner, corpus=self.corpus
         )
         self.assertNotIn(self.caml_doc.id, set(default_qs.values_list("id", flat=True)))
 
-        caml_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        caml_qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.owner, corpus=self.corpus, include_caml=True
         )
         self.assertEqual(
@@ -5324,14 +5324,14 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
     def test_include_deleted_toggle_composes_with_min_filter(self):
         """``include_deleted`` surfaces the soft-deleted document, still
         intersected with the document-visibility set."""
-        default_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        default_qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.owner, corpus=self.corpus
         )
         self.assertNotIn(
             self.deleted_doc.id, set(default_qs.values_list("id", flat=True))
         )
 
-        deleted_qs = CorpusObjsService.get_corpus_documents_visible_to_user(
+        deleted_qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.owner, corpus=self.corpus, include_deleted=True
         )
         self.assertEqual(

@@ -2,7 +2,7 @@
 Tests for the ``Corpus.get_documents()`` deprecation wrapper.
 
 User-context callers should go through
-``CorpusObjsService.get_corpus_documents(user, corpus)``. Internal/Celery
+``CorpusDocumentService.get_corpus_documents(user, corpus)``. Internal/Celery
 callers without a user should use ``Corpus._get_active_documents()``
 directly. The public ``Corpus.get_documents()`` method survives only as a
 ``DeprecationWarning``-emitting shim that forwards to the private helper.
@@ -74,7 +74,7 @@ class TestCorpusGetDocumentsDeprecation(CorpusDeprecationTestBase):
         message = str(deprecation_hits[0].message)
         # The warning must mention both canonical replacements so a
         # grep-driven migration can find them from the message alone.
-        self.assertIn("CorpusObjsService.get_corpus_documents", message)
+        self.assertIn("CorpusDocumentService.get_corpus_documents", message)
         self.assertIn("_get_active_documents", message)
 
     def test_internal_helper_does_not_emit_warning(self):

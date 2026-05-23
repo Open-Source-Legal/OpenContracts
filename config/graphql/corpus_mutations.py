@@ -28,10 +28,10 @@ from opencontractserver.corpuses.models import (
     CorpusAction,
     CorpusActionTemplate,
 )
+from opencontractserver.corpuses.services import CorpusService
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.tasks import fork_corpus
-from opencontractserver.tasks.permissioning_tasks import make_corpus_public_task
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.corpus_collector import collect_corpus_objects
 from opencontractserver.utils.permissioning import (
@@ -75,11 +75,8 @@ class SetCorpusVisibility(graphene.Mutation):
 
         # IDOR protection: same response whether the global ID is malformed,
         # the corpus doesn't exist, the caller can't READ it, or the caller
-        # can READ but lacks PERMISSION. Phase D rule (#1658): READ is a
-        # precondition for any other permission op — granting PERMISSION
-        # without READ is unsupported. ``get_for_user_or_none`` enforces
-        # the READ gate; the ``corpus.user_can`` call below adds the
-        # PERMISSION check on top.
+        # can READ but lacks PERMISSION. ``get_for_user_or_none`` enforces the
+        # READ gate; ``CorpusService.set_visibility`` adds the PERMISSION check.
         not_found_msg = "Corpus not found or you don't have permission"
 
         try:
@@ -91,33 +88,13 @@ class SetCorpusVisibility(graphene.Mutation):
         if corpus is None:
             return SetCorpusVisibility(ok=False, message=not_found_msg)
 
-        can_change_visibility = corpus.user_can(
-            user, PermissionTypes.PERMISSION, request=info.context
+        result = CorpusService.set_visibility(
+            user, corpus, is_public, request=info.context
         )
-
-        if not can_change_visibility:
-            return SetCorpusVisibility(ok=False, message=not_found_msg)
-
-        # Check if visibility is actually changing
-        if corpus.is_public == is_public:
-            status = "public" if is_public else "private"
-            return SetCorpusVisibility(ok=True, message=f"Corpus is already {status}")
-
-        if is_public:
-            # Use existing async task to cascade public visibility to all child objects
-            # This sets is_public=True on documents, annotations, analyses, etc.
-            make_corpus_public_task.si(corpus_id=corpus_pk).apply_async()
-            return SetCorpusVisibility(
-                ok=True,
-                message="Making corpus public. This may take a moment for large corpuses.",
-            )
-        else:
-            # Make private - only update the corpus flag
-            # Note: Child objects (docs, annotations) remain public if they were made public
-            # This is intentional to avoid breaking existing public links
-            corpus.is_public = False
-            corpus.save(update_fields=["is_public"])
-            return SetCorpusVisibility(ok=True, message="Corpus is now private")
+        return SetCorpusVisibility(
+            ok=result.ok,
+            message=result.value if result.ok else result.error,
+        )
 
 
 class CreateCorpusMutation(DRFMutation):
@@ -165,22 +142,11 @@ class CreateCorpusMutation(DRFMutation):
         result = super().mutate(root, info, *args, **kwargs)
 
         if result.ok and result.obj_id:
-            from graphql_relay import from_global_id
-
-            from opencontractserver.types.enums import PermissionTypes
-
             obj_pk = from_global_id(result.obj_id)[1]
             corpus = cls.IOSettings.model.objects.get(pk=obj_pk)
             # Grant creator full permissions including PERMISSION to manage access
-            set_permissions_for_obj_to_user(
-                info.context.user,
-                corpus,
-                [
-                    PermissionTypes.CRUD,
-                    PermissionTypes.PUBLISH,
-                    PermissionTypes.PERMISSION,
-                ],
-                request=info.context,
+            CorpusService.grant_creator_permissions(
+                info.context.user, corpus, request=info.context
             )
 
         return result
@@ -243,19 +209,12 @@ class UpdateCorpusMutation(DRFMutation):
                     if corpus_pk is not None
                     else None
                 )
-                if corpus is not None and corpus.has_documents():
-                    new_embedder = kwargs["preferred_embedder"]
-                    if new_embedder != corpus.preferred_embedder:
-                        return cls(
-                            ok=False,
-                            message=(
-                                "Cannot change preferred_embedder after documents "
-                                "have been added to this corpus. Changing the "
-                                "embedder would create inconsistent embeddings. "
-                                "Use the reEmbedCorpus mutation to migrate to a "
-                                "different embedder."
-                            ),
-                        )
+                if corpus is not None:
+                    embedder_error = CorpusService.assert_embedder_change_allowed(
+                        corpus, kwargs["preferred_embedder"]
+                    )
+                    if embedder_error:
+                        return cls(ok=False, message=embedder_error)
 
         return super().mutate(root, info, *args, **kwargs)
 
@@ -290,18 +249,23 @@ class UpdateCorpusDescription(graphene.Mutation):
                 "Corpus not found or you do not have permission to update it."
             )
 
-            # Creator-only by design: even collaborators with a guardian
-            # UPDATE grant cannot edit the description (kept distinct from
-            # general UPDATE so description history stays attributable to a
-            # single author).  Anyone else gets the unified IDOR-safe message.
+            # ``get_for_user_or_none`` enforces the READ gate;
+            # ``CorpusService.update_description`` enforces the creator-only
+            # rule (collaborators with a guardian UPDATE grant still cannot
+            # edit the description, so its history stays attributable to a
+            # single author) and returns the same unified IDOR-safe message.
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-            if corpus is None or corpus.creator != user:
+            if corpus is None:
                 return UpdateCorpusDescription(
                     ok=False, message=not_found_msg, obj=None, version=None
                 )
 
-            # Use the update_description method to create a new version
-            revision = corpus.update_description(new_content=new_content, author=user)
+            result = CorpusService.update_description(user, corpus, new_content)
+            if not result.ok:
+                return UpdateCorpusDescription(
+                    ok=False, message=result.error, obj=None, version=None
+                )
+            revision = result.value
 
             if revision is None:
                 # No changes were made
@@ -345,11 +309,12 @@ class DeleteCorpusMutation(graphene.Mutation):
     def mutate(cls, root, info, id) -> "DeleteCorpusMutation":
         # Unified IDOR-safe envelope: same response whether the corpus
         # doesn't exist, the caller can't see it, or they can see it but
-        # lack DELETE permission.  Returning ``ok=False`` (rather than
-        # raising ``Corpus.DoesNotExist``) keeps the response shape
-        # consistent with the rest of the Phase D migration and prevents
-        # the parent ``DRFDeletion.mutate`` from surfacing a raw
-        # GraphQL ``errors`` entry for the unauthorized/not-found case.
+        # lack DELETE permission.  ``get_for_user_or_none`` enforces the READ
+        # gate; ``CorpusService.delete_corpus`` runs the personal-corpus,
+        # user-lock, and DELETE-permission checks. Returning ``ok=False``
+        # (rather than raising ``Corpus.DoesNotExist``) keeps the response
+        # shape consistent so the frontend can always pattern-match on
+        # ``data.deleteCorpus.ok``.
         not_found_msg = "Corpus not found or you don't have permission to delete it."
 
         try:
@@ -361,45 +326,19 @@ class DeleteCorpusMutation(graphene.Mutation):
         if obj is None:
             return cls(ok=False, message=not_found_msg)
 
-        # ``is_personal`` is observable to anyone who can READ the corpus
-        # (it's exposed on ``CorpusType``), so this branch does not leak
-        # existence — it stays a distinct error message.  Returned via the
-        # unified ``ok=False`` envelope rather than ``GraphQLError`` so the
-        # frontend can always pattern-match on ``data.deleteCorpus.ok``.
-        if obj.is_personal:
-            return cls(
-                ok=False,
-                message=(
-                    "Cannot delete your personal 'My Documents' corpus. "
-                    "This corpus is automatically managed and stores your "
-                    "uploaded documents."
-                ),
-            )
-
-        # User-lock check mirrors ``DRFDeletion``: lock holder (or
-        # superuser via ``user_can``) can proceed even on a backend-held
-        # lock so users can abandon stalled/hung corpora.
-        if obj.user_lock is not None and info.context.user.id != obj.user_lock_id:
-            return cls(
-                ok=False,
-                message=(
-                    "Specified object is locked by another user. " "Cannot be deleted."
-                ),
-            )
-
-        if not obj.user_can(
-            info.context.user, PermissionTypes.DELETE, request=info.context
-        ):
-            return cls(ok=False, message=not_found_msg)
-
-        obj.delete()
-        return cls(ok=True, message="Success!")
+        result = CorpusService.delete_corpus(
+            info.context.user, obj, request=info.context
+        )
+        return cls(
+            ok=result.ok,
+            message="Success!" if result.ok else result.error,
+        )
 
 
 class AddDocumentsToCorpus(graphene.Mutation):
     """Add existing documents to a corpus.
 
-    Delegates to CorpusObjsService.add_documents_to_corpus() for:
+    Delegates to CorpusDocumentService.add_documents_to_corpus() for:
     - Permission checking (corpus UPDATE permission)
     - Document validation (user owns or public)
     - Dual-system update (DocumentPath + corpus.add_document)
@@ -420,9 +359,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
 
     @login_required
     def mutate(root, info, corpus_id, document_ids) -> "AddDocumentsToCorpus":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         # Unified message prevents enumeration of corpora the caller cannot see/edit
         not_found_msg = (
@@ -450,12 +387,14 @@ class AddDocumentsToCorpus(graphene.Mutation):
                 return AddDocumentsToCorpus(message=not_found_msg, ok=False)
 
             # Delegate to service - handles permission checks, validation, dual-system update
-            added_count, added_ids, error = CorpusObjsService.add_documents_to_corpus(
-                user=user,
-                document_ids=doc_pks,
-                corpus=corpus,
-                folder=None,  # No folder specified - add to root
-                request=info.context,
+            added_count, added_ids, error = (
+                CorpusDocumentService.add_documents_to_corpus(
+                    user=user,
+                    document_ids=doc_pks,
+                    corpus=corpus,
+                    folder=None,  # No folder specified - add to root
+                    request=info.context,
+                )
             )
 
             if error:
@@ -473,7 +412,7 @@ class AddDocumentsToCorpus(graphene.Mutation):
 class RemoveDocumentsFromCorpus(graphene.Mutation):
     """Remove documents from a corpus (soft-delete).
 
-    Delegates to CorpusObjsService.remove_documents_from_corpus() for:
+    Delegates to CorpusDocumentService.remove_documents_from_corpus() for:
     - Permission checking (corpus UPDATE permission)
     - Soft-delete via DocumentPath (creates is_deleted=True record)
     - Audit trail
@@ -496,9 +435,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
     def mutate(
         root, info, corpus_id, document_ids_to_remove
     ) -> "RemoveDocumentsFromCorpus":
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import CorpusDocumentService
 
         # Unified message prevents enumeration of corpora the caller cannot see/edit
         not_found_msg = (
@@ -528,7 +465,7 @@ class RemoveDocumentsFromCorpus(graphene.Mutation):
                 return RemoveDocumentsFromCorpus(message=not_found_msg, ok=False)
 
             # Delegate to service - handles permission checks, soft-delete, audit trail
-            removed_count, error = CorpusObjsService.remove_documents_from_corpus(
+            removed_count, error = CorpusDocumentService.remove_documents_from_corpus(
                 user=user,
                 document_ids=doc_pks,
                 corpus=corpus,

@@ -267,7 +267,7 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
         )
 
         # Grant creator full perms on the docs/corpuses they "own". Real
-        # production flows (corpus.import_content, corpus_objs_service) call
+        # production flows (corpus.import_content, the corpus services) call
         # set_permissions_for_obj_to_user after creation; bare
         # ``Document.objects.create(creator=...)`` only sets the FK.
         # The optimizer reads doc+corpus guardian rows, not the creator

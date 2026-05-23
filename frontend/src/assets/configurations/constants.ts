@@ -22,6 +22,20 @@ export const DYNAMIC_ICON_DEFAULT_SIZE = 16;
 /** Icon size for FilterTabItem icons in tab bars */
 export const FILTER_TAB_ICON_SIZE = 14;
 
+// Document zoom bounds
+// Shared by every zoom surface (ZoomControls, useZoomManager wheel/keyboard/
+// pinch handlers, and the mobile fit-to-width hook) so the clamp is defined
+// in exactly one place.
+/** Minimum document zoom level (50%). */
+export const ZOOM_MIN = 0.5;
+/** Maximum document zoom level (400%). */
+export const ZOOM_MAX = 4;
+/**
+ * Horizontal padding (px) the mobile fit-to-width hook keeps off both edges of
+ * the viewer container so the fitted page does not touch the screen edges.
+ */
+export const FIT_WIDTH_MARGIN = 16;
+
 // Mention search configuration
 // Debounce delay before firing search queries (ms)
 export const MENTION_SEARCH_DEBOUNCE_MS = 300;
@@ -192,8 +206,6 @@ export const Z_INDEX = {
   APP_MODAL_CHILD: 3100,
   /** Mobile annotation tools rendered via portal into document.body. */
   MOBILE_ANNOTATION_TOOLS: 3048,
-  /** Mobile floating document-controls FAB (orbit menu) rendered via portal. */
-  MOBILE_FLOATING_CONTROLS: 3050,
   /** Mobile annotation-label modal — sits above APP_MODAL_CHILD so the label
    *  picker remains tappable even when a nested dialog is open inside the DKB
    *  fullscreen modal. */
@@ -217,17 +229,11 @@ export const MOBILE_ANNOTATION_TOOLS_BOTTOM = "1rem";
  */
 export const DESKTOP_FLOATING_CONTROLS_BOTTOM = "7rem";
 /**
- * Bottom offset for the FloatingDocumentControls speed dial on mobile.
- * Used inside ``visualViewportAwareBottom`` so the dial clears the safe-area
- * inset and mobile chrome.
+ * Bottom offset applied by FloatingDocumentControls' narrow-viewport
+ * (``max-width: 768px``) media query. Passed through
+ * ``visualViewportAwareBottom`` so the controls clear the safe-area inset.
  */
 export const MOBILE_FLOATING_CONTROLS_BOTTOM = "6rem";
-/**
- * Bottom offset for the settings popover anchored above the floating speed
- * dial on mobile. Computed to clear ``MOBILE_FLOATING_CONTROLS_BOTTOM`` plus
- * the dial's own height.
- */
-export const MOBILE_SETTINGS_PANEL_BOTTOM = "10.5rem";
 /**
  * Maximum height of the tool popover in pixels.
  * Must match ToolPopoverBody max-height (400px) + header height (~100px).
@@ -424,44 +430,6 @@ export const SUPPORTED_MIME_TYPES = [
 export const MIME_TO_SHORT_LABEL: Record<string, string> = Object.fromEntries(
   SUPPORTED_MIME_TYPES.map((m) => [m.value, m.shortLabel])
 );
-
-// Message count badge color constants (used by chatUtils.ts getMessageCountColor)
-export const MESSAGE_COUNT_COLORS = {
-  /** Zero-count badge gradient start */
-  ZERO_GRADIENT_START: "#EDF2F7",
-  /** Zero-count badge gradient end */
-  ZERO_GRADIENT_END: "#E2E8F0",
-  /** Zero-count badge text color */
-  ZERO_TEXT: "#4A5568",
-  /** Primary gradient color (blue) - RGB components */
-  PRIMARY_R: 43,
-  PRIMARY_G: 108,
-  PRIMARY_B: 176,
-  /** Secondary gradient color (dark blue) - RGB components */
-  SECONDARY_R: 44,
-  SECONDARY_G: 82,
-  SECONDARY_B: 130,
-  /** Base opacity for gradient start */
-  BASE_ALPHA_START: 0.7,
-  /** Intensity multiplier for gradient start alpha */
-  INTENSITY_ALPHA_START: 0.3,
-  /** Base opacity for gradient end */
-  BASE_ALPHA_END: 0.8,
-  /** Intensity multiplier for gradient end alpha */
-  INTENSITY_ALPHA_END: 0.2,
-  /** Base badge opacity */
-  BASE_OPACITY: 0.8,
-  /** Intensity multiplier for badge opacity */
-  INTENSITY_OPACITY: 0.2,
-  /** Intensity threshold for switching text color to light */
-  LIGHT_TEXT_THRESHOLD: 0.3,
-  /** Light text color (used on dark backgrounds) */
-  LIGHT_TEXT: "white",
-  /** Dark text color (used on light backgrounds) */
-  DARK_TEXT: "#1A202C",
-  /** Zero-count badge opacity */
-  ZERO_OPACITY: 0.9,
-} as const;
 
 // Warning color for partially supported file types (amber/yellow)
 export const PARTIALLY_SUPPORTED_WARNING_COLOR = "#D69E2E";

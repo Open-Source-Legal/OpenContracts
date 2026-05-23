@@ -5,8 +5,8 @@ Use this service for any operation where the *document* is the noun and corpus
 context is incidental: creation, quota, validation, permissions, standalone
 lookup. Operations that require corpus context (lifecycle within a corpus —
 soft delete / restore / permanently delete, corpus-scoped lookup, folder
-management, etc.) live on
-:class:`opencontractserver.corpuses.corpus_objs_service.CorpusObjsService`.
+management, etc.) live on the segmented services in
+:mod:`opencontractserver.corpuses.services`.
 
 Key Design Principles
 ---------------------
@@ -43,7 +43,7 @@ class DocumentService:
     corpus context is incidental: creation, quota, validation, permissions,
     standalone lookup. For corpus-scoped operations (give me documents in
     corpus X for user Y, lifecycle within a corpus, folder management),
-    use :class:`opencontractserver.corpuses.corpus_objs_service.CorpusObjsService`.
+    use the segmented services in :mod:`opencontractserver.corpuses.services`.
 
     Follows the QueryOptimizer pattern with static classmethod-based API.
 
@@ -165,7 +165,7 @@ class DocumentService:
 
         Note:
             For corpus imports with deduplication, use
-            ``CorpusObjsService.upload_document_to_corpus()`` instead.
+            ``CorpusDocumentService.upload_document_to_corpus()`` instead.
         """
         from django.core.files.base import ContentFile
 

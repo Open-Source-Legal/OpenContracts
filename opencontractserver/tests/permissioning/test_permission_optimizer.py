@@ -1088,9 +1088,9 @@ class Tier1PicklingScrubTestCase(TestCase):
         self.assertNotIn(INSTANCE_PERMS_CACHE_ATTR, state)
 
 
-class CorpusObjsServiceRequestKwargCoverageTestCase(TestCase):
+class FolderCRUDServiceRequestKwargCoverageTestCase(TestCase):
     """Smoke coverage for the ``request=`` kwarg flowing through the
-    ``CorpusObjsService`` permission gates.
+    ``FolderCRUDService`` permission gates.
 
     The corpus-objs service methods accept ``request=request`` so the Tier 2
     optimizer can be shared across folder-related GraphQL resolvers in
@@ -1111,30 +1111,26 @@ class CorpusObjsServiceRequestKwargCoverageTestCase(TestCase):
         self.factory = RequestFactory()
 
     def test_get_visible_folders_denies_outsider(self):
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import FolderCRUDService
 
         request = self.factory.get("/graphql/")
         request.user = self.outsider
         # Permission-denied path returns an empty QuerySet (NOT raise) so
         # GraphQL resolvers can serialize cleanly. Exercise the branch.
-        result = CorpusObjsService.get_visible_folders(
+        result = FolderCRUDService.get_visible_folders(
             self.outsider, self.corpus.id, request=request
         )
         self.assertEqual(list(result), [])
 
     def test_get_visible_folders_allows_creator(self):
-        from opencontractserver.corpuses.corpus_objs_service import (
-            CorpusObjsService,
-        )
+        from opencontractserver.corpuses.services import FolderCRUDService
 
         request = self.factory.get("/graphql/")
         request.user = self.creator
         # Creator can list folders — returned queryset is permitted but
         # may be empty when no folder rows exist; .list() materialises
         # without raising.
-        result = CorpusObjsService.get_visible_folders(
+        result = FolderCRUDService.get_visible_folders(
             self.creator, self.corpus.id, request=request
         )
         # Either a list or a queryset; both are acceptable — just exercise
