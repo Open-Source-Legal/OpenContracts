@@ -299,7 +299,7 @@ class CreatorBasedPermissionsPublicObjectTestCase(TestCase):
 
         permissions = get_users_permissions_for_obj(
             user=self.user2,
-            instance=mock_instance,
+            instance=mock_instance,  # type: ignore[arg-type]
         )
 
         # Should have read permission due to is_public=True
@@ -330,7 +330,7 @@ class CreatorBasedPermissionsPublicObjectTestCase(TestCase):
 
         permissions = get_users_permissions_for_obj(
             user=self.user2,
-            instance=mock_instance,
+            instance=mock_instance,  # type: ignore[arg-type]
         )
 
         # Should have no permissions
