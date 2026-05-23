@@ -229,8 +229,6 @@ class DocumentRelationshipService(BaseService):
         Returns:
             QuerySet of DocumentRelationship objects with eager loading
         """
-        from django.db.models import Q
-
         from opencontractserver.documents.models import DocumentRelationship
 
         # Superusers see everything
@@ -331,8 +329,6 @@ class DocumentRelationshipService(BaseService):
         Returns:
             QuerySet of DocumentRelationship objects
         """
-        from django.db.models import Q
-
         from opencontractserver.documents.models import Document, DocumentRelationship
         from opencontractserver.types.enums import PermissionTypes
 

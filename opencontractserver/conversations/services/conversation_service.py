@@ -229,12 +229,13 @@ class ConversationService(BaseService):
 
         user = cls._normalize_user(user)
 
-        # Get all visible conversations for this corpus in one query
+        # Share the visibility QuerySet so the corpus-visibility subquery is
+        # only constructed once; the two .count() calls below each issue their
+        # own COUNT(*) round-trip but reuse that subquery.
         visible_corpus_conversations = Conversation.objects.visible_to_user(
             user
         ).filter(chat_with_corpus_id=corpus_id)
 
-        # Count by type - uses single query with conditional aggregation
         thread_count = visible_corpus_conversations.filter(
             conversation_type=ConversationTypeChoices.THREAD
         ).count()
