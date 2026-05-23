@@ -530,7 +530,10 @@ class DocumentFilter(django_filters.FilterSet):
         applies no folder filter at all — the corpus-scoping ``in_corpus``
         filter alone defines the set, so the default corpus view shows every
         document in the corpus. (A corpus whose documents are all nested in
-        sub-folders would otherwise render an empty "root" view.)
+        sub-folders would otherwise render an empty "root" view.) ``"__root__"``
+        is only meaningful when paired with ``inCorpusWithId``; called alone
+        it would otherwise yield every visible document, so the absence of a
+        corpus context returns no documents.
 
         Any other value is a folder global id; the filter returns documents in
         that folder *and all of its descendant folders*. Without this, a
@@ -540,11 +543,16 @@ class DocumentFilter(django_filters.FilterSet):
         When the request also supplies ``inCorpusWithId``, the folder must
         belong to that corpus — otherwise the filter returns no documents
         (rather than silently falling through to a cross-corpus intersection).
+        The ``"in_corpus_with_id"`` key must stay in sync with the sibling
+        ``in_corpus_with_id`` filter field declaration; if that field is ever
+        renamed, this cross-corpus guard silently stops enforcing.
         """
         from opencontractserver.corpuses.models import CorpusFolder
         from opencontractserver.documents.models import DocumentPath
 
         if value == "__root__":
+            if not self.data.get("in_corpus_with_id"):
+                return queryset.none()
             return queryset
 
         # A malformed global id (wrong type, empty, non-numeric) must not

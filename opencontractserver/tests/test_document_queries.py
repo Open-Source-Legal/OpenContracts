@@ -214,3 +214,23 @@ class DocumentFolderFilterQueryTestCase(TestCase):
     def test_malformed_folder_id_returns_empty(self):
         """A folder id that cannot be decoded must produce zero rows, not a 500."""
         self.assertEqual(self._titles("not-a-global-id"), [])
+
+    def test_root_without_corpus_returns_empty(self):
+        """``__root__`` is only meaningful within a corpus context.
+
+        Without ``inCorpusWithId`` the sentinel would otherwise pass the
+        queryset through unchanged — every visible document, not "root
+        documents" — which is a silent semantic change for any external
+        client that calls ``documents(inFolderId: "__root__")`` alone.
+        The filter defensively returns no documents in that case.
+        """
+        query = """
+            query Docs($folderId: String) {
+              documents(inFolderId: $folderId) {
+                edges { node { title } }
+              }
+            }
+        """
+        result = self.client.execute(query, variables={"folderId": "__root__"})
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(result["data"]["documents"]["edges"], [])
