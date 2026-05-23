@@ -10,6 +10,7 @@ existing corpus-mutation tests).
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
@@ -134,12 +135,41 @@ class TestCorpusServiceSetVisibility(TestCase):
         )
 
     def test_make_public_dispatches_cascade_task(self):
+        # ``set_visibility`` defers the cascade to ``transaction.on_commit``
+        # so it can't fire against an uncommitted (or rolled-back)
+        # transaction. Under ``TestCase`` the surrounding transaction never
+        # commits, so we wrap the call in ``captureOnCommitCallbacks`` to
+        # run the deferred callback synchronously inside the assertion
+        # scope. See ``CorpusService.set_visibility``.
         with patch(
             "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
         ) as mock_task:
-            result = CorpusService.set_visibility(self.creator, self.corpus, True)
+            with self.captureOnCommitCallbacks(execute=True):
+                result = CorpusService.set_visibility(self.creator, self.corpus, True)
         self.assertTrue(result.ok)
         mock_task.si.assert_called_once_with(corpus_id=self.corpus.pk)
+
+    def test_make_public_task_not_dispatched_on_rollback(self):
+        """The cascade must not fire when the enclosing transaction aborts.
+
+        This is the security/robustness motivation for the
+        ``transaction.on_commit`` wrapper: a rolled-back ``set_visibility``
+        call cannot leave a cascade in flight that would publicise child
+        objects of a corpus whose own ``is_public`` flag never persisted.
+        Without the wrapper the inline ``apply_async`` fires before the
+        rollback can take effect — this test would fail against the
+        pre-fix code.
+        """
+        with patch(
+            "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
+        ) as mock_task:
+            try:
+                with transaction.atomic():
+                    CorpusService.set_visibility(self.creator, self.corpus, True)
+                    raise RuntimeError("force rollback")
+            except RuntimeError:
+                pass
+        mock_task.si.assert_not_called()
 
     def test_make_private_updates_flag(self):
         self.corpus.is_public = True
