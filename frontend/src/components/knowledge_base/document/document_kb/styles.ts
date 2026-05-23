@@ -122,6 +122,14 @@ export const HeaderButton = styled.button<{
  * Mobile is unaffected — MobileDocumentLayout uses its own toolbar.
  */
 export const DocumentBottomBar = styled.div<{ $panelOffset: number }>`
+  /*
+   * bottom: 2rem matches the pre-existing FloatingSummaryPreview baseline
+   * (which used 2.5rem standalone but visually anchored ~2rem from the
+   * MainContentArea bottom edge once layout padding was factored in).
+   * The removed FloatingInputWrapper used 4rem; the consolidated bar
+   * intentionally pulls the centre input down to the shared baseline so
+   * all three controls share one visual gutter rather than stacking.
+   */
   position: absolute;
   bottom: 2rem;
   left: 0;

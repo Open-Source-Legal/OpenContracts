@@ -779,6 +779,20 @@ const StyledEnhancedSelector = styled.div<StyledEnhancedSelectorProps>`
           bottom: ${props.$bottom};
           right: ${props.$right};
           z-index: 1000;
+
+          /* Mobile portal: when this selector is portalled standalone to
+             document.body (the existing path for narrow viewports), it
+             still needs fixed positioning + viewport-aware bottom. Scoped
+             inside the \`$fixed\` branch so an inline (fixed=false) host —
+             e.g. the consolidated DocumentBottomBar — never gets fixed
+             positioning forced on it by a media query. */
+          @media (max-width: 768px) {
+            bottom: ${visualViewportAwareBottom(
+              MOBILE_ANNOTATION_TOOLS_BOTTOM
+            )};
+            right: 1rem;
+            z-index: ${MOBILE_ANNOTATION_TOOLS_Z_INDEX};
+          }
         `
       : css`
           position: relative;
@@ -786,15 +800,6 @@ const StyledEnhancedSelector = styled.div<StyledEnhancedSelectorProps>`
   transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
   opacity: ${(props) => (props.$isReadOnly ? 0.6 : 1)};
   filter: ${(props) => (props.$isReadOnly ? "grayscale(0.3)" : "none")};
-
-  @media (max-width: 768px) {
-    /* Mobile is portalled to document.body and always uses fixed positioning,
-       regardless of the desktop \`fixed\` prop. */
-    position: fixed;
-    bottom: ${visualViewportAwareBottom(MOBILE_ANNOTATION_TOOLS_BOTTOM)};
-    right: 1rem;
-    z-index: ${MOBILE_ANNOTATION_TOOLS_Z_INDEX};
-  }
 
   .selector-button {
     min-width: 48px;
