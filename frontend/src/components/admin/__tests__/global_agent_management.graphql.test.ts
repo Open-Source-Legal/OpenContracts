@@ -54,11 +54,7 @@ describe("global_agent_management.graphql documents", () => {
   });
 
   it("passes the scope argument as a GraphQL enum literal, not a string", () => {
-    // Regression guard for issue #1750. `agentConfigurations.scope` resolves to
-    // the `AgentsAgentConfigurationScopeChoices` enum, so a quoted "GLOBAL"
-    // string is rejected by the server with
-    // `Argument 'scope' has invalid value "GLOBAL"`. The argument must be the
-    // bare enum literal `GLOBAL` (AST kind `EnumValue`, not `StringValue`).
+    // Regression guard for #1750: scope is an enum; "GLOBAL" (StringValue) is rejected by the server.
     const operation = GET_GLOBAL_AGENTS.definitions.find(
       (def): def is OperationDefinitionNode =>
         def.kind === "OperationDefinition"

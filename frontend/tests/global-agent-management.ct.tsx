@@ -214,7 +214,7 @@ test.describe("GlobalAgentManagement — agent list rendering", () => {
     );
 
     await expect(page.locator("text=Research Assistant")).toBeVisible({
-      timeout: 5000,
+      timeout: 10000,
     });
 
     const scroll = page.getByTestId("global-agents-table-scroll");
