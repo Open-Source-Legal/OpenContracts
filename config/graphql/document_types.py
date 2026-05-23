@@ -248,7 +248,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             document_id=self.id,
             user=getattr(info.context, "user", None),
             structural=True,
-            use_cache=annotation_ids is None,
         )
         if annotation_ids:
             django_pks = [from_global_id(gid)[1] for gid in annotation_ids]
@@ -281,7 +280,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             corpus_id=corpus_pk,
             analysis_id=analysis_pk,
             structural=is_structural,
-            use_cache=True,
             context=info.context,
         )
 
@@ -319,7 +317,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 corpus_id=corpus_pk,
                 analysis_id=analysis_pk,
                 structural=is_structural,
-                use_cache=True,
                 context=info.context,
             )
         except Exception as e:
@@ -355,7 +352,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 document_id=self.id,
                 user=user,
                 structural=True,
-                use_cache=relationship_ids is None,
                 context=info.context,
             )
             if relationship_ids:
@@ -1017,7 +1013,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             structural=structural,
             analysis_id=analysis_pk,
             extract_id=extract_pk,
-            use_cache=True,
         )
 
     def resolve_page_relationships(
@@ -1055,7 +1050,6 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             analysis_id=analysis_pk,
             extract_id=extract_pk,
             strict_extract_mode=strict_extract_mode,
-            use_cache=True,
         )
 
     relationship_summary = graphene.Field(
@@ -1090,7 +1084,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         extract_pk = int(from_global_id(extract_id)[1])
 
         return AnnotationService.get_extract_annotation_summary(
-            document_id=self.id, extract_id=extract_pk, user=user, use_cache=True
+            document_id=self.id, extract_id=extract_pk, user=user
         )
 
     # Folder assignment within a corpus

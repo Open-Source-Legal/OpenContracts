@@ -245,7 +245,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         all_annotations = Annotation.objects.none()
         for doc_id in document_ids:
             annotations = AnnotationService.get_document_annotations(
-                document_id=doc_id, user=user, corpus_id=self.id, use_cache=True
+                document_id=doc_id, user=user, corpus_id=self.id
             )
             all_annotations = all_annotations | annotations
 

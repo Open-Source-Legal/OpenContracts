@@ -96,7 +96,6 @@ class AnnotationQueryMixin:
                 corpus_id=corpus_django_pk,
                 analysis_id=None,  # Will be handled below if needed
                 extract_id=None,
-                use_cache=False,
             )
 
         elif corpus_id:
