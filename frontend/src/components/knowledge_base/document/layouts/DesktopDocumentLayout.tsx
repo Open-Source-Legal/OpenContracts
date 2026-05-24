@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 
@@ -30,6 +30,7 @@ import { DocumentModals } from "../document_kb/DocumentModals";
 import { AnalysisExtractContextBar } from "../document_kb/ContextBar";
 import { DesktopSidebarTabs } from "../document_kb/SidebarTabs";
 import { HeaderBar } from "../document_kb/HeaderBar";
+import { RailDivider, RightEdgeRail } from "../styled/SidebarTabs";
 
 import {
   ZOOM_MIN,
@@ -120,6 +121,42 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
     setActiveSpanLabel,
     setChatSourceState,
   } = props;
+
+  /*
+   * Both rail branches (panel-closed RightEdgeRail and panel-open
+   * floating cluster) render the same FloatingDocumentControls with
+   * identical onAnalysesClick / onExtractsClick bodies — gate on
+   * corpusId, toast + open add-to-corpus modal when missing, otherwise
+   * toggle the panel. Extracted once here so the two branches share one
+   * source of truth.
+   */
+  const handleAnalysesClick = useCallback(() => {
+    if (!corpusId) {
+      toast.info("Add document to corpus to run analyses");
+      setShowAddToCorpusModal(true);
+    } else {
+      setShowAnalysesPanel(!showAnalysesPanel);
+    }
+  }, [
+    corpusId,
+    setShowAddToCorpusModal,
+    setShowAnalysesPanel,
+    showAnalysesPanel,
+  ]);
+
+  const handleExtractsClick = useCallback(() => {
+    if (!corpusId) {
+      toast.info("Add document to corpus for data extraction");
+      setShowAddToCorpusModal(true);
+    } else {
+      setShowExtractsPanel(!showExtractsPanel);
+    }
+  }, [
+    corpusId,
+    setShowAddToCorpusModal,
+    setShowExtractsPanel,
+    showExtractsPanel,
+  ]);
 
   return (
     <FullScreenModal
@@ -260,47 +297,6 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 </ZoomIndicator>
               )}
 
-              {/* Floating Document Controls - only in document layer */}
-              <FloatingDocumentControls
-                visible={activeLayer === "document"}
-                showRightPanel={showRightPanel}
-                onAnalysesClick={() => {
-                  if (!corpusId) {
-                    toast.info("Add document to corpus to run analyses");
-                    setShowAddToCorpusModal(true);
-                  } else {
-                    setShowAnalysesPanel(!showAnalysesPanel);
-                  }
-                }}
-                onExtractsClick={() => {
-                  if (!corpusId) {
-                    toast.info("Add document to corpus for data extraction");
-                    setShowAddToCorpusModal(true);
-                  } else {
-                    setShowExtractsPanel(!showExtractsPanel);
-                  }
-                }}
-                onSummaryClick={() => {
-                  setActiveLayer("knowledge");
-                  setShowRightPanel(false);
-                  setSelectedSummaryContent(null);
-                  setChatSourceState((prev) => ({
-                    ...prev,
-                    selectedMessageId: null,
-                    selectedSourceIndex: null,
-                  }));
-                }}
-                analysesOpen={showAnalysesPanel}
-                extractsOpen={showExtractsPanel}
-                panelOffset={floatingControlsState.offset}
-                readOnly={readOnly}
-                panelWidthMode={mode === "custom" ? "half" : mode}
-                onPanelWidthChange={setMode}
-                autoZoomEnabled={autoZoomEnabled}
-                onAutoZoomChange={setAutoZoomEnabled}
-                hideDocumentTools={showRightPanel && sidebarViewMode === "chat"}
-              />
-
               {/* Floating Analyses Panel - only show with corpus and when no analysis selected (results now in sidebar) */}
               {corpusId && (
                 <FloatingAnalysesPanel
@@ -331,19 +327,71 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                 />
               )}
 
-              {/* Sidebar View Mode Tabs - shown to the right of the document
-                  while the panel is closed; the panel-open variant lives
-                  inside the SlidingPanel below. */}
+              {/*
+               * Panel CLOSED: unified right-edge rail combining the navigation
+               * tabs (top) and the document tool buttons (bottom) into one
+               * coherent vertical column.
+               *
+               * Panel OPEN: the tabs anchor to the left edge of the open
+               * panel (rendered inside SlidingPanel below) and the action
+               * buttons keep their own bottom-right placement so the
+               * panel-width FAB can ride alongside the open panel.
+               */}
               {!showRightPanel && (
-                <DesktopSidebarTabs
-                  panelOpen={false}
-                  sidebarViewMode={sidebarViewMode}
-                  setSidebarViewMode={setSidebarViewMode}
-                  setShowRightPanel={setShowRightPanel}
-                  setMode={setMode}
-                  selectedAnalysis={selectedAnalysis}
-                  selectedExtract={selectedExtract}
-                  threadCount={threadCount}
+                <RightEdgeRail data-testid="right-edge-rail">
+                  <DesktopSidebarTabs
+                    panelOpen={false}
+                    bareContainer
+                    sidebarViewMode={sidebarViewMode}
+                    setSidebarViewMode={setSidebarViewMode}
+                    setShowRightPanel={setShowRightPanel}
+                    setMode={setMode}
+                    selectedAnalysis={selectedAnalysis}
+                    selectedExtract={selectedExtract}
+                    threadCount={threadCount}
+                  />
+                  <RailDivider aria-hidden="true" />
+                  <FloatingDocumentControls
+                    visible={activeLayer === "document"}
+                    bareContainer
+                    showRightPanel={false}
+                    onAnalysesClick={handleAnalysesClick}
+                    onExtractsClick={handleExtractsClick}
+                    analysesOpen={showAnalysesPanel}
+                    extractsOpen={showExtractsPanel}
+                    panelOffset={0}
+                    readOnly={readOnly}
+                    panelWidthMode={mode === "custom" ? "half" : mode}
+                    onPanelWidthChange={setMode}
+                    autoZoomEnabled={autoZoomEnabled}
+                    onAutoZoomChange={setAutoZoomEnabled}
+                    hideDocumentTools={false}
+                  />
+                </RightEdgeRail>
+              )}
+
+              {/*
+               * Panel OPEN: the action-buttons cluster stays at the bottom
+               * right (offset to clear the open panel) so the panel-width
+               * FAB is reachable alongside the open panel. The navigation
+               * tabs render inside the SlidingPanel (below) and are
+               * therefore omitted from the rail when the panel is open.
+               */}
+              {showRightPanel && (
+                <FloatingDocumentControls
+                  visible={activeLayer === "document"}
+                  showRightPanel
+                  onAnalysesClick={handleAnalysesClick}
+                  onExtractsClick={handleExtractsClick}
+                  analysesOpen={showAnalysesPanel}
+                  extractsOpen={showExtractsPanel}
+                  panelOffset={floatingControlsState.offset}
+                  readOnly={readOnly}
+                  panelWidthMode={mode === "custom" ? "half" : mode}
+                  onPanelWidthChange={setMode}
+                  autoZoomEnabled={autoZoomEnabled}
+                  onAutoZoomChange={setAutoZoomEnabled}
+                  hideDocumentTools={sidebarViewMode === "chat"}
                 />
               )}
 
