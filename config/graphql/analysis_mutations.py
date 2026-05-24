@@ -42,7 +42,8 @@ class MakeAnalysisPublic(graphene.Mutation):
                 info.context.user, analysis_pk, request=info.context
             )
             return MakeAnalysisPublic(
-                ok=result.ok, message=result.value or result.error
+                ok=result.ok,
+                message=result.value if result.ok else result.error,
             )
 
         except Exception as e:

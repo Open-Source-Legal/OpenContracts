@@ -595,6 +595,22 @@ class TestAnalysisLifecycleServiceBehavioral(TestCase):
         self.assertEqual(result.value, new_analysis)
         mock_process.assert_called_once()
 
+    @patch("opencontractserver.tasks.corpus_tasks.process_analyzer")
+    def test_start_document_analysis_none_from_process_is_failure(self, mock_process):
+        # Pin the explicit-failure semantics: when ``process_analyzer`` returns
+        # ``None`` (e.g. internal failure / resource exhaustion), the service
+        # surfaces a failure rather than ``ok=True, value=None`` so callers
+        # can't silently treat it as a successful no-op.
+        mock_process.return_value = None
+        result = AnalysisLifecycleService.start_document_analysis(
+            self.superuser,
+            analyzer_pk=self.analyzer.id,
+            document_pk=self.document.id,
+        )
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "Analyzer could not be started.")
+        self.assertIsNone(result.value)
+
     def test_delete_analysis_not_found_for_invisible(self):
         result = AnalysisLifecycleService.delete_analysis(
             self.regular, self.analysis.id

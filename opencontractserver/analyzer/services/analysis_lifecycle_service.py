@@ -143,8 +143,9 @@ class AnalysisLifecycleService(BaseService):
             corpus_action=None,
             analysis_input_data=analysis_input_data,
         )
-        if analysis is not None:
-            cls.log_action("Started", analysis, user)
+        if analysis is None:
+            return ServiceResult.failure("Analyzer could not be started.")
+        cls.log_action("Started", analysis, user)
         return ServiceResult.success(analysis)
 
     @classmethod

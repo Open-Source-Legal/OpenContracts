@@ -113,8 +113,8 @@ class WorkerAccountService(BaseService):
         cls,
         user: Any,
         worker_account_id: Any,
-        active: bool,
         *,
+        active: bool,
         request: Any = None,
     ) -> ServiceResult[WorkerAccount]:
         """Activate or deactivate a worker account by id. **Superuser-only.**
