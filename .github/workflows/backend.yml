@@ -125,6 +125,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # ``docker buildx`` needs ``ACTIONS_RUNTIME_TOKEN`` + ``ACTIONS_RESULTS_URL``
+      # to read/write the GitHub Actions cache backend. ``setup-buildx-action``
+      # does *not* export these by default; without them the ``--cache-from
+      # type=gha`` / ``--cache-to type=gha`` directives below are silently
+      # ignored (the build still succeeds, just with no cache effect). The
+      # ghaction-github-runtime helper exposes those env vars at the job level.
+      - name: Expose GitHub Actions runtime to docker buildx
+        uses: crazy-max/ghaction-github-runtime@v3
+
       - name: Build the Stack
         # The django image rebuild was the biggest pre-test cost (~2:40 wall)
         # because the runner ships from scratch every PR. Pre-build it
