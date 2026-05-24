@@ -56,12 +56,10 @@ class AnalysisLifecycleService(BaseService):
         """Kick off the make-public task for an analysis. **Superuser only.**
 
         Returns ``ServiceResult.success`` with the user-facing status
-        message once the Celery task is dispatched; the caller's permission
-        gate (``user_passes_test`` on the GraphQL mutation) guards entry.
-        This service-layer method does not re-check the superuser gate so
-        an internal caller can re-dispatch the public-flip task from a
-        privileged context (e.g. a management command); callers without
-        explicit elevation must enforce the gate themselves.
+        message once the Celery task is dispatched. The superuser gate is
+        enforced in-service (defence-in-depth) so internal callers
+        (management commands, Celery tasks) cannot bypass it by skipping
+        the ``user_passes_test`` decorator on the GraphQL mutation.
 
         ``request`` is accepted for API consistency with every other
         Phase-5 service method; this method does not consult the
@@ -70,6 +68,9 @@ class AnalysisLifecycleService(BaseService):
         from opencontractserver.tasks.permissioning_tasks import (
             make_analysis_public_task,
         )
+
+        if not getattr(user, "is_superuser", False):
+            return ServiceResult.failure("Only superusers can make analyses public.")
 
         logger.info(
             "Dispatching make-public for Analysis(id=%s) by user=%s",

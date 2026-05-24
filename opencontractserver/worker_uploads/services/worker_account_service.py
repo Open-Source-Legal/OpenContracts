@@ -70,6 +70,8 @@ class WorkerAccountService(BaseService):
 
         return qs
 
+    _SUPERUSER_ONLY_MSG = "Superuser privileges required."
+
     @classmethod
     def create_worker_account(
         cls,
@@ -81,14 +83,18 @@ class WorkerAccountService(BaseService):
     ) -> ServiceResult[WorkerAccount]:
         """Create a new worker account. **Superuser-only.**
 
-        Mirrors the previous mutation's behaviour: the ``user_passes_test``
-        gate on the GraphQL mutation enforces superuser-only entry, so this
-        service does not duplicate that check. ``WorkerAccount.create_with_user``
+        The superuser gate is enforced in-service (defence-in-depth) so
+        internal callers (management commands, Celery tasks, future REST
+        endpoints) cannot bypass it by skipping the ``user_passes_test``
+        decorator on the GraphQL mutation. ``WorkerAccount.create_with_user``
         raises :class:`ValueError` on a duplicate name; the service surfaces
         that as a ``ServiceResult.failure`` so the caller can map it to a
         ``GraphQLError`` without unwrapping the exception twice.
         """
         from opencontractserver.worker_uploads.models import WorkerAccount
+
+        if not getattr(user, "is_superuser", False):
+            return ServiceResult.failure(cls._SUPERUSER_ONLY_MSG)
 
         try:
             account = WorkerAccount.create_with_user(
@@ -113,13 +119,18 @@ class WorkerAccountService(BaseService):
     ) -> ServiceResult[WorkerAccount]:
         """Activate or deactivate a worker account by id. **Superuser-only.**
 
-        Deactivating an account implicitly revokes all of its tokens (the
+        The superuser gate is enforced in-service (defence-in-depth) — see
+        :meth:`create_worker_account` for the rationale. Deactivating an
+        account implicitly revokes all of its tokens (the
         :meth:`CorpusAccessToken.is_valid` check fails when the parent
         account is inactive). Returns a failure with a stable
         "Worker account not found." message when the id does not exist —
         matching the pre-relocation ``GraphQLError`` text.
         """
         from opencontractserver.worker_uploads.models import WorkerAccount
+
+        if not getattr(user, "is_superuser", False):
+            return ServiceResult.failure(cls._SUPERUSER_ONLY_MSG)
 
         try:
             account = WorkerAccount.objects.get(id=worker_account_id)

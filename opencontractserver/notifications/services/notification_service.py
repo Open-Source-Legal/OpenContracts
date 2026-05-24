@@ -157,8 +157,14 @@ class NotificationService(BaseService):
         """Mark all unread notifications for ``user`` as read.
 
         Returns ``ServiceResult.success`` with the number of rows updated.
+        Anonymous callers short-circuit to ``success(0)`` so the service is
+        safe to call from non-GraphQL contexts without an external auth
+        gate (matches the rest of the class).
         """
         from opencontractserver.notifications.models import Notification
+
+        if user is None or not getattr(user, "is_authenticated", False):
+            return ServiceResult.success(0)
 
         count = Notification.objects.filter(recipient=user, is_read=False).update(
             is_read=True
