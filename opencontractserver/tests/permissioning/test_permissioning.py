@@ -2,7 +2,6 @@ import logging
 import pathlib
 from random import randrange
 
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models.signals import post_save
@@ -27,12 +26,11 @@ from opencontractserver.tasks.permissioning_tasks import (
 )
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import (
     get_users_permissions_for_obj,
     set_permissions_for_obj_to_user,
 )
-
-User = get_user_model()
 
 logger = logging.getLogger(__name__)
 
@@ -891,6 +889,8 @@ class SetPermissionsIsNewTests(TestCase):
     default behaviour (full replace) must remain unchanged for
     non-creation paths like sharing flows or permission updates.
     """
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):

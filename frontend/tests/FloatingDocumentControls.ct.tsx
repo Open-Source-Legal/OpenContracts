@@ -17,18 +17,23 @@ test.describe("FloatingDocumentControls", () => {
     // Check main container is visible
     await expect(component).toBeVisible();
 
-    // Check core buttons are present using data-testid
+    // Check core buttons are present using data-testid. PR #1764 swapped the
+    // native title= attribute for aria-label / data-tooltip on these pills so
+    // the CSS-only tooltip doesn't compete with the browser's native one.
     const settingsButton = page.getByTestId("settings-button");
     await expect(settingsButton).toBeVisible();
-    await expect(settingsButton).toHaveAttribute("title", "Annotation Filters");
+    await expect(settingsButton).toHaveAttribute(
+      "aria-label",
+      "Annotation filters"
+    );
 
     const extractsButton = page.getByTestId("extracts-button");
     await expect(extractsButton).toBeVisible();
-    await expect(extractsButton).toHaveAttribute("title", "View Extracts");
+    await expect(extractsButton).toHaveAttribute("aria-label", "View extracts");
 
     const analysesButton = page.getByTestId("analyses-button");
     await expect(analysesButton).toBeVisible();
-    await expect(analysesButton).toHaveAttribute("title", "View Analyses");
+    await expect(analysesButton).toHaveAttribute("aria-label", "View analyses");
 
     // Note: Create Analysis button visibility depends on additional context
     // that may not be fully available in the test environment

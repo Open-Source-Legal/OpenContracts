@@ -119,7 +119,7 @@ class TestVersionAwareAnnotationService(TestCase):
             document_id=doc_v2.id, user=self.user, corpus_id=self.corpus.id
         )
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().id, anno_v2.id)
+        self.assertEqual(result[0].id, anno_v2.id)
 
         logger.info("✓ Default queries filter to current versions only")
 
@@ -157,7 +157,7 @@ class TestVersionAwareAnnotationService(TestCase):
             check_current_version=False,  # Explicitly disable version check
         )
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().id, anno_v1.id)
+        self.assertEqual(result[0].id, anno_v1.id)
 
         logger.info("✓ Can query old versions when explicitly requested")
 
@@ -259,7 +259,7 @@ class TestVersionAwareAnnotationService(TestCase):
         )
 
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().id, anno_v1.id)
+        self.assertEqual(result[0].id, anno_v1.id)
 
         # Request specific version 2
         result = AnnotationService.get_annotations_for_path(
@@ -270,7 +270,7 @@ class TestVersionAwareAnnotationService(TestCase):
         )
 
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().id, anno_v2.id)
+        self.assertEqual(result[0].id, anno_v2.id)
 
         logger.info("✓ Can request specific versions via path queries")
 
@@ -370,7 +370,7 @@ class TestVersionAwareAnnotationService(TestCase):
             corpus_id=self.corpus.id, path="/new/location.pdf", user=self.user
         )
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().id, anno.id)
+        self.assertEqual(result[0].id, anno.id)
 
         # Query at old path - should return empty
         result = AnnotationService.get_annotations_for_path(
@@ -448,7 +448,7 @@ class TestVersionAwareAnnotationService(TestCase):
         )
         # Should get v1 structural annotation (version-specific)
         self.assertEqual(result_v1.count(), 1)
-        self.assertNotEqual(result_v1.first().id, structural_v2.id)
+        self.assertNotEqual(result_v1[0].id, structural_v2.id)
 
         logger.info("✓ Structural annotations are version-specific")
 
@@ -525,7 +525,7 @@ class TestVersionAwareAnnotationService(TestCase):
             corpus_id=corpus2.id, path="/shared.pdf", user=self.user
         )
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().id, anno2.id)
+        self.assertEqual(result[0].id, anno2.id)
 
         logger.info("✓ Cross-corpus documents maintain independent states")
 
