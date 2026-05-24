@@ -39,7 +39,7 @@ class MakeAnalysisPublic(graphene.Mutation):
         try:
             analysis_pk = from_global_id(analysis_id)[1]
             result = AnalysisLifecycleService.make_public(
-                info.context.user, analysis_pk
+                info.context.user, analysis_pk, request=info.context
             )
             return MakeAnalysisPublic(
                 ok=result.ok, message=result.value or result.error

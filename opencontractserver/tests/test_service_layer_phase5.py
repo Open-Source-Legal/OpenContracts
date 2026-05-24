@@ -102,6 +102,7 @@ class TestPhase5RequestThreadingConvention(SimpleTestCase):
             (AgentConfigurationService, "update_agent"),
             (AgentConfigurationService, "delete_agent"),
             (AgentActionResultService, "list_visible_results"),
+            (AnalysisLifecycleService, "make_public"),
             (AnalysisLifecycleService, "start_document_analysis"),
             (AnalysisLifecycleService, "delete_analysis"),
             (NotificationService, "list_for_user"),
@@ -181,9 +182,14 @@ class TestPhase5RetiredInlinePatternsHaveServiceCallers(SimpleTestCase):
     """
 
     def test_migrated_graphql_files_import_phase5_services(self):
-        # Imported lazily so we exercise the actual module-load path.
-        # The fact that each import succeeds is the test — a broken import
-        # surface fails at module load.
+        # Each migrated GraphQL module must reference at least one of the
+        # Phase-5 services in its source (either as a top-level import or as
+        # a lazy in-function import — the latter is used in modules with
+        # circular-import constraints). A bare ``assertIsNotNone(module)``
+        # would still pass after a regression to inline composition; scanning
+        # the source for the service import line catches that silent revert.
+        import inspect
+
         from config.graphql import (
             action_queries,
             agent_mutations,
@@ -195,16 +201,34 @@ class TestPhase5RetiredInlinePatternsHaveServiceCallers(SimpleTestCase):
             worker_queries,
         )
 
-        modules = [
-            action_queries,
-            agent_mutations,
-            analysis_mutations,
-            annotation_mutations,
-            notification_mutations,
-            social_queries,
-            worker_mutations,
-            worker_queries,
-        ]
-        for module in modules:
-            with self.subTest(module=module.__name__):
-                self.assertIsNotNone(module)
+        module_to_expected_services = {
+            action_queries: ["AgentActionResultService"],
+            agent_mutations: ["AgentConfigurationService"],
+            analysis_mutations: ["AnalysisLifecycleService"],
+            annotation_mutations: ["UserFeedbackService"],
+            notification_mutations: ["NotificationService"],
+            social_queries: [
+                "AgentConfigurationService",
+                "NotificationService",
+            ],
+            worker_mutations: [
+                "CorpusAccessTokenService",
+                "WorkerAccountService",
+            ],
+            worker_queries: [
+                "CorpusAccessTokenService",
+                "WorkerAccountService",
+                "WorkerDocumentUploadService",
+            ],
+        }
+        for module, expected_services in module_to_expected_services.items():
+            source = inspect.getsource(module)
+            for service_name in expected_services:
+                with self.subTest(module=module.__name__, service=service_name):
+                    self.assertIn(
+                        service_name,
+                        source,
+                        f"{module.__name__} must reference {service_name} so "
+                        "the service-layer migration cannot silently regress "
+                        "to inline composition.",
+                    )

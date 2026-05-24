@@ -50,6 +50,8 @@ class AnalysisLifecycleService(BaseService):
         cls,
         user: Any,
         analysis_pk: Any,
+        *,
+        request: Any = None,
     ) -> ServiceResult[str]:
         """Kick off the make-public task for an analysis. **Superuser only.**
 
@@ -60,6 +62,10 @@ class AnalysisLifecycleService(BaseService):
         an internal caller can re-dispatch the public-flip task from a
         privileged context (e.g. a management command); callers without
         explicit elevation must enforce the gate themselves.
+
+        ``request`` is accepted for API consistency with every other
+        Phase-5 service method; this method does not consult the
+        permission cache (no per-instance gate is run here).
         """
         from opencontractserver.tasks.permissioning_tasks import (
             make_analysis_public_task,
@@ -181,6 +187,6 @@ class AnalysisLifecycleService(BaseService):
         if not analysis.user_can(user, PermissionTypes.DELETE, request=request):
             return ServiceResult.failure(cls._DELETE_NOT_FOUND_MSG)
 
-        cls.log_action("Dispatched delete for", analysis, user)
         delete_analysis_and_annotations_task.si(analysis_pk=analysis_pk).apply_async()
+        cls.log_action("Dispatched delete for", analysis, user)
         return ServiceResult.success(None)

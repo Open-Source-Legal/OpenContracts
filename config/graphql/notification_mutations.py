@@ -126,6 +126,12 @@ class MarkAllNotificationsReadMutation(graphene.Mutation):
 
         try:
             result = NotificationService.mark_all_read(user, request=info.context)
+            if not result.ok:
+                return MarkAllNotificationsReadMutation(
+                    ok=False,
+                    message=result.error,
+                    count=0,
+                )
             count = result.value
             return MarkAllNotificationsReadMutation(
                 ok=True,

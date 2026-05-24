@@ -297,6 +297,6 @@ class AgentConfigurationService(BaseService):
         if error:
             return ServiceResult.failure(error)
 
-        cls.log_action("Deleted", agent, user)
         agent.delete()
+        cls.log_action("Deleted", agent, user)
         return ServiceResult.success(None)
