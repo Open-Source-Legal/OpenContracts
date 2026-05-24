@@ -38,19 +38,15 @@ ALLOWED_FILES: frozenset[str] = frozenset(
         # removed as its file is migrated through service-layer calls.
         # See docs/superpowers/plans/2026-05-24-phase6-service-layer-resolver-cleanup.md
         # ------------------------------------------------------------------
-        "action_queries.py",
         "annotation_mutations.py",
         "annotation_queries.py",
         "badge_mutations.py",
-        "conversation_mutations.py",
-        "conversation_types.py",
         "corpus_mutations.py",
         "document_mutations.py",
         "document_types.py",
         "extract_mutations.py",
         "extract_queries.py",
         "search_queries.py",
-        "social_queries.py",
     }
 )
 
