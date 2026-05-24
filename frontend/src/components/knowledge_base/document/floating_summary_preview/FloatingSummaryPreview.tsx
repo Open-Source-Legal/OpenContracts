@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -23,24 +23,37 @@ interface FloatingSummaryPreviewProps {
   onBackToDocument?: () => void;
   isInKnowledgeLayer?: boolean;
   readOnly?: boolean;
+  /**
+   * Render using `position: fixed` (default) or allow the parent to control
+   * positioning. When `false`, the component sits in normal flow so it can
+   * be docked inside a shared toolbar (see DocumentBottomBar).
+   */
+  fixed?: boolean;
 }
 
-const FloatingContainer = styled(motion.div)`
-  position: fixed;
-  bottom: 2.5rem;
-  left: 2.5rem;
-  z-index: 800; /* Below chat sidebar (typically 1000+) but above document content */
+const FloatingContainer = styled(motion.div)<{ $fixed: boolean }>`
+  ${(props) =>
+    props.$fixed
+      ? css`
+          position: fixed;
+          bottom: 2.5rem;
+          left: 2.5rem;
+          z-index: 800; /* Below chat sidebar (typically 1000+) but above document content */
+
+          @media (max-width: 768px) {
+            bottom: 1.5rem;
+            left: 1.5rem;
+          }
+
+          @media (max-width: 480px) {
+            bottom: 1rem;
+            left: 1rem;
+          }
+        `
+      : css`
+          position: relative;
+        `}
   overflow: visible;
-
-  @media (max-width: 768px) {
-    bottom: 1.5rem;
-    left: 1.5rem;
-  }
-
-  @media (max-width: 480px) {
-    bottom: 1rem;
-    left: 1rem;
-  }
 `;
 
 const BaseButton = styled(motion.button)`
@@ -569,6 +582,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
   onBackToDocument,
   isInKnowledgeLayer = false,
   readOnly = false,
+  fixed = true,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const { state, setExpanded, setStackFanned, setHovered } =
@@ -620,6 +634,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
           {!state.isExpanded ? (
             <FloatingContainer
               key="collapsed-knowledge"
+              $fixed={fixed}
               initial={{ opacity: 0, scale: 0.8, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: 20 }}
@@ -659,6 +674,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
             <FloatingContainer
               id="floating-summary-preview-floating-container"
               key="expanded-knowledge"
+              $fixed={fixed}
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -714,6 +730,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
         {!state.isExpanded ? (
           <FloatingContainer
             key="collapsed"
+            $fixed={fixed}
             initial={{ opacity: 0, scale: 0.8, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 20 }}
@@ -757,6 +774,7 @@ export const FloatingSummaryPreview: React.FC<FloatingSummaryPreviewProps> = ({
         ) : (
           <FloatingContainer
             key="expanded"
+            $fixed={fixed}
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}

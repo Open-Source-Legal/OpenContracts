@@ -25,10 +25,10 @@ export default defineConfig({
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: "html",
   /* Global timeout for the entire test run.
-   * Coverage instrumentation adds overhead, so allow 25 minutes;
+   * Coverage instrumentation adds overhead, so allow 30 minutes;
    * normal runs use 15 minutes. */
   globalTimeout: process.env.CI
-    ? (process.env.COVERAGE ? 25 : 15) * 60 * 1000
+    ? (process.env.COVERAGE ? 30 : 15) * 60 * 1000
     : undefined,
   /* Expect timeout - give assertions more time on CI */
   expect: {

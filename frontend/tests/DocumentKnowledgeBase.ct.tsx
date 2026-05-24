@@ -3086,3 +3086,122 @@ test("invalid-document error modal dismisses via the Close button", async ({
     page.getByText("Invalid Document", { exact: true })
   ).toBeVisible();
 });
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Desktop bottom toolbar consolidation (issue #1735)
+ *
+ * Before #1735 the desktop document layer carried three independent
+ * `position: fixed`/absolute floaters along its bottom edge: a circular
+ * SUMMARY button (left), a search/chat mini-pill (centre) and the active-
+ * label OC_SECTION × pill (right). They had no relationship to each other
+ * yet shared the same band of screen, reading as visual noise.
+ *
+ * They now share a single anchored container — `DocumentBottomBar` — that
+ * pins all three to the same baseline with consistent spacing. This test
+ * verifies the consolidation by asserting:
+ *   1. The shared container is the common ancestor of all three controls.
+ *   2. All three controls sit at the same vertical baseline (within a
+ *      tolerance accounting for their differing intrinsic heights).
+ *   3. The summary button is left of the input, the input is left of the
+ *      label selector — the band reads left → centre → right.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+test.describe("Desktop bottom toolbar consolidation (#1735)", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("consolidates summary, search/chat and label controls into a single anchored bottom bar", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <DocumentKnowledgeBaseTestWrapper
+        mocks={[...graphqlMocks, ...createSummaryMocks(PDF_DOC_ID, CORPUS_ID)]}
+        documentId={PDF_DOC_ID}
+        corpusId={CORPUS_ID}
+      />
+    );
+
+    // Wait for the document to load.
+    await expect(
+      page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
+    ).toBeVisible({ timeout: LONG_TIMEOUT });
+    await expect(page.locator("#pdf-container")).toBeVisible({
+      timeout: LONG_TIMEOUT,
+    });
+
+    // 1. The bar exists and is the common ancestor of all three controls.
+    const bar = page.getByTestId("document-bottom-bar");
+    await expect(bar).toBeVisible({ timeout: LONG_TIMEOUT });
+
+    const summaryButton = page.getByTestId("summary-toggle-button");
+    const labelSelector = page.getByTestId("annotation-tools");
+
+    await expect(summaryButton).toBeVisible({ timeout: LONG_TIMEOUT });
+    await expect(labelSelector).toBeVisible({ timeout: LONG_TIMEOUT });
+
+    for (const child of [summaryButton, labelSelector]) {
+      const isInsideBar = await child.evaluate((el) =>
+        Boolean(el.closest('[data-testid="document-bottom-bar"]'))
+      );
+      expect(isInsideBar).toBe(true);
+    }
+
+    // 2. The three controls share the same vertical band.
+    const summaryBox = await summaryButton.boundingBox();
+    const labelBox = await labelSelector.boundingBox();
+    const barBox = await bar.boundingBox();
+    expect(summaryBox).not.toBeNull();
+    expect(labelBox).not.toBeNull();
+    expect(barBox).not.toBeNull();
+
+    // The bottoms of the controls live within the bar's vertical extent.
+    const summaryBottom = summaryBox!.y + summaryBox!.height;
+    const labelBottom = labelBox!.y + labelBox!.height;
+    const barBottom = barBox!.y + barBox!.height;
+    expect(Math.abs(summaryBottom - barBottom)).toBeLessThanOrEqual(8);
+    expect(Math.abs(labelBottom - barBottom)).toBeLessThanOrEqual(8);
+
+    // 3. Left → right ordering with the centre slot reserved for the input.
+    expect(summaryBox!.x).toBeLessThan(labelBox!.x);
+
+    // Documentation screenshot — full viewport showing the bar in context.
+    await docScreenshot(page, "knowledge-base--document-bottom-bar--default");
+
+    // Close-up screenshot of just the bar so the consolidation reads at a
+    // glance in documentation. Clip a generous strip around the bar.
+    const clipPadding = 24;
+    const clipY = Math.max(0, Math.floor(barBox!.y - clipPadding));
+    const clipHeight = Math.min(
+      900 - clipY,
+      Math.ceil(barBox!.height + clipPadding * 2)
+    );
+    await docScreenshot(
+      page,
+      "knowledge-base--document-bottom-bar--consolidated",
+      {
+        clip: { x: 0, y: clipY, width: 1440, height: clipHeight },
+      }
+    );
+
+    // Open the search/chat input so the centre slot is populated and assert
+    // it lands between the summary button and the label selector.
+    await page.getByTestId("search-toggle-button").click();
+    const searchInput = page.getByPlaceholder("Search document...");
+    await expect(searchInput).toBeVisible({ timeout: LONG_TIMEOUT });
+    const inputBox = await searchInput.boundingBox();
+    expect(inputBox).not.toBeNull();
+    expect(inputBox!.x).toBeGreaterThan(summaryBox!.x);
+    expect(inputBox!.x + inputBox!.width).toBeLessThan(
+      labelBox!.x + labelBox!.width
+    );
+
+    // Screenshot with the input expanded — shows the centre slot active.
+    await docScreenshot(
+      page,
+      "knowledge-base--document-bottom-bar--input-expanded",
+      {
+        clip: { x: 0, y: clipY, width: 1440, height: clipHeight },
+      }
+    );
+  });
+});

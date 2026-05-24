@@ -24,7 +24,13 @@ import {
   SuccessMessage,
 } from "../../../widgets/feedback";
 
-import { FloatingInputWrapper, ZoomIndicator } from "../document_kb/styles";
+import {
+  DocumentBottomBar,
+  DocumentBottomBarCenter,
+  DocumentBottomBarLeft,
+  DocumentBottomBarRight,
+  ZoomIndicator,
+} from "../document_kb/styles";
 import { RightPanelContent } from "../document_kb/RightPanelContent";
 import { DocumentModals } from "../document_kb/DocumentModals";
 import { AnalysisExtractContextBar } from "../document_kb/ContextBar";
@@ -227,68 +233,78 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
               />
             )}
 
-            {/* Unified Search/Chat Input - positioned relative to ContentArea */}
-            <FloatingInputWrapper $panelOffset={floatingControlsState.offset}>
-              <FloatingDocumentInput
-                fixed={false}
-                visible={activeLayer === "document"}
-                readOnly={readOnly}
-                onChatSubmit={(message) => {
-                  setPendingChatMessage(message);
-                  setSidebarViewMode("chat");
-                  setShowRightPanel(true);
-                }}
-                onToggleChat={() => {
-                  setSidebarViewMode("chat");
-                  setShowRightPanel(true);
-                }}
-              />
-            </FloatingInputWrapper>
-
             <MainContentArea id="main-content-area">
               {mainLayerContent}
-              <EnhancedLabelSelector
-                sidebarWidth="0px"
-                activeSpanLabel={canEdit ? activeSpanLabel ?? null : null}
-                setActiveLabel={canEdit ? setActiveSpanLabel : () => {}}
-                showRightPanel={showRightPanel}
-                panelOffset={floatingControlsState.offset}
-                hideControls={!floatingControlsState.visible || !canEdit}
-                readOnly={!canEdit}
-              />
 
-              {/* Floating Summary Preview - only visible when corpus is available */}
-              {corpusId && (
-                <FloatingSummaryPreview
-                  documentId={documentId}
-                  corpusId={corpusId}
-                  documentTitle={metadata.title || "Untitled Document"}
-                  isVisible={true}
-                  isInKnowledgeLayer={activeLayer === "knowledge"}
-                  readOnly={readOnly}
-                  onSwitchToKnowledge={(content?: string) => {
-                    setActiveLayer("knowledge");
-                    setShowRightPanel(false);
-                    if (content) {
-                      setSelectedSummaryContent(content);
-                    } else {
-                      setSelectedSummaryContent(null);
-                    }
-                    setChatSourceState((prev) => ({
-                      ...prev,
-                      selectedMessageId: null,
-                      selectedSourceIndex: null,
-                    }));
-                  }}
-                  onBackToDocument={() => {
-                    setActiveLayer("document");
-                    setSelectedSummaryContent(null);
-                    // When going back to document, show chat panel by default
-                    setShowRightPanel(true);
-                    setSidebarViewMode("chat");
-                  }}
-                />
-              )}
+              <DocumentBottomBar
+                data-testid="document-bottom-bar"
+                $panelOffset={floatingControlsState.offset}
+              >
+                <DocumentBottomBarLeft>
+                  {corpusId && (
+                    <FloatingSummaryPreview
+                      documentId={documentId}
+                      corpusId={corpusId}
+                      documentTitle={metadata.title || "Untitled Document"}
+                      isVisible={true}
+                      isInKnowledgeLayer={activeLayer === "knowledge"}
+                      readOnly={readOnly}
+                      fixed={false}
+                      onSwitchToKnowledge={(content?: string) => {
+                        setActiveLayer("knowledge");
+                        setShowRightPanel(false);
+                        if (content) {
+                          setSelectedSummaryContent(content);
+                        } else {
+                          setSelectedSummaryContent(null);
+                        }
+                        setChatSourceState((prev) => ({
+                          ...prev,
+                          selectedMessageId: null,
+                          selectedSourceIndex: null,
+                        }));
+                      }}
+                      onBackToDocument={() => {
+                        setActiveLayer("document");
+                        setSelectedSummaryContent(null);
+                        // When going back to document, show chat panel by default
+                        setShowRightPanel(true);
+                        setSidebarViewMode("chat");
+                      }}
+                    />
+                  )}
+                </DocumentBottomBarLeft>
+
+                <DocumentBottomBarCenter>
+                  <FloatingDocumentInput
+                    fixed={false}
+                    visible={activeLayer === "document"}
+                    readOnly={readOnly}
+                    onChatSubmit={(message) => {
+                      setPendingChatMessage(message);
+                      setSidebarViewMode("chat");
+                      setShowRightPanel(true);
+                    }}
+                    onToggleChat={() => {
+                      setSidebarViewMode("chat");
+                      setShowRightPanel(true);
+                    }}
+                  />
+                </DocumentBottomBarCenter>
+
+                <DocumentBottomBarRight>
+                  <EnhancedLabelSelector
+                    sidebarWidth="0px"
+                    activeSpanLabel={canEdit ? activeSpanLabel ?? null : null}
+                    setActiveLabel={canEdit ? setActiveSpanLabel : () => {}}
+                    showRightPanel={showRightPanel}
+                    panelOffset={0} // no-op in inline mode; parent bar owns the offset
+                    hideControls={!floatingControlsState.visible || !canEdit}
+                    readOnly={!canEdit}
+                    fixed={false}
+                  />
+                </DocumentBottomBarRight>
+              </DocumentBottomBar>
 
               {/* Zoom Indicator - shows current zoom level when zooming */}
               {showZoomIndicator && activeLayer === "document" && (

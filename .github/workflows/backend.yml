@@ -125,8 +125,15 @@ jobs:
       - name: Build the Stack
         run: docker compose -f test.yml build
 
-      - name: Run DB Migrations
-        run:  docker compose -f test.yml run --rm django python manage.py migrate
+      # Note: a ``manage.py migrate`` step previously ran here against the
+      # ``opencontractserver`` default database. That database is never read
+      # by the test suite — pytest-django creates per-worker test databases
+      # (``test_opencontractserver_gw0``, ``_gw1``, …) on first invocation
+      # and runs migrations against those. ``DATABASES['default']['TEST']``
+      # does not declare a ``TEMPLATE``, so the default DB is not used as a
+      # createdb template either. The step was pure waste (~3 min wall) and
+      # has been removed; ``pytest --reuse-db`` (in pytest.ini) handles cold
+      # creation and warm reuse of the test DBs by itself.
 
       - name: Collect Static Files
         run: docker compose -f test.yml run --rm django python manage.py collectstatic

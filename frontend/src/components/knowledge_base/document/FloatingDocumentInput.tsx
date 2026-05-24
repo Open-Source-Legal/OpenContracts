@@ -572,6 +572,7 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
 
       <ToggleGroup $isExpanded={isExpanded}>
         <ToggleButton
+          data-testid="search-toggle-button"
           $isActive={mode === "search"}
           onClick={() => handleModeButtonClick("search")}
           whileHover={{ scale: 1.05 }}
@@ -581,6 +582,7 @@ export const FloatingDocumentInput: React.FC<FloatingDocumentInputProps> = ({
         </ToggleButton>
         {!readOnly && (
           <ToggleButton
+            data-testid="chat-toggle-button"
             $isActive={mode === "chat"}
             onClick={() => handleModeButtonClick("chat")}
             whileHover={{ scale: 1.05 }}

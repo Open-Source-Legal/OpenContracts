@@ -112,30 +112,41 @@ export const HeaderButton = styled.button<{
   }
 `;
 
-export const FloatingInputWrapper = styled.div<{ $panelOffset: number }>`
+// bottom: 2rem deliberately pulls the centre input down to share one gutter with summary/label slots (legacy FloatingInputWrapper used 4rem).
+export const DocumentBottomBar = styled.div<{ $panelOffset: number }>`
   position: absolute;
-  bottom: 4rem; /* Increased from 2rem to give more space from bottom */
+  bottom: 2rem;
   left: 0;
   right: ${(props) => props.$panelOffset}px;
-  display: flex;
-  justify-content: center;
-  pointer-events: none; /* allow clicks only on children */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 1rem;
+  padding: 0 2rem;
+  pointer-events: none; /* allow clicks through gaps to the PDF canvas */
   z-index: 850;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+`;
 
-  @media (max-width: 768px) {
-    /* On mobile, position below zoom controls with higher z-index to prevent covering */
-    position: absolute;
-    top: 80px; /* Below zoom controls */
-    left: 1rem;
-    right: auto; /* Don't constrain right side for collapsed state */
-    bottom: auto;
-    width: auto; /* Let child determine width */
-    display: block;
-    pointer-events: none;
-    box-sizing: border-box;
-    /* Fix Issue #1: Increase z-index above zoom controls (900) to prevent mobile tray from covering input */
-    z-index: 950;
-  }
+export const DocumentBottomBarLeft = styled.div`
+  justify-self: start;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: auto;
+`;
+
+export const DocumentBottomBarCenter = styled.div`
+  justify-self: center;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: auto;
+`;
+
+export const DocumentBottomBarRight = styled.div`
+  justify-self: end;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: auto;
 `;
 
 export const ZoomIndicator = styled.div`
