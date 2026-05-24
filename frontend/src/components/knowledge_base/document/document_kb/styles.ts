@@ -112,24 +112,8 @@ export const HeaderButton = styled.button<{
   }
 `;
 
-/**
- * Single anchored home for desktop document-level floating controls
- * (issue #1735). Replaces the three independently-positioned floaters
- * (FloatingSummaryPreview bottom-left, FloatingDocumentInput bottom-center,
- * EnhancedLabelSelector bottom-right) with a shared toolbar that pins them
- * to the same baseline at the bottom of MainContentArea.
- *
- * Mobile is unaffected — MobileDocumentLayout uses its own toolbar.
- */
+// bottom: 2rem deliberately pulls the centre input down to share one gutter with summary/label slots (legacy FloatingInputWrapper used 4rem).
 export const DocumentBottomBar = styled.div<{ $panelOffset: number }>`
-  /*
-   * bottom: 2rem matches the pre-existing FloatingSummaryPreview baseline
-   * (which used 2.5rem standalone but visually anchored ~2rem from the
-   * MainContentArea bottom edge once layout padding was factored in).
-   * The removed FloatingInputWrapper used 4rem; the consolidated bar
-   * intentionally pulls the centre input down to the shared baseline so
-   * all three controls share one visual gutter rather than stacking.
-   */
   position: absolute;
   bottom: 2rem;
   left: 0;
@@ -139,16 +123,11 @@ export const DocumentBottomBar = styled.div<{ $panelOffset: number }>`
   align-items: end;
   gap: 1rem;
   padding: 0 2rem;
-  pointer-events: none; /* allow clicks to pass through gaps */
+  pointer-events: none; /* allow clicks through gaps to the PDF canvas */
   z-index: 850;
   transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* No mobile media query: DesktopDocumentLayout is only mounted by
-     DocumentKnowledgeBase when isMobile=false (width >= 768). Mobile
-     uses MobileDocumentLayout's own toolbar instead. */
 `;
 
-/** Left slot: anchors the summary entry-point to the bar's left edge. */
 export const DocumentBottomBarLeft = styled.div`
   justify-self: start;
   display: flex;
@@ -156,7 +135,6 @@ export const DocumentBottomBarLeft = styled.div`
   pointer-events: auto;
 `;
 
-/** Center slot: holds the search/chat input, content-sized so it can expand. */
 export const DocumentBottomBarCenter = styled.div`
   justify-self: center;
   display: flex;
@@ -164,7 +142,6 @@ export const DocumentBottomBarCenter = styled.div`
   pointer-events: auto;
 `;
 
-/** Right slot: anchors the active-label indicator to the bar's right edge. */
 export const DocumentBottomBarRight = styled.div`
   justify-self: end;
   display: flex;

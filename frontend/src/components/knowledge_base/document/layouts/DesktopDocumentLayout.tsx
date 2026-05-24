@@ -199,11 +199,6 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
             <MainContentArea id="main-content-area">
               {mainLayerContent}
 
-              {/*
-                Consolidated bottom toolbar — single anchored home for
-                document-level floating controls (issue #1735). Replaces the
-                three separately-positioned floaters with a shared baseline.
-              */}
               <DocumentBottomBar
                 data-testid="document-bottom-bar"
                 $panelOffset={floatingControlsState.offset}
@@ -266,11 +261,7 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
                     activeSpanLabel={canEdit ? activeSpanLabel ?? null : null}
                     setActiveLabel={canEdit ? setActiveSpanLabel : () => {}}
                     showRightPanel={showRightPanel}
-                    // panelOffset is a no-op in inline (fixed=false) mode
-                    // — the parent DocumentBottomBar owns the offset via
-                    // its own `right: $panelOffset`. Passing 0 here makes
-                    // the no-op explicit.
-                    panelOffset={0}
+                    panelOffset={0} // no-op in inline mode; parent bar owns the offset
                     hideControls={!floatingControlsState.visible || !canEdit}
                     readOnly={!canEdit}
                     fixed={false}
