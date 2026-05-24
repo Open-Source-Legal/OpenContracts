@@ -24,6 +24,7 @@ from opencontractserver.conversations.models import (
     ConversationVote,
     MessageVote,
 )
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
@@ -70,13 +71,12 @@ class VoteMessageMutation(graphene.Mutation):
                     obj=None,
                 )
 
-            # Get message with visibility filter to prevent IDOR
-            try:
-                message_pk = from_global_id(message_id)[1]
-                chat_message = ChatMessage.objects.visible_to_user(user).get(
-                    pk=message_pk
-                )
-            except ChatMessage.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            message_pk = from_global_id(message_id)[1]
+            chat_message = BaseService.get_or_none(
+                ChatMessage, message_pk, user, request=info.context
+            )
+            if chat_message is None:
                 return VoteMessageMutation(
                     ok=False, message="Message not found", obj=None
                 )
@@ -149,13 +149,12 @@ class RemoveVoteMutation(graphene.Mutation):
         try:
             user = info.context.user
 
-            # Get message with visibility filter to prevent IDOR
-            try:
-                message_pk = from_global_id(message_id)[1]
-                chat_message = ChatMessage.objects.visible_to_user(user).get(
-                    pk=message_pk
-                )
-            except ChatMessage.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            message_pk = from_global_id(message_id)[1]
+            chat_message = BaseService.get_or_none(
+                ChatMessage, message_pk, user, request=info.context
+            )
+            if chat_message is None:
                 return RemoveVoteMutation(
                     ok=False, message="Message not found", obj=None
                 )
@@ -221,13 +220,12 @@ class VoteConversationMutation(graphene.Mutation):
                     obj=None,
                 )
 
-            # Get conversation - use visible_to_user for permission check
-            try:
-                conversation_pk = from_global_id(conversation_id)[1]
-                conversation = Conversation.objects.visible_to_user(user).get(
-                    pk=conversation_pk
-                )
-            except Conversation.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            conversation_pk = from_global_id(conversation_id)[1]
+            conversation = BaseService.get_or_none(
+                Conversation, conversation_pk, user, request=info.context
+            )
+            if conversation is None:
                 return VoteConversationMutation(
                     ok=False,
                     message="Conversation not found or you do not have permission to access it",
@@ -307,13 +305,12 @@ class RemoveConversationVoteMutation(graphene.Mutation):
         try:
             user = info.context.user
 
-            # Get conversation - use visible_to_user for permission check
-            try:
-                conversation_pk = from_global_id(conversation_id)[1]
-                conversation = Conversation.objects.visible_to_user(user).get(
-                    pk=conversation_pk
-                )
-            except Conversation.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            conversation_pk = from_global_id(conversation_id)[1]
+            conversation = BaseService.get_or_none(
+                Conversation, conversation_pk, user, request=info.context
+            )
+            if conversation is None:
                 return RemoveConversationVoteMutation(
                     ok=False,
                     message="Conversation not found or you do not have permission to access it",

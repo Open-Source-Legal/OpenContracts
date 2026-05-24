@@ -47,7 +47,13 @@ class BaseService:
         return get_for_user_or_none(model, pk, user, permission, request=request)
 
     @staticmethod
-    def filter_visible(model: Any, user: Any, *, request: Any = None) -> Any:
+    def filter_visible(
+        model: Any,
+        user: Any,
+        *,
+        request: Any = None,
+        **kwargs: Any,
+    ) -> Any:
         """Return ``model`` rows visible to ``user`` (permission-filtered).
 
         Delegates to the model's ``visible_to_user`` manager method, which
@@ -59,8 +65,13 @@ class BaseService:
         It is not yet forwarded — the ``visible_to_user`` manager API does not
         currently accept it — and will be threaded in once that API supports
         it.
+
+        Extra ``**kwargs`` are passed straight through to the manager's
+        ``visible_to_user`` call. This supports per-model performance knobs
+        (e.g. ``Document.objects.visible_to_user(user, lightweight=True)``)
+        without leaking the Tier-0 attribute name into ``config/graphql/``.
         """
-        return model.objects.visible_to_user(user)
+        return model.objects.visible_to_user(user, **kwargs)
 
     @staticmethod
     def user_has(

@@ -14,6 +14,7 @@ from config.graphql.graphene_types import (
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
 
 
 class SlugQueryMixin:
@@ -54,7 +55,7 @@ class SlugQueryMixin:
             owner = User.objects.get(slug=user_slug)
         except User.DoesNotExist:
             return None
-        qs = Corpus.objects.visible_to_user(info.context.user).filter(
+        qs = BaseService.filter_visible(Corpus, info.context.user, request=info.context).filter(
             creator=owner, slug=corpus_slug
         )
 
@@ -79,7 +80,7 @@ class SlugQueryMixin:
         except User.DoesNotExist:
             return None
         return (
-            Document.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(Document, info.context.user, request=info.context)
             .filter(creator=owner, slug=document_slug)
             .first()
         )
@@ -102,7 +103,7 @@ class SlugQueryMixin:
         except User.DoesNotExist:
             return None
         corpus = (
-            Corpus.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(Corpus, info.context.user, request=info.context)
             .filter(creator=owner, slug=corpus_slug)
             .first()
         )
@@ -129,7 +130,7 @@ class SlugQueryMixin:
             path_filter["path_records__is_current"] = True
 
         doc = (
-            Document.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(Document, info.context.user, request=info.context)
             .filter(**path_filter)
             .order_by("pk")
             .first()
@@ -143,7 +144,7 @@ class SlugQueryMixin:
             # traverse by version_tree_id (which groups all versions of
             # the same logical document) rather than filtering by slug.
             visible_version_docs = (
-                Document.objects.visible_to_user(info.context.user)
+                BaseService.filter_visible(Document, info.context.user, request=info.context)
                 .filter(version_tree_id=doc.version_tree_id)
                 .only("pk")
             )
