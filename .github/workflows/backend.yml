@@ -135,8 +135,13 @@ jobs:
       # has been removed; ``pytest --reuse-db`` (in pytest.ini) handles cold
       # creation and warm reuse of the test DBs by itself.
 
-      - name: Collect Static Files
-        run: docker compose -f test.yml run --rm django python manage.py collectstatic
+      # ``collectstatic`` previously ran here (~1:40 wall on a cold container
+      # start). The test suite does not serve static files — ``config/settings/
+      # test.py`` deliberately uses ``StaticFilesStorage`` (the manifest-less
+       # variant) so admin tests can resolve ``{% static %}`` URLs at template
+      # render time without needing the post-collectstatic manifest file. The
+      # step produced no test-relevant artefacts; the wall time was dominated
+      # by the django container cold start, not by the actual collection work.
 
       - name: Verify Docker Containers
         run: |
