@@ -361,10 +361,16 @@ export const EnhancedLabelSelector: React.FC<EnhancedLabelSelectorProps> = ({
     };
   };
 
+  // In inline (fixed=false) mode the parent owns placement; pass zero-offsets
+  // so panelOffset can't silently leak into the styled component's CSS.
+  const positionProps = fixed
+    ? calculatePosition()
+    : { $bottom: "0", $right: "0" };
+
   const annotationControls = (
     <>
       <StyledEnhancedSelector
-        {...calculatePosition()}
+        {...positionProps}
         $fixed={fixed}
         $isExpanded={isExpanded}
         $isReadOnly={isReadOnlyMode}
