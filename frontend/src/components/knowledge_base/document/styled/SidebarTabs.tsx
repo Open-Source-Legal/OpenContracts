@@ -113,18 +113,7 @@ export const SidebarTabsContainer = styled.div<{
   }
 `;
 
-/**
- * A single icon-only rail button used for sidebar tabs and the unified rail's
- * action buttons. The text label is rendered visually-hidden (.tab-label) so
- * screen readers still announce it; the visible affordance is the icon plus
- * the optional CSS-only tooltip rendered through the data-tooltip attribute.
- * Replaces the previous rotated writing-mode label called out in issue #1734
- * as hard to scan.
- *
- * The optional $accent prop tints the icon at rest / on hover, used by the
- * rail's action buttons (extracts / analyses / create) to differentiate them
- * from the navigation tabs while sharing the pill shape and footprint.
- */
+// Icon-only rail pill used for sidebar tabs and the unified rail's action buttons. The text label is visually-hidden (.tab-label) so screen readers still announce it; visible affordance is icon + optional CSS tooltip via data-tooltip. $accent tints the icon to differentiate action buttons (extracts/analyses/create) from navigation tabs.
 export const SidebarTab = styled(motion.button)<{
   $isActive: boolean;
   $panelOpen: boolean;
@@ -190,12 +179,7 @@ export const SidebarTab = styled(motion.button)<{
     flex-shrink: 0;
   }
 
-  /*
-   * The tab text remains in the DOM (for screen readers + tests grepping
-   * by visible text), but is visually hidden. This replaces the previous
-   * rotated "writing-mode: vertical-rl" rendering called out in
-   * issue #1734 as hard to scan.
-   */
+  /* Tab text kept in DOM for screen readers + text-based test selectors, visually hidden via sr-only clip. */
   .tab-label {
     position: absolute;
     width: 1px;
@@ -313,11 +297,7 @@ export const SidebarTab = styled(motion.button)<{
   }
 `;
 
-/**
- * Subtle horizontal separator used inside the unified RightEdgeRail to split
- * the navigation tabs (top) from the document tool buttons (bottom). Matches
- * the pill width so the rail still reads as a single coherent column.
- */
+// Horizontal separator inside RightEdgeRail splitting the navigation tabs (top) from the action buttons (bottom). Narrower than the 44px pill so the rail still reads as a single coherent column rather than two adjacent groups.
 export const RailDivider = styled.div`
   width: 28px;
   height: 1px;
@@ -326,21 +306,7 @@ export const RailDivider = styled.div`
   opacity: 0.7;
 `;
 
-/**
- * Unified right-edge control rail. Anchors against the viewport's right edge,
- * vertically centered, and stacks the {@link DesktopSidebarTabs} (top) above
- * the {@link FloatingDocumentControls} action buttons (bottom) as a single
- * coherent column — resolving the "two competing vertical stacks" desktop
- * polish issue (#1734). Only used when the right panel is closed; when the
- * panel is open the tabs anchor to its left edge and the action buttons
- * keep their own bottom-right placement.
- *
- * Hidden on narrow viewports — the mobile layout handles the equivalent
- * affordances via its dedicated tab bar / ask bar.
- *
- * Exported so test harnesses can import the canonical primitive instead of
- * re-implementing its positioning CSS (drift risk).
- */
+// Unified right-edge rail (panel-closed only): stacks DesktopSidebarTabs above FloatingDocumentControls as one coherent vertical column. Hidden below 768px (mobile has its own tab/ask bars). Exported so test harnesses use the canonical primitive rather than re-implementing positioning.
 export const RightEdgeRail = styled.div`
   position: fixed;
   right: 0;

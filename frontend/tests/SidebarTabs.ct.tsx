@@ -245,10 +245,14 @@ test.describe("RightEdgeRail (issue #1734)", () => {
     );
   });
 
-  test("read-only flavor hides the create-analysis pill", async ({
+  test("read-only flavor: rail structural contract hides create pill (harness, not FloatingDocumentControls gating)", async ({
     mount,
     page,
   }) => {
+    // NOTE: this exercises the harness's structural rendering, not the real
+    // FloatingDocumentControls permission gate (canCreateAnalysis && !readOnly
+    // && selectedCorpus). The harness avoids Apollo/Jotai setup; production
+    // permission gating is covered by FloatingDocumentControls.ct.tsx.
     await mount(<RightEdgeRailHarness canCreateAnalysis={false} />);
 
     const rail = page.getByTestId("right-edge-rail");

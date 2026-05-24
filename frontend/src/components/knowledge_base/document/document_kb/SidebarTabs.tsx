@@ -61,8 +61,7 @@ export interface DesktopSidebarTabsProps {
  * Each tab carries an accessible name via `aria-label` and a CSS-rendered
  * tooltip via `data-tooltip` (handled by the styled `SidebarTab`). The
  * `.tab-label` span is kept in the DOM for screen-reader announcement and
- * for tests that grep by visible text, but is visually hidden — replacing
- * the previous rotated text rail called out in issue #1734.
+ * for tests that grep by visible text, but is visually hidden.
  */
 export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
   panelOpen,

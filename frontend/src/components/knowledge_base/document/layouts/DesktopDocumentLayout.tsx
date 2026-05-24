@@ -128,7 +128,7 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
    * identical onAnalysesClick / onExtractsClick bodies — gate on
    * corpusId, toast + open add-to-corpus modal when missing, otherwise
    * toggle the panel. Extracted once here so the two branches share one
-   * source of truth (issue #1734 review feedback).
+   * source of truth.
    */
   const handleAnalysesClick = useCallback(() => {
     if (!corpusId) {
@@ -329,9 +329,8 @@ export const DesktopDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
 
               {/*
                * Panel CLOSED: unified right-edge rail combining the navigation
-               * tabs (top) and the document tool buttons (bottom) into a
-               * single coherent vertical column. Resolves issue #1734
-               * (two competing right-edge stacks).
+               * tabs (top) and the document tool buttons (bottom) into one
+               * coherent vertical column.
                *
                * Panel OPEN: the tabs anchor to the left edge of the open
                * panel (rendered inside SlidingPanel below) and the action

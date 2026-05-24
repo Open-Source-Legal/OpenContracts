@@ -34,8 +34,7 @@ import { SidebarTab } from "./styled/SidebarTabs";
  * Three positioning modes:
  * - `$bare=true`     → no positioning of its own; the parent (the unified
  *   `RightEdgeRail` in DesktopDocumentLayout, panel-closed case) stacks the
- *   action buttons directly below the navigation tabs in a single coherent
- *   rail. Closes the two-stack visual called out in issue #1734.
+ *   action buttons directly below the navigation tabs in one coherent rail.
  * - panel open       → bottom-right with `$panelOffset` so the cluster
  *   clears the open right panel.
  * - panel closed and not bare → legacy bottom-right placement (kept for
@@ -72,16 +71,7 @@ const ControlsContainer = styled(motion.div)<{
   `}
 `;
 
-/**
- * Action button (extracts / analyses / create / settings / width). Shares the
- * `SidebarTab` pill shape and footprint so the unified RightEdgeRail reads as
- * a single coherent control region — the rotated-tabs vs floating-FABs
- * mismatch flagged in issue #1734 is gone.
- *
- * The optional `$accent` color tints the icon at rest and on hover, used to
- * keep the lightweight per-action color cues (analyses=amber, extracts=violet,
- * create=green) without the heavy colored-circle treatment.
- */
+// Action button (extracts/analyses/create/settings/width). Extends SidebarTab so it shares the same pill shape/footprint as the navigation tabs; $accent tints the icon to preserve lightweight per-action color cues (analyses=amber, extracts=violet, create=green) without heavy colored circles.
 const ActionButton = styled(SidebarTab)`
   /* Expanded state (settings / width menu open) rotates the icon. */
   &[data-expanded="true"] svg {
@@ -299,8 +289,8 @@ interface FloatingDocumentControlsProps {
    * When true, render without the legacy bottom-right fixed positioning so a
    * parent container (the unified `RightEdgeRail` in DesktopDocumentLayout)
    * can stack these action buttons directly below the navigation tabs as one
-   * coherent vertical rail (issue #1734). Overlay popovers (settings,
-   * panel-width menu) still position relative to this container.
+   * coherent vertical rail. Overlay popovers (settings, panel-width menu)
+   * still position relative to this container.
    */
   bareContainer?: boolean;
 }
