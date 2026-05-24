@@ -106,27 +106,21 @@ const baseStubProps: DocumentLayoutProps = {
 
 interface DesktopHarnessProps {
   /**
-   * Override corpusId so tests can drive corpus-less branches (e.g. the
-   * FloatingSummaryPreview is gated on `corpusId` truthiness).
+   * Override corpusId so tests can drive the `!corpusId` branch of the
+   * action-button callbacks and gate FloatingSummaryPreview off.
    */
   corpusId?: string;
-  /**
-   * Optional initial activeLayer — pass "knowledge" to test the
-   * back-to-document callback path on FloatingSummaryPreview.
-   */
+  /** Initial activeLayer ("knowledge" exercises back-to-document path). */
   activeLayer?: "knowledge" | "document";
-  /**
-   * Optional Apollo mocks for FloatingSummaryPreview's version query so
-   * tests can populate the version stack and exercise the
-   * `onSwitchToKnowledge(content)` branch via a version-chip click.
-   */
+  /** Optional Apollo mocks (e.g. summary version stack). */
   mocks?: ReadonlyArray<MockedResponse>;
+  /** When true, the right panel is initially open (rail branch is skipped). */
+  showRightPanel?: boolean;
+  threadCount?: number;
+  /** Initial sidebar view mode. */
+  sidebarViewMode?: "chat" | "feed" | "index" | "discussions";
 }
 
-/**
- * Default no-op cache — MockedProvider always needs one; an empty
- * InMemoryCache is sufficient when tests don't provide mocks.
- */
 const createHarnessCache = () =>
   new InMemoryCache({
     typePolicies: {
@@ -138,11 +132,7 @@ const createHarnessCache = () =>
     },
   });
 
-/**
- * Convenience mock for `GET_DOCUMENT_SUMMARY_VERSIONS` — exported so tests
- * can opt-in to a populated version stack without redefining the shape
- * from scratch.
- */
+/** Convenience mock for `GET_DOCUMENT_SUMMARY_VERSIONS`. */
 export const buildSummaryVersionsMock = (
   documentId: string,
   corpusId: string
@@ -190,33 +180,36 @@ export const buildSummaryVersionsMock = (
 
 /**
  * Test harness for {@link DesktopDocumentLayout}. Provides a complete prop
- * stub that satisfies `DocumentLayoutProps` so the layout can render
- * standalone (no GraphQL, no Apollo data loaders).
+ * stub satisfying `DocumentLayoutProps` so the layout renders standalone.
  *
- * Owns the small slice of layout-driven state — activeLayer,
- * showRightPanel, sidebarViewMode, pendingChatMessage — that the
- * `DocumentBottomBar` inline callbacks mutate, so CT tests can click the
- * chat input / summary preview and assert on the resulting DOM shifts.
- * Used to cover the bottom-bar consolidation logic (issue #1735).
+ * Owns the slice of layout-driven state that the consolidated bottom-bar
+ * (#1735) and right-edge rail (#1734) callbacks mutate, so CT tests can
+ * click controls and assert on the resulting DOM shifts.
  */
 export const DesktopLayoutHarness: React.FC<DesktopHarnessProps> = ({
   corpusId = "corpus-1",
   activeLayer: initialActiveLayer = "document",
   mocks = [],
+  showRightPanel: initialShowRightPanel = false,
+  threadCount = 0,
+  sidebarViewMode: initialSidebarViewMode = "chat",
 }) => {
   const [activeLayer, setActiveLayer] = useState<"knowledge" | "document">(
     initialActiveLayer
   );
-  const [showRightPanel, setShowRightPanel] = useState(false);
+  const [showRightPanel, setShowRightPanel] = useState(initialShowRightPanel);
   const [sidebarViewMode, setSidebarViewMode] = useState<
     "chat" | "feed" | "index" | "discussions"
-  >("chat");
+  >(initialSidebarViewMode);
   const [pendingChatMessage, setPendingChatMessage] = useState<
     string | undefined
   >(undefined);
   const [selectedSummaryContent, setSelectedSummaryContent] = useState<
     string | null
   >(null);
+  const [showAnalysesPanel, setShowAnalysesPanel] = useState(false);
+  const [showExtractsPanel, setShowExtractsPanel] = useState(false);
+  const [showAddToCorpusModal, setShowAddToCorpusModal] = useState(false);
 
   return (
     <MemoryRouter>
@@ -235,6 +228,17 @@ export const DesktopLayoutHarness: React.FC<DesktopHarnessProps> = ({
               pendingChatMessage={pendingChatMessage}
               setPendingChatMessage={setPendingChatMessage}
               setSelectedSummaryContent={setSelectedSummaryContent}
+              showAnalysesPanel={showAnalysesPanel}
+              setShowAnalysesPanel={setShowAnalysesPanel}
+              showExtractsPanel={showExtractsPanel}
+              setShowExtractsPanel={setShowExtractsPanel}
+              showAddToCorpusModal={showAddToCorpusModal}
+              setShowAddToCorpusModal={setShowAddToCorpusModal}
+              threadCount={threadCount}
+              floatingControlsState={{
+                offset: showRightPanel ? 340 : 0,
+                visible: true,
+              }}
             />
             <div
               data-testid="harness-probe"

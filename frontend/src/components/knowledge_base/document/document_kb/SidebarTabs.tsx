@@ -40,6 +40,14 @@ export interface DesktopSidebarTabsProps {
    * already-active tab closes the panel.
    */
   panelOpen: boolean;
+  /**
+   * When `true`, the tabs render without their own fixed/absolute positioning
+   * so a parent (e.g. the unified `RightEdgeRail` in DesktopDocumentLayout)
+   * can stack them in a coherent column with the document tool buttons. Only
+   * meaningful when `panelOpen` is `false` (panel-open positioning anchors to
+   * the panel's left edge regardless).
+   */
+  bareContainer?: boolean;
 }
 
 /**
@@ -49,6 +57,11 @@ export interface DesktopSidebarTabsProps {
  * The two contexts share the same tab list and active styling but differ in
  * click behavior — see `panelOpen` prop. Discussions always pins panel width
  * to "half" so the document remains visible.
+ *
+ * Each tab carries an accessible name via `aria-label` and a CSS-rendered
+ * tooltip via `data-tooltip` (handled by the styled `SidebarTab`). The
+ * `.tab-label` span is kept in the DOM for screen-reader announcement and
+ * for tests that grep by visible text, but is visually hidden.
  */
 export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
   panelOpen,
@@ -59,6 +72,7 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
   selectedAnalysis,
   selectedExtract,
   threadCount,
+  bareContainer = false,
 }) => {
   /**
    * Click handler factory:
@@ -81,7 +95,7 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
   };
 
   return (
-    <SidebarTabsContainer $panelOpen={panelOpen}>
+    <SidebarTabsContainer $panelOpen={panelOpen} $bare={bareContainer}>
       <SidebarTab
         $isActive={sidebarViewMode === "index"}
         $panelOpen={panelOpen}
@@ -89,6 +103,8 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         data-testid="view-mode-index"
+        data-tooltip="Index"
+        aria-label="Document index"
       >
         <BookOpen />
         <span className="tab-label">Index</span>
@@ -100,6 +116,8 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         data-testid="view-mode-chat"
+        data-tooltip="Chat"
+        aria-label="Chat with this document"
       >
         <MessageSquare />
         <span className="tab-label">Chat</span>
@@ -111,6 +129,8 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         data-testid="view-mode-feed"
+        data-tooltip="Feed"
+        aria-label="Annotation feed"
       >
         <Layers />
         <span className="tab-label">Feed</span>
@@ -123,6 +143,8 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           data-testid="view-mode-extract"
+          data-tooltip="Extract"
+          aria-label="Extract results"
         >
           <Database />
           <span className="tab-label">Extract</span>
@@ -136,6 +158,8 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           data-testid="view-mode-analysis"
+          data-tooltip="Analysis"
+          aria-label="Analysis results"
         >
           <BarChart3 />
           <span className="tab-label">Analysis</span>
@@ -148,7 +172,16 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         data-testid="view-mode-discussions"
-        aria-label="Document discussions"
+        data-tooltip={
+          threadCount > 0 ? `Discussions (${threadCount})` : "Discussions"
+        }
+        aria-label={
+          threadCount > 0
+            ? `Document discussions, ${threadCount} ${
+                threadCount === 1 ? "thread" : "threads"
+              }`
+            : "Document discussions"
+        }
       >
         {threadCount > 0 && (
           <TabBadge $isActive={sidebarViewMode === "discussions"}>
