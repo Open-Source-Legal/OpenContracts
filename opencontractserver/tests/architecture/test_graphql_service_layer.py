@@ -33,15 +33,6 @@ ALLOWED_FILES: frozenset[str] = frozenset(
         # so this entry is here only as belt-and-braces against
         # future code edits inside this file.
         "filters.py",
-        # ------------------------------------------------------------------
-        # Phase 6 migration debt — every entry below this line will be
-        # removed as its file is migrated through service-layer calls.
-        # See docs/superpowers/plans/2026-05-24-phase6-service-layer-resolver-cleanup.md
-        # ------------------------------------------------------------------
-        "annotation_mutations.py",
-        "annotation_queries.py",
-        "document_mutations.py",
-        "document_types.py",
     }
 )
 
