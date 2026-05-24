@@ -42,8 +42,6 @@ from opencontractserver.conversations.models import (
     MessageTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.notifications.models import Notification
-
 logger = logging.getLogger(__name__)
 
 
@@ -259,14 +257,10 @@ class SocialQueryMixin:
         Filters notifications to only show those belonging to the current user.
         Supports filtering by is_read and notification_type via DjangoFilterConnectionField.
         """
-        user = info.context.user
-        if not user or not user.is_authenticated:
-            return Notification.objects.none()
+        from opencontractserver.notifications.services import NotificationService
 
-        return (
-            Notification.objects.filter(recipient=user)
-            .select_related("actor", "message", "conversation", "recipient")
-            .order_by("-created_at")
+        return NotificationService.list_for_user(
+            info.context.user, request=info.context
         )
 
     def resolve_notification(self, info, **kwargs) -> Any:
@@ -276,29 +270,23 @@ class SocialQueryMixin:
         Ensures user can only access their own notifications.
         Returns consistent error to prevent IDOR enumeration.
         """
-        user = info.context.user
-        if not user or not user.is_authenticated:
-            raise GraphQLError("Notification not found")
+        from opencontractserver.notifications.services import NotificationService
 
         django_pk = int(from_global_id(kwargs["id"])[1])
-
-        # Use try/except to catch DoesNotExist and return same error
-        # This prevents enumeration of valid notification IDs
-        try:
-            notification = Notification.objects.get(id=django_pk, recipient=user)
-        except Notification.DoesNotExist:
-            # Same error whether notification doesn't exist or belongs to another user
+        notification = NotificationService.get_for_user(
+            info.context.user, django_pk, request=info.context
+        )
+        if notification is None:
+            # Same error whether notification doesn't exist or belongs to
+            # another user (IDOR protection).
             raise GraphQLError("Notification not found")
-
         return notification
 
     def resolve_unread_notification_count(self, info) -> Any:
         """Get count of unread notifications for the current user."""
-        user = info.context.user
-        if not user or not user.is_authenticated:
-            return 0
+        from opencontractserver.notifications.services import NotificationService
 
-        return Notification.objects.filter(recipient=user, is_read=False).count()
+        return NotificationService.unread_count(info.context.user, request=info.context)
 
     # ENGAGEMENT METRICS & LEADERBOARD QUERIES (Epic #565) ########
     corpus_leaderboard = graphene.List(
