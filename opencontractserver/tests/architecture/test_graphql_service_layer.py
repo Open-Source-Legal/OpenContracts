@@ -40,10 +40,8 @@ ALLOWED_FILES: frozenset[str] = frozenset(
         # ------------------------------------------------------------------
         "annotation_mutations.py",
         "annotation_queries.py",
-        "corpus_mutations.py",
         "document_mutations.py",
         "document_types.py",
-        "extract_mutations.py",
     }
 )
 
