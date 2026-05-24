@@ -40,6 +40,7 @@ from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dyna
 from opencontractserver.analyzer.models import Analyzer, GremlinEngine
 from opencontractserver.constants.extracts import EXTRACT_LIST_MAX_PAGE_SIZE
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -131,25 +132,39 @@ class ExtractQueryMixin:
 
     def resolve_fieldset(self, info, **kwargs) -> Any:
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return Fieldset.objects.visible_to_user(info.context.user).get(id=django_pk)
+        obj = BaseService.get_or_none(
+            Fieldset, django_pk, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise Fieldset.DoesNotExist
+        return obj
 
     fieldsets = DjangoFilterConnectionField(
         FieldsetType, filterset_class=FieldsetFilter
     )
 
     def resolve_fieldsets(self, info, **kwargs) -> Any:
-        return Fieldset.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            Fieldset, info.context.user, request=info.context
+        )
 
     column = relay.Node.Field(ColumnType)
 
     def resolve_column(self, info, **kwargs) -> Any:
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return Column.objects.visible_to_user(info.context.user).get(id=django_pk)
+        obj = BaseService.get_or_none(
+            Column, django_pk, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise Column.DoesNotExist
+        return obj
 
     columns = DjangoFilterConnectionField(ColumnType, filterset_class=ColumnFilter)
 
     def resolve_columns(self, info, **kwargs) -> Any:
-        return Column.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            Column, info.context.user, request=info.context
+        )
 
     extract = relay.Node.Field(ExtractType)
 
@@ -243,14 +258,21 @@ class ExtractQueryMixin:
 
     def resolve_datacell(self, info, **kwargs) -> Any:
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return Datacell.objects.visible_to_user(info.context.user).get(id=django_pk)
+        obj = BaseService.get_or_none(
+            Datacell, django_pk, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise Datacell.DoesNotExist
+        return obj
 
     datacells = DjangoFilterConnectionField(
         DatacellType, filterset_class=DatacellFilter
     )
 
     def resolve_datacells(self, info, **kwargs) -> Any:
-        return Datacell.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            Datacell, info.context.user, request=info.context
+        )
 
     registered_extract_tasks = graphene.Field(GenericScalar)
 
@@ -385,16 +407,21 @@ class ExtractQueryMixin:
 
         def resolve_gremlin_engine(self, info, **kwargs) -> Any:
             django_pk = int(from_global_id(kwargs["id"])[1])
-            return GremlinEngine.objects.visible_to_user(info.context.user).get(
-                id=django_pk
+            obj = BaseService.get_or_none(
+                GremlinEngine, django_pk, info.context.user, request=info.context
             )
+            if obj is None:
+                raise GremlinEngine.DoesNotExist
+            return obj
 
         gremlin_engines = DjangoFilterConnectionField(
             GremlinEngineType_READ, filterset_class=GremlinEngineFilter
         )
 
         def resolve_gremlin_engines(self, info, **kwargs) -> Any:
-            return GremlinEngine.objects.visible_to_user(info.context.user)
+            return BaseService.filter_visible(
+                GremlinEngine, info.context.user, request=info.context
+            )
 
         # ANALYZER RESOLVERS #####################################
         analyzer = relay.Node.Field(AnalyzerType)
@@ -408,14 +435,21 @@ class ExtractQueryMixin:
             else:
                 return None
 
-            return Analyzer.objects.visible_to_user(info.context.user).get(id=django_pk)
+            obj = BaseService.get_or_none(
+                Analyzer, django_pk, info.context.user, request=info.context
+            )
+            if obj is None:
+                raise Analyzer.DoesNotExist
+            return obj
 
         analyzers = DjangoFilterConnectionField(
             AnalyzerType, filterset_class=AnalyzerFilter
         )
 
         def resolve_analyzers(self, info, **kwargs) -> Any:
-            return Analyzer.objects.visible_to_user(info.context.user)
+            return BaseService.filter_visible(
+                Analyzer, info.context.user, request=info.context
+            )
 
         # ANALYSIS RESOLVERS #####################################
         analysis = relay.Node.Field(AnalysisType)
