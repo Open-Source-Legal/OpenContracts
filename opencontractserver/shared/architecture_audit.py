@@ -108,3 +108,114 @@ def audit_graphql_modules() -> list[tuple[Path, int, str]]:
         for lineno, name in scan_forbidden(source):
             hits.append((module_path, lineno, name))
     return hits
+
+
+# ---------------------------------------------------------------------------
+# Failure-message recipes
+# ---------------------------------------------------------------------------
+#
+# When the audit fires, the dev hitting it probably has no prior context on
+# the service-layer rule. The recipes below are the answer to "OK, now what
+# do I type?" — one per forbidden identifier, copy-pasteable, no doc-link
+# chase required for the 95% case.
+#
+# Keep these recipes byte-for-byte aligned with the "Migration Recipes"
+# section in ``docs/architecture/query_permission_patterns.md`` — they are
+# the same content in two surfaces (failure output + browsable docs).
+
+_RECIPES: dict[str, str] = {
+    "visible_to_user": (
+        "Forbidden:\n"
+        "  Model.objects.visible_to_user(user)\n"
+        "  Model.objects.visible_to_user(user).get(pk=id)\n"
+        "\n"
+        "Use instead:\n"
+        "  # listing visible rows (queryset, chainable)\n"
+        "  BaseService.filter_visible(Model, user, request=info.context)\n"
+        "\n"
+        "  # IDOR-safe single-object fetch (returns None instead of raising;\n"
+        "  # collapses not-found and permission-denied into one branch)\n"
+        "  obj = BaseService.get_or_none(Model, pk, user, request=info.context)\n"
+        "  if obj is None:\n"
+        "      return MyMutation(ok=False, message='Not found')\n"
+    ),
+    "user_can": (
+        "Forbidden:\n"
+        "  obj.user_can(user, PermissionTypes.X)\n"
+        "  Model.objects.user_can(user, obj, PermissionTypes.X)\n"
+        "\n"
+        "Use instead:\n"
+        "  # fail-fast gate — returns '' on grant, error string on denial\n"
+        "  error = BaseService.require_permission(\n"
+        "      obj, user, PermissionTypes.UPDATE, request=info.context\n"
+        "  )\n"
+        "  if error:\n"
+        "      return MyMutation(ok=False, message=error)\n"
+        "\n"
+        "  # boolean for UI-state fields (can_edit_summary, can_view_history,\n"
+        "  # etc.) — returns True/False\n"
+        "  has_perm = BaseService.user_has(\n"
+        "      obj, user, PermissionTypes.UPDATE, request=info.context\n"
+        "  )\n"
+    ),
+    "user_has_permission_for_obj": (
+        "Forbidden:\n"
+        "  user_has_permission_for_obj(user, obj, permission)\n"
+        "\n"
+        "Use instead: the same BaseService helpers as ``user_can`` above —\n"
+        "  - BaseService.require_permission(...) for a fail-fast gate\n"
+        "  - BaseService.user_has(...) for a True/False UI flag\n"
+    ),
+}
+
+_REQUIRED_IMPORT = "from opencontractserver.shared.services.base import BaseService"
+
+_DOCS_POINTER = (
+    "Why this rule exists: CLAUDE.md rule 7 + Phase 6 of the service-layer "
+    "centralization (issue #1720). The forbidden identifiers are Tier-0 "
+    "authorization primitives; the public entry point for any user-context "
+    "caller is the service layer.\n"
+    "Full reference: docs/architecture/query_permission_patterns.md "
+    "(section 'Migration Recipes' has the same per-identifier playbook in "
+    "Markdown form, plus the per-app service catalogue)."
+)
+
+
+def format_violation(module_path: Path, lineno: int, name: str) -> tuple[str, str]:
+    """Return ``(short_message, hint_with_recipe)`` for one audit hit.
+
+    Both enforcement surfaces (pytest fail message, Django ``Error``
+    hint) call this so they stay byte-identical.
+
+    ``short_message`` is one line — suitable for the headline ``msg=``
+    of a Django ``Error`` or the leading line of a ``pytest.fail`` blob.
+    ``hint_with_recipe`` is a multi-line block containing the
+    copy-pasteable fix for ``name`` plus the required import plus a
+    pointer to the docs.
+    """
+    short = (
+        f"{module_path.name}:{lineno} uses Tier-0 permission primitive "
+        f"`{name}` directly — config/graphql/ must reach models through "
+        f"the service layer."
+    )
+    recipe = _RECIPES.get(
+        name,
+        # Should never happen — the AST scanner only emits identifiers
+        # from FORBIDDEN_NAMES, every entry of which has a recipe. If a
+        # future contributor adds a new forbidden name without a recipe
+        # this fallback still gives the reader something usable.
+        f"Forbidden identifier ``{name}``. Replace with the corresponding "
+        f"BaseService helper (get_or_none / filter_visible / "
+        f"require_permission / user_has) or a dedicated per-app service "
+        f"method.\n",
+    )
+    hint = (
+        "How to fix:\n"
+        f"{recipe}\n"
+        f"Required import: {_REQUIRED_IMPORT}\n"
+        "Always pass ``request=info.context`` (or the request-equivalent) "
+        "so the Tier-2 permission cache is engaged.\n"
+        "\n"
+        f"{_DOCS_POINTER}"
+    )
+    return short, hint

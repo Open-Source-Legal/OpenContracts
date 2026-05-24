@@ -21,37 +21,26 @@ from django.core.checks import Error, register
 def check_graphql_service_layer(app_configs: Any, **kwargs: Any) -> list[Error]:
     """Fail Django startup on any inline Tier-0 use in ``config/graphql/``.
 
-    Same scanner as the pytest invariant — they import the audit function
-    from ``opencontractserver.shared.architecture_audit`` so there is one
-    source of truth for what counts as a violation.
+    Same scanner as the pytest invariant — both call
+    ``opencontractserver.shared.architecture_audit.audit_graphql_modules``
+    so there is one source of truth for what counts as a violation, and
+    ``architecture_audit.format_violation`` builds the per-identifier
+    recipe so both surfaces show byte-identical fix instructions.
 
     Severity is ``Error`` (``opencontracts.E001``): Django blocks any
-    management command when an Error-level check fires, which is exactly
-    the "fail on startup" semantic we want. Use the migration recipe in
-    ``docs/architecture/query_permission_patterns.md`` to fix any hit —
-    ``BaseService.get_or_none`` / ``filter_visible`` / ``require_permission``
-    / ``user_has`` cover every pattern the rule replaces.
+    management command (``runserver``, ``migrate``, ``shell``, ``test``,
+    ``check --deploy``) when an Error-level check fires, which is the
+    "fail on startup" semantic we want.
     """
     # Deferred import — keeps ``shared.checks`` cheap to import; the AST
     # scan only runs when the registered check actually fires.
-    from opencontractserver.shared.architecture_audit import audit_graphql_modules
+    from opencontractserver.shared.architecture_audit import (
+        audit_graphql_modules,
+        format_violation,
+    )
 
     issues: list[Error] = []
     for module_path, lineno, name in audit_graphql_modules():
-        issues.append(
-            Error(
-                (
-                    f"{module_path.name}:{lineno} uses Tier-0 permission "
-                    f"primitive `{name}` directly. config/graphql/ must "
-                    "reach models through the service layer."
-                ),
-                hint=(
-                    "Replace with BaseService.get_or_none / filter_visible "
-                    "/ require_permission / user_has, or the relevant "
-                    "per-app service. See "
-                    "docs/architecture/query_permission_patterns.md."
-                ),
-                id="opencontracts.E001",
-            )
-        )
+        short, hint = format_violation(module_path, lineno, name)
+        issues.append(Error(short, hint=hint, id="opencontracts.E001"))
     return issues

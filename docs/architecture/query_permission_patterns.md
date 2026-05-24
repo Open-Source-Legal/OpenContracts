@@ -29,6 +29,100 @@ call Tier 1. The invariant is enforced for `config/graphql/` by
 `opencontractserver/tests/architecture/test_graphql_service_layer.py` and
 should be extended to other consumer directories as they migrate.
 
+## Migration Recipes — "I just got an `opencontracts.E001` error, what do I type?"
+
+If you landed here from a Django `manage.py` error or a pytest failure
+mentioning `opencontracts.E001` / "Tier-0 permission primitive", the
+recipe below is the answer. Both the test and the system check route
+through the same helper (`opencontractserver.shared.architecture_audit.
+format_violation`), so the failure output you saw is the same content
+as what follows — copy whichever recipe matches the identifier the
+scanner flagged.
+
+In every recipe: add the import once at the top of the file:
+
+```python
+from opencontractserver.shared.services.base import BaseService
+```
+
+And always pass `request=info.context` (or the request-equivalent your
+caller has) so the Tier-2 permission cache is shared across the request.
+
+### Recipe 1 — `visible_to_user`
+
+```python
+# ❌ Forbidden
+Model.objects.visible_to_user(user)
+Model.objects.visible_to_user(user).get(pk=id)
+
+# ✅ Listing visible rows (queryset, chainable like before)
+BaseService.filter_visible(Model, user, request=info.context)
+
+# ✅ IDOR-safe single-object fetch — returns None instead of raising;
+#    collapses not-found and permission-denied into one branch
+obj = BaseService.get_or_none(Model, pk, user, request=info.context)
+if obj is None:
+    return MyMutation(ok=False, message="Not found")
+```
+
+The "raises DoesNotExist on miss" form is intentionally gone. Returning
+`None` is the IDOR-safe contract — callers must surface a single
+generic error string for both "missing" and "forbidden" cases so the
+two branches stay indistinguishable to the client. If the surrounding
+code relied on `DoesNotExist`, replace the `try/except` with a
+`if obj is None:` branch returning the same error.
+
+### Recipe 2 — `user_can`
+
+```python
+# ❌ Forbidden
+if not obj.user_can(user, PermissionTypes.UPDATE):
+    return MyMutation(ok=False, message="Denied")
+
+# ✅ Fail-fast gate — returns "" on grant, error string on denial
+error = BaseService.require_permission(
+    obj, user, PermissionTypes.UPDATE, request=info.context
+)
+if error:
+    return MyMutation(ok=False, message=error)
+```
+
+```python
+# ❌ Forbidden (boolean UI flag)
+can_edit = obj.user_can(user, PermissionTypes.UPDATE)
+
+# ✅ Boolean for UI-state fields (can_edit_summary, can_view_history, etc.)
+can_edit = BaseService.user_has(
+    obj, user, PermissionTypes.UPDATE, request=info.context
+)
+```
+
+`require_permission` is for resolvers that need to abort with an error
+message. `user_has` is for resolvers that need a `True/False` to feed a
+UI-state GraphQL field. Don't reach for `not BaseService.require_permission(...)`
+when you can use `BaseService.user_has(...)` directly.
+
+### Recipe 3 — `user_has_permission_for_obj`
+
+Same as `user_can`. Use `BaseService.require_permission(...)` for a
+gate or `BaseService.user_has(...)` for a boolean.
+
+### When the generic helpers aren't enough
+
+If a dedicated per-app service method exists that matches your
+operation semantically (e.g. `CorpusDocumentService.get_corpus_document_by_id`,
+`ConversationService.get_threads_for_corpus`, `AnnotationService.get_document_annotations`),
+prefer it — it may layer prefetches, request-scoped caching, or extra
+domain logic on top of the generic `BaseService.*` call. The per-app
+service inventory below lists every one.
+
+If your operation is a complex multi-object flow that doesn't fit
+either bucket, that's a signal to add a new method to the relevant
+per-app service rather than re-composing inline. The point of the rule
+is that permission-laden orchestration stops being "the same six lines
+copy-pasted everywhere" and starts being named, testable, importable
+operations.
+
 ## The `BaseService` entry point
 
 `opencontractserver.shared.services.base.BaseService` is the generic surface
@@ -173,6 +267,9 @@ non-superusers. Implementation: `opencontractserver/shared/QuerySets.py`
 (AnnotationQuerySet visibility_filter).
 
 ## Enforcement
+
+See [`docs/development/architecture_invariants.md`](../development/architecture_invariants.md)
+for the invariant index and the pattern for adding new ones.
 
 Two independent layers point at the same scanner
 (`opencontractserver/shared/architecture_audit.py`) so a violation cannot

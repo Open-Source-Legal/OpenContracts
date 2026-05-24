@@ -18,6 +18,7 @@ import pytest
 from opencontractserver.shared.architecture_audit import (
     ALLOWED_FILES,
     GRAPHQL_DIR,
+    format_violation,
     iter_graphql_modules,
     scan_forbidden,
 )
@@ -28,6 +29,10 @@ def test_graphql_module_uses_service_layer(module_path: Path) -> None:
     """No forbidden Tier-0 identifier may appear in ``config/graphql/``.
 
     Allowed exceptions are listed in ``ALLOWED_FILES`` with a reason.
+    On a hit the failure message includes the copy-pasteable recipe for
+    each offending identifier (same recipe surfaced by the Django check
+    ``opencontracts.E001``) so a dev who's never seen this rule before
+    can fix the code without leaving the test output.
     """
     if module_path.name in ALLOWED_FILES:
         pytest.skip(f"{module_path.name} is on the documented allowlist")
@@ -35,16 +40,12 @@ def test_graphql_module_uses_service_layer(module_path: Path) -> None:
     source = module_path.read_text(encoding="utf-8")
     hits = scan_forbidden(source)
     if hits:
-        formatted = "\n".join(
-            f"  {module_path.name}:{lineno}: {name}" for lineno, name in hits
-        )
-        pytest.fail(
-            f"\n\n{module_path.name} uses Tier-0 permission primitives directly.\n"
-            f"Migrate to ``opencontractserver.shared.services.base.BaseService`` "
-            f"or the relevant per-app service (see "
-            f"``docs/architecture/query_permission_patterns.md``).\n\n"
-            f"Offending sites:\n{formatted}\n"
-        )
+        blocks = []
+        for lineno, name in hits:
+            short, hint = format_violation(module_path, lineno, name)
+            blocks.append(f"{short}\n\n{hint}")
+        separator = "\n\n" + ("=" * 72) + "\n\n"
+        pytest.fail("\n\n" + separator.join(blocks) + "\n")
 
 
 def test_allowlist_is_documented() -> None:
