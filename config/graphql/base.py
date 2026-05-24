@@ -79,9 +79,7 @@ class OpenContractsNode(Node):
             model, pk, info.context.user, request=info.context
         )
         if obj is None:
-            raise model.DoesNotExist(
-                f"{model.__name__} matching query does not exist."
-            )
+            raise model.DoesNotExist(f"{model.__name__} matching query does not exist.")
         return obj
 
 
@@ -148,9 +146,7 @@ class DRFDeletion(graphene.Mutation):
             model, id, info.context.user, request=info.context
         )
         if obj is None:
-            raise model.DoesNotExist(
-                f"{model.__name__} matching query does not exist."
-            )
+            raise model.DoesNotExist(f"{model.__name__} matching query does not exist.")
 
         # if there's a user lock, only the lock holder (or superuser) can proceed
         if hasattr(obj, "user_lock") and obj.user_lock is not None:

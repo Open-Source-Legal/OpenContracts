@@ -192,9 +192,7 @@ class UpdateBadgeMutation(graphene.Mutation):
         try:
             badge_pk = from_global_id(badge_id)[1]
             # Service-layer IDOR-safe fetch.
-            badge = BaseService.get_or_none(
-                Badge, badge_pk, user, request=info.context
-            )
+            badge = BaseService.get_or_none(Badge, badge_pk, user, request=info.context)
             if badge is None:
                 return UpdateBadgeMutation(
                     ok=False,
@@ -313,9 +311,7 @@ class DeleteBadgeMutation(graphene.Mutation):
         try:
             badge_pk = from_global_id(badge_id)[1]
             # Service-layer IDOR-safe fetch.
-            badge = BaseService.get_or_none(
-                Badge, badge_pk, user, request=info.context
-            )
+            badge = BaseService.get_or_none(Badge, badge_pk, user, request=info.context)
             if badge is None:
                 return DeleteBadgeMutation(
                     ok=False,

@@ -323,9 +323,7 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         visible_corpus_ids = BaseService.filter_visible(
             Corpus, user, request=info.context
         ).values("pk")
-        return (
-            self.used_by_corpuses.filter(pk__in=visible_corpus_ids).count()
-        )
+        return self.used_by_corpuses.filter(pk__in=visible_corpus_ids).count()
 
     # To get ALL labels for a given labelset
     all_annotation_labels = graphene.Field(graphene.List(AnnotationLabelType))

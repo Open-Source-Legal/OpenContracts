@@ -55,9 +55,9 @@ class SlugQueryMixin:
             owner = User.objects.get(slug=user_slug)
         except User.DoesNotExist:
             return None
-        qs = BaseService.filter_visible(Corpus, info.context.user, request=info.context).filter(
-            creator=owner, slug=corpus_slug
-        )
+        qs = BaseService.filter_visible(
+            Corpus, info.context.user, request=info.context
+        ).filter(creator=owner, slug=corpus_slug)
 
         # Add count annotations for efficient documentCount/annotationCount
         # resolution without N+1 queries. Coalesce ensures 0 instead of NULL.
@@ -80,7 +80,9 @@ class SlugQueryMixin:
         except User.DoesNotExist:
             return None
         return (
-            BaseService.filter_visible(Document, info.context.user, request=info.context)
+            BaseService.filter_visible(
+                Document, info.context.user, request=info.context
+            )
             .filter(creator=owner, slug=document_slug)
             .first()
         )
@@ -130,7 +132,9 @@ class SlugQueryMixin:
             path_filter["path_records__is_current"] = True
 
         doc = (
-            BaseService.filter_visible(Document, info.context.user, request=info.context)
+            BaseService.filter_visible(
+                Document, info.context.user, request=info.context
+            )
             .filter(**path_filter)
             .order_by("pk")
             .first()
@@ -144,7 +148,9 @@ class SlugQueryMixin:
             # traverse by version_tree_id (which groups all versions of
             # the same logical document) rather than filtering by slug.
             visible_version_docs = (
-                BaseService.filter_visible(Document, info.context.user, request=info.context)
+                BaseService.filter_visible(
+                    Document, info.context.user, request=info.context
+                )
                 .filter(version_tree_id=doc.version_tree_id)
                 .only("pk")
             )

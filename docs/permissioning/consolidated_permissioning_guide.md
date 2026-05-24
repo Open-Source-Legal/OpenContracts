@@ -14,9 +14,11 @@
 
 > **🟡 ANONYMOUS USER SUPPORT**: Anonymous users can access public resources with read-only permissions. Document AND corpus must both be `is_public=True` for access. Documents in public corpora **automatically inherit `is_public=True`** at creation time (see [Public Corpus Document Propagation](#public-corpus-document-propagation)). Applies to documents, corpuses, conversations, analyses (public only), and annotations.
 
-> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserQueryOptimizer` in `opencontractserver/users/query_optimizer.py`.
+> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserService` in `opencontractserver/users/services/user_service.py`.
 
-> **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeQueryOptimizer` in `opencontractserver/badges/query_optimizer.py`.
+> **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeService` in `opencontractserver/badges/services/badge_service.py`.
+
+> **🟢 SERVICE-LAYER ENTRY (Phase 6 — issue #1720)**: Every consumer of permission-filtered data (GraphQL resolvers, MCP tools, REST views, user-context Celery tasks) reaches models through `opencontractserver/<app>/services/`. The shared base `opencontractserver.shared.services.base.BaseService` exposes `get_or_none`, `filter_visible`, `require_permission`, and `user_has` for cases where a dedicated per-app method is overkill. Direct inline use of `visible_to_user` / `user_can` / `user_has_permission_for_obj` is forbidden in `config/graphql/` and enforced by `opencontractserver/tests/architecture/test_graphql_service_layer.py`. See `docs/architecture/query_permission_patterns.md` for the full per-app service catalogue.
 
 ## Key Changes in Current Implementation
 
@@ -1126,21 +1128,21 @@ User profiles have a `is_profile_public` boolean field that controls visibility:
 **Corpus Membership Visibility:**
 Private profiles become visible to users who share a corpus where the private user has more than READ permission (i.e., CREATE, UPDATE, or DELETE). This ensures collaborators who are actively contributing to a corpus can see each other.
 
-### Implementation: UserQueryOptimizer
+### Implementation: UserService
 
-The `UserQueryOptimizer` class in `opencontractserver/users/query_optimizer.py` provides centralized user visibility logic:
+The `UserService` class in `opencontractserver/users/services/user_service.py` provides centralized user visibility logic:
 
 ```python
-from opencontractserver.users.query_optimizer import UserQueryOptimizer
+from opencontractserver.users.services import UserService
 
 # Get all users visible to the requesting user
-visible_users = UserQueryOptimizer.get_visible_users(requesting_user)
+visible_users = UserService.get_visible_users(requesting_user)
 
 # Check if a specific user is visible
-is_visible = UserQueryOptimizer.check_user_visibility(requesting_user, target_user_id)
+is_visible = UserService.check_user_visibility(requesting_user, target_user_id)
 
 # Search for users (for @mention autocomplete)
-results = UserQueryOptimizer.get_users_for_mention(requesting_user, search_text="alice")
+results = UserService.get_users_for_mention(requesting_user, text_search="alice")
 ```
 
 **Key Methods:**
@@ -1149,7 +1151,7 @@ results = UserQueryOptimizer.get_users_for_mention(requesting_user, search_text=
 |--------|-------------|---------|
 | `get_visible_users(user)` | All users visible to the requesting user | QuerySet |
 | `check_user_visibility(user, target_id)` | Check if specific user is visible | bool |
-| `get_users_for_mention(user, search_text)` | Search users for @mention (authenticated only) | QuerySet |
+| `get_users_for_mention(user, text_search)` | Search users for @mention (authenticated only) | QuerySet |
 
 ### Badge Visibility
 
@@ -1162,23 +1164,23 @@ Badge awards (`UserBadge` model) follow the recipient's profile privacy rules:
 4. **Corpus-Specific Badges**: Visible only to users with access to that corpus
 5. **Anonymous Users**: Can only see badges of public users
 
-### Implementation: BadgeQueryOptimizer
+### Implementation: BadgeService
 
-The `BadgeQueryOptimizer` class in `opencontractserver/badges/query_optimizer.py` provides centralized badge visibility logic:
+The `BadgeService` class in `opencontractserver/badges/services/badge_service.py` provides centralized badge visibility logic:
 
 ```python
-from opencontractserver.badges.query_optimizer import BadgeQueryOptimizer
+from opencontractserver.badges.services import BadgeService
 
 # Get all badge awards visible to the requesting user
-visible_badges = BadgeQueryOptimizer.get_visible_user_badges(requesting_user)
+visible_badges = BadgeService.get_visible_user_badges(requesting_user)
 
 # Check visibility of a specific badge award (IDOR-safe)
-has_permission, badge_obj = BadgeQueryOptimizer.check_user_badge_visibility(
+has_permission, badge_obj = BadgeService.check_user_badge_visibility(
     requesting_user, user_badge_id
 )
 
 # Get badges for a specific user (respects privacy)
-user_badges = BadgeQueryOptimizer.get_badges_for_user(requesting_user, target_user_id)
+user_badges = BadgeService.get_badges_for_user(requesting_user, target_user_id)
 ```
 
 **Key Methods:**
@@ -1191,7 +1193,7 @@ user_badges = BadgeQueryOptimizer.get_badges_for_user(requesting_user, target_us
 
 ### IDOR Protection
 
-Both optimizers implement IDOR protection by returning the same response whether an object doesn't exist or the user lacks permission:
+Both services implement IDOR protection by returning the same response whether an object doesn't exist or the user lacks permission:
 
 ```python
 # IDOR-safe check - same response for non-existent or inaccessible

@@ -139,9 +139,9 @@ class DocumentPathType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return getattr(info.context, cache_key)
 
         visible_ids = set(
-            BaseService.filter_visible(
-                Corpus, user, request=info.context
-            ).values_list("id", flat=True)
+            BaseService.filter_visible(Corpus, user, request=info.context).values_list(
+                "id", flat=True
+            )
         )
         setattr(info.context, cache_key, visible_ids)
         return visible_ids

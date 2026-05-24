@@ -73,9 +73,7 @@ def _scan_forbidden(source: str) -> list[tuple[int, str]]:
     return hits
 
 
-@pytest.mark.parametrize(
-    "module_path", _iter_graphql_modules(), ids=lambda p: p.name
-)
+@pytest.mark.parametrize("module_path", _iter_graphql_modules(), ids=lambda p: p.name)
 def test_graphql_module_uses_service_layer(module_path: Path) -> None:
     """No forbidden Tier-0 identifier may appear in ``config/graphql/``.
 
@@ -106,6 +104,6 @@ def test_allowlist_is_documented() -> None:
     or removed.
     """
     for name in ALLOWED_FILES:
-        assert (GRAPHQL_DIR / name).is_file(), (
-            f"Allowlisted file {name!r} does not exist in {GRAPHQL_DIR}"
-        )
+        assert (
+            GRAPHQL_DIR / name
+        ).is_file(), f"Allowlisted file {name!r} does not exist in {GRAPHQL_DIR}"

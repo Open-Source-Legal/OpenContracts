@@ -94,9 +94,7 @@ class UserQueryMixin:
             UserImport, django_pk, info.context.user, request=info.context
         )
         if obj is None:
-            raise UserImport.DoesNotExist(
-                "UserImport matching query does not exist."
-            )
+            raise UserImport.DoesNotExist("UserImport matching query does not exist.")
         return obj
 
     # EXPORT RESOLVERS #####################################
@@ -126,9 +124,7 @@ class UserQueryMixin:
             UserExport, django_pk, info.context.user, request=info.context
         )
         if obj is None:
-            raise UserExport.DoesNotExist(
-                "UserExport matching query does not exist."
-            )
+            raise UserExport.DoesNotExist("UserExport matching query does not exist.")
         return obj
 
     # ASSIGNMENT RESOLVERS #####################################

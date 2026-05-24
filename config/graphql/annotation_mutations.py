@@ -614,9 +614,7 @@ class AddRelationship(graphene.Mutation):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # IDOR-safe corpus fetch + CREATE gate via the service layer.
-        corpus = BaseService.get_or_none(
-            Corpus, corpus_pk, user, request=info.context
-        )
+        corpus = BaseService.get_or_none(Corpus, corpus_pk, user, request=info.context)
         if corpus is None or BaseService.require_permission(
             corpus, user, PermissionTypes.CREATE, request=info.context
         ):
@@ -639,9 +637,7 @@ class AddRelationship(graphene.Mutation):
         # supplying them and observing whether the create succeeds vs.
         # raises an FK constraint. Same not-found message.
         if (
-            not BaseService.filter_visible(
-                AnnotationLabel, user, request=info.context
-            )
+            not BaseService.filter_visible(AnnotationLabel, user, request=info.context)
             .filter(pk=relationship_label_pk)
             .exists()
         ):
@@ -961,9 +957,7 @@ class UpdateNote(graphene.Mutation):
 
             # Service-layer IDOR-safe fetch so unauthorized IDs hit the same
             # branch as truly-missing IDs.
-            note = BaseService.get_or_none(
-                Note, note_pk, user, request=info.context
-            )
+            note = BaseService.get_or_none(Note, note_pk, user, request=info.context)
             if note is None:
                 return UpdateNote(
                     ok=False, message=not_found_msg, obj=None, version=None

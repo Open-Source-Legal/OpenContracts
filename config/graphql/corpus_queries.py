@@ -94,9 +94,7 @@ class CorpusQueryMixin:
             )
 
         return (
-            BaseService.filter_visible(
-                Corpus, info.context.user, request=info.context
-            )
+            BaseService.filter_visible(Corpus, info.context.user, request=info.context)
             .select_related("creator", "engagement_metrics", "label_set", "parent")
             .prefetch_related("categories")
             .annotate(
@@ -326,9 +324,7 @@ class CorpusQueryMixin:
                 # Uses DocumentPath to respect folder structure and versioning
                 # Note: path_records is the related_name for Document FK in DocumentPath
                 visible_doc_ids = (
-                    BaseService.filter_visible(
-                        Document, user, request=info.context
-                    )
+                    BaseService.filter_visible(Document, user, request=info.context)
                     .filter(
                         path_records__corpus=corpus,
                         path_records__is_current=True,

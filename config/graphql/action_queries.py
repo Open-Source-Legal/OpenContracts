@@ -66,9 +66,7 @@ class ActionQueryMixin:
         Can be filtered by corpus_id, trigger type, and disabled status.
         """
         user = info.context.user
-        queryset = BaseService.filter_visible(
-            CorpusAction, user, request=info.context
-        )
+        queryset = BaseService.filter_visible(CorpusAction, user, request=info.context)
 
         # Filter by corpus if provided
         corpus_id = kwargs.get("corpus_id")
@@ -184,9 +182,7 @@ class ActionQueryMixin:
             corpus_action_pk = from_global_id(corpus_action_id)[1]
             # Defense-in-depth: verify user has access to this corpus action
             if (
-                not BaseService.filter_visible(
-                    CorpusAction, user, request=info.context
-                )
+                not BaseService.filter_visible(CorpusAction, user, request=info.context)
                 .filter(pk=corpus_action_pk)
                 .exists()
             ):

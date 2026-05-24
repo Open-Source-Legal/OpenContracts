@@ -56,14 +56,16 @@ class SocialQueryMixin:
 
     def resolve_badges(self, info, **kwargs) -> Any:
         """Resolve badges visible to the user."""
-        return BaseService.filter_visible(Badge, info.context.user, request=info.context).select_related(
-            "creator", "corpus"
-        )
+        return BaseService.filter_visible(
+            Badge, info.context.user, request=info.context
+        ).select_related("creator", "corpus")
 
     def resolve_badge(self, info, **kwargs) -> Any:
         """Resolve a single badge by ID."""
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return BaseService.filter_visible(Badge, info.context.user, request=info.context).get(id=django_pk)
+        return BaseService.filter_visible(
+            Badge, info.context.user, request=info.context
+        ).get(id=django_pk)
 
     user_badges = DjangoFilterConnectionField(
         UserBadgeType, filterset_class=UserBadgeFilter
@@ -713,9 +715,9 @@ class SocialQueryMixin:
         month_ago = now - timedelta(days=30)
 
         # Get visible users (service-layer visibility).
-        users = BaseService.filter_visible(
-            User, user, request=info.context
-        ).filter(is_active=True)
+        users = BaseService.filter_visible(User, user, request=info.context).filter(
+            is_active=True
+        )
         total_users = users.count()
 
         # Total messages

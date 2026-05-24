@@ -386,9 +386,7 @@ class ConversationQueryMixin:
             ChatMessage, django_pk, info.context.user, request=info.context
         )
         if obj is None:
-            raise ChatMessage.DoesNotExist(
-                "ChatMessage matching query does not exist."
-            )
+            raise ChatMessage.DoesNotExist("ChatMessage matching query does not exist.")
         return obj
 
     # MODERATION QUERIES ##################################################

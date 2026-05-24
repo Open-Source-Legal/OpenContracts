@@ -548,9 +548,7 @@ class UpdateMessageMutation(graphene.Mutation):
             # conversation/corpus for mention parsing and moderator checks.
             try:
                 chat_message = (
-                    BaseService.filter_visible(
-                        ChatMessage, user, request=info.context
-                    )
+                    BaseService.filter_visible(ChatMessage, user, request=info.context)
                     .select_related(
                         "conversation",
                         "conversation__chat_with_corpus",

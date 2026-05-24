@@ -323,9 +323,7 @@ class UpdateDocumentSummary(graphene.Mutation):
             else:
                 # If no summary exists, require corpus modify rights
                 # (superuser, creator, or explicit guardian UPDATE).
-                if BaseService.require_permission(
-                    corpus, user, PermissionTypes.UPDATE
-                ):
+                if BaseService.require_permission(corpus, user, PermissionTypes.UPDATE):
                     return UpdateDocumentSummary(
                         ok=False,
                         message=not_found_msg,
