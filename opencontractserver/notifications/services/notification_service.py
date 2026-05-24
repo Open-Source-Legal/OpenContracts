@@ -19,7 +19,7 @@ Phase 5 of the service-layer centralization roadmap — see
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -75,7 +75,7 @@ class NotificationService(BaseService):
         notification_pk: Any,
         *,
         request: Any = None,
-    ) -> Optional[Notification]:
+    ) -> Notification | None:
         """IDOR-safe single-notification lookup.
 
         Returns ``None`` for both not-found and another-user-owned rows.

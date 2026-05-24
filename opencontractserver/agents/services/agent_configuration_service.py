@@ -12,7 +12,7 @@ Phase 5 of the service-layer centralization roadmap — see
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -63,8 +63,8 @@ class AgentConfigurationService(BaseService):
         cls,
         user: Any,
         *,
-        text_search: Optional[str] = None,
-        corpus_id: Optional[int] = None,
+        text_search: str | None = None,
+        corpus_id: int | None = None,
         request: Any = None,
     ) -> QuerySet:
         """Return active agents the user may @-mention, narrowed by filters.
@@ -130,7 +130,7 @@ class AgentConfigurationService(BaseService):
         agent_pk: Any,
         *,
         request: Any = None,
-    ) -> Optional[AgentConfiguration]:
+    ) -> AgentConfiguration | None:
         """IDOR-safe single-agent lookup.
 
         Returns the agent only when it is visible to ``user``; returns
@@ -150,12 +150,12 @@ class AgentConfigurationService(BaseService):
         description: str,
         system_instructions: str,
         scope: str,
-        slug: Optional[str] = None,
-        available_tools: Optional[list[str]] = None,
-        permission_required_tools: Optional[list[str]] = None,
-        badge_config: Optional[dict[str, Any]] = None,
-        avatar_url: Optional[str] = None,
-        corpus: Optional[Corpus] = None,
+        slug: str | None = None,
+        available_tools: list[str] | None = None,
+        permission_required_tools: list[str] | None = None,
+        badge_config: dict[str, Any] | None = None,
+        avatar_url: str | None = None,
+        corpus: Corpus | None = None,
         is_public: bool = True,
         request: Any = None,
     ) -> ServiceResult[AgentConfiguration]:
@@ -222,16 +222,16 @@ class AgentConfigurationService(BaseService):
         user: Any,
         agent: AgentConfiguration,
         *,
-        name: Optional[str] = None,
-        slug: Optional[str] = None,
-        description: Optional[str] = None,
-        system_instructions: Optional[str] = None,
-        available_tools: Optional[list[str]] = None,
-        permission_required_tools: Optional[list[str]] = None,
-        badge_config: Optional[dict[str, Any]] = None,
-        avatar_url: Optional[str] = None,
-        is_active: Optional[bool] = None,
-        is_public: Optional[bool] = None,
+        name: str | None = None,
+        slug: str | None = None,
+        description: str | None = None,
+        system_instructions: str | None = None,
+        available_tools: list[str] | None = None,
+        permission_required_tools: list[str] | None = None,
+        badge_config: dict[str, Any] | None = None,
+        avatar_url: str | None = None,
+        is_active: bool | None = None,
+        is_public: bool | None = None,
         request: Any = None,
     ) -> ServiceResult[AgentConfiguration]:
         """Update an agent configuration after CRUD-permission verification.

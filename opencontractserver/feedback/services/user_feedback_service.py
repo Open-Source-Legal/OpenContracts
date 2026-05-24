@@ -21,7 +21,7 @@ Phase 5 of the service-layer centralization roadmap — see
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 
@@ -50,7 +50,7 @@ class UserFeedbackService(BaseService):
         user: Any,
         annotation_pk: Any,
         *,
-        comment: Optional[str] = None,
+        comment: str | None = None,
         request: Any = None,
     ) -> ServiceResult[UserFeedback]:
         """Mark an annotation as approved (creating/updating its feedback row)."""
@@ -69,7 +69,7 @@ class UserFeedbackService(BaseService):
         user: Any,
         annotation_pk: Any,
         *,
-        comment: Optional[str] = None,
+        comment: str | None = None,
         request: Any = None,
     ) -> ServiceResult[UserFeedback]:
         """Mark an annotation as rejected (creating/updating its feedback row)."""
@@ -93,7 +93,7 @@ class UserFeedbackService(BaseService):
         *,
         approved: bool,
         rejected: bool,
-        comment: Optional[str],
+        comment: str | None,
         request: Any,
     ) -> ServiceResult[UserFeedback]:
         """Shared approve/reject body.
@@ -140,7 +140,5 @@ class UserFeedbackService(BaseService):
             is_new=created,
             request=request,
         )
-        cls.log_action(
-            "Approved" if approved else "Rejected", annotation, user
-        )
+        cls.log_action("Approved" if approved else "Rejected", annotation, user)
         return ServiceResult.success(user_feedback)

@@ -12,7 +12,7 @@ Phase 5 of the service-layer centralization roadmap — see
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -33,8 +33,8 @@ class WorkerAccountService(BaseService):
         cls,
         user: Any,
         *,
-        name_contains: Optional[str] = None,
-        is_active: Optional[bool] = None,
+        name_contains: str | None = None,
+        is_active: bool | None = None,
         request: Any = None,
     ) -> QuerySet:
         """Return worker accounts visible to ``user``, annotated for the resolver.
@@ -128,7 +128,5 @@ class WorkerAccountService(BaseService):
 
         account.is_active = active
         account.save(update_fields=["is_active"])
-        cls.log_action(
-            "Activated" if active else "Deactivated", account, user
-        )
+        cls.log_action("Activated" if active else "Deactivated", account, user)
         return ServiceResult.success(account)

@@ -11,7 +11,7 @@ Phase 5 of the service-layer centralization roadmap — see
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 
@@ -33,9 +33,9 @@ class AgentActionResultService(BaseService):
         cls,
         user: Any,
         *,
-        corpus_action_id: Optional[int] = None,
-        document_id: Optional[int] = None,
-        status: Optional[str] = None,
+        corpus_action_id: int | None = None,
+        document_id: int | None = None,
+        status: str | None = None,
         request: Any = None,
     ) -> QuerySet:
         """Return agent action results visible to ``user``, optionally filtered.

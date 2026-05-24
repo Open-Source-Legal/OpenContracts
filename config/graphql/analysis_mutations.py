@@ -41,7 +41,9 @@ class MakeAnalysisPublic(graphene.Mutation):
             result = AnalysisLifecycleService.make_public(
                 info.context.user, analysis_pk
             )
-            return MakeAnalysisPublic(ok=result.ok, message=result.value or result.error)
+            return MakeAnalysisPublic(
+                ok=result.ok, message=result.value or result.error
+            )
 
         except Exception as e:
             return MakeAnalysisPublic(

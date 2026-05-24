@@ -108,9 +108,7 @@ class RejectAnnotation(graphene.Mutation):
             request=info.context,
         )
         if not result.ok:
-            return RejectAnnotation(
-                ok=False, user_feedback=None, message=result.error
-            )
+            return RejectAnnotation(ok=False, user_feedback=None, message=result.error)
         return RejectAnnotation(
             ok=True, user_feedback=result.value, message="Annotation rejected"
         )
@@ -139,9 +137,7 @@ class ApproveAnnotation(graphene.Mutation):
             request=info.context,
         )
         if not result.ok:
-            return ApproveAnnotation(
-                ok=False, user_feedback=None, message=result.error
-            )
+            return ApproveAnnotation(ok=False, user_feedback=None, message=result.error)
         return ApproveAnnotation(
             ok=True, user_feedback=result.value, message="Annotation approved"
         )

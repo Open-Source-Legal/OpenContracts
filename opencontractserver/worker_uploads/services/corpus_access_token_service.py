@@ -11,7 +11,7 @@ Phase 5 of the service-layer centralization roadmap — see
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -35,7 +35,7 @@ class CorpusAccessTokenService(BaseService):
         user: Any,
         corpus_id: Any,
         *,
-        is_active: Optional[bool] = None,
+        is_active: bool | None = None,
         request: Any = None,
     ) -> ServiceResult[QuerySet]:
         """Return the corpus's access tokens, annotated for the resolver.
@@ -80,7 +80,7 @@ class CorpusAccessTokenService(BaseService):
         *,
         worker_account_id: Any,
         corpus_id: Any,
-        expires_at: Optional[datetime] = None,
+        expires_at: datetime | None = None,
         rate_limit_per_minute: int = 0,
         request: Any = None,
     ) -> ServiceResult[tuple[CorpusAccessToken, str]]:

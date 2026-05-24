@@ -10,7 +10,7 @@ Phase 5 of the service-layer centralization roadmap — see
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -30,9 +30,9 @@ class WorkerDocumentUploadService(BaseService):
         user: Any,
         corpus_id: Any,
         *,
-        status: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
+        status: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
         request: Any = None,
     ) -> ServiceResult[tuple[QuerySet, int, int, int]]:
         """List worker uploads for a corpus.

@@ -13,7 +13,7 @@ Phase 5 of the service-layer centralization roadmap — see
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import (
@@ -82,9 +82,9 @@ class AnalysisLifecycleService(BaseService):
         user: Any,
         *,
         analyzer_pk: Any,
-        document_pk: Optional[Any] = None,
-        corpus_pk: Optional[Any] = None,
-        analysis_input_data: Optional[dict[str, Any]] = None,
+        document_pk: Any | None = None,
+        corpus_pk: Any | None = None,
+        analysis_input_data: dict[str, Any] | None = None,
         request: Any = None,
     ) -> ServiceResult[Analysis]:
         """Start a document or corpus analysis using the specified analyzer.
@@ -120,11 +120,7 @@ class AnalysisLifecycleService(BaseService):
                 return ServiceResult.failure(not_found_msg)
 
         if corpus_pk is not None:
-            if (
-                not Corpus.objects.visible_to_user(user)
-                .filter(pk=corpus_pk)
-                .exists()
-            ):
+            if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
                 return ServiceResult.failure(not_found_msg)
 
         try:

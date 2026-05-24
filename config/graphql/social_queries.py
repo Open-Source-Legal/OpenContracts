@@ -42,6 +42,7 @@ from opencontractserver.conversations.models import (
     MessageTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
+
 logger = logging.getLogger(__name__)
 
 
