@@ -5,7 +5,6 @@ import json
 from io import BytesIO
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
 from PIL import Image
@@ -20,15 +19,20 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 pytestmark = pytest.mark.django_db
 
 
 class AnnotationImagesAPITestCase(TestCase):
     """Test the /api/annotations/<id>/images/ REST endpoint."""
+
+    user: User
+    other_user: User
+    label_set: LabelSet
+    annotation_label: AnnotationLabel
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):

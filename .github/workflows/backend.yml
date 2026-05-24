@@ -111,6 +111,12 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # ``packages: write`` lets the pytest job push the buildx layer cache to
+      # ``ghcr.io/{org}/{repo}/django-local-cache:main`` on ``main`` pushes (the
+      # ``--cache-to`` step below is gated to that event). PRs only read the
+      # cache — the ``write`` scope is harmless for them since their token is
+      # still PR-scoped (no cross-fork push).
+      packages: write
 
     steps:
       - name: Checkout Code Repository
@@ -125,49 +131,53 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ``docker buildx`` needs ``ACTIONS_RUNTIME_TOKEN`` + ``ACTIONS_RESULTS_URL``
-      # to talk to the GitHub Actions cache backend (it's how the runtime
-      # authenticates with the GHA cache service). ``setup-buildx-action`` does
-      # not export these to subsequent shell steps by default; without them the
-      # ``--cache-from type=gha`` / ``--cache-to type=gha`` directives below are
-      # silently ignored (build still succeeds, just with no cache effect).
+      # Use the ghcr.io registry as the buildx layer-cache backend instead of
+      # the GitHub Actions cache (``type=gha``). The registry cache is portable:
+      # the same layers CI writes are pullable from a local dev machine and any
+      # prod-deploy host (see ``local.yml`` / ``production.yml`` ``cache_from``).
+      # GHA cache only works inside GitHub Actions, so it would not help
+      # contributors building from a fresh checkout.
       #
-      # We expose them ourselves rather than pulling in a third-party action.
-      # The values live in the runner process env (set by the runner agent for
-      # JavaScript actions); ``actions/github-script@v7`` (official, GitHub) is
-      # a Node action and so has access to them, and ``core.exportVariable``
-      # forwards them into ``$GITHUB_ENV`` for the subsequent steps.
-      - name: Expose GitHub Actions runtime to docker buildx
-        uses: actions/github-script@v7
+      # The cache image inherits the repo's visibility (public for this repo,
+      # so no auth is required to *pull* on first publish — confirm in
+      # GitHub Packages settings if the package was created private).
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
         with:
-          script: |
-            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
-              const value = process.env[name];
-              if (value) {
-                core.exportVariable(name, value);
-              } else {
-                core.warning(`${name} is not set in the runner environment; ` +
-                             `buildx GHA cache will be a no-op.`);
-              }
-            }
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build the Stack
-        # The django image rebuild was the biggest pre-test cost (~2:40 wall)
-        # because the runner ships from scratch every PR. Pre-build it
-        # explicitly with buildx + GitHub Actions layer cache: on cache hit
-        # most layers (apt-get, pip wheel, spaCy model fetch) restore in
-        # seconds rather than rebuilding. The image is tagged to match the
-        # ``image:`` directive on the ``django`` service in test.yml, so the
-        # subsequent ``docker compose build`` recognises it as already built
-        # and only compiles the small ``postgres`` image (pgvector wrapper,
-        # ~5 s). ``cache-to`` writes the new cache layers; ``cache-from`` pulls
-        # them on the next run. Use a named scope so layer caches don't
-        # collide with future bakes (e.g. a separate celery image).
+        # The django image rebuild was the biggest pre-test cost on every PR
+        # (~2:40 wall) because the runner ships from scratch every time. The
+        # buildx layer cache restores most layers (apt-get, pip wheel, spaCy
+        # model fetch) in seconds when their inputs (Dockerfile, requirements,
+        # COPY'd source) are unchanged.
+        #
+        # ``cache-from`` is always set so PRs benefit from main's cache.
+        # ``cache-to`` only writes on ``push`` events (i.e. main-branch merges)
+        # — PR runs from forks can't push to ghcr packages anyway, and pushing
+        # from PRs would pollute main's cache key.
+        #
+        # The image is tagged to match the ``image:`` directive on the
+        # ``django`` service in test.yml, so the subsequent ``docker compose
+        # build`` recognises it as already built and only compiles the small
+        # ``postgres`` image (~5 s).
+        env:
+          CACHE_REF: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/django-local-cache:main
         run: |
+          # Lowercase the cache ref — ghcr requires lowercase paths but the
+          # repo name on GitHub can be mixed-case (e.g., "OpenContracts").
+          CACHE_REF_LC="$(echo "$CACHE_REF" | tr '[:upper:]' '[:lower:]')"
+          CACHE_TO_FLAG=""
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CACHE_TO_FLAG="--cache-to=type=registry,ref=${CACHE_REF_LC},mode=max"
+          fi
           docker buildx build \
             --load \
-            --cache-from type=gha,scope=django-test \
-            --cache-to type=gha,mode=max,scope=django-test \
+            --cache-from="type=registry,ref=${CACHE_REF_LC}" \
+            ${CACHE_TO_FLAG} \
             --tag opencontractserver_local_django \
             --file compose/local/django/Dockerfile \
             --build-arg GITHUB_ACTIONS=true \

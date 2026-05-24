@@ -8,6 +8,11 @@ services:
     build:
       context: .
       dockerfile: ./compose/production/django/Dockerfile
+      # Same image + same cache_from as the ``django`` service below (they
+      # share the build target). Wired now so once the prod cache CI lands,
+      # this service automatically benefits too.
+      cache_from:
+        - type=registry,ref=ghcr.io/open-source-legal/opencontracts/django-production-cache:main
     image: opencontractserver_production_django
     depends_on:
       - postgres
@@ -22,6 +27,14 @@ services:
     build:
       context: .
       dockerfile: ./compose/production/django/Dockerfile
+      # Wired up for future use: a follow-up CI job will publish a production
+      # layer cache to ghcr (this Dockerfile is distinct from the local/test
+      # one and needs its own cache scope). Until that job lands this is a
+      # no-op miss — builds proceed normally with no cache effect.
+      # See compose/local/django/Dockerfile's local.yml wiring for the working
+      # local-image example.
+      cache_from:
+        - type=registry,ref=ghcr.io/open-source-legal/opencontracts/django-production-cache:main
     image: opencontractserver_production_django
     depends_on:
       postgres:
