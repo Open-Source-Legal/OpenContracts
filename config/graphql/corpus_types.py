@@ -25,6 +25,7 @@ from opencontractserver.corpuses.models import (
     CorpusEngagementMetrics,
     CorpusFolder,
 )
+from opencontractserver.shared.services.base import BaseService
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -75,7 +76,10 @@ class CorpusCategoryType(DjangoObjectType):
             return self._corpus_count
         # Fallback to dynamic count (used when accessed individually)
         user = info.context.user
-        return self.corpuses.visible_to_user(user).count()
+        visible_corpus_ids = BaseService.filter_visible(
+            Corpus, user, request=info.context
+        ).values("pk")
+        return self.corpuses.filter(pk__in=visible_corpus_ids).count()
 
 
 # ---------------- Engagement Metrics Types (Epic #565) ----------------
@@ -162,8 +166,11 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return self.get_descendant_document_count()
 
     def resolve_children(self, info) -> Any:
-        """Get immediate child folders."""
-        return self.children.all().visible_to_user(info.context.user)
+        """Get immediate child folders (service-layer visibility)."""
+        visible_ids = BaseService.filter_visible(
+            CorpusFolder, info.context.user, request=info.context
+        ).values("pk")
+        return self.children.all().filter(pk__in=visible_ids)
 
     class Meta:
         model = CorpusFolder
@@ -173,10 +180,17 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
         """Filter folders to only those the user can see (via corpus permissions)."""
+        user = info.context.user
         if issubclass(type(queryset), QuerySet):
-            return queryset.visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.filter(pk__in=visible_ids)
         elif "RelatedManager" in str(type(queryset)):
-            return queryset.all().visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.all().filter(pk__in=visible_ids)
         else:
             return queryset
 
@@ -313,8 +327,11 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_folders(self, info) -> Any:
-        """Get all folders in this corpus with permission filtering."""
-        return self.folders.all().visible_to_user(info.context.user)
+        """Get all folders in this corpus with service-layer visibility filtering."""
+        visible_ids = BaseService.filter_visible(
+            CorpusFolder, info.context.user, request=info.context
+        ).values("pk")
+        return self.folders.all().filter(pk__in=visible_ids)
 
     # Engagement metrics (Epic #565)
     engagement_metrics = graphene.Field(CorpusEngagementMetricsType)
@@ -423,11 +440,18 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
+        user = info.context.user
         if issubclass(type(queryset), QuerySet):
-            return queryset.visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.filter(pk__in=visible_ids)
         elif "RelatedManager" in str(type(queryset)):
             # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            return queryset.all().visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.all().filter(pk__in=visible_ids)
         else:
             return queryset
 
@@ -446,7 +470,7 @@ class CorpusStatsType(graphene.ObjectType):
 class CorpusFilterCountsType(graphene.ObjectType):
     """Counts of corpuses visible to the user, broken down by tab filter.
 
-    Each count respects guardian permissions (matches Corpus.objects.visible_to_user)
+    Each count respects guardian permissions (matches BaseService.filter_visible(Corpus, user))
     so tab badges in the corpus list view stay accurate without paginating every
     page on the client.
     """

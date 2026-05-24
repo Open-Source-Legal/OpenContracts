@@ -46,6 +46,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
 )
 from opencontractserver.constants.auth import OAUTH_SUB_DISPLAY_SUFFIX_LENGTH
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 User = get_user_model()
@@ -390,7 +391,9 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
         return (
-            ChatMessage.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                ChatMessage, info.context.user, request=info.context
+            )
             .filter(creator=self, msg_type=MessageTypeChoices.HUMAN)
             .count()
         )
@@ -399,7 +402,9 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.conversations.models import Conversation
 
         return (
-            Conversation.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                Conversation, info.context.user, request=info.context
+            )
             .filter(creator=self, conversation_type="thread")
             .count()
         )
@@ -407,9 +412,12 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_total_annotations_created(self, info) -> Any:
         from opencontractserver.annotations.models import Annotation
 
+        # Filter by visibility via service layer, then narrow to this creator.
         return (
-            Annotation.objects.filter(creator=self)
-            .visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                Annotation, info.context.user, request=info.context
+            )
+            .filter(creator=self)
             .count()
         )
 
@@ -417,7 +425,9 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.documents.models import Document
 
         return (
-            Document.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                Document, info.context.user, request=info.context
+            )
             .filter(creator=self)
             .count()
         )
@@ -500,23 +510,30 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # (see ``AnnotationService.get_document_annotations`` which
         # registers a ``Prefetch("user_feedback", ...)``), the manager passed
         # in here has its parent's ``_prefetched_objects_cache`` populated.
-        # Re-applying ``.visible_to_user(...)`` invalidates that cache and
-        # forces a fresh SELECT per parent row — the original N+1 storm we
-        # were trying to eliminate. Detect the prefetch and pass through.
+        # Re-applying the visibility filter invalidates that cache and forces
+        # a fresh SELECT per parent row — the original N+1 storm we were
+        # trying to eliminate. Detect the prefetch and pass through.
         # ``instance``, ``prefetch_cache_name``, and ``_prefetched_objects_cache``
         # are Django RelatedManager internals — if their shape changes in a
-        # future release the fallback (re-applying ``visible_to_user``) keeps
-        # correctness intact, only losing the per-row optimisation.
+        # future release the service-layer fallback keeps correctness intact,
+        # only losing the per-row optimisation.
         instance = getattr(queryset, "instance", None)
         cache_name = getattr(queryset, "prefetch_cache_name", None)
         prefetched = getattr(instance, "_prefetched_objects_cache", None) or {}
         if instance is not None and cache_name is not None and cache_name in prefetched:
             return queryset
 
+        user = info.context.user
         if issubclass(type(queryset), QuerySet):
-            return queryset.visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.filter(pk__in=visible_ids)
         elif "RelatedManager" in str(type(queryset)):
             # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            return queryset.all().visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.all().filter(pk__in=visible_ids)
         else:
             return queryset

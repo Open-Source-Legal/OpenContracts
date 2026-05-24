@@ -44,17 +44,13 @@ ALLOWED_FILES: frozenset[str] = frozenset(
         "badge_mutations.py",
         "conversation_mutations.py",
         "conversation_types.py",
-        "corpus_folder_mutations.py",
         "corpus_mutations.py",
-        "corpus_queries.py",
-        "corpus_types.py",
         "document_mutations.py",
         "document_types.py",
         "extract_mutations.py",
         "extract_queries.py",
         "search_queries.py",
         "social_queries.py",
-        "user_types.py",
     }
 )
 
