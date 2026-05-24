@@ -17,6 +17,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
 from opencontractserver.constants.extracts import MAX_FULL_DATACELL_LIST_LIMIT
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
+from opencontractserver.shared.services.base import BaseService
 
 
 class ColumnType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -220,8 +221,8 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return sum(
             1
             for doc in documents
-            if doc.user_can(
-                info.context.user, PermissionTypes.READ, request=info.context
+            if BaseService.user_has(
+                doc, info.context.user, PermissionTypes.READ, request=info.context
             )
         )
 
@@ -234,8 +235,8 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         readable_docs = []
         for doc in self.documents.all():
-            if doc.user_can(
-                info.context.user, PermissionTypes.READ, request=info.context
+            if BaseService.user_has(
+                doc, info.context.user, PermissionTypes.READ, request=info.context
             ):
                 readable_docs.append(doc)
         return readable_docs

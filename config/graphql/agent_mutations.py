@@ -18,8 +18,8 @@ from config.graphql.graphene_types import AgentConfigurationType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.agents.services import AgentConfigurationService
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import get_for_user_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,14 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
                         message="Corpus not found",
                         agent=None,
                     )
-                corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-                if corpus is None or not corpus.user_can(
-                    user, PermissionTypes.CRUD, request=info.context
+                corpus = BaseService.get_or_none(
+                    Corpus, corpus_pk, user, request=info.context
+                )
+                if corpus is None or BaseService.require_permission(
+                    corpus,
+                    user,
+                    PermissionTypes.CRUD,
+                    request=info.context,
                 ):
                     return CreateAgentConfigurationMutation(
                         ok=False,

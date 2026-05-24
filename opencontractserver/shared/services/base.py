@@ -63,6 +63,30 @@ class BaseService:
         return model.objects.visible_to_user(user)
 
     @staticmethod
+    def user_has(
+        instance: Any,
+        user: Any,
+        permission: Any,
+        *,
+        request: Any = None,
+    ) -> bool:
+        """Return ``True`` iff ``user`` holds ``permission`` on ``instance``.
+
+        Companion to ``require_permission`` — same delegation to the model
+        manager's ``user_can``, but returns a plain ``bool`` for resolvers
+        that need a yes/no without producing an error string. Use this when
+        the answer feeds a UI-state field (e.g. ``can_edit_summary``,
+        ``can_create_labels``) rather than gating a mutation.
+
+        Resolvers and tools MUST NOT call ``Model.objects.user_can`` /
+        ``obj.user_can`` directly — that is Tier-0 and forbidden in
+        ``config/graphql/`` (see
+        ``opencontractserver/tests/architecture/test_graphql_service_layer.py``).
+        """
+        manager = type(instance).objects
+        return manager.user_can(user, instance, permission, request=request)
+
+    @staticmethod
     def require_permission(
         instance: Any,
         user: Any,
