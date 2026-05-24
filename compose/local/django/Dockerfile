@@ -1,7 +1,12 @@
-# Pin to a specific patch (not the floating 3.11 alias) so rebuilds on
+# Pin to a specific patch (not the floating 3.12 alias) so rebuilds on
 # different dates do not silently pick up a new CPython point release.
 # Keep this in sync with compose/production/django/Dockerfile.
-ARG PYTHON_VERSION=3.11.15-slim-bookworm
+#
+# 3.12 unlocks ``sys.monitoring``-backed coverage (``COVERAGE_CORE=sysmon``),
+# which is ~5-10x cheaper than the C-trace path required on 3.11. With the
+# test suite running ``--cov`` on every push, that's the biggest single
+# wall-time lever in CI.
+ARG PYTHON_VERSION=3.12.7-slim-bookworm
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #

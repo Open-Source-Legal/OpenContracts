@@ -164,13 +164,19 @@ jobs:
       - name: Run Backend Test Suite
         timeout-minutes: 100
         run: |
-          # Coverage instrumentation (coverage.py's C trace function under
-          # Python 3.11 — sys.monitoring/COVERAGE_CORE=sysmon needs 3.12+)
-          # adds noticeable wall time to the run, but Codecov's PR patch
-          # status needs a fresh report for the PR head commit — without one
-          # it compares against carryforward data and reports phantom
-          # coverage for newly added files. Measure coverage on both push
-          # and pull_request events so the patch gate reflects reality.
+          # Coverage instrumentation runs on both push and pull_request events
+          # so Codecov's PR patch status has a fresh report for the PR head
+          # commit. The Django image is built on Python 3.12 with
+          # ``COVERAGE_CORE=sysmon`` (set in .envs/.test/.django), so coverage
+          # uses ``sys.monitoring`` rather than the legacy C trace function —
+          # an order-of-magnitude cheaper instrumentation path on Python 3.12+.
+          #
+          # ``--dist loadscope`` is retained: a worksteal trial (PR #1767,
+          # initial commit) exposed ~39 test-order-dependency failures across
+          # plain ``TestCase`` subclasses that worked under loadscope's
+          # class-pinning. The underlying isolation bugs are tracked in
+          # docs/refactor_plans/2026-05-23-test-suite-speedup-A1-B1.md §6
+          # and need to be resolved before worksteal can be re-attempted.
           #
           # pytest-cov + pytest-xdist handle per-worker coverage merging.
           docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope

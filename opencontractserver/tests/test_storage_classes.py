@@ -68,9 +68,15 @@ class TestStorageClasses(unittest.TestCase):
         params = storage.get_object_parameters("styles.css")
         self.assertEqual(params.get("content_type"), "text/css")
 
-        # Test JS file
+        # Test JS file. Either form is RFC-valid; Python 3.12 updated the
+        # mimetypes db to return ``text/javascript`` (RFC 9239 — the legacy
+        # ``application/javascript`` is deprecated but still in use on
+        # Python 3.11). Accept both so the test passes on either runtime.
         params = storage.get_object_parameters("script.js")
-        self.assertEqual(params.get("content_type"), "application/javascript")
+        self.assertIn(
+            params.get("content_type"),
+            ("text/javascript", "application/javascript"),
+        )
 
         # Test image file
         params = storage.get_object_parameters("logo.png")

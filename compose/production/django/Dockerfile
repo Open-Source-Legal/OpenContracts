@@ -1,8 +1,11 @@
-# Pin to a specific patch (not the floating 3.11 alias) so rebuilds on
+# Pin to a specific patch (not the floating 3.12 alias) so rebuilds on
 # different dates do not silently pick up a new CPython point release that
 # could change runtime behaviour. Bump deliberately when upstream ships a
 # CVE/feature release and CI is green against the new patch.
-ARG PYTHON_VERSION=3.11.15-slim-bookworm
+#
+# Kept in sync with compose/local/django/Dockerfile. 3.12 is required for the
+# ``sys.monitoring``-backed coverage path used in CI; see that file's header.
+ARG PYTHON_VERSION=3.12.7-slim-bookworm
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #

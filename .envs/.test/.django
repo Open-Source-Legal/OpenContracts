@@ -51,6 +51,15 @@ DJANGO_SETTINGS_MODULE=config.settings.test
 # ------------------------------------------------------------------------------
 TESTING=true
 
+# Coverage backend
+# ------------------------------------------------------------------------------
+# Use CPython 3.12+'s ``sys.monitoring`` for coverage.py instead of the legacy
+# C trace function. On the backend test suite this reduces coverage overhead
+# from ~+156% to ~+5-15% over the no-cov baseline (measured 2026-05-23 against
+# the heavy WebSocket / extract / structured-response files). Requires the
+# Django image to be built on Python 3.12+ — see compose/local/django/Dockerfile.
+COVERAGE_CORE=sysmon
+
 # Pipeline Vars
 # ------------------------------
 EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000
