@@ -59,6 +59,71 @@ class AgentConfigurationService(BaseService):
         )
 
     @classmethod
+    def search_mentionable_agents(
+        cls,
+        user: Any,
+        *,
+        text_search: Optional[str] = None,
+        corpus_id: Optional[int] = None,
+        request: Any = None,
+    ) -> QuerySet:
+        """Return active agents the user may @-mention, narrowed by filters.
+
+        Anonymous users get an empty queryset (anonymous callers cannot
+        mention agents). When ``corpus_id`` is provided, results are
+        restricted to GLOBAL agents plus that corpus's agents; ``text_search``
+        does an icontains match on name / description / slug.
+        """
+        from django.db.models import Q
+
+        from opencontractserver.agents.models import AgentConfiguration
+
+        if not user or not getattr(user, "is_authenticated", False):
+            return AgentConfiguration.objects.none()
+
+        qs = AgentConfiguration.objects.visible_to_user(user).filter(is_active=True)
+
+        if corpus_id is not None:
+            qs = qs.filter(
+                Q(scope=AgentConfiguration.SCOPE_GLOBAL)
+                | Q(scope=AgentConfiguration.SCOPE_CORPUS, corpus_id=corpus_id)
+            )
+
+        if text_search:
+            qs = qs.filter(
+                Q(name__icontains=text_search)
+                | Q(description__icontains=text_search)
+                | Q(slug__icontains=text_search)
+            )
+
+        return qs
+
+    @classmethod
+    def get_active_agents_by_slugs(
+        cls,
+        user: Any,
+        slugs: list[str],
+        *,
+        request: Any = None,
+    ) -> QuerySet:
+        """Return the active agents (visible to ``user``) whose slug is in ``slugs``.
+
+        Used by the mention-resolution batch lookup in
+        ``config/graphql/conversation_types.py``. Threads ``select_related("corpus")``
+        for the resolver's per-row corpus access.
+        """
+        from opencontractserver.agents.models import AgentConfiguration
+
+        if not slugs:
+            return AgentConfiguration.objects.none()
+
+        return (
+            AgentConfiguration.objects.visible_to_user(user)
+            .filter(slug__in=slugs, is_active=True)
+            .select_related("corpus")
+        )
+
+    @classmethod
     def get_agent_by_id(
         cls,
         user: Any,
