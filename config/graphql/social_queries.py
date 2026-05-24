@@ -171,28 +171,36 @@ class SocialQueryMixin:
 
     def resolve_agents(self, info, **kwargs) -> Any:
         """Resolve agent configurations visible to the user."""
-        from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
-        return AgentConfiguration.objects.visible_to_user(
-            info.context.user
-        ).select_related("creator", "corpus")
+        return AgentConfigurationService.list_visible_agents(
+            info.context.user, request=info.context
+        )
 
     def resolve_agent_configurations(self, info, **kwargs) -> Any:
         """Alias for resolve_agents - frontend compatibility."""
-        from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
-        return AgentConfiguration.objects.visible_to_user(
-            info.context.user
-        ).select_related("creator", "corpus")
+        return AgentConfigurationService.list_visible_agents(
+            info.context.user, request=info.context
+        )
 
     def resolve_agent(self, info, **kwargs) -> Any:
         """Resolve a single agent configuration by ID."""
         from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return AgentConfiguration.objects.visible_to_user(info.context.user).get(
-            id=django_pk
+        agent = AgentConfigurationService.get_agent_by_id(
+            info.context.user, django_pk, request=info.context
         )
+        if agent is None:
+            # Mirror the pre-relocation behaviour, where ``visible_to_user.get``
+            # raised ``AgentConfiguration.DoesNotExist`` for both not-found
+            # and not-permitted callers — the relay Node resolver surfaces that
+            # to GraphQL as ``null``.
+            raise AgentConfiguration.DoesNotExist
+        return agent
 
     # AGENT TOOLS QUERIES ########################################
     available_tools = graphene.List(
