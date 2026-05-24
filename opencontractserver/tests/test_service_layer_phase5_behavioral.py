@@ -894,13 +894,16 @@ class TestCorpusAccessTokenServiceBehavioral(TestCase):
         self.assertNotIn(token_inactive.id, ids)
 
     def test_create_token_corpus_not_found(self):
+        # IDOR-safe: a nonexistent corpus and a corpus the caller doesn't own
+        # both surface the same "Not found or permission denied." response so
+        # the caller cannot distinguish missing-pk from forbidden-pk.
         result = CorpusAccessTokenService.create_token(
             self.superuser,
             worker_account_id=self.account.id,
             corpus_id=99_999_999,
         )
         self.assertFalse(result.ok)
-        self.assertEqual(result.error, "Corpus not found.")
+        self.assertEqual(result.error, "Not found or permission denied.")
 
     def test_create_token_permission_denied(self):
         result = CorpusAccessTokenService.create_token(
@@ -909,7 +912,7 @@ class TestCorpusAccessTokenServiceBehavioral(TestCase):
             corpus_id=self.corpus.id,
         )
         self.assertFalse(result.ok)
-        self.assertEqual(result.error, "Permission denied.")
+        self.assertEqual(result.error, "Not found or permission denied.")
 
     def test_create_token_worker_account_not_found(self):
         result = CorpusAccessTokenService.create_token(

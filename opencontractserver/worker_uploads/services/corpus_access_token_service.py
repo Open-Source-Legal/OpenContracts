@@ -87,9 +87,11 @@ class CorpusAccessTokenService(BaseService):
         """Issue a new corpus-scoped access token.
 
         Authorisation: the caller must be a superuser OR the corpus's
-        creator. Both the "Corpus not found." and "Worker account not
-        found." failure messages are preserved verbatim from the
-        pre-relocation mutation so the GraphQL contract is unchanged.
+        creator. The corpus gate is IDOR-safe — nonexistent ``corpus_id``
+        and an existing-but-not-owned ``corpus_id`` both surface the unified
+        "Not found or permission denied." message (matching ``list_for_corpus``
+        / ``revoke_token``). The "Worker account not found." failure message
+        is preserved verbatim from the pre-relocation mutation.
 
         Returns a tuple ``(token, plaintext_key)`` on success. The plaintext
         is shown only once — the stored row only retains the SHA-256 hash.
@@ -100,15 +102,16 @@ class CorpusAccessTokenService(BaseService):
             WorkerAccount,
         )
 
-        try:
-            corpus = Corpus.objects.get(id=corpus_id)
-        except Corpus.DoesNotExist:
-            return ServiceResult.failure("Corpus not found.")
-
-        if not getattr(user, "is_superuser", False) and (
-            not corpus.creator or corpus.creator != user
-        ):
-            return ServiceResult.failure("Permission denied.")
+        # Compose the owner-or-superuser gate into the queryset so a
+        # nonexistent corpus_id and a corpus_id the caller doesn't own
+        # collapse onto the same response. Matches ``list_for_corpus`` /
+        # ``revoke_token`` IDOR-safe pattern.
+        corpus_qs = Corpus.objects.filter(id=corpus_id)
+        if not getattr(user, "is_superuser", False):
+            corpus_qs = corpus_qs.filter(creator=user)
+        corpus = corpus_qs.first()
+        if corpus is None:
+            return ServiceResult.failure("Not found or permission denied.")
 
         try:
             account = WorkerAccount.objects.get(id=worker_account_id)

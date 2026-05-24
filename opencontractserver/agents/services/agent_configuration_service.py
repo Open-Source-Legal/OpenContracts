@@ -182,13 +182,18 @@ class AgentConfigurationService(BaseService):
             if not corpus.user_can(user, PermissionTypes.CRUD, request=request):
                 return ServiceResult.failure("Corpus not found")
         else:  # GLOBAL
-            if corpus is not None:
-                return ServiceResult.failure(
-                    "corpus_id must not be provided for GLOBAL scope agents."
-                )
+            # Superuser gate first — surfacing the canonical "must be
+            # superuser" message before any shape complaint so a non-superuser
+            # passing both ``scope=GLOBAL`` and ``corpus_id`` learns they
+            # can't create GLOBAL agents at all (rather than being told the
+            # corpus argument is invalid for a scope they can't use anyway).
             if not getattr(user, "is_superuser", False):
                 return ServiceResult.failure(
                     "You must be a superuser to create global agents."
+                )
+            if corpus is not None:
+                return ServiceResult.failure(
+                    "corpus_id must not be provided for GLOBAL scope agents."
                 )
 
         agent = AgentConfiguration.objects.create(
