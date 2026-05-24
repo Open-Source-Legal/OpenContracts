@@ -218,7 +218,7 @@ class CommentPermissionTestCase(TestCase):
 
         # Check that _can_comment is annotated
         annotation = annotations.first()
-        self.assertIsNotNone(annotation, "Should have at least one annotation")
+        assert annotation is not None, "Should have at least one annotation"
         self.assertTrue(
             hasattr(annotation, "_can_comment"),
             "Annotation should have _can_comment attribute",

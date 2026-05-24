@@ -638,9 +638,11 @@ class DocumentManagerVisibleToUserTest(TestCase):
         self.assertIn(self.doc.pk, qs.values_list("pk", flat=True))
 
         # Cheap JOINs are present in lightweight mode.
-        self.assertIn("creator", qs.query.select_related)
-        self.assertIn("user_lock", qs.query.select_related)
-        self.assertIn("parent", qs.query.select_related)
+        select_related = qs.query.select_related
+        assert isinstance(select_related, dict)
+        self.assertIn("creator", select_related)
+        self.assertIn("user_lock", select_related)
+        self.assertIn("parent", select_related)
 
         prefetch_lookups = _prefetch_lookup_names(qs)
         # Heavy fan-outs stay skipped under lightweight=True.
@@ -657,8 +659,10 @@ class DocumentManagerVisibleToUserTest(TestCase):
         qs = Document.objects.visible_to_user(self.viewer, lightweight=False)
         self.assertIn(self.doc.pk, qs.values_list("pk", flat=True))
         # select_related should include "creator" and "user_lock"
-        self.assertIn("creator", qs.query.select_related)
-        self.assertIn("user_lock", qs.query.select_related)
+        select_related = qs.query.select_related
+        assert isinstance(select_related, dict)
+        self.assertIn("creator", select_related)
+        self.assertIn("user_lock", select_related)
 
     def test_lightweight_with_doc_label_annotations_prefetches_focused_set(self):
         """
@@ -700,7 +704,9 @@ class DocumentManagerVisibleToUserTest(TestCase):
         qs = Document.objects.visible_to_user(self.superuser, lightweight=False)
         self.assertIn(self.doc.pk, qs.values_list("pk", flat=True))
         # Should still have select_related
-        self.assertIn("creator", qs.query.select_related)
+        select_related = qs.query.select_related
+        assert isinstance(select_related, dict)
+        self.assertIn("creator", select_related)
 
 
 class CorpusPublicPropagationEdgeCasesTest(TestCase):
@@ -1153,7 +1159,9 @@ class GroupObjectPermissionVisibilityTest(TestCase):
         consults the ``*groupobjectpermission`` table."""
         from opencontractserver.shared.QuerySets import PermissionQuerySet
 
-        qs = PermissionQuerySet(model=Document, using=connection.alias)
+        qs: PermissionQuerySet = PermissionQuerySet(
+            model=Document, using=connection.alias
+        )
         visible_ids = set(
             qs.visible_to_user(self.group_user).values_list("pk", flat=True)
         )
@@ -1275,7 +1283,9 @@ class GroupObjectPermissionVisibilityTest(TestCase):
                     "pk", flat=True
                 )
             )
-            generic_qs = PermissionQuerySet(model=Document, using=connection.alias)
+            generic_qs: PermissionQuerySet = PermissionQuerySet(
+                model=Document, using=connection.alias
+            )
             generic_visible = set(
                 generic_qs.visible_to_user(self.group_user).values_list("pk", flat=True)
             )

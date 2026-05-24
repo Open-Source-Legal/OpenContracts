@@ -529,6 +529,7 @@ class MetadataServiceTestCase(TestCase):
         status = MetadataService.get_metadata_completion_status(
             self.owner, self.doc1.id, self.corpus.id
         )
+        assert status is not None
         self.assertEqual(status["total_fields"], 2)
         self.assertEqual(status["filled_fields"], 2)
         self.assertEqual(status["missing_fields"], 0)
@@ -540,6 +541,7 @@ class MetadataServiceTestCase(TestCase):
         status = MetadataService.get_metadata_completion_status(
             self.owner, self.doc2.id, self.corpus.id
         )
+        assert status is not None
         self.assertEqual(status["total_fields"], 2)
         self.assertEqual(status["filled_fields"], 1)
         self.assertEqual(status["missing_fields"], 1)
@@ -554,6 +556,7 @@ class MetadataServiceTestCase(TestCase):
         status = MetadataService.get_metadata_completion_status(
             self.owner, doc3.id, self.corpus.id
         )
+        assert status is not None
         self.assertIn("Contract Type", status["missing_required"])
 
     def test_completion_status_no_permission(self):
@@ -575,6 +578,7 @@ class MetadataServiceTestCase(TestCase):
         status = MetadataService.get_metadata_completion_status(
             self.owner, doc.id, corpus_no_schema.id
         )
+        assert status is not None
         self.assertEqual(status["total_fields"], 0)
         self.assertEqual(status["percentage"], 100.0)
 
@@ -693,6 +697,7 @@ class MetadataServiceTestCase(TestCase):
         )
         self.assertTrue(is_valid)
         self.assertEqual(msg, "")
+        assert column is not None
         self.assertEqual(column.id, self.column1.id)
 
     def test_validate_column_not_manual_entry(self):
@@ -882,6 +887,7 @@ class MetadataServiceTestCase(TestCase):
         status = MetadataService.get_metadata_completion_status(
             self.owner, doc.id, corpus_auto.id
         )
+        assert status is not None
         self.assertEqual(status["total_fields"], 0)
         self.assertEqual(status["percentage"], 100.0)
 
