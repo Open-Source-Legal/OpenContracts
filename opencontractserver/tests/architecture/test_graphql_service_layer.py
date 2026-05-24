@@ -44,7 +44,6 @@ ALLOWED_FILES: frozenset[str] = frozenset(
         "annotation_queries.py",
         "annotation_types.py",
         "badge_mutations.py",
-        "base.py",
         "conversation_mutations.py",
         "conversation_queries.py",
         "conversation_types.py",
