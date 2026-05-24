@@ -419,29 +419,16 @@ class SearchQueryMixin:
         SECURITY: Filters by visibility - users only see agents they can mention.
         Anonymous users cannot search agents.
         """
-        from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
-        user = info.context.user
+        corpus_pk = int(from_global_id(corpus_id)[1]) if corpus_id else None
 
-        # Anonymous users cannot mention agents
-        if not user or not user.is_authenticated:
-            return AgentConfiguration.objects.none()
-
-        # Build base queryset using visible_to_user (respects permissions)
-        qs = AgentConfiguration.objects.visible_to_user(user).filter(is_active=True)
-
-        # If corpus_id provided, filter to global + that corpus only
-        if corpus_id:
-            corpus_pk = from_global_id(corpus_id)[1]
-            qs = qs.filter(Q(scope="GLOBAL") | Q(scope="CORPUS", corpus_id=corpus_pk))
-
-        # Apply text search across name, slug, and description
-        if text_search:
-            qs = qs.filter(
-                Q(name__icontains=text_search)
-                | Q(description__icontains=text_search)
-                | Q(slug__icontains=text_search)
-            )
+        qs = AgentConfigurationService.search_mentionable_agents(
+            info.context.user,
+            text_search=text_search,
+            corpus_id=corpus_pk,
+            request=info.context,
+        )
 
         # Order: Global first, then corpus-specific, then alphabetically by name
         return qs.select_related("creator", "corpus").order_by("scope", "name")

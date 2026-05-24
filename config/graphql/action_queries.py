@@ -99,37 +99,25 @@ class ActionQueryMixin:
         Resolver for agent_action_results that returns results visible to the current user.
         Can be filtered by corpus_action_id, document_id, and status.
         """
-        from opencontractserver.agents.models import AgentActionResult
-        from opencontractserver.corpuses.models import CorpusAction
+        from opencontractserver.agents.services import AgentActionResultService
 
         user = info.context.user
-        queryset = AgentActionResult.objects.visible_to_user(user)
 
-        # Filter by corpus_action if provided (with access check)
         corpus_action_id = kwargs.get("corpus_action_id")
-        if corpus_action_id:
-            corpus_action_pk = from_global_id(corpus_action_id)[1]
-            # Defense-in-depth: verify user has access to this corpus action
-            if (
-                not CorpusAction.objects.visible_to_user(user)
-                .filter(pk=corpus_action_pk)
-                .exists()
-            ):
-                return queryset.none()
-            queryset = queryset.filter(corpus_action_id=corpus_action_pk)
-
-        # Filter by document if provided
+        corpus_action_pk = (
+            int(from_global_id(corpus_action_id)[1]) if corpus_action_id else None
+        )
         document_id = kwargs.get("document_id")
-        if document_id:
-            document_pk = from_global_id(document_id)[1]
-            queryset = queryset.filter(document_id=document_pk)
-
-        # Filter by status if provided
+        document_pk = int(from_global_id(document_id)[1]) if document_id else None
         status = kwargs.get("status")
-        if status:
-            queryset = queryset.filter(status=status)
 
-        return queryset.order_by("-created")
+        return AgentActionResultService.list_visible_results(
+            user,
+            corpus_action_id=corpus_action_pk,
+            document_id=document_pk,
+            status=status,
+            request=info.context,
+        )
 
     # CORPUS ACTION EXECUTION QUERIES ##############################################
     corpus_action_executions = DjangoConnectionField(

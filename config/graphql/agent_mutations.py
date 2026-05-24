@@ -1,5 +1,10 @@
 """
 GraphQL mutations for the agent configuration system.
+
+Permission and CRUD logic lives in
+:class:`opencontractserver.agents.services.AgentConfigurationService`;
+the mutations decode global IDs, fetch the target via the service's
+IDOR-safe lookup, and forward the change to the service.
 """
 
 import logging
@@ -11,13 +16,10 @@ from graphql_relay import from_global_id
 
 from config.graphql.graphene_types import AgentConfigurationType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
-from opencontractserver.agents.models import AgentConfiguration
+from opencontractserver.agents.services import AgentConfigurationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    get_for_user_or_none,
-    set_permissions_for_obj_to_user,
-)
+from opencontractserver.utils.permissioning import get_for_user_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -84,16 +86,11 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            # Permission check: must be superuser or corpus owner. Unified
-            # message blocks IDOR enumeration — same response whether the
-            # corpus doesn't exist or the caller lacks CRUD permission on it.
+            # Resolve and gate the parent corpus (if any). Unified message
+            # blocks IDOR enumeration: bad id / missing / no-perm all surface
+            # the same string.
             corpus = None
             if corpus_id:
-                # ``from_global_id`` can raise a bare ``Exception`` (via
-                # ``binascii.Error``) on malformed base64 input. The
-                # malformed-id and the not-found / no-permission branches
-                # return the *same* string so a caller can't distinguish a
-                # bad id from a genuinely missing/inaccessible corpus.
                 try:
                     corpus_pk = from_global_id(corpus_id)[1]
                 except Exception:
@@ -111,54 +108,33 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
                         message="Corpus not found",
                         agent=None,
                     )
-            elif scope == "CORPUS":
-                return CreateAgentConfigurationMutation(
-                    ok=False,
-                    message="corpus_id is required for CORPUS scope agents.",
-                    agent=None,
-                )
-            elif not user.is_superuser:
-                return CreateAgentConfigurationMutation(
-                    ok=False,
-                    message="You must be a superuser to create global agents.",
-                    agent=None,
-                )
 
-            # Validate scope
-            if scope not in ["GLOBAL", "CORPUS"]:
-                return CreateAgentConfigurationMutation(
-                    ok=False,
-                    message="Scope must be GLOBAL or CORPUS.",
-                    agent=None,
-                )
-
-            # Create the agent (slug auto-generated if not provided via model.save())
-            # Note: badge_config comes as a dict from graphene.JSONString
-            agent = AgentConfiguration.objects.create(
+            result = AgentConfigurationService.create_agent(
+                user,
                 name=name,
-                slug=slug or "",  # empty string triggers auto-generation in save()
+                slug=slug,
                 description=description,
                 system_instructions=system_instructions,
-                available_tools=available_tools or [],
-                permission_required_tools=permission_required_tools or [],
-                badge_config=badge_config or {},
+                available_tools=available_tools,
+                permission_required_tools=permission_required_tools,
+                badge_config=badge_config,
                 avatar_url=avatar_url,
                 scope=scope,
                 corpus=corpus,
-                creator=user,
                 is_public=is_public,
-                is_active=True,
+                request=info.context,
             )
-
-            # Set permissions
-            set_permissions_for_obj_to_user(
-                user, agent, [PermissionTypes.CRUD], is_new=True, request=info.context
-            )
+            if not result.ok:
+                return CreateAgentConfigurationMutation(
+                    ok=False,
+                    message=result.error,
+                    agent=None,
+                )
 
             return CreateAgentConfigurationMutation(
                 ok=True,
                 message="Agent configuration created successfully",
-                agent=agent,
+                agent=result.value,
             )
 
         except Exception as e:
@@ -225,45 +201,42 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
                     message="Agent configuration not found",
                     agent=None,
                 )
-            agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
-            if agent is None or not agent.user_can(
-                user, PermissionTypes.CRUD, request=info.context
-            ):
+            agent = AgentConfigurationService.get_agent_by_id(
+                user, agent_pk, request=info.context
+            )
+            if agent is None:
                 return UpdateAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",
                     agent=None,
                 )
 
-            # Update fields
-            if name is not None:
-                agent.name = name
-            if slug is not None:
-                agent.slug = slug
-            if description is not None:
-                agent.description = description
-            if system_instructions is not None:
-                agent.system_instructions = system_instructions
-            if available_tools is not None:
-                agent.available_tools = available_tools
-            if permission_required_tools is not None:
-                agent.permission_required_tools = permission_required_tools
-            if badge_config is not None:
-                # badge_config comes as a dict from graphene.JSONString
-                agent.badge_config = badge_config
-            if avatar_url is not None:
-                agent.avatar_url = avatar_url
-            if is_active is not None:
-                agent.is_active = is_active
-            if is_public is not None:
-                agent.is_public = is_public
-
-            agent.save()
+            result = AgentConfigurationService.update_agent(
+                user,
+                agent,
+                name=name,
+                slug=slug,
+                description=description,
+                system_instructions=system_instructions,
+                available_tools=available_tools,
+                permission_required_tools=permission_required_tools,
+                badge_config=badge_config,
+                avatar_url=avatar_url,
+                is_active=is_active,
+                is_public=is_public,
+                request=info.context,
+            )
+            if not result.ok:
+                return UpdateAgentConfigurationMutation(
+                    ok=False,
+                    message=result.error,
+                    agent=None,
+                )
 
             return UpdateAgentConfigurationMutation(
                 ok=True,
                 message="Agent configuration updated successfully",
-                agent=agent,
+                agent=result.value,
             )
 
         except Exception as e:
@@ -301,16 +274,23 @@ class DeleteAgentConfigurationMutation(graphene.Mutation):
                     ok=False,
                     message="Agent configuration not found",
                 )
-            agent = get_for_user_or_none(AgentConfiguration, agent_pk, user)
-            if agent is None or not agent.user_can(
-                user, PermissionTypes.CRUD, request=info.context
-            ):
+            agent = AgentConfigurationService.get_agent_by_id(
+                user, agent_pk, request=info.context
+            )
+            if agent is None:
                 return DeleteAgentConfigurationMutation(
                     ok=False,
                     message="Agent configuration not found",
                 )
 
-            agent.delete()
+            result = AgentConfigurationService.delete_agent(
+                user, agent, request=info.context
+            )
+            if not result.ok:
+                return DeleteAgentConfigurationMutation(
+                    ok=False,
+                    message=result.error,
+                )
 
             return DeleteAgentConfigurationMutation(
                 ok=True,

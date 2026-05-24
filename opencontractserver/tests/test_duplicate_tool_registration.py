@@ -33,6 +33,20 @@ class TestDuplicateToolRegistration(TransactionTestCase):
 
     def setUp(self) -> None:
         """Create test data."""
+        # ``ToolFunctionRegistry`` is a process-singleton. Other tests sharing
+        # this worker (xdist loadscope deterministically co-locates whole
+        # modules but the *set* of modules on a worker shifts whenever the
+        # repo's test-file list changes) can register extra entries or aliases
+        # that survive into this class and skew the per-agent tool counts the
+        # assertions below pin. ``reset()`` is the registry's own documented
+        # test-isolation hook (see ``tool_registry.py``); calling it forces
+        # the next ``get()`` to rebuild from ``FUNCTION_MAP`` + ``AVAILABLE_TOOLS``.
+        from opencontractserver.llms.tools.tool_registry import (
+            ToolFunctionRegistry,
+        )
+
+        ToolFunctionRegistry.reset()
+
         self.user = User.objects.create_user(
             username="testuser",
             password="testpass",

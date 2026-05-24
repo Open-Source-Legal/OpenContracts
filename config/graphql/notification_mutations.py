@@ -2,7 +2,11 @@
 GraphQL mutations for the notification system.
 
 This module implements Epic #562: Notification System
-Sub-issue #564: Create GraphQL queries and mutations for notifications
+Sub-issue #564: Create GraphQL queries and mutations for notifications.
+
+Mutation bodies are thin wrappers around
+:class:`opencontractserver.notifications.services.NotificationService` —
+all ownership / IDOR-safety logic lives in the service.
 """
 
 import logging
@@ -14,7 +18,7 @@ from graphql_relay import from_global_id
 
 from config.graphql.graphene_types import NotificationType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
-from opencontractserver.notifications.models import Notification
+from opencontractserver.notifications.services import NotificationService
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -39,27 +43,22 @@ class MarkNotificationReadMutation(graphene.Mutation):
 
         try:
             notification_pk = from_global_id(notification_id)[1]
-
-            # Query by both ID and recipient in one query to prevent IDOR enumeration
-            # This returns same error whether notification doesn't exist or belongs to another user
-            notification = Notification.objects.get(pk=notification_pk, recipient=user)
-
-            notification.mark_as_read()
+            result = NotificationService.mark_read(
+                user, notification_pk, request=info.context
+            )
+            if not result.ok:
+                return MarkNotificationReadMutation(
+                    ok=False,
+                    message=result.error,
+                    notification=None,
+                )
 
             return MarkNotificationReadMutation(
                 ok=True,
                 message="Notification marked as read",
-                notification=notification,
+                notification=result.value,
             )
 
-        except Notification.DoesNotExist:
-            # Same error whether notification doesn't exist or belongs to another user
-            # This prevents enumeration of valid notification IDs
-            return MarkNotificationReadMutation(
-                ok=False,
-                message="Notification not found",
-                notification=None,
-            )
         except Exception as e:
             logger.exception("Error marking notification as read")
             return MarkNotificationReadMutation(
@@ -88,27 +87,22 @@ class MarkNotificationUnreadMutation(graphene.Mutation):
 
         try:
             notification_pk = from_global_id(notification_id)[1]
-
-            # Query by both ID and recipient in one query to prevent IDOR enumeration
-            # This returns same error whether notification doesn't exist or belongs to another user
-            notification = Notification.objects.get(pk=notification_pk, recipient=user)
-
-            notification.mark_as_unread()
+            result = NotificationService.mark_unread(
+                user, notification_pk, request=info.context
+            )
+            if not result.ok:
+                return MarkNotificationUnreadMutation(
+                    ok=False,
+                    message=result.error,
+                    notification=None,
+                )
 
             return MarkNotificationUnreadMutation(
                 ok=True,
                 message="Notification marked as unread",
-                notification=notification,
+                notification=result.value,
             )
 
-        except Notification.DoesNotExist:
-            # Same error whether notification doesn't exist or belongs to another user
-            # This prevents enumeration of valid notification IDs
-            return MarkNotificationUnreadMutation(
-                ok=False,
-                message="Notification not found",
-                notification=None,
-            )
         except Exception as e:
             logger.exception("Error marking notification as unread")
             return MarkNotificationUnreadMutation(
@@ -131,11 +125,14 @@ class MarkAllNotificationsReadMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            # Update all unread notifications for the current user
-            count = Notification.objects.filter(recipient=user, is_read=False).update(
-                is_read=True
-            )
-
+            result = NotificationService.mark_all_read(user, request=info.context)
+            if not result.ok:
+                return MarkAllNotificationsReadMutation(
+                    ok=False,
+                    message=result.error,
+                    count=0,
+                )
+            count = result.value
             return MarkAllNotificationsReadMutation(
                 ok=True,
                 message=f"Marked {count} notification(s) as read",
@@ -169,25 +166,16 @@ class DeleteNotificationMutation(graphene.Mutation):
 
         try:
             notification_pk = from_global_id(notification_id)[1]
-
-            # Query by both ID and recipient in one query to prevent IDOR enumeration
-            # This returns same error whether notification doesn't exist or belongs to another user
-            notification = Notification.objects.get(pk=notification_pk, recipient=user)
-
-            notification.delete()
-
+            result = NotificationService.delete_for_user(
+                user, notification_pk, request=info.context
+            )
+            if not result.ok:
+                return DeleteNotificationMutation(ok=False, message=result.error)
             return DeleteNotificationMutation(
                 ok=True,
                 message="Notification deleted successfully",
             )
 
-        except Notification.DoesNotExist:
-            # Same error whether notification doesn't exist or belongs to another user
-            # This prevents enumeration of valid notification IDs
-            return DeleteNotificationMutation(
-                ok=False,
-                message="Notification not found",
-            )
         except Exception as e:
             logger.exception("Error deleting notification")
             return DeleteNotificationMutation(

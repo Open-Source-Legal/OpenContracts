@@ -99,7 +99,7 @@ def resolve_mentions_for_user(
     Replaces the previous N+1 implementation where every mention drove its
     own ``visible_to_user().filter(...).first()`` call.
     """
-    from opencontractserver.agents.models import AgentConfiguration
+    from opencontractserver.agents.services import AgentConfigurationService
     from opencontractserver.annotations.models import Annotation
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document, DocumentPath
@@ -173,10 +173,8 @@ def resolve_mentions_for_user(
     # slug so each mention picks the right one in O(1).
     agents_by_slug: dict[str, list[Any]] = {}
     if agent_slugs:
-        for a in (
-            AgentConfiguration.objects.visible_to_user(user)
-            .filter(slug__in=agent_slugs, is_active=True)
-            .select_related("corpus")
+        for a in AgentConfigurationService.get_active_agents_by_slugs(
+            user, list(agent_slugs)
         ):
             agents_by_slug.setdefault(a.slug, []).append(a)
 

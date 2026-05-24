@@ -42,7 +42,6 @@ from opencontractserver.conversations.models import (
     MessageTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.notifications.models import Notification
 
 logger = logging.getLogger(__name__)
 
@@ -171,28 +170,36 @@ class SocialQueryMixin:
 
     def resolve_agents(self, info, **kwargs) -> Any:
         """Resolve agent configurations visible to the user."""
-        from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
-        return AgentConfiguration.objects.visible_to_user(
-            info.context.user
-        ).select_related("creator", "corpus")
+        return AgentConfigurationService.list_visible_agents(
+            info.context.user, request=info.context
+        )
 
     def resolve_agent_configurations(self, info, **kwargs) -> Any:
         """Alias for resolve_agents - frontend compatibility."""
-        from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
-        return AgentConfiguration.objects.visible_to_user(
-            info.context.user
-        ).select_related("creator", "corpus")
+        return AgentConfigurationService.list_visible_agents(
+            info.context.user, request=info.context
+        )
 
     def resolve_agent(self, info, **kwargs) -> Any:
         """Resolve a single agent configuration by ID."""
         from opencontractserver.agents.models import AgentConfiguration
+        from opencontractserver.agents.services import AgentConfigurationService
 
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return AgentConfiguration.objects.visible_to_user(info.context.user).get(
-            id=django_pk
+        agent = AgentConfigurationService.get_agent_by_id(
+            info.context.user, django_pk, request=info.context
         )
+        if agent is None:
+            # Mirror the pre-relocation behaviour, where ``visible_to_user.get``
+            # raised ``AgentConfiguration.DoesNotExist`` for both not-found
+            # and not-permitted callers — the relay Node resolver surfaces that
+            # to GraphQL as ``null``.
+            raise AgentConfiguration.DoesNotExist
+        return agent
 
     # AGENT TOOLS QUERIES ########################################
     available_tools = graphene.List(
@@ -251,14 +258,10 @@ class SocialQueryMixin:
         Filters notifications to only show those belonging to the current user.
         Supports filtering by is_read and notification_type via DjangoFilterConnectionField.
         """
-        user = info.context.user
-        if not user or not user.is_authenticated:
-            return Notification.objects.none()
+        from opencontractserver.notifications.services import NotificationService
 
-        return (
-            Notification.objects.filter(recipient=user)
-            .select_related("actor", "message", "conversation", "recipient")
-            .order_by("-created_at")
+        return NotificationService.list_for_user(
+            info.context.user, request=info.context
         )
 
     def resolve_notification(self, info, **kwargs) -> Any:
@@ -268,29 +271,23 @@ class SocialQueryMixin:
         Ensures user can only access their own notifications.
         Returns consistent error to prevent IDOR enumeration.
         """
-        user = info.context.user
-        if not user or not user.is_authenticated:
-            raise GraphQLError("Notification not found")
+        from opencontractserver.notifications.services import NotificationService
 
         django_pk = int(from_global_id(kwargs["id"])[1])
-
-        # Use try/except to catch DoesNotExist and return same error
-        # This prevents enumeration of valid notification IDs
-        try:
-            notification = Notification.objects.get(id=django_pk, recipient=user)
-        except Notification.DoesNotExist:
-            # Same error whether notification doesn't exist or belongs to another user
+        notification = NotificationService.get_for_user(
+            info.context.user, django_pk, request=info.context
+        )
+        if notification is None:
+            # Same error whether notification doesn't exist or belongs to
+            # another user (IDOR protection).
             raise GraphQLError("Notification not found")
-
         return notification
 
     def resolve_unread_notification_count(self, info) -> Any:
         """Get count of unread notifications for the current user."""
-        user = info.context.user
-        if not user or not user.is_authenticated:
-            return 0
+        from opencontractserver.notifications.services import NotificationService
 
-        return Notification.objects.filter(recipient=user, is_read=False).count()
+        return NotificationService.unread_count(info.context.user, request=info.context)
 
     # ENGAGEMENT METRICS & LEADERBOARD QUERIES (Epic #565) ########
     corpus_leaderboard = graphene.List(

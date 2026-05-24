@@ -3,6 +3,11 @@ GraphQL mutations for managing worker accounts and corpus access tokens.
 
 Superusers can manage all worker accounts and tokens.
 Corpus creators can create/revoke tokens scoped to their own corpuses.
+
+All permission and lifecycle logic lives in
+:mod:`opencontractserver.worker_uploads.services`; the mutations forward
+arguments to the service and project the result onto the GraphQL output
+type.
 """
 
 import logging
@@ -15,10 +20,9 @@ from config.graphql.worker_types import (
     CorpusAccessTokenCreatedType,
     WorkerAccountType,
 )
-from opencontractserver.corpuses.models import Corpus
-from opencontractserver.worker_uploads.models import (
-    CorpusAccessToken,
-    WorkerAccount,
+from opencontractserver.worker_uploads.services import (
+    CorpusAccessTokenService,
+    WorkerAccountService,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,19 +45,17 @@ class CreateWorkerAccount(graphene.Mutation):
 
     @user_passes_test(lambda user: user.is_superuser)
     def mutate(root, info, name, description="") -> "CreateWorkerAccount":
-        user = info.context.user
+        result = WorkerAccountService.create_worker_account(
+            info.context.user,
+            name=name,
+            description=description,
+            request=info.context,
+        )
+        if not result.ok:
+            raise GraphQLError(result.error)
 
-        try:
-            account = WorkerAccount.create_with_user(
-                name=name,
-                description=description,
-                creator=user,
-            )
-        except ValueError as e:
-            raise GraphQLError(str(e))
-
-        logger.info(f"Worker account created: {account.name} by user {user.id}")
-
+        account = result.value
+        assert account is not None  # narrowed by ``result.ok`` invariant
         return CreateWorkerAccount(
             ok=True,
             worker_account=WorkerAccountType(
@@ -76,19 +78,14 @@ class DeactivateWorkerAccount(graphene.Mutation):
 
     @user_passes_test(lambda user: user.is_superuser)
     def mutate(root, info, worker_account_id) -> "DeactivateWorkerAccount":
-        try:
-            account = WorkerAccount.objects.get(id=worker_account_id)
-        except WorkerAccount.DoesNotExist:
-            raise GraphQLError("Worker account not found.")
-
-        account.is_active = False
-        account.save(update_fields=["is_active"])
-
-        logger.info(
-            f"Worker account deactivated: {account.name} "
-            f"by user {info.context.user.id}"
+        result = WorkerAccountService.set_active(
+            info.context.user,
+            worker_account_id,
+            active=False,
+            request=info.context,
         )
-
+        if not result.ok:
+            raise GraphQLError(result.error)
         return DeactivateWorkerAccount(ok=True)
 
 
@@ -102,19 +99,14 @@ class ReactivateWorkerAccount(graphene.Mutation):
 
     @user_passes_test(lambda user: user.is_superuser)
     def mutate(root, info, worker_account_id) -> "ReactivateWorkerAccount":
-        try:
-            account = WorkerAccount.objects.get(id=worker_account_id)
-        except WorkerAccount.DoesNotExist:
-            raise GraphQLError("Worker account not found.")
-
-        account.is_active = True
-        account.save(update_fields=["is_active"])
-
-        logger.info(
-            f"Worker account reactivated: {account.name} "
-            f"by user {info.context.user.id}"
+        result = WorkerAccountService.set_active(
+            info.context.user,
+            worker_account_id,
+            active=True,
+            request=info.context,
         )
-
+        if not result.ok:
+            raise GraphQLError(result.error)
         return ReactivateWorkerAccount(ok=True)
 
 
@@ -144,40 +136,26 @@ class CreateCorpusAccessTokenMutation(graphene.Mutation):
         expires_at=None,
         rate_limit_per_minute=0,
     ) -> "CreateCorpusAccessTokenMutation":
-        user = info.context.user
-
-        try:
-            corpus = Corpus.objects.get(id=corpus_id)
-        except Corpus.DoesNotExist:
-            raise GraphQLError("Corpus not found.")
-
-        if not user.is_superuser and (not corpus.creator or corpus.creator != user):
-            raise GraphQLError("Permission denied.")
-
-        try:
-            account = WorkerAccount.objects.get(id=worker_account_id)
-        except WorkerAccount.DoesNotExist:
-            raise GraphQLError("Worker account not found.")
-
-        token, plaintext_key = CorpusAccessToken.create_token(
-            worker_account=account,
-            corpus=corpus,
+        result = CorpusAccessTokenService.create_token(
+            info.context.user,
+            worker_account_id=worker_account_id,
+            corpus_id=corpus_id,
             expires_at=expires_at,
             rate_limit_per_minute=rate_limit_per_minute,
+            request=info.context,
         )
+        if not result.ok:
+            raise GraphQLError(result.error)
 
-        logger.info(
-            f"Corpus access token created: worker={account.name}, "
-            f"corpus={corpus.id}, token_id={token.id}, by user {user.id}"
-        )
-
+        assert result.value is not None  # narrowed by ``result.ok`` invariant
+        token, plaintext_key = result.value
         return CreateCorpusAccessTokenMutation(
             ok=True,
             token=CorpusAccessTokenCreatedType(
                 id=token.id,
                 key=plaintext_key,
-                worker_account_name=account.name,
-                corpus_id=corpus.id,
+                worker_account_name=token.worker_account.name,
+                corpus_id=token.corpus_id,
                 expires_at=token.expires_at,
                 rate_limit_per_minute=token.rate_limit_per_minute,
                 created=token.created,
@@ -195,20 +173,9 @@ class RevokeCorpusAccessTokenMutation(graphene.Mutation):
 
     @login_required
     def mutate(root, info, token_id) -> "RevokeCorpusAccessTokenMutation":
-        user = info.context.user
-
-        qs = CorpusAccessToken.objects.select_related("corpus").filter(id=token_id)
-        if not user.is_superuser:
-            qs = qs.filter(corpus__creator=user)
-        token = qs.first()
-        if token is None:
-            raise GraphQLError("Not found or permission denied.")
-
-        token.is_active = False
-        token.save(update_fields=["is_active"])
-
-        logger.info(
-            f"Corpus access token revoked: token_id={token.id}, " f"by user {user.id}"
+        result = CorpusAccessTokenService.revoke_token(
+            info.context.user, token_id, request=info.context
         )
-
+        if not result.ok:
+            raise GraphQLError(result.error)
         return RevokeCorpusAccessTokenMutation(ok=True)

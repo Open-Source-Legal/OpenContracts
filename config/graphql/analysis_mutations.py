@@ -1,5 +1,9 @@
 """
 GraphQL mutations for analysis-related operations.
+
+Permission and lifecycle logic lives in
+:class:`opencontractserver.analyzer.services.AnalysisLifecycleService`;
+the mutations decode global IDs and forward to the service.
 """
 
 import logging
@@ -13,14 +17,7 @@ from graphql_relay import from_global_id
 from config.graphql.graphene_types import AnalysisType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from config.telemetry import record_event
-from opencontractserver.analyzer.models import Analysis, Analyzer
-from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
-from opencontractserver.tasks import delete_analysis_and_annotations_task
-from opencontractserver.tasks.corpus_tasks import process_analyzer
-from opencontractserver.tasks.permissioning_tasks import make_analysis_public_task
-from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import get_for_user_or_none
+from opencontractserver.analyzer.services import AnalysisLifecycleService
 
 logger = logging.getLogger(__name__)
 
@@ -41,21 +38,21 @@ class MakeAnalysisPublic(graphene.Mutation):
 
         try:
             analysis_pk = from_global_id(analysis_id)[1]
-            make_analysis_public_task.si(analysis_id=analysis_pk).apply_async()
-
-            message = (
-                "Starting an OpenContracts worker to make your analysis public! Underlying corpus must be made "
-                "public too!"
+            result = AnalysisLifecycleService.make_public(
+                info.context.user, analysis_pk, request=info.context
             )
-            ok = True
+            return MakeAnalysisPublic(
+                ok=result.ok,
+                message=result.value if result.ok else result.error,
+            )
 
         except Exception as e:
-            ok = False
-            message = (
-                f"ERROR - Could not make analysis public due to unexpected error: {e}"
+            return MakeAnalysisPublic(
+                ok=False,
+                message=(
+                    f"ERROR - Could not make analysis public due to unexpected error: {e}"
+                ),
             )
-
-        return MakeAnalysisPublic(ok=ok, message=message)
 
 
 class StartDocumentAnalysisMutation(graphene.Mutation):
@@ -102,70 +99,40 @@ class StartDocumentAnalysisMutation(graphene.Mutation):
         corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
 
         logger.info(
-            f"Parsed IDs - document_pk: {document_pk}, analyzer_pk: {analyzer_pk}, corpus_pk: {corpus_pk}"
+            f"Parsed IDs - document_pk: {document_pk}, analyzer_pk: {analyzer_pk}, "
+            f"corpus_pk: {corpus_pk}"
         )
         logger.info(f"Analysis input data: {analysis_input_data}")
 
-        if document_pk is None and corpus_pk is None:
-            raise ValueError("One of document_pk and corpus_pk must be provided")
-
-        not_found_msg = "Resource not found or you do not have permission."
-
         try:
-            # Check permissions for document using visible_to_user()
-            if document_pk:
-                if (
-                    not Document.objects.visible_to_user(user)
-                    .filter(pk=document_pk)
-                    .exists()
-                ):
-                    return StartDocumentAnalysisMutation(
-                        ok=False, message=not_found_msg, obj=None
-                    )
-
-            # Check permissions for corpus using visible_to_user()
-            if corpus_pk:
-                if (
-                    not Corpus.objects.visible_to_user(user)
-                    .filter(pk=corpus_pk)
-                    .exists()
-                ):
-                    return StartDocumentAnalysisMutation(
-                        ok=False, message=not_found_msg, obj=None
-                    )
-
-            analyzer = Analyzer.objects.get(pk=analyzer_pk)
-            logger.info(
-                f"Found analyzer: {analyzer.id} with task_name: {analyzer.task_name}"
-            )
-
-            analysis = process_analyzer(
-                user_id=user.id,
-                analyzer=analyzer,
-                corpus_id=corpus_pk,
-                document_ids=[document_pk] if document_pk else None,
-                corpus_action=None,
+            result = AnalysisLifecycleService.start_document_analysis(
+                user,
+                analyzer_pk=analyzer_pk,
+                document_pk=document_pk,
+                corpus_pk=corpus_pk,
                 analysis_input_data=analysis_input_data,
-            )
-
-            logger.info(
-                f"Analysis created with ID: {analysis.id if analysis else 'None'}"
-            )
-
-            record_event(
-                "analysis_started",
-                {
-                    "env": settings.MODE,
-                    "user_id": info.context.user.id,
-                },
-            )
-
-            return StartDocumentAnalysisMutation(
-                ok=True, message="SUCCESS", obj=analysis
+                request=info.context,
             )
         except Exception as e:
             logger.error(f"StartDocumentAnalysisMutation error: {e}", exc_info=True)
             return StartDocumentAnalysisMutation(ok=False, message=f"Error: {str(e)}")
+
+        if not result.ok:
+            return StartDocumentAnalysisMutation(
+                ok=False, message=result.error, obj=None
+            )
+
+        record_event(
+            "analysis_started",
+            {
+                "env": settings.MODE,
+                "user_id": info.context.user.id,
+            },
+        )
+
+        return StartDocumentAnalysisMutation(
+            ok=True, message="SUCCESS", obj=result.value
+        )
 
 
 class DeleteAnalysisMutation(graphene.Mutation):
@@ -178,47 +145,18 @@ class DeleteAnalysisMutation(graphene.Mutation):
     @login_required
     def mutate(root, info, id) -> "DeleteAnalysisMutation":
 
-        # Unified message blocks IDOR enumeration: same response whether the
-        # analysis doesn't exist, the caller can't see it, or they can see
-        # it but lack DELETE permission. Returned via the standard ok=False
-        # envelope (matches every other mutation migrated in Phase D) — the
-        # previous mix of Analysis.DoesNotExist + PermissionError surfaced
-        # different GraphQL response shapes for each branch and leaked
-        # object existence to anyone with a guessable pk.
+        # Unified message blocks IDOR enumeration. Bad global-id, missing
+        # analysis, and "exists but forbidden" all surface the same string.
         not_found_msg = "Analysis not found or you don't have permission to delete it."
 
-        # ``from_global_id`` raises a bare ``Exception`` (via
-        # ``binascii.Error``) on malformed base64 ids; route that through
-        # the same unified IDOR envelope rather than letting it surface
-        # as a GraphQL ``errors`` entry.
         try:
             analysis_pk = from_global_id(id)[1]
         except Exception:
             return DeleteAnalysisMutation(ok=False, message=not_found_msg)
-        analysis = get_for_user_or_none(Analysis, analysis_pk, info.context.user)
-        if analysis is None:
-            return DeleteAnalysisMutation(ok=False, message=not_found_msg)
 
-        # Lock check stays its own error path — the lock is observable state
-        # to anyone who can READ the analysis (so it does NOT leak existence).
-        # We ARE OK with deleting something locked by the backend itself —
-        # processing can stall and users need to abandon hung analyses.
-        if analysis.user_lock is not None:
-            if info.context.user.id != analysis.user_lock_id:
-                return DeleteAnalysisMutation(
-                    ok=False,
-                    message=(
-                        "Specified object is locked by another user. "
-                        "Cannot be deleted."
-                    ),
-                )
-
-        if not analysis.user_can(
-            info.context.user, PermissionTypes.DELETE, request=info.context
-        ):
-            return DeleteAnalysisMutation(ok=False, message=not_found_msg)
-
-        # Kick off an async task to delete the analysis (as it can be very large)
-        delete_analysis_and_annotations_task.si(analysis_pk=analysis_pk).apply_async()
-
+        result = AnalysisLifecycleService.delete_analysis(
+            info.context.user, analysis_pk, request=info.context
+        )
+        if not result.ok:
+            return DeleteAnalysisMutation(ok=False, message=result.error)
         return DeleteAnalysisMutation(ok=True, message="SUCCESS")

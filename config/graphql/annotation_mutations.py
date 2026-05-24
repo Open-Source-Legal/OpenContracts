@@ -5,7 +5,7 @@ GraphQL mutations for annotation, relationship, and note operations.
 import logging
 
 import graphene
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from graphene.types.generic import GenericScalar
 from graphql_jwt.decorators import login_required
@@ -36,7 +36,6 @@ from opencontractserver.constants.annotations import (
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
-from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.types.enums import LabelType, PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -98,60 +97,20 @@ class RejectAnnotation(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    @transaction.atomic
     def mutate(root, info, annotation_id, comment=None) -> "RejectAnnotation":
-        user = info.context.user
+        from opencontractserver.feedback.services import UserFeedbackService
+
         annotation_pk = from_global_id(annotation_id)[1]
-
-        # Use visible_to_user for IDOR protection - unified error for not found/no permission
-        try:
-            annotation = Annotation.objects.visible_to_user(user).get(pk=annotation_pk)
-        except (ObjectDoesNotExist, Annotation.DoesNotExist):
-            return RejectAnnotation(
-                ok=False,
-                user_feedback=None,
-                message="Annotation not found or you do not have permission to access it",
-            )
-
-        # Check if user has COMMENT permission on this annotation
-        # COMMENT permission respects document+corpus inheritance and corpus.allow_comments
-        if not annotation.user_can(user, PermissionTypes.COMMENT, request=info.context):
-            return RejectAnnotation(
-                ok=False,
-                user_feedback=None,
-                message="Annotation not found or you do not have permission to access it",
-            )
-
-        user_feedback, created = UserFeedback.objects.get_or_create(
-            commented_annotation=annotation,
-            defaults={
-                "creator": user,
-                "approved": False,
-                "rejected": True,
-                "comment": comment or "",
-            },
-        )
-
-        if not created:
-            user_feedback.approved = False
-            user_feedback.rejected = True
-            user_feedback.comment = comment or user_feedback.comment
-            user_feedback.save()
-
-        # ``is_new=created`` so an existing UserFeedback row still flows
-        # through the ``remove_perm`` sweep that clears stale guardian rows
-        # from any prior CRUD → READ-only downgrade. Only fresh-creation
-        # paths get the 7-DB-op skip.
-        set_permissions_for_obj_to_user(
-            user,
-            user_feedback,
-            [PermissionTypes.CRUD],
-            is_new=created,
+        result = UserFeedbackService.reject_annotation(
+            info.context.user,
+            annotation_pk,
+            comment=comment,
             request=info.context,
         )
-
+        if not result.ok:
+            return RejectAnnotation(ok=False, user_feedback=None, message=result.error)
         return RejectAnnotation(
-            ok=True, user_feedback=user_feedback, message="Annotation rejected"
+            ok=True, user_feedback=result.value, message="Annotation rejected"
         )
 
 
@@ -167,60 +126,20 @@ class ApproveAnnotation(graphene.Mutation):
     message = graphene.String()
 
     @login_required
-    @transaction.atomic
     def mutate(root, info, annotation_id, comment=None) -> "ApproveAnnotation":
-        user = info.context.user
+        from opencontractserver.feedback.services import UserFeedbackService
+
         annotation_pk = from_global_id(annotation_id)[1]
-
-        # Use visible_to_user for IDOR protection - unified error for not found/no permission
-        try:
-            annotation = Annotation.objects.visible_to_user(user).get(pk=annotation_pk)
-        except (ObjectDoesNotExist, Annotation.DoesNotExist):
-            return ApproveAnnotation(
-                ok=False,
-                user_feedback=None,
-                message="Annotation not found or you do not have permission to access it",
-            )
-
-        # Check if user has COMMENT permission on this annotation
-        # COMMENT permission respects document+corpus inheritance and corpus.allow_comments
-        if not annotation.user_can(user, PermissionTypes.COMMENT, request=info.context):
-            return ApproveAnnotation(
-                ok=False,
-                user_feedback=None,
-                message="Annotation not found or you do not have permission to access it",
-            )
-
-        user_feedback, created = UserFeedback.objects.get_or_create(
-            commented_annotation=annotation,
-            defaults={
-                "creator": user,
-                "approved": True,
-                "rejected": False,
-                "comment": comment or "",
-            },
-        )
-
-        if not created:
-            user_feedback.approved = True
-            user_feedback.rejected = False
-            user_feedback.comment = comment or user_feedback.comment
-            user_feedback.save()
-
-        # ``is_new=created`` so an existing UserFeedback row still flows
-        # through the ``remove_perm`` sweep that clears stale guardian rows
-        # from any prior CRUD → READ-only downgrade. Only fresh-creation
-        # paths get the 7-DB-op skip.
-        set_permissions_for_obj_to_user(
-            user,
-            user_feedback,
-            [PermissionTypes.CRUD],
-            is_new=created,
+        result = UserFeedbackService.approve_annotation(
+            info.context.user,
+            annotation_pk,
+            comment=comment,
             request=info.context,
         )
-
+        if not result.ok:
+            return ApproveAnnotation(ok=False, user_feedback=None, message=result.error)
         return ApproveAnnotation(
-            ok=True, user_feedback=user_feedback, message="Annotation approved"
+            ok=True, user_feedback=result.value, message="Annotation approved"
         )
 
 
