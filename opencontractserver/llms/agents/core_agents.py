@@ -383,6 +383,10 @@ class CorpusAgentContext:
 class CoreAgent(Protocol):
     """Enhanced protocol defining the interface for framework-agnostic agents."""
 
+    # Public configuration attribute — set by the factory layer and read by
+    # tests / consumers that need to introspect tools, user_id, etc.
+    config: AgentConfig
+
     # Core conversation methods
     async def chat(self, message: str, **kwargs) -> UnifiedChatResponse:
         """Send a message and get a complete response with sources."""
