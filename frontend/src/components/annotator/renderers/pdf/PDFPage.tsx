@@ -38,7 +38,7 @@ import {
   PdfTokenBlock,
   textBlockToBounds,
 } from "../../../../utils/textBlockEncoding";
-import { computeFitToWidthZoom } from "../../../knowledge_base/document/document_kb/fitToWidth";
+import { computeFitToWidthZoom } from "../../../../utils/pdfZoom";
 
 /**
  * This wrapper is inline-block (shrink-wrapped) and position:relative
@@ -196,11 +196,7 @@ export const PDFPage = ({
     // If this is page #1, and we haven't set initial zoom yet, and containerWidth is known:
     if (!initialZoomSet && containerWidth && pageInfo.page.pageNumber === 1) {
       try {
-        // Shared with the mobile fit-to-width path so desktop and mobile
-        // agree on the margin (FIT_WIDTH_MARGIN) reserved off the container
-        // edges and on the ZOOM_MIN/ZOOM_MAX clamp. Reserving the margin
-        // prevents horizontal overflow on narrower laptop viewports — see
-        // issue #1736.
+        // Reserve FIT_WIDTH_MARGIN to prevent horizontal overflow on narrower viewports (issue #1736).
         const naturalWidth = pageInfo.page.getViewport({ scale: 1 }).width;
         const safeScale = computeFitToWidthZoom(naturalWidth, containerWidth);
         if (safeScale !== null) {

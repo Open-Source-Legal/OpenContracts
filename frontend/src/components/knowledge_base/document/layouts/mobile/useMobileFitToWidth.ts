@@ -3,7 +3,7 @@ import {
   usePages,
   useScrollContainerRef,
 } from "../../../../annotator/context/DocumentAtom";
-import { computeFitToWidthZoom } from "../../document_kb/fitToWidth";
+import { computeFitToWidthZoom } from "../../../../../utils/pdfZoom";
 
 interface UseMobileFitToWidthParams {
   /** Whether the Document surface is the active mobile tab. */

@@ -4,8 +4,8 @@ import {
   FIT_WIDTH_MARGIN,
   ZOOM_MAX,
   ZOOM_MIN,
-} from "../../../../../assets/configurations/constants";
-import { computeFitToWidthZoom } from "../fitToWidth";
+} from "../../assets/configurations/constants";
+import { computeFitToWidthZoom } from "../pdfZoom";
 
 describe("computeFitToWidthZoom", () => {
   it("returns (containerWidth - margin) / pageWidth for the typical case", () => {

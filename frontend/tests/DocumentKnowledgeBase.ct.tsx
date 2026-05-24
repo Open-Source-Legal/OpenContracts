@@ -3259,9 +3259,20 @@ for (const viewport of fitToWidthViewports) {
         timeout: LONG_TIMEOUT,
       });
 
-      // Let the fit-to-width useEffect settle (PDFPage measures naturalWidth
-      // asynchronously after the page proxy resolves).
-      await page.waitForTimeout(1500);
+      // Wait for the fit-to-width useEffect to settle by polling the
+      // .zoom-level readout until it parses above 100 % (the fit-to-width
+      // result for a US-letter page comfortably exceeds 100 %; the legacy
+      // 1.0 default would read exactly 100 %).
+      await page.waitForFunction(
+        () => {
+          const el = document.querySelector(".zoom-level");
+          const txt = el?.textContent ?? "";
+          const n = parseInt(txt.replace("%", ""), 10);
+          return Number.isFinite(n) && n > 100;
+        },
+        undefined,
+        { timeout: LONG_TIMEOUT }
+      );
 
       // (1) The reported zoom is fit-to-width-derived, not a fixed seed.
       // For a US-letter page (612 pt) inside a ~viewport-wide container the
