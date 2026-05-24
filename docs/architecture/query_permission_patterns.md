@@ -174,11 +174,27 @@ non-superusers. Implementation: `opencontractserver/shared/QuerySets.py`
 
 ## Enforcement
 
-`opencontractserver/tests/architecture/test_graphql_service_layer.py` is an
-AST-based pytest invariant that fails CI if any `config/graphql/*.py` file
-imports or calls `visible_to_user` / `user_can` / `user_has_permission_for_obj`
-directly. The allowlist contains exactly one file (`filters.py`, whose
-remaining references are in documentation comments only).
+Two independent layers point at the same scanner
+(`opencontractserver/shared/architecture_audit.py`) so a violation cannot
+slip through either:
+
+1. **Django system check** (`opencontractserver/shared/checks.py`,
+   registered via `users/apps.py:ready()`). Fires on every management
+   command — `manage.py runserver`, `migrate`, `shell`, `test`,
+   `check --deploy`. Emits `opencontracts.E001` and blocks the command
+   with a non-zero exit code on any inline Tier-0 use. This is the
+   "fail on startup" guardrail — devs see violations immediately on
+   the first `manage.py` invocation, not only when CI runs pytest.
+2. **Pytest invariant**
+   (`opencontractserver/tests/architecture/test_graphql_service_layer.py`).
+   Runs in CI on every push, alongside `test_authorization_invariants`
+   and `test_security_hardening`. Pins the same scanner plus a
+   regression test that the Django check stays registered.
+
+The allowlist
+(`opencontractserver.shared.architecture_audit.ALLOWED_FILES`) contains
+exactly one file (`filters.py`, whose remaining references are in
+documentation comments only).
 
 When you add a new resolver/mutation/MCP tool/REST view that needs
 permission-filtered access, either:

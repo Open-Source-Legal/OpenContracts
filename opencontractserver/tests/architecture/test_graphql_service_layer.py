@@ -1,79 +1,29 @@
-"""Architecture invariants for ``config/graphql/``.
+"""Architecture invariants for ``config/graphql/`` — pytest enforcement.
 
-This module enforces the Phase 6 service-layer rule from
-``docs/refactor_plans/2026-05-19-service-layer-centralization-design.md``:
-every GraphQL resolver/mutation MUST reach models through a service in
-``opencontractserver/<app>/services/`` — NOT through inline
-``visible_to_user`` / ``user_can`` / ``user_has_permission_for_obj`` calls.
-
-The test AST-scans every ``config/graphql/*.py`` file and fails if it
-finds any of the forbidden Attribute accesses, Name references, or
-``ImportFrom`` aliases, except in the explicit allowlist below.
-
-The allowlist exists ONLY for genuine framework exceptions documented at
-each entry. It is NOT a place to park "I'll migrate later" debt — the
-PR that adds a file here must explain why.
+This test enforces the Phase 6 service-layer rule from
+``docs/refactor_plans/2026-05-19-service-layer-centralization-design.md``
+on every CI run. The same scanner is also wired into a Django system
+check (``opencontractserver/shared/checks.py``) so violations also fail
+``manage.py`` commands at startup — pytest and Django give two
+independent enforcement points pointing at the same source of truth in
+``opencontractserver/shared/architecture_audit.py``.
 """
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
 
-# Files in config/graphql/ that are permitted to retain the forbidden
-# identifiers. Each entry MUST carry a comment explaining why.
-ALLOWED_FILES: frozenset[str] = frozenset(
-    {
-        # ``filters.py`` uses django-filters FilterSets whose base
-        # queryset is already filtered by the resolver; the
-        # ``visible_to_user`` references that remain are comments
-        # documenting that contract. The AST scan ignores comments,
-        # so this entry is here only as belt-and-braces against
-        # future code edits inside this file.
-        "filters.py",
-    }
+from opencontractserver.shared.architecture_audit import (
+    ALLOWED_FILES,
+    GRAPHQL_DIR,
+    iter_graphql_modules,
+    scan_forbidden,
 )
 
-FORBIDDEN_NAMES: frozenset[str] = frozenset(
-    {"visible_to_user", "user_can", "user_has_permission_for_obj"}
-)
 
-GRAPHQL_DIR = Path(__file__).resolve().parents[3] / "config" / "graphql"
-
-
-def _iter_graphql_modules() -> list[Path]:
-    """Return every .py file directly under ``config/graphql/``."""
-    return sorted(p for p in GRAPHQL_DIR.glob("*.py") if p.name != "__init__.py")
-
-
-def _scan_forbidden(source: str) -> list[tuple[int, str]]:
-    """Return ``(lineno, identifier)`` for each forbidden reference.
-
-    Detects:
-        - ``Model.objects.visible_to_user(...)``  → Attribute access
-        - ``obj.user_can(...)`` / ``manager.user_can(...)``  → Attribute access
-        - ``user_has_permission_for_obj(...)``  → Name access
-        - ``from opencontractserver... import visible_to_user``  → Import alias
-
-    Comments and docstrings are ignored (AST does not emit them).
-    """
-    tree = ast.parse(source)
-    hits: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_NAMES:
-            hits.append((node.lineno, node.attr))
-        elif isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-            hits.append((node.lineno, node.id))
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name in FORBIDDEN_NAMES:
-                    hits.append((node.lineno, alias.name))
-    return hits
-
-
-@pytest.mark.parametrize("module_path", _iter_graphql_modules(), ids=lambda p: p.name)
+@pytest.mark.parametrize("module_path", iter_graphql_modules(), ids=lambda p: p.name)
 def test_graphql_module_uses_service_layer(module_path: Path) -> None:
     """No forbidden Tier-0 identifier may appear in ``config/graphql/``.
 
@@ -83,7 +33,7 @@ def test_graphql_module_uses_service_layer(module_path: Path) -> None:
         pytest.skip(f"{module_path.name} is on the documented allowlist")
 
     source = module_path.read_text(encoding="utf-8")
-    hits = _scan_forbidden(source)
+    hits = scan_forbidden(source)
     if hits:
         formatted = "\n".join(
             f"  {module_path.name}:{lineno}: {name}" for lineno, name in hits
@@ -107,3 +57,44 @@ def test_allowlist_is_documented() -> None:
         assert (
             GRAPHQL_DIR / name
         ).is_file(), f"Allowlisted file {name!r} does not exist in {GRAPHQL_DIR}"
+
+
+def test_django_system_check_is_registered() -> None:
+    """The Phase-6 invariant must also be enforced at Django startup.
+
+    Pytest runs in CI; the Django system check ALSO fires on every
+    ``manage.py`` command (``runserver``, ``migrate``, ``shell``, ...) so
+    a developer can't ship a violation without immediate local feedback.
+    This test pins the system check to the wired-up state.
+    """
+    from django.core.checks import registry
+
+    from opencontractserver.shared.checks import check_graphql_service_layer
+
+    assert check_graphql_service_layer in registry.registry.get_checks(), (
+        "opencontractserver.shared.checks.check_graphql_service_layer is not "
+        "registered. Confirm ``opencontractserver.users.apps.UsersConfig.ready`` "
+        "still imports ``opencontractserver.shared.checks``."
+    )
+
+
+def test_django_system_check_uses_same_audit() -> None:
+    """The Django check must surface the same hits the pytest audit reports.
+
+    Both enforcement layers route through
+    ``opencontractserver.shared.architecture_audit.audit_graphql_modules`` —
+    running the registered check and the audit function side-by-side
+    pins them to agree.
+    """
+    from django.core.checks import run_checks
+
+    from opencontractserver.shared.architecture_audit import audit_graphql_modules
+
+    audit_hits = audit_graphql_modules()
+    check_results = run_checks(tags=["architecture"])
+    arch_errors = [r for r in check_results if r.id == "opencontracts.E001"]
+
+    assert len(arch_errors) == len(audit_hits), (
+        "Django check and pytest audit disagree on hit count: "
+        f"check={len(arch_errors)} audit={len(audit_hits)}"
+    )

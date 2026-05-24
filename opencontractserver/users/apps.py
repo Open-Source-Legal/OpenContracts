@@ -26,6 +26,9 @@ class UsersConfig(AppConfig):
             pass
 
         # Register system checks (Auth0 superuser-allowlist warning, etc.)
+        # Register architecture invariants — fails startup on any Tier-0
+        # leak into config/graphql/ (Phase 6 / issue #1720).
+        from opencontractserver.shared import checks as _arch_checks  # noqa F401
         from opencontractserver.users import checks  # noqa F401
 
         # Pre-warm the pipeline component registry at startup
