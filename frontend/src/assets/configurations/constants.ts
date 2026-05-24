@@ -39,8 +39,13 @@ export const ZOOM_MIN = 0.5;
 /** Maximum document zoom level (400%). */
 export const ZOOM_MAX = 4;
 /**
- * Horizontal padding (px) the mobile fit-to-width hook keeps off both edges of
- * the viewer container so the fitted page does not touch the screen edges.
+ * Horizontal padding (px) the shared fit-to-width helper keeps off the two
+ * edges of the viewer container so the fitted page does not touch the
+ * container edges. Used by both the desktop initial-zoom calculation in
+ * PDFPage and the mobile fit-to-width hook via
+ * ``document_kb/fitToWidth.ts``. The margin also leaves a small safety
+ * cushion that prevents horizontal overflow on narrower laptop viewports
+ * (see issue #1736).
  */
 export const FIT_WIDTH_MARGIN = 16;
 

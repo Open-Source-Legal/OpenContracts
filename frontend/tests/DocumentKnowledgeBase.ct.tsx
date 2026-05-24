@@ -3205,3 +3205,102 @@ test.describe("Desktop bottom toolbar consolidation (#1735)", () => {
     );
   });
 });
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Default PDF zoom is a fit-to-width calculation (issue #1736)
+ *
+ * The initial PDF zoom is computed from the measured document-layer width
+ * (not a fixed seed), but the calculation reserved no horizontal margin so
+ * the rendered page would touch the container's edges. On narrower laptop
+ * viewports — 1280 px or 1024 px — that left no safety budget for sub-pixel
+ * rounding and triggered a horizontal scrollbar inside the document layer.
+ *
+ * The shared ``computeFitToWidthZoom`` helper now reserves FIT_WIDTH_MARGIN
+ * off the container width before clamping to [ZOOM_MIN, ZOOM_MAX]. These
+ * tests pin the contract at the three canonical laptop widths from the
+ * audit by asserting:
+ *   1. The initial zoom is a fit-to-width-derived value (not the default
+ *      100 %), scaled to the measured container width.
+ *   2. The rendered PDF canvas width is strictly less than the document
+ *      container width — i.e. no horizontal overflow inside the document
+ *      layer at any of the three viewports.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const fitToWidthViewports = [
+  { width: 1440, height: 900, screenshotName: "1440x900" },
+  { width: 1280, height: 720, screenshotName: "1280x720" },
+  { width: 1024, height: 768, screenshotName: "1024x768" },
+] as const;
+
+for (const viewport of fitToWidthViewports) {
+  test.describe(`Default PDF zoom fit-to-width — ${viewport.width}x${viewport.height} (#1736)`, () => {
+    test.use({ viewport: { width: viewport.width, height: viewport.height } });
+
+    test(`fits the page within the document container with no horizontal overflow at ${viewport.width}px`, async ({
+      mount,
+      page,
+    }) => {
+      await mount(
+        <DocumentKnowledgeBaseTestWrapper
+          mocks={[
+            ...graphqlMocks,
+            ...createSummaryMocks(PDF_DOC_ID, CORPUS_ID),
+          ]}
+          documentId={PDF_DOC_ID}
+          corpusId={CORPUS_ID}
+        />
+      );
+
+      // Wait for the document to load and the PDF to render.
+      await expect(
+        page.getByRole("heading", { name: mockPdfDocument.title ?? "" })
+      ).toBeVisible({ timeout: LONG_TIMEOUT });
+      await expect(page.locator("#pdf-container canvas").first()).toBeVisible({
+        timeout: LONG_TIMEOUT,
+      });
+
+      // Let the fit-to-width useEffect settle (PDFPage measures naturalWidth
+      // asynchronously after the page proxy resolves).
+      await page.waitForTimeout(1500);
+
+      // (1) The reported zoom is fit-to-width-derived, not a fixed seed.
+      // For a US-letter page (612 pt) inside a ~viewport-wide container the
+      // computed scale comfortably exceeds 100 %, so we assert > 100 % to
+      // distinguish it from the legacy 1.0 default. We don't assert an exact
+      // value because the container width depends on layout chrome (header,
+      // sidebar rail) which is not part of the contract being pinned.
+      const zoomText = await page.locator(".zoom-level").first().textContent();
+      const initialZoom = parseInt(zoomText?.replace("%", "") ?? "100", 10);
+      console.log(
+        `[TEST #1736] viewport=${viewport.width}x${viewport.height}, initial zoom=${initialZoom}%`
+      );
+      expect(initialZoom).toBeGreaterThan(100);
+
+      // (2) The rendered PDF canvas width is strictly less than the
+      // pdf-container width — the issue #1736 acceptance criterion. We
+      // measure the canvas because that's the actual visible rendered page;
+      // the CanvasWrapper around it is inline-block / shrink-wrapped, so it
+      // matches the canvas dimensions.
+      const containerBox = await page.locator("#pdf-container").boundingBox();
+      const canvasBox = await page
+        .locator("#pdf-container canvas")
+        .first()
+        .boundingBox();
+      expect(containerBox).not.toBeNull();
+      expect(canvasBox).not.toBeNull();
+      console.log(
+        `[TEST #1736] containerWidth=${containerBox!.width}px, canvasWidth=${
+          canvasBox!.width
+        }px`
+      );
+      expect(canvasBox!.width).toBeLessThan(containerBox!.width);
+
+      // Documentation screenshot — captures the fit-to-width default at
+      // this viewport so reviewers can eyeball the breathing room.
+      await docScreenshot(
+        page,
+        `knowledge-base--pdf-default-zoom--${viewport.screenshotName}`
+      );
+    });
+  });
+}
