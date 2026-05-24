@@ -1,6 +1,5 @@
 import logging
 
-from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.test import TestCase
 from graphene.test import Client
@@ -10,8 +9,7 @@ from config.graphql.schema import schema
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +33,7 @@ class AnnotationTreeTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         logger.info("Created test clients")
 
@@ -99,7 +97,7 @@ class AnnotationTreeTestCase(TestCase):
         variables = {"id": to_global_id("AnnotationType", self.root_annotation.id)}
 
         # Execute the query
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         # Access the returned tree directly
@@ -143,7 +141,7 @@ class AnnotationTreeTestCase(TestCase):
         }
 
         # Execute the query
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         # Access the returned tree directly
@@ -245,7 +243,7 @@ class AnnotationTreeTestCase(TestCase):
         variables = {"id": to_global_id("AnnotationType", root_annotation.id)}
 
         # Execute the query
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         # Access the returned tree directly
@@ -275,7 +273,7 @@ class AnnotationTreeTestCase(TestCase):
         variables = {"id": to_global_id("AnnotationType", root_annotation.id)}
 
         # Execute the query
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         # Access the returned tree directly
@@ -293,7 +291,7 @@ class AnnotationTreeTestCase(TestCase):
             ),
             None,
         )
-        self.assertIsNotNone(root_node)
+        assert root_node is not None
         self.assertEqual(root_node["raw_text"], "Root Annotation")
         self.assertEqual(
             len(root_node["children"]), 2
@@ -367,7 +365,7 @@ class AnnotationTreeTestCase(TestCase):
         variables = {"id": to_global_id("AnnotationType", mid_node.id)}
 
         # Execute the query
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         # Access the returned tree directly
@@ -392,7 +390,7 @@ class AnnotationTreeTestCase(TestCase):
         variables = {"id": to_global_id("AnnotationType", mid_node.id)}
 
         # Execute the query
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         # Access the returned tree directly

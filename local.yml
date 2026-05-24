@@ -9,6 +9,19 @@ services:
       args:
         - GITHUB_ACTIONS
       dockerfile: ./compose/local/django/Dockerfile
+      # Pull pre-built layers from ghcr (populated by the backend CI on every
+      # main-branch push — see .github/workflows/backend.yml). Cuts a fresh
+      # ``docker compose -f local.yml build`` from ~5-10 min to ~30-60 s on
+      # cache hit. Requires ``DOCKER_BUILDKIT=1`` (default in modern docker)
+      # and authentication to ghcr.io:
+      #   echo $GITHUB_TOKEN | docker login ghcr.io -u <username> --password-stdin
+      # or (with the GitHub CLI):
+      #   gh auth token | docker login ghcr.io -u <username> --password-stdin
+      # The cache image is public — auth is only needed if your docker is not
+      # already logged into ghcr; an unauthenticated pull falls back gracefully
+      # (cache miss, builds from scratch).
+      cache_from:
+        - type=registry,ref=ghcr.io/open-source-legal/opencontracts/django-local-cache:main
     image: opencontractserver_local_django
     depends_on:
       postgres:
