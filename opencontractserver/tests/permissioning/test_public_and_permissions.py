@@ -43,7 +43,7 @@ class PublicCorpusPersistenceTestCase(TransactionFixtureTestCase):
         await self.corpus.asave(update_fields=["is_public"])
 
         # Sanity: no chat messages exist before the test.
-        baseline_msg_count = await ChatMessage.objects.all().acount()  # type: ignore[attr-defined]
+        baseline_msg_count = await ChatMessage.objects.all().acount()
 
         # Anonymous user on public corpus should not create persistence.
         agent = await llm_agents.for_corpus(corpus=self.corpus.id)
@@ -53,7 +53,7 @@ class PublicCorpusPersistenceTestCase(TransactionFixtureTestCase):
 
         # Conversation must be anonymous (None) and DB row count unchanged.
         assert agent.get_conversation_id() is None
-        assert await ChatMessage.objects.all().acount() == baseline_msg_count  # type: ignore[attr-defined]
+        assert await ChatMessage.objects.all().acount() == baseline_msg_count
 
     @vcr.use_cassette(
         "fixtures/vcr_cassettes/test_public_persist_flag_false.yaml",
@@ -63,7 +63,7 @@ class PublicCorpusPersistenceTestCase(TransactionFixtureTestCase):
         """Explicit ``persist=False`` also disables storage for any corpus."""
 
         # Use private corpus but ask API not to persist.
-        baseline = await ChatMessage.objects.all().acount()  # type: ignore[attr-defined]
+        baseline = await ChatMessage.objects.all().acount()
 
         agent = await llm_agents.for_corpus(
             corpus=self.corpus.id,
@@ -74,7 +74,7 @@ class PublicCorpusPersistenceTestCase(TransactionFixtureTestCase):
         await agent.chat("Do not save me, please.")
 
         assert agent.get_conversation_id() is None
-        assert await ChatMessage.objects.all().acount() == baseline  # type: ignore[attr-defined]
+        assert await ChatMessage.objects.all().acount() == baseline
 
 
 @pytest.mark.django_db(transaction=True)
@@ -141,7 +141,7 @@ class PydanticAICorpusPersistenceTestCase(TransactionFixtureTestCase):
         self.corpus.is_public = False
         await self.corpus.asave(update_fields=["is_public"])
 
-        start_conv = await Conversation.objects.acount()  # type: ignore[attr-defined]
+        start_conv = await Conversation.objects.acount()
 
         agent = await llm_agents.for_corpus(
             corpus=self.corpus.id,
@@ -152,7 +152,7 @@ class PydanticAICorpusPersistenceTestCase(TransactionFixtureTestCase):
         # Run a simple chat to ensure agent functionality.
         await agent.chat("Hello pydantic corpus!")
 
-        end_conv = await Conversation.objects.acount()  # type: ignore[attr-defined]
+        end_conv = await Conversation.objects.acount()
 
         # Exactly one new conversation row (for the corpus agent itself).
         assert end_conv == start_conv + 1

@@ -30,7 +30,6 @@ previously untested, focusing on:
 
 import logging
 
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase
@@ -53,9 +52,9 @@ from opencontractserver.extracts.models import Column, Datacell, Extract, Fields
 from opencontractserver.extracts.services import ExtractService
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
-User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
@@ -782,7 +781,7 @@ class RelationshipServiceTestCase(TestCase):
 
         # Should see only structural relationship
         self.assertEqual(qs.count(), 1)
-        self.assertTrue(qs.first().structural)
+        self.assertTrue(qs[0].structural)
 
         logger.info("✓ Without corpus, only structural relationships visible")
 
@@ -806,7 +805,7 @@ class RelationshipServiceTestCase(TestCase):
 
         # Should see only the analysis relationship
         self.assertEqual(qs.count(), 1)
-        self.assertEqual(qs.first().analysis, self.analysis)
+        self.assertEqual(qs[0].analysis, self.analysis)
 
         logger.info("✓ Analysis filtering returns only analysis relationships")
 
@@ -1360,7 +1359,7 @@ class ExtractServiceTestCase(TestCase):
 
         # Should see only extract1
         self.assertEqual(qs.count(), 1)
-        self.assertEqual(qs.first().name, "Extract 1 (Corpus 1)")
+        self.assertEqual(qs[0].name, "Extract 1 (Corpus 1)")
 
         logger.info("✓ Corpus filtering returns correct extracts")
 
@@ -1507,11 +1506,18 @@ class AnalysisServicePermissionTestCase(TestCase):
     suite — superuser, unknown id, denied-by-analysis, and denied-by-corpus
     paths plus the no-corpus skip."""
 
+    owner: User
+    stranger: User
+    superuser: User
+    corpus: Corpus
+    doc: Document
+    gremlin: GremlinEngine
+    analyzer: Analyzer
+    analysis: Analysis
+    standalone_analysis: Analysis
+
     @classmethod
     def setUpTestData(cls):
-        from opencontractserver.analyzer.models import Analysis, Analyzer
-        from opencontractserver.documents.models import Document
-
         cls.owner = User.objects.create_user(username="asp_owner", password="test123")
         cls.stranger = User.objects.create_user(
             username="asp_stranger", password="test123"
@@ -1648,6 +1654,22 @@ class DocumentPermissionFilterQueryCountTestCase(TestCase):
       2. The query count for the visibility step does not scale with the number
          of documents bundled in the analysis / extract.
     """
+
+    owner: User
+    reader: User
+    corpus: Corpus
+    docs: list[Document]
+    readable_docs: list[Document]
+    unreadable_docs: list[Document]
+    label: AnnotationLabel
+    gremlin: GremlinEngine
+    analyzer: Analyzer
+    analysis: Analysis
+    annotations_by_doc: dict[int, Annotation]
+    fieldset: Fieldset
+    column: Column
+    extract: Extract
+    datacells_by_doc: dict[int, Datacell]
 
     @classmethod
     def setUpTestData(cls):

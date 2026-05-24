@@ -239,7 +239,7 @@ class PermissionFilteringTestCase(TestCase):
             ),
             None,
         )
-        self.assertIsNotNone(corpus1_edge)
+        assert corpus1_edge is not None
         self.assertEqual(len(corpus1_edge["node"]["documents"]["edges"]), 1)
         self.assertEqual(
             corpus1_edge["node"]["documents"]["edges"][0]["node"]["title"],
@@ -261,7 +261,7 @@ class PermissionFilteringTestCase(TestCase):
             ),
             None,
         )
-        self.assertIsNotNone(corpus2_edge)
+        assert corpus2_edge is not None
         self.assertEqual(len(corpus2_edge["node"]["documents"]["edges"]), 1)
         self.assertEqual(
             corpus2_edge["node"]["documents"]["edges"][0]["node"]["title"],
