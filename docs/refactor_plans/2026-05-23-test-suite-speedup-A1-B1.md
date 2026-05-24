@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-23
 **Author:** scrudato@umich.edu (drafted with Claude Code)
-**Status:** Draft — A/B numbers folded in (see §6), pending user review
-**Target:** Pull backend CI from ~47 min → **under 15 min** (likely **10-13 min** based on the A/B results) while preserving full Codecov reporting on both PR and `main` events.
+**Status:** Phase A1 landed (PR #1767, CI 41 min → ~32 min, ~22% reduction). Phase B1 trialled and reverted — see §6 post-mortem and §10. Phase B2/B3 (fixture-load redesign) is the next lever.
+**Target:** Pull backend CI from ~47 min → **under 15 min** while preserving full Codecov reporting on both PR and `main` events. After A1, the binding constraint is per-test 17 MB fixture reload in `TransactionTestCase` subclasses — see §10.
 **Scope:** `.github/workflows/backend.yml`, `compose/local/django/Dockerfile`, `opencontractserver/tests/base.py`, `opencontractserver/conftest.py`, `pytest.ini`, `opencontractserver/tests/fixtures/test_data.json`. No changes to product code.
 
 ---
@@ -222,5 +222,34 @@ Each PR records the actual CI wall-time delta in the description, so we can revi
 
 ## 9. Open questions
 
-1. **Worksteal + ordering pollution** — does any test in the suite have an implicit ordering requirement on a sibling test in the same class? Worksteal will reveal it. We accept the risk and fix as found.
-2. **Phase C readiness** — sub-15 min is the stated target. If after B we are at ~13 min and the user wants ≤ 10 min, sharding via job matrix is the next lever (Phase C). Open question: budget appetite for the added matrix-job complexity.
+1. **Worksteal + ordering pollution** — RESOLVED. The first PR #1767 run answered this with a hard yes: ~39 tests have latent ordering dependencies. See §10 for details.
+2. **Phase C readiness** — sub-15 min is the stated target. If after B2/B3 we are at ~13 min and the user wants ≤ 10 min, sharding via job matrix is the next lever (Phase C). Open question: budget appetite for the added matrix-job complexity.
+
+## 10. Post-mortem: Phase B1 trial in PR #1767
+
+**What we shipped:** Phase A1 (Python 3.12.7 + `COVERAGE_CORE=sysmon` + dropped `django_coverage_plugin`) and Phase B1 (`--dist worksteal` + conftest auto-tag for class-bound `TestCase` subclasses) together.
+
+**What CI did:** Backend pytest step 41 min → **31:53** wall (−22%). **39 tests failed**, mostly with `psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "users_user_username_key"  DETAIL: Key (username)=(admin) already exists.` Coverage uploaded successfully — Codecov was unaffected.
+
+**Failure mode:** The failures concentrated in **plain `django.test.TestCase` subclasses** (no `setUpTestData`, no `fixtures`) that my auto-tag deliberately skipped: `UserTypePrivacyTestCase`, `TestSearchAgentsForMention`, `TestOpenContractsAnalyzers`, `CreateDefaultLabelsetTestCase`, `TestHybridSearch`, `PermissionFilteringTestCase`, plus `TestNestedApprovalGates` (a `TransactionTestCase`). Worksteal interleaved tests from these classes with tests from other classes on the same worker, exposing state leaks that loadscope's class-pinning was hiding — likely a mix of migration-seeded `admin`/`system`/`Anonymous` users colliding with `UserFactory()` calls, `Celery eager` tasks committing data via `on_commit`, and `User.save()`'s handle/slug auto-generation logic that queries the global user set.
+
+**Where my projection went wrong:**
+
+1. **Over-extrapolated the local A/B.** The 4× speedup (19:34 → 4:50) was measured on the 3 hottest files — together ~30% of CI test time. Those files were uniquely amplified by both factors I optimized (heavy `--cov` instrumentation + class-pinned to one worker). For the other 70% of the suite, individual test phases are too short for either factor to dominate, so the savings don't scale linearly. The honest projection for A1 + B1 was always closer to 25-30%, not 75%.
+
+2. **Conflated coverage cost with fixture-load cost.** The local A/B's coverage tax (+156%) was specific to the 18 MB fixture-reloading test classes — coverage instrumentation was the *multiplier* on top of the fixture-load base cost. Sysmon removes the multiplier but not the base cost. After A1, the binding constraint is the per-test fixture reload itself, which is what Phase B3 attacks.
+
+3. **The auto-tag was both too narrow and not enough.** Too narrow because it only pinned `TestCase` subclasses with `setUpTestData`/`fixtures`, leaving plain `TestCase` classes vulnerable to interleave-on-worker pollution from other classes' uncommitted state. But broadening the pin to all `TestCase` subclasses would reintroduce most of loadscope's class-pinning floor, undoing worksteal's benefit. The fundamental issue is that the tests have hidden ordering dependencies, not that the scheduler is wrong.
+
+**What we kept (Phase A1, landed):**
+
+- Python 3.12.7 in the image (`compose/{local,production}/django/Dockerfile`).
+- `COVERAGE_CORE=sysmon` (`.envs/.test/.django`).
+- Dropped `django_coverage_plugin` (`setup.cfg`).
+
+**What we reverted (Phase B1, removed):**
+
+- `.github/workflows/backend.yml` returned to `--dist loadscope`.
+- `conftest.py::pytest_collection_modifyitems` returned to handling only the `serial` marker.
+
+**Implication for B2/B3:** Phase B3 (class-once fixture load for `WebsocketFixtureBaseTestCase` + per-test TRUNCATE-restore) is now the highest-ROI remaining lever. It directly attacks the 177-test × ~25 s = ~74 min single-threaded fixture-reload cost without requiring any change to the dist scheduler or risking the test-isolation bugs worksteal exposes. Phase B1 should only be re-attempted *after* a dedicated test-isolation sweep that finds and fixes the `admin`-user collision pattern (probably in factories + Celery-eager + migration seeds) so that worksteal can run cleanly.

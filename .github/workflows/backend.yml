@@ -171,16 +171,15 @@ jobs:
           # uses ``sys.monitoring`` rather than the legacy C trace function —
           # an order-of-magnitude cheaper instrumentation path on Python 3.12+.
           #
-          # ``--dist worksteal`` (replaces the prior ``loadscope``) lets idle
-          # workers steal queued tests from busy ones, so big classes like
-          # ``TestStructuredResponseAPI`` are no longer pinned to a single
-          # worker. Classes that genuinely need class-scoped state binding
-          # (``setUpTestData`` / fixtures) are auto-tagged with
-          # ``xdist_group=<class>`` in ``opencontractserver/conftest.py``, so
-          # worksteal still respects that binding where it matters.
+          # ``--dist loadscope`` is retained: a worksteal trial (PR #1767,
+          # initial commit) exposed ~39 test-order-dependency failures across
+          # plain ``TestCase`` subclasses that worked under loadscope's
+          # class-pinning. The underlying isolation bugs are tracked in
+          # docs/refactor_plans/2026-05-23-test-suite-speedup-A1-B1.md §6
+          # and need to be resolved before worksteal can be re-attempted.
           #
           # pytest-cov + pytest-xdist handle per-worker coverage merging.
-          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist worksteal
+          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope
 
       - name: Verify Coverage File Exists
         run: |
