@@ -124,6 +124,27 @@ class TestPydanticAIConversationAdaptersAsync(TransactionTestCase):
 
     def setUp(self):
         """Set up test data."""
+        # The ``PipelineSettings`` singleton is seeded by data migration
+        # ``documents/0031_add_pipeline_settings.py`` with
+        # ``default_embedder=settings.DEFAULT_EMBEDDER``. Because this class is
+        # a ``TransactionTestCase``, Django truncates *every* table between
+        # tests (including the singleton), and ``serialized_rollback`` is not
+        # enabled at the class level — so by the second test in the class the
+        # row is gone and ``get_embedder()`` returns ``(None, None)``. Restore
+        # the singleton explicitly here so each test starts from the same
+        # migration-seeded state as a fresh DB. ``update_or_create`` keeps this
+        # idempotent across reruns and class-execution order.
+        from django.conf import settings as django_settings
+
+        from opencontractserver.documents.models import PipelineSettings
+
+        PipelineSettings.objects.update_or_create(
+            id=1,
+            defaults={
+                "default_embedder": getattr(django_settings, "DEFAULT_EMBEDDER", ""),
+            },
+        )
+
         # Create user
         self.user = User.objects.create_user(
             username="pydantic_async_user", password="testpassword"
