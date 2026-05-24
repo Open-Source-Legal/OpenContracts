@@ -8,7 +8,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
 
@@ -20,8 +19,7 @@ from opencontractserver.annotations.utils import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import ContentModality
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 pytestmark = pytest.mark.django_db
 
@@ -126,7 +124,8 @@ class TestComputeContentModalities(TestCase):
             {"pageIndex": 0, "tokenIndex": 0},
         ]
 
-        result = compute_content_modalities(tokens, pawls_data=pawls_data)
+        # Deliberately pass mixed/invalid items to exercise defensive skipping.
+        result = compute_content_modalities(tokens, pawls_data=pawls_data)  # type: ignore[arg-type]
         self.assertEqual(result, [ContentModality.TEXT.value])
 
     def test_missing_page_or_token_index_skipped(self):
@@ -204,7 +203,8 @@ class TestComputeContentModalities(TestCase):
             {"pageIndex": 2, "tokenIndex": 0},  # Valid
         ]
 
-        result = compute_content_modalities(tokens, pawls_data=pawls_data)
+        # Deliberately pass a non-dict / None page to exercise defensive skipping.
+        result = compute_content_modalities(tokens, pawls_data=pawls_data)  # type: ignore[arg-type]
         self.assertEqual(result, [ContentModality.TEXT.value])
 
     def test_non_dict_token_skipped(self):
@@ -261,6 +261,9 @@ class TestComputeContentModalities(TestCase):
 
 class TestComputeContentModalitiesWithDocument(TestCase):
     """Tests for compute_content_modalities with Document loading."""
+
+    user: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -330,6 +333,10 @@ class TestComputeContentModalitiesWithDocument(TestCase):
 
 class TestUpdateAnnotationModalities(TestCase):
     """Tests for update_annotation_modalities function."""
+
+    user: User
+    corpus: Corpus
+    label: AnnotationLabel
 
     @classmethod
     def setUpTestData(cls):
