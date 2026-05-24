@@ -55,6 +55,7 @@ class CreateWorkerAccount(graphene.Mutation):
             raise GraphQLError(result.error)
 
         account = result.value
+        assert account is not None  # narrowed by ``result.ok`` invariant
         return CreateWorkerAccount(
             ok=True,
             worker_account=WorkerAccountType(
@@ -146,6 +147,7 @@ class CreateCorpusAccessTokenMutation(graphene.Mutation):
         if not result.ok:
             raise GraphQLError(result.error)
 
+        assert result.value is not None  # narrowed by ``result.ok`` invariant
         token, plaintext_key = result.value
         return CreateCorpusAccessTokenMutation(
             ok=True,

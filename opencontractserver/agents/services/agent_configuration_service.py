@@ -17,10 +17,7 @@ from typing import TYPE_CHECKING, Any
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    get_for_user_or_none,
-    set_permissions_for_obj_to_user,
-)
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -139,7 +136,7 @@ class AgentConfigurationService(BaseService):
         """
         from opencontractserver.agents.models import AgentConfiguration
 
-        return get_for_user_or_none(AgentConfiguration, agent_pk, user, request=request)
+        return cls.get_or_none(AgentConfiguration, agent_pk, user, request=request)
 
     @classmethod
     def create_agent(

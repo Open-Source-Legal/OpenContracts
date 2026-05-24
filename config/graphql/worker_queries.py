@@ -104,6 +104,7 @@ class WorkerQueryMixin:
         if not result.ok:
             raise GraphQLError(result.error)
 
+        assert result.value is not None  # narrowed by ``result.ok`` invariant
         return [
             CorpusAccessTokenQueryType(
                 id=t.id,
@@ -137,6 +138,7 @@ class WorkerQueryMixin:
         if not result.ok:
             raise GraphQLError(result.error)
 
+        assert result.value is not None  # narrowed by ``result.ok`` invariant
         page, total_count, effective_limit, effective_offset = result.value
         items = [
             WorkerDocumentUploadQueryType(
