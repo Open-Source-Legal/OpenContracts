@@ -244,9 +244,7 @@ class CorpusFilter(django_filters.FilterSet):
         # snake_case key.  ``self.data`` carries the raw alias ("top" /
         # "-top"); OrderingFilter doesn't mutate it in place when it
         # cleans the queryset.
-        if self.data.get("order_by") in ("top", "-top") and not self.data.get(
-            "mine"
-        ):
+        if self.data.get("order_by") in ("top", "-top") and not self.data.get("mine"):
             qs = qs.exclude(is_personal=True)
         return qs
 

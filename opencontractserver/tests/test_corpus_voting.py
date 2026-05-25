@@ -620,9 +620,7 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         # A personal corpus is auto-created for every user by a signal
         # handler — one per user is enforced by the
         # ``one_personal_corpus_per_user`` constraint, so reuse alice's.
-        personal_corpus = Corpus.objects.get(
-            creator=self.alice, is_personal=True
-        )
+        personal_corpus = Corpus.objects.get(creator=self.alice, is_personal=True)
         query = """
             query {
                 corpuses(orderBy: "-top") { edges { node { id } } }
@@ -631,7 +629,9 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         request = self._build_request(self.alice)
         result = self.client.execute(query, context_value=request)
         self.assertIsNone(result.get("errors"), msg=json.dumps(result))
-        returned_ids = {edge["node"]["id"] for edge in result["data"]["corpuses"]["edges"]}
+        returned_ids = {
+            edge["node"]["id"] for edge in result["data"]["corpuses"]["edges"]
+        }
         self.assertNotIn(_corpus_relay_id(personal_corpus.pk), returned_ids)
 
     def test_top_sort_on_mine_tab_keeps_personal_corpus(self) -> None:
@@ -642,9 +642,7 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         review (the original filter excluded ``is_personal=True`` on every
         Top-sorted query, including the user's own tab).
         """
-        personal_corpus = Corpus.objects.get(
-            creator=self.alice, is_personal=True
-        )
+        personal_corpus = Corpus.objects.get(creator=self.alice, is_personal=True)
         query = """
             query {
                 corpuses(orderBy: "-top", mine: true) { edges { node { id } } }
@@ -653,7 +651,9 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         request = self._build_request(self.alice)
         result = self.client.execute(query, context_value=request)
         self.assertIsNone(result.get("errors"), msg=json.dumps(result))
-        returned_ids = {edge["node"]["id"] for edge in result["data"]["corpuses"]["edges"]}
+        returned_ids = {
+            edge["node"]["id"] for edge in result["data"]["corpuses"]["edges"]
+        }
         self.assertIn(_corpus_relay_id(personal_corpus.pk), returned_ids)
 
     def test_corpuses_list_my_vote_is_not_n_plus_one(self) -> None:
