@@ -30,6 +30,11 @@ export type OverflowMenuLink =
 
 export const OVERFLOW_MENU_LINKS: OverflowMenuLink[] = [
   {
+    id: "overflow_about",
+    label: "About cite",
+    to: "/about",
+  },
+  {
     id: "overflow_privacy",
     label: "Privacy Policy",
     to: "/privacy",

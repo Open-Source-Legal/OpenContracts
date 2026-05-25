@@ -7,6 +7,10 @@ import { Download, User, Settings, LogOut, Cog } from "lucide-react";
 import { showExportModal, showUserSettingsModal } from "../../graphql/cache";
 import UserSettingsModal from "../modals/UserSettingsModal";
 import { VERSION_TAG } from "../../assets/configurations/constants";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../../assets/configurations/osLegalStyles";
 import { useNavMenu } from "./useNavMenu";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 import { CiteMark } from "../brand/CiteMark";
@@ -68,7 +72,7 @@ const navbarCustomStyles = `
      Overrides the @os-legal/ui default of 600-weight Inter so the
      wordmark reads as a typographic mark, not a UI label. */
   .oc-navbar__brand-name {
-    font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif !important;
+    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif} !important;
     font-weight: 400 !important;
     font-size: 22px !important;
     letter-spacing: -0.5px !important;
@@ -220,14 +224,14 @@ export const NavMenu = () => {
   );
 
   // cite icon mark — the bracketed teal node. Rendered for both nav surfaces
-  // beside the wordmark; brackets are kept in the brand-paper color (warm
-  // paper #FAFAF7) so the mark sits cleanly on the navy chrome.
+  // beside the wordmark; brackets are kept in the brand warm-paper colour
+  // so the mark sits cleanly on the navy chrome.
   const logoNode = useMemo(
     () => (
       <CiteMark
         size={28}
-        bracketColor="#FAFAF7"
-        nodeColor="#0F766E"
+        bracketColor={OS_LEGAL_COLORS.warmPaper}
+        nodeColor={OS_LEGAL_COLORS.accent}
         ariaLabel="cite"
       />
     ),

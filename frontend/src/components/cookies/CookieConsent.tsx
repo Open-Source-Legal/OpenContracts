@@ -3,6 +3,7 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_SHADOWS,
   OS_LEGAL_SPACING,
+  OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
 import {
   COOKIE_CONSENT_GRID_BREAKPOINT,
@@ -57,17 +58,19 @@ import { CiteMark } from "../brand/CiteMark";
  * teal reserved for accent / links / active states).
  */
 
-// Brand-correct typography stacks. Don't pull from OS_LEGAL_TYPOGRAPHY here
-// — the legacy fontFamilySerif resolves to Georgia, but the cite brand
-// spec requires Source Serif 4 with the Source Serif Pro / Georgia
-// fallback chain so the wordmark style carries through.
+// Brand-correct typography stacks. OS_LEGAL_TYPOGRAPHY.fontFamilySerif
+// now carries the cite Source Serif 4 / Source Serif Pro / Georgia chain
+// (the legacy Georgia-first stack was upgraded as part of the v3 rebrand
+// so this dialog inherits the new wordmark style automatically). The
+// sans block adds "Segoe UI" before the system fallback to match the
+// Windows rendering target the original dialog targeted.
 const sansFont = css`
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 `;
 
 const serifFont = css`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
 `;
 
 /**
@@ -100,7 +103,7 @@ const cookieModalCss = `
     width: calc(100vw - ${OS_LEGAL_SPACING.modalSideGutter});
     border-radius: 8px;
     box-shadow: ${OS_LEGAL_SHADOWS.modalOverlay};
-    background: #fafaf7;
+    background: ${OS_LEGAL_COLORS.warmPaper};
   }
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     .cookie-consent-modal.oc-modal {
@@ -117,7 +120,7 @@ const cookieModalCss = `
   .cookie-consent-modal .oc-modal-header {
     border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
     padding: 1.5rem 1.75rem 1.25rem;
-    background: #fafaf7;
+    background: ${OS_LEGAL_COLORS.warmPaper};
   }
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     .cookie-consent-modal .oc-modal-header {
@@ -127,7 +130,7 @@ const cookieModalCss = `
   }
 
   .cookie-consent-modal .oc-modal-header__title {
-    font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
     font-size: 1.625rem;
     font-weight: 400;
     line-height: 1.15;
@@ -143,7 +146,7 @@ const cookieModalCss = `
 
   .cookie-consent-modal .oc-modal-body {
     padding: 1.5rem 1.75rem 1.5rem;
-    background: #fafaf7;
+    background: ${OS_LEGAL_COLORS.warmPaper};
   }
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     .cookie-consent-modal .oc-modal-body {
@@ -157,7 +160,7 @@ const cookieModalCss = `
     padding: 1rem 1.75rem;
     display: flex;
     justify-content: flex-end;
-    background: #fafaf7;
+    background: ${OS_LEGAL_COLORS.warmPaper};
     border-top: 1px solid ${OS_LEGAL_COLORS.border};
   }
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
@@ -173,9 +176,9 @@ const cookieModalCss = `
      Teal stays reserved for accent / links / active states per the cite
      brand system. */
   .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary {
-    background: #0f172a;
-    color: #fafaf7;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: ${OS_LEGAL_COLORS.ink};
+    color: ${OS_LEGAL_COLORS.warmPaper};
+    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
     font-weight: 500;
     letter-spacing: 0;
     border-radius: 6px;
@@ -184,7 +187,7 @@ const cookieModalCss = `
   }
   .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary:hover:not(:disabled):not(.oc-button--loading),
   .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary:focus-visible {
-    background: #1e293b;
+    background: ${OS_LEGAL_COLORS.inkHover};
   }
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary {
@@ -226,7 +229,7 @@ const DemoBanner = styled.div`
   padding: 0.875rem 1rem;
   background: #ffffff;
   border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-left: 3px solid #0f766e;
+  border-left: 3px solid ${OS_LEGAL_COLORS.accent};
   border-radius: 6px;
   margin-bottom: 1.5rem;
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 
 import { CiteWordmark } from "../CiteWordmark";
+import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
 describe("CiteWordmark", () => {
   it("renders the bracketed [cite] text as inline SVG", () => {
@@ -22,17 +23,19 @@ describe("CiteWordmark", () => {
   });
 
   // The dark/light split is the only conditional in the component — exercise
-  // both so the ternary doesn't show up as a partial in coverage.
+  // both so the ternary doesn't show up as a partial in coverage. Compare
+  // against the OS_LEGAL_COLORS source-of-truth rather than re-typing the
+  // hex values so the test stays in lockstep with brand-palette edits.
   it("uses the slate ink fill in the default dark variant", () => {
     const { container } = render(<CiteWordmark variant="dark" />);
     const text = container.querySelector("text");
-    expect(text).toHaveStyle({ fill: "#1E293B" });
+    expect(text).toHaveStyle({ fill: OS_LEGAL_COLORS.textPrimary });
   });
 
   it("uses the warm-paper fill for the light variant (for navy chrome)", () => {
     const { container } = render(<CiteWordmark variant="light" />);
     const text = container.querySelector("text");
-    expect(text).toHaveStyle({ fill: "#FAFAF7" });
+    expect(text).toHaveStyle({ fill: OS_LEGAL_COLORS.warmPaper });
   });
 
   it("propagates className, style, and ariaLabel onto the root SVG", () => {

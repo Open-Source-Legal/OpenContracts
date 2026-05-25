@@ -2,7 +2,10 @@ import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@apollo/client";
 import styled from "styled-components";
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../../assets/configurations/osLegalStyles";
 import { SearchBox, FilterTabs } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
 import { CiteMark } from "../brand/CiteMark";
@@ -34,8 +37,7 @@ const HeroSection = styled.section`
 `;
 
 const HeroTitleRow = styled.h1`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman",
-    serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 42px;
   font-weight: 400;
   line-height: 1.1;
@@ -85,7 +87,7 @@ const HeroSubtitle = styled.p`
   max-width: 620px;
 
   em {
-    font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
     font-style: italic;
     font-weight: 400;
     color: ${OS_LEGAL_COLORS.textPrimary};

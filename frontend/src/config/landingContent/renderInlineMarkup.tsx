@@ -1,5 +1,7 @@
 import React from "react";
 
+import { OS_LEGAL_TYPOGRAPHY } from "../../assets/configurations/osLegalStyles";
+
 /**
  * Renders the minimal inline-italic markup used in landing/about content:
  * any `*span*` segment becomes a Source Serif italic `<em>`, the rest
@@ -21,6 +23,12 @@ import React from "react";
 export function renderInlineMarkup(input: string): React.ReactNode[] {
   if (!input) return [];
   const segments = input.split(/(\*[^*]+\*)/g);
+  // Index-as-key is safe here: `segments` is the deterministic output of
+  // `String.split(regex)` on static landing/About JSON copy, so positions
+  // never reorder across renders. Composing the index with a slice of the
+  // segment text (e.g. `${index}-${segment.slice(0, 12)}`) would only swap
+  // one stable key for another; React's reconciliation either way is a
+  // straight-line replace.
   return segments
     .filter((segment) => segment.length > 0)
     .map((segment, index) => {
@@ -29,8 +37,7 @@ export function renderInlineMarkup(input: string): React.ReactNode[] {
           <em
             key={index}
             style={{
-              fontFamily:
-                "'Source Serif 4', 'Source Serif Pro', Georgia, serif",
+              fontFamily: OS_LEGAL_TYPOGRAPHY.fontFamilySerif,
               fontStyle: "italic",
               fontWeight: 400,
             }}

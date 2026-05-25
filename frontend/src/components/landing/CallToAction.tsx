@@ -2,7 +2,10 @@ import React from "react";
 import styled from "styled-components";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../../assets/configurations/osLegalStyles";
 import { useEnv } from "../hooks/UseEnv";
 import { CiteMark } from "../brand/CiteMark";
 import { useLandingContent } from "../../config/landingContent";
@@ -52,7 +55,7 @@ const Eyebrow = styled.div`
 `;
 
 const Headline = styled.p`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 22px;
   font-weight: 400;
   line-height: 1.5;
@@ -66,7 +69,7 @@ const Headline = styled.p`
 `;
 
 const Body = styled.p`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 16px;
   line-height: 1.65;
   color: ${OS_LEGAL_COLORS.textSecondary};
@@ -89,8 +92,8 @@ const PrimaryButton = styled.button`
   font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 13px;
   font-weight: 500;
-  color: #fafaf7;
-  background: #0f172a;
+  color: ${OS_LEGAL_COLORS.warmPaper};
+  background: ${OS_LEGAL_COLORS.ink};
   border: none;
   border-radius: 6px;
   padding: 10px 18px;
@@ -98,7 +101,7 @@ const PrimaryButton = styled.button`
   transition: background 0.15s ease;
 
   &:hover {
-    background: #1e293b;
+    background: ${OS_LEGAL_COLORS.inkHover};
   }
 `;
 

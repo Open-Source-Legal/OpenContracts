@@ -53,6 +53,20 @@ export const OS_LEGAL_COLORS = {
   /** Light accent surface (teal-50). Use for selected item backgrounds. */
   accentSurface: "#f0fdfa",
 
+  // Cite-brand neutrals (v3 rebrand).
+  // Kept as semantic primary-action / page-paper tokens (rather than
+  // raw slate-900/50 names) so callers express *intent* — "the navy
+  // primary button" and "the warm-paper page background" — instead of
+  // a colour-scale position. The pair also intentionally diverges
+  // from `textPrimary`/`background` so future brand evolution can
+  // re-anchor button vs. body-text colours independently.
+  /** Cite ink (slate-900). Default fill for the navy primary button + CookieConsent CTA. */
+  ink: "#0f172a",
+  /** Hover state for `ink`. Matches `textPrimary` deliberately (slate-800). */
+  inkHover: "#1e293b",
+  /** Warm-paper background (#FAFAF7). Brand theme colour; pair with `ink` for button text. */
+  warmPaper: "#FAFAF7",
+
   // Interactive colors - blue theme
   /** Primary interactive blue - buttons, focus rings, toggles, active states. */
   primaryBlue: "#3b82f6",
@@ -378,8 +392,15 @@ export const greenAlpha = (opacity: number): string =>
  * Typography definitions for the OS Legal design system.
  */
 export const OS_LEGAL_TYPOGRAPHY = {
-  /** Serif font stack - for legal documents and formal content. */
-  fontFamilySerif: '"Georgia", "Times New Roman", serif',
+  /**
+   * Serif font stack — Source Serif 4 (cite brand display + body),
+   * Source Serif Pro (older OS-installed sibling), then Georgia + serif
+   * as graceful fallbacks if web fonts haven't loaded. Kept under the
+   * `fontFamilySerif` name so existing callers pick up the cite stack
+   * automatically rather than each component inlining the chain.
+   */
+  fontFamilySerif:
+    '"Source Serif 4", "Source Serif Pro", "Georgia", "Times New Roman", serif',
   /** Sans-serif font stack - for UI elements and general text. */
   fontFamilySans: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
 } as const;

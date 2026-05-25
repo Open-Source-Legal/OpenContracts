@@ -13,6 +13,7 @@ import { User, Lock } from "lucide-react";
 import { CiteMark } from "../components/brand/CiteMark";
 import { CiteWordmark } from "../components/brand/CiteWordmark";
 import { useCacheManager } from "../hooks/useCacheManager";
+import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 
 const PageWrapper = styled.div`
   width: 100vw;
@@ -71,7 +72,7 @@ const Input = styled.input`
   font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   &:focus {
     outline: none;
-    border-color: #0f766e;
+    border-color: ${OS_LEGAL_COLORS.accent};
   }
 `;
 
@@ -84,8 +85,8 @@ const IconWrapper = styled.div`
 `;
 
 const LoginButton = styled.button`
-  background-color: #0f172a;
-  color: #fafaf7;
+  background-color: ${OS_LEGAL_COLORS.ink};
+  color: ${OS_LEGAL_COLORS.warmPaper};
   border: none;
   border-radius: 6px;
   padding: 0.75rem;
@@ -95,7 +96,7 @@ const LoginButton = styled.button`
   cursor: pointer;
   transition: background-color 0.2s ease;
   &:hover {
-    background-color: #1e293b;
+    background-color: ${OS_LEGAL_COLORS.inkHover};
   }
   &:disabled {
     opacity: 0.6;

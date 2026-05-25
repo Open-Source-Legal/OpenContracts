@@ -1,5 +1,10 @@
 import React from "react";
 
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../../assets/configurations/osLegalStyles";
+
 interface CiteWordmarkProps {
   /** Pixel size of the rendered wordmark. Width auto-scales. */
   size?: number;
@@ -26,7 +31,10 @@ export const CiteWordmark: React.FC<CiteWordmarkProps> = ({
   className,
   style,
 }) => {
-  const fill = variant === "light" ? "#FAFAF7" : "#1E293B";
+  const fill =
+    variant === "light"
+      ? OS_LEGAL_COLORS.warmPaper
+      : OS_LEGAL_COLORS.textPrimary;
   // Source SVG viewBox is 200×80 (aspect 2.5). Width scales accordingly.
   const height = size;
   const width = size * 2.5;
@@ -46,7 +54,7 @@ export const CiteWordmark: React.FC<CiteWordmarkProps> = ({
         y="56"
         textAnchor="middle"
         style={{
-          fontFamily: "'Source Serif 4', 'Source Serif Pro', Georgia, serif",
+          fontFamily: OS_LEGAL_TYPOGRAPHY.fontFamilySerif,
           fontSize: "56px",
           fontWeight: 400,
           fill,

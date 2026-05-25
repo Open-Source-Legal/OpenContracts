@@ -1,7 +1,10 @@
 import React from "react";
 import styled from "styled-components";
 import { Link } from "react-router-dom";
-import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../assets/configurations/osLegalStyles";
 import { PageContainer } from "../components/layout/PageLayout";
 import { CiteMark } from "../components/brand/CiteMark";
 import { useLandingContent } from "../config/landingContent";
@@ -41,7 +44,7 @@ const Eyebrow = styled.div`
 `;
 
 const PageTitle = styled.h1`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 42px;
   line-height: 1.1;
   letter-spacing: -0.5px;
@@ -55,7 +58,7 @@ const PageTitle = styled.h1`
 `;
 
 const Lede = styled.p`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 17px;
   line-height: 1.7;
   color: ${OS_LEGAL_COLORS.textSecondary};
@@ -76,7 +79,7 @@ const Section = styled.section`
 `;
 
 const SectionTitle = styled.h2`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 23px;
   line-height: 1.25;
   letter-spacing: -0.25px;
@@ -86,7 +89,7 @@ const SectionTitle = styled.h2`
 `;
 
 const Body = styled.p`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: 16px;
   line-height: 1.65;
   color: ${OS_LEGAL_COLORS.textPrimary};

@@ -738,10 +738,10 @@ test.describe("NavMenu Responsive Behavior", () => {
 // ----------------------------------------------------------------------------
 // On long-scroll surfaces (corpus Annotations / Analyses / Extracts), the
 // in-flow Footer is effectively unreachable. The NavMenu overflow keeps the
-// audited essential links (Privacy / Terms / GitHub) one click away from any
-// scroll position — these tests assert the trigger renders, opens, and
-// contains each link in both anonymous and authenticated states, on desktop
-// and mobile.
+// audited essential links (About / Privacy / Terms / GitHub) one click away
+// from any scroll position — these tests assert the trigger renders, opens,
+// and contains each link in both anonymous and authenticated states, on
+// desktop and mobile.
 
 test.describe("NavMenu Overflow", () => {
   test.describe("Desktop", () => {
@@ -790,6 +790,9 @@ test.describe("NavMenu Overflow", () => {
 
       // All audited essential links should be present.
       await expect(
+        menu.getByRole("menuitem", { name: "About cite" })
+      ).toBeVisible();
+      await expect(
         menu.getByRole("menuitem", { name: "Privacy Policy" })
       ).toBeVisible();
       await expect(
@@ -818,6 +821,9 @@ test.describe("NavMenu Overflow", () => {
       await expect(menu).toBeVisible({ timeout: 2000 });
 
       // Same audited essential links — auth state should not gate them.
+      await expect(
+        menu.getByRole("menuitem", { name: "About cite" })
+      ).toBeVisible();
       await expect(
         menu.getByRole("menuitem", { name: "Privacy Policy" })
       ).toBeVisible();
@@ -910,14 +916,19 @@ test.describe("NavMenu Overflow", () => {
       await expect(menu).toBeVisible({ timeout: 2000 });
 
       const items = menu.locator('[role="menuitem"]');
-      // After opening, focus seeds the first item; pressing ArrowDown moves
-      // to the second item, ArrowDown again moves to the third (last), and a
-      // third ArrowDown wraps back to the first.
+      // After opening, focus seeds the first item; pressing ArrowDown walks
+      // through every item in order, then wraps back to the first. Cover
+      // the wrap regardless of overflow link count so adding/removing an
+      // item (issue #1609 audit, now includes About) does not require a
+      // test edit.
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(2);
       await expect(items.nth(0)).toBeFocused({ timeout: 2000 });
-      await page.keyboard.press("ArrowDown");
-      await expect(items.nth(1)).toBeFocused();
-      await page.keyboard.press("ArrowDown");
-      await expect(items.nth(2)).toBeFocused();
+      for (let i = 1; i < count; i++) {
+        await page.keyboard.press("ArrowDown");
+        await expect(items.nth(i)).toBeFocused();
+      }
+      // One more ArrowDown should wrap back to the first item.
       await page.keyboard.press("ArrowDown");
       await expect(items.nth(0)).toBeFocused();
 
@@ -935,12 +946,15 @@ test.describe("NavMenu Overflow", () => {
       await expect(menu).toBeVisible({ timeout: 2000 });
 
       const items = menu.locator('[role="menuitem"]');
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(2);
       await expect(items.nth(0)).toBeFocused({ timeout: 2000 });
-      // From the first item, ArrowUp wraps to the last item.
+      // From the first item, ArrowUp wraps to the last item; one more
+      // ArrowUp walks back to the second-to-last.
       await page.keyboard.press("ArrowUp");
-      await expect(items.nth(2)).toBeFocused();
+      await expect(items.nth(count - 1)).toBeFocused();
       await page.keyboard.press("ArrowUp");
-      await expect(items.nth(1)).toBeFocused();
+      await expect(items.nth(count - 2)).toBeFocused();
 
       await component.unmount();
     });
@@ -994,6 +1008,9 @@ test.describe("NavMenu Overflow", () => {
 
       await expect(sheet.getByText("More", { exact: true })).toBeVisible();
       await expect(
+        sheet.getByRole("link", { name: "About cite" })
+      ).toBeVisible();
+      await expect(
         sheet.getByRole("link", { name: "Privacy Policy" })
       ).toBeVisible();
       await expect(
@@ -1019,6 +1036,9 @@ test.describe("NavMenu Overflow", () => {
       await expect(sheet).toBeVisible({ timeout: 2000 });
 
       await expect(sheet.getByText("More", { exact: true })).toBeVisible();
+      await expect(
+        sheet.getByRole("link", { name: "About cite" })
+      ).toBeVisible();
       await expect(
         sheet.getByRole("link", { name: "Privacy Policy" })
       ).toBeVisible();

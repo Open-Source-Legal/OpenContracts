@@ -2,6 +2,7 @@ import styled from "styled-components";
 import { Link } from "react-router-dom";
 
 import useWindowDimensions from "../hooks/WindowDimensionHook";
+import { OS_LEGAL_TYPOGRAPHY } from "../../assets/configurations/osLegalStyles";
 
 // Stacked opensource.legal + [cite] lockup used in the footer. Matches the
 // production SVG in /assets/brand/lockup.svg but inlined so it inherits the
@@ -25,7 +26,7 @@ const LockupHandle = styled.span<{ $small?: boolean }>`
 `;
 
 const LockupWordmark = styled.span<{ $small?: boolean }>`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
   font-size: ${(props) => (props.$small ? "28px" : "36px")};
   font-weight: 400;
   letter-spacing: -0.5px;
