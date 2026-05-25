@@ -173,32 +173,52 @@ function BadgeItem({
   // Recompute portal position whenever the tooltip becomes visible.
   // Uses fixed coords from the badge's bounding rect, then flips below
   // if there isn't enough room above (avoids clipping near the top of
-  // a scroll container).
+  // a scroll container).  ``position: fixed`` doesn't follow the badge
+  // when an ancestor scrolls, so we also re-run the math on any
+  // capture-phase scroll / resize while the tooltip is visible.
   useLayoutEffect(() => {
     if (!isHovered || !wrapperRef.current) {
       setTooltipPos(null);
       return;
     }
-    const rect = wrapperRef.current.getBoundingClientRect();
-    const TOOLTIP_HEIGHT_EST = 120; // generous upper bound for typical badge tooltips
-    const GAP = 8;
-    const VIEWPORT_PADDING = 8;
-    const placement: "top" | "bottom" =
-      rect.top - TOOLTIP_HEIGHT_EST - GAP < VIEWPORT_PADDING ? "bottom" : "top";
+    const computePosition = () => {
+      const node = wrapperRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const TOOLTIP_HEIGHT_EST = 120; // generous upper bound for typical badge tooltips
+      const GAP = 8;
+      const VIEWPORT_PADDING = 8;
+      const placement: "top" | "bottom" =
+        rect.top - TOOLTIP_HEIGHT_EST - GAP < VIEWPORT_PADDING
+          ? "bottom"
+          : "top";
 
-    // Center horizontally on the badge, clamped to viewport.
-    const TOOLTIP_MAX_WIDTH = 220;
-    const centerX = rect.left + rect.width / 2;
-    let left = centerX - TOOLTIP_MAX_WIDTH / 2;
-    left = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(left, window.innerWidth - TOOLTIP_MAX_WIDTH - VIEWPORT_PADDING)
-    );
-    const arrowOffset = centerX - left; // px from tooltip's left edge to arrow center
+      // Center horizontally on the badge, clamped to viewport.
+      const TOOLTIP_MAX_WIDTH = 220;
+      const centerX = rect.left + rect.width / 2;
+      let left = centerX - TOOLTIP_MAX_WIDTH / 2;
+      left = Math.max(
+        VIEWPORT_PADDING,
+        Math.min(left, window.innerWidth - TOOLTIP_MAX_WIDTH - VIEWPORT_PADDING)
+      );
+      const arrowOffset = centerX - left; // px from tooltip's left edge to arrow center
 
-    const top = placement === "top" ? rect.top - GAP : rect.bottom + GAP;
+      const top = placement === "top" ? rect.top - GAP : rect.bottom + GAP;
 
-    setTooltipPos({ top, left, placement, arrowOffset });
+      setTooltipPos({ top, left, placement, arrowOffset });
+    };
+
+    computePosition();
+    // Re-position on ANY scroll (capture phase so ancestor scroll
+    // containers, not just window, trigger it).  Without this the
+    // tooltip drifts when the sidebar scrolls while the user holds the
+    // cursor still over a badge.
+    window.addEventListener("scroll", computePosition, true);
+    window.addEventListener("resize", computePosition);
+    return () => {
+      window.removeEventListener("scroll", computePosition, true);
+      window.removeEventListener("resize", computePosition);
+    };
   }, [isHovered]);
 
   // Dynamically get the icon component from lucide-react
@@ -228,8 +248,13 @@ function BadgeItem({
         left: tooltipPos.left,
         // Anchor the arrow under the badge center even when the tooltip
         // is clamped to the viewport edge (consumed by ::after in
-        // TooltipPopup via var(--arrow-offset)).
-        ["--arrow-offset" as any]: `${tooltipPos.arrowOffset}px`,
+        // TooltipPopup via var(--arrow-offset)).  React.CSSProperties
+        // doesn't model CSS custom properties, so cast through
+        // ``Record<string, string>`` rather than ``any`` to keep the
+        // any-baseline gate honest.
+        ...({
+          "--arrow-offset": `${tooltipPos.arrowOffset}px`,
+        } as Record<string, string>),
       }}
     >
       <BadgeContent>

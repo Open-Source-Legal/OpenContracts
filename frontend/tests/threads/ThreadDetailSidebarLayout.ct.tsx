@@ -174,17 +174,21 @@ test.describe("DocumentDiscussionsContent — sidebar thread detail", () => {
     });
     await expect(tooltipText).toBeVisible({ timeout: 3_000 });
 
-    // The tooltip should live outside the clipping frame: its top-left
-    // box must extend beyond the harness's bounding rect, OR sit on
-    // document.body (not inside the frame's subtree). We assert the
-    // simpler invariant: the tooltip text is rendered and fully visible
-    // even though the frame above it has overflow: hidden.
-    const frame = page.locator("[data-testid='clip-frame']");
-    const frameBox = await frame.boundingBox();
+    // The tooltip must live OUTSIDE the clipping frame's DOM subtree —
+    // a nonzero bounding box alone could pass even if the tooltip were
+    // still inside the clip frame and merely positioned somewhere in
+    // its scroll buffer.  Assert structurally: the tooltip's nearest
+    // ancestor ``[data-testid='clip-frame']`` is ``null``.
+    const escapedClip = await tooltipText.evaluate(
+      (el) => el.closest("[data-testid='clip-frame']") === null
+    );
+    expect(escapedClip).toBe(true);
+
+    // Also sanity-check the tooltip rendered with nonzero size (catches
+    // a regression where the portal mounts but the popup is collapsed).
     const tooltipBox = await tooltipText.boundingBox();
-    expect(frameBox && tooltipBox).toBeTruthy();
-    if (frameBox && tooltipBox) {
-      // Tooltip is not clipped: it has nonzero width and height.
+    expect(tooltipBox).toBeTruthy();
+    if (tooltipBox) {
       expect(tooltipBox.width).toBeGreaterThan(0);
       expect(tooltipBox.height).toBeGreaterThan(0);
     }
