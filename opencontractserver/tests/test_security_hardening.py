@@ -1434,7 +1434,10 @@ class TestConditionalCsrfExempt(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_session_auth_without_csrf_rejected(self):
-        """Session-cookie requests without CSRF token should be rejected."""
+        """Session-cookie requests with an authenticated session must
+        present a CSRF token. Empty/anonymous sessions are covered by
+        ``test_anonymous_session_cookie_bypasses_csrf`` below.
+        """
         from django.conf import settings
         from django.test import RequestFactory
 
@@ -1457,9 +1460,87 @@ class TestConditionalCsrfExempt(TestCase):
             content_type="application/json",
         )
         request.COOKIES[session_cookie] = "fake-session-id"
+        request.session = {"_auth_user_id": "1"}
         response = dummy_view(request)
         # CsrfViewMiddleware returns 403 for missing CSRF token
         self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_session_cookie_bypasses_csrf(self):
+        """An empty/anonymous session cookie must NOT trigger CSRF.
+
+        Regression for the post-#1789 production 403 storm: the corpus
+        voting flow forces a Django session row into existence for
+        anonymous voters so it can dedupe votes by ``session_key``.  The
+        subsequent ``Set-Cookie`` makes every following anonymous POST
+        carry a ``sessionid`` — but there is no authenticated identity in
+        that session for a CSRF attacker to ride on. Treating the bare
+        cookie as evidence of session auth (pre-fix behaviour) 403'd the
+        next vote / refetch / GET_ME and cascaded into a "session
+        expired" toast loop.
+        """
+        from django.conf import settings
+        from django.test import RequestFactory
+
+        from config.graphql.security import conditional_csrf_exempt
+
+        factory = RequestFactory()
+
+        @conditional_csrf_exempt
+        def dummy_view(request):
+            from django.http import HttpResponse
+
+            return HttpResponse("ok")
+
+        session_cookie = getattr(settings, "SESSION_COOKIE_NAME", "sessionid")
+        request = factory.post(
+            "/graphql/",
+            data="{}",
+            content_type="application/json",
+        )
+        request.COOKIES[session_cookie] = "anon-vote-session"
+        # Empty session — no ``_auth_user_id`` ever set. This is exactly
+        # the shape ``_ensure_session_key`` leaves behind after an
+        # anonymous vote.
+        request.session = {}
+        response = dummy_view(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_session_without_session_attr_bypasses_csrf(self):
+        """A session cookie on a request that never went through
+        ``SessionMiddleware`` (no ``request.session``) must bypass CSRF.
+
+        Defensive belt-and-braces for misconfigured deployments / test
+        harnesses: with no session attached we cannot tell whether the
+        cookie maps to an authenticated user, but we also cannot tell
+        whether it maps to anything at all — and the request has no
+        Bearer token to fall back to. Treating the unknown as "anonymous"
+        keeps legitimate traffic flowing; the underlying auth resolver
+        still rejects privileged operations on its own merits.
+        """
+        from django.conf import settings
+        from django.test import RequestFactory
+
+        from config.graphql.security import conditional_csrf_exempt
+
+        factory = RequestFactory()
+
+        @conditional_csrf_exempt
+        def dummy_view(request):
+            from django.http import HttpResponse
+
+            return HttpResponse("ok")
+
+        session_cookie = getattr(settings, "SESSION_COOKIE_NAME", "sessionid")
+        request = factory.post(
+            "/graphql/",
+            data="{}",
+            content_type="application/json",
+        )
+        request.COOKIES[session_cookie] = "stale-cookie"
+        # Deliberately do NOT attach request.session — RequestFactory
+        # does not run middleware.
+        response = dummy_view(request)
+        self.assertEqual(response.status_code, 200)
 
     def test_anonymous_no_session_bypasses_csrf(self):
         """A POST with neither Authorization nor session cookie should pass.
@@ -1527,12 +1608,12 @@ class TestConditionalCsrfExempt(TestCase):
         response = dummy_view(request)
         self.assertEqual(response.status_code, 200)
 
-    def test_empty_authorization_with_session_still_enforces_csrf(self):
-        """Empty Authorization + session cookie must NOT bypass CSRF.
+    def test_empty_authorization_with_authed_session_still_enforces_csrf(self):
+        """Empty Authorization + authenticated session must NOT bypass CSRF.
 
         Defense-in-depth: an empty ``Authorization`` header must not trick
         the decorator into treating the request as token-authenticated.
-        With a session cookie present we still need CSRF.
+        With an authenticated session present we still need CSRF.
         """
         from django.conf import settings
         from django.test import RequestFactory
@@ -1555,6 +1636,7 @@ class TestConditionalCsrfExempt(TestCase):
             HTTP_AUTHORIZATION="",
         )
         request.COOKIES[session_cookie] = "fake-session-id"
+        request.session = {"_auth_user_id": "1"}
         response = dummy_view(request)
         self.assertEqual(response.status_code, 403)
 
@@ -1592,12 +1674,23 @@ class TestConditionalCsrfExempt(TestCase):
         )
 
     def _post_with_session(self, **headers):
+        """Build a POST with an **authenticated** session attached.
+
+        The CSRF gate only fires when a session cookie *and* an
+        authenticated identity in the session are both present (issue
+        #1789 follow-up). The scheme-validation tests below want the
+        "session-authenticated, no Bearer" path, so we attach a minimal
+        session dict with ``_auth_user_id`` populated alongside the
+        cookie. The cookie itself just needs to be non-empty for the
+        decorator's ``has_session_cookie`` short-circuit.
+        """
         from django.conf import settings
 
         request = self._post(**headers)
         request.COOKIES[getattr(settings, "SESSION_COOKIE_NAME", "sessionid")] = (
             "fake-session"
         )
+        request.session = {"_auth_user_id": "1"}
         return request
 
     def test_unrecognized_scheme_with_session_enforces_csrf(self):
@@ -1679,12 +1772,14 @@ class TestConditionalCsrfExempt(TestCase):
             response = view(request)
         self.assertEqual(response.status_code, 200)
 
-    def test_session_with_csrf_token_passes(self):
+    def test_authed_session_with_csrf_token_passes(self):
         """Positive session+CSRF path: request with a matching CSRF token passes.
 
         Closes the gap in the test matrix called out in #1432: the existing
         suite covered the *reject* leg of session+CSRF but never the
-        *accept* leg.
+        *accept* leg.  An authenticated session is required to actually
+        exercise the CSRF middleware (anonymous sessions bypass per
+        issue #1789 follow-up — see ``test_anonymous_session_cookie_bypasses_csrf``).
         """
         from django.middleware.csrf import get_token
         from django.test import RequestFactory, override_settings
@@ -1706,6 +1801,7 @@ class TestConditionalCsrfExempt(TestCase):
             request.META["HTTP_X_CSRFTOKEN"] = token
             request.COOKIES["csrftoken"] = token
             request.COOKIES["sessionid"] = "fake-session"
+            request.session = {"_auth_user_id": "1"}
             response = view(request)
 
         self.assertEqual(response.status_code, 200)

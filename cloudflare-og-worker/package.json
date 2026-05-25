@@ -1,8 +1,8 @@
 {
-  "name": "opencontracts-og-worker",
+  "name": "cite-og-worker",
   "version": "1.0.0",
   "private": true,
-  "description": "Cloudflare Worker for OpenContracts social media link previews",
+  "description": "Cloudflare Worker for cite.opensource.legal social media link previews",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

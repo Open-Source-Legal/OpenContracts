@@ -1,6 +1,6 @@
 # Social Media Link Previews with Cloudflare Workers
 
-This document describes how to implement rich social media previews (Open Graph / Twitter Cards) for OpenContracts deep-links using Cloudflare Workers.
+This document describes how to implement rich social media previews (Open Graph / Twitter Cards) for cite deep-links using Cloudflare Workers.
 
 ## Status in this repo
 
@@ -28,17 +28,17 @@ Important note for dev tooling:
 
 ### Problem
 
-When users share OpenContracts deep-links on social media (Twitter/X, LinkedIn, Slack, Discord, etc.), the social media crawlers cannot execute JavaScript. Since OpenContracts is a React SPA, crawlers see only the generic `index.html` with no entity-specific metadata.
+When users share cite deep-links on social media (Twitter/X, LinkedIn, Slack, Discord, etc.), the social media crawlers cannot execute JavaScript. Since cite is a React SPA, crawlers see only the generic `index.html` with no entity-specific metadata.
 
 **Current state** (without this feature):
 ```
-Shared link: https://opencontracts.io/c/john/legal-contracts
-Preview: "OpenContracts" with generic description
+Shared link: https://cite.opensource.legal/c/john/legal-contracts
+Preview: "cite" with generic description
 ```
 
 **Desired state** (with this feature):
 ```
-Shared link: https://opencontracts.io/c/john/legal-contracts
+Shared link: https://cite.opensource.legal/c/john/legal-contracts
 Preview:
   Title: "Legal Contracts Collection"
   Description: "A curated collection of 45 legal contracts with ML-extracted clauses"
@@ -249,13 +249,13 @@ function generateGenericResponse(url: URL, env: Env): Response {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>OpenContracts</title>
-  <meta property="og:title" content="OpenContracts">
-  <meta property="og:description" content="Open source document analytics platform">
+  <title>cite — the citation layer for agentic workflows</title>
+  <meta property="og:title" content="cite — the citation layer for agentic workflows">
+  <meta property="og:description" content="cite turns a repository of documents into an open citation graph that humans and AI agents can read, reason over, and contribute back to.">
   <meta property="og:image" content="${env.OG_IMAGE_BASE}/default-og.png">
   <meta property="og:url" content="${url.href}">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="OpenContracts">
+  <meta property="og:site_name" content="cite">
   <meta name="twitter:card" content="summary_large_image">
   <meta http-equiv="refresh" content="0;url=${url.href}">
 </head>
@@ -559,7 +559,7 @@ function extractMetadata(
       return {
         title: entity.title,
         description: entity.description ||
-          (entity.corpusTitle ? `Document in ${entity.corpusTitle}` : 'Document on OpenContracts'),
+          (entity.corpusTitle ? `Document in ${entity.corpusTitle}` : 'Document on cite.opensource.legal'),
         image: entity.iconUrl || `${env.OG_IMAGE_BASE}/document-og.png`,
         type,
         entityName: entity.title,
@@ -607,7 +607,7 @@ export function generateOGHtml(
   const title = escapeHtml(metadata.title);
   const description = escapeHtml(truncate(metadata.description, 200));
   const image = metadata.image || `${env.OG_IMAGE_BASE}/default-og.png`;
-  const siteName = 'OpenContracts';
+  const siteName = 'cite';
 
   // Entity type badge for title
   const typeLabel = getTypeLabel(metadata.type);
@@ -775,7 +775,7 @@ Key characteristics:
 
 ```toml
 # cloudflare-og-worker/wrangler.toml
-name = "opencontracts-og"
+name = "cite-og"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
@@ -787,23 +787,23 @@ OG_IMAGE_BASE = "http://localhost:3000/static/og-images"
 
 # Production environment
 [env.production]
-vars = { SITE_URL = "https://opencontracts.io", API_URL = "https://opencontracts.io", OG_IMAGE_BASE = "https://opencontracts.io/static/og-images" }
+vars = { SITE_URL = "https://cite.opensource.legal", API_URL = "https://cite.opensource.legal", OG_IMAGE_BASE = "https://cite.opensource.legal/static/og-images" }
 
 # Routes for production - uncomment and configure with your domain
 # routes = [
-#   { pattern = "opencontracts.io/c/*", zone_name = "opencontracts.io" },
-#   { pattern = "opencontracts.io/d/*", zone_name = "opencontracts.io" },
-#   { pattern = "opencontracts.io/e/*", zone_name = "opencontracts.io" },
+#   { pattern = "cite.opensource.legal/c/*", zone_name = "opensource.legal" },
+#   { pattern = "cite.opensource.legal/d/*", zone_name = "opensource.legal" },
+#   { pattern = "cite.opensource.legal/e/*", zone_name = "opensource.legal" },
 # ]
 
 # Staging environment
 [env.staging]
-vars = { SITE_URL = "https://staging.opencontracts.io", API_URL = "https://staging.opencontracts.io", OG_IMAGE_BASE = "https://staging.opencontracts.io/static/og-images" }
+vars = { SITE_URL = "https://staging.cite.opensource.legal", API_URL = "https://staging.cite.opensource.legal", OG_IMAGE_BASE = "https://staging.cite.opensource.legal/static/og-images" }
 
 # routes = [
-#   { pattern = "staging.opencontracts.io/c/*", zone_name = "opencontracts.io" },
-#   { pattern = "staging.opencontracts.io/d/*", zone_name = "opencontracts.io" },
-#   { pattern = "staging.opencontracts.io/e/*", zone_name = "opencontracts.io" },
+#   { pattern = "staging.cite.opensource.legal/c/*", zone_name = "opensource.legal" },
+#   { pattern = "staging.cite.opensource.legal/d/*", zone_name = "opensource.legal" },
+#   { pattern = "staging.cite.opensource.legal/e/*", zone_name = "opensource.legal" },
 # ]
 
 # Development (local)
@@ -815,7 +815,7 @@ vars = { API_URL = "http://localhost:8000" }
 
 ```json
 {
-  "name": "opencontracts-og-worker",
+  "name": "cite-og-worker",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -876,7 +876,7 @@ In this repository, the worker project already exists under `cloudflare-og-worke
 
 6. **Create OG Images**
    - Create static OG images at `/static/og-images/`:
-     - `default-og.png` (1200x630) - Generic OpenContracts branding
+     - `default-og.png` (1200x630) - Generic cite branding
      - `corpus-og.png` (1200x630) - Corpus icon
      - `document-og.png` (1200x630) - Document icon
      - `discussion-og.png` (1200x630) - Discussion icon
@@ -989,7 +989,7 @@ import requests
 @receiver(post_save, sender=Corpus)
 def invalidate_og_cache(sender, instance, **kwargs):
     if instance.is_public:
-        purge_url = f"https://opencontracts.io/c/{instance.creator.slug}/{instance.slug}"
+        purge_url = f"https://cite.opensource.legal/c/{instance.creator.slug}/{instance.slug}"
         # Call Cloudflare API to purge this URL
         # requests.post(cloudflare_api_url, ...)
 ```

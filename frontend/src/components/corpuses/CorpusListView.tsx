@@ -279,6 +279,10 @@ const SortLabel = styled.label`
 
 const SortSelect = styled.select`
   appearance: none;
+  /* Safari < 15 needs the vendor prefix to actually suppress the native
+     dropdown affordance — without it, Safari renders the default chevron
+     in addition to our custom one. */
+  -webkit-appearance: none;
   background: white;
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 8px;

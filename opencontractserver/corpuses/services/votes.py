@@ -36,6 +36,7 @@ from django.db import transaction
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
+from opencontractserver.utils.auth import is_authenticated_user
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus, CorpusVote
@@ -117,11 +118,7 @@ class CorpusVoteService(BaseService):
         if corpus is None:
             return ServiceResult.failure(_CORPUS_NOT_FOUND_MSG)
 
-        is_authenticated = bool(
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and not getattr(user, "is_anonymous", True)
-        )
+        is_authenticated = is_authenticated_user(user)
 
         # Authenticated branch — block self-vote.  This MUST stay aligned
         # with the equivalent rule on MessageVote / ConversationVote so the
@@ -201,11 +198,7 @@ class CorpusVoteService(BaseService):
         if corpus is None:
             return ServiceResult.failure(_CORPUS_NOT_FOUND_MSG)
 
-        is_authenticated = bool(
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and not getattr(user, "is_anonymous", True)
-        )
+        is_authenticated = is_authenticated_user(user)
 
         if is_authenticated:
             qs = CorpusVote.objects.filter(corpus=corpus, creator=user)
@@ -221,15 +214,14 @@ class CorpusVoteService(BaseService):
             # hadn't voted.  Not an error.
             return ServiceResult.success(False)
 
-        # ``count``-then-``delete`` rather than ``.delete()[0]`` so the
-        # post_delete signal handler runs once per row and the recount on
-        # ``Corpus`` actually fires.  A plain ``QuerySet.delete()`` would
-        # still fire the signal, but we want the returned bool to reflect
-        # whether anything actually happened.
-        count = qs.count()
-        if count == 0:
+        # ``QuerySet.delete()`` returns ``(rows_deleted, {model: count})``
+        # — read that directly rather than running a separate ``count()``
+        # first.  Removes the small race window where a concurrent
+        # double-click could delete the row between ``count()`` and
+        # ``delete()`` and have us return a stale ``True``.
+        deleted, _ = qs.delete()
+        if not deleted:
             return ServiceResult.success(False)
-        qs.delete()
         cls.log_action("Removed vote on", corpus, user)
         return ServiceResult.success(True)
 
@@ -244,17 +236,22 @@ class CorpusVoteService(BaseService):
         """Return ``"upvote"``/``"downvote"``/``None`` for the caller's vote.
 
         Used by the ``CorpusType.my_vote`` GraphQL field resolver so the
-        UI can render the correct active-state on the vote arrows. Reads
-        only — no permission check (the corpus must already have been
-        resolved by the parent query, which gated visibility).
+        UI can render the correct active-state on the vote arrows.
+
+        SECURITY: this method takes a ``Corpus`` instance directly and
+        does NOT run a READ visibility check — the caller is responsible
+        for ensuring ``user`` is permitted to see ``corpus`` before
+        calling. All in-tree call sites today reach the corpus through
+        ``CorpusType.get_queryset`` (which already gates via
+        ``BaseService.filter_visible_qs``), so the contract is satisfied.
+        Future internal callers that pass an arbitrary corpus object MUST
+        gate visibility themselves (e.g. via
+        ``BaseService.get_or_none``) or this leaks the viewer's vote
+        identity for corpora they shouldn't see.
         """
         from opencontractserver.corpuses.models import CorpusVote
 
-        is_authenticated = bool(
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and not getattr(user, "is_anonymous", True)
-        )
+        is_authenticated = is_authenticated_user(user)
 
         if is_authenticated:
             vote = (

@@ -61,7 +61,7 @@ export function generateOGHtml(
   const title = escapeHtml(metadata.title);
   const description = escapeHtml(truncate(metadata.description, 200));
   const image = metadata.image || `${env.OG_IMAGE_BASE}/default-og.png`;
-  const siteName = "OpenContracts";
+  const siteName = "cite";
 
   // Build full title with entity type badge
   const typeLabel = getEntityTypeLabel(metadata.type);
@@ -187,7 +187,7 @@ ${buildTwitterLabelTags(metadata.labeledData)}
     <h1>${title}</h1>
     <p class="description">${description}</p>
     <p class="author">by ${escapeHtml(metadata.creatorName)}</p>
-    <a href="${escapeHtml(canonicalUrl)}">View on OpenContracts</a>
+    <a href="${escapeHtml(canonicalUrl)}">View on cite.opensource.legal</a>
     <p class="spinner pulse">Redirecting...</p>
   </div>
   <noscript>
@@ -205,10 +205,10 @@ ${buildTwitterLabelTags(metadata.labeledData)}
  * @returns HTML string with generic OG meta tags
  */
 export function generateGenericOGHtml(canonicalUrl: string, env: Env): string {
-  const siteName = "OpenContracts";
-  const title = "OpenContracts";
+  const siteName = "cite";
+  const title = "cite — the citation layer for agentic workflows";
   const description =
-    "Open source document analytics platform for PDFs and text-based formats.";
+    "cite turns a repository of documents into an open citation graph that humans and AI agents can read, reason over, and contribute back to.";
   const image = `${env.OG_IMAGE_BASE}/default-og.png`;
 
   return `<!DOCTYPE html>

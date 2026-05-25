@@ -15,6 +15,7 @@ import logging
 from typing import Any, Callable
 
 from django.conf import settings
+from django.contrib.auth import SESSION_KEY as _AUTH_USER_SESSION_KEY
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import (
     REASON_CSRF_TOKEN_MISSING,
@@ -105,12 +106,51 @@ def _is_recognised_token_credential(auth_header: str) -> bool:
     return any(scheme_lower == s.lower() for s in _recognised_token_schemes())
 
 
+def _session_is_authenticated(request: HttpRequest) -> bool:
+    """Return True iff the request's session backs a logged-in user.
+
+    A bare ``sessionid`` cookie is not, by itself, evidence that an
+    attacker has anything to ride on. Django's ``contrib.auth`` records
+    the authenticated user id under :data:`django.contrib.auth.SESSION_KEY`
+    (``"_auth_user_id"``) only when a session-based login (admin, the
+    legacy ``tokenAuth`` GraphQL mutation that calls ``django.login``,
+    etc.) has actually run. Anonymous-only state — e.g. the empty session
+    row that the corpus voting flow forces into existence so it can dedupe
+    anonymous votes by ``session_key`` — has no authenticated identity, so
+    a CSRF check would only block legitimate anonymous POSTs without
+    defending anything.
+
+    Returns ``False`` defensively when:
+
+    * the request has no ``session`` attribute (no ``SessionMiddleware`` —
+      e.g. some unit-test request factories), or
+    * the session cookie points to a session that no longer exists in the
+      backend (Django returns an empty :class:`SessionStore` in that case),
+      so :meth:`SessionBase.get` returns ``None`` for the auth key.
+
+    Accessing :meth:`SessionBase.get` triggers the session backend's
+    lazy load (~one extra query when a cookie is present). The caller
+    only reaches this helper after asserting ``has_session_cookie``, so
+    the load is unavoidable on the legitimate session-auth branch.
+    """
+    session = getattr(request, "session", None)
+    if session is None:
+        return False
+    try:
+        return bool(session.get(_AUTH_USER_SESSION_KEY))
+    except Exception:  # pragma: no cover - defensive against exotic backends
+        logger.exception(
+            "Failed to read auth marker from session; treating as anonymous"
+        )
+        return False
+
+
 def conditional_csrf_exempt(view_func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that exempts a view from CSRF checks **only** when the request
     carries no browser-attached credential that an attacker could ride on.
 
-    Three cases bypass CSRF:
+    Four cases bypass CSRF:
 
     * The ``Authorization`` header carries a *well-formed* token credential
       using a recognised scheme (``Bearer``, ``KEY``, …). Browsers do not
@@ -119,6 +159,15 @@ def conditional_csrf_exempt(view_func: Callable[..., Any]) -> Callable[..., Any]
       attacker on another origin to ride; the request is fully anonymous
       and CSRF would only block legitimate Bearer-only API clients that
       momentarily have no token (startup race, refresh in flight).
+    * A session cookie is present but the session has no authenticated
+      identity (``_auth_user_id`` is unset). This covers the anonymous
+      voting flow, which materialises an empty session row purely to
+      dedupe votes by ``session_key`` — there is no logged-in user for a
+      CSRF attacker to abuse. Without this branch the very next anonymous
+      POST after a vote (a re-vote, a refetch, GET_ME firing during an
+      Auth0 callback) would 403 because the SPA has no CSRF token to send.
+    * (Implicit) Django private ``_dont_enforce_csrf_checks`` is honoured
+      by setting it above for every bypass branch.
 
     Otherwise CSRF is enforced. Empty, whitespace-only, scheme-only, or
     unrecognised-scheme ``Authorization`` values are normalised to "no
@@ -134,14 +183,21 @@ def conditional_csrf_exempt(view_func: Callable[..., Any]) -> Callable[..., Any]
         has_session_cookie = bool(request.COOKIES.get(session_cookie_name))
         has_token_credential = _is_recognised_token_credential(auth_header)
 
+        # ``_dont_enforce_csrf_checks`` is a Django-private flag read by
+        # CsrfViewMiddleware to bypass CSRF on a per-request basis; not in stubs.
         if has_token_credential or not has_session_cookie:
             # Token-based auth, or fully anonymous request with no cookie an
             # attacker could ride — CSRF check would have no security value.
-            # ``_dont_enforce_csrf_checks`` is a Django-private flag read by
-            # CsrfViewMiddleware to bypass CSRF on a per-request basis; not in stubs.
+            setattr(request, "_dont_enforce_csrf_checks", True)
+        elif not _session_is_authenticated(request):
+            # Session cookie present but the session is anonymous (e.g. the
+            # row was created by anonymous corpus voting to dedupe votes).
+            # There is no logged-in identity for an attacker to exploit, so
+            # CSRF would block legitimate anonymous traffic for no benefit.
             setattr(request, "_dont_enforce_csrf_checks", True)
         else:
-            # Session cookie present without a token — enforce CSRF as normal.
+            # Session cookie present AND the session is authenticated —
+            # enforce CSRF as normal.
             reason = _csrf_middleware.process_view(request, view_func, args, kwargs)
             if reason is not None:
                 return reason

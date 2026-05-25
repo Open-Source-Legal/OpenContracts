@@ -295,7 +295,7 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
         void upvote({ variables: { corpusId } });
       }
     },
-    [disabled, isOwn, effectiveVote, corpusId, upvote, removeVote]
+    [stop, disabled, isOwn, effectiveVote, corpusId, upvote, removeVote]
   );
 
   const handleDownvote = useCallback(
@@ -313,7 +313,7 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
         void downvote({ variables: { corpusId } });
       }
     },
-    [disabled, isOwn, effectiveVote, corpusId, downvote, removeVote]
+    [stop, disabled, isOwn, effectiveVote, corpusId, downvote, removeVote]
   );
 
   const title = isOwn
