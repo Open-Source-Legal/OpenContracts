@@ -30,6 +30,7 @@ from opencontractserver.constants.annotations import SEMANTIC_SEARCH_MAX_RESULTS
 from opencontractserver.constants.search import FTS_CONFIG
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,9 @@ class SearchQueryMixin:
             )
 
             # Get corpuses user can at least read (for public document context)
-            readable_corpuses = Corpus.objects.visible_to_user(user)
+            readable_corpuses = BaseService.filter_visible(
+                Corpus, user, request=info.context
+            )
 
             # Get documents in writable corpuses via DocumentPath (corpus isolation)
             from opencontractserver.documents.models import DocumentPath
@@ -305,8 +308,9 @@ class SearchQueryMixin:
         if user.is_anonymous:
             return Annotation.objects.none()
 
-        # Use visible_to_user() which handles composite document+corpus permissions
-        qs = Annotation.objects.visible_to_user(user)
+        # Route through the service layer; the manager handles the composite
+        # document+corpus permission logic underneath.
+        qs = BaseService.filter_visible(Annotation, user, request=info.context)
 
         # Scope to specific corpus if provided (major performance boost)
         # Issue #741: Fix to properly convert GraphQL global ID to database primary key
@@ -446,7 +450,7 @@ class SearchQueryMixin:
         """
         user = info.context.user
 
-        qs = Note.objects.visible_to_user(user)
+        qs = BaseService.filter_visible(Note, user, request=info.context)
 
         # Reject malformed or wrong-type global IDs by returning an empty
         # queryset rather than silently filtering on a non-existent FK.
@@ -610,7 +614,7 @@ class SearchQueryMixin:
         # -------------------------------------------------------------------------
         if document_pk:
             if (
-                not Document.objects.visible_to_user(user)
+                not BaseService.filter_visible(Document, user, request=info.context)
                 .filter(id=document_pk)
                 .exists()
             ):
@@ -618,7 +622,11 @@ class SearchQueryMixin:
                 return []
 
         if corpus_pk:
-            if not Corpus.objects.visible_to_user(user).filter(id=corpus_pk).exists():
+            if (
+                not BaseService.filter_visible(Corpus, user, request=info.context)
+                .filter(id=corpus_pk)
+                .exists()
+            ):
                 # Corpus doesn't exist or user lacks permission - return empty results
                 return []
 
@@ -830,14 +838,18 @@ class SearchQueryMixin:
         # enumeration attacks via differing error messages.
         if document_pk:
             if (
-                not Document.objects.visible_to_user(user)
+                not BaseService.filter_visible(Document, user, request=info.context)
                 .filter(id=document_pk)
                 .exists()
             ):
                 return []
 
         if corpus_pk:
-            if not Corpus.objects.visible_to_user(user).filter(id=corpus_pk).exists():
+            if (
+                not BaseService.filter_visible(Corpus, user, request=info.context)
+                .filter(id=corpus_pk)
+                .exists()
+            ):
                 return []
 
         # Resolve embedder: corpus-scoped queries use the corpus's frozen

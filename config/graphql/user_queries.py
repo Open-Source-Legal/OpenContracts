@@ -23,6 +23,7 @@ from config.graphql.graphene_types import (
     UserImportType,
     UserType,
 )
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 if TYPE_CHECKING:
@@ -74,7 +75,9 @@ class UserQueryMixin:
     def resolve_userimports(
         self, info: graphene.ResolveInfo, **kwargs: Any
     ) -> QuerySet[UserImport]:
-        return UserImport.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            UserImport, info.context.user, request=info.context
+        )
 
     userimport = relay.Node.Field(UserImportType)
 
@@ -86,7 +89,13 @@ class UserQueryMixin:
         if relay_id is None:
             raise GraphQLError("UserImport id is required")
         django_pk = from_global_id(relay_id)[1]
-        return UserImport.objects.visible_to_user(info.context.user).get(id=django_pk)
+        # IDOR-safe via service layer; returns None for missing/no-perm.
+        obj = BaseService.get_or_none(
+            UserImport, django_pk, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise UserImport.DoesNotExist("UserImport matching query does not exist.")
+        return obj
 
     # EXPORT RESOLVERS #####################################
     userexports = DjangoFilterConnectionField(
@@ -97,7 +106,9 @@ class UserQueryMixin:
     def resolve_userexports(
         self, info: graphene.ResolveInfo, **kwargs: Any
     ) -> QuerySet[UserExport]:
-        return UserExport.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            UserExport, info.context.user, request=info.context
+        )
 
     userexport = relay.Node.Field(UserExportType)
 
@@ -109,7 +120,12 @@ class UserQueryMixin:
         if relay_id is None:
             raise GraphQLError("UserExport id is required")
         django_pk = from_global_id(relay_id)[1]
-        return UserExport.objects.visible_to_user(info.context.user).get(id=django_pk)
+        obj = BaseService.get_or_none(
+            UserExport, django_pk, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise UserExport.DoesNotExist("UserExport matching query does not exist.")
+        return obj
 
     # ASSIGNMENT RESOLVERS #####################################
     assignments = DjangoFilterConnectionField(

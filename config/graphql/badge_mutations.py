@@ -14,6 +14,7 @@ from config.graphql.graphene_types import BadgeType, UserBadgeType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
@@ -76,19 +77,14 @@ class CreateBadgeMutation(graphene.Mutation):
             corpus = None
             if corpus_id:
                 corpus_pk = from_global_id(corpus_id)[1]
-                # Use visible_to_user to prevent IDOR - returns same error whether
-                # corpus doesn't exist or user lacks permission
-                try:
-                    corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-                except Corpus.DoesNotExist:
-                    return CreateBadgeMutation(
-                        ok=False,
-                        message="Corpus not found",
-                        badge=None,
-                    )
-
-                # Check if user can manage this corpus (creator or has UPDATE permission)
-                if not corpus.user_can(user, PermissionTypes.UPDATE):
+                # Service-layer IDOR-safe fetch + permission gate; both produce
+                # the same unified "Corpus not found" message.
+                corpus = BaseService.get_or_none(
+                    Corpus, corpus_pk, user, request=info.context
+                )
+                if corpus is None or BaseService.require_permission(
+                    corpus, user, PermissionTypes.UPDATE
+                ):
                     return CreateBadgeMutation(
                         ok=False,
                         message="Corpus not found",
@@ -195,11 +191,9 @@ class UpdateBadgeMutation(graphene.Mutation):
 
         try:
             badge_pk = from_global_id(badge_id)[1]
-            # Use visible_to_user to prevent IDOR - returns same error whether
-            # badge doesn't exist or user lacks permission
-            try:
-                badge = Badge.objects.visible_to_user(user).get(pk=badge_pk)
-            except Badge.DoesNotExist:
+            # Service-layer IDOR-safe fetch.
+            badge = BaseService.get_or_none(Badge, badge_pk, user, request=info.context)
+            if badge is None:
                 return UpdateBadgeMutation(
                     ok=False,
                     message="Badge not found",
@@ -210,7 +204,9 @@ class UpdateBadgeMutation(graphene.Mutation):
             # For global badges, must be superuser
             if badge.corpus:
                 # Corpus badge - check if creator or has UPDATE permission
-                if not badge.corpus.user_can(user, PermissionTypes.UPDATE):
+                if BaseService.require_permission(
+                    badge.corpus, user, PermissionTypes.UPDATE
+                ):
                     return UpdateBadgeMutation(
                         ok=False,
                         message="Badge not found",
@@ -314,10 +310,9 @@ class DeleteBadgeMutation(graphene.Mutation):
 
         try:
             badge_pk = from_global_id(badge_id)[1]
-            # Use visible_to_user to prevent IDOR
-            try:
-                badge = Badge.objects.visible_to_user(user).get(pk=badge_pk)
-            except Badge.DoesNotExist:
+            # Service-layer IDOR-safe fetch.
+            badge = BaseService.get_or_none(Badge, badge_pk, user, request=info.context)
+            if badge is None:
                 return DeleteBadgeMutation(
                     ok=False,
                     message="Badge not found",
@@ -327,7 +322,9 @@ class DeleteBadgeMutation(graphene.Mutation):
             # For global badges, must be superuser
             if badge.corpus:
                 # Corpus badge - check if creator or has UPDATE permission
-                if not badge.corpus.user_can(user, PermissionTypes.UPDATE):
+                if BaseService.require_permission(
+                    badge.corpus, user, PermissionTypes.UPDATE
+                ):
                     return DeleteBadgeMutation(
                         ok=False,
                         message="Badge not found",
@@ -423,9 +420,12 @@ class AwardBadgeMutation(graphene.Mutation):
             # Permission check: must be moderator/owner of the corpus or superuser
             # IDOR FIX: Return same "Badge not found" message as above to prevent enumeration
             if badge.badge_type == "CORPUS" and badge.corpus:
-                # For corpus badges, check corpus permissions
-                if not badge.corpus.user_can(
-                    awarder, PermissionTypes.CRUD, request=info.context
+                # For corpus badges, check corpus permissions.
+                if BaseService.require_permission(
+                    badge.corpus,
+                    awarder,
+                    PermissionTypes.CRUD,
+                    request=info.context,
                 ):
                     return AwardBadgeMutation(
                         ok=False,
@@ -504,8 +504,8 @@ class RevokeBadgeMutation(graphene.Mutation):
             # IDOR FIX: Return same "User badge not found" message as above to prevent enumeration
             badge = user_badge.badge
             if badge.badge_type == "CORPUS" and badge.corpus:
-                if not badge.corpus.user_can(
-                    user, PermissionTypes.CRUD, request=info.context
+                if BaseService.require_permission(
+                    badge.corpus, user, PermissionTypes.CRUD, request=info.context
                 ):
                     return RevokeBadgeMutation(
                         ok=False,

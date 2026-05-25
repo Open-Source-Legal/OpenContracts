@@ -29,6 +29,7 @@ from opencontractserver.corpuses.services import (
     FolderDocumentService,
 )
 from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -78,7 +79,11 @@ class CreateCorpusFolderMutation(graphene.Mutation):
 
         try:
             corpus_pk = from_global_id(corpus_id)[1]
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
 
             # Get parent folder if provided (scoped to corpus)
             parent = None
@@ -167,7 +172,7 @@ class UpdateCorpusFolderMutation(graphene.Mutation):
             folder = CorpusFolder.objects.select_related("corpus").get(pk=folder_pk)
             # Verify user can see the parent corpus to prevent IDOR
             if (
-                not Corpus.objects.visible_to_user(user)
+                not BaseService.filter_visible(Corpus, user, request=info.context)
                 .filter(pk=folder.corpus_id)
                 .exists()
             ):
@@ -246,7 +251,7 @@ class MoveCorpusFolderMutation(graphene.Mutation):
             folder = CorpusFolder.objects.select_related("corpus").get(pk=folder_pk)
             # Verify user can see the parent corpus
             if (
-                not Corpus.objects.visible_to_user(user)
+                not BaseService.filter_visible(Corpus, user, request=info.context)
                 .filter(pk=folder.corpus_id)
                 .exists()
             ):
@@ -331,7 +336,7 @@ class DeleteCorpusFolderMutation(graphene.Mutation):
             folder = CorpusFolder.objects.select_related("corpus").get(pk=folder_pk)
             # Verify user can see the parent corpus
             if (
-                not Corpus.objects.visible_to_user(user)
+                not BaseService.filter_visible(Corpus, user, request=info.context)
                 .filter(pk=folder.corpus_id)
                 .exists()
             ):
@@ -404,8 +409,16 @@ class MoveDocumentToFolderMutation(graphene.Mutation):
             corpus_pk = from_global_id(corpus_id)[1]
 
             # Get objects with visibility filtering
-            document = Document.objects.visible_to_user(user).get(pk=document_pk)
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+            document = BaseService.get_or_none(
+                Document, document_pk, user, request=info.context
+            )
+            if document is None:
+                raise Document.DoesNotExist
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
 
             # Get folder if provided
             folder = None
@@ -496,7 +509,11 @@ class MoveDocumentsToFolderMutation(graphene.Mutation):
 
         try:
             corpus_pk = from_global_id(corpus_id)[1]
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
 
             # Get folder if provided
             folder = None

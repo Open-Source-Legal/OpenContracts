@@ -28,6 +28,7 @@ from opencontractserver.conversations.models import (
     ModerationAction,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,9 @@ class ConversationQueryMixin:
             QuerySet[Conversation]: Filtered queryset of conversations
         """
         return (
-            Conversation.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                Conversation, info.context.user, request=info.context
+            )
             .select_related("creator", "chat_with_corpus", "chat_with_corpus__creator")
             .prefetch_related(
                 Prefetch(
@@ -272,7 +275,9 @@ class ConversationQueryMixin:
         Returns:
             QuerySet[ChatMessage]: Filtered and ordered chat messages
         """
-        queryset = ChatMessage.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            ChatMessage, info.context.user, request=info.context
+        )
 
         # Apply conversation filter if provided
         conversation_pk = from_global_id(conversation_id)[1]
@@ -329,7 +334,9 @@ class ConversationQueryMixin:
             QuerySet[ChatMessage]: Filtered and ordered chat messages
         """
         queryset = (
-            ChatMessage.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                ChatMessage, info.context.user, request=info.context
+            )
             .select_related("conversation", "creator")
             .prefetch_related("votes")
         )
@@ -375,7 +382,12 @@ class ConversationQueryMixin:
             ChatMessage.DoesNotExist: If the object doesn't exist or is inaccessible.
         """
         django_pk = from_global_id(kwargs["id"])[1]
-        return ChatMessage.objects.visible_to_user(info.context.user).get(pk=django_pk)
+        obj = BaseService.get_or_none(
+            ChatMessage, django_pk, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise ChatMessage.DoesNotExist("ChatMessage matching query does not exist.")
+        return obj
 
     # MODERATION QUERIES ##################################################
     moderation_actions = DjangoFilterConnectionField(

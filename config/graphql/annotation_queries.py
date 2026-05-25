@@ -37,6 +37,7 @@ from opencontractserver.constants.annotations import (
     MANUAL_ANNOTATION_SENTINEL,
 )
 from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import LabelType
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,9 @@ class AnnotationQueryMixin:
 
         else:
             # Fallback to visible_to_user for queries without document or corpus
-            queryset = Annotation.objects.visible_to_user(info.context.user)
+            queryset = BaseService.filter_visible(
+                Annotation, info.context.user, request=info.context
+            )
 
         queryset = queryset.select_related(
             "annotation_label",
@@ -278,7 +281,9 @@ class AnnotationQueryMixin:
         self, info, corpus_id, document_id
     ) -> Any:
         # Get the base queryset using visible_to_user
-        queryset = Relationship.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            Relationship, info.context.user, request=info.context
+        )
 
         doc_django_pk = from_global_id(document_id)[1]
         corpus_django_pk = from_global_id(corpus_id)[1]
@@ -312,9 +317,9 @@ class AnnotationQueryMixin:
         corpus_django_pk = from_global_id(corpus_id)[1]
 
         # Get the base queryset using visible_to_user
-        queryset = Annotation.objects.visible_to_user(info.context.user).order_by(
-            "page"
-        )
+        queryset = BaseService.filter_visible(
+            Annotation, info.context.user, request=info.context
+        ).order_by("page")
 
         # Now build query to stuff they want to see (filter to annotations in this corpus or with NO corpus FK, which
         # travel with document.
@@ -393,7 +398,9 @@ class AnnotationQueryMixin:
             return None  # Or raise appropriate GraphQL error
 
         # Get the base queryset using visible_to_user
-        queryset = Annotation.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            Annotation, info.context.user, request=info.context
+        )
 
         # Apply select_related EARLY to the base queryset
         queryset = queryset.select_related(
@@ -547,7 +554,9 @@ class AnnotationQueryMixin:
 
     def resolve_annotation(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs["id"])[1]
-        queryset = Annotation.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            Annotation, info.context.user, request=info.context
+        )
         queryset = queryset.select_related(
             "annotation_label",
             "creator",
@@ -564,7 +573,9 @@ class AnnotationQueryMixin:
     )
 
     def resolve_relationships(self, info, **kwargs) -> Any:
-        queryset = Relationship.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            Relationship, info.context.user, request=info.context
+        )
         queryset = queryset.select_related(
             "relationship_label",
             "corpus",
@@ -579,7 +590,9 @@ class AnnotationQueryMixin:
 
     def resolve_relationship(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs["id"])[1]
-        queryset = Relationship.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            Relationship, info.context.user, request=info.context
+        )
         queryset = queryset.select_related(
             "relationship_label",
             "corpus",
@@ -599,15 +612,17 @@ class AnnotationQueryMixin:
     )
 
     def resolve_annotation_labels(self, info, **kwargs) -> Any:
-        return AnnotationLabel.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            AnnotationLabel, info.context.user, request=info.context
+        )
 
     annotation_label = relay.Node.Field(AnnotationLabelType)
 
     def resolve_annotation_label(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs["id"])[1]
-        return AnnotationLabel.objects.visible_to_user(info.context.user).get(
-            id=django_pk
-        )
+        return BaseService.filter_visible(
+            AnnotationLabel, info.context.user, request=info.context
+        ).get(id=django_pk)
 
     # LABEL SET RESOLVERS #####################################
 
@@ -617,13 +632,17 @@ class AnnotationQueryMixin:
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
     def resolve_labelsets(self, info, **kwargs) -> Any:
-        return LabelSet.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            LabelSet, info.context.user, request=info.context
+        )
 
     labelset = relay.Node.Field(LabelSetType)
 
     def resolve_labelset(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs["id"])[1]
-        return LabelSet.objects.visible_to_user(info.context.user).get(id=django_pk)
+        return BaseService.filter_visible(
+            LabelSet, info.context.user, request=info.context
+        ).get(id=django_pk)
 
     default_labelset = graphene.Field(
         LabelSetType,
@@ -637,7 +656,9 @@ class AnnotationQueryMixin:
     @login_required
     def resolve_default_labelset(self, info, **kwargs) -> Any:
         return (
-            LabelSet.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                LabelSet, info.context.user, request=info.context
+            )
             .filter(is_default=True)
             .first()
         )
@@ -655,7 +676,9 @@ class AnnotationQueryMixin:
     @login_required
     def resolve_notes(self, info, **kwargs) -> Any:
         # Base filtering for user permissions
-        queryset = Note.objects.visible_to_user(info.context.user)
+        queryset = BaseService.filter_visible(
+            Note, info.context.user, request=info.context
+        )
 
         # Filter by title
         title_contains = kwargs.get("title_contains")
@@ -700,4 +723,6 @@ class AnnotationQueryMixin:
     @login_required
     def resolve_note(self, info, **kwargs) -> Any:
         django_pk = from_global_id(kwargs["id"])[1]
-        return Note.objects.visible_to_user(info.context.user).get(id=django_pk)
+        return BaseService.filter_visible(
+            Note, info.context.user, request=info.context
+        ).get(id=django_pk)

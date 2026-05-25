@@ -20,6 +20,7 @@ from config.graphql.graphene_types import (
     DocumentCorpusActionsType,
 )
 from opencontractserver.corpuses.models import CorpusAction
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class ActionQueryMixin:
         Can be filtered by corpus_id, trigger type, and disabled status.
         """
         user = info.context.user
-        queryset = CorpusAction.objects.visible_to_user(user)
+        queryset = BaseService.filter_visible(CorpusAction, user, request=info.context)
 
         # Filter by corpus if provided
         corpus_id = kwargs.get("corpus_id")
@@ -143,14 +144,20 @@ class ActionQueryMixin:
         from opencontractserver.documents.models import Document
 
         user = info.context.user
-        queryset = CorpusActionExecution.objects.visible_to_user(user)
+        queryset = BaseService.filter_visible(
+            CorpusActionExecution, user, request=info.context
+        )
 
         # Filter by corpus if provided (with access check)
         corpus_id = kwargs.get("corpus_id")
         if corpus_id:
             corpus_pk = int(from_global_id(corpus_id)[1])
             # Defense-in-depth: verify user has access to this corpus
-            if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
+            if (
+                not BaseService.filter_visible(Corpus, user, request=info.context)
+                .filter(pk=corpus_pk)
+                .exists()
+            ):
                 return queryset.none()
             queryset = queryset.for_corpus(corpus_pk)
 
@@ -160,7 +167,7 @@ class ActionQueryMixin:
             document_pk = int(from_global_id(document_id)[1])
             # Defense-in-depth: verify user has access to this document
             if (
-                not Document.objects.visible_to_user(user)
+                not BaseService.filter_visible(Document, user, request=info.context)
                 .filter(pk=document_pk)
                 .exists()
             ):
@@ -175,7 +182,7 @@ class ActionQueryMixin:
             corpus_action_pk = from_global_id(corpus_action_id)[1]
             # Defense-in-depth: verify user has access to this corpus action
             if (
-                not CorpusAction.objects.visible_to_user(user)
+                not BaseService.filter_visible(CorpusAction, user, request=info.context)
                 .filter(pk=corpus_action_pk)
                 .exists()
             ):
@@ -222,7 +229,11 @@ class ActionQueryMixin:
         corpus_pk = int(from_global_id(corpus_id)[1])
 
         # Defense-in-depth: verify user has access to this corpus
-        if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
+        if (
+            not BaseService.filter_visible(Corpus, user, request=info.context)
+            .filter(pk=corpus_pk)
+            .exists()
+        ):
             return CorpusActionTrailStatsType(
                 total_executions=0,
                 completed=0,
@@ -236,7 +247,9 @@ class ActionQueryMixin:
                 agent_count=0,
             )
 
-        queryset = CorpusActionExecution.objects.visible_to_user(user)
+        queryset = BaseService.filter_visible(
+            CorpusActionExecution, user, request=info.context
+        )
         queryset = queryset.for_corpus(corpus_pk)
 
         if since:

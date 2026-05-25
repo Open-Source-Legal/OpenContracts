@@ -14,6 +14,7 @@ from graphql_relay import from_global_id, to_global_id
 from rest_framework import serializers
 
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -66,12 +67,20 @@ class OpenContractsNode(Node):
                 f'ObjectType "{_type}" does not implement the "{super()}" interface.'
             )
 
-        # Here's where we replace the base Graphene Relay get_node code with a custom
-        # resolver that is permission-aware... it was kind of a pain in the @ss to figure this out...
+        # Here's where we replace the base Graphene Relay get_node code with a
+        # custom resolver that is permission-aware. Route through the service
+        # layer (BaseService.get_or_none) so this generic relay hook does not
+        # touch Tier-0 directly. ``get_or_none`` returns ``None`` for both
+        # not-found and permission-denied (IDOR-safe); relay callers expect
+        # ``DoesNotExist``, so we re-raise the unified error.
         _, pk = from_global_id(global_id)
-        return graphene_type._meta.model.objects.visible_to_user(info.context.user).get(
-            id=pk
+        model = graphene_type._meta.model
+        obj = BaseService.get_or_none(
+            model, pk, info.context.user, request=info.context
         )
+        if obj is None:
+            raise model.DoesNotExist(f"{model.__name__} matching query does not exist.")
+        return obj
 
 
 class CountableConnection(graphene.relay.Connection):
@@ -129,9 +138,15 @@ class DRFDeletion(graphene.Mutation):
                 f"'{lookup_field}' is required to identify the object to delete."
             )
         id = from_global_id(lookup_value)[1]
-        # Filter through visible_to_user() to prevent IDOR -- returns same
-        # DoesNotExist error whether object is missing or user lacks access.
-        obj = model.objects.visible_to_user(info.context.user).get(pk=id)
+        # IDOR-safe fetch via the service layer -- returns None for both
+        # missing object and forbidden access. Re-raise DoesNotExist with a
+        # unified message so callers cannot enumerate object ids by error
+        # type.
+        obj = BaseService.get_or_none(
+            model, id, info.context.user, request=info.context
+        )
+        if obj is None:
+            raise model.DoesNotExist(f"{model.__name__} matching query does not exist.")
 
         # if there's a user lock, only the lock holder (or superuser) can proceed
         if hasattr(obj, "user_lock") and obj.user_lock is not None:
@@ -144,13 +159,18 @@ class DRFDeletion(graphene.Mutation):
         # or processing job goes sour, we want a frontend user to be able to intervene and delete it without
         # needing someone to drop in the admin dash.
 
-        # Check user permissions
-        if not obj.user_can(
-            info.context.user, PermissionTypes.DELETE, request=info.context
-        ):
-            raise PermissionError(
+        # Check user permissions via the service layer.
+        permission_error = BaseService.require_permission(
+            obj,
+            info.context.user,
+            PermissionTypes.DELETE,
+            request=info.context,
+            error_message=(
                 "You do not have sufficient permissions to delete requested object"
-            )
+            ),
+        )
+        if permission_error:
+            raise PermissionError(permission_error)
 
         obj.delete()
         ok = True
@@ -244,11 +264,17 @@ class DRFMutation(graphene.Mutation):
 
             if is_update:
                 logger.info("Lookup_field specified - update")
-                # Filter through visible_to_user() to prevent IDOR --
-                # returns same DoesNotExist whether missing or no access.
-                obj = model.objects.visible_to_user(info.context.user).get(
-                    pk=from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
+                # IDOR-safe fetch via the service layer -- returns None for
+                # both missing object and forbidden access; re-raise
+                # DoesNotExist with a unified message.
+                lookup_pk = from_global_id(kwargs[cls.IOSettings.lookup_field])[1]
+                obj = BaseService.get_or_none(
+                    model, lookup_pk, info.context.user, request=info.context
                 )
+                if obj is None:
+                    raise model.DoesNotExist(
+                        f"{model.__name__} matching query does not exist."
+                    )
 
                 logger.info(f"Retrieved obj: {obj}")
 
@@ -267,13 +293,16 @@ class DRFMutation(graphene.Mutation):
                         "it at the moment."
                     )
 
-                # Check that the user has update permissions
-                if not obj.user_can(
-                    info.context.user, PermissionTypes.UPDATE, request=info.context
-                ):
-                    raise PermissionError(
-                        "You do not have permission to modify this object"
-                    )
+                # Check update permission via the service layer.
+                permission_error = BaseService.require_permission(
+                    obj,
+                    info.context.user,
+                    PermissionTypes.UPDATE,
+                    request=info.context,
+                    error_message="You do not have permission to modify this object",
+                )
+                if permission_error:
+                    raise PermissionError(permission_error)
 
                 obj_serializer = serializer(obj, data=kwargs, partial=True)
                 obj_serializer.is_valid(raise_exception=True)

@@ -43,6 +43,7 @@ from opencontractserver.document_imports.services import (
 )
 from opencontractserver.documents.models import Document, DocumentPath, IngestionSource
 from opencontractserver.extracts.models import Extract
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks import (
     build_label_lookups_task,
     burn_doc_annotations,
@@ -283,17 +284,19 @@ class UpdateDocumentSummary(graphene.Mutation):
             _, doc_pk = from_global_id(document_id)
             _, corpus_pk = from_global_id(corpus_id)
 
-            # Use visible_to_user() to prevent object-existence enumeration
-            try:
-                document = Document.objects.visible_to_user(user).get(pk=doc_pk)
-            except Document.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            document = BaseService.get_or_none(
+                Document, doc_pk, user, request=info.context
+            )
+            if document is None:
                 return UpdateDocumentSummary(
                     ok=False, message=not_found_msg, obj=None, version=None
                 )
 
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-            except Corpus.DoesNotExist:
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
                 return UpdateDocumentSummary(
                     ok=False, message=not_found_msg, obj=None, version=None
                 )
@@ -320,7 +323,7 @@ class UpdateDocumentSummary(graphene.Mutation):
             else:
                 # If no summary exists, require corpus modify rights
                 # (superuser, creator, or explicit guardian UPDATE).
-                if not corpus.user_can(user, PermissionTypes.UPDATE):
+                if BaseService.require_permission(corpus, user, PermissionTypes.UPDATE):
                     return UpdateDocumentSummary(
                         ok=False,
                         message=not_found_msg,
@@ -541,10 +544,14 @@ class RetryDocumentProcessing(graphene.Mutation):
                     document=None,
                 )
 
-            # Check user has UPDATE permission (user_can handles creator /
-            # superuser short-circuits internally).
-            if not document.user_can(
-                info.context.user, PermissionTypes.UPDATE, request=info.context
+            # Check user has UPDATE permission (the service-layer helper
+            # delegates to the manager which handles creator/superuser
+            # short-circuits internally).
+            if BaseService.require_permission(
+                document,
+                info.context.user,
+                PermissionTypes.UPDATE,
+                request=info.context,
             ):
                 return RetryDocumentProcessing(
                     ok=False,
@@ -771,19 +778,20 @@ class ImportZipToCorpus(graphene.Mutation):
                 "Corpus not found or you do not have permission to add "
                 "documents to it"
             )
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(
-                    id=from_global_id(corpus_id)[1]
-                )
-            except Corpus.DoesNotExist:
+            corpus = BaseService.get_or_none(
+                Corpus, from_global_id(corpus_id)[1], user, request=info.context
+            )
+            if corpus is None:
                 return ImportZipToCorpus(
                     ok=False,
                     message=corpus_not_found_msg,
                     job_id=None,
                 )
 
-            # Check permission on corpus
-            if not corpus.user_can(user, PermissionTypes.EDIT, request=info.context):
+            # Check permission on corpus.
+            if BaseService.require_permission(
+                corpus, user, PermissionTypes.EDIT, request=info.context
+            ):
                 return ImportZipToCorpus(
                     ok=False,
                     message=corpus_not_found_msg,
@@ -976,18 +984,15 @@ class StartCorpusExport(graphene.Mutation):
             date_str = started.strftime("%m/%d/%Y, %H:%M:%S")
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # Verify corpus visibility and READ permission before creating export
-            try:
-                corpus = Corpus.objects.visible_to_user(info.context.user).get(
-                    pk=corpus_pk
-                )
-            except Corpus.DoesNotExist:
-                return StartCorpusExport(
-                    ok=False, message="Corpus not found", export=None
-                )
-
-            if not corpus.user_can(
-                info.context.user, PermissionTypes.READ, request=info.context
+            # Verify corpus visibility and READ permission before creating export.
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, info.context.user, request=info.context
+            )
+            if corpus is None or BaseService.require_permission(
+                corpus,
+                info.context.user,
+                PermissionTypes.READ,
+                request=info.context,
             ):
                 return StartCorpusExport(
                     ok=False, message="Corpus not found", export=None
@@ -1166,17 +1171,19 @@ class RestoreDeletedDocument(graphene.Mutation):
             doc_pk = from_global_id(document_id)[1]
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # Use visible_to_user() to prevent object-existence enumeration
-            try:
-                document = Document.objects.visible_to_user(user).get(pk=doc_pk)
-            except Document.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            document = BaseService.get_or_none(
+                Document, doc_pk, user, request=info.context
+            )
+            if document is None:
                 return RestoreDeletedDocument(
                     ok=False, message=not_found_msg, document=None
                 )
 
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-            except Corpus.DoesNotExist:
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
                 return RestoreDeletedDocument(
                     ok=False, message=not_found_msg, document=None
                 )
@@ -1263,15 +1270,17 @@ class PermanentlyDeleteDocument(graphene.Mutation):
             doc_pk = from_global_id(document_id)[1]
             corpus_pk = from_global_id(corpus_id)[1]
 
-            # Use visible_to_user() to prevent object-existence enumeration
-            try:
-                document = Document.objects.visible_to_user(user).get(pk=doc_pk)
-            except Document.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            document = BaseService.get_or_none(
+                Document, doc_pk, user, request=info.context
+            )
+            if document is None:
                 return PermanentlyDeleteDocument(ok=False, message=not_found_msg)
 
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-            except Corpus.DoesNotExist:
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
                 return PermanentlyDeleteDocument(ok=False, message=not_found_msg)
 
             success, error = DocumentLifecycleService.permanently_delete_document(
@@ -1322,9 +1331,14 @@ class EmptyTrash(graphene.Mutation):
 
         try:
             corpus_pk = from_global_id(corpus_id)[1]
-            # visible_to_user guarantees the corpus exists AND is visible to the
-            # caller; service layer enforces write/DELETE permission afterwards
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+            # Service-layer fetch guarantees the corpus exists AND is visible
+            # to the caller; the lifecycle service enforces write/DELETE
+            # permission afterwards.
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
 
             deleted_count, error = DocumentLifecycleService.empty_trash(
                 user=user,
@@ -1390,10 +1404,13 @@ class RestoreDocumentToVersion(graphene.Mutation):
                 "to access them"
             )
 
-            try:
-                old_version = Document.objects.visible_to_user(user).get(pk=doc_pk)
-                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-            except (Document.DoesNotExist, Corpus.DoesNotExist):
+            old_version = BaseService.get_or_none(
+                Document, doc_pk, user, request=info.context
+            )
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if old_version is None or corpus is None:
                 return RestoreDocumentToVersion(
                     ok=False,
                     message=not_found_msg,
@@ -1401,9 +1418,9 @@ class RestoreDocumentToVersion(graphene.Mutation):
                     new_version_number=None,
                 )
 
-            # Check UPDATE permission on both document and corpus
-            if not old_version.user_can(
-                user, PermissionTypes.UPDATE, request=info.context
+            # Check UPDATE permission on both document and corpus.
+            if BaseService.require_permission(
+                old_version, user, PermissionTypes.UPDATE, request=info.context
             ):
                 return RestoreDocumentToVersion(
                     ok=False,
@@ -1412,7 +1429,9 @@ class RestoreDocumentToVersion(graphene.Mutation):
                     new_version_number=None,
                 )
 
-            if not corpus.user_can(user, PermissionTypes.UPDATE, request=info.context):
+            if BaseService.require_permission(
+                corpus, user, PermissionTypes.UPDATE, request=info.context
+            ):
                 return RestoreDocumentToVersion(
                     ok=False,
                     message=not_found_msg,

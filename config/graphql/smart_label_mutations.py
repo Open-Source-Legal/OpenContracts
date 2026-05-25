@@ -10,6 +10,7 @@ from config.graphql.graphene_types import AnnotationLabelType, LabelSetType
 from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -129,10 +130,17 @@ class SmartLabelSearchOrCreateMutation(graphene.Mutation):
             corpus = Corpus.objects.get(pk=corpus_pk)
 
             # Check user has permission to update corpus
-            if not corpus.user_can(user, PermissionTypes.UPDATE, request=info.context):
+            permission_error = BaseService.require_permission(
+                corpus,
+                user,
+                PermissionTypes.UPDATE,
+                request=info.context,
+                error_message="You don't have permission to update this corpus",
+            )
+            if permission_error:
                 return SmartLabelSearchOrCreateMutation(
                     ok=False,
-                    message="You don't have permission to update this corpus",
+                    message=permission_error,
                     labels=[],
                     labelset=None,
                     labelset_created=False,
@@ -272,9 +280,10 @@ class SmartLabelListMutation(graphene.Mutation):
             corpus_pk = from_global_id(corpus_id)[1]
             corpus = Corpus.objects.get(pk=corpus_pk)
 
-            # Check permissions
-            can_create_labels = corpus.user_can(
-                user, PermissionTypes.UPDATE, request=info.context
+            # Check permissions (boolean flag for UI/response shape — use the
+            # BaseService bool helper instead of touching Tier-0 directly).
+            can_create_labels = BaseService.user_has(
+                corpus, user, PermissionTypes.UPDATE, request=info.context
             )
 
             # Check labelset

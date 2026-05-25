@@ -36,6 +36,7 @@ from opencontractserver.constants.annotations import (
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import LabelType, PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -57,21 +58,23 @@ class RemoveAnnotation(graphene.Mutation):
             user = info.context.user
             annotation_pk = from_global_id(annotation_id)[1]
 
-            # Use visible_to_user for IDOR protection - unified error for not found/no permission
-            try:
-                annotation_obj = Annotation.objects.visible_to_user(user).get(
-                    pk=annotation_pk
-                )
-            except Annotation.DoesNotExist:
+            # IDOR-safe fetch via the service layer — unified error message
+            # for not found and not permitted prevents enumeration.
+            annotation_obj = BaseService.get_or_none(
+                Annotation, annotation_pk, user, request=info.context
+            )
+            if annotation_obj is None:
                 return RemoveAnnotation(
                     ok=False,
                     message="Annotation not found or you do not have permission to access it",
                 )
 
-            # Check if user has permission to delete this annotation
-            # This now handles privacy-aware permissions for annotations with created_by_* fields
-            if not annotation_obj.user_can(
-                user, PermissionTypes.DELETE, request=info.context
+            # Check if user has permission to delete this annotation; the
+            # service helper delegates to the manager which understands
+            # privacy-aware permissions for annotations created by analyses
+            # or extracts.
+            if BaseService.require_permission(
+                annotation_obj, user, PermissionTypes.DELETE, request=info.context
             ):
                 return RemoveAnnotation(
                     ok=False,
@@ -183,13 +186,14 @@ def _resolve_annotation_parents(
     doc D in corpus A and CREATE on corpus B → would otherwise be allowed
     to write `Annotation(document=D, corpus=B)`).
     """
-    try:
-        document = Document.objects.visible_to_user(user).get(pk=document_pk)
-        corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-    except (Document.DoesNotExist, Corpus.DoesNotExist):
+    document = BaseService.get_or_none(Document, document_pk, user, request=request)
+    corpus = BaseService.get_or_none(Corpus, corpus_pk, user, request=request)
+    if document is None or corpus is None:
         return None
 
-    if not corpus.user_can(user, PermissionTypes.CREATE, request=request):
+    if BaseService.require_permission(
+        corpus, user, PermissionTypes.CREATE, request=request
+    ):
         return None
 
     if not DocumentPath.objects.filter(
@@ -496,20 +500,22 @@ class RemoveRelationship(graphene.Mutation):
             user = info.context.user
             relationship_pk = from_global_id(relationship_id)[1]
 
-            # Use visible_to_user for IDOR protection - unified error for not found/no permission
-            try:
-                relationship_obj = Relationship.objects.visible_to_user(user).get(
-                    pk=relationship_pk
-                )
-            except Relationship.DoesNotExist:
+            # IDOR-safe fetch via the service layer.
+            relationship_obj = BaseService.get_or_none(
+                Relationship, relationship_pk, user, request=info.context
+            )
+            if relationship_obj is None:
                 return RemoveRelationship(
                     ok=False,
                     message="Relationship not found or you do not have permission to access it",
                 )
 
-            # Check if user has permission to delete this relationship
-            if not relationship_obj.user_can(
-                user, PermissionTypes.DELETE, request=info.context
+            # Check if user has permission to delete this relationship.
+            if BaseService.require_permission(
+                relationship_obj,
+                user,
+                PermissionTypes.DELETE,
+                request=info.context,
             ):
                 return RemoveRelationship(
                     ok=False,
@@ -592,29 +598,26 @@ class AddRelationship(graphene.Mutation):
             # undecodable input AND ``ValueError`` from the ``int()`` cast.
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-        # Filter annotations through visible_to_user so unauthorized or
-        # non-existent IDs collapse into the same "missing" branch. Comparing
-        # counts catches both cases without echoing IDs back to the caller.
-        source_annotations = Annotation.objects.visible_to_user(user).filter(
-            id__in=source_pks
-        )
-        target_annotations = Annotation.objects.visible_to_user(user).filter(
-            id__in=target_pks
-        )
+        # Filter annotations through the service-layer visibility filter so
+        # unauthorized or non-existent IDs collapse into the same "missing"
+        # branch. Comparing counts catches both cases without echoing IDs
+        # back to the caller.
+        source_annotations = BaseService.filter_visible(
+            Annotation, user, request=info.context
+        ).filter(id__in=source_pks)
+        target_annotations = BaseService.filter_visible(
+            Annotation, user, request=info.context
+        ).filter(id__in=target_pks)
         if source_annotations.count() != len(
             set(source_pks)
         ) or target_annotations.count() != len(set(target_pks)):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
-        # Filter corpus through visible_to_user so a non-existent or
-        # inaccessible corpus pk yields the same not-found branch as a
-        # corpus the caller cannot CREATE in.
-        try:
-            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
-        except Corpus.DoesNotExist:
-            return AddRelationship(ok=False, relationship=None, message=not_found_msg)
-
-        if not corpus.user_can(user, PermissionTypes.CREATE, request=info.context):
+        # IDOR-safe corpus fetch + CREATE gate via the service layer.
+        corpus = BaseService.get_or_none(Corpus, corpus_pk, user, request=info.context)
+        if corpus is None or BaseService.require_permission(
+            corpus, user, PermissionTypes.CREATE, request=info.context
+        ):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Document visibility check: without this, a caller with CREATE on
@@ -622,7 +625,11 @@ class AddRelationship(graphene.Mutation):
         # they happen to guess — including documents in a corpus they cannot
         # see. Collapse the failure into the same not-found message to keep
         # the IDOR surface flat with the source/target/corpus checks above.
-        if not Document.objects.visible_to_user(user).filter(pk=document_pk).exists():
+        if (
+            not BaseService.filter_visible(Document, user, request=info.context)
+            .filter(pk=document_pk)
+            .exists()
+        ):
             return AddRelationship(ok=False, relationship=None, message=not_found_msg)
 
         # Relationship label visibility check: closes the residual oracle
@@ -630,7 +637,7 @@ class AddRelationship(graphene.Mutation):
         # supplying them and observing whether the create succeeds vs.
         # raises an FK constraint. Same not-found message.
         if (
-            not AnnotationLabel.objects.visible_to_user(user)
+            not BaseService.filter_visible(AnnotationLabel, user, request=info.context)
             .filter(pk=relationship_label_pk)
             .exists()
         ):
@@ -687,12 +694,11 @@ class RemoveRelationships(graphene.Mutation):
         )
         for graphene_id in relationship_ids:
             pk = from_global_id(graphene_id)[1]
-            try:
-                relationship = Relationship.objects.visible_to_user(user).get(pk=pk)
-            except Relationship.DoesNotExist:
-                return RemoveRelationships(ok=False, message=not_found_msg)
-            if not relationship.user_can(
-                user, PermissionTypes.DELETE, request=info.context
+            relationship = BaseService.get_or_none(
+                Relationship, pk, user, request=info.context
+            )
+            if relationship is None or BaseService.require_permission(
+                relationship, user, PermissionTypes.DELETE, request=info.context
             ):
                 return RemoveRelationships(ok=False, message=not_found_msg)
             relationship.delete()
@@ -751,20 +757,11 @@ class UpdateRelationship(graphene.Mutation):
         )
         try:
             relationship_pk = from_global_id(relationship_id)[1]
-            try:
-                relationship = Relationship.objects.visible_to_user(user).get(
-                    pk=relationship_pk
-                )
-            except Relationship.DoesNotExist:
-                return UpdateRelationship(
-                    ok=False,
-                    relationship=None,
-                    message=not_found_msg,
-                )
-
-            # Check UPDATE permission on the relationship
-            if not relationship.user_can(
-                user, PermissionTypes.UPDATE, request=info.context
+            relationship = BaseService.get_or_none(
+                Relationship, relationship_pk, user, request=info.context
+            )
+            if relationship is None or BaseService.require_permission(
+                relationship, user, PermissionTypes.UPDATE, request=info.context
             ):
                 return UpdateRelationship(
                     ok=False,
@@ -772,16 +769,21 @@ class UpdateRelationship(graphene.Mutation):
                     message=not_found_msg,
                 )
 
-            # Filter annotations through visible_to_user so unauthorized IDs are dropped
-            # at the DB layer instead of after a per-row permission check
+            # Filter annotations through the service-layer visibility filter
+            # so unauthorized IDs are dropped at the DB layer instead of
+            # after a per-row permission check.
             def _load_visible_annotations(global_ids):
                 pks = {from_global_id(g)[1] for g in global_ids}
                 return (
-                    list(Annotation.objects.visible_to_user(user).filter(id__in=pks)),
+                    list(
+                        BaseService.filter_visible(
+                            Annotation, user, request=info.context
+                        ).filter(id__in=pks)
+                    ),
                     pks,
                 )
 
-            # Add source annotations. ``visible_to_user`` already enforces
+            # Add source annotations. The visibility filter already enforces
             # READ — every returned annotation is by definition readable, so
             # no per-row permission re-check is needed. Compare resolved PKs
             # against requested PKs as sets so the equivalence is unambiguous
@@ -903,12 +905,11 @@ class UpdateRelations(graphene.Mutation):
             corpus_pk = from_global_id(relationship["corpus_id"])[1]
             document_pk = from_global_id(relationship["document_id"])[1]
 
-            try:
-                relationship = Relationship.objects.visible_to_user(user).get(id=pk)
-            except Relationship.DoesNotExist:
-                return UpdateRelations(ok=False, message=not_found_msg)
-            if not relationship.user_can(
-                user, PermissionTypes.UPDATE, request=info.context
+            relationship = BaseService.get_or_none(
+                Relationship, pk, user, request=info.context
+            )
+            if relationship is None or BaseService.require_permission(
+                relationship, user, PermissionTypes.UPDATE, request=info.context
             ):
                 return UpdateRelations(ok=False, message=not_found_msg)
 
@@ -954,11 +955,10 @@ class UpdateNote(graphene.Mutation):
             # Unified "not found" message avoids leaking note existence to non-creators
             not_found_msg = "Note not found or you do not have permission to update it."
 
-            # Filter through visible_to_user first so unauthorized IDs hit the same
-            # branch as truly-missing IDs
-            try:
-                note = Note.objects.visible_to_user(user).get(pk=note_pk)
-            except Note.DoesNotExist:
+            # Service-layer IDOR-safe fetch so unauthorized IDs hit the same
+            # branch as truly-missing IDs.
+            note = BaseService.get_or_none(Note, note_pk, user, request=info.context)
+            if note is None:
                 return UpdateNote(
                     ok=False, message=not_found_msg, obj=None, version=None
                 )
@@ -1059,8 +1059,12 @@ class CreateNote(graphene.Mutation):
             user = info.context.user
             document_pk = from_global_id(document_id)[1]
 
-            # Get the document with visibility filter to prevent IDOR
-            document = Document.objects.visible_to_user(user).get(pk=document_pk)
+            # IDOR-safe document fetch via the service layer.
+            document = BaseService.get_or_none(
+                Document, document_pk, user, request=info.context
+            )
+            if document is None:
+                raise Document.DoesNotExist
 
             # Prepare note data
             note_data = {
@@ -1070,16 +1074,24 @@ class CreateNote(graphene.Mutation):
                 "creator": user,
             }
 
-            # Handle optional corpus with visibility filter
+            # Handle optional corpus with IDOR-safe service-layer fetch.
             if corpus_id:
                 corpus_pk = from_global_id(corpus_id)[1]
-                corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_pk)
+                corpus = BaseService.get_or_none(
+                    Corpus, corpus_pk, user, request=info.context
+                )
+                if corpus is None:
+                    raise Corpus.DoesNotExist
                 note_data["corpus"] = corpus
 
-            # Handle optional parent note with visibility filter
+            # Handle optional parent note with IDOR-safe service-layer fetch.
             if parent_id:
                 parent_pk = from_global_id(parent_id)[1]
-                parent_note = Note.objects.visible_to_user(user).get(pk=parent_pk)
+                parent_note = BaseService.get_or_none(
+                    Note, parent_pk, user, request=info.context
+                )
+                if parent_note is None:
+                    raise Note.DoesNotExist
                 note_data["parent"] = parent_note
 
             # Create the note

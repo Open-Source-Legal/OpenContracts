@@ -25,6 +25,7 @@ from opencontractserver.llms.agents.mention_extractor import (
     ExtractedMention,
     extract_mentions,
 )
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def resolve_mentions_for_user(
     corpus_by_slug: dict[str, Any] = (
         {
             c.slug: c
-            for c in Corpus.objects.visible_to_user(user)
+            for c in BaseService.filter_visible(Corpus, user)
             .filter(slug__in=corpus_slugs)
             .select_related("creator")
         }
@@ -145,7 +146,7 @@ def resolve_mentions_for_user(
     document_by_slug: dict[str, Any] = (
         {
             d.slug: d
-            for d in Document.objects.visible_to_user(user)
+            for d in BaseService.filter_visible(Document, user)
             .filter(slug__in=document_slugs)
             .select_related("creator")
         }
@@ -156,7 +157,7 @@ def resolve_mentions_for_user(
     annotation_by_id: dict[int, Any] = (
         {
             a.id: a
-            for a in Annotation.objects.visible_to_user(user)
+            for a in BaseService.filter_visible(Annotation, user)
             .filter(id__in=annotation_ids)
             .select_related(
                 "document",
@@ -219,15 +220,15 @@ def resolve_mentions_for_user(
             standalone_corpus_id_by_doc.setdefault(doc_id, corpus_id)
 
     # Materialise any corpus ids surfaced only via DocumentPath (i.e. ones
-    # the user might not have visibility on directly).  We honour that
-    # visibility filter — ``visible_to_user`` is the gate that decides
-    # whether a corpus is surfaced as a parent.
+    # the user might not have visibility on directly). We honour that
+    # visibility filter — ``BaseService.filter_visible`` is the gate that
+    # decides whether a corpus is surfaced as a parent.
     standalone_corpus_ids = set(standalone_corpus_id_by_doc.values())
     extra_corpus_ids = standalone_corpus_ids - {c.id for c in corpus_by_slug.values()}
     corpus_by_id: dict[int, Any] = {c.id: c for c in corpus_by_slug.values()}
     if extra_corpus_ids:
         for c in (
-            Corpus.objects.visible_to_user(user)
+            BaseService.filter_visible(Corpus, user)
             .filter(id__in=extra_corpus_ids)
             .select_related("creator")
         ):
@@ -507,7 +508,9 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return None
 
         try:
-            queryset = Conversation.objects.visible_to_user(info.context.user)
+            queryset = BaseService.filter_visible(
+                Conversation, info.context.user, request=info.context
+            )
             return queryset.get(pk=id)
         except Conversation.DoesNotExist:
             return None
@@ -519,11 +522,18 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
+        user = info.context.user
         if issubclass(type(queryset), QuerySet):
-            return queryset.visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.filter(pk__in=visible_ids)
         elif "RelatedManager" in str(type(queryset)):
             # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            return queryset.all().visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.all().filter(pk__in=visible_ids)
         else:
             return queryset
 

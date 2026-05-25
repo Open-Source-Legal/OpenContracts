@@ -26,6 +26,7 @@ from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.feedback.models import UserFeedback
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ class CorpusQueryMixin:
             )
 
         return (
-            Corpus.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(Corpus, info.context.user, request=info.context)
             .select_related("creator", "engagement_metrics", "label_set", "parent")
             .prefetch_related("categories")
             .annotate(
@@ -124,7 +125,7 @@ class CorpusQueryMixin:
         ),
         description=(
             "Tab-filter totals for the corpus list view (all/mine/shared/public). "
-            "Each total respects the same visible_to_user permission filtering "
+            "Each total respects the same service-layer permission filtering "
             "used by the corpuses connection, so badges stay accurate without "
             "paginating every page on the client."
         ),
@@ -135,7 +136,7 @@ class CorpusQueryMixin:
         self, info, text_search: str | None = None, **kwargs
     ) -> dict[str, int]:
         user = info.context.user
-        visible = Corpus.objects.visible_to_user(user)
+        visible = BaseService.filter_visible(Corpus, user, request=info.context)
         if text_search:
             # icontains to mirror CorpusFilter.text_search_method — the tab
             # badge counts must agree with the case-insensitive result set
@@ -181,9 +182,9 @@ class CorpusQueryMixin:
         For anonymous users, counts only public corpuses. For authenticated users,
         counts all corpuses the user can see (public + those with permissions).
 
-        Uses Corpus.objects.visible_to_user() to ensure guardian permissions are
-        respected - users with explicit READ permissions on private corpuses will
-        see them in counts.
+        Uses ``BaseService.filter_visible(Corpus, user)`` to ensure guardian
+        permissions are respected - users with explicit READ permissions on
+        private corpuses will see them in counts.
         """
         from opencontractserver.corpuses.models import Corpus, CorpusCategory
 
@@ -191,7 +192,9 @@ class CorpusQueryMixin:
 
         # Use a subquery instead of materializing all visible corpus IDs
         # into a Python list — keeps filtering in the database.
-        visible_corpus_subquery = Corpus.objects.visible_to_user(user).values("id")
+        visible_corpus_subquery = BaseService.filter_visible(
+            Corpus, user, request=info.context
+        ).values("id")
 
         # Count corpuses per category, filtering to only visible ones
         categories = CorpusCategory.objects.annotate(
@@ -285,7 +288,7 @@ class CorpusQueryMixin:
         Resolve corpus statistics with proper permission filtering.
 
         SECURITY: All counts respect the permission model:
-        - Documents: Uses visible_to_user() + DocumentPath filtering
+        - Documents: Uses BaseService.filter_visible() + DocumentPath filtering
         - Annotations: Filtered by visible documents (inherit doc+corpus permissions)
         - Analyses: Uses AnalysisService (hybrid permission model)
         - Extracts: Uses ExtractService (hybrid permission model)
@@ -310,7 +313,9 @@ class CorpusQueryMixin:
         corpus_pk = from_global_id(corpus_id)[1]
 
         try:
-            corpuses = Corpus.objects.visible_to_user(user).filter(id=corpus_pk)
+            corpuses = BaseService.filter_visible(
+                Corpus, user, request=info.context
+            ).filter(id=corpus_pk)
 
             if corpuses.count() == 1:
                 corpus = corpuses[0]
@@ -319,7 +324,7 @@ class CorpusQueryMixin:
                 # Uses DocumentPath to respect folder structure and versioning
                 # Note: path_records is the related_name for Document FK in DocumentPath
                 visible_doc_ids = (
-                    Document.objects.visible_to_user(user)
+                    BaseService.filter_visible(Document, user, request=info.context)
                     .filter(
                         path_records__corpus=corpus,
                         path_records__is_current=True,

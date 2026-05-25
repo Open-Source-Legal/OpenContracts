@@ -28,6 +28,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services import CorpusDocumentService
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
@@ -192,15 +193,12 @@ class CreateMetadataColumn(graphene.Mutation):
 
         try:
             user = info.context.user
-            try:
-                corpus = Corpus.objects.visible_to_user(user).get(
-                    pk=from_global_id(corpus_id)[1]
-                )
-            except Corpus.DoesNotExist:
-                return CreateMetadataColumn(ok=False, message=not_found_msg)
-
-            # Check permissions
-            if not corpus.user_can(user, PermissionTypes.UPDATE, request=info.context):
+            corpus = BaseService.get_or_none(
+                Corpus, from_global_id(corpus_id)[1], user, request=info.context
+            )
+            if corpus is None or BaseService.require_permission(
+                corpus, user, PermissionTypes.UPDATE, request=info.context
+            ):
                 return CreateMetadataColumn(ok=False, message=not_found_msg)
 
             # Get or create metadata fieldset for corpus
@@ -311,15 +309,12 @@ class UpdateMetadataColumn(graphene.Mutation):
 
         try:
             user = info.context.user
-            try:
-                column = Column.objects.visible_to_user(user).get(
-                    pk=from_global_id(column_id)[1]
-                )
-            except Column.DoesNotExist:
-                return UpdateMetadataColumn(ok=False, message=not_found_msg)
-
-            # Check permissions
-            if not column.user_can(user, PermissionTypes.UPDATE, request=info.context):
+            column = BaseService.get_or_none(
+                Column, from_global_id(column_id)[1], user, request=info.context
+            )
+            if column is None or BaseService.require_permission(
+                column, user, PermissionTypes.UPDATE, request=info.context
+            ):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
             # Ensure it's a manual entry column
@@ -662,9 +657,14 @@ class CreateColumn(graphene.Mutation):
         if {query, match_text} == {None}:
             raise ValueError("One of `query` or `match_text` must be provided.")
 
-        fieldset = Fieldset.objects.visible_to_user(info.context.user).get(
-            pk=from_global_id(fieldset_id)[1]
+        fieldset = BaseService.get_or_none(
+            Fieldset,
+            from_global_id(fieldset_id)[1],
+            info.context.user,
+            request=info.context,
         )
+        if fieldset is None:
+            raise Fieldset.DoesNotExist
         column = Column(
             name=name,
             fieldset=fieldset,
@@ -768,11 +768,10 @@ class CreateExtract(graphene.Mutation):
         corpus = None
         if corpus_id is not None:
             corpus_pk = from_global_id(corpus_id)[1]
-            try:
-                corpus = Corpus.objects.visible_to_user(info.context.user).get(
-                    pk=corpus_pk
-                )
-            except Corpus.DoesNotExist:
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, info.context.user, request=info.context
+            )
+            if corpus is None:
                 return CreateExtract(
                     ok=False,
                     msg="You don't have permission to create an extract for this corpus.",
@@ -780,9 +779,14 @@ class CreateExtract(graphene.Mutation):
                 )
 
         if fieldset_id is not None:
-            fieldset = Fieldset.objects.visible_to_user(info.context.user).get(
-                pk=from_global_id(fieldset_id)[1]
+            fieldset = BaseService.get_or_none(
+                Fieldset,
+                from_global_id(fieldset_id)[1],
+                info.context.user,
+                request=info.context,
             )
+            if fieldset is None:
+                raise Fieldset.DoesNotExist
         else:
             if fieldset_name is None:
                 fieldset_name = f"{name} Fieldset"
@@ -888,8 +892,8 @@ class UpdateExtractMutation(graphene.Mutation):
             )
 
         extract = get_for_user_or_none(Extract, extract_pk, user)
-        if extract is None or not extract.user_can(
-            user, PermissionTypes.UPDATE, request=info.context
+        if extract is None or BaseService.require_permission(
+            extract, user, PermissionTypes.UPDATE, request=info.context
         ):
             return UpdateExtractMutation(
                 ok=False, message=extract_not_found_msg, obj=None
@@ -1087,15 +1091,14 @@ class StartDocumentExtract(graphene.Mutation):
         doc_pk = from_global_id(document_id)[1]
         fieldset_pk = from_global_id(fieldset_id)[1]
 
-        # Verify visibility for both document and fieldset
-        try:
-            document = Document.objects.visible_to_user(info.context.user).get(
-                pk=doc_pk
-            )
-            fieldset = Fieldset.objects.visible_to_user(info.context.user).get(
-                pk=fieldset_pk
-            )
-        except (Document.DoesNotExist, Fieldset.DoesNotExist):
+        # Verify visibility for both document and fieldset via service layer.
+        document = BaseService.get_or_none(
+            Document, doc_pk, info.context.user, request=info.context
+        )
+        fieldset = BaseService.get_or_none(
+            Fieldset, fieldset_pk, info.context.user, request=info.context
+        )
+        if document is None or fieldset is None:
             return StartDocumentExtract(
                 ok=False, message="Resource not found", obj=None
             )
@@ -1103,11 +1106,10 @@ class StartDocumentExtract(graphene.Mutation):
         corpus = None
         if corpus_id:
             corpus_pk = from_global_id(corpus_id)[1]
-            try:
-                corpus = Corpus.objects.visible_to_user(info.context.user).get(
-                    pk=corpus_pk
-                )
-            except Corpus.DoesNotExist:
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, info.context.user, request=info.context
+            )
+            if corpus is None:
                 return StartDocumentExtract(
                     ok=False, message="Resource not found", obj=None
                 )

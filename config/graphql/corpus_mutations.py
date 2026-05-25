@@ -31,6 +31,7 @@ from opencontractserver.corpuses.models import (
 from opencontractserver.corpuses.services import CorpusService
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks import fork_corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.corpus_collector import collect_corpus_objects
@@ -132,7 +133,9 @@ class CreateCorpusMutation(DRFMutation):
             from opencontractserver.annotations.models import LabelSet
 
             default_labelset = (
-                LabelSet.objects.visible_to_user(info.context.user)
+                BaseService.filter_visible(
+                    LabelSet, info.context.user, request=info.context
+                )
                 .filter(is_default=True)
                 .first()
             )
@@ -838,8 +841,8 @@ class CreateCorpusAction(graphene.Mutation):
             # short-circuits to the same unified message as a no-CRUD result
             # so missing / hidden / no-permission look identical to the caller.
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-            if corpus is None or not corpus.user_can(
-                user, PermissionTypes.CRUD, request=info.context
+            if corpus is None or BaseService.require_permission(
+                corpus, user, PermissionTypes.CRUD, request=info.context
             ):
                 return CreateCorpusAction(
                     ok=False,
@@ -961,17 +964,30 @@ class CreateCorpusAction(graphene.Mutation):
 
             if fieldset_id:
                 fieldset_pk = from_global_id(fieldset_id)[1]
-                fieldset = Fieldset.objects.visible_to_user(user).get(pk=fieldset_pk)
+                fieldset = BaseService.get_or_none(
+                    Fieldset, fieldset_pk, user, request=info.context
+                )
+                if fieldset is None:
+                    raise Fieldset.DoesNotExist
 
             if analyzer_id:
                 analyzer_pk = from_global_id(analyzer_id)[1]
-                analyzer = Analyzer.objects.visible_to_user(user).get(pk=analyzer_pk)
+                analyzer = BaseService.get_or_none(
+                    Analyzer, analyzer_pk, user, request=info.context
+                )
+                if analyzer is None:
+                    raise Analyzer.DoesNotExist
 
             if agent_config_id:
                 agent_config_pk = from_global_id(agent_config_id)[1]
-                agent_config = AgentConfiguration.objects.visible_to_user(user).get(
-                    pk=agent_config_pk
+                agent_config = BaseService.get_or_none(
+                    AgentConfiguration,
+                    agent_config_pk,
+                    user,
+                    request=info.context,
                 )
+                if agent_config is None:
+                    raise AgentConfiguration.DoesNotExist
                 if not agent_config.is_active:
                     return CreateCorpusAction(
                         ok=False,
@@ -1149,8 +1165,12 @@ class UpdateCorpusAction(graphene.Mutation):
             user = info.context.user
             action_pk = from_global_id(id)[1]
 
-            # Get the corpus action with visibility filter
-            corpus_action = CorpusAction.objects.visible_to_user(user).get(pk=action_pk)
+            # Get the corpus action via service layer (IDOR-safe).
+            corpus_action = BaseService.get_or_none(
+                CorpusAction, action_pk, user, request=info.context
+            )
+            if corpus_action is None:
+                raise CorpusAction.DoesNotExist
 
             # Check if user is the creator
             if corpus_action.creator.id != user.id:
@@ -1177,7 +1197,11 @@ class UpdateCorpusAction(graphene.Mutation):
             # If any of these are provided, clear the others and set the new one
             if fieldset_id is not None:
                 fieldset_pk = from_global_id(fieldset_id)[1]
-                fieldset = Fieldset.objects.visible_to_user(user).get(pk=fieldset_pk)
+                fieldset = BaseService.get_or_none(
+                    Fieldset, fieldset_pk, user, request=info.context
+                )
+                if fieldset is None:
+                    raise Fieldset.DoesNotExist
                 corpus_action.fieldset = fieldset
                 corpus_action.analyzer = None
                 corpus_action.agent_config = None
@@ -1186,7 +1210,11 @@ class UpdateCorpusAction(graphene.Mutation):
 
             elif analyzer_id is not None:
                 analyzer_pk = from_global_id(analyzer_id)[1]
-                analyzer = Analyzer.objects.visible_to_user(user).get(pk=analyzer_pk)
+                analyzer = BaseService.get_or_none(
+                    Analyzer, analyzer_pk, user, request=info.context
+                )
+                if analyzer is None:
+                    raise Analyzer.DoesNotExist
                 corpus_action.analyzer = analyzer
                 corpus_action.fieldset = None
                 corpus_action.agent_config = None
@@ -1195,9 +1223,14 @@ class UpdateCorpusAction(graphene.Mutation):
 
             elif agent_config_id is not None:
                 agent_config_pk = from_global_id(agent_config_id)[1]
-                agent_config = AgentConfiguration.objects.visible_to_user(user).get(
-                    pk=agent_config_pk
+                agent_config = BaseService.get_or_none(
+                    AgentConfiguration,
+                    agent_config_pk,
+                    user,
+                    request=info.context,
                 )
+                if agent_config is None:
+                    raise AgentConfiguration.DoesNotExist
                 if not agent_config.is_active:
                     return UpdateCorpusAction(
                         ok=False,
@@ -1438,8 +1471,8 @@ class AddTemplateToCorpus(graphene.Mutation):
             # Get corpus with visibility filter to prevent IDOR. ``None``
             # collapses missing / hidden / no-CRUD into the same response.
             corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-            if corpus is None or not corpus.user_can(
-                user, PermissionTypes.CRUD, request=info.context
+            if corpus is None or BaseService.require_permission(
+                corpus, user, PermissionTypes.CRUD, request=info.context
             ):
                 return AddTemplateToCorpus(
                     ok=False,
@@ -1550,8 +1583,8 @@ class ToggleCorpusMemory(graphene.Mutation):
             return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 
         corpus = get_for_user_or_none(Corpus, corpus_pk, user)
-        if corpus is None or not corpus.user_can(
-            user, PermissionTypes.CRUD, request=info.context
+        if corpus is None or BaseService.require_permission(
+            corpus, user, PermissionTypes.CRUD, request=info.context
         ):
             return ToggleCorpusMemory(ok=False, message=not_found_msg, corpus=None)
 

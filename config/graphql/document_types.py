@@ -40,6 +40,7 @@ from opencontractserver.documents.models import (
     IngestionSource,
     IngestionSourceCategory,
 )
+from opencontractserver.shared.services.base import BaseService
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -87,7 +88,9 @@ class IngestionSourceType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
         """Only show sources owned by the current user, shared, or public."""
-        return IngestionSource.objects.visible_to_user(info.context.user)
+        return BaseService.filter_visible(
+            IngestionSource, info.context.user, request=info.context
+        )
 
 
 # -------------------- Document Path Types -------------------- #
@@ -136,7 +139,9 @@ class DocumentPathType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return getattr(info.context, cache_key)
 
         visible_ids = set(
-            Corpus.objects.visible_to_user(user).values_list("id", flat=True)
+            BaseService.filter_visible(Corpus, user, request=info.context).values_list(
+                "id", flat=True
+            )
         )
         setattr(info.context, cache_key, visible_ids)
         return visible_ids
@@ -216,10 +221,10 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         Returns the resolved user for caller convenience (so callers don't have
         to re-extract it from ``info.context``).
 
-        Uses the canonical ``Document.objects.visible_to_user(user)`` manager
-        method so corpus-inherited and group permissions are honoured. Public
-        documents short-circuit with no DB hit so high-traffic public reads are
-        not penalised.
+        Routes through the service layer (``BaseService.filter_visible``) so
+        the underlying corpus-inherited and group permission rules are
+        honoured. Public documents short-circuit with no DB hit so
+        high-traffic public reads are not penalised.
         """
         user = info.context.user if hasattr(info.context, "user") else None
         if self.is_public:
@@ -232,7 +237,11 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             raise GraphQLError(
                 "Permission denied: Authentication required to access private documents"
             )
-        if Document.objects.visible_to_user(user).filter(id=self.id).exists():
+        if (
+            BaseService.filter_visible(Document, user, request=info.context)
+            .filter(id=self.id)
+            .exists()
+        ):
             return user
         raise GraphQLError("Permission denied: You do not have access to this document")
 
@@ -461,8 +470,8 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         user = info.context.user
 
-        # Start with a base queryset of all Notes the user can see
-        base_qs = Note.objects.visible_to_user(user=user)
+        # Start with a base queryset of all Notes the user can see (service layer).
+        base_qs = BaseService.filter_visible(Note, user, request=info.context)
 
         if corpus_id is None:
             corpus_pk = None
@@ -496,9 +505,11 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.documents.models import DocumentSummaryRevision
 
         _, corpus_pk = from_global_id(corpus_id)
-        # Verify user can access the corpus before returning summary data
+        # Verify user can access the corpus before returning summary data.
         if (
-            not Corpus.objects.visible_to_user(info.context.user)
+            not BaseService.filter_visible(
+                Corpus, info.context.user, request=info.context
+            )
             .filter(pk=corpus_pk)
             .exists()
         ):
@@ -513,9 +524,11 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.documents.models import DocumentSummaryRevision
 
         _, corpus_pk = from_global_id(corpus_id)
-        # Verify user can access the corpus before returning version data
+        # Verify user can access the corpus before returning version data.
         if (
-            not Corpus.objects.visible_to_user(info.context.user)
+            not BaseService.filter_visible(
+                Corpus, info.context.user, request=info.context
+            )
             .filter(pk=corpus_pk)
             .exists()
         ):
@@ -536,8 +549,12 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         _, corpus_pk = from_global_id(corpus_id)
         try:
-            # Use visible_to_user() to prevent cross-corpus data leakage
-            corpus = Corpus.objects.visible_to_user(info.context.user).get(pk=corpus_pk)
+            # IDOR-safe corpus fetch via service layer.
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, info.context.user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
             return self.get_summary_for_corpus(corpus)
         except Corpus.DoesNotExist:
             return ""
@@ -800,7 +817,9 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         # Subquery: only documents in this version tree the user can see.
         visible_version_docs = (
-            Document.objects.visible_to_user(info.context.user)
+            BaseService.filter_visible(
+                Document, info.context.user, request=info.context
+            )
             .filter(version_tree_id=self.version_tree_id)
             .only("pk")
         )
@@ -862,18 +881,20 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if isinstance(user, AnonymousUser) or not user or not user.is_authenticated:
             return False
 
-        # Check document permission
-        has_doc_update = self.user_can(
-            user, PermissionTypes.UPDATE, request=info.context
+        # Check document permission (boolean via service layer).
+        has_doc_update = BaseService.user_has(
+            self, user, PermissionTypes.UPDATE, request=info.context
         )
         if not has_doc_update:
             return False
 
-        # Check corpus permission
+        # Check corpus permission.
         _, corpus_pk = from_global_id(corpus_id)
         try:
             corpus = Corpus.objects.get(pk=corpus_pk)
-            return corpus.user_can(user, PermissionTypes.UPDATE, request=info.context)
+            return BaseService.user_has(
+                corpus, user, PermissionTypes.UPDATE, request=info.context
+            )
         except Corpus.DoesNotExist:
             return False
 
@@ -892,7 +913,9 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if isinstance(user, AnonymousUser) or not user or not user.is_authenticated:
             return False
 
-        return self.user_can(user, PermissionTypes.READ, request=info.context)
+        return BaseService.user_has(
+            self, user, PermissionTypes.READ, request=info.context
+        )
 
     # -------------------- Processing Status Fields (Pipeline Hardening) -------------------- #
     processing_status = graphene.Field(
@@ -948,8 +971,10 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if self.creator == user or user.is_superuser:
             return True
 
-        # Others need UPDATE permission
-        return self.user_can(user, PermissionTypes.UPDATE, request=info.context)
+        # Others need UPDATE permission (boolean via service layer).
+        return BaseService.user_has(
+            self, user, PermissionTypes.UPDATE, request=info.context
+        )
 
     page_annotations = graphene.List(
         AnnotationType,
@@ -1124,11 +1149,18 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
+        user = info.context.user
         if issubclass(type(queryset), QuerySet):
-            return queryset.visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.filter(pk__in=visible_ids)
         elif "RelatedManager" in str(type(queryset)):
             # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            return queryset.all().visible_to_user(info.context.user)
+            visible_ids = BaseService.filter_visible(
+                queryset.model, user, request=info.context
+            ).values("pk")
+            return queryset.all().filter(pk__in=visible_ids)
         else:
             return queryset
 

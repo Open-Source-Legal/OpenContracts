@@ -15,6 +15,7 @@ from config.graphql.user_types import UserType
 from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.notifications.models import Notification
+from opencontractserver.shared.services.base import BaseService
 
 
 # ---------------- Badge System Types ----------------
@@ -151,10 +152,10 @@ class NotificationType(DjangoObjectType):
         if not user or not user.is_authenticated:
             return None
 
-        # Check if user can access this message via visible_to_user
-        accessible_messages = ChatMessage.objects.visible_to_user(user).filter(
-            id=self.message.id
-        )
+        # Check via the service layer whether this user can see the message.
+        accessible_messages = BaseService.filter_visible(
+            ChatMessage, user, request=info.context
+        ).filter(id=self.message.id)
 
         if accessible_messages.exists():
             return self.message
@@ -172,10 +173,10 @@ class NotificationType(DjangoObjectType):
         if not user or not user.is_authenticated:
             return None
 
-        # Check if user can access this conversation via visible_to_user
-        accessible_conversations = Conversation.objects.visible_to_user(user).filter(
-            id=self.conversation.id
-        )
+        # Check via the service layer whether this user can see the conversation.
+        accessible_conversations = BaseService.filter_visible(
+            Conversation, user, request=info.context
+        ).filter(id=self.conversation.id)
 
         if accessible_conversations.exists():
             return self.conversation
@@ -378,7 +379,7 @@ class SemanticSearchResultType(graphene.ObjectType):
     relevance-ranked search results from the global embeddings.
 
     PERMISSION MODEL:
-    - Uses Document.objects.visible_to_user() for document access control
+    - Filters documents through the service layer (BaseService.filter_visible)
     - Structural annotations visible if document is accessible
     - Non-structural annotations visible if public OR owned by user
     """

@@ -26,6 +26,7 @@ from opencontractserver.conversations.models import (
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks.agent_tasks import trigger_agent_responses_for_message
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.mention_parser import (
@@ -351,8 +352,8 @@ class ReplyToMessageMutation(graphene.Mutation):
             # SECURITY: Check permissions FIRST to prevent information disclosure
             # about locked thread status via different error messages (IDOR prevention).
             # Uses same generic message for both permission denied and locked states.
-            if not conversation.user_can(
-                user, PermissionTypes.READ, request=info.context
+            if BaseService.require_permission(
+                conversation, user, PermissionTypes.READ, request=info.context
             ):
                 return ReplyToMessageMutation(
                     ok=False,
@@ -455,9 +456,9 @@ class DeleteConversationMutation(graphene.Mutation):
                     message="You do not have permission to delete this conversation",
                 )
 
-            # Check if user has permission to delete
-            has_delete_permission = conversation.user_can(
-                user, PermissionTypes.DELETE, request=info.context
+            # Check if user has permission to delete via the service layer.
+            has_delete_permission = BaseService.user_has(
+                conversation, user, PermissionTypes.DELETE, request=info.context
             )
             is_moderator = conversation.can_moderate(user)
 
@@ -530,21 +531,24 @@ class UpdateMessageMutation(graphene.Mutation):
                     obj=None,
                 )
 
-            # Use visible_to_user() which now includes moderator access
-            # (moderators can see all messages in conversations they moderate)
-            # This prevents IDOR enumeration while properly handling moderator access.
+            # Use the service-layer visibility filter (which includes moderator
+            # access). This prevents IDOR enumeration while properly handling
+            # moderator access.
             #
             # NOTE: We do not use select_for_update() here because:
-            # 1. visible_to_user() uses DISTINCT, which is incompatible with FOR UPDATE
-            # 2. select_related() with nullable FKs uses outer joins, also incompatible
-            # The @transaction.atomic decorator provides sufficient transactional integrity
-            # for message editing, which is not a high-concurrency operation.
+            # 1. The visibility filter uses DISTINCT, which is incompatible
+            #    with FOR UPDATE
+            # 2. select_related() with nullable FKs uses outer joins, also
+            #    incompatible
+            # The @transaction.atomic decorator provides sufficient transactional
+            # integrity for message editing, which is not a high-concurrency
+            # operation.
             #
-            # Use select_related() to avoid N+1 queries when accessing conversation/corpus
-            # for mention parsing and moderator checks.
+            # Use select_related() to avoid N+1 queries when accessing
+            # conversation/corpus for mention parsing and moderator checks.
             try:
                 chat_message = (
-                    ChatMessage.objects.visible_to_user(user)
+                    BaseService.filter_visible(ChatMessage, user, request=info.context)
                     .select_related(
                         "conversation",
                         "conversation__chat_with_corpus",
@@ -570,9 +574,9 @@ class UpdateMessageMutation(graphene.Mutation):
                     )
 
             # Check if user has permission to update (CRUD includes update)
-            # Moderators can always edit messages in conversations they moderate
-            has_update_permission = chat_message.user_can(
-                user, PermissionTypes.CRUD, request=info.context
+            # Moderators can always edit messages in conversations they moderate.
+            has_update_permission = BaseService.user_has(
+                chat_message, user, PermissionTypes.CRUD, request=info.context
             )
             is_moderator = chat_message.conversation.can_moderate(user)
 
@@ -708,9 +712,9 @@ class DeleteMessageMutation(graphene.Mutation):
                     message="You do not have permission to delete this message",
                 )
 
-            # Check if user has permission to delete
-            has_delete_permission = chat_message.user_can(
-                user, PermissionTypes.DELETE, request=info.context
+            # Check if user has permission to delete via service layer.
+            has_delete_permission = BaseService.user_has(
+                chat_message, user, PermissionTypes.DELETE, request=info.context
             )
             is_moderator = chat_message.conversation.can_moderate(user)
 

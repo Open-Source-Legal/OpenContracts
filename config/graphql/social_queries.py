@@ -42,6 +42,7 @@ from opencontractserver.conversations.models import (
     MessageTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +56,16 @@ class SocialQueryMixin:
 
     def resolve_badges(self, info, **kwargs) -> Any:
         """Resolve badges visible to the user."""
-        return Badge.objects.visible_to_user(info.context.user).select_related(
-            "creator", "corpus"
-        )
+        return BaseService.filter_visible(
+            Badge, info.context.user, request=info.context
+        ).select_related("creator", "corpus")
 
     def resolve_badge(self, info, **kwargs) -> Any:
         """Resolve a single badge by ID."""
         django_pk = int(from_global_id(kwargs["id"])[1])
-        return Badge.objects.visible_to_user(info.context.user).get(id=django_pk)
+        return BaseService.filter_visible(
+            Badge, info.context.user, request=info.context
+        ).get(id=django_pk)
 
     user_badges = DjangoFilterConnectionField(
         UserBadgeType, filterset_class=UserBadgeFilter
@@ -318,8 +321,14 @@ class SocialQueryMixin:
             # Get corpus PK from global ID
             _, corpus_pk = from_global_id(corpus_id)
 
-            # Check if user has access to this corpus
-            Corpus.objects.visible_to_user(info.context.user).get(id=corpus_pk)
+            # Check if user has access to this corpus.
+            if (
+                BaseService.get_or_none(
+                    Corpus, corpus_pk, info.context.user, request=info.context
+                )
+                is None
+            ):
+                raise Corpus.DoesNotExist
 
             # Get top users by reputation for this corpus
             # Prefetch user badges to avoid N+1 queries
@@ -424,15 +433,24 @@ class SocialQueryMixin:
         if corpus_id:
             try:
                 corpus_django_pk = int(from_global_id(corpus_id)[1])
-                # Verify user has access to this corpus
-                Corpus.objects.visible_to_user(info.context.user).get(
-                    id=corpus_django_pk
-                )
+                # Verify user has access to this corpus.
+                if (
+                    BaseService.get_or_none(
+                        Corpus,
+                        corpus_django_pk,
+                        info.context.user,
+                        request=info.context,
+                    )
+                    is None
+                ):
+                    raise Corpus.DoesNotExist
             except Corpus.DoesNotExist:
                 raise GraphQLError("Corpus not found or access denied")
 
         # Get visible users (respect privacy settings)
-        users = User.objects.visible_to_user(info.context.user).filter(is_active=True)
+        users = BaseService.filter_visible(
+            User, info.context.user, request=info.context
+        ).filter(is_active=True)
 
         # Build query based on metric
         entries = []
@@ -474,8 +492,8 @@ class SocialQueryMixin:
         elif metric == "messages":
             # Count messages per user
             # Filter by visible conversations since ChatMessage doesn't inherit conversation visibility
-            visible_conversations = Conversation.objects.visible_to_user(
-                info.context.user
+            visible_conversations = BaseService.filter_visible(
+                Conversation, info.context.user, request=info.context
             )
 
             message_query = ChatMessage.objects.filter(
@@ -513,8 +531,8 @@ class SocialQueryMixin:
 
         elif metric == "threads":
             # Count threads created per user
-            thread_query = Conversation.objects.visible_to_user(
-                info.context.user
+            thread_query = BaseService.filter_visible(
+                Conversation, info.context.user, request=info.context
             ).filter(creator__in=users, conversation_type="thread")
 
             if cutoff_date:
@@ -543,10 +561,10 @@ class SocialQueryMixin:
                 )
 
         elif metric == "annotations":
-            # Count annotations created per user
-            annotation_query = Annotation.objects.filter(
-                creator__in=users
-            ).visible_to_user(info.context.user)
+            # Count annotations created per user (visibility via service layer).
+            annotation_query = BaseService.filter_visible(
+                Annotation, info.context.user, request=info.context
+            ).filter(creator__in=users)
 
             if cutoff_date:
                 annotation_query = annotation_query.filter(created__gte=cutoff_date)
@@ -646,8 +664,14 @@ class SocialQueryMixin:
         if corpus_id:
             try:
                 corpus_django_pk = int(from_global_id(corpus_id)[1])
-                # Verify user has access to this corpus
-                Corpus.objects.visible_to_user(user).get(id=corpus_django_pk)
+                # Verify user has access to this corpus.
+                if (
+                    BaseService.get_or_none(
+                        Corpus, corpus_django_pk, user, request=info.context
+                    )
+                    is None
+                ):
+                    raise Corpus.DoesNotExist
             except Corpus.DoesNotExist:
                 raise GraphQLError("Corpus not found or access denied")
 
@@ -690,14 +714,18 @@ class SocialQueryMixin:
         week_ago = now - timedelta(days=7)
         month_ago = now - timedelta(days=30)
 
-        # Get visible users
-        users = User.objects.visible_to_user(user).filter(is_active=True)
+        # Get visible users (service-layer visibility).
+        users = BaseService.filter_visible(User, user, request=info.context).filter(
+            is_active=True
+        )
         total_users = users.count()
 
         # Total messages
         # Filter by visible conversations since ChatMessage doesn't
-        # inherit conversation visibility
-        visible_conversations_stats = Conversation.objects.visible_to_user(user)
+        # inherit conversation visibility.
+        visible_conversations_stats = BaseService.filter_visible(
+            Conversation, user, request=info.context
+        )
         message_query = ChatMessage.objects.filter(
             msg_type=MessageTypeChoices.HUMAN,
             conversation__in=visible_conversations_stats,
@@ -725,15 +753,17 @@ class SocialQueryMixin:
         )
 
         # Total threads
-        thread_query = Conversation.objects.visible_to_user(user).filter(
-            conversation_type="thread"
-        )
+        thread_query = BaseService.filter_visible(
+            Conversation, user, request=info.context
+        ).filter(conversation_type="thread")
         if corpus_django_pk:
             thread_query = thread_query.filter(chat_with_corpus_id=corpus_django_pk)
         total_threads = thread_query.count()
 
         # Total annotations
-        annotation_query = Annotation.objects.visible_to_user(user)
+        annotation_query = BaseService.filter_visible(
+            Annotation, user, request=info.context
+        )
         if corpus_django_pk:
             annotation_query = annotation_query.filter(
                 document__corpus__id=corpus_django_pk

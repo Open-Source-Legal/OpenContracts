@@ -39,6 +39,7 @@ from opencontractserver.documents.models import (
     IngestionSource,
 )
 from opencontractserver.documents.services import DocumentRelationshipService
+from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,10 @@ class DocumentQueryMixin:
         # focused prefetch so the per-document
         # AnnotationService.get_document_annotations fall-through
         # in resolve_doc_annotations_optimized doesn't fire N times.
-        return Document.objects.visible_to_user(
+        return BaseService.filter_visible(
+            Document,
             info.context.user,
+            request=info.context,
             lightweight=True,
             with_doc_label_annotations=requests_doc_label_annotations(info),
         )
@@ -89,7 +92,13 @@ class DocumentQueryMixin:
             return doc_cache[document_id]
 
         _, pk = from_global_id(document_id)
-        document = Document.objects.visible_to_user(info.context.user).get(id=pk)
+        # IDOR-safe single-doc fetch via service layer — returns None for
+        # both not-found and not-visible. Historical behavior raised
+        # DoesNotExist via ``.get(id=pk)``; we now consistently return None
+        # so the resolver surfaces a nullable Document field.
+        document = BaseService.get_or_none(
+            Document, pk, info.context.user, request=info.context
+        )
 
         doc_cache[document_id] = document
         return document
@@ -128,7 +137,9 @@ class DocumentQueryMixin:
         # ``lightweight=True`` skips prefetches we don't need for an
         # aggregation; counts read scalar columns and don't traverse
         # relations, so paying for prefetches here would be pure waste.
-        visible = Document.objects.visible_to_user(user, lightweight=True)
+        visible = BaseService.filter_visible(
+            Document, user, request=info.context, lightweight=True
+        )
         filtered = DocumentFilter(data=filter_data, queryset=visible).qs
 
         # ``DocumentFilter.has_label_id`` joins ``doc_annotation`` (one row
@@ -405,7 +416,9 @@ class DocumentQueryMixin:
         active_only: bool = False,
         **kwargs: Any,
     ) -> QuerySet[IngestionSource]:
-        qs = IngestionSource.objects.visible_to_user(info.context.user)
+        qs = BaseService.filter_visible(
+            IngestionSource, info.context.user, request=info.context
+        )
         if active_only:
             qs = qs.filter(active=True)
         return qs.order_by("name")
@@ -427,7 +440,6 @@ class DocumentQueryMixin:
                 return None
         except (ValueError, TypeError):
             return None
-        try:
-            return IngestionSource.objects.visible_to_user(info.context.user).get(pk=pk)
-        except (IngestionSource.DoesNotExist, ValueError, TypeError):
-            return None
+        return BaseService.get_or_none(
+            IngestionSource, pk, info.context.user, request=info.context
+        )

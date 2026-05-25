@@ -18,6 +18,7 @@ from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from config.graphql.serializers import LabelsetSerializer
 from config.graphql.validation_utils import validate_color
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
     get_for_user_or_none,
@@ -181,8 +182,8 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
                 # IDOR protection: collapse "label doesn't exist", "hidden
                 # from caller", and "caller can READ but is not the creator"
                 # into the same response. AnnotationLabel uses creator-based
-                # permissions (no guardian tables); BaseVisibilityManager.
-                # visible_to_user enforces creator/public/superuser.
+                # permissions (no guardian tables); the service-layer
+                # IDOR-safe lookup enforces creator/public/superuser.
                 label = get_for_user_or_none(AnnotationLabel, label_pk, user)
                 if label is None:
                     return DeleteMultipleLabelMutation(
@@ -270,11 +271,11 @@ class CreateLabelForLabelsetMutation(graphene.Mutation):
         # error messages (IDOR mitigation — see
         # docs/permissioning/consolidated_permissioning_guide.md).
         # Phase D rule (#1658): READ is a precondition for UPDATE — the
-        # helper enforces it; the explicit ``labelset.user_can`` below
-        # adds the UPDATE check on top.
+        # IDOR-safe lookup helper enforces it; the explicit UPDATE check
+        # below layers the write permission on top via the service layer.
         labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
-        if labelset is None or not labelset.user_can(
-            info.context.user, PermissionTypes.UPDATE, request=info.context
+        if labelset is None or BaseService.require_permission(
+            labelset, info.context.user, PermissionTypes.UPDATE, request=info.context
         ):
             logger.warning(
                 "CreateLabelForLabelsetMutation: labelset not found or "
@@ -392,8 +393,8 @@ class RemoveLabelsFromLabelsetMutation(graphene.Mutation):
         user = info.context.user
         # Phase D rule (#1658): READ is a precondition for UPDATE.
         labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
-        if labelset is None or not labelset.user_can(
-            user, PermissionTypes.UPDATE, request=info.context
+        if labelset is None or BaseService.require_permission(
+            labelset, user, PermissionTypes.UPDATE, request=info.context
         ):
             logger.warning(
                 "RemoveLabelsFromLabelsetMutation: labelset not found or "
