@@ -84,9 +84,11 @@ const serifFont = css`
  * for its `.oc-navbar` overrides) and they apply correctly to the
  * portaled DOM.
  *
- * Scoped via the `data-cookie-consent` attribute on every targeted node
- * so these rules can never bleed into another consumer of the same
- * Modal classes.
+ * Scoped via the `cookie-consent-modal` / `cookie-consent-overlay`
+ * classes passed through the Modal's `className` / `overlayClassName`
+ * props (see the JSX below). Every selector here is qualified with one
+ * of those classes so these rules can never bleed into another consumer
+ * of the same @os-legal/ui Modal.
  */
 const cookieModalCss = `
   /* Overlay is the modal's parent in the portal tree, scoped via the
@@ -521,8 +523,12 @@ export const CookieConsentDialog = () => {
           }
         />
         <ModalBody>
-          <DemoBanner>
-            <AlertTriangle size={18} />
+          {/* role="note" surfaces the demo-system caveat as an ancillary
+              advisory inside the dialog's reading order. role="alert"
+              would double-announce on top of the dialog open event — the
+              banner is informational, not time-sensitive. */}
+          <DemoBanner role="note">
+            <AlertTriangle size={18} aria-hidden="true" />
             <DemoBannerText>
               <strong>Demo system.</strong> No guarantee of uptime or data
               retention — accounts and data may be deleted at any time.

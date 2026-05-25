@@ -42,6 +42,8 @@ export function useLandingContent(): LandingContent {
   );
 }
 
+export { renderInlineMarkup } from "./renderInlineMarkup";
+
 export type { LandingContent } from "./types";
 export type {
   HeroContent,

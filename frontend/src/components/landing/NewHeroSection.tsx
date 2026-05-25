@@ -6,6 +6,10 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
+import {
+  TABLET_BREAKPOINT,
+  TABLET_LANDSCAPE_BREAKPOINT,
+} from "../../assets/configurations/constants";
 import { SearchBox, FilterTabs } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
 import { CiteMark } from "../brand/CiteMark";
@@ -48,10 +52,10 @@ const HeroTitleRow = styled.h1`
   flex-direction: column;
   gap: 4px;
 
-  @media (max-width: 1023px) {
+  @media (max-width: ${TABLET_LANDSCAPE_BREAKPOINT - 1}px) {
     font-size: 36px;
   }
-  @media (max-width: 767px) {
+  @media (max-width: ${TABLET_BREAKPOINT - 1}px) {
     font-size: 30px;
   }
 `;
@@ -61,7 +65,7 @@ const FirstLine = styled.span`
   align-items: baseline;
   gap: 14px;
 
-  @media (max-width: 767px) {
+  @media (max-width: ${TABLET_BREAKPOINT - 1}px) {
     gap: 10px;
   }
 `;

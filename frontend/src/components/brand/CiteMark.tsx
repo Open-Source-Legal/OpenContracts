@@ -26,8 +26,12 @@ const strokeFor = (size: number) => {
  * Bracketed teal node — the cite icon mark.
  * Renders inline; viewBox is 64×64 and the geometry matches the
  * production SVG in /assets/brand/icon_mark.svg.
+ *
+ * Wrapped in React.memo: every prop is a primitive, and the mark
+ * appears in NavMenu / Footer / About / Login / CTA where the parent
+ * re-renders on unrelated state changes.
  */
-export const CiteMark: React.FC<CiteMarkProps> = ({
+const CiteMarkInner: React.FC<CiteMarkProps> = ({
   size = 24,
   bracketColor = "#1E293B",
   nodeColor = "#0F766E",
@@ -108,5 +112,7 @@ export const CiteMark: React.FC<CiteMarkProps> = ({
     </svg>
   );
 };
+
+export const CiteMark = React.memo(CiteMarkInner);
 
 export default CiteMark;

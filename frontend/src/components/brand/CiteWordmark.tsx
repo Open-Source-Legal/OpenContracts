@@ -23,8 +23,11 @@ interface CiteWordmarkProps {
  *
  * Renders as inline SVG with a font fallback chain (Source Serif Pro,
  * Georgia, serif) so the mark reads correctly before web fonts load.
+ *
+ * Wrapped in React.memo: every prop is a primitive, and the wordmark
+ * lives in chrome (NavMenu, Footer) that re-renders on unrelated state.
  */
-export const CiteWordmark: React.FC<CiteWordmarkProps> = ({
+const CiteWordmarkInner: React.FC<CiteWordmarkProps> = ({
   size = 28,
   variant = "dark",
   ariaLabel = "cite",
@@ -66,5 +69,7 @@ export const CiteWordmark: React.FC<CiteWordmarkProps> = ({
     </svg>
   );
 };
+
+export const CiteWordmark = React.memo(CiteWordmarkInner);
 
 export default CiteWordmark;

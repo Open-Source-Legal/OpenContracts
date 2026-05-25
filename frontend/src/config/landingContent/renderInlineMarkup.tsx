@@ -23,12 +23,12 @@ import { OS_LEGAL_TYPOGRAPHY } from "../../assets/configurations/osLegalStyles";
 export function renderInlineMarkup(input: string): React.ReactNode[] {
   if (!input) return [];
   const segments = input.split(/(\*[^*]+\*)/g);
-  // Index-as-key is safe here: `segments` is the deterministic output of
-  // `String.split(regex)` on static landing/About JSON copy, so positions
-  // never reorder across renders. Composing the index with a slice of the
-  // segment text (e.g. `${index}-${segment.slice(0, 12)}`) would only swap
-  // one stable key for another; React's reconciliation either way is a
-  // straight-line replace.
+  // Safe: segments derive from static, immutable JSON content (the
+  // landing/About content packs) — order never changes at runtime, no
+  // user input flows through here, no list reordering or insertion.
+  // Composing the index with a slice of the segment text would only
+  // swap one stable key for another; React's reconciliation either way
+  // is a straight-line replace.
   return segments
     .filter((segment) => segment.length > 0)
     .map((segment, index) => {

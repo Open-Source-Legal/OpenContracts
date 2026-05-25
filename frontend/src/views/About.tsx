@@ -150,11 +150,13 @@ export const About: React.FC = () => {
         <PageTitle>{about.title}</PageTitle>
         <Lede>{renderInlineMarkup(about.lede)}</Lede>
 
-        {about.sections.map((section) => (
-          <Section key={section.title}>
+        {about.sections.map((section, sectionIndex) => (
+          <Section key={`${sectionIndex}-${section.title}`}>
             <SectionTitle>{section.title}</SectionTitle>
-            {section.paragraphs.map((paragraph, index) => (
-              <Body key={index}>{renderInlineMarkup(paragraph)}</Body>
+            {section.paragraphs.map((paragraph, paraIndex) => (
+              <Body key={`${sectionIndex}-${paraIndex}`}>
+                {renderInlineMarkup(paragraph)}
+              </Body>
             ))}
           </Section>
         ))}
@@ -166,7 +168,12 @@ export const About: React.FC = () => {
               {link.internal ? (
                 <Link to={link.href}>{link.label}</Link>
               ) : (
-                <a href={link.href} target="_blank" rel="noopener noreferrer">
+                <a
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`${link.label} (opens in new window)`}
+                >
                   {link.label}
                 </a>
               )}

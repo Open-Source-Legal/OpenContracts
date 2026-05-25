@@ -26,6 +26,28 @@ const { chromium } = require("playwright");
 
 const PUBLIC_DIR = path.resolve(__dirname, "..", "public");
 
+// Cite brand palette — kept in lockstep with OS_LEGAL_COLORS in
+// src/assets/configurations/osLegalStyles. Re-declared here as plain
+// strings so the script (Node, no transpile) doesn't depend on the TS
+// constants module.
+const BRAND_COLORS = {
+  ink: "#1E293B", // slate primary (bracket + headline)
+  accent: "#0F766E", // teal accent (center node)
+  paper: "#FAFAF7", // warm paper background
+  textMuted: "#475569", // slate tagline copy
+  metaMuted: "#64748B", // uppercase URL line on OG card
+};
+
+// Maskable icon spec: PWA shapes can crop ~20% off any edge, so the
+// mark must live inside the central 80% safe area of a 512×512 frame.
+// https://web.dev/maskable-icon/
+const MASKABLE_FRAME = 512;
+const MASKABLE_SAFE_AREA = Math.round(MASKABLE_FRAME * 0.8);
+
+// Open Graph / Twitter card spec.
+const OG_WIDTH = 1200;
+const OG_HEIGHT = 630;
+
 // Cite icon mark — matches frontend/public/favicon.svg and the inline
 // geometry in src/components/brand/CiteMark.tsx. Re-declared here as
 // a string template so the script doesn't depend on the React component
@@ -33,13 +55,13 @@ const PUBLIC_DIR = path.resolve(__dirname, "..", "public");
 const citeMarkSvg = ({ size, strokeWidth }) => `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="${size}" height="${size}">
   <g transform="translate(32, 32)">
-    <line x1="-19" y1="-20" x2="-19" y2="20" stroke="#1E293B" stroke-width="${strokeWidth}"/>
-    <line x1="-19" y1="-20" x2="-11" y2="-20" stroke="#1E293B" stroke-width="${strokeWidth}"/>
-    <line x1="-19" y1="20" x2="-11" y2="20" stroke="#1E293B" stroke-width="${strokeWidth}"/>
-    <line x1="19" y1="-20" x2="19" y2="20" stroke="#1E293B" stroke-width="${strokeWidth}"/>
-    <line x1="19" y1="-20" x2="11" y2="-20" stroke="#1E293B" stroke-width="${strokeWidth}"/>
-    <line x1="19" y1="20" x2="11" y2="20" stroke="#1E293B" stroke-width="${strokeWidth}"/>
-    <circle cx="0" cy="0" r="7" fill="#0F766E"/>
+    <line x1="-19" y1="-20" x2="-19" y2="20" stroke="${BRAND_COLORS.ink}" stroke-width="${strokeWidth}"/>
+    <line x1="-19" y1="-20" x2="-11" y2="-20" stroke="${BRAND_COLORS.ink}" stroke-width="${strokeWidth}"/>
+    <line x1="-19" y1="20" x2="-11" y2="20" stroke="${BRAND_COLORS.ink}" stroke-width="${strokeWidth}"/>
+    <line x1="19" y1="-20" x2="19" y2="20" stroke="${BRAND_COLORS.ink}" stroke-width="${strokeWidth}"/>
+    <line x1="19" y1="-20" x2="11" y2="-20" stroke="${BRAND_COLORS.ink}" stroke-width="${strokeWidth}"/>
+    <line x1="19" y1="20" x2="11" y2="20" stroke="${BRAND_COLORS.ink}" stroke-width="${strokeWidth}"/>
+    <circle cx="0" cy="0" r="7" fill="${BRAND_COLORS.accent}"/>
   </g>
 </svg>`;
 
@@ -108,20 +130,21 @@ async function main() {
     });
 
     // ───────────────────────────────────────────────────────────────
-    // PWA "maskable" icon — content lives inside the central 80%
-    // (≈ 410px at 512px) safe area on a brand-coloured bezel so
-    // Android adaptive-icon shapes don't crop into the mark.
+    // PWA "maskable" icon — content lives inside the central safe area
+    // (~80% of the frame) on a brand-coloured bezel so Android
+    // adaptive-icon shapes don't crop into the mark.
     // ───────────────────────────────────────────────────────────────
-    const SAFE = 410;
     await snap(browser, {
       name: "cite-maskable.png",
-      width: 512,
-      height: 512,
-      background: "#FAFAF7",
-      body: `<div style="width: ${SAFE}px; height: ${SAFE}px;">${citeMarkSvg({
-        size: SAFE,
-        strokeWidth: 2.4,
-      })}</div>`,
+      width: MASKABLE_FRAME,
+      height: MASKABLE_FRAME,
+      background: BRAND_COLORS.paper,
+      body: `<div style="width: ${MASKABLE_SAFE_AREA}px; height: ${MASKABLE_SAFE_AREA}px;">${citeMarkSvg(
+        {
+          size: MASKABLE_SAFE_AREA,
+          strokeWidth: 2.4,
+        }
+      )}</div>`,
     });
 
     // ───────────────────────────────────────────────────────────────
@@ -132,9 +155,9 @@ async function main() {
     // ───────────────────────────────────────────────────────────────
     const ogBody = `
       <div style="
-        width: 1200px;
-        height: 630px;
-        background: #FAFAF7;
+        width: ${OG_WIDTH}px;
+        height: ${OG_HEIGHT}px;
+        background: ${BRAND_COLORS.paper};
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -147,7 +170,7 @@ async function main() {
             font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
             font-size: 140px;
             font-weight: 400;
-            color: #1E293B;
+            color: ${BRAND_COLORS.ink};
             letter-spacing: -3px;
             line-height: 1;
           ">[cite]</span>
@@ -156,7 +179,7 @@ async function main() {
           font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
           font-size: 36px;
           font-weight: 400;
-          color: #475569;
+          color: ${BRAND_COLORS.textMuted};
           letter-spacing: -0.5px;
           max-width: 900px;
           text-align: center;
@@ -168,7 +191,7 @@ async function main() {
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
           font-size: 16px;
           font-weight: 400;
-          color: #64748B;
+          color: ${BRAND_COLORS.metaMuted};
           letter-spacing: 1.5px;
           text-transform: uppercase;
           margin-top: 12px;
@@ -178,9 +201,9 @@ async function main() {
       </div>`;
     await snap(browser, {
       name: "OpenContractsScreenshot.png",
-      width: 1200,
-      height: 630,
-      background: "#FAFAF7",
+      width: OG_WIDTH,
+      height: OG_HEIGHT,
+      background: BRAND_COLORS.paper,
       body: ogBody,
     });
   } finally {
