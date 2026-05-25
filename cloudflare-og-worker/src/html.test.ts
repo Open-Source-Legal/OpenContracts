@@ -33,7 +33,9 @@ describe("generateOGHtml", () => {
     );
 
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('<meta property="og:title"');
+    expect(html).toContain(
+      `<meta property="og:title" content="${baseMetadata.title} | Corpus">`
+    );
     expect(html).toContain('<meta property="og:description"');
     expect(html).toContain('<meta property="og:url"');
     expect(html).toContain('<meta property="og:image"');
@@ -148,7 +150,9 @@ describe("generateGenericOGHtml", () => {
     const html = generateGenericOGHtml("https://contracts.example.com", mockEnv);
 
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('<meta property="og:title" content="cite');
+    expect(html).toContain(
+      '<meta property="og:title" content="cite — the citation layer for agentic workflows"'
+    );
     expect(html).toContain('<meta property="og:url"');
     expect(html).toContain('<meta property="og:image"');
   });

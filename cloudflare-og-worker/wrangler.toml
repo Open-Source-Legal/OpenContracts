@@ -14,7 +14,7 @@ OG_IMAGE_BASE = "http://localhost:3000/static/og-images"
 # Production environment
 # Routes both the new canonical cite.opensource.legal domain and the legacy
 # contracts.opensource.legal domain (kept alive during the 90-day grace
-# period — see README.md "Rebrand & domain" section).
+# period — see README.md "Routes" section).
 [env.production]
 vars = { SITE_URL = "https://cite.opensource.legal", API_URL = "https://cite.opensource.legal", OG_IMAGE_BASE = "https://cite.opensource.legal/static/og-images" }
 
