@@ -468,6 +468,7 @@ export function ThreadDetail({
           type="default"
           message="Loading discussion..."
           size="medium"
+          inline
         />
       </Container>
     );

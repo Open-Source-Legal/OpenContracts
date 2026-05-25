@@ -244,7 +244,7 @@ const ThreadSection: React.FC<ThreadSectionProps> = ({
 
       {loading && !data ? (
         <LoadingContainer>
-          <ModernLoadingDisplay message="Loading..." size="small" />
+          <ModernLoadingDisplay message="Loading..." size="small" inline />
         </LoadingContainer>
       ) : (
         <ThreadGrid>
