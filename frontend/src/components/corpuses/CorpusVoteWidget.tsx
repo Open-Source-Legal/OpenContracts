@@ -257,11 +257,14 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
 
   // Stop click from bubbling to the parent CardWrapper (otherwise clicking
   // the arrow navigates into the corpus). Each handler also short-circuits
-  // when self-voting or already-busy.
-  const stop = (event: React.MouseEvent) => {
+  // when self-voting or already-busy.  Memoized so the Pill wrapper
+  // receives a stable ``onClick`` reference between renders (the arrow
+  // handlers below are already ``useCallback`` wrapped — keeping ``stop``
+  // stable means none of them get a new identity per render).
+  const stop = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
     event.preventDefault();
-  };
+  }, []);
 
   const handleUpvote = useCallback(
     (event: React.MouseEvent) => {
