@@ -37,14 +37,20 @@ export const CiteMark: React.FC<CiteMarkProps> = ({
   style,
 }) => {
   const sw = strokeWidth ?? strokeFor(size);
+  // An empty `ariaLabel` marks the mark as decorative — render it
+  // `aria-hidden` and drop the `role="img"` slot so screen readers skip
+  // it entirely. Callers that pass a real label keep the labelled image
+  // semantics so the mark stays announceable as the cite brand glyph.
+  const decorative = !ariaLabel;
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 64 64"
       width={size}
       height={size}
-      role="img"
-      aria-label={ariaLabel}
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : ariaLabel}
+      aria-hidden={decorative ? true : undefined}
       className={className}
       style={style}
     >

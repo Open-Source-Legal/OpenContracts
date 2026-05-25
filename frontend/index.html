@@ -5,19 +5,13 @@
     <!-- Load runtime environment. Only one runtime env script should be included -->
     <script src="/env-config.js"></script>
     <!-- SVG favicon (modern browsers); .ico kept as legacy fallback. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link
-      rel="icon"
-      type="image/svg+xml"
-      sizes="32x32"
-      href="/favicon-32.svg"
-    />
-    <link
-      rel="icon"
-      type="image/svg+xml"
-      sizes="16x16"
-      href="/favicon-16.svg"
-    />
+    <!-- `sizes="any"` is the spec-correct value for scalable formats — pixel
+         sizes on SVG <link rel="icon"> are semantically wrong (the source
+         tile-rounded versions only exist as a perceptual nudge for browser
+         devtools that surface tab/bookmark sizing). -->
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon-32.svg" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon-16.svg" />
     <link rel="alternate icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#FAFAF7" />
@@ -28,7 +22,7 @@
     <meta property="og:type" content="website" key="Type" />
     <meta
       property="og:title"
-      content="cite — the citation layer for agentic workflows"
+      content="[cite] — the citation layer for agentic workflows"
       key="Title"
     />
     <meta
@@ -82,7 +76,7 @@
             "alternateName": "OpenContracts",
             "description": "The citation layer for agentic workflows. cite turns a repository of documents into an open, traversable citation graph that humans and AI agents can read, reason over, and contribute back to.",
             "url": "https://cite.opensource.legal/",
-            "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "license": "https://opensource.org/licenses/MIT",
             "applicationCategory": "BusinessApplication",
             "applicationSubCategory": "Citation Graph",
             "operatingSystem": "Web",
@@ -145,7 +139,7 @@
             "codeRepository": "https://github.com/Open-Source-Legal/OpenContracts",
             "programmingLanguage": ["Python", "TypeScript"],
             "runtimePlatform": ["Django", "React"],
-            "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+            "license": "https://opensource.org/licenses/MIT",
             "author": {
               "@type": "Organization",
               "@id": "https://opensource.legal/#org"
@@ -155,10 +149,13 @@
       }
     </script>
 
-    <link rel="apple-touch-icon" href="/logo192.png" />
     <!--
       manifest.json provides metadata used when your web app is installed on a
       user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+      Note: apple-touch-icon link removed alongside the v3 rebrand — the old
+      /logo192.png is no longer shipped and a brand-correct PWA icon set
+      (192/512 PNGs) is intentionally deferred (the SVG favicon handles
+      browser-tab display correctly; PWA install icons are out of scope here).
     -->
     <link rel="manifest" href="/manifest.json" />
     <!--

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **v3 surface rebrand: OpenContracts → [cite]** (PR #1781). Ships the public-surface rebrand from OpenContracts to [cite] as part of the v3 milestone. Scope is intentionally narrow: brand assets + landing + /about + chrome (NavMenu, Footer, Login, CookieConsent). The deeper product UI strings, repo name, README references, MCP/agent identity strings, GraphQL types, and the loading splash still use the OpenContracts name and are explicitly out of scope.
+  - **Brand components.** New `frontend/src/components/brand/CiteMark.tsx` (the bracketed teal node icon, with scaled stroke widths and auto-aria-hidden when used decoratively) and `CiteWordmark.tsx` (the `[cite]` wordmark as inline SVG with a Source Serif fallback chain). Wired into `Login`, `NavMenu`, `Footer`, `CallToAction`, `GetStarted`, `About`, and `CookieConsent`.
+  - **/about page.** New `frontend/src/views/About.tsx` + route, plus a JSON-driven landing-content variant system (`frontend/src/config/landingContent/`) with `default` and `public-record` packs selectable via `REACT_APP_LANDING_VARIANT`. Hero, GetStarted, CallToAction, About copy all source from the active variant.
+  - **Chrome + meta.** `index.html` (title, description, og tags, JSON-LD), `manifest.json` (cite name + theme color `#FAFAF7`), favicons (SVG), Source Serif 4 + Inter from Google Fonts. NavMenu's brand slot, Footer lockup, and Login card now show the cite wordmark/lockup.
+  - **Tests + screenshots.** New Playwright CT tests for `About`, `Login` (cite branding), `Footer`, `NavMenu` branding, `CookieConsent` rebrand, plus updated `landing-components.ct.tsx` and a Vitest suite (`landingContent.test.ts`) that pins the variant registry contract. Doc + release screenshots refreshed.
+  - **Out of scope.** OG image (`/OpenContractsScreenshot.png` retained until a brand-correct hero capture exists), PWA install icons (192/512 PNGs deferred — the SVG favicon handles tab display), and a codebase-wide string scrub of `OpenContracts`/`Open Contracts`.
+
 ### Changed
 
 - **Service-layer centralization Phase 6 — resolver cleanup + enforcement** (issue #1720; depends on Phases 1-5). Final phase of the roadmap in `docs/refactor_plans/2026-05-19-service-layer-centralization-design.md`. Every GraphQL resolver/mutation in `config/graphql/` now reaches models through `opencontractserver/<app>/services/` instead of inline `visible_to_user` / `user_can` / `user_has_permission_for_obj` composition.

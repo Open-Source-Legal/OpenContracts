@@ -129,9 +129,6 @@ export function Footer() {
         <Link to="/about">About</Link>
       </li>
       <li>
-        <Link to="/contact">Contact</Link>
-      </li>
-      <li>
         <Link to="/terms_of_service">Terms of Service</Link>
       </li>
       <li>

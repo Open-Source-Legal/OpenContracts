@@ -28,11 +28,11 @@ test.describe("Login Page", () => {
       page.locator('svg[aria-label="cite mark"]').first()
     ).toBeVisible({ timeout: 10000 });
 
-    // [cite] wordmark + the brand tagline beneath it
-    await expect(page.locator("text=[cite]")).toBeVisible();
-    await expect(
-      page.locator("text=The citation layer underneath the public record.")
-    ).toBeVisible();
+    // [cite] wordmark is now the inline CiteWordmark SVG (aria-label="cite"),
+    // and the tagline is variant-neutral so the screen doesn't claim copy
+    // from a specific landingContent variant.
+    await expect(page.locator('svg[aria-label="cite"]').first()).toBeVisible();
+    await expect(page.locator("text=Sign in to continue.")).toBeVisible();
 
     // Form inputs and the navy primary button render
     await expect(page.locator('input[placeholder="Username"]')).toBeVisible();

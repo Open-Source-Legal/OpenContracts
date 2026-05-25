@@ -11,6 +11,7 @@ import {
 import { toast } from "react-toastify";
 import { User, Lock } from "lucide-react";
 import { CiteMark } from "../components/brand/CiteMark";
+import { CiteWordmark } from "../components/brand/CiteWordmark";
 import { useCacheManager } from "../hooks/useCacheManager";
 
 const PageWrapper = styled.div`
@@ -38,13 +39,10 @@ const LogoSlot = styled.div`
   margin-bottom: 12px;
 `;
 
-const Title = styled.h1`
-  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
-  font-size: 2rem;
-  font-weight: 400;
-  letter-spacing: -0.5px;
-  color: #1e293b;
-  margin: 0 0 0.5rem;
+const WordmarkSlot = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.5rem;
 `;
 
 const Subtitle = styled.p`
@@ -52,12 +50,6 @@ const Subtitle = styled.p`
   font-size: 0.875rem;
   color: #64748b;
   margin-bottom: 2rem;
-
-  em {
-    font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
-    font-style: italic;
-    color: #1e293b;
-  }
 `;
 
 const Form = styled.form`
@@ -149,8 +141,10 @@ export const Login = () => {
           <LogoSlot>
             <CiteMark size={56} />
           </LogoSlot>
-          <Title>[cite]</Title>
-          <Subtitle>The citation layer underneath the public record.</Subtitle>
+          <WordmarkSlot>
+            <CiteWordmark size={32} ariaLabel="cite" />
+          </WordmarkSlot>
+          <Subtitle>Sign in to continue.</Subtitle>
         </div>
         <Form onSubmit={handleLoginClick}>
           <InputWrapper>
