@@ -9,6 +9,16 @@ import {
   AgentConfigurationType,
 } from "../../types/graphql-api";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  CONTEXT_MENU_VIEWPORT_PADDING,
+  POPOVER_GAP,
+  POPOVER_Z_INDEX,
+} from "../../assets/configurations/constants";
+
+// Tooltip-specific bounds. Hoisted to module scope so they're visible to
+// reviewers (no magic numbers buried inside a closure).
+const TOOLTIP_HEIGHT_EST = 120; // generous upper bound for typical badge tooltips
+const TOOLTIP_MAX_WIDTH = 220;
 
 const BadgeContainer = styled.div`
   display: inline-flex;
@@ -73,7 +83,10 @@ const TooltipWrapper = styled.div`
 
 const TooltipPopup = styled.div<{ $placement: "top" | "bottom" }>`
   position: fixed;
-  z-index: 1000;
+  /* Must outrank context menus (z=10000) and modals — POPOVER_Z_INDEX is
+     the project's canonical "above everything but app shell overlays"
+     layer. */
+  z-index: ${POPOVER_Z_INDEX};
   padding: 0.75em;
   border-radius: 10px;
   background: white;
@@ -164,7 +177,8 @@ function BadgeItem({
   const [isHovered, setIsHovered] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [tooltipPos, setTooltipPos] = useState<{
-    top: number;
+    top?: number; // set when placement === "bottom"
+    bottom?: number; // set when placement === "top"
     left: number;
     placement: "top" | "bottom";
     arrowOffset: number;
@@ -185,27 +199,42 @@ function BadgeItem({
       const node = wrapperRef.current;
       if (!node) return;
       const rect = node.getBoundingClientRect();
-      const TOOLTIP_HEIGHT_EST = 120; // generous upper bound for typical badge tooltips
-      const GAP = 8;
-      const VIEWPORT_PADDING = 8;
+      // Hide when the badge has scrolled fully out of the viewport so
+      // the tooltip doesn't float as a free-standing artifact over the
+      // rest of the UI.
+      if (rect.bottom < 0 || rect.top > window.innerHeight) {
+        setTooltipPos(null);
+        return;
+      }
       const placement: "top" | "bottom" =
-        rect.top - TOOLTIP_HEIGHT_EST - GAP < VIEWPORT_PADDING
+        rect.top - TOOLTIP_HEIGHT_EST - POPOVER_GAP <
+        CONTEXT_MENU_VIEWPORT_PADDING
           ? "bottom"
           : "top";
 
       // Center horizontally on the badge, clamped to viewport.
-      const TOOLTIP_MAX_WIDTH = 220;
       const centerX = rect.left + rect.width / 2;
       let left = centerX - TOOLTIP_MAX_WIDTH / 2;
       left = Math.max(
-        VIEWPORT_PADDING,
-        Math.min(left, window.innerWidth - TOOLTIP_MAX_WIDTH - VIEWPORT_PADDING)
+        CONTEXT_MENU_VIEWPORT_PADDING,
+        Math.min(
+          left,
+          window.innerWidth - TOOLTIP_MAX_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING
+        )
       );
       const arrowOffset = centerX - left; // px from tooltip's left edge to arrow center
 
-      const top = placement === "top" ? rect.top - GAP : rect.bottom + GAP;
-
-      setTooltipPos({ top, left, placement, arrowOffset });
+      // Capture BOTH ``top`` and ``bottom`` here so the JSX doesn't have
+      // to re-read ``window.innerHeight`` at render time — that read
+      // could race with a resize between the effect firing and the next
+      // paint and cause a 1-frame misalignment.
+      if (placement === "top") {
+        const bottom = window.innerHeight - (rect.top - POPOVER_GAP);
+        setTooltipPos({ bottom, left, placement, arrowOffset });
+      } else {
+        const top = rect.bottom + POPOVER_GAP;
+        setTooltipPos({ top, left, placement, arrowOffset });
+      }
     };
 
     computePosition();
@@ -240,11 +269,8 @@ function BadgeItem({
     <TooltipPopup
       $placement={tooltipPos.placement}
       style={{
-        top: tooltipPos.placement === "top" ? undefined : tooltipPos.top,
-        bottom:
-          tooltipPos.placement === "top"
-            ? window.innerHeight - tooltipPos.top
-            : undefined,
+        top: tooltipPos.top,
+        bottom: tooltipPos.bottom,
         left: tooltipPos.left,
         // Anchor the arrow under the badge center even when the tooltip
         // is clamped to the viewport edge (consumed by ::after in

@@ -495,11 +495,14 @@ export function ThreadDetail({
       {/* Compact Header */}
       <Header data-testid="thread-header">
         <HeaderLeft>
-          {/* Title row: type badge + title + status badges
-              Back button is only shown when the parent isn't already
-              rendering one (customOnBack signals the parent handles it). */}
+          {/* Title row: type badge + title + status badges.
+              Back button is always rendered in compact mode — ``customOnBack``
+              is the back-navigation handler the parent passes in, not a
+              signal that the parent renders its own button (e.g.
+              ``ThreadDetailWithContext`` delegates click handling but does
+              not display its own back affordance). */}
           <TitleRow>
-            {compact && !customOnBack && (
+            {compact && (
               <BackButton onClick={handleBack} aria-label="Back to discussions">
                 <ArrowLeft />
               </BackButton>

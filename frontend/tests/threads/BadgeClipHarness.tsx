@@ -15,7 +15,7 @@ import { ChatMessageType, UserBadgeType } from "../../src/types/graphql-api";
 export function BadgeClipHarness() {
   const message: ChatMessageType = {
     id: "msg-1",
-    content: "What de y'all think?",
+    content: "What do y'all think?",
     msgType: "HUMAN",
   } as unknown as ChatMessageType;
 

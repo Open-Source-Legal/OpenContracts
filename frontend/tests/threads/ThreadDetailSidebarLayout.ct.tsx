@@ -37,7 +37,7 @@ test.describe("DocumentDiscussionsContent — sidebar thread detail", () => {
     allMessages: [
       createMockMessage({
         id: "msg-1",
-        content: "What de y'all think?",
+        content: "What do y'all think?",
         creator: {
           id: "user-1",
           username: "majesticGrasshopper",
@@ -146,7 +146,7 @@ test.describe("DocumentDiscussionsContent — sidebar thread detail", () => {
 
     await expect(page.getByText("Overhyped?")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(documentTitle)).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("What de y'all think?")).toBeVisible({
+    await expect(page.getByText("What do y'all think?")).toBeVisible({
       timeout: 5_000,
     });
 
