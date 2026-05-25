@@ -263,6 +263,7 @@ export function ThreadList({
           type="default"
           message="Loading discussions..."
           size="medium"
+          inline
         />
       </ThreadListContainer>
     );

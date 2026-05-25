@@ -101,9 +101,7 @@ describe("AuthGate", () => {
         </AuthGate>
       );
 
-      expect(
-        screen.getByText("Initializing OpenContracts")
-      ).toBeInTheDocument();
+      expect(screen.getByText("Initializing cite")).toBeInTheDocument();
       expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
     });
 
@@ -393,9 +391,7 @@ describe("AuthGate", () => {
       );
 
       // Initially should show loading
-      expect(
-        screen.getByText("Initializing OpenContracts")
-      ).toBeInTheDocument();
+      expect(screen.getByText("Initializing cite")).toBeInTheDocument();
       expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
 
       // Advance timers to trigger the token fetch
@@ -403,9 +399,7 @@ describe("AuthGate", () => {
 
       // Wait for token fetch to complete
       await waitFor(() => {
-        expect(
-          screen.queryByText("Initializing OpenContracts")
-        ).not.toBeInTheDocument();
+        expect(screen.queryByText("Initializing cite")).not.toBeInTheDocument();
         expect(screen.getByText("Protected Content")).toBeInTheDocument();
       });
 
