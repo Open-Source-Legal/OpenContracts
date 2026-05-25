@@ -1,26 +1,26 @@
 import React from "react";
 import styled, { keyframes } from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  FileText,
-  Folder,
-  Lock,
-  Database,
-  BookOpen,
-  Archive,
-} from "lucide-react";
 import { color } from "../../theme/colors";
 import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../../assets/configurations/osLegalStyles";
-import osLegalLogo from "../../assets/images/os_legal_FullColor.png";
+import { CiteMark } from "../brand/CiteMark";
 
 interface ModernLoadingDisplayProps {
   type?: "document" | "corpus" | "extract" | "auth" | "default";
   message?: string;
-  fullScreen?: boolean;
   size?: "small" | "medium" | "large";
+  /**
+   * When true, the loader renders in normal flow inside its parent
+   * (no full-viewport overlay or background). Use this for loading states
+   * embedded in a panel or section. Default is an overlay that covers the
+   * full viewport with the cite paper-tinted backdrop — this is what
+   * route-level loaders and the AuthGate need so the underlying app chrome
+   * (especially on mobile) doesn't bleed through.
+   */
+  inline?: boolean;
 }
 
 const pulse = keyframes`
@@ -52,15 +52,6 @@ const shimmer = keyframes`
   }
 `;
 
-const rotate = keyframes`
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-`;
-
 const float = keyframes`
   0%, 100% {
     transform: translateY(0px);
@@ -70,36 +61,46 @@ const float = keyframes`
   }
 `;
 
-const Container = styled(motion.div)<{ $fullScreen?: boolean; $size?: string }>`
+const Container = styled(motion.div)<{ $inline?: boolean; $size?: string }>`
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: ${(props) => (props.$size === "small" ? "2rem" : "3rem")};
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 9999;
+  padding: ${(props) =>
+    props.$inline
+      ? props.$size === "small"
+        ? "1.5rem 1rem"
+        : "2rem 1rem"
+      : props.$size === "small"
+      ? "2rem"
+      : "3rem"};
+
   ${(props) =>
-    props.$fullScreen &&
-    `
+    props.$inline
+      ? `
+    position: relative;
+    width: 100%;
+  `
+      : `
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    transform: none;
+    inset: 0;
+    z-index: 9999;
     background: linear-gradient(135deg, ${OS_LEGAL_COLORS.background} 0%, #f0fdfa 100%);
     backdrop-filter: blur(12px);
+    /* Belt-and-suspenders fallback for mobile browsers where
+       backdrop-filter is unsupported — keep the layer fully opaque so
+       the app chrome underneath never shows through. */
+    @supports not (backdrop-filter: blur(12px)) {
+      background: ${OS_LEGAL_COLORS.background};
+    }
   `}
 `;
 
-const IconContainer = styled(motion.div)<{ $type?: string }>`
+const IconContainer = styled(motion.div)<{ $size?: string }>`
   position: relative;
-  width: 100px;
-  height: 100px;
-  margin-bottom: 2rem;
+  width: ${(props) => (props.$size === "small" ? "72px" : "100px")};
+  height: ${(props) => (props.$size === "small" ? "72px" : "100px")};
+  margin-bottom: ${(props) => (props.$size === "small" ? "1.25rem" : "2rem")};
 
   /* Outer glow - teal radial gradient */
   &::before {
@@ -120,16 +121,16 @@ const IconContainer = styled(motion.div)<{ $type?: string }>`
 `;
 
 /* Squircle shape using clip-path for a more interesting container */
-const IconWrapper = styled(motion.div)<{ $type?: string }>`
+const IconWrapper = styled(motion.div)<{ $size?: string }>`
   position: relative;
-  width: 100px;
-  height: 100px;
+  width: ${(props) => (props.$size === "small" ? "72px" : "100px")};
+  height: ${(props) => (props.$size === "small" ? "72px" : "100px")};
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(145deg, ${color.white} 0%, #f0fdfa 100%);
   /* Squircle-like border radius for more organic feel */
-  border-radius: 28px;
+  border-radius: ${(props) => (props.$size === "small" ? "20px" : "28px")};
   box-shadow: 0 12px 40px ${accentAlpha(0.12)}, 0 4px 12px ${accentAlpha(0.06)},
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
   animation: ${float} 3.5s ease-in-out infinite;
@@ -150,20 +151,24 @@ const IconWrapper = styled(motion.div)<{ $type?: string }>`
     pointer-events: none;
   }
 
-  img {
-    width: 68px;
-    height: 68px;
-    object-fit: contain;
+  svg {
+    width: ${(props) => (props.$size === "small" ? "44px" : "60px")};
+    height: ${(props) => (props.$size === "small" ? "44px" : "60px")};
     position: relative;
     z-index: 1;
   }
 
-  svg {
-    width: 40px;
-    height: 40px;
-    color: ${OS_LEGAL_COLORS.accent};
-    position: relative;
-    z-index: 1;
+  /* On very narrow mobile widths shrink even the medium/large icon so the
+     overlay still feels comfortable inside small viewports. */
+  @media (max-width: 480px) {
+    width: ${(props) => (props.$size === "small" ? "64px" : "84px")};
+    height: ${(props) => (props.$size === "small" ? "64px" : "84px")};
+    border-radius: ${(props) => (props.$size === "small" ? "18px" : "24px")};
+
+    svg {
+      width: ${(props) => (props.$size === "small" ? "40px" : "52px")};
+      height: ${(props) => (props.$size === "small" ? "40px" : "52px")};
+    }
   }
 `;
 
@@ -221,24 +226,14 @@ const ProgressFill = styled(motion.div)`
   animation: ${shimmer} 1.5s ease-in-out infinite;
 `;
 
-const getIcon = (type?: string, useOsLogo: boolean = true) => {
-  if (useOsLogo) {
-    return <img src={osLegalLogo} alt="OpenContracts" />;
-  }
-
-  switch (type) {
-    case "document":
-      return <FileText />;
-    case "corpus":
-      return <Archive />;
-    case "extract":
-      return <Database />;
-    case "auth":
-      return <Lock />;
-    default:
-      return <Database />;
-  }
-};
+const renderBrandMark = (size?: "small" | "medium" | "large") => (
+  <CiteMark
+    size={size === "small" ? 44 : 60}
+    bracketColor={color.N10}
+    nodeColor={OS_LEGAL_COLORS.accent}
+    ariaLabel="cite"
+  />
+);
 
 const getMessage = (type?: string, customMessage?: string) => {
   if (customMessage) return customMessage;
@@ -253,7 +248,7 @@ const getMessage = (type?: string, customMessage?: string) => {
     case "auth":
       return "Securing Your Session";
     default:
-      return "Loading OpenContracts";
+      return "Loading cite";
   }
 };
 
@@ -275,22 +270,22 @@ const getSubMessage = (type?: string) => {
 export const ModernLoadingDisplay: React.FC<ModernLoadingDisplayProps> = ({
   type = "default",
   message,
-  fullScreen = false,
   size = "medium",
+  inline = false,
 }) => {
   return (
     <AnimatePresence>
       <Container
-        $fullScreen={fullScreen}
+        $inline={inline}
         $size={size}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <IconContainer $type={type}>
+        <IconContainer $size={size}>
           <IconWrapper
-            $type={type}
+            $size={size}
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{
@@ -300,7 +295,7 @@ export const ModernLoadingDisplay: React.FC<ModernLoadingDisplayProps> = ({
               delay: 0.1,
             }}
           >
-            {getIcon(type)}
+            {renderBrandMark(size)}
           </IconWrapper>
         </IconContainer>
 
