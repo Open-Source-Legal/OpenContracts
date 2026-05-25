@@ -181,20 +181,28 @@ class TestBaseServiceLookup(TestCase):
         self.assertNotIn(other_corpus, result)
 
         # And the visibility filter is a single SQL pass: the compiled
-        # query references the corpus table exactly once (the outer
-        # ``FROM``). The legacy ``pk__in=<filter_visible.values('pk')>``
-        # pattern referenced it twice — outer ``FROM`` plus the inner
-        # ``IN (SELECT … FROM corpuses_corpus …)`` subquery. Subqueries
-        # against guardian permission tables are fine; what we're pinning
-        # is "no extra full-model-table scan".
-        compiled = str(result.query)
+        # query references the corpus table no more times than the
+        # baseline queryset already does. The legacy
+        # ``pk__in=<filter_visible.values('pk')>`` pattern added an extra
+        # ``IN (SELECT … FROM corpuses_corpus …)`` subquery — an extra
+        # full-table scan on top of the baseline. ``filter_visible_qs``
+        # chains the queryset's own ``visible_to_user``, so the FROM count
+        # against the model's own table must match the baseline (subqueries
+        # against guardian permission tables are fine and expected).
+        #
+        # Comparing against the baseline rather than asserting an absolute
+        # count keeps the test robust to model-level concerns like
+        # django-tree-queries' recursive CTE, which adds its own FROM
+        # reference to the corpus table irrespective of visibility logic.
         corpus_table = Corpus._meta.db_table
-        from_clauses = compiled.count(f'FROM "{corpus_table}"')
+        baseline_from_count = str(prefiltered.query).count(f'FROM "{corpus_table}"')
+        result_from_count = str(result.query).count(f'FROM "{corpus_table}"')
         self.assertEqual(
-            from_clauses,
-            1,
-            f"Expected exactly one FROM against {corpus_table!r}; got "
-            f"{from_clauses}. Compiled SQL: {compiled}",
+            result_from_count,
+            baseline_from_count,
+            f"filter_visible_qs added {result_from_count - baseline_from_count} "
+            f"extra FROM(s) against {corpus_table!r} on top of the baseline "
+            f"({baseline_from_count}). Compiled SQL: {result.query}",
         )
 
     def test_filter_visible_qs_excludes_other_user(self):

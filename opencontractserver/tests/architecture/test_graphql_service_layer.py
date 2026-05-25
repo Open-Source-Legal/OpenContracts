@@ -94,7 +94,8 @@ def test_django_system_check_is_registered() -> None:
        ``"architecture"``-tagged check were added — pinning the function
        identity closes that gap.
     """
-    from django.core.checks import registry, tag_exists
+    from django.core.checks import tag_exists
+    from django.core.checks.registry import registry
 
     from opencontractserver.shared.checks import check_graphql_service_layer
 
@@ -104,7 +105,15 @@ def test_django_system_check_is_registered() -> None:
         "``opencontractserver.shared.checks``."
     )
 
-    architecture_checks = registry.get_checks(tags=["architecture"])
+    # ``CheckRegistry.get_checks`` in Django 5.x takes no ``tags`` kwarg, so we
+    # filter ``registered_checks`` by the per-check ``tags`` attribute the
+    # ``@register("architecture")`` decorator sets — this pins the exact
+    # function identity, not just tag presence.
+    architecture_checks = [
+        c
+        for c in registry.registered_checks
+        if "architecture" in getattr(c, "tags", ())
+    ]
     assert check_graphql_service_layer in architecture_checks, (
         "``check_graphql_service_layer`` is not registered under the "
         "``architecture`` tag. Confirm the ``@register('architecture')`` "
