@@ -40,12 +40,18 @@ const isSafeUrl = (url: string): boolean => {
   }
 };
 
+type PdfRect = [number, number, number, number];
+
 export const NativeLinkLayer: FC<NativeLinkLayerProps> = ({ page, scale }) => {
   const [rawLinks, setRawLinks] = useState<
-    { id: string; url: string; rect: number[] }[]
+    { id: string; url: string; rect: PdfRect }[]
   >([]);
 
   useEffect(() => {
+    // Clear stale positions immediately so a recycled component instance
+    // (or a future page-prop swap) does not briefly render the previous
+    // page's links before the async fetch resolves.
+    setRawLinks([]);
     let cancelled = false;
     (async () => {
       try {
@@ -56,17 +62,26 @@ export const NativeLinkLayer: FC<NativeLinkLayerProps> = ({ page, scale }) => {
           rect?: number[];
         }>;
         if (cancelled) return;
-        const collected: { id: string; url: string; rect: number[] }[] = [];
+        const collected: { id: string; url: string; rect: PdfRect }[] = [];
         for (const ann of annotations) {
+          // ``ann.url`` absent → dest-based intra-document link, out of
+          // scope for this overlay (no external navigation target).
+          // TODO: hook in dest-based navigation here so PDF table-of-contents
+          // links can scroll to their target page.
           if (
             ann.subtype !== "Link" ||
             !ann.url ||
             !ann.rect ||
+            ann.rect.length !== 4 ||
             !isSafeUrl(ann.url)
           ) {
             continue;
           }
-          collected.push({ id: ann.id, url: ann.url, rect: ann.rect });
+          collected.push({
+            id: ann.id,
+            url: ann.url,
+            rect: ann.rect as PdfRect,
+          });
         }
         setRawLinks(collected);
       } catch (err) {
@@ -105,6 +120,7 @@ export const NativeLinkLayer: FC<NativeLinkLayerProps> = ({ page, scale }) => {
           target="_blank"
           rel="noopener noreferrer"
           title={link.url}
+          aria-label={link.url}
           style={{
             left: link.left,
             top: link.top,

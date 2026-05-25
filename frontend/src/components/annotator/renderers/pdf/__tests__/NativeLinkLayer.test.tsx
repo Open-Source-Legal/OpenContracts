@@ -18,17 +18,15 @@ const makePage = (
     rect?: number[];
   }>
 ): PDFPageProxy => {
-  const viewport = {
-    convertToViewportRectangle: (rect: number[]) => [
-      rect[0] * 2,
-      rect[1] * 2,
-      rect[2] * 2,
-      rect[3] * 2,
-    ],
-  };
   return {
     getAnnotations: vi.fn().mockResolvedValue(annotations),
-    getViewport: vi.fn().mockReturnValue(viewport),
+    // Mock honours the `scale` arg so the test for scaled positioning can
+    // verify that NativeLinkLayer actually forwards the prop into
+    // ``getViewport({ scale })``.
+    getViewport: vi.fn(({ scale = 1 }: { scale?: number } = {}) => ({
+      convertToViewportRectangle: (rect: number[]) =>
+        rect.map((value) => value * scale),
+    })),
   } as unknown as PDFPageProxy;
 };
 
@@ -138,12 +136,34 @@ describe("NativeLinkLayer", () => {
     render(<NativeLinkLayer page={page} scale={2} />);
 
     const link = await waitFor(() => screen.getByRole("link"));
-    // Stubbed viewport doubles each coordinate; layer uses min/abs.
+    // Mock viewport multiplies by the passed scale; layer uses min/abs.
     expect(link).toHaveStyle({
       left: "20px",
       top: "40px",
       width: "200px",
       height: "40px",
+    });
+    // Scale prop must actually flow into the PDF.js viewport call —
+    // otherwise the overlay would render at the wrong zoom level.
+    expect(page.getViewport).toHaveBeenCalledWith({ scale: 2 });
+  });
+
+  it("exposes an aria-label for screen readers", async () => {
+    const page = makePage([
+      {
+        id: "ann-1",
+        subtype: "Link",
+        url: "https://example.com",
+        rect: [10, 20, 110, 40],
+      },
+    ]);
+
+    render(<NativeLinkLayer page={page} scale={1} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: "https://example.com" })
+      ).toBeInTheDocument();
     });
   });
 });
