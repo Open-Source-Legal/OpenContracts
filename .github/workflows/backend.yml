@@ -129,7 +129,7 @@ jobs:
           echo "$ci_env"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Use the ghcr.io registry as the buildx layer-cache backend instead of
       # the GitHub Actions cache (``type=gha``). The registry cache is portable:
