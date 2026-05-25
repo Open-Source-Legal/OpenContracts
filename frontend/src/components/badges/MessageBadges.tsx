@@ -1,7 +1,8 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import styled from "styled-components";
 import * as LucideIcons from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import {
   ChatMessageType,
   UserBadgeType,
@@ -70,11 +71,8 @@ const TooltipWrapper = styled.div`
   display: inline-flex;
 `;
 
-const TooltipPopup = styled.div`
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+const TooltipPopup = styled.div<{ $placement: "top" | "bottom" }>`
+  position: fixed;
   z-index: 1000;
   padding: 0.75em;
   border-radius: 10px;
@@ -87,11 +85,13 @@ const TooltipPopup = styled.div`
   &::after {
     content: "";
     position: absolute;
-    top: 100%;
-    left: 50%;
+    left: var(--arrow-offset, 50%);
     transform: translateX(-50%);
     border: 6px solid transparent;
-    border-top-color: white;
+    ${({ $placement }) =>
+      $placement === "top"
+        ? `top: 100%; border-top-color: white;`
+        : `bottom: 100%; border-bottom-color: white;`}
   }
 `;
 
@@ -150,7 +150,9 @@ function getAgentBadgeData(
 }
 
 /**
- * Renders a single badge with optional tooltip
+ * Renders a single badge with optional tooltip.
+ * Tooltip is portalled to document.body so it can escape ancestor
+ * `overflow: hidden` containers (e.g. the sidebar shell).
  */
 function BadgeItem({
   badge,
@@ -160,6 +162,45 @@ function BadgeItem({
   showTooltip: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [tooltipPos, setTooltipPos] = useState<{
+    top: number;
+    left: number;
+    placement: "top" | "bottom";
+    arrowOffset: number;
+  } | null>(null);
+
+  // Recompute portal position whenever the tooltip becomes visible.
+  // Uses fixed coords from the badge's bounding rect, then flips below
+  // if there isn't enough room above (avoids clipping near the top of
+  // a scroll container).
+  useLayoutEffect(() => {
+    if (!isHovered || !wrapperRef.current) {
+      setTooltipPos(null);
+      return;
+    }
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const TOOLTIP_HEIGHT_EST = 120; // generous upper bound for typical badge tooltips
+    const GAP = 8;
+    const VIEWPORT_PADDING = 8;
+    const placement: "top" | "bottom" =
+      rect.top - TOOLTIP_HEIGHT_EST - GAP < VIEWPORT_PADDING ? "bottom" : "top";
+
+    // Center horizontally on the badge, clamped to viewport.
+    const TOOLTIP_MAX_WIDTH = 220;
+    const centerX = rect.left + rect.width / 2;
+    let left = centerX - TOOLTIP_MAX_WIDTH / 2;
+    left = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(left, window.innerWidth - TOOLTIP_MAX_WIDTH - VIEWPORT_PADDING)
+    );
+    const arrowOffset = centerX - left; // px from tooltip's left edge to arrow center
+
+    const top = placement === "top" ? rect.top - GAP : rect.bottom + GAP;
+
+    setTooltipPos({ top, left, placement, arrowOffset });
+  }, [isHovered]);
+
   // Dynamically get the icon component from lucide-react
   const IconComponent = (LucideIcons[badge.icon as keyof typeof LucideIcons] ||
     LucideIcons.Award) as React.ComponentType<{ size: number }>;
@@ -175,35 +216,54 @@ function BadgeItem({
     return badgeElement;
   }
 
+  const tooltipContent = tooltipPos && (
+    <TooltipPopup
+      $placement={tooltipPos.placement}
+      style={{
+        top: tooltipPos.placement === "top" ? undefined : tooltipPos.top,
+        bottom:
+          tooltipPos.placement === "top"
+            ? window.innerHeight - tooltipPos.top
+            : undefined,
+        left: tooltipPos.left,
+        // Anchor the arrow under the badge center even when the tooltip
+        // is clamped to the viewport edge (consumed by ::after in
+        // TooltipPopup via var(--arrow-offset)).
+        ["--arrow-offset" as any]: `${tooltipPos.arrowOffset}px`,
+      }}
+    >
+      <BadgeContent>
+        <BadgeTitle>{badge.name}</BadgeTitle>
+        <BadgeDescription>{badge.description}</BadgeDescription>
+        {"badgeType" in badge && (
+          <BadgeMetadata>
+            {badge.badgeType === "CORPUS" && badge.corpus && (
+              <div>Corpus: {badge.corpus.title}</div>
+            )}
+            {badge.badgeType === "GLOBAL" && <div>Global Badge</div>}
+            {badge.isAutoAwarded && <div>Auto-awarded</div>}
+            {badge.awardedAt && (
+              <div>
+                Awarded: {new Date(badge.awardedAt).toLocaleDateString()}
+              </div>
+            )}
+            {badge.awardedBy && <div>By: {badge.awardedBy.username}</div>}
+          </BadgeMetadata>
+        )}
+      </BadgeContent>
+    </TooltipPopup>
+  );
+
   return (
     <TooltipWrapper
+      ref={wrapperRef}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {badgeElement}
-      {isHovered && (
-        <TooltipPopup>
-          <BadgeContent>
-            <BadgeTitle>{badge.name}</BadgeTitle>
-            <BadgeDescription>{badge.description}</BadgeDescription>
-            {"badgeType" in badge && (
-              <BadgeMetadata>
-                {badge.badgeType === "CORPUS" && badge.corpus && (
-                  <div>Corpus: {badge.corpus.title}</div>
-                )}
-                {badge.badgeType === "GLOBAL" && <div>Global Badge</div>}
-                {badge.isAutoAwarded && <div>Auto-awarded</div>}
-                {badge.awardedAt && (
-                  <div>
-                    Awarded: {new Date(badge.awardedAt).toLocaleDateString()}
-                  </div>
-                )}
-                {badge.awardedBy && <div>By: {badge.awardedBy.username}</div>}
-              </BadgeMetadata>
-            )}
-          </BadgeContent>
-        </TooltipPopup>
-      )}
+      {isHovered &&
+        tooltipContent &&
+        createPortal(tooltipContent, document.body)}
     </TooltipWrapper>
   );
 }

@@ -69,7 +69,7 @@ const Header = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 0.5rem 2rem;
+  padding: 0.875rem 1.5rem 0.75rem;
   background: ${CORPUS_COLORS.white};
   border-bottom: 1px solid ${CORPUS_COLORS.slate[200]};
   gap: 0.5rem;
@@ -85,7 +85,7 @@ const Header = styled.div`
 const HeaderLeft = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.5rem;
   flex: 1;
   min-width: 0;
 
@@ -122,8 +122,9 @@ const BackButton = styled.button`
 const ContextLink = styled.a`
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  max-width: 100%;
   background: ${CORPUS_COLORS.slate[50]};
   border: 1px solid ${CORPUS_COLORS.slate[200]};
   border-radius: ${CORPUS_RADII.sm};
@@ -133,6 +134,7 @@ const ContextLink = styled.a`
   color: ${CORPUS_COLORS.slate[600]};
   text-decoration: none;
   transition: all ${CORPUS_TRANSITIONS.fast};
+  min-width: 0;
 
   &:hover {
     border-color: ${CORPUS_COLORS.teal[300]};
@@ -141,9 +143,17 @@ const ContextLink = styled.a`
   }
 
   svg {
-    width: 0.75rem;
-    height: 0.75rem;
+    width: 0.8125rem;
+    height: 0.8125rem;
+    flex-shrink: 0;
   }
+`;
+
+const ContextLinkLabel = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 `;
 
 const StatusBadge = styled.span<{ $variant: "pinned" | "locked" | "deleted" }>`
@@ -190,8 +200,8 @@ const StatusBadge = styled.span<{ $variant: "pinned" | "locked" | "deleted" }>`
 
 const TitleRow = styled.div`
   display: flex;
-  align-items: baseline;
-  gap: 0.375rem 0.5rem;
+  align-items: center;
+  gap: 0.5rem;
   min-width: 0;
   flex-wrap: wrap;
 `;
@@ -200,43 +210,36 @@ const Title = styled.h1`
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 1.25rem;
   font-weight: 400;
+  line-height: 1.3;
   color: ${OS_LEGAL_COLORS.textPrimary};
   margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1 1 auto;
   min-width: 0;
+  word-break: break-word;
 
   ${mediaQuery.tablet} {
     flex-basis: 100%;
     font-size: 1.0625rem;
-    line-height: 1.3;
-    white-space: normal;
-    overflow: visible;
-    word-break: break-word;
   }
 `;
 
-const Description = styled.span`
+const Description = styled.p`
   font-family: ${CORPUS_FONTS.sans};
-  font-size: 0.75rem;
-  color: ${CORPUS_COLORS.slate[400]};
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: ${CORPUS_COLORS.slate[500]};
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 1;
+  overflow-wrap: anywhere;
+`;
 
-  ${mediaQuery.tablet} {
-    flex: 1 1 100%;
-    min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    line-height: 1.4;
-  }
+const ContextRow = styled.div`
+  display: flex;
+  align-items: center;
+  min-width: 0;
 `;
 
 const MetaRow = styled.div`
@@ -249,6 +252,9 @@ const MetaRow = styled.div`
   flex-wrap: wrap;
   row-gap: 0.25rem;
   min-width: 0;
+  margin-top: 0.125rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed ${CORPUS_COLORS.slate[100]};
 `;
 
 const MetaItem = styled.span`
@@ -488,31 +494,17 @@ export function ThreadDetail({
       {/* Compact Header */}
       <Header data-testid="thread-header">
         <HeaderLeft>
-          {/* Title row: Back + badge + title + status badges */}
+          {/* Title row: type badge + title + status badges
+              Back button is only shown when the parent isn't already
+              rendering one (customOnBack signals the parent handles it). */}
           <TitleRow>
-            {compact && (
+            {compact && !customOnBack && (
               <BackButton onClick={handleBack} aria-label="Back to discussions">
                 <ArrowLeft />
               </BackButton>
             )}
             <DiscussionTypeBadge category={discussionCategory} />
             <Title>{thread.title || "Untitled Discussion"}</Title>
-
-            {thread.description && (
-              <Description title={thread.description}>
-                {thread.description}
-              </Description>
-            )}
-
-            {thread.chatWithDocument && (
-              <ContextLink
-                href="#"
-                title={`Linked to document: ${thread.chatWithDocument.title}`}
-              >
-                <FileText />
-                {thread.chatWithDocument.title}
-              </ContextLink>
-            )}
 
             {thread.isPinned && (
               <StatusBadge $variant="pinned">
@@ -533,6 +525,28 @@ export function ThreadDetail({
               </StatusBadge>
             )}
           </TitleRow>
+
+          {/* Description on its own row so long titles aren't crowded */}
+          {thread.description && (
+            <Description title={thread.description}>
+              {thread.description}
+            </Description>
+          )}
+
+          {/* Context link (document/corpus) on its own row */}
+          {thread.chatWithDocument && (
+            <ContextRow>
+              <ContextLink
+                href="#"
+                title={`Linked to document: ${thread.chatWithDocument.title}`}
+              >
+                <FileText />
+                <ContextLinkLabel>
+                  {thread.chatWithDocument.title}
+                </ContextLinkLabel>
+              </ContextLink>
+            </ContextRow>
+          )}
 
           {/* Meta row: Author + time + message count */}
           <MetaRow>
