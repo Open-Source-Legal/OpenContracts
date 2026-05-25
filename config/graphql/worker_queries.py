@@ -7,7 +7,7 @@ project service results onto the GraphQL output types.
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import graphene
 from graphql import GraphQLError
@@ -25,6 +25,9 @@ from opencontractserver.worker_uploads.services import (
     WorkerAccountService,
     WorkerDocumentUploadService,
 )
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +107,14 @@ class WorkerQueryMixin:
         if not result.ok:
             raise GraphQLError(result.error)
 
-        assert result.value is not None  # narrowed by ``result.ok`` invariant
+        # ``result.ok`` invariant: success carries a non-None value. ``cast``
+        # narrows the ``Optional`` for mypy without relying on ``assert``
+        # (which is stripped under ``python -O``). The queryset is left
+        # unparameterised because the service annotates ``_pending`` /
+        # ``_completed`` / ``_failed`` dynamically — those are not fields on
+        # the model, so a typed ``QuerySet[CorpusAccessToken]`` cast would
+        # make the attribute access fail mypy.
+        tokens = cast("QuerySet", result.value)
         return [
             CorpusAccessTokenQueryType(
                 id=t.id,
@@ -120,7 +130,7 @@ class WorkerQueryMixin:
                 upload_count_completed=t._completed,
                 upload_count_failed=t._failed,
             )
-            for t in result.value
+            for t in tokens
         ]
 
     @login_required
@@ -138,8 +148,12 @@ class WorkerQueryMixin:
         if not result.ok:
             raise GraphQLError(result.error)
 
-        assert result.value is not None  # narrowed by ``result.ok`` invariant
-        page, total_count, effective_limit, effective_offset = result.value
+        # ``result.ok`` invariant: success carries a non-None value. ``cast``
+        # narrows the ``Optional`` for mypy without relying on ``assert``
+        # (which is stripped under ``python -O``).
+        page, total_count, effective_limit, effective_offset = cast(
+            "tuple[QuerySet, int, int, int]", result.value
+        )
         items = [
             WorkerDocumentUploadQueryType(
                 id=str(u.id),

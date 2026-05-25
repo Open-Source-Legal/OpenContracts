@@ -16,10 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
-from opencontractserver.shared.services.conventions import (
-    ServiceResult,
-    get_for_user_or_none,
-)
+from opencontractserver.shared.services.conventions import ServiceResult
 from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
@@ -160,8 +157,10 @@ class AnalysisLifecycleService(BaseService):
 
         Performs three gates in order:
 
-        1. IDOR-safe lookup (``get_for_user_or_none``) — same response for
-           not-found and not-permitted.
+        1. IDOR-safe lookup (``cls.get_or_none``) — same response for
+           not-found and not-permitted. Routes through ``BaseService`` so
+           ``request`` is threaded into the Tier-2 permission cache; the
+           subsequent ``user_can`` call below reuses the cached entry.
         2. ``user_lock`` check — the lock is observable state to anyone who
            can READ the analysis, so a distinct error is OK here. Backend
            locks (``user_lock`` set by another user) reject; the lock-holder
@@ -175,7 +174,7 @@ class AnalysisLifecycleService(BaseService):
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.tasks import delete_analysis_and_annotations_task
 
-        analysis = get_for_user_or_none(Analysis, analysis_pk, user)
+        analysis = cls.get_or_none(Analysis, analysis_pk, user, request=request)
         if analysis is None:
             return ServiceResult.failure(cls._DELETE_NOT_FOUND_MSG)
 

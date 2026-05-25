@@ -11,6 +11,7 @@ type.
 """
 
 import logging
+from typing import TYPE_CHECKING, cast
 
 import graphene
 from graphql import GraphQLError
@@ -24,6 +25,12 @@ from opencontractserver.worker_uploads.services import (
     CorpusAccessTokenService,
     WorkerAccountService,
 )
+
+if TYPE_CHECKING:
+    from opencontractserver.worker_uploads.models import (
+        CorpusAccessToken,
+        WorkerAccount,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +61,10 @@ class CreateWorkerAccount(graphene.Mutation):
         if not result.ok:
             raise GraphQLError(result.error)
 
-        account = result.value
-        assert account is not None  # narrowed by ``result.ok`` invariant
+        # ``result.ok`` invariant: success carries a non-None value. ``cast``
+        # narrows the type for mypy without relying on ``assert`` (which is
+        # stripped under ``python -O``).
+        account = cast("WorkerAccount", result.value)
         return CreateWorkerAccount(
             ok=True,
             worker_account=WorkerAccountType(
@@ -147,8 +156,10 @@ class CreateCorpusAccessTokenMutation(graphene.Mutation):
         if not result.ok:
             raise GraphQLError(result.error)
 
-        assert result.value is not None  # narrowed by ``result.ok`` invariant
-        token, plaintext_key = result.value
+        # ``result.ok`` invariant: success carries a non-None value. ``cast``
+        # narrows the type for mypy without relying on ``assert`` (which is
+        # stripped under ``python -O``).
+        token, plaintext_key = cast("tuple[CorpusAccessToken, str]", result.value)
         return CreateCorpusAccessTokenMutation(
             ok=True,
             token=CorpusAccessTokenCreatedType(

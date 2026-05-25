@@ -101,6 +101,14 @@ class UserFeedbackService(BaseService):
         Wrapping the get-or-create + permission grant in
         ``transaction.atomic()`` matches the per-mutation ``@transaction.atomic``
         decorator that previously wrapped each flow.
+
+        ``comment`` semantics (preserved verbatim from the pre-relocation
+        mutation pair): ``None`` and ``""`` are both treated as "no new
+        comment supplied" — the existing comment is retained when updating
+        an existing row. Passing an empty string therefore does **not**
+        clear a previously-set comment; callers wanting to clear must
+        delete the ``UserFeedback`` row (or extend this API). New rows
+        store ``comment=""`` when ``comment`` is falsy.
         """
         from opencontractserver.annotations.models import Annotation
         from opencontractserver.feedback.models import UserFeedback
