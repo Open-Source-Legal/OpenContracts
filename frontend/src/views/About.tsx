@@ -4,13 +4,18 @@ import { Link } from "react-router-dom";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 import { PageContainer } from "../components/layout/PageLayout";
 import { CiteMark } from "../components/brand/CiteMark";
+import { useLandingContent } from "../config/landingContent";
+import { renderInlineMarkup } from "../config/landingContent/renderInlineMarkup";
 
 /**
- * /about — the page linked from the footer and read by every contributor
- * before they decide whether to commit. Copy is the verbatim long-form
- * from `02_copy/about.md` in the cite rebrand handoff. Names incumbents
- * directly; treat this as the canonical reference for the project's
- * editorial voice.
+ * /about — long-form positioning copy.
+ *
+ * Content is driven by the active landingContent variant
+ * (`src/config/landingContent`). The default variant pitches *cite* as a
+ * citation graph for document repositories in general (the world-facing
+ * OSS framing). Deployments targeting end-users for a specific corpus
+ * — e.g. `cite.opensource.legal` for the public record — override via
+ * `REACT_APP_LANDING_VARIANT`.
  */
 
 const Article = styled.article`
@@ -112,6 +117,7 @@ const FooterLinks = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 8px 0;
+  align-items: center;
 
   a {
     color: ${OS_LEGAL_COLORS.accent};
@@ -128,118 +134,41 @@ const FooterLinks = styled.div`
   }
 `;
 
-/**
- * Renders an inline `cite` reference. Italicized using Source Serif so it
- * reads as a publication name in body text, per the brand voice rules.
- */
-const CiteName: React.FC = () => <em>cite</em>;
-
 export const About: React.FC = () => {
+  const { about } = useLandingContent();
+
   return (
     <PageContainer>
       <Article>
         <Eyebrow>
           <CiteMark size={14} ariaLabel="" />
-          About
+          {about.eyebrow}
         </Eyebrow>
-        <PageTitle>The citation graph belongs in the public domain.</PageTitle>
-        <Lede>
-          <CiteName /> is the open commons of the citation graph of the public
-          record. This page is the long version — the one foundations and
-          contributors read before they commit.
-        </Lede>
+        <PageTitle>{about.title}</PageTitle>
+        <Lede>{renderInlineMarkup(about.lede)}</Lede>
 
-        <Section>
-          <SectionTitle>Why cite exists</SectionTitle>
-          <Body>
-            Every public document cites other public documents. Statutes cite
-            the acts that authorized them. Court opinions cite the precedents
-            that bound them. Contracts cite the statutes that govern them.
-            Research papers cite the work that made them possible. Patents cite
-            the prior art they extend. Technical standards cite the RFCs they
-            build on. Government budgets cite the acts that authorize their line
-            items. The web of citation is, quite literally, how public knowledge
-            accumulates.
-          </Body>
-        </Section>
-
-        <Section>
-          <SectionTitle>Why it&rsquo;s broken</SectionTitle>
-          <Body>
-            That web has been fragmented across closed databases for fifty
-            years. <em>Westlaw</em> and <em>Lexis</em> own the legal slice
-            between them. <em>JSTOR</em> and the academic publishers own the
-            scholarly slice. <em>USPTO</em> holds the patent record itself, but
-            the relationship data — what cites what — sits behind commercial
-            vendors. Each of these companies charges professionals to access a
-            graph that, by every reasonable measure, belongs in the public
-            domain.
-          </Body>
-          <Body>
-            <em>Wheaton v. Peters</em> (1834) established that judicial opinions
-            are uncopyrightable. Statutes have never been copyrightable.
-            Government records have never been copyrightable. The proprietary
-            citators have built lucrative businesses on the position that their{" "}
-            <em>compilation</em> of the relationships between those public
-            documents is theirs. That position has been challenged repeatedly —
-            most recently by <em>Public.Resource.Org</em> and the{" "}
-            <em>Free Law Project</em> — and it&rsquo;s slowly losing.
-          </Body>
-        </Section>
-
-        <Section>
-          <SectionTitle>What cite is</SectionTitle>
-          <Body>
-            <CiteName /> is the open commons of the citation graph. Every
-            public-domain document that cites another, surfaced as one open
-            network. Documents are nodes. Citations are edges. Built like{" "}
-            <em>OpenStreetMap</em> — open license, contributor-owned,
-            infrastructure-grade — for the public record. Where the proprietary
-            citators charge by the lookup, <CiteName /> is the layer underneath.
-            Where the proprietary citators close off the graph, <CiteName />{" "}
-            publishes it.
-          </Body>
-        </Section>
-
-        <Section>
-          <SectionTitle>Why we think we can do this</SectionTitle>
-          <Body>
-            The citation graph of the public record is mostly assembly work. The
-            underlying documents are already public. The relationships between
-            them have been observed by every professional who has ever read one
-            — every brief filed, every paper cited, every contract executed has
-            someone tracing edges by hand. Aggregating that work, normalizing
-            it, and publishing it is a project of scope rather than novelty. The
-            community has been waiting for the tool. <em>opensource.legal</em>{" "}
-            is the project that builds it.
-          </Body>
-        </Section>
+        {about.sections.map((section) => (
+          <Section key={section.title}>
+            <SectionTitle>{section.title}</SectionTitle>
+            {section.paragraphs.map((paragraph, index) => (
+              <Body key={index}>{renderInlineMarkup(paragraph)}</Body>
+            ))}
+          </Section>
+        ))}
 
         <FooterLinks>
-          <span>
-            Browse the{" "}
-            <a
-              href="https://open-source-legal.github.io/OpenContracts/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              docs
-            </a>
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>
-            <Link to="/corpuses">Open a corpus</Link>
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>
-            <a
-              href="https://github.com/Open-Source-Legal/OpenContracts"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Contribute on GitHub
-            </a>
-          </span>
+          {about.footerLinks.map((link, index) => (
+            <React.Fragment key={link.href}>
+              {index > 0 && <span aria-hidden="true">·</span>}
+              {link.internal ? (
+                <Link to={link.href}>{link.label}</Link>
+              ) : (
+                <a href={link.href} target="_blank" rel="noopener noreferrer">
+                  {link.label}
+                </a>
+              )}
+            </React.Fragment>
+          ))}
         </FooterLinks>
       </Article>
     </PageContainer>

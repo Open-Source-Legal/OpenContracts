@@ -1,0 +1,114 @@
+{
+  "hero": {
+    "showMark": true,
+    "primary": "The citation layer",
+    "accent": "underneath the public record.",
+    "subheadline": "Every public document cites other public documents. *cite* makes that graph open, traversable, and yours.",
+    "searchPlaceholder": "Search the citation graph…"
+  },
+  "stats": [
+    {
+      "key": "totalUsers",
+      "label": "Contributors",
+      "sublabel": "from the community"
+    },
+    {
+      "key": "totalAnnotations",
+      "label": "Annotations",
+      "sublabel": "community contributed"
+    },
+    {
+      "key": "totalThreads",
+      "label": "Threads",
+      "sublabel": "active discussions"
+    },
+    {
+      "key": "activeUsersThisWeek",
+      "label": "Active this week",
+      "sublabel": "contributors"
+    }
+  ],
+  "getStarted": {
+    "title": "Get started",
+    "actions": [
+      {
+        "id": "cite-document",
+        "label": "Cite your first document",
+        "path": "/documents"
+      },
+      {
+        "id": "browse-graph",
+        "label": "Browse the citation graph",
+        "path": "/corpuses"
+      },
+      {
+        "id": "create-corpus",
+        "label": "Create a new corpus",
+        "path": "/corpuses?create=true"
+      },
+      {
+        "id": "guide",
+        "label": "Read the contributor guide",
+        "path": "https://open-source-legal.github.io/OpenContracts/",
+        "external": true
+      }
+    ]
+  },
+  "callToAction": {
+    "eyebrow": "About cite",
+    "headline": "*cite* is built like infrastructure rather than a product.",
+    "body": "The same way *OpenStreetMap* is the layer underneath every modern map, *cite* is the layer underneath every tool that has to read the public record — research tools, drafting tools, AI agents, civic technology, the next generation of legal practice. Use it directly through the search and the corpus browser. Build on top of it through the API. Contribute to it through annotation.",
+    "primaryLabel": "Sign in to contribute",
+    "secondaryLabel": "Read the full story",
+    "secondaryPath": "/about"
+  },
+  "about": {
+    "eyebrow": "About",
+    "title": "The citation graph belongs in the public domain.",
+    "lede": "*cite* is the open commons of the citation graph of the public record. This page is the long version — the one foundations and contributors read before they decide to commit.",
+    "sections": [
+      {
+        "title": "Why cite exists",
+        "paragraphs": [
+          "Every public document cites other public documents. Statutes cite the acts that authorized them. Court opinions cite the precedents that bound them. Contracts cite the statutes that govern them. Research papers cite the work that made them possible. Patents cite the prior art they extend. Technical standards cite the RFCs they build on. Government budgets cite the acts that authorize their line items. The web of citation is, quite literally, how public knowledge accumulates."
+        ]
+      },
+      {
+        "title": "Why it's broken",
+        "paragraphs": [
+          "That web has been fragmented across closed databases for fifty years. *Westlaw* and *Lexis* own the legal slice between them. *JSTOR* and the academic publishers own the scholarly slice. *USPTO* holds the patent record itself, but the relationship data — what cites what — sits behind commercial vendors. Each of these companies charges professionals to access a graph that, by every reasonable measure, belongs in the public domain.",
+          "*Wheaton v. Peters* (1834) established that judicial opinions are uncopyrightable. Statutes have never been copyrightable. Government records have never been copyrightable. The proprietary citators have built lucrative businesses on the position that their *compilation* of the relationships between those public documents is theirs. That position has been challenged repeatedly — most recently by *Public.Resource.Org* and the *Free Law Project* — and it's slowly losing."
+        ]
+      },
+      {
+        "title": "What cite is",
+        "paragraphs": [
+          "*cite* is the open commons of the citation graph. Every public-domain document that cites another, surfaced as one open network. Documents are nodes. Citations are edges. Built like *OpenStreetMap* — open license, contributor-owned, infrastructure-grade — for the public record. Where the proprietary citators charge by the lookup, *cite* is the layer underneath. Where the proprietary citators close off the graph, *cite* publishes it."
+        ]
+      },
+      {
+        "title": "Why we think we can do this",
+        "paragraphs": [
+          "The citation graph of the public record is mostly assembly work. The underlying documents are already public. The relationships between them have been observed by every professional who has ever read one — every brief filed, every paper cited, every contract executed has someone tracing edges by hand. Aggregating that work, normalizing it, and publishing it is a project of scope rather than novelty. The community has been waiting for the tool. *opensource.legal* is the project that builds it."
+        ]
+      }
+    ],
+    "footerLinks": [
+      {
+        "label": "Read the docs",
+        "href": "https://open-source-legal.github.io/OpenContracts/",
+        "internal": false
+      },
+      {
+        "label": "Open a corpus",
+        "href": "/corpuses",
+        "internal": true
+      },
+      {
+        "label": "Contribute on GitHub",
+        "href": "https://github.com/Open-Source-Legal/OpenContracts",
+        "internal": false
+      }
+    ]
+  }
+}

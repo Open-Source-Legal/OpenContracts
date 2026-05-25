@@ -10,6 +10,8 @@ import {
   GET_CORPUS_CATEGORIES,
   GetCorpusCategoriesOutput,
 } from "../../graphql/landing-queries";
+import { useLandingContent } from "../../config/landingContent";
+import { renderInlineMarkup } from "../../config/landingContent/renderInlineMarkup";
 
 interface NewHeroSectionProps {
   selectedCategory: string | null;
@@ -104,6 +106,7 @@ export const NewHeroSection: React.FC<NewHeroSectionProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
+  const { hero } = useLandingContent();
 
   // Fetch categories for FilterTabs
   const { data: categoryData } = useQuery<GetCorpusCategoriesOutput>(
@@ -155,22 +158,21 @@ export const NewHeroSection: React.FC<NewHeroSectionProps> = ({
     <HeroSection>
       <HeroTitleRow>
         <FirstLine>
-          <MarkSlot aria-hidden="true">
-            <CiteMark size={38} />
-          </MarkSlot>
-          The citation layer
+          {hero.showMark && (
+            <MarkSlot aria-hidden="true">
+              <CiteMark size={38} />
+            </MarkSlot>
+          )}
+          {hero.primary}
         </FirstLine>
-        <SecondLine>underneath the public record.</SecondLine>
+        <SecondLine>{hero.accent}</SecondLine>
       </HeroTitleRow>
-      <HeroSubtitle>
-        Every public document cites other public documents. <em>cite</em> makes
-        that graph open, traversable, and yours.
-      </HeroSubtitle>
+      <HeroSubtitle>{renderInlineMarkup(hero.subheadline)}</HeroSubtitle>
 
       {/* Search */}
       <SearchContainer>
         <SearchBox
-          placeholder="Search the citation graph…"
+          placeholder={hero.searchPlaceholder}
           value={searchQuery}
           onChange={handleSearchChange}
           onSubmit={handleSearchSubmit}

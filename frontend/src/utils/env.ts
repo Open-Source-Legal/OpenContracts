@@ -15,6 +15,15 @@ export interface EnvConfig {
   REACT_APP_ALLOW_IMPORTS: boolean;
   REACT_APP_POSTHOG_API_KEY: string;
   REACT_APP_POSTHOG_HOST: string;
+  /**
+   * Selects the landing/about copy variant. "default" (or unset) ships the
+   * world-facing "citation layer for agentic workflows" framing — appropriate
+   * for the OSS project's repo and most deployments. Set to "public-record"
+   * to ship the public-domain citation-graph framing (the JSv4 deployment).
+   * Additional variants can be registered in
+   * src/config/landingContent/index.ts.
+   */
+  REACT_APP_LANDING_VARIANT: string;
 }
 
 function toBoolean(value: unknown): boolean {
@@ -68,6 +77,10 @@ export function getRuntimeEnv(): EnvConfig {
     REACT_APP_POSTHOG_HOST: getString(
       "REACT_APP_POSTHOG_HOST",
       "https://us.i.posthog.com"
+    ),
+    REACT_APP_LANDING_VARIANT: getString(
+      "REACT_APP_LANDING_VARIANT",
+      "default"
     ),
   };
 }

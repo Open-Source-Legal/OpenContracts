@@ -3,37 +3,44 @@
  *
  * Mounts /src/views/About.tsx through the shared LandingTestWrapper
  * (which provides BrowserRouter + MockedProvider + Jotai + Auth0
- * stubs) and verifies the four section headings render, then captures
- * the full-page documentation screenshot.
+ * stubs) and verifies the section structure renders against the active
+ * landingContent variant.
  */
 import { test, expect } from "./utils/coverage";
 import { About } from "../src/views/About";
 import { LandingTestWrapper } from "./LandingTestWrapper";
 import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
+import defaultLandingContent from "../src/config/landingContent/default.json";
+
+/**
+ * Strips inline `*italic*` markup the way <renderInlineMarkup /> does
+ * for rendering. Lets us assert against JSON content directly.
+ */
+const text = (input: string): string => input.replace(/\*/g, "");
 
 test.describe("About Page", () => {
-  test("renders the four section headings + lede", async ({ mount, page }) => {
+  test("renders the eyebrow, title, and every section from the JSON variant", async ({
+    mount,
+    page,
+  }) => {
     const component = await mount(
       <LandingTestWrapper>
         <About />
       </LandingTestWrapper>
     );
 
-    // Eyebrow + page title
-    await expect(page.locator("text=About").first()).toBeVisible({
+    const about = defaultLandingContent.about;
+
+    // Eyebrow + page title from the active variant.
+    await expect(page.locator(`text=${about.eyebrow}`).first()).toBeVisible({
       timeout: 10000,
     });
-    await expect(
-      page.locator("text=The citation graph belongs in the public domain.")
-    ).toBeVisible();
+    await expect(page.locator(`text=${about.title}`)).toBeVisible();
 
-    // The four section headings from about.md
-    await expect(page.locator("text=Why cite exists")).toBeVisible();
-    await expect(page.locator("text=Why it’s broken")).toBeVisible();
-    await expect(page.locator("text=What cite is")).toBeVisible();
-    await expect(
-      page.locator("text=Why we think we can do this")
-    ).toBeVisible();
+    // Every section heading defined in JSON is rendered.
+    for (const section of about.sections) {
+      await expect(page.locator(`text=${section.title}`)).toBeVisible();
+    }
 
     // Doc screenshot: the full /about page anonymous view.
     await docScreenshot(page, "about--full-page--anonymous", {
@@ -46,27 +53,27 @@ test.describe("About Page", () => {
     await component.unmount();
   });
 
-  test("names the proprietary citators explicitly", async ({ mount, page }) => {
+  test("renders the first paragraph of each section", async ({
+    mount,
+    page,
+  }) => {
     const component = await mount(
       <LandingTestWrapper>
         <About />
       </LandingTestWrapper>
     );
 
-    // The about copy intentionally names incumbents — these references
-    // are load-bearing for the editorial position and must not silently
-    // drift back to euphemism in a future copy edit.
-    for (const name of [
-      "Westlaw",
-      "Lexis",
-      "JSTOR",
-      "USPTO",
-      "Wheaton v. Peters",
-      "Public.Resource.Org",
-      "Free Law Project",
-      "OpenStreetMap",
-    ]) {
-      await expect(page.locator(`text=${name}`).first()).toBeVisible({
+    // The first paragraph of every section must paint — guards against a
+    // regression where <renderInlineMarkup /> or the paragraph map
+    // silently drops content. Use a short prefix of the first paragraph
+    // (with markup stripped) so the assertion stays resilient to copy
+    // tweaks while still proving the body rendered.
+    for (const section of defaultLandingContent.about.sections) {
+      const firstParagraph = text(section.paragraphs[0]);
+      // Grab the first ~60 chars to avoid full-paragraph string matches
+      // that turn brittle when wrapped across lines.
+      const probe = firstParagraph.slice(0, 60);
+      await expect(page.locator(`text=${probe}`).first()).toBeVisible({
         timeout: 10000,
       });
     }

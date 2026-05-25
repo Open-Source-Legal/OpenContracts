@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { StatBlock, StatGrid } from "@os-legal/ui";
+import { useLandingContent } from "../../config/landingContent";
 
 // Wrapper to increase stat sizes to match design reference
 const StatsWrapper = styled.div`
@@ -45,44 +46,27 @@ function formatNumber(num: number): string {
   return num.toLocaleString();
 }
 
-// Stat configurations — cite rebrand. Sublabels match the matter-of-fact
-// voice in `02_copy/home_page.md`. Labels stay tied to real backend fields
-// (the cite spec calls the third row "Citations in the graph" — we'll
-// rename here once a citations-graph counter ships; today the closest
-// honest mapping is the thread count).
-const statConfigs = [
-  {
-    key: "totalUsers" as keyof CommunityStats,
-    label: "Contributors",
-    sublabel: "from the community",
-  },
-  {
-    key: "totalAnnotations" as keyof CommunityStats,
-    label: "Annotations",
-    sublabel: "community contributed",
-  },
-  {
-    key: "totalThreads" as keyof CommunityStats,
-    label: "Threads",
-    sublabel: "active discussions",
-  },
-  {
-    key: "activeUsersThisWeek" as keyof CommunityStats,
-    label: "Active this week",
-    sublabel: "contributors",
-  },
-];
-
+/**
+ * Stat configurations come from the active landingContent variant
+ * (see `src/config/landingContent`). The key field must match a
+ * GraphQL `CommunityStats` field — the JSON `CommunityStatKey` union
+ * keeps that contract honest at build time.
+ */
 export const StatsSection: React.FC<StatsSectionProps> = ({
   stats,
   loading,
 }) => {
+  const { stats: statConfigs } = useLandingContent();
   return (
     <StatsWrapper>
       <StatGrid columns={4}>
         {statConfigs.map((config) => {
           const value =
-            loading || !stats ? "—" : formatNumber(stats[config.key] as number);
+            loading || !stats
+              ? "—"
+              : formatNumber(
+                  stats[config.key as keyof CommunityStats] as number
+                );
 
           return (
             <StatBlock

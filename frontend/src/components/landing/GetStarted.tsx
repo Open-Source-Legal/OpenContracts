@@ -14,6 +14,10 @@ import { gql } from "@apollo/client";
 import { X } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { CiteMark } from "../brand/CiteMark";
+import {
+  useLandingContent,
+  type GetStartedAction,
+} from "../../config/landingContent";
 
 // GraphQL mutation to dismiss Getting Started
 export const DISMISS_GETTING_STARTED = gql`
@@ -103,34 +107,12 @@ const ActionLabel = styled.span`
   color: ${OS_LEGAL_COLORS.accent};
 `;
 
-// Get Started action items — copy and order from `02_copy/home_page.md`.
-const actions = [
-  {
-    id: "cite-document",
-    label: "Cite your first document",
-    path: "/documents",
-    external: false,
-  },
-  {
-    id: "browse-graph",
-    label: "Browse the citation graph",
-    path: "/corpuses",
-    external: false,
-  },
-  {
-    id: "create-corpus",
-    label: "Create a new corpus",
-    path: "/corpuses?create=true",
-    external: false,
-  },
-  {
-    id: "guide",
-    label: "Read the contributor guide",
-    path: "https://open-source-legal.github.io/OpenContracts/",
-    external: true,
-  },
-];
-
+/**
+ * Action items and section title come from the active landingContent
+ * variant. The aria-label on the dismiss button mirrors the configured
+ * title so screen readers stay in sync when a deployer renames the
+ * section.
+ */
 export const GetStarted: React.FC<GetStartedProps> = ({
   isAuthenticated,
   isDismissed,
@@ -138,6 +120,7 @@ export const GetStarted: React.FC<GetStartedProps> = ({
 }) => {
   const navigate = useNavigate();
   const [dismissMutation] = useMutation(DISMISS_GETTING_STARTED);
+  const { getStarted } = useLandingContent();
 
   const handleDismiss = async () => {
     if (isAuthenticated) {
@@ -150,7 +133,7 @@ export const GetStarted: React.FC<GetStartedProps> = ({
     onDismiss();
   };
 
-  const handleActionClick = (action: (typeof actions)[0]) => {
+  const handleActionClick = (action: GetStartedAction) => {
     if (action.external) {
       window.open(action.path, "_blank", "noopener,noreferrer");
     } else {
@@ -164,13 +147,16 @@ export const GetStarted: React.FC<GetStartedProps> = ({
 
   return (
     <Container>
-      <Title>Get started</Title>
-      <DismissButton onClick={handleDismiss} aria-label="Dismiss Get Started">
+      <Title>{getStarted.title}</Title>
+      <DismissButton
+        onClick={handleDismiss}
+        aria-label={`Dismiss ${getStarted.title}`}
+      >
         <X size={16} />
       </DismissButton>
       <Card>
         <ActionList>
-          {actions.map((action) => (
+          {getStarted.actions.map((action) => (
             <ActionItem
               key={action.id}
               onClick={() => handleActionClick(action)}

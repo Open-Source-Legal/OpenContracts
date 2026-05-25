@@ -1,0 +1,44 @@
+import React from "react";
+
+/**
+ * Renders the minimal inline-italic markup used in landing/about content:
+ * any `*span*` segment becomes a Source Serif italic `<em>`, the rest
+ * stays as plain text. The asterisks themselves are stripped.
+ *
+ * This is intentionally simpler than a full Markdown parser. The cite
+ * brand rule restricts italic to (a) the *cite* product name and
+ * (b) publication/platform names in body copy. Both are flat inline
+ * spans — no nesting, no links, no bold. Anything more elaborate
+ * should live in JSX rather than the JSON content packs.
+ *
+ * Example:
+ *   renderInlineMarkup("*cite* is the layer underneath *OpenStreetMap*.")
+ *   → [<em>cite</em>, " is the layer underneath ", <em>OpenStreetMap</em>, "."]
+ *
+ * The returned `<em>` carries a serif font stack so the italics read as
+ * publication-name treatment even inside an Inter-set sans paragraph.
+ */
+export function renderInlineMarkup(input: string): React.ReactNode[] {
+  if (!input) return [];
+  const segments = input.split(/(\*[^*]+\*)/g);
+  return segments
+    .filter((segment) => segment.length > 0)
+    .map((segment, index) => {
+      if (segment.startsWith("*") && segment.endsWith("*")) {
+        return (
+          <em
+            key={index}
+            style={{
+              fontFamily:
+                "'Source Serif 4', 'Source Serif Pro', Georgia, serif",
+              fontStyle: "italic",
+              fontWeight: 400,
+            }}
+          >
+            {segment.slice(1, -1)}
+          </em>
+        );
+      }
+      return <React.Fragment key={index}>{segment}</React.Fragment>;
+    });
+}

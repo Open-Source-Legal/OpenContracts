@@ -5,6 +5,8 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { useEnv } from "../hooks/UseEnv";
 import { CiteMark } from "../brand/CiteMark";
+import { useLandingContent } from "../../config/landingContent";
+import { renderInlineMarkup } from "../../config/landingContent/renderInlineMarkup";
 
 interface CallToActionProps {
   isAuthenticated?: boolean;
@@ -124,6 +126,7 @@ export const CallToAction: React.FC<CallToActionProps> = ({
   const navigate = useNavigate();
   const { REACT_APP_USE_AUTH0 } = useEnv();
   const { loginWithRedirect } = useAuth0();
+  const { callToAction } = useLandingContent();
 
   const handleGetStarted = () => {
     if (REACT_APP_USE_AUTH0) {
@@ -145,24 +148,17 @@ export const CallToAction: React.FC<CallToActionProps> = ({
       <Inner>
         <Eyebrow>
           <CiteMark size={14} ariaLabel="" />
-          About cite
+          {callToAction.eyebrow}
         </Eyebrow>
-        <Headline>
-          <em>cite</em> is built like infrastructure rather than a product.
-        </Headline>
-        <Body>
-          The same way <em>OpenStreetMap</em> is the layer underneath every
-          modern map, <em>cite</em> is the layer underneath every tool that has
-          to read the public record — research tools, drafting tools, AI agents,
-          civic technology, the next generation of legal practice. Use it
-          directly through the search and the corpus browser. Build on top of it
-          through the API. Contribute to it through annotation.
-        </Body>
+        <Headline>{renderInlineMarkup(callToAction.headline)}</Headline>
+        <Body>{renderInlineMarkup(callToAction.body)}</Body>
         <ButtonGroup>
           <PrimaryButton onClick={handleGetStarted}>
-            Sign in to contribute
+            {callToAction.primaryLabel}
           </PrimaryButton>
-          <SecondaryLink to="/about">Read the full story</SecondaryLink>
+          <SecondaryLink to={callToAction.secondaryPath}>
+            {callToAction.secondaryLabel}
+          </SecondaryLink>
         </ButtonGroup>
       </Inner>
     </Section>

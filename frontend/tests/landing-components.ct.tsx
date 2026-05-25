@@ -13,6 +13,14 @@ import {
   GET_CORPUS_CATEGORIES,
 } from "../src/graphql/landing-queries";
 import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
+import defaultLandingContent from "../src/config/landingContent/default.json";
+
+/**
+ * Strips inline `*italic*` markup the way <renderInlineMarkup /> does
+ * for rendering. Used so tests can assert against the rendered text of
+ * a content-pack field without having to know the JSON markup syntax.
+ */
+const text = (input: string): string => input.replace(/\*/g, "");
 
 // Mock data
 const mockCommunityStats = {
@@ -245,16 +253,15 @@ test.describe("CallToAction Component", () => {
       </LandingTestWrapper>
     );
 
-    // CallToAction was rewritten for the cite rebrand — the gradient
-    // "Ready to dive in?" block was replaced with an editorial-voice
-    // "About cite" paragraph and a sign-in / read-more pair.
-    await expect(
-      page.locator(
-        "text=cite is built like infrastructure rather than a product."
-      )
-    ).toBeVisible({ timeout: 10000 });
-    await expect(page.locator("text=Sign in to contribute")).toBeVisible();
-    await expect(page.locator("text=Read the full story")).toBeVisible();
+    // CTA content comes from the active landingContent variant (default =
+    // the world-facing OSS pitch). Assert against the same JSON the
+    // component reads so future copy edits keep this test green.
+    const cta = defaultLandingContent.callToAction;
+    await expect(page.locator(`text=${text(cta.headline)}`)).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator(`text=${cta.primaryLabel}`)).toBeVisible();
+    await expect(page.locator(`text=${cta.secondaryLabel}`)).toBeVisible();
 
     // Doc screenshot: call-to-action section for anonymous users
     await docScreenshot(page, "landing--call-to-action--anonymous", {
@@ -273,9 +280,7 @@ test.describe("CallToAction Component", () => {
 
     // CTA should not be visible for authenticated users
     await expect(
-      page.locator(
-        "text=cite is built like infrastructure rather than a product."
-      )
+      page.locator(`text=${text(defaultLandingContent.callToAction.headline)}`)
     ).not.toBeVisible({ timeout: 5000 });
 
     await component.unmount();
@@ -308,14 +313,14 @@ test.describe("DiscoveryLanding Page", () => {
       </LandingTestWrapper>
     );
 
-    // Hero text updated for the cite rebrand. Both lines are split into
-    // separate spans by NewHeroSection, so assert each independently.
-    await expect(page.locator("text=The citation layer")).toBeVisible({
+    // Hero text comes from the active landingContent variant; assert
+    // against the bundled default copy so a future content edit doesn't
+    // require touching this test.
+    const hero = defaultLandingContent.hero;
+    await expect(page.locator(`text=${hero.primary}`)).toBeVisible({
       timeout: 15000,
     });
-    await expect(
-      page.locator("text=underneath the public record.")
-    ).toBeVisible();
+    await expect(page.locator(`text=${hero.accent}`)).toBeVisible();
 
     // Doc screenshot: full discovery landing page integration. The release
     // screenshot freezes the v3.0.0.rc1 (cite RC1) shape in amber.
@@ -448,8 +453,10 @@ test.describe("NewHeroSection", () => {
       </LandingTestWrapper>
     );
 
-    // Placeholder updated for the cite rebrand: "Search the citation graph…"
-    const input = component.getByPlaceholder("Search the citation graph…");
+    // Placeholder is driven by the active landingContent variant.
+    const input = component.getByPlaceholder(
+      defaultLandingContent.hero.searchPlaceholder
+    );
     await input.fill("indemnity caps");
     await input.press("Enter");
 
@@ -471,8 +478,10 @@ test.describe("NewHeroSection", () => {
       </LandingTestWrapper>
     );
 
-    // Placeholder updated for the cite rebrand: "Search the citation graph…"
-    const input = component.getByPlaceholder("Search the citation graph…");
+    // Placeholder is driven by the active landingContent variant.
+    const input = component.getByPlaceholder(
+      defaultLandingContent.hero.searchPlaceholder
+    );
     await input.fill("   ");
     await input.press("Enter");
 
@@ -494,17 +503,17 @@ test.describe("NewHeroSection", () => {
     );
 
     // Both lines of the cite hero, plus the [•] icon mark and the
-    // search box with its rebrand placeholder.
-    await expect(page.locator("text=The citation layer")).toBeVisible({
+    // search box with its rebrand placeholder. All copy sourced from
+    // the active landingContent variant.
+    const hero = defaultLandingContent.hero;
+    await expect(page.locator(`text=${hero.primary}`)).toBeVisible({
       timeout: 10000,
     });
-    await expect(
-      page.locator("text=underneath the public record.")
-    ).toBeVisible();
+    await expect(page.locator(`text=${hero.accent}`)).toBeVisible();
     // SearchBox renders the placeholder as an input attribute, so use
     // getByPlaceholder rather than text= which only matches text nodes.
     await expect(
-      component.getByPlaceholder("Search the citation graph…")
+      component.getByPlaceholder(hero.searchPlaceholder)
     ).toBeVisible();
     // The hero's [•] mark is rendered aria-hidden, so target it via the
     // structural svg role rather than an accessible name.
@@ -538,15 +547,15 @@ test.describe("GetStarted Component", () => {
       </LandingTestWrapper>
     );
 
-    // Section title (sentence case per the brand voice) and all four
-    // action labels from home_page.md.
-    await expect(page.locator("text=Get started")).toBeVisible({
+    // Section title + every action label sourced from the active
+    // landingContent variant so future copy edits don't break this test.
+    const getStarted = defaultLandingContent.getStarted;
+    await expect(page.locator(`text=${getStarted.title}`)).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.locator("text=Cite your first document")).toBeVisible();
-    await expect(page.locator("text=Browse the citation graph")).toBeVisible();
-    await expect(page.locator("text=Create a new corpus")).toBeVisible();
-    await expect(page.locator("text=Read the contributor guide")).toBeVisible();
+    for (const action of getStarted.actions) {
+      await expect(page.locator(`text=${action.label}`)).toBeVisible();
+    }
 
     // Doc screenshot: the rebranded Get Started card with its
     // bracketed-node bullets.
@@ -569,7 +578,9 @@ test.describe("GetStarted Component", () => {
     );
 
     // The whole card collapses, so the section title should not appear.
-    await expect(page.locator("text=Get started")).toHaveCount(0);
+    await expect(
+      page.locator(`text=${defaultLandingContent.getStarted.title}`)
+    ).toHaveCount(0);
 
     await component.unmount();
   });

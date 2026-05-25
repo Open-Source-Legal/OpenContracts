@@ -4,9 +4,9 @@
 
 # [cite] ([Demo](https://cite.opensource.legal))
 
-**The citation layer underneath the public record.**
+**The citation layer for agentic workflows.**
 
-Every public document cites other public documents. _cite_ makes that graph open, traversable, and yours. It is the codebase formerly released as **OpenContracts**, rebranded for v3 as part of [opensource.legal](https://opensource.legal).
+Every document cites other documents. _cite_ turns a repository of those documents into an open citation graph that humans and AI agents can read, reason over, and contribute back to. It is the codebase formerly released as **OpenContracts**, rebranded for v3 as part of [opensource.legal](https://opensource.legal).
 
 > Renaming, not rewriting. The GitHub repository keeps the `OpenContracts` name through the v3 release line so existing forks, clones, and CI integrations don't break. Inside the product, the new name is _cite_ and the new home is `cite.opensource.legal`. See the [About page](https://cite.opensource.legal/about) for the full story.
 
@@ -24,13 +24,15 @@ Every public document cites other public documents. _cite_ makes that graph open
 
 ## Why _cite_
 
-Every public document cites other public documents. Statutes cite the acts that authorized them. Court opinions cite the precedents that bound them. Contracts cite the statutes that govern them. Research papers cite the work that made them possible. Patents cite the prior art they extend. The web of citation is, quite literally, how public knowledge accumulates.
+Every document in a serious repository cites other documents. Statutes cite the acts that authorized them. Court opinions cite the precedents that bound them. Research papers cite the work that made them possible. Standards cite the RFCs they build on. Contracts cite the statutes that govern them. Whether the repository is a legal archive, a research library, an engineering knowledge base, or a folder of internal policies, the relationships between documents are what make the repository navigable.
 
-That web has been fragmented across closed databases for fifty years. _Westlaw_ and _Lexis_ own the legal slice between them. _JSTOR_ and the academic publishers own the scholarly slice. _USPTO_ holds the patent record itself, but the relationship data — what cites what — sits behind commercial vendors.
+Most repositories store files. They don't store the graph that connects them. A PDF in a folder is a leaf with no edges. A paper in a vendor database is locked behind a paywall. A clause in a contract is treated as text rather than a node. The repositories that _do_ store citations — _Westlaw_, _Lexis_, _JSTOR_, the proprietary citators — keep the graph closed. Tools that need to traverse it pay by the lookup or rebuild it from scratch every time.
 
-_cite_ is the open commons of that graph. Every public-domain document that cites another, surfaced as one open network. Documents are nodes. Citations are edges. Built like _OpenStreetMap_ — open license, contributor-owned, infrastructure-grade — for the public record.
+AI agents make this worse, not better. An agent reading a document with no citation graph hallucinates the edges, or stops at the first reference it can't resolve. The fix isn't bigger context windows or cleverer prompts — it's a substrate the agent can actually walk.
 
-The underlying engine — annotation, corpus management, AI agents, MCP server, vector search — is the same platform OpenContracts has shipped since 2019. The rebrand reframes what it's _for_: not just chat-with-your-PDFs, but the citation substrate underneath every tool that has to read the public record.
+_cite_ is that substrate. An open citation graph that any document repository can stand up. Documents are nodes. Citations are edges. Annotations are the layer humans and agents build the graph from together. Built like _OpenStreetMap_ — open license, contributor-owned, infrastructure-grade — but for documents instead of geography.
+
+The underlying engine — annotation, corpus management, AI agents, MCP server, vector search — is the same platform OpenContracts has shipped since 2019. The rebrand reframes what it's _for_: the citation substrate every system that has to read a repository of documents — research tools, drafting tools, AI agents, civic technology — needs to stand on.
 
 <table>
 <tr>
@@ -169,6 +171,29 @@ docker compose -f production.yml --profile migrate up migrate
 # Start services
 docker compose -f production.yml up -d
 ```
+
+---
+
+## Customizing the landing and About copy
+
+The discover/landing page and the `/about` page are driven by a JSON content pack so deployers can retarget the messaging without forking the codebase. Two variants ship in the repo:
+
+| Variant key     | Framing                                            | Best fit                                                                        |
+| --------------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `default`       | _The citation layer for agentic workflows._        | The OSS project's repo and most self-hosted deployments — developer-facing.     |
+| `public-record` | _The citation layer underneath the public record._ | End-user deployments curating public-domain documents (named-incumbents pitch). |
+
+Switch variants at runtime by setting `REACT_APP_LANDING_VARIANT` in `frontend/public/env-config.js` — no rebuild required. Unknown variant keys fall back to `default`.
+
+```js
+// frontend/public/env-config.js
+window._env_ = {
+  // … existing config
+  REACT_APP_LANDING_VARIANT: "public-record",
+};
+```
+
+To add a deployment-specific variant, drop a `<key>.json` file in `frontend/src/config/landingContent/` that matches the `LandingContent` type, register it in `frontend/src/config/landingContent/index.ts`, and set `REACT_APP_LANDING_VARIANT=<key>` on that deployment. Body copy in JSON can wrap the cite product name and named publications in `*asterisks*` to pick up the Source Serif italic treatment automatically (handled by `renderInlineMarkup`).
 
 ---
 
