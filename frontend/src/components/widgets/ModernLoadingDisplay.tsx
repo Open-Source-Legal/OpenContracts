@@ -6,6 +6,7 @@ import {
   OS_LEGAL_COLORS,
   accentAlpha,
 } from "../../assets/configurations/osLegalStyles";
+import { SMALL_MOBILE_BREAKPOINT } from "../../assets/configurations/constants";
 import { CiteMark } from "../brand/CiteMark";
 
 interface ModernLoadingDisplayProps {
@@ -160,7 +161,7 @@ const IconWrapper = styled(motion.div)<{ $size?: string }>`
 
   /* On very narrow mobile widths shrink even the medium/large icon so the
      overlay still feels comfortable inside small viewports. */
-  @media (max-width: 480px) {
+  @media (max-width: ${SMALL_MOBILE_BREAKPOINT}px) {
     width: ${(props) => (props.$size === "small" ? "64px" : "84px")};
     height: ${(props) => (props.$size === "small" ? "64px" : "84px")};
     border-radius: ${(props) => (props.$size === "small" ? "18px" : "24px")};
@@ -278,6 +279,9 @@ export const ModernLoadingDisplay: React.FC<ModernLoadingDisplayProps> = ({
       <Container
         $inline={inline}
         $size={size}
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
