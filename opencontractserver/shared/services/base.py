@@ -106,7 +106,21 @@ class BaseService:
         that method for the threading rationale — same caveat applies).
         """
         if not hasattr(queryset, "visible_to_user"):
+            # SECURITY: this branch must only fire for exotic shapes
+            # (prefetched caches, custom proxies). Real QuerySets and
+            # M2M RelatedManagers in this codebase always inherit
+            # ``visible_to_user`` from PermissionManager /
+            # PermissionedTreeQuerySet, so a manager that lands here is a
+            # latent unfiltered-queryset bug — not a security-equivalent
+            # no-op. Audit the caller, not this guard, if it ever trips
+            # on something real.
             return queryset
+        # ``request`` is intentionally NOT forwarded to
+        # ``visible_to_user``: the Tier-2 permission cache attached to
+        # ``request`` is keyed by (user, instance, perm) for single-object
+        # checks (``user_has`` / ``require_permission``), not queryset
+        # filters. Same silent-drop semantics as ``filter_visible`` above.
+        #
         # ``.all()`` normalises a RelatedManager to a QuerySet while
         # preserving the parent FK filter; on an already-resolved
         # QuerySet it returns a cheap clone.

@@ -194,6 +194,16 @@ class TestBaseServiceLookup(TestCase):
         # count keeps the test robust to model-level concerns like
         # django-tree-queries' recursive CTE, which adds its own FROM
         # reference to the corpus table irrespective of visibility logic.
+        #
+        # ``str(queryset.query)`` renders parameterized SQL via Django's
+        # internal ``Query.as_sql()`` rather than the exact string the DB
+        # backend receives. The output format is stable within a Django
+        # minor version but has changed subtly across majors. Re-verify on
+        # any Django major upgrade — if the quoting or alias style shifts,
+        # both ``baseline_from_count`` and ``result_from_count`` should
+        # shift in lockstep, so the *equality* assertion stays valid even
+        # when the absolute counts move. The test fails loudly here rather
+        # than silently if that ever stops being true.
         corpus_table = Corpus._meta.db_table
         baseline_from_count = str(prefiltered.query).count(f'FROM "{corpus_table}"')
         result_from_count = str(result.query).count(f'FROM "{corpus_table}"')
@@ -206,6 +216,7 @@ class TestBaseServiceLookup(TestCase):
         )
 
     def test_filter_visible_qs_excludes_other_user(self):
+        """The ownership filter excludes objects owned by a different user."""
         prefiltered = Corpus.objects.filter(pk=self.corpus.pk)
         result = BaseService.filter_visible_qs(prefiltered, self.other)
         self.assertNotIn(self.corpus, result)

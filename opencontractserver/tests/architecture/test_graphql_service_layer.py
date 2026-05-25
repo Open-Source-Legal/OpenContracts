@@ -71,6 +71,11 @@ def test_allowlist_is_documented() -> None:
         "``docs/development/architecture_invariants.md`` text MUST be "
         "refreshed to match — see issue #1720 / #1782."
     )
+    # The loop below is intentionally dead while ``ALLOWED_FILES`` is empty
+    # — the assertion above short-circuits the test before we reach it.
+    # Keep it in place so any future allowlist entry is validated for
+    # filesystem existence (renames or deletions surface immediately
+    # instead of silently rotting).
     for name in ALLOWED_FILES:
         assert (
             GRAPHQL_DIR / name
