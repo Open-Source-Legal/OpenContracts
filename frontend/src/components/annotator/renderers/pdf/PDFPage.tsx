@@ -22,6 +22,7 @@ import {
 } from "../../context/UISettingsAtom";
 import { useAnnotationRefs } from "../../hooks/useAnnotationRefs";
 import SelectionLayer from "./SelectionLayer";
+import { NativeLinkLayer } from "./NativeLinkLayer";
 import { PDFPageInfo } from "../../types/pdf";
 import { chatSourcesAtom } from "../../context/ChatSourceAtom";
 import { useCorpusState } from "../../context/CorpusAtom";
@@ -577,6 +578,9 @@ export const PDFPage = ({
           createUrlAnnotation={createUrlAnnotationHandler}
           pageNumber={pageInfo.page.pageNumber - 1}
         />
+        {hasPdfPageRendered && (
+          <NativeLinkLayer page={pageInfo.page} scale={zoomLevel} />
+        )}
         {pageAnnotationComponents}
 
         {zoomLevel &&
