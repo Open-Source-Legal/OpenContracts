@@ -760,3 +760,119 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         my_votes = sorted((edge["node"]["myVote"] or "NONE") for edge in edges)
         self.assertIn("UPVOTE", my_votes)
         self.assertIn("NONE", my_votes)
+
+
+class AnonymousVotingMiddlewareIntegrationTests(TransactionTestCase):
+    """Drive the real ``/graphql/`` URL through Django's middleware stack.
+
+    The unit-level GraphQL tests above bypass middleware (they hit
+    ``schema.execute`` with a hand-rolled ``RequestFactory`` request), so
+    they cannot catch interactions between the voting flow's session
+    bootstrap and the production ``conditional_csrf_exempt`` gate.
+
+    This class uses the Django test client (which runs the full
+    ``SessionMiddleware`` → ``CsrfViewMiddleware`` → view chain) to pin
+    the bug fixed in this PR: an anonymous vote forces a ``sessionid``
+    cookie into existence, and the *next* anonymous POST used to 403
+    with "CSRF verification failed" because the cookie was treated as
+    session-authenticated when it wasn't.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        owner = User.objects.create_user(
+            username="anon-vote-owner",
+            password="pw",
+            email="anon-vote-owner@example.com",
+        )
+        self.public_corpus = Corpus.objects.create(
+            title="Anon-votable",
+            description="public",
+            creator=owner,
+            is_public=True,
+        )
+
+    def _vote_payload(self, vote_type: str) -> str:
+        return json.dumps(
+            {
+                "query": """
+                    mutation($id: String!, $type: String!) {
+                        voteCorpus(corpusId: $id, voteType: $type) {
+                            ok
+                            message
+                            obj { id score myVote }
+                        }
+                    }
+                """,
+                "variables": {
+                    "id": _corpus_relay_id(self.public_corpus.pk),
+                    "type": vote_type,
+                },
+            }
+        )
+
+    def test_repeated_anonymous_votes_do_not_403_on_csrf(self) -> None:
+        """Second anonymous POST after a vote must not trip CSRF.
+
+        Step 1 succeeded before this fix too — the first vote arrived
+        with no session cookie, so ``conditional_csrf_exempt`` short-
+        circuited on the no-cookie branch and the vote was recorded
+        (incidentally setting ``sessionid`` via ``_ensure_session_key``).
+
+        Step 2 is the regression: the browser now carries the freshly
+        minted ``sessionid``. Pre-fix, the cookie alone tipped the gate
+        into the CSRF-enforced branch — no token cookie / header was
+        ever set, so the request 403'd, ``errorLink`` clobbered the
+        SPA's auth state, and the user saw the "Session expired" toast
+        plus the cascade in the screenshots. Post-fix, the empty session
+        carries no ``_auth_user_id`` so the gate stays in the bypass
+        branch and the vote toggles cleanly.
+        """
+        from django.conf import settings as django_settings
+        from django.test import Client as DjangoClient
+
+        client = DjangoClient(enforce_csrf_checks=True)
+
+        # Step 1 — first vote: no session cookie yet, bypass branch.
+        r1 = client.post(
+            "/graphql/",
+            data=self._vote_payload("upvote"),
+            content_type="application/json",
+        )
+        self.assertEqual(r1.status_code, 200, msg=r1.content[:500])
+        payload1 = r1.json()
+        self.assertNotIn("errors", payload1, msg=json.dumps(payload1))
+        self.assertTrue(
+            payload1["data"]["voteCorpus"]["ok"],
+            msg=payload1["data"]["voteCorpus"]["message"],
+        )
+        # The mutation should have materialised an anonymous session.
+        session_cookie_name = getattr(
+            django_settings, "SESSION_COOKIE_NAME", "sessionid"
+        )
+        self.assertIn(
+            session_cookie_name,
+            client.cookies,
+            msg="Expected anonymous-vote bootstrap to set the session cookie",
+        )
+
+        # Step 2 — second vote with the sessionid cookie now in flight.
+        # This is the request that 403'd pre-fix.
+        r2 = client.post(
+            "/graphql/",
+            data=self._vote_payload("downvote"),
+            content_type="application/json",
+        )
+        self.assertEqual(
+            r2.status_code,
+            200,
+            msg=(
+                "Anonymous re-vote after sessionid bootstrap must not "
+                f"trip CSRF; got {r2.status_code} with body {r2.content[:500]!r}"
+            ),
+        )
+        payload2 = r2.json()
+        self.assertNotIn("errors", payload2, msg=json.dumps(payload2))
+        self.assertTrue(payload2["data"]["voteCorpus"]["ok"])
+        # And the vote actually switched.
+        self.assertEqual(payload2["data"]["voteCorpus"]["obj"]["myVote"], "DOWNVOTE")
