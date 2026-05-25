@@ -6,6 +6,7 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
+import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
 
 import { NativeLinkLayer } from "../NativeLinkLayer";
 
@@ -16,7 +17,7 @@ const makePage = (
     url?: string;
     rect?: number[];
   }>
-) => {
+): PDFPageProxy => {
   const viewport = {
     convertToViewportRectangle: (rect: number[]) => [
       rect[0] * 2,
@@ -28,7 +29,7 @@ const makePage = (
   return {
     getAnnotations: vi.fn().mockResolvedValue(annotations),
     getViewport: vi.fn().mockReturnValue(viewport),
-  } as any;
+  } as unknown as PDFPageProxy;
 };
 
 describe("NativeLinkLayer", () => {

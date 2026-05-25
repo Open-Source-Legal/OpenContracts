@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FC } from "react";
 import styled from "styled-components";
 import { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
+
+import { Z_INDEX } from "../../../../assets/configurations/constants";
 
 /**
  * Renders PDF.js native link annotations (URLs embedded in the PDF) as
@@ -38,10 +40,7 @@ const isSafeUrl = (url: string): boolean => {
   }
 };
 
-export const NativeLinkLayer: React.FC<NativeLinkLayerProps> = ({
-  page,
-  scale,
-}) => {
+export const NativeLinkLayer: FC<NativeLinkLayerProps> = ({ page, scale }) => {
   const [rawLinks, setRawLinks] = useState<
     { id: string; url: string; rect: number[] }[]
   >([]);
@@ -122,7 +121,7 @@ const LinkOverlay = styled.div`
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: ${Z_INDEX.PDF_NATIVE_LINK_LAYER};
 `;
 
 const NativeLinkAnchor = styled.a`

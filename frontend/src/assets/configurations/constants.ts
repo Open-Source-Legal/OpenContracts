@@ -203,6 +203,13 @@ export const POPOVER_Z_INDEX = 100002;
 // *below* the MOBILE_ANNOTATION_LABEL_MODAL slot (so the label picker
 // covers the annotation tools when both are visible).
 export const Z_INDEX = {
+  /** PDF page SelectionLayer — full-page overlay capturing mouse for the
+   *  annotator. Sits above the rendered canvas so drag-to-select works. */
+  PDF_SELECTION_LAYER: 1,
+  /** PDF page NativeLinkLayer — anchors hovering over PDF.js external link
+   *  annotations. Must sit above ``PDF_SELECTION_LAYER`` so its
+   *  ``pointer-events: auto`` anchors receive clicks first. */
+  PDF_NATIVE_LINK_LAYER: 2,
   /** In-page loading overlays (position: absolute within a relative parent) */
   OVERLAY: 10,
   /** Document header — establishes stacking context above content when backdrop-filter is active.
