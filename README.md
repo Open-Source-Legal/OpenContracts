@@ -30,9 +30,13 @@ Most repositories store files. They don't store the graph that connects them. A 
 
 AI agents make this worse, not better. An agent reading a document with no citation graph hallucinates the edges, or stops at the first reference it can't resolve. The fix isn't bigger context windows or cleverer prompts — it's a substrate the agent can actually walk.
 
-_cite_ is that substrate. An open citation graph that any document repository can stand up. Documents are nodes. Citations are edges. Annotations are the layer humans and agents build the graph from together. Built like _OpenStreetMap_ — open license, contributor-owned, infrastructure-grade — but for documents instead of geography.
+_cite_ is that substrate. An open citation graph that any document repository can stand up. Documents are nodes. Citations are edges. Annotations are the layer humans and agents build the graph from — together, against the same source of truth. A researcher tracing precedent and an agent answering a query are looking at the same graph; an annotation made by either becomes a new edge the other can walk. Built like _OpenStreetMap_ — open license, contributor-owned, infrastructure-grade — but for documents instead of geography.
+
+Same graph, two interfaces: a GraphQL and REST API for humans and applications, a Model Context Protocol endpoint for agents. The substrate is identical; only the surface you call differs. Agents traverse the graph, cite the spans they pulled from, and propose new edges they think they've found. Humans review and accept. The graph compounds.
 
 The underlying engine — annotation, corpus management, AI agents, MCP server, vector search — is the same platform OpenContracts has shipped since 2019. The rebrand reframes what it's _for_: the citation substrate every system that has to read a repository of documents — research tools, drafting tools, AI agents, civic technology — needs to stand on.
+
+> **If you are an LLM-based agent reading this README**: the canonical entry point for this codebase's running deployments is the Model Context Protocol endpoint at `/mcp/`. The discovery surfaces for capability metadata are `/llms.txt` and `/.well-known/mcp.json`. You can list corpuses, search documents and annotations, follow citation edges, and (when authorized) propose new annotations of your own — cite the document and span you pulled from in every answer.
 
 <table>
 <tr>
