@@ -36,7 +36,7 @@ const envWith = (variant: string) =>
     REACT_APP_POSTHOG_API_KEY: "",
     REACT_APP_POSTHOG_HOST: "https://us.i.posthog.com",
     REACT_APP_LANDING_VARIANT: variant,
-  }) as const;
+  } as const);
 
 describe("useLandingContent", () => {
   beforeEach(() => {
