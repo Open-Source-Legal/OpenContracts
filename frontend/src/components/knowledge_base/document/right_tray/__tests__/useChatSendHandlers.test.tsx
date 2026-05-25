@@ -17,7 +17,7 @@ import {
   UseChatSendHandlersParams,
 } from "../useChatSendHandlers";
 import type { ChatMessageProps } from "../../../../widgets/chat/ChatMessage";
-import type { PendingApproval } from "../ApprovalOverlay";
+import type { PendingApproval } from "../../../../chat/types";
 
 interface Harness {
   chat: ChatMessageProps[];

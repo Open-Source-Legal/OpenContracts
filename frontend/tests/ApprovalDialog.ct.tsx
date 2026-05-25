@@ -1,9 +1,9 @@
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import {
-  ApprovalModal,
+  ApprovalDialog,
   PendingApproval,
-} from "../src/components/corpuses/corpus_chat/ApprovalModal";
+} from "../src/components/chat/ApprovalDialog";
 import { docScreenshot } from "./utils/docScreenshot";
 
 const sampleApproval: PendingApproval = {
@@ -15,10 +15,10 @@ const sampleApproval: PendingApproval = {
   },
 };
 
-test.describe("ApprovalModal", () => {
+test.describe("ApprovalDialog", () => {
   test("renders with pending approval data", async ({ mount, page }) => {
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={sampleApproval}
         show={true}
         onHide={() => {}}
@@ -39,14 +39,14 @@ test.describe("ApprovalModal", () => {
     await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reject" })).toBeVisible();
 
-    await docScreenshot(page, "chat--approval-modal--pending");
+    await docScreenshot(page, "chat--approval-dialog--pending");
 
     await component.unmount();
   });
 
   test("does not render when show is false", async ({ mount, page }) => {
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={sampleApproval}
         show={false}
         onHide={() => {}}
@@ -64,7 +64,7 @@ test.describe("ApprovalModal", () => {
     page,
   }) => {
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={null}
         show={true}
         onHide={() => {}}
@@ -84,7 +84,7 @@ test.describe("ApprovalModal", () => {
     let decision: boolean | null = null;
 
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={sampleApproval}
         show={true}
         onHide={() => {}}
@@ -111,7 +111,7 @@ test.describe("ApprovalModal", () => {
     let decision: boolean | null = null;
 
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={sampleApproval}
         show={true}
         onHide={() => {}}
@@ -133,7 +133,7 @@ test.describe("ApprovalModal", () => {
 
   test("displays tool arguments as JSON", async ({ mount, page }) => {
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={sampleApproval}
         show={true}
         onHide={() => {}}
@@ -168,7 +168,7 @@ test.describe("ApprovalModal", () => {
     };
 
     const component = await mount(
-      <ApprovalModal
+      <ApprovalDialog
         pendingApproval={longArgsApproval}
         show={true}
         onHide={() => {}}

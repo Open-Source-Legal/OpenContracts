@@ -3,9 +3,10 @@
  *
  * Attribution chip surfaced inside the approval modal when an approval was
  * raised inside a sub-agent invocation (rich-mention agent delegation,
- * Task 14). Shared between ``ApprovalOverlay`` (document chat) and
- * ``ApprovalModal`` (corpus chat) so the visual treatment — and the testid
- * Playwright assertions key off of — stays in lock-step across surfaces.
+ * Task 14). Rendered inside the shared ``ApprovalDialog`` (used by both the
+ * document right-tray ChatTray and CorpusChat) so the visual treatment — and
+ * the testid Playwright assertions key off of — stays in lock-step across
+ * surfaces.
  *
  * The violet/indigo palette intentionally mirrors:
  *   - The inline ``@agent`` mention chip in ``MarkdownMessageRenderer``
