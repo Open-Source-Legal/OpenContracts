@@ -814,7 +814,7 @@ test("reopens approval modal when dismissed", async ({ mount, page }) => {
   });
 
   // Dismiss modal
-  const closeBtn = page.locator('button:has-text("✕")').first();
+  const closeBtn = page.getByRole("button", { name: "Close approval modal" });
   await expect(closeBtn).toBeVisible({ timeout: TIMEOUTS.MEDIUM });
   await closeBtn.click();
 

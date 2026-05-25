@@ -96,7 +96,8 @@ import {
   EnhancedSendButton,
   InputRow,
 } from "./corpus_chat/styles";
-import { ApprovalModal, PendingApproval } from "./corpus_chat/ApprovalModal";
+import { ApprovalDialog } from "../chat/ApprovalDialog";
+import type { PendingApproval } from "../chat/types";
 import { CorpusConversationListView } from "./corpus_chat/ConversationListView";
 import { useChatMentionPicker } from "../../hooks/useChatMentionPicker";
 import {
@@ -1580,12 +1581,15 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       </ConversationIndicator>
 
       {/* Approval Overlay */}
-      <ApprovalModal
-        pendingApproval={pendingApproval}
-        show={showApprovalModal}
-        onHide={() => setShowApprovalModal(false)}
-        onDecision={sendApprovalDecision}
-      />
+      <AnimatePresence>
+        {showApprovalModal && pendingApproval && (
+          <ApprovalDialog
+            pendingApproval={pendingApproval}
+            onHide={() => setShowApprovalModal(false)}
+            onDecision={sendApprovalDecision}
+          />
+        )}
+      </AnimatePresence>
     </ChatContainer>
   );
 };

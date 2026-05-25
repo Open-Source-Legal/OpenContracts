@@ -53,6 +53,7 @@ import { FetchMoreFooter } from "../widgets/infinite_scroll/FetchMoreFooter";
 import { LoadingOverlay } from "../common/LoadingOverlay";
 import { MCPShareButton } from "../common/MCPShareButton";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { CorpusVoteWidget } from "./CorpusVoteWidget";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLED COMPONENTS - Following DiscoveryLanding patterns
@@ -221,6 +222,62 @@ const MCPButtonOverlay = styled.div`
   z-index: 10;
 `;
 
+// Vote pill overlay — pinned to the top-LEFT of each card so the
+// MCP/kebab cluster on the right keeps its layout.  z-index matches the
+// MCP overlay (10) so they share the same stacking context above the
+// card body but below any open context menu (z-index >= 100 in the
+// ContextMenu component).
+const VoteWidgetOverlay = styled.div`
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+`;
+
+// Sort dropdown — a plain ``<select>`` styled to match the OS-Legal
+// surface chrome.  Lives next to the search box at the top of the page.
+const SortRow = styled.div`
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+`;
+
+const SortLabel = styled.label`
+  font-size: 13px;
+  font-weight: 500;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+`;
+
+const SortSelect = styled.select`
+  appearance: none;
+  background: white;
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 8px;
+  padding: 6px 28px 6px 12px;
+  font-size: 13px;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+
+  &:hover {
+    border-color: ${OS_LEGAL_COLORS.accent};
+  }
+  &:focus {
+    outline: none;
+    border-color: ${OS_LEGAL_COLORS.accent};
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+  }
+`;
+
 // Floating context menu (similar to old CorpusItem)
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -337,6 +394,14 @@ interface CorpusListViewProps {
   activeFilter: string;
   onFilterChange: (filter: string) => void;
   filterCounts: CorpusFilterCounts;
+  /**
+   * Current sort key (empty string = "default" / let the backend apply
+   * its intrinsic ``ordering = ("created",)``).  Other valid values
+   * mirror the backend ``CorpusFilter.order_by`` tuple-mapping:
+   * "top" / "-top", "-modified", "title".
+   */
+  sortValue: string;
+  onSortChange: (sort: string) => void;
 }
 
 export const CorpusListView: React.FC<CorpusListViewProps> = ({
@@ -353,6 +418,8 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   activeFilter,
   onFilterChange,
   filterCounts,
+  sortValue,
+  onSortChange,
 }) => {
   const navigate = useNavigate();
   const currentUser = useReactiveVar(userObj);
@@ -516,6 +583,26 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
             />
           </SearchContainer>
 
+          {/* Sort dropdown — lives between the search box and the filter
+              tabs so it remains visible across all four tabs without
+              competing with the tab badge cluster. */}
+          <SortRow>
+            <SortLabel htmlFor="corpus-list-sort">Sort by</SortLabel>
+            <SortSelect
+              id="corpus-list-sort"
+              data-testid="corpus-list-sort-select"
+              value={sortValue}
+              onChange={(e) => onSortChange(e.target.value)}
+            >
+              <option value="-created">Newest first</option>
+              <option value="created">Oldest first</option>
+              <option value="-modified">Recently updated</option>
+              <option value="-top">Top (most upvotes)</option>
+              <option value="top">Most downvoted</option>
+              <option value="title">Title (A–Z)</option>
+            </SortSelect>
+          </SortRow>
+
           {/* Filter Tabs */}
           <FilterTabs
             items={filterItems}
@@ -600,6 +687,21 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                       key={corpus.id}
                       onContextMenu={(e) => handleOpenContextMenu(e, corpus.id)}
                     >
+                      {/* Vote pill overlay (top-left). Hidden on the user's
+                          own personal corpus — voting on "My Documents"
+                          would be self-vote anyway and the widget would
+                          render a permanently-disabled control. */}
+                      {!corpus.isPersonal && (
+                        <VoteWidgetOverlay>
+                          <CorpusVoteWidget
+                            corpusId={corpus.id}
+                            score={corpus.score ?? 0}
+                            myVote={corpus.myVote ?? null}
+                            creatorId={corpus.creator?.id}
+                            testId={`corpus-vote-${corpus.id}`}
+                          />
+                        </VoteWidgetOverlay>
+                      )}
                       {/* MCP Share button overlay — always shown for
                           consistent discovery; popover content adapts based
                           on whether the corpus is public. */}

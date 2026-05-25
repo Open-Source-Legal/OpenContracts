@@ -32,11 +32,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 if TYPE_CHECKING:
     from opencontractserver.conversations.models import ChatMessage, Conversation
+    from opencontractserver.corpuses.models import Corpus, CorpusVote
 
 logger = logging.getLogger(__name__)
 
@@ -215,3 +216,79 @@ def trigger_corpus_actions_on_message_creation(
         )
 
     transaction.on_commit(queue_message_action)
+
+
+# =============================================================================
+# Corpus vote count denormalization
+# =============================================================================
+#
+# Mirrors the ``MessageVote`` count-maintenance pattern in
+# ``opencontractserver/conversations/signals.py``: every save/delete of a
+# ``CorpusVote`` row recomputes the parent corpus's ``upvote_count``,
+# ``downvote_count``, and ``score`` from scratch.  Recompute-from-scratch is
+# deliberate over the cheaper incremental ``+= / -=`` form — it makes the
+# counts self-healing if a vote ever lands without firing this signal (data
+# import, raw SQL, lost transaction), and the aggregate is a single indexed
+# ``COUNT(*) ... GROUP BY vote_type`` against the small per-corpus vote set.
+
+
+def _recalculate_corpus_vote_counts(corpus: Corpus) -> None:
+    """Refresh ``upvote_count`` / ``downvote_count`` / ``score`` on ``corpus``.
+
+    Computed in one aggregate query against the corpus's own votes; uses
+    ``QuerySet.update`` so the parent ``Corpus.save()`` override (which
+    bumps ``modified`` and runs the public-visibility propagation logic)
+    does not fire on every vote.
+    """
+    from django.db.models import Count, Q
+
+    from opencontractserver.corpuses.models import Corpus, CorpusVoteType
+
+    counts = corpus.votes.aggregate(
+        upvotes=Count("id", filter=Q(vote_type=CorpusVoteType.UPVOTE)),
+        downvotes=Count("id", filter=Q(vote_type=CorpusVoteType.DOWNVOTE)),
+    )
+    upvotes = counts["upvotes"] or 0
+    downvotes = counts["downvotes"] or 0
+
+    # ``filter(pk=...).update(...)`` avoids the full Corpus.save() override
+    # (which would re-bump ``modified`` and run the public-flip propagation
+    # check on every vote). Voting must not look like a corpus content edit.
+    Corpus.objects.filter(pk=corpus.pk).update(
+        upvote_count=upvotes,
+        downvote_count=downvotes,
+        score=upvotes - downvotes,
+    )
+
+
+@receiver(post_save, sender="corpuses.CorpusVote")
+def update_corpus_vote_counts_on_save(
+    sender: type[CorpusVote],
+    instance: CorpusVote,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Recompute corpus vote counts whenever a vote is created or changed."""
+    _recalculate_corpus_vote_counts(instance.corpus)
+
+
+@receiver(post_delete, sender="corpuses.CorpusVote")
+def update_corpus_vote_counts_on_delete(
+    sender: type[CorpusVote],
+    instance: CorpusVote,
+    **kwargs: Any,
+) -> None:
+    """Recompute corpus vote counts whenever a vote is removed.
+
+    Wrapped in a try/except guard because cascade-deleting a Corpus also
+    cascade-deletes its CorpusVote rows; recomputing counts after the
+    parent is gone would raise ``Corpus.DoesNotExist``.
+    """
+    from opencontractserver.corpuses.models import Corpus
+
+    try:
+        corpus = Corpus.objects.get(pk=instance.corpus_id)
+    except Corpus.DoesNotExist:
+        # The parent corpus is gone — nothing to refresh.
+        return
+    _recalculate_corpus_vote_counts(corpus)

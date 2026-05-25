@@ -5,6 +5,7 @@ from typing import Any
 
 import graphene
 from django.contrib.auth import get_user_model
+from django.db.models import OuterRef, Q, Subquery
 from graphene import relay
 from graphene_django import DjangoObjectType
 from graphql_relay import from_global_id
@@ -23,6 +24,7 @@ from opencontractserver.corpuses.models import (
     CorpusDescriptionRevision,
     CorpusEngagementMetrics,
     CorpusFolder,
+    CorpusVote,
 )
 from opencontractserver.shared.services.base import BaseService
 
@@ -381,6 +383,47 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return self._document_count
         return self.document_count()
 
+    # Voting — denormalized counts live directly on the model so they
+    # serialize for free through the DjangoObjectType field auto-discovery.
+    # ``my_vote`` requires a custom resolver because the answer depends on
+    # the calling user (or the anonymous session key for guest voters).
+    my_vote = graphene.String(
+        description=(
+            "Current viewer's vote on this corpus: 'UPVOTE', 'DOWNVOTE', or null. "
+            "Resolved against the authenticated user when present, otherwise "
+            "against the Django session id for guest voters."
+        )
+    )
+
+    def resolve_my_vote(self, info) -> str | None:
+        """Return the viewer's vote on this corpus, if any.
+
+        Prefer the ``_viewer_vote`` annotation that ``get_queryset`` attaches
+        to every row of a list query — that's a single ``Subquery`` per page
+        instead of N per-row lookups. Fall back to a per-row service call
+        only when the annotation isn't present (e.g. a nested fetch path
+        that bypasses our list resolver). The Subquery returns ``None`` for
+        rows the viewer hasn't voted on; ``hasattr`` distinguishes "no
+        annotation attached" from "annotated with no vote".
+        """
+        if hasattr(self, "_viewer_vote"):
+            annotated = self._viewer_vote
+            return annotated.upper() if annotated else None
+
+        from opencontractserver.corpuses.services import CorpusVoteService
+
+        request = info.context
+        user = getattr(request, "user", None)
+        session_key = None
+        session = getattr(request, "session", None)
+        if session is not None:
+            session_key = session.session_key
+
+        vote_type = CorpusVoteService.get_user_vote_type(
+            user, self, session_key=session_key
+        )
+        return vote_type.upper() if vote_type else None
+
     # Efficient annotation count field - uses annotation from resolver
     annotation_count = graphene.Int(
         description="Count of annotations in this corpus (optimized)"
@@ -433,9 +476,35 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # Chain ``visible_to_user`` on the incoming queryset/manager so the
         # filter is a single ``WHERE`` expression tree (no ``pk__in``
         # subquery over the full table).
-        return BaseService.filter_visible_qs(
-            queryset, info.context.user, request=info.context
+        request = info.context
+        user = getattr(request, "user", None)
+        visible_qs = BaseService.filter_visible_qs(queryset, user, request=request)
+
+        # Annotate the viewer's vote in one Subquery per page so
+        # ``resolve_my_vote`` doesn't fire N queries (one per corpus card)
+        # on the public list view. Authenticated viewers key on creator;
+        # anonymous viewers key on the Django session key — both branches
+        # mirror ``CorpusVoteService.get_user_vote_type``.
+        is_auth = bool(
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and not getattr(user, "is_anonymous", True)
         )
+        if is_auth:
+            viewer_filter = Q(creator=user, session_key__isnull=True)
+        else:
+            session = getattr(request, "session", None)
+            session_key = getattr(session, "session_key", None) if session else None
+            if not session_key:
+                # No session => no anonymous votes possible; skip the
+                # annotation to avoid attaching a column of NULLs.
+                return visible_qs
+            viewer_filter = Q(session_key=session_key, creator__isnull=True)
+
+        viewer_vote_subquery = CorpusVote.objects.filter(
+            viewer_filter, corpus=OuterRef("pk")
+        ).values("vote_type")[:1]
+        return visible_qs.annotate(_viewer_vote=Subquery(viewer_vote_subquery))
 
 
 class CorpusStatsType(graphene.ObjectType):

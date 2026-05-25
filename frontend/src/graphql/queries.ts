@@ -723,6 +723,13 @@ export interface GetCorpusesInputs {
   mine?: boolean;
   isPublic?: boolean;
   sharedWithMe?: boolean;
+  // Sort order. Tuple-mapped on the backend; supported values:
+  //   "top" / "-top"           — by vote score (ascending / descending)
+  //   "created" / "-created"   — by creation timestamp
+  //   "modified" / "-modified" — by last modified timestamp
+  //   "title" / "-title"       — by title alphabetical
+  // Default (unset) keeps the model's ``ordering = ("created",)`` default.
+  orderBy?: string;
 }
 
 export interface GetCorpusesOutputs {
@@ -741,6 +748,7 @@ export const GET_CORPUSES = gql`
     $mine: Boolean
     $isPublic: Boolean
     $sharedWithMe: Boolean
+    $orderBy: String
   ) {
     corpuses(
       textSearch: $textSearch
@@ -748,6 +756,7 @@ export const GET_CORPUSES = gql`
       mine: $mine
       isPublic: $isPublic
       sharedWithMe: $sharedWithMe
+      orderBy: $orderBy
       first: $limit
       after: $cursor
     ) {
@@ -795,6 +804,10 @@ export const GET_CORPUSES = gql`
           }
           license
           licenseLink
+          upvoteCount
+          downvoteCount
+          score
+          myVote
         }
       }
     }

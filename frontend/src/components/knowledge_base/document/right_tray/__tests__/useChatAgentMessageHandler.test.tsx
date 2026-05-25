@@ -24,7 +24,7 @@ import type {
   ContextStatus,
   WebSocketSources,
 } from "../../../../chat/types";
-import type { PendingApproval } from "../ApprovalOverlay";
+import type { PendingApproval } from "../../../../chat/types";
 
 interface Harness {
   chat: ChatMessageProps[];

@@ -45,6 +45,10 @@ interface WrapperProps {
   onCreateCorpus?: () => void;
   onImportCorpus?: () => void;
   allowImport?: boolean;
+  /** Initial sort key — same enum CorpusListView accepts ("", "top", "-top", ...). */
+  initialSortValue?: string;
+  /** Test hook for asserting on sort changes. */
+  onSortChange?: (sort: string) => void;
 }
 
 /**
@@ -104,6 +108,8 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
   onCreateCorpus = () => {},
   onImportCorpus,
   allowImport = false,
+  initialSortValue = "",
+  onSortChange,
 }) => {
   // Set up auth state for tests. CorpusListView's ownership comparison runs
   // through `isOwnedBy(creator, { id: currentUserId })` (sourced from
@@ -129,6 +135,15 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
   }, [isAuthenticated, userEmail]);
 
   const [activeFilter, setActiveFilter] = React.useState("all");
+  const [sortValue, setSortValue] = React.useState(initialSortValue);
+
+  const handleSortChange = React.useCallback(
+    (next: string) => {
+      setSortValue(next);
+      onSortChange?.(next);
+    },
+    [onSortChange]
+  );
 
   const filterCounts = React.useMemo(
     () => computeFilterCounts(corpuses, userEmail),
@@ -165,6 +180,8 @@ export const CorpusListViewTestWrapper: React.FC<WrapperProps> = ({
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
             filterCounts={filterCounts}
+            sortValue={sortValue}
+            onSortChange={handleSortChange}
           />
         </MockedProvider>
       </MemoryRouter>

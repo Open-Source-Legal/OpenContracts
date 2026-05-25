@@ -77,8 +77,9 @@ import type {
   ContextStatus,
   CompactionNotice,
 } from "../../../chat/types";
-import { ApprovalOverlay, ReopenApprovalButton } from "./ApprovalOverlay";
-import type { PendingApproval } from "./ApprovalOverlay";
+import { ApprovalDialog } from "../../../chat/ApprovalDialog";
+import { ReopenApprovalButton } from "./ApprovalOverlay";
+import type { PendingApproval } from "../../../chat/types";
 import { DocumentConversationListView } from "./ConversationListView";
 import { adjustTextareaHeight } from "./chatUtils";
 import { useChatStreamHandlers } from "./useChatStreamHandlers";
@@ -1217,12 +1218,13 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
       {/* Approval Overlay */}
       <AnimatePresence>
-        <ApprovalOverlay
-          pendingApproval={pendingApproval}
-          showApprovalModal={showApprovalModal}
-          setShowApprovalModal={setShowApprovalModal}
-          sendApprovalDecision={sendApprovalDecision}
-        />
+        {showApprovalModal && pendingApproval && (
+          <ApprovalDialog
+            pendingApproval={pendingApproval}
+            onHide={() => setShowApprovalModal(false)}
+            onDecision={sendApprovalDecision}
+          />
+        )}
       </AnimatePresence>
     </ChatContainer>
   );

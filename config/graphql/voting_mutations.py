@@ -1,13 +1,20 @@
 """
 GraphQL mutations for voting system.
 
-This module provides mutations for upvoting/downvoting messages and conversations:
+This module provides mutations for upvoting/downvoting messages, conversations,
+and corpuses:
 - VoteMessageMutation: Create or update vote on a message
 - RemoveVoteMutation: Remove user's vote from a message
 - VoteConversationMutation: Create or update vote on a conversation/thread
 - RemoveConversationVoteMutation: Remove user's vote from a conversation/thread
+- VoteCorpusMutation: Create or update vote on a corpus (anonymous-friendly)
+- RemoveCorpusVoteMutation: Remove caller's vote from a corpus
 
-Permission model: Users can vote on any message/conversation they can see (visibility-based).
+Permission model:
+- Message / Conversation votes: visibility-based, login required.
+- Corpus votes: visibility-based for both authenticated and anonymous
+  viewers — anonymous voters can only see (and therefore only vote on)
+  public corpuses, with one vote per Django session per corpus.
 """
 
 import logging
@@ -16,7 +23,11 @@ import graphene
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import ConversationType, MessageType
+from config.graphql.graphene_types import (
+    ConversationType,
+    CorpusType,
+    MessageType,
+)
 from config.graphql.ratelimits import graphql_ratelimit
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -24,6 +35,8 @@ from opencontractserver.conversations.models import (
     ConversationVote,
     MessageVote,
 )
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services import CorpusVoteService
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import (
@@ -31,6 +44,68 @@ from opencontractserver.utils.permissioning import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _client_ip(info) -> str | None:
+    """Best-effort extraction of the caller's IP for the audit hash.
+
+    Honours ``X-Forwarded-For`` (first hop) so deployments behind a
+    reverse proxy still get a useful value, then falls back to
+    ``REMOTE_ADDR``. Returns ``None`` when no IP can be determined so
+    the service stores ``ip_hash=None`` rather than hashing an empty
+    string.
+
+    SECURITY NOTE: ``X-Forwarded-For`` is trusted unconditionally — the
+    value is only used to compute a salted SHA-256 audit hash on
+    :class:`CorpusVote` and never participates in unique constraints,
+    rate-limiting, or vote dedup. If the ``ip_hash`` column is ever
+    repurposed for abuse decisions, tighten this to honour
+    ``settings.SECURE_PROXY_SSL_HEADER`` / a trusted-proxies list.
+    """
+    request = getattr(info, "context", None)
+    if request is None:
+        return None
+    meta = getattr(request, "META", {}) or {}
+    forwarded = meta.get("HTTP_X_FORWARDED_FOR")
+    if forwarded:
+        # X-Forwarded-For may be a CSV: client, proxy1, proxy2 — first
+        # value is the real client per the convention.
+        return forwarded.split(",")[0].strip() or None
+    return meta.get("REMOTE_ADDR") or None
+
+
+def _ensure_session_key(info) -> str | None:
+    """Ensure the Django session exists and return its key, if possible.
+
+    Anonymous corpus voting needs a stable identifier to dedupe against.
+    Django creates a session row lazily on the first write; we trigger
+    that write by marking the session ``modified`` so the request
+    response carries the ``Set-Cookie`` header and subsequent votes from
+    the same browser land on the same key.
+
+    Returns the session key on success, or ``None`` if no session
+    middleware is available on this request (e.g. a stripped-down test
+    client). Callers handle the ``None`` case via the service's
+    "anonymous voting requires a session" error.
+    """
+    request = getattr(info, "context", None)
+    if request is None:
+        return None
+    session = getattr(request, "session", None)
+    if session is None:
+        return None
+    if not session.session_key:
+        # Force persistence without polluting the session store with a
+        # never-cleaned-up sentinel key.  ``session.modified = True`` is
+        # the documented Django idiom for "I haven't written anything
+        # meaningful but please create the row + set the cookie anyway".
+        session.modified = True
+        try:
+            session.save()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Failed to persist session for anonymous vote")
+            return None
+    return session.session_key
 
 
 class VoteMessageMutation(graphene.Mutation):
@@ -336,3 +411,160 @@ class RemoveConversationVoteMutation(graphene.Mutation):
             message_text = f"Failed to remove vote: {str(e)}"
 
         return RemoveConversationVoteMutation(ok=ok, message=message_text, obj=obj)
+
+
+# --------------------------------------------------------------------------- #
+# Corpus voting — anonymous-friendly                                          #
+# --------------------------------------------------------------------------- #
+#
+# Unlike the message/conversation mutations these are deliberately NOT
+# decorated with ``@login_required``: anonymous browsers should be able to
+# upvote/downvote public corpuses on the public discovery surface.  The
+# service layer (``CorpusVoteService``) handles the auth/anon branch logic
+# and the READ-permission check; this layer only translates GraphQL
+# arguments and renders the response.
+
+
+class VoteCorpusMutation(graphene.Mutation):
+    """Create or update a vote on a corpus.
+
+    Authenticated users vote with their account; the service blocks self-vote
+    (creators cannot upvote their own corpuses, matching the Message /
+    Conversation contract). Anonymous viewers vote via their Django session
+    key — one vote per session per corpus. Anonymous voting on a non-public
+    corpus is rejected by the same IDOR-safe "not found or no permission"
+    response as a malformed corpus id.
+    """
+
+    class Arguments:
+        corpus_id = graphene.String(
+            required=True, description="Relay global ID of the corpus to vote on"
+        )
+        vote_type = graphene.String(
+            required=True, description="Vote type: 'upvote' or 'downvote'"
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(CorpusType)
+
+    # Rate-limited but NOT @login_required: anonymous voting is the whole
+    # point of this mutation. The ratelimit_dynamic key falls back to IP for
+    # anonymous callers via the existing graphql_ratelimit middleware.
+    @graphql_ratelimit(rate="60/m")
+    def mutate(root, info, corpus_id, vote_type) -> "VoteCorpusMutation":
+        try:
+            user = info.context.user
+        except AttributeError:
+            user = None
+
+        try:
+            corpus_pk = from_global_id(corpus_id)[1]
+        except Exception:
+            return VoteCorpusMutation(
+                ok=False,
+                message="Corpus not found or you do not have permission to vote on it",
+                obj=None,
+            )
+
+        is_authenticated = bool(
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and not getattr(user, "is_anonymous", True)
+        )
+        session_key = None if is_authenticated else _ensure_session_key(info)
+
+        result = CorpusVoteService.cast_vote(
+            user,
+            corpus_pk,
+            vote_type,
+            session_key=session_key,
+            ip_address=_client_ip(info),
+            request=info.context,
+        )
+        if not result.ok:
+            return VoteCorpusMutation(ok=False, message=result.error, obj=None)
+        if result.value is None:
+            # Defensive: success without a value would be a service bug; surface
+            # it as a generic failure rather than crashing on .corpus_id below.
+            logger.error("CorpusVoteService.cast_vote returned ok=True without value")
+            return VoteCorpusMutation(
+                ok=False,
+                message="Vote recorded but corpus could not be refreshed",
+                obj=None,
+            )
+
+        # Refresh the corpus row through the service so the response carries
+        # the post-signal denormalized counts (signal runs in the same
+        # transaction as the vote insert/update). Routing through the
+        # service keeps us inside the CLAUDE.md rule 7 contract.
+        corpus = BaseService.get_or_none(
+            Corpus, result.value.corpus_id, user, request=info.context
+        )
+        return VoteCorpusMutation(ok=True, message="Vote recorded", obj=corpus)
+
+
+class RemoveCorpusVoteMutation(graphene.Mutation):
+    """Remove the caller's vote on a corpus.
+
+    Symmetric with :class:`VoteCorpusMutation` — works for both
+    authenticated users (creator-keyed) and anonymous viewers
+    (session-keyed). Idempotent: removing a non-existent vote is a
+    successful no-op rather than an error.
+    """
+
+    class Arguments:
+        corpus_id = graphene.String(
+            required=True,
+            description="Relay global ID of the corpus to remove the vote from",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(CorpusType)
+
+    @graphql_ratelimit(rate="60/m")
+    def mutate(root, info, corpus_id) -> "RemoveCorpusVoteMutation":
+        try:
+            user = info.context.user
+        except AttributeError:
+            user = None
+
+        try:
+            corpus_pk = from_global_id(corpus_id)[1]
+        except Exception:
+            return RemoveCorpusVoteMutation(
+                ok=False,
+                message="Corpus not found or you do not have permission to vote on it",
+                obj=None,
+            )
+
+        # On removal we don't want to spuriously create a session for a
+        # caller who never voted in the first place — read whatever's on
+        # the request without writing.
+        session_key = None
+        is_authenticated = bool(
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and not getattr(user, "is_anonymous", True)
+        )
+        if not is_authenticated:
+            session = getattr(info.context, "session", None)
+            session_key = getattr(session, "session_key", None) if session else None
+
+        result = CorpusVoteService.remove_vote(
+            user,
+            corpus_pk,
+            session_key=session_key,
+            request=info.context,
+        )
+        if not result.ok:
+            return RemoveCorpusVoteMutation(ok=False, message=result.error, obj=None)
+
+        # Route through the service layer (CLAUDE.md rule 7) so we don't
+        # hand-roll an ORM call here. The service already gated READ, so
+        # ``get_or_none`` returns ``None`` only in pathological cases where
+        # something else revoked access between the two calls.
+        corpus = BaseService.get_or_none(Corpus, corpus_pk, user, request=info.context)
+        message = "Vote removed" if result.value else "No vote to remove"
+        return RemoveCorpusVoteMutation(ok=True, message=message, obj=corpus)

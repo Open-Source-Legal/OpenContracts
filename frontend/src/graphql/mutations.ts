@@ -2975,6 +2975,107 @@ export interface RemoveConversationVoteOutput {
 }
 
 // ============================================================================
+// Corpus Voting Mutations (anonymous-friendly)
+// ============================================================================
+//
+// Unlike message / conversation voting these mutations work for anonymous
+// viewers too — the backend keys anonymous votes by Django session id and
+// blocks self-voting (a corpus creator can't upvote their own corpus).
+
+/** Response shape for corpus vote mutations. */
+export interface VoteCorpusResponse {
+  ok: boolean;
+  message: string;
+  obj: {
+    id: string;
+    upvoteCount: number;
+    downvoteCount: number;
+    score: number;
+    myVote: "UPVOTE" | "DOWNVOTE" | null;
+  } | null;
+}
+
+/**
+ * Upvote a corpus. Uses the backend vote_corpus mutation with vote_type="upvote".
+ * Returns the updated corpus with denormalized counts and the viewer's vote.
+ */
+export const UPVOTE_CORPUS = gql`
+  mutation UpvoteCorpus($corpusId: String!) {
+    voteCorpus(corpusId: $corpusId, voteType: "upvote") {
+      ok
+      message
+      obj {
+        id
+        upvoteCount
+        downvoteCount
+        score
+        myVote
+      }
+    }
+  }
+`;
+
+/**
+ * Downvote a corpus.  Backend rules: anonymous voters allowed (gated by
+ * corpus visibility), creators cannot vote on their own corpuses.
+ */
+export const DOWNVOTE_CORPUS = gql`
+  mutation DownvoteCorpus($corpusId: String!) {
+    voteCorpus(corpusId: $corpusId, voteType: "downvote") {
+      ok
+      message
+      obj {
+        id
+        upvoteCount
+        downvoteCount
+        score
+        myVote
+      }
+    }
+  }
+`;
+
+export interface VoteCorpusInput {
+  corpusId: string;
+}
+
+export interface UpvoteCorpusOutput {
+  voteCorpus: VoteCorpusResponse;
+}
+
+export interface DownvoteCorpusOutput {
+  voteCorpus: VoteCorpusResponse;
+}
+
+/**
+ * Remove the viewer's vote from a corpus.  Idempotent — removing a
+ * non-existent vote returns ok=true with message "No vote to remove".
+ */
+export const REMOVE_CORPUS_VOTE = gql`
+  mutation RemoveCorpusVote($corpusId: String!) {
+    removeCorpusVote(corpusId: $corpusId) {
+      ok
+      message
+      obj {
+        id
+        upvoteCount
+        downvoteCount
+        score
+        myVote
+      }
+    }
+  }
+`;
+
+export interface RemoveCorpusVoteInput {
+  corpusId: string;
+}
+
+export interface RemoveCorpusVoteOutput {
+  removeCorpusVote: VoteCorpusResponse;
+}
+
+// ============================================================================
 // Moderation Mutations
 // ============================================================================
 

@@ -17,7 +17,7 @@
 import React, { useCallback, useMemo } from "react";
 import { ChatMessageProps } from "../../../widgets/chat/ChatMessage";
 import { CHAT_SEND_LOCK_MS } from "../../../../assets/configurations/constants";
-import type { PendingApproval } from "./ApprovalOverlay";
+import type { PendingApproval } from "../../../chat/types";
 
 export interface UseChatSendHandlersParams {
   /** WebSocket send function from useWebSocketAuth — returns true on success. */
