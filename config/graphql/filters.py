@@ -203,6 +203,51 @@ class CorpusFilter(django_filters.FilterSet):
         # "Shared" = visible to me, but neither created by me nor public.
         return queryset.exclude(creator=user).exclude(is_public=True)
 
+    # Ordering surface for the Corpuses list view.  ``order_by`` (GraphQL
+    # arg ``orderBy``) is the canonical user-facing knob — tuple-mapped to
+    # the underlying column so the GraphQL surface (``top`` / ``-top``)
+    # stays decoupled from the schema (``score``).  ``score`` is the
+    # denormalized column maintained by signal handlers on ``CorpusVote``
+    # save/delete, so ORDER BY score has the supporting db_index and runs
+    # without a JOIN-and-aggregate per page.
+    #
+    # SECURITY NOTE: when the user opts into score sorting we exclude
+    # personal corpuses (the per-user "My Documents" corpus is never
+    # interesting to rank against shared content).  The exclusion lives in
+    # ``filter_queryset`` rather than the OrderingFilter method so it
+    # composes cleanly with the tab filters above.
+    order_by = OrderingFilter(
+        fields=(
+            ("score", "top"),
+            ("created", "created"),
+            ("modified", "modified"),
+            ("title", "title"),
+        )
+    )
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        qs = super().filter_queryset(queryset)
+        # Personal corpuses are private singletons — they should not
+        # surface when the user is browsing shared/public content via a
+        # Top sort (ranking a single-user "My Documents" corpus against
+        # cross-user content is meaningless).  We scope the exclusion to
+        # the discovery surface only: when ``mine`` is explicitly True
+        # the user is on the "My Corpuses" tab and wants to see THEIR
+        # corpora — including the personal one — sorted by score.
+        # Otherwise (mine unset, isPublic=True, sharedWithMe=True, etc.)
+        # the personal corpus would be cross-ranked against other users'
+        # content and should drop out.
+        #
+        # graphene-django translates the GraphQL camelCase ``orderBy``
+        # argument to the snake_case ``order_by`` filter name before it
+        # reaches ``self.data``, so we only need to inspect the
+        # snake_case key.  ``self.data`` carries the raw alias ("top" /
+        # "-top"); OrderingFilter doesn't mutate it in place when it
+        # cleans the queryset.
+        if self.data.get("order_by") in ("top", "-top") and not self.data.get("mine"):
+            qs = qs.exclude(is_personal=True)
+        return qs
+
     class Meta:
         model = Corpus
         fields = {

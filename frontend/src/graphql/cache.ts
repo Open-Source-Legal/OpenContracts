@@ -294,6 +294,10 @@ export const cache = new InMemoryCache({
           "mine",
           "isPublic",
           "sharedWithMe",
+          // ``orderBy`` MUST be in keyArgs so switching sort doesn't bleed
+          // a cached "Newest" connection into a "Top" request (and vice
+          // versa).  See CLAUDE.md note #15.
+          "orderBy",
         ]),
         userexports: relayStylePagination(),
         labelsets: relayStylePagination(),

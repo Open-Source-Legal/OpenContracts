@@ -1,6 +1,7 @@
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import { CorpusListViewTestWrapper } from "./CorpusListViewTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 import { CorpusType, CorpusCategoryType } from "../src/types/graphql-api";
 import { PermissionTypes } from "../src/components/types";
 
@@ -363,5 +364,37 @@ test.describe("CorpusListView", () => {
     );
 
     await expect(component.getByText("New Corpus")).not.toBeVisible();
+  });
+
+  test("sort dropdown emits the selected key", async ({ mount, page }) => {
+    const sortCalls: string[] = [];
+    const component = await mount(
+      <CorpusListViewTestWrapper
+        corpuses={mockCorpuses}
+        searchValue=""
+        userEmail="currentuser@example.com"
+        onSortChange={(next) => sortCalls.push(next)}
+      />
+    );
+
+    const select = component.getByTestId("corpus-list-sort-select");
+    await expect(select).toBeVisible();
+
+    // Pin the labelled option set so a future label-rename ("Controversial"
+    // -> "Most downvoted") doesn't silently drift past a stale assertion.
+    await expect(select).toContainText("Newest first");
+    await expect(select).toContainText("Top (most upvotes)");
+    await expect(select).toContainText("Most downvoted");
+
+    await select.selectOption("-top");
+    await expect(select).toHaveValue("-top");
+    expect(sortCalls).toEqual(["-top"]);
+
+    await select.selectOption("top");
+    expect(sortCalls).toEqual(["-top", "top"]);
+
+    // Capture the sort row for the docs.  The screenshot is small + stable
+    // because the dropdown is fully rendered without any async work.
+    await docScreenshot(page, "corpus--list-view--sort-dropdown");
   });
 });

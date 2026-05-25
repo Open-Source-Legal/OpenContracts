@@ -286,6 +286,25 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         help_text="True if this is the user's personal 'My Documents' corpus",
     )
 
+    # Voting denormalized counts for performance.  Maintained by signal
+    # handlers in ``opencontractserver/corpuses/signals.py`` whenever a
+    # ``CorpusVote`` row is created, updated, or deleted.  ``score`` is
+    # ``upvote_count - downvote_count`` and is indexed so the corpus list
+    # view can order by score without a JOIN-and-aggregate at query time.
+    upvote_count = django.db.models.IntegerField(
+        default=0,
+        help_text="Cached count of upvotes for this corpus",
+    )
+    downvote_count = django.db.models.IntegerField(
+        default=0,
+        help_text="Cached count of downvotes for this corpus",
+    )
+    score = django.db.models.IntegerField(
+        default=0,
+        db_index=True,
+        help_text="upvote_count - downvote_count, denormalized for sorting",
+    )
+
     # Timing variables
     created = django.db.models.DateTimeField(default=timezone.now)
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
@@ -2489,4 +2508,165 @@ class CorpusActionExecutionGroupObjectPermission(GroupObjectPermissionBase):
 
     content_object = django.db.models.ForeignKey(
         "CorpusActionExecution", on_delete=django.db.models.CASCADE
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Corpus Voting                                                                #
+# --------------------------------------------------------------------------- #
+
+
+class CorpusVoteType(django.db.models.TextChoices):
+    """Vote type choices for upvote/downvote functionality on corpuses.
+
+    Defined locally on the corpuses app so the voting model does not have
+    to import from ``opencontractserver.conversations`` (which would form
+    a corpuses → conversations dependency cycle — conversations already
+    imports ``Corpus`` for its FK).
+    """
+
+    UPVOTE = "upvote", "Upvote"
+    DOWNVOTE = "downvote", "Downvote"
+
+
+class CorpusVote(BaseOCModel):
+    """A single user/anonymous vote on a corpus.
+
+    Supports two voter shapes:
+
+    * **Authenticated users** — ``creator`` is set, ``session_key`` is null.
+      One vote per (corpus, creator) pair, enforced by a partial unique
+      index.  ``creator`` is the canonical voter identity for these rows;
+      ``session_key`` is left null so a logged-in user voting from two
+      browsers still gets one vote per corpus.
+    * **Anonymous users** — ``creator`` is null, ``session_key`` is the
+      Django session id.  One vote per (corpus, session_key) pair, also
+      enforced by a partial unique index.  ``ip_hash`` is stored as a
+      best-effort soft-dedup signal (logged for audit / abuse review) but
+      is **not** part of the unique constraint, because shared NATs would
+      otherwise prevent legitimate co-located voters from voting.
+
+    The two semantics deliberately coexist in one table so the
+    denormalized count maintenance on :class:`Corpus` (and the
+    score-based ordering on the corpus list view) operates on a single
+    queryset rather than two parallel models.
+
+    **Anonymous-vote lifetime:** anonymous rows persist after
+    ``django-admin clearsessions`` reaps the matching ``Session`` rows —
+    the ``session_key`` is then a tombstone that no longer maps to a
+    live session. This is intentional (Reddit-style: votes stay even
+    when the anonymous identity goes away). The denormalized counts on
+    :class:`Corpus` stay accurate because the signal handlers recompute
+    from scratch on every vote insert/update/delete, not from the
+    session table.
+    """
+
+    class Meta:
+        constraints = [
+            # Authenticated branch — pinned to creator.  Partial UNIQUE so
+            # the anonymous branch (creator IS NULL) doesn't collide with
+            # itself on every NULL row.
+            django.db.models.UniqueConstraint(
+                fields=["corpus", "creator"],
+                condition=django.db.models.Q(creator__isnull=False),
+                name="one_vote_per_user_per_corpus",
+            ),
+            # Anonymous branch — pinned to session_key.  Partial UNIQUE
+            # so a logged-in user (creator IS NOT NULL) whose session
+            # happens to clash with another anon vote does not block the
+            # anonymous vote.
+            django.db.models.UniqueConstraint(
+                fields=["corpus", "session_key"],
+                condition=django.db.models.Q(
+                    creator__isnull=True, session_key__isnull=False
+                ),
+                name="one_anon_vote_per_session_per_corpus",
+            ),
+        ]
+        permissions = (
+            ("permission_corpusvote", "permission corpusvote"),
+            ("create_corpusvote", "create corpusvote"),
+            ("read_corpusvote", "read corpusvote"),
+            ("update_corpusvote", "update corpusvote"),
+            ("remove_corpusvote", "delete corpusvote"),
+        )
+        indexes = [
+            django.db.models.Index(fields=["corpus", "vote_type"]),
+            django.db.models.Index(fields=["creator"]),
+            django.db.models.Index(fields=["session_key"]),
+        ]
+
+    corpus = django.db.models.ForeignKey(
+        Corpus,
+        on_delete=django.db.models.CASCADE,
+        related_name="votes",
+        help_text="The corpus being voted on",
+    )
+    # NOTE: BaseOCModel.creator defaults to null=False, blank=False — but
+    # CorpusVote needs to support anonymous voters too, where the voter
+    # identity is captured on ``session_key`` instead.  We override the
+    # inherited FK to allow nulls.  The migration's
+    # ``creator`` field declaration already sets ``null=True, blank=True``
+    # at the DB level; this override keeps Django's model-level checks in
+    # sync so ORM creates with ``creator=None`` don't trip ``IntegrityError``.
+    creator = django.db.models.ForeignKey(  # type: ignore[assignment]
+        get_user_model(),
+        on_delete=django.db.models.CASCADE,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    vote_type = django.db.models.CharField(
+        max_length=16,
+        choices=CorpusVoteType.choices,
+        help_text="Type of vote (upvote or downvote)",
+    )
+    session_key = django.db.models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Django session id for anonymous voters.  Null for authenticated "
+            "votes.  Forms half of the anonymous-branch unique constraint."
+        ),
+    )
+    ip_hash = django.db.models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "Salted SHA-256 of the voter's IP, stored only for "
+            "abuse-review/audit purposes.  NOT part of the unique "
+            "constraint (shared NATs would otherwise block legitimate "
+            "co-located voters)."
+        ),
+    )
+    # NOTE: BaseOCModel already supplies ``created`` / ``modified`` with
+    # the same ``auto_now_add`` / ``auto_now`` semantics — don't shadow
+    # them with ``created_at`` / ``updated_at`` (would add two
+    # redundant DB columns).
+
+    def __str__(self) -> str:
+        voter = (
+            getattr(self.creator, "username", None)
+            if self.creator_id
+            else f"anon[{(self.session_key or '')[:8]}]"
+        )
+        return f"{self.vote_type} by {voter} on corpus {self.corpus_id}"
+
+
+class CorpusVoteUserObjectPermission(UserObjectPermissionBase):
+    """Guardian permission model for per-user CorpusVote permissions."""
+
+    content_object = django.db.models.ForeignKey(
+        "CorpusVote", on_delete=django.db.models.CASCADE
+    )
+
+
+class CorpusVoteGroupObjectPermission(GroupObjectPermissionBase):
+    """Guardian permission model for per-group CorpusVote permissions."""
+
+    content_object = django.db.models.ForeignKey(
+        "CorpusVote", on_delete=django.db.models.CASCADE
     )

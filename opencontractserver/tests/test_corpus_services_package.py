@@ -30,6 +30,7 @@ from opencontractserver.corpuses.services import (
     CorpusDocumentService,
     CorpusPathService,
     CorpusService,
+    CorpusVoteService,
     DocumentLifecycleService,
     FolderCRUDService,
     FolderDocumentService,
@@ -39,7 +40,7 @@ from opencontractserver.shared.services.base import BaseService
 
 User = get_user_model()
 
-# The six segmented services that make up the corpus service layer.
+# The segmented services that make up the corpus service layer.
 SEGMENTED_SERVICES = (
     FolderCRUDService,
     FolderDocumentService,
@@ -47,6 +48,7 @@ SEGMENTED_SERVICES = (
     CorpusService,
     DocumentLifecycleService,
     CorpusPathService,
+    CorpusVoteService,
 )
 
 
@@ -82,6 +84,7 @@ class TestServicesPackageStructure(SimpleTestCase):
                     "CorpusService",
                     "DocumentLifecycleService",
                     "CorpusPathService",
+                    "CorpusVoteService",
                 ]
             ),
         )
