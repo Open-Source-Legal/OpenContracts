@@ -656,6 +656,47 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         }
         self.assertIn(_corpus_relay_id(personal_corpus.pk), returned_ids)
 
+    def test_my_vote_resolver_uses_service_fallback_when_not_annotated(
+        self,
+    ) -> None:
+        """``resolve_my_vote`` falls back to ``CorpusVoteService.get_user_vote_type``
+        when the corpus instance wasn't fetched through ``CorpusType.get_queryset``.
+
+        The fast path (covered by ``test_corpuses_list_my_vote_is_not_n_plus_one``)
+        reads the ``_viewer_vote`` annotation that ``get_queryset`` attaches.
+        Any nested resolver path that hands a freshly-loaded ``Corpus`` to the
+        resolver — e.g. one that constructs the instance via the ORM directly
+        rather than through graphene's list pipeline — won't have the
+        annotation, and must still produce the viewer's correct vote via
+        the per-row service call.
+        """
+        from types import SimpleNamespace
+
+        from config.graphql.corpus_types import CorpusType
+
+        CorpusVoteService.cast_vote(self.alice, self.public_corpus.pk, "upvote")
+
+        # Reload via the ORM directly so ``_viewer_vote`` is NOT set.
+        unannotated = Corpus.objects.get(pk=self.public_corpus.pk)
+        self.assertFalse(hasattr(unannotated, "_viewer_vote"))
+
+        # Build a minimal info-shaped object — the resolver only reads
+        # ``info.context.user`` and ``info.context.session``.
+        info = SimpleNamespace(
+            context=self._build_request(self.alice, with_session=False)
+        )
+
+        self.assertEqual(CorpusType.resolve_my_vote(unannotated, info), "UPVOTE")
+
+        # And the no-vote branch: a viewer with no prior vote should
+        # get ``None`` from the fallback (not a crash on the missing
+        # annotation, and not the previous viewer's vote leaking through).
+        bob = User.objects.create_user(
+            username="bob-fallback", password="pw", email="b-fb@example.com"
+        )
+        info_bob = SimpleNamespace(context=self._build_request(bob, with_session=False))
+        self.assertIsNone(CorpusType.resolve_my_vote(unannotated, info_bob))
+
     def test_corpuses_list_my_vote_is_not_n_plus_one(self) -> None:
         """The corpus list resolver must annotate ``my_vote`` with a single
         per-page ``Subquery`` rather than firing one query per card.
