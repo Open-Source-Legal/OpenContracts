@@ -99,3 +99,221 @@ def test_django_system_check_uses_same_audit() -> None:
         "Django check and pytest audit disagree on hit count: "
         f"check={len(arch_errors)} audit={len(audit_hits)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for the scanner / formatter / audit helpers
+# ---------------------------------------------------------------------------
+#
+# The repository itself is (intentionally) clean, so the integration tests
+# above never exercise the violation-reporting branches of
+# ``architecture_audit`` / ``checks``. These unit tests inject synthetic
+# violations so the audit and formatter branches are exercised — without
+# any of them, the patch coverage on the new files drops below the
+# codecov gate.
+
+
+def test_scan_forbidden_detects_attribute_access() -> None:
+    """``Model.objects.visible_to_user`` / ``obj.user_can`` — Attribute path."""
+    source = (
+        "def resolve(self, info):\n"
+        "    return Model.objects.visible_to_user(info.context.user)\n"
+        "\n"
+        "def can_edit(self, info):\n"
+        "    return self.obj.user_can(info.context.user, 'UPDATE')\n"
+    )
+
+    hits = scan_forbidden(source)
+
+    names = sorted(name for _, name in hits)
+    assert names == ["user_can", "visible_to_user"], hits
+
+
+def test_scan_forbidden_detects_bare_name_access() -> None:
+    """``user_has_permission_for_obj(...)`` called as a bare Name."""
+    source = (
+        "def resolve(self, info):\n"
+        "    if user_has_permission_for_obj(info.context.user, self.obj, 'READ'):\n"
+        "        return self.obj\n"
+        "    return None\n"
+    )
+
+    hits = scan_forbidden(source)
+
+    assert "user_has_permission_for_obj" in {name for _, name in hits}, hits
+
+
+def test_scan_forbidden_detects_import_from_alias() -> None:
+    """``from ... import visible_to_user`` — ImportFrom alias path."""
+    source = (
+        "from opencontractserver.permissions import visible_to_user\n"
+        "\n"
+        "x = visible_to_user\n"  # second hit (Name) but we only assert the import
+    )
+
+    hits = scan_forbidden(source)
+
+    # At least one hit at the import line (line 1).
+    import_hits = [h for h in hits if h[0] == 1]
+    assert import_hits, f"Expected ImportFrom hit at line 1, got {hits}"
+    assert import_hits[0][1] == "visible_to_user"
+
+
+def test_scan_forbidden_ignores_unrelated_identifiers() -> None:
+    """Identifiers outside ``FORBIDDEN_NAMES`` must not fire."""
+    source = "x = foo.bar()\ny = baz()\nfrom collections import OrderedDict\n"
+    assert scan_forbidden(source) == []
+
+
+def test_format_violation_for_each_known_identifier(tmp_path: Path) -> None:
+    """Every entry in ``FORBIDDEN_NAMES`` must produce a tailored recipe."""
+    from opencontractserver.shared.architecture_audit import FORBIDDEN_NAMES
+
+    sample = tmp_path / "fake_resolver.py"
+    sample.write_text("# placeholder")
+
+    for name in FORBIDDEN_NAMES:
+        short, hint = format_violation(sample, 42, name)
+        assert "fake_resolver.py:42" in short
+        assert f"`{name}`" in short
+        assert "How to fix:" in hint
+        assert "BaseService" in hint
+        assert "request=info.context" in hint
+        assert "docs/architecture/query_permission_patterns.md" in hint
+
+
+def test_format_violation_fallback_for_unknown_identifier(tmp_path: Path) -> None:
+    """Unknown identifiers fall back to a generic-but-useful hint."""
+    sample = tmp_path / "fake.py"
+    sample.write_text("# placeholder")
+
+    short, hint = format_violation(sample, 7, "some_future_primitive")
+
+    assert "fake.py:7" in short
+    assert "some_future_primitive" in short
+    # Fallback hint still points at the BaseService helpers.
+    assert "BaseService" in hint
+    assert "get_or_none" in hint or "require_permission" in hint
+
+
+def test_iter_graphql_modules_returns_empty_when_dir_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """If ``GRAPHQL_DIR`` is absent the audit must not crash — just no-op."""
+    from opencontractserver.shared import architecture_audit
+
+    nonexistent = tmp_path / "does-not-exist"
+    monkeypatch.setattr(architecture_audit, "GRAPHQL_DIR", nonexistent)
+
+    assert architecture_audit.iter_graphql_modules() == []
+
+
+def test_audit_graphql_modules_reports_synthetic_violation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``audit_graphql_modules`` must surface a real violation in a scanned file."""
+    from opencontractserver.shared import architecture_audit
+
+    fake_dir = tmp_path / "graphql"
+    fake_dir.mkdir()
+    # __init__.py is always skipped — make sure it is not counted.
+    (fake_dir / "__init__.py").write_text("from . import bad_resolver\n")
+    bad = fake_dir / "bad_resolver.py"
+    bad.write_text(
+        "def resolve(self, info):\n"
+        "    return Thing.objects.visible_to_user(info.context.user)\n"
+    )
+
+    monkeypatch.setattr(architecture_audit, "GRAPHQL_DIR", fake_dir)
+
+    hits = architecture_audit.audit_graphql_modules()
+
+    assert len(hits) == 1, hits
+    module_path, lineno, name = hits[0]
+    assert module_path == bad
+    assert name == "visible_to_user"
+    assert lineno == 2
+
+
+def test_audit_graphql_modules_skips_allowlisted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Files in ``ALLOWED_FILES`` must be skipped even if they contain hits."""
+    from opencontractserver.shared import architecture_audit
+
+    fake_dir = tmp_path / "graphql"
+    fake_dir.mkdir()
+    allowed = fake_dir / "filters.py"  # filters.py is on the allowlist
+    allowed.write_text(
+        "def resolve(self, info):\n"
+        "    return Thing.objects.visible_to_user(info.context.user)\n"
+    )
+
+    monkeypatch.setattr(architecture_audit, "GRAPHQL_DIR", fake_dir)
+
+    assert architecture_audit.audit_graphql_modules() == []
+
+
+def test_audit_graphql_modules_skips_unreadable_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An ``OSError`` while reading a module must be tolerated, not raised."""
+    from opencontractserver.shared import architecture_audit
+
+    fake_dir = tmp_path / "graphql"
+    fake_dir.mkdir()
+    unreadable = fake_dir / "broken.py"
+    unreadable.write_text("# placeholder")
+
+    monkeypatch.setattr(architecture_audit, "GRAPHQL_DIR", fake_dir)
+
+    original_read_text = Path.read_text
+
+    def fake_read_text(self: Path, encoding: str | None = None) -> str:
+        if self == unreadable:
+            raise OSError("simulated unreadable file")
+        return original_read_text(self, encoding=encoding)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+    # No raise; unreadable file is simply skipped.
+    assert architecture_audit.audit_graphql_modules() == []
+
+
+def test_django_check_emits_error_when_audit_reports_violations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Django system check must convert audit hits into ``Error`` records."""
+    from opencontractserver.shared import checks as arch_checks
+
+    fake_dir = tmp_path / "graphql"
+    fake_dir.mkdir()
+    bad = fake_dir / "bad_resolver.py"
+    bad.write_text(
+        "def resolve(self, info):\n"
+        "    return Thing.objects.visible_to_user(info.context.user)\n"
+    )
+
+    # Patching ``GRAPHQL_DIR`` in the shared audit module is enough — the
+    # check imports the audit function lazily inside its body and re-reads
+    # the constant on each call.
+    from opencontractserver.shared import architecture_audit
+
+    monkeypatch.setattr(architecture_audit, "GRAPHQL_DIR", fake_dir)
+
+    errors = arch_checks.check_graphql_service_layer(app_configs=None)
+
+    assert len(errors) == 1, errors
+    error = errors[0]
+    assert error.id == "opencontracts.E001"
+    assert "bad_resolver.py" in error.msg
+    assert "visible_to_user" in error.msg
+    assert error.hint is not None
+    assert "How to fix:" in error.hint
+
+
+def test_django_check_returns_empty_when_repo_is_clean() -> None:
+    """The clean repo (current state) must produce zero check errors."""
+    from opencontractserver.shared.checks import check_graphql_service_layer
+
+    assert check_graphql_service_layer(app_configs=None) == []
