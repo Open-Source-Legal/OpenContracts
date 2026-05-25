@@ -292,7 +292,7 @@ const Section: React.FC<SectionWrapperProps> = ({
     </DiscoverySectionHeader>
     {loading ? (
       <LoadingContainer>
-        <ModernLoadingDisplay message="Searching…" size="small" />
+        <ModernLoadingDisplay message="Searching…" size="small" inline />
       </LoadingContainer>
     ) : errorMessage ? (
       <EmptyState role="alert">{errorMessage}</EmptyState>
