@@ -15,6 +15,7 @@ Tier 1  Service packages         opencontractserver/<app>/services/
         (THE public layer)       — get_* / list_* / create_* / update_* / delete_*
                                  — every user-context caller goes here
                                  — BaseService.{get_or_none, filter_visible,
+                                                filter_visible_qs,
                                                 require_permission, user_has}
                                    provides the generic surface
 
@@ -132,8 +133,9 @@ operations that resolvers / tools used to inline against Tier 0:
 | Method | Use for | Returns |
 |--------|---------|---------|
 | `BaseService.filter_visible(Model, user, *, request=None, **kwargs)` | Listing a model's visible rows. `**kwargs` are passed straight through to the manager's `visible_to_user(...)` so per-model perf knobs (e.g. `Document(..., lightweight=True)`) keep working. | `QuerySet` |
+| `BaseService.filter_visible_qs(queryset, user, *, request=None, **kwargs)` | Same intent as `filter_visible`, but starts from an **existing queryset or related manager** — chains the queryset's own `visible_to_user` so the visibility predicate stays in the same `WHERE` expression tree as any prior `.filter(...)` clauses (no correlated `pk__in` subquery). Use this in `DjangoObjectType.get_queryset` overrides and reverse-relation field resolvers. | `QuerySet` |
 | `BaseService.get_or_none(Model, pk, user, permission=None, *, request=None)` | IDOR-safe single-object fetch — returns `None` for both not-found and not-permitted so callers cannot enumerate via differential errors. | Instance \| `None` |
-| `BaseService.require_permission(instance, user, permission, *, request=None, error_message=None)` | Fail-fast gate on a single object. Returns `""` on grant; a human-readable denial string otherwise — feed it straight into a `ServiceResult` / `ok=False` envelope. | `str` |
+| `BaseService.require_permission(instance, user, permission, *, request=None, error_message=None)` | Fail-fast gate on a single object. Returns `""` on grant; a human-readable denial string otherwise — feed it straight into a `ServiceResult` / `ok=False` envelope. ⚠️ Truthy on **denial** (inverse of the legacy `if user_can(...)` idiom — see the in-method docstring). | `str` |
 | `BaseService.user_has(instance, user, permission, *, request=None)` | Boolean yes/no for UI-state fields (`can_edit_summary`, `can_create_labels`, etc.). | `bool` |
 
 Resolvers should always pass `request=info.context` so the Tier-2 permission
@@ -289,17 +291,19 @@ slip through either:
    regression test that the Django check stays registered.
 
 The allowlist
-(`opencontractserver.shared.architecture_audit.ALLOWED_FILES`) contains
-exactly one file (`filters.py`, whose remaining references are in
-documentation comments only).
+(`opencontractserver.shared.architecture_audit.ALLOWED_FILES`) is empty.
+Every `config/graphql/` module is scanned — `filters.py` no longer needs
+an entry because its only remaining references to forbidden identifiers
+are inside comments (which the AST scanner already ignores).
 
 When you add a new resolver/mutation/MCP tool/REST view that needs
 permission-filtered access, either:
 
 1. Call an existing dedicated service method (preferred when one matches your
    operation semantically).
-2. Call `BaseService.{get_or_none, filter_visible, require_permission,
-   user_has}` directly for generic "list visible X" / "fetch X for user" /
+2. Call `BaseService.{get_or_none, filter_visible, filter_visible_qs,
+   require_permission, user_has}` directly for generic "list visible X" /
+   "chain visibility onto an existing queryset" / "fetch X for user" /
    "gate write on X" / "boolean has-perm-on-X" operations.
 
 Do **not** import Tier-0 identifiers into consumer code.

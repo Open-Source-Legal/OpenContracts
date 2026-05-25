@@ -54,10 +54,12 @@ section "Migration Recipes".
 (`opencontractserver.shared.architecture_audit.ALLOWED_FILES`) is a
 last-resort escape hatch, not Phase-6-leftover debt. Each entry MUST
 have a comment explaining why the file can't migrate. As of this
-writing the only entry is `filters.py` (FilterSet plumbing with
-comment-only references). If you think you need a new entry,
-write the justification in the comment and expect reviewer pushback
-asking whether a per-app service method would suffice instead.
+writing the allowlist is empty: every `config/graphql/` module is
+scanned, and `filters.py` no longer needs an entry because its only
+remaining references to forbidden identifiers are inside comments
+(which the AST scanner already ignores). If you think you need a new
+entry, write the justification in the comment and expect reviewer
+pushback asking whether a per-app service method would suffice instead.
 
 ## Adding a new architecture invariant
 

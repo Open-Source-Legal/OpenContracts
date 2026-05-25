@@ -5,8 +5,11 @@ Every concrete service (``opencontractserver/*/services/*.py``) inherits
 services stay small and contain only model-specific fetch/mutate logic:
 
 - IDOR-safe single-object lookup (``get_or_none``)
-- permission-filtered queryset access (``filter_visible``)
+- permission-filtered queryset access (``filter_visible`` for new querysets
+  from a model manager; ``filter_visible_qs`` for chaining onto an
+  existing queryset or related manager in a single SQL pass)
 - a uniform permission gate for write operations (``require_permission``)
+- a boolean companion for UI-state flags (``user_has``)
 - structured action logging (``log_action``)
 
 Services are classmethod/staticmethod based — there is no per-call service
@@ -74,6 +77,42 @@ class BaseService:
         return model.objects.visible_to_user(user, **kwargs)
 
     @staticmethod
+    def filter_visible_qs(
+        queryset: Any,
+        user: Any,
+        *,
+        request: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Intersect ``queryset`` with ``user``'s visible rows in one SQL pass.
+
+        Use this in ``DjangoObjectType.get_queryset`` overrides and field
+        resolvers that start from an existing queryset or
+        ``RelatedManager``. ``filter_visible`` re-fetches the model's full
+        visible set and intersects via ``pk__in=<subquery>``; this helper
+        chains the queryset's own ``visible_to_user`` instead, keeping the
+        whole filter as a single ``WHERE`` expression tree (no correlated
+        subquery over the full model table).
+
+        Defensive on input: a queryset/manager that lacks ``visible_to_user``
+        is returned unchanged so exotic shapes (prefetched caches, custom
+        wrappers) pass through harmlessly. The OpenContracts model layer
+        always exposes ``visible_to_user`` on both the manager and the
+        queryset (via ``PermissionManager.from_queryset`` or
+        ``PermissionedTreeQuerySet.as_manager``) so real callers always hit
+        the chained-filter path.
+
+        ``request`` is accepted for API parity with ``filter_visible`` (see
+        that method for the threading rationale — same caveat applies).
+        """
+        if not hasattr(queryset, "visible_to_user"):
+            return queryset
+        # ``.all()`` normalises a RelatedManager to a QuerySet while
+        # preserving the parent FK filter; on an already-resolved
+        # QuerySet it returns a cheap clone.
+        return queryset.all().visible_to_user(user, **kwargs)
+
+    @staticmethod
     def user_has(
         instance: Any,
         user: Any,
@@ -121,6 +160,22 @@ class BaseService:
 
         The model's manager MUST implement ``user_can`` (see
         ``conventions.get_for_user_or_none`` for the same contract).
+
+        **Truthiness inversion.** The return value is **falsy on grant,
+        truthy on denial** — the inverse of the legacy
+        ``if user_can(...)`` idiom this helper replaced. The idiomatic
+        consumer-side pattern in ``config/graphql/`` is therefore::
+
+            if BaseService.require_permission(obj, user, PermissionTypes.X,
+                                              request=info.context):
+                return Mutation(ok=False, message="...")
+
+        Read as "if denied, bail". Engineers cross-reading old and new
+        code should not transcribe ``if user_can(...)`` to
+        ``if require_permission(...)`` directly — that flips the gate.
+        Use ``BaseService.user_has`` when you need a True/False answer
+        with the legacy direction (boolean grant) — e.g. for UI-state
+        fields like ``can_edit_summary``.
         """
         manager = type(instance).objects
         if manager.user_can(user, instance, permission, request=request):

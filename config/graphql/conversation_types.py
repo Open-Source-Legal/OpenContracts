@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 import graphene
-from django.db.models import QuerySet
 from graphene import relay
 from graphene.types.generic import GenericScalar
 from graphene_django import DjangoObjectType
@@ -522,20 +521,12 @@ class ConversationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
-        user = info.context.user
-        if issubclass(type(queryset), QuerySet):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.filter(pk__in=visible_ids)
-        elif "RelatedManager" in str(type(queryset)):
-            # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.all().filter(pk__in=visible_ids)
-        else:
-            return queryset
+        # Chain ``visible_to_user`` on the incoming queryset/manager so the
+        # filter is a single ``WHERE`` expression tree (no ``pk__in``
+        # subquery over the full table).
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        )
 
 
 # Explicit Connection class for ConversationType to use in relay.ConnectionField

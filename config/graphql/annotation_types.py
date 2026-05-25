@@ -256,24 +256,12 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 # Permissions already handled by query optimizer, don't filter again
                 return queryset
 
-        # Fall back to original permission filtering via the service layer.
-        # ``BaseService.filter_visible`` returns the model's full visible
-        # set; we then intersect it with the incoming queryset/manager so
-        # any prior ``.filter(...)`` clauses are preserved.
-        user = info.context.user
-        if issubclass(type(queryset), QuerySet):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.filter(pk__in=visible_ids)
-        elif "RelatedManager" in str(type(queryset)):
-            # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.all().filter(pk__in=visible_ids)
-        else:
-            return queryset
+        # Chain the queryset's own ``visible_to_user`` through the service
+        # layer so the visibility filter stays a single ``WHERE`` expression
+        # tree (no correlated ``pk__in`` subquery over the full table).
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        )
 
 
 class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -317,13 +305,9 @@ class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_corpus_count(self, info) -> Any:
         """Return count of corpuses using this label set that are visible to the user."""
-        from opencontractserver.corpuses.models import Corpus
-
-        user = info.context.user
-        visible_corpus_ids = BaseService.filter_visible(
-            Corpus, user, request=info.context
-        ).values("pk")
-        return self.used_by_corpuses.filter(pk__in=visible_corpus_ids).count()
+        return BaseService.filter_visible_qs(
+            self.used_by_corpuses, info.context.user, request=info.context
+        ).count()
 
     # To get ALL labels for a given labelset
     all_annotation_labels = graphene.Field(graphene.List(AnnotationLabelType))
@@ -498,20 +482,12 @@ class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
         # Route visibility through the service layer (BaseService) so this
-        # type field resolver does not touch Tier-0 directly.
-        user = info.context.user
-        if issubclass(type(queryset), QuerySet):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.filter(pk__in=visible_ids)
-        elif "RelatedManager" in str(type(queryset)):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.all().filter(pk__in=visible_ids)
-        else:
-            return queryset
+        # type field resolver does not touch Tier-0 directly. Uses
+        # ``filter_visible_qs`` so the visibility filter chains on the
+        # incoming queryset/manager in a single SQL pass.
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        )
 
 
 class NoteRevisionType(DjangoObjectType):

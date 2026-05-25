@@ -5,7 +5,6 @@ from typing import Any
 
 import graphene
 from django.contrib.auth import get_user_model
-from django.db.models import QuerySet
 from graphene import relay
 from graphene_django import DjangoObjectType
 from graphql_relay import from_global_id
@@ -167,10 +166,9 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_children(self, info) -> Any:
         """Get immediate child folders (service-layer visibility)."""
-        visible_ids = BaseService.filter_visible(
-            CorpusFolder, info.context.user, request=info.context
-        ).values("pk")
-        return self.children.all().filter(pk__in=visible_ids)
+        return BaseService.filter_visible_qs(
+            self.children, info.context.user, request=info.context
+        )
 
     class Meta:
         model = CorpusFolder
@@ -180,19 +178,12 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
         """Filter folders to only those the user can see (via corpus permissions)."""
-        user = info.context.user
-        if issubclass(type(queryset), QuerySet):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.filter(pk__in=visible_ids)
-        elif "RelatedManager" in str(type(queryset)):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.all().filter(pk__in=visible_ids)
-        else:
-            return queryset
+        # Chain ``visible_to_user`` on the incoming queryset/manager so the
+        # filter is a single ``WHERE`` expression tree (no ``pk__in``
+        # subquery over the full table).
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        )
 
 
 class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -328,10 +319,9 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_folders(self, info) -> Any:
         """Get all folders in this corpus with service-layer visibility filtering."""
-        visible_ids = BaseService.filter_visible(
-            CorpusFolder, info.context.user, request=info.context
-        ).values("pk")
-        return self.folders.all().filter(pk__in=visible_ids)
+        return BaseService.filter_visible_qs(
+            self.folders, info.context.user, request=info.context
+        )
 
     # Engagement metrics (Epic #565)
     engagement_metrics = graphene.Field(CorpusEngagementMetricsType)
@@ -440,20 +430,12 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
-        user = info.context.user
-        if issubclass(type(queryset), QuerySet):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.filter(pk__in=visible_ids)
-        elif "RelatedManager" in str(type(queryset)):
-            # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.all().filter(pk__in=visible_ids)
-        else:
-            return queryset
+        # Chain ``visible_to_user`` on the incoming queryset/manager so the
+        # filter is a single ``WHERE`` expression tree (no ``pk__in``
+        # subquery over the full table).
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        )
 
 
 class CorpusStatsType(graphene.ObjectType):

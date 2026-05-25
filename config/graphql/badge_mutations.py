@@ -83,7 +83,7 @@ class CreateBadgeMutation(graphene.Mutation):
                     Corpus, corpus_pk, user, request=info.context
                 )
                 if corpus is None or BaseService.require_permission(
-                    corpus, user, PermissionTypes.UPDATE
+                    corpus, user, PermissionTypes.UPDATE, request=info.context
                 ):
                     return CreateBadgeMutation(
                         ok=False,
@@ -205,7 +205,7 @@ class UpdateBadgeMutation(graphene.Mutation):
             if badge.corpus:
                 # Corpus badge - check if creator or has UPDATE permission
                 if BaseService.require_permission(
-                    badge.corpus, user, PermissionTypes.UPDATE
+                    badge.corpus, user, PermissionTypes.UPDATE, request=info.context
                 ):
                     return UpdateBadgeMutation(
                         ok=False,
@@ -323,7 +323,7 @@ class DeleteBadgeMutation(graphene.Mutation):
             if badge.corpus:
                 # Corpus badge - check if creator or has UPDATE permission
                 if BaseService.require_permission(
-                    badge.corpus, user, PermissionTypes.UPDATE
+                    badge.corpus, user, PermissionTypes.UPDATE, request=info.context
                 ):
                     return DeleteBadgeMutation(
                         ok=False,

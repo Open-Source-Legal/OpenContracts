@@ -504,8 +504,6 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # https://docs.graphene-python.org/projects/django/en/latest/queries/#default-queryset
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
-        from django.db.models import QuerySet
-
         # When the parent resolver prefetched the reverse relation
         # (see ``AnnotationService.get_document_annotations`` which
         # registers a ``Prefetch("user_feedback", ...)``), the manager passed
@@ -523,17 +521,9 @@ class UserFeedbackType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if instance is not None and cache_name is not None and cache_name in prefetched:
             return queryset
 
-        user = info.context.user
-        if issubclass(type(queryset), QuerySet):
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.filter(pk__in=visible_ids)
-        elif "RelatedManager" in str(type(queryset)):
-            # https://stackoverflow.com/questions/11320702/import-relatedmanager-from-django-db-models-fields-related
-            visible_ids = BaseService.filter_visible(
-                queryset.model, user, request=info.context
-            ).values("pk")
-            return queryset.all().filter(pk__in=visible_ids)
-        else:
-            return queryset
+        # Chain ``visible_to_user`` on the incoming queryset/manager so the
+        # filter is a single ``WHERE`` expression tree (no ``pk__in``
+        # subquery over the full table).
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        )

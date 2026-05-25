@@ -31,6 +31,17 @@ def check_graphql_service_layer(app_configs: Any, **kwargs: Any) -> list[Error]:
     management command (``runserver``, ``migrate``, ``shell``, ``test``,
     ``check --deploy``) when an Error-level check fires, which is the
     "fail on startup" semantic we want.
+
+    Cost note: the AST scan runs once per ``manage.py`` invocation
+    (Django's system-check framework fires every registered check on
+    every command — ``migrate``, ``shell``, ``runserver``, ``test``…).
+    With ~41 files in ``config/graphql/`` this is sub-50 ms and
+    negligible relative to Django startup, so the check intentionally
+    runs synchronously rather than being fast-pathed or gated behind
+    ``DEBUG`` — the "fail on first management command" semantic is the
+    whole point of dual-enforcement, and skipping the scan in some
+    contexts would create silent gaps. Revisit only if the scan ever
+    becomes a measurable slice of cold-start time.
     """
     # Deferred import — keeps ``shared.checks`` cheap to import; the AST
     # scan only runs when the registered check actually fires.
