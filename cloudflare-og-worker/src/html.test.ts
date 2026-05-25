@@ -148,7 +148,7 @@ describe("generateGenericOGHtml", () => {
     const html = generateGenericOGHtml("https://contracts.example.com", mockEnv);
 
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('<meta property="og:title" content="OpenContracts"');
+    expect(html).toContain('<meta property="og:title" content="cite');
     expect(html).toContain('<meta property="og:url"');
     expect(html).toContain('<meta property="og:image"');
   });

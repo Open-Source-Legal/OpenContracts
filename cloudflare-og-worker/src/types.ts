@@ -1,12 +1,12 @@
 /**
- * TypeScript types for OpenContracts OG Preview Worker
+ * TypeScript types for cite OG Preview Worker
  */
 
 /**
  * Cloudflare Worker environment bindings
  */
 export interface Env {
-  /** Base URL of the OpenContracts site */
+  /** Base URL of the cite site */
   SITE_URL: string;
   /** Backend API URL for GraphQL queries */
   API_URL: string;

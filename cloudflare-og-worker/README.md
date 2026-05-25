@@ -1,10 +1,10 @@
-# OpenContracts Social Media Preview Worker
+# cite Social Media Preview Worker
 
-Cloudflare Worker that intercepts social media crawler requests and returns rich Open Graph / Twitter Card metadata for OpenContracts deep-links.
+Cloudflare Worker that intercepts social media crawler requests and returns rich Open Graph / Twitter Card metadata for cite.opensource.legal deep-links.
 
 ## Why This Exists
 
-When someone shares an OpenContracts link on Twitter, LinkedIn, Slack, Discord, or other social platforms, the platform's crawler fetches the URL to generate a preview. Since OpenContracts is a React SPA, crawlers (which don't execute JavaScript) would only see generic metadata.
+When someone shares a cite.opensource.legal link on Twitter, LinkedIn, Slack, Discord, or other social platforms, the platform's crawler fetches the URL to generate a preview. Since cite is a React SPA, crawlers (which don't execute JavaScript) would only see generic metadata.
 
 This worker sits at the edge and:
 1. Detects social media crawler user agents
@@ -18,7 +18,7 @@ This worker sits at the edge and:
 
 - Node.js 18+
 - Cloudflare account (free tier works)
-- OpenContracts backend running with the OG metadata GraphQL queries
+- cite backend running with the OG metadata GraphQL queries
 
 ### Local Development
 
@@ -55,7 +55,7 @@ npm run deploy:production
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SITE_URL` | Base URL of OpenContracts site | `http://localhost:3000` |
+| `SITE_URL` | Base URL of the cite site | `http://localhost:3000` |
 | `API_URL` | Backend API URL for GraphQL | `http://localhost:8000` |
 | `OG_IMAGE_BASE` | Base URL for static OG images | `{SITE_URL}/static/og-images` |
 
@@ -66,9 +66,9 @@ Configure routes in `wrangler.toml` to match your domain:
 ```toml
 [env.production]
 routes = [
-  { pattern = "opencontracts.io/c/*", zone_name = "opencontracts.io" },
-  { pattern = "opencontracts.io/d/*", zone_name = "opencontracts.io" },
-  { pattern = "opencontracts.io/e/*", zone_name = "opencontracts.io" },
+  { pattern = "cite.opensource.legal/c/*", zone_name = "opensource.legal" },
+  { pattern = "cite.opensource.legal/d/*", zone_name = "opensource.legal" },
+  { pattern = "cite.opensource.legal/e/*", zone_name = "opensource.legal" },
 ]
 ```
 
@@ -111,7 +111,7 @@ src/
 
 Create static preview images at `{OG_IMAGE_BASE}/`:
 
-- `default-og.png` (1200x630) - Generic OpenContracts branding
+- `default-og.png` (1200x630) - Generic cite branding
 - `corpus-og.png` (1200x630) - Corpus icon
 - `document-og.png` (1200x630) - Document icon
 - `discussion-og.png` (1200x630) - Discussion icon

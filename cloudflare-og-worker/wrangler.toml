@@ -1,7 +1,7 @@
-# OpenContracts OG Preview Worker
+# cite OG Preview Worker
 # Intercepts social media crawlers and returns OG meta tags for deep-links
 
-name = "opencontracts-og"
+name = "cite-og"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
