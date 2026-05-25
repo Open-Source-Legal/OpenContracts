@@ -238,11 +238,11 @@ export const Corpuses = () => {
     useState<string>("all");
 
   // Active sort for the Corpuses list view.  Values map 1:1 to the
-  // backend ``orderBy`` argument on GET_CORPUSES.  Empty string =
-  // "default" = the model's intrinsic ``ordering = ("created",)``; any
-  // other value is one of the tuple-mapped options exposed by
-  // ``CorpusFilter.order_by`` (top / -top / -modified / title).
-  const [corpusListSort, setCorpusListSort] = useState<string>("");
+  // backend ``orderBy`` argument on GET_CORPUSES.  Default is
+  // ``-created`` (newest first) so the dropdown label matches the
+  // returned order; the model's intrinsic ``ordering = ("created",)``
+  // is ascending and would surface the oldest corpuses first.
+  const [corpusListSort, setCorpusListSort] = useState<string>("-created");
 
   // Track whether CorpusChat is showing a conversation (vs the list view)
   // Used to hide parent navigation header when CorpusChat handles its own

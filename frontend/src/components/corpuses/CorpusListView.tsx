@@ -594,7 +594,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
               value={sortValue}
               onChange={(e) => onSortChange(e.target.value)}
             >
-              <option value="">Newest first</option>
+              <option value="-created">Newest first</option>
               <option value="created">Oldest first</option>
               <option value="-modified">Recently updated</option>
               <option value="-top">Top (most upvotes)</option>

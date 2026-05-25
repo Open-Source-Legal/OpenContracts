@@ -2550,6 +2550,15 @@ class CorpusVote(BaseOCModel):
     denormalized count maintenance on :class:`Corpus` (and the
     score-based ordering on the corpus list view) operates on a single
     queryset rather than two parallel models.
+
+    **Anonymous-vote lifetime:** anonymous rows persist after
+    ``django-admin clearsessions`` reaps the matching ``Session`` rows —
+    the ``session_key`` is then a tombstone that no longer maps to a
+    live session. This is intentional (Reddit-style: votes stay even
+    when the anonymous identity goes away). The denormalized counts on
+    :class:`Corpus` stay accurate because the signal handlers recompute
+    from scratch on every vote insert/update/delete, not from the
+    session table.
     """
 
     class Meta:

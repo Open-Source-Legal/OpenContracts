@@ -608,3 +608,67 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         self.assertIsNone(result.get("errors"), msg=json.dumps(result))
         self.assertEqual(result["data"]["corpus"]["myVote"], "UPVOTE")
         self.assertEqual(result["data"]["corpus"]["upvoteCount"], 1)
+
+    def test_corpuses_list_my_vote_is_not_n_plus_one(self) -> None:
+        """The corpus list resolver must annotate ``my_vote`` with a single
+        per-page ``Subquery`` rather than firing one query per card.
+
+        Regression test for the N+1 noted on PR #1789. The annotation is
+        attached in ``CorpusType.get_queryset``; without it,
+        ``resolve_my_vote`` falls back to a per-row
+        ``CorpusVoteService.get_user_vote_type`` call (one ``CorpusVote``
+        query per corpus in the page).
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        # Seed a population large enough that an N+1 would be obvious.
+        extra_corpora = [
+            Corpus.objects.create(
+                title=f"GQL Public {i}",
+                description="extra",
+                creator=self.owner,
+                is_public=True,
+            )
+            for i in range(10)
+        ]
+        # Vote on a subset so my_vote returns both null and non-null values.
+        for corpus in extra_corpora[:3]:
+            CorpusVoteService.cast_vote(self.alice, corpus.pk, "upvote")
+
+        list_query = """
+            query {
+                corpuses(first: 25) {
+                    edges { node { id myVote upvoteCount } }
+                }
+            }
+        """
+        request = self._build_request(self.alice)
+        with CaptureQueriesContext(connection) as ctx:
+            result = self.client.execute(list_query, context_value=request)
+
+        self.assertIsNone(result.get("errors"), msg=json.dumps(result))
+        edges = result["data"]["corpuses"]["edges"]
+        # Sanity: at least the seeded set + the public corpus from setUp.
+        self.assertGreaterEqual(len(edges), 11)
+
+        # A standalone "look up the viewer's vote" query against
+        # ``CorpusVote`` per card is exactly the N+1 the annotation fixes.
+        # The annotated Subquery rides on the main corpus SELECT (so it
+        # *embeds* a reference to ``corpuses_corpusvote``); the N+1 case
+        # starts the SELECT directly from that table.
+        vote_lookups = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].lstrip().startswith('SELECT "corpuses_corpusvote"')
+        ]
+        self.assertEqual(
+            vote_lookups,
+            [],
+            msg=f"Expected no per-row CorpusVote lookups, got {len(vote_lookups)}: {vote_lookups}",
+        )
+
+        # And the annotation should actually return the vote values.
+        my_votes = sorted((edge["node"]["myVote"] or "NONE") for edge in edges)
+        self.assertIn("UPVOTE", my_votes)
+        self.assertIn("NONE", my_votes)

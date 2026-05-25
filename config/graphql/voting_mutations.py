@@ -35,6 +35,7 @@ from opencontractserver.conversations.models import (
     ConversationVote,
     MessageVote,
 )
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services import CorpusVoteService
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
@@ -53,6 +54,13 @@ def _client_ip(info) -> str | None:
     ``REMOTE_ADDR``. Returns ``None`` when no IP can be determined so
     the service stores ``ip_hash=None`` rather than hashing an empty
     string.
+
+    SECURITY NOTE: ``X-Forwarded-For`` is trusted unconditionally — the
+    value is only used to compute a salted SHA-256 audit hash on
+    :class:`CorpusVote` and never participates in unique constraints,
+    rate-limiting, or vote dedup. If the ``ip_hash`` column is ever
+    repurposed for abuse decisions, tighten this to honour
+    ``settings.SECURE_PROXY_SSL_HEADER`` / a trusted-proxies list.
     """
     request = getattr(info, "context", None)
     if request is None:
@@ -476,15 +484,23 @@ class VoteCorpusMutation(graphene.Mutation):
         )
         if not result.ok:
             return VoteCorpusMutation(ok=False, message=result.error, obj=None)
-        assert result.value is not None  # mypy: success implies value present
+        if result.value is None:
+            # Defensive: success without a value would be a service bug; surface
+            # it as a generic failure rather than crashing on .corpus_id below.
+            logger.error("CorpusVoteService.cast_vote returned ok=True without value")
+            return VoteCorpusMutation(
+                ok=False,
+                message="Vote recorded but corpus could not be refreshed",
+                obj=None,
+            )
 
-        # Refresh the corpus row so the GraphQL response carries the
-        # post-signal denormalized counts (signal runs in the same
-        # transaction as the vote insert/update). The service returned a
-        # ``CorpusVote``; we surface its parent corpus to the client.
-        from opencontractserver.corpuses.models import Corpus
-
-        corpus = Corpus.objects.get(pk=result.value.corpus_id)
+        # Refresh the corpus row through the service so the response carries
+        # the post-signal denormalized counts (signal runs in the same
+        # transaction as the vote insert/update). Routing through the
+        # service keeps us inside the CLAUDE.md rule 7 contract.
+        corpus = BaseService.get_or_none(
+            Corpus, result.value.corpus_id, user, request=info.context
+        )
         return VoteCorpusMutation(ok=True, message="Vote recorded", obj=corpus)
 
 
@@ -545,14 +561,10 @@ class RemoveCorpusVoteMutation(graphene.Mutation):
         if not result.ok:
             return RemoveCorpusVoteMutation(ok=False, message=result.error, obj=None)
 
-        from opencontractserver.corpuses.models import Corpus
-
-        # Corpus may be inaccessible in pathological cases (the service
-        # already gated READ, so this is paranoia). Fall back to ``None``
-        # rather than raising 500.
-        try:
-            corpus = Corpus.objects.get(pk=corpus_pk)
-        except Corpus.DoesNotExist:
-            corpus = None
+        # Route through the service layer (CLAUDE.md rule 7) so we don't
+        # hand-roll an ORM call here. The service already gated READ, so
+        # ``get_or_none`` returns ``None`` only in pathological cases where
+        # something else revoked access between the two calls.
+        corpus = BaseService.get_or_none(Corpus, corpus_pk, user, request=info.context)
         message = "Vote removed" if result.value else "No vote to remove"
         return RemoveCorpusVoteMutation(ok=True, message=message, obj=corpus)

@@ -262,8 +262,11 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
   // handlers below are already ``useCallback`` wrapped — keeping ``stop``
   // stable means none of them get a new identity per render).
   const stop = useCallback((event: React.MouseEvent) => {
+    // The vote pill is overlaid on the corpus card; stopPropagation
+    // alone prevents the card's navigation onClick from firing.
+    // preventDefault was a stale carry-over and would suppress form
+    // submission if the pill ever lands inside a <form>.
     event.stopPropagation();
-    event.preventDefault();
   }, []);
 
   const handleUpvote = useCallback(
