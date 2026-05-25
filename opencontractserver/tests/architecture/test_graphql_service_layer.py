@@ -66,16 +66,15 @@ def test_django_system_check_is_registered() -> None:
     Pytest runs in CI; the Django system check ALSO fires on every
     ``manage.py`` command (``runserver``, ``migrate``, ``shell``, ...) so
     a developer can't ship a violation without immediate local feedback.
-    This test pins the system check to the wired-up state.
+    This test pins the system check to the wired-up state via the public
+    ``tag_exists`` API (no internal-registry attribute access).
     """
-    from django.core.checks import registry
+    from django.core.checks import tag_exists
 
-    from opencontractserver.shared.checks import check_graphql_service_layer
-
-    assert check_graphql_service_layer in registry.registry.get_checks(), (
-        "opencontractserver.shared.checks.check_graphql_service_layer is not "
-        "registered. Confirm ``opencontractserver.users.apps.UsersConfig.ready`` "
-        "still imports ``opencontractserver.shared.checks``."
+    assert tag_exists("architecture"), (
+        "The ``architecture`` system-check tag is not registered. Confirm "
+        "``opencontractserver.users.apps.UsersConfig.ready`` still imports "
+        "``opencontractserver.shared.checks``."
     )
 
 
@@ -238,18 +237,24 @@ def test_audit_graphql_modules_reports_synthetic_violation(
 def test_audit_graphql_modules_skips_allowlisted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Files in ``ALLOWED_FILES`` must be skipped even if they contain hits."""
+    """Files named in ``ALLOWED_FILES`` must be skipped even if they contain hits.
+
+    The live ``ALLOWED_FILES`` is currently empty (the per-file decision
+    is enforced from the AST, not from a name list), so this test patches
+    the constant alongside ``GRAPHQL_DIR`` to exercise the skip branch.
+    """
     from opencontractserver.shared import architecture_audit
 
     fake_dir = tmp_path / "graphql"
     fake_dir.mkdir()
-    allowed = fake_dir / "filters.py"  # filters.py is on the allowlist
+    allowed = fake_dir / "exempt.py"
     allowed.write_text(
         "def resolve(self, info):\n"
         "    return Thing.objects.visible_to_user(info.context.user)\n"
     )
 
     monkeypatch.setattr(architecture_audit, "GRAPHQL_DIR", fake_dir)
+    monkeypatch.setattr(architecture_audit, "ALLOWED_FILES", frozenset({"exempt.py"}))
 
     assert architecture_audit.audit_graphql_modules() == []
 

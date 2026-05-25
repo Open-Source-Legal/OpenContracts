@@ -29,18 +29,13 @@ FORBIDDEN_NAMES: frozenset[str] = frozenset(
 
 # Files in ``config/graphql/`` that are permitted to retain the forbidden
 # identifiers. Each entry MUST carry a comment explaining why; the
-# allowlist is NOT a place to park "I'll migrate later" debt.
-ALLOWED_FILES: frozenset[str] = frozenset(
-    {
-        # ``filters.py`` uses django-filters FilterSets whose base
-        # queryset is already filtered by the resolver; the
-        # ``visible_to_user`` references that remain are comments
-        # documenting that contract. The AST scan ignores comments,
-        # so this entry is here only as belt-and-braces against
-        # future code edits inside this file.
-        "filters.py",
-    }
-)
+# allowlist is NOT a place to park "I'll migrate later" debt — and it is
+# NOT a place to park future real-code drift either. The allowlist is
+# currently empty: ``filters.py`` no longer needs an entry because its
+# only remaining references are comments, which the AST scanner already
+# ignores (and leaving it allowlisted would silently permit a future
+# inline reintroduction).
+ALLOWED_FILES: frozenset[str] = frozenset()
 
 # ``config/graphql`` lives at ``<repo-root>/config/graphql``. This file
 # lives at ``<repo-root>/opencontractserver/shared/architecture_audit.py``,
