@@ -71,9 +71,9 @@ def _ensure_session_key(info) -> str | None:
 
     Anonymous corpus voting needs a stable identifier to dedupe against.
     Django creates a session row lazily on the first write; we trigger
-    that write by setting (and immediately clearing) a sentinel key so the
-    request response carries the ``Set-Cookie`` header and subsequent
-    votes from the same browser land on the same key.
+    that write by marking the session ``modified`` so the request
+    response carries the ``Set-Cookie`` header and subsequent votes from
+    the same browser land on the same key.
 
     Returns the session key on success, or ``None`` if no session
     middleware is available on this request (e.g. a stripped-down test
@@ -87,10 +87,11 @@ def _ensure_session_key(info) -> str | None:
     if session is None:
         return None
     if not session.session_key:
-        # Touch the session so Django creates a row + sets the cookie.
-        # ``modified = True`` is the documented way to force persistence
-        # without writing a meaningful key/value pair.
-        session["_vote_session_init"] = True
+        # Force persistence without polluting the session store with a
+        # never-cleaned-up sentinel key.  ``session.modified = True`` is
+        # the documented Django idiom for "I haven't written anything
+        # meaningful but please create the row + set the cookie anyway".
+        session.modified = True
         try:
             session.save()
         except Exception:  # pragma: no cover - defensive
@@ -475,6 +476,7 @@ class VoteCorpusMutation(graphene.Mutation):
         )
         if not result.ok:
             return VoteCorpusMutation(ok=False, message=result.error, obj=None)
+        assert result.value is not None  # mypy: success implies value present
 
         # Refresh the corpus row so the GraphQL response carries the
         # post-signal denormalized counts (signal runs in the same

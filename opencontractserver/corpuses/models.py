@@ -2600,7 +2600,7 @@ class CorpusVote(BaseOCModel):
     # ``creator`` field declaration already sets ``null=True, blank=True``
     # at the DB level; this override keeps Django's model-level checks in
     # sync so ORM creates with ``creator=None`` don't trip ``IntegrityError``.
-    creator = django.db.models.ForeignKey(
+    creator = django.db.models.ForeignKey(  # type: ignore[assignment]
         get_user_model(),
         on_delete=django.db.models.CASCADE,
         null=True,
@@ -2633,14 +2633,10 @@ class CorpusVote(BaseOCModel):
             "co-located voters)."
         ),
     )
-    created_at = django.db.models.DateTimeField(
-        auto_now_add=True,
-        help_text="Timestamp when the vote was cast",
-    )
-    updated_at = django.db.models.DateTimeField(
-        auto_now=True,
-        help_text="Timestamp when the vote was last changed",
-    )
+    # NOTE: BaseOCModel already supplies ``created`` / ``modified`` with
+    # the same ``auto_now_add`` / ``auto_now`` semantics — don't shadow
+    # them with ``created_at`` / ``updated_at`` (would add two
+    # redundant DB columns).
 
     def __str__(self) -> str:
         voter = (

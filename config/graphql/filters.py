@@ -231,8 +231,14 @@ class CorpusFilter(django_filters.FilterSet):
         # surface when the user explicitly asks for a Top sort.  Other
         # sorts (default ``created`` ordering, ``-modified``, etc.) keep
         # the existing behaviour so the My Corpuses tab still shows them.
-        order_value = self.data.get("order_by") or self.data.get("orderBy")
-        if order_value in ("top", "-top"):
+        #
+        # graphene-django translates the GraphQL camelCase ``orderBy``
+        # argument to the snake_case ``order_by`` filter name before it
+        # reaches ``self.data``, so we only need to inspect the
+        # snake_case key.  ``self.data`` carries the raw alias ("top" /
+        # "-top"); OrderingFilter doesn't mutate it in place when it
+        # cleans the queryset.
+        if self.data.get("order_by") in ("top", "-top"):
             qs = qs.exclude(is_personal=True)
         return qs
 

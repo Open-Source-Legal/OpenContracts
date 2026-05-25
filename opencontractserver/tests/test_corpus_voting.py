@@ -19,6 +19,7 @@ Designed to be runnable in isolation:
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -34,6 +35,9 @@ from opencontractserver.corpuses.models import (
 )
 from opencontractserver.corpuses.services import CorpusVoteService
 
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User as UserType
+
 User = get_user_model()
 
 
@@ -46,6 +50,15 @@ def _corpus_relay_id(pk: int) -> str:
 
 class CorpusVoteServiceTests(TestCase):
     """Service-layer behavioural contract for corpus voting."""
+
+    # Declared at class level so mypy can see attributes assigned in
+    # ``setUpTestData`` — the django-stubs plugin doesn't infer ``cls.foo``
+    # assignments inside ``@classmethod`` into the class namespace.
+    owner: UserType
+    alice: UserType
+    bob: UserType
+    public_corpus: Corpus
+    private_corpus: Corpus
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -77,6 +90,7 @@ class CorpusVoteServiceTests(TestCase):
             self.alice, self.public_corpus.pk, "upvote"
         )
         self.assertTrue(result.ok, msg=result.error)
+        assert result.value is not None
         self.assertEqual(result.value.corpus_id, self.public_corpus.pk)
         self.assertEqual(result.value.creator_id, self.alice.pk)
         self.assertEqual(result.value.vote_type, "upvote")
@@ -88,6 +102,7 @@ class CorpusVoteServiceTests(TestCase):
             self.alice, self.public_corpus.pk, "downvote"
         )
         self.assertTrue(result.ok)
+        assert result.value is not None
         self.assertEqual(result.value.vote_type, "downvote")
         # Only one row — switching shouldn't insert a second vote.
         self.assertEqual(
@@ -147,6 +162,7 @@ class CorpusVoteServiceTests(TestCase):
             ip_address="203.0.113.10",
         )
         self.assertTrue(result.ok, msg=result.error)
+        assert result.value is not None
         self.assertIsNone(result.value.creator_id)
         self.assertEqual(result.value.session_key, "anon-1")
         self.assertTrue(result.value.ip_hash)  # salted SHA-256, just exists
@@ -173,6 +189,7 @@ class CorpusVoteServiceTests(TestCase):
         )
         self.assertTrue(first.ok and second.ok)
         # Same row updated, not a new one.
+        assert first.value is not None and second.value is not None
         self.assertEqual(first.value.pk, second.value.pk)
 
     def test_cast_vote_does_not_let_user_take_over_anon_vote(self) -> None:
@@ -431,7 +448,10 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
             creator=self.owner,
             is_public=True,
         )
-        self.client = Client(schema)
+        # graphene-django's Client stubs are incomplete (``execute`` isn't
+        # advertised in the type stubs), so erase the type for the test
+        # surface where we drive the schema directly.
+        self.client: Any = Client(schema)
         self.factory = RequestFactory()
 
     def _build_request(self, user, *, with_session: bool = True):

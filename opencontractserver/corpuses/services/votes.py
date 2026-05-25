@@ -127,7 +127,7 @@ class CorpusVoteService(BaseService):
         # with the equivalent rule on MessageVote / ConversationVote so the
         # social-scoring contract is uniform across the platform.
         if is_authenticated and corpus.creator_id == getattr(user, "id", None):
-            return ServiceResult.failure("You cannot vote on your own corpuses")
+            return ServiceResult.failure("You cannot vote on your own corpus")
 
         # Anonymous branch — must have a session_key to dedupe against.
         if not is_authenticated and not session_key:

@@ -598,7 +598,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
               <option value="created">Oldest first</option>
               <option value="-modified">Recently updated</option>
               <option value="-top">Top (most upvotes)</option>
-              <option value="top">Controversial (most downvotes)</option>
+              <option value="top">Most downvoted</option>
               <option value="title">Title (A–Z)</option>
             </SortSelect>
           </SortRow>

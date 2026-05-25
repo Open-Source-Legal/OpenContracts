@@ -118,20 +118,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True,
-                        help_text="Timestamp when the vote was cast",
-                    ),
-                ),
-                (
-                    "updated_at",
-                    models.DateTimeField(
-                        auto_now=True,
-                        help_text="Timestamp when the vote was last changed",
-                    ),
-                ),
-                (
                     "corpus",
                     models.ForeignKey(
                         help_text="The corpus being voted on",
