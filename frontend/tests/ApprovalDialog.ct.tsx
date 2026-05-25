@@ -123,6 +123,27 @@ test.describe("ApprovalDialog", () => {
     await component.unmount();
   });
 
+  test("calls onHide when Escape key is pressed", async ({ mount, page }) => {
+    let hidden = false;
+
+    const component = await mount(
+      <ApprovalDialog
+        pendingApproval={sampleApproval}
+        onHide={() => {
+          hidden = true;
+        }}
+        onDecision={() => {}}
+      />
+    );
+
+    await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5000 });
+    await page.keyboard.press("Escape");
+
+    expect(hidden).toBe(true);
+
+    await component.unmount();
+  });
+
   test("displays tool arguments as JSON", async ({ mount, page }) => {
     const component = await mount(
       <ApprovalDialog

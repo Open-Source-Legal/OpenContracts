@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useEffect, useId } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle, X, XCircle } from "lucide-react";
 import { Button } from "@os-legal/ui";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { Z_INDEX } from "../../assets/configurations/constants";
 import type { PendingApproval } from "./types";
 import { RequestingAgentAttribution } from "./RequestingAgentAttribution";
 
@@ -19,6 +20,16 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
   onHide,
   onDecision,
 }) => {
+  const titleId = useId();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onHide();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onHide]);
+
   return (
     <motion.div
       style={{
@@ -31,7 +42,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 1000,
+        zIndex: Z_INDEX.MODAL,
         padding: "1rem",
       }}
       initial={{ opacity: 0 }}
@@ -41,9 +52,9 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
       <motion.div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="approval-dialog-title"
+        aria-labelledby={titleId}
         style={{
-          backgroundColor: "white",
+          backgroundColor: OS_LEGAL_COLORS.surface,
           borderRadius: "12px",
           padding: "2rem",
           maxWidth: "500px",
@@ -73,7 +84,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
             style={{ color: OS_LEGAL_COLORS.folderIcon }}
           />
           <h3
-            id="approval-dialog-title"
+            id={titleId}
             style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600 }}
           >
             Tool Approval Required
@@ -99,7 +110,6 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
 
         <div
           style={{
-            marginBottom: "1.5rem",
             flex: 1,
             minHeight: 0,
             overflowY: "auto",
@@ -161,6 +171,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
             display: "flex",
             gap: "1rem",
             justifyContent: "flex-end",
+            marginTop: "1.5rem",
             flexShrink: 0,
           }}
         >
