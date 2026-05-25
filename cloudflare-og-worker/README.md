@@ -61,7 +61,11 @@ npm run deploy:production
 
 ### Routes
 
-Configure routes in `wrangler.toml` to match your domain:
+Configure routes in `wrangler.toml` to match your domain. The production
+config covers both the canonical `cite.opensource.legal` domain and the
+legacy `contracts.opensource.legal` domain (kept alive during the 90-day
+grace period) so deep-links shared on social media get rich previews
+regardless of which domain the link points at:
 
 ```toml
 [env.production]
@@ -69,6 +73,9 @@ routes = [
   { pattern = "cite.opensource.legal/c/*", zone_name = "opensource.legal" },
   { pattern = "cite.opensource.legal/d/*", zone_name = "opensource.legal" },
   { pattern = "cite.opensource.legal/e/*", zone_name = "opensource.legal" },
+  { pattern = "contracts.opensource.legal/c/*", zone_name = "opensource.legal" },
+  { pattern = "contracts.opensource.legal/d/*", zone_name = "opensource.legal" },
+  { pattern = "contracts.opensource.legal/e/*", zone_name = "opensource.legal" },
 ]
 ```
 
