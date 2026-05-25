@@ -1204,3 +1204,42 @@ class AgentMentionCorpusScopingTestCase(TestCase):
             0,
             "Anonymous users should not be able to search agents",
         )
+
+    def test_agent_search_with_malformed_corpus_id_degrades_gracefully(self):
+        """Malformed corpus_id (bad base64, non-numeric body) does not 500.
+
+        Regression for PR #1770 follow-up: the global-id decode used to
+        raise an unhandled ``ValueError`` / ``binascii.Error`` and surface
+        as a 500. It now falls back to "no corpus scope" so the resolver
+        returns the unscoped-search result instead.
+        """
+        from config.graphql.queries import Query
+
+        query = Query()
+
+        class MockInfo:
+            class MockContext:
+                user = self.owner
+
+            context = MockContext()
+
+        for bad_corpus_id in (
+            "not-a-valid-global-id",
+            "!!!not-base64!!!",
+            "Q29ycHVzVHlwZTpub3QtYS1udW1iZXI=",  # b64("CorpusType:not-a-number")
+        ):
+            with self.subTest(corpus_id=bad_corpus_id):
+                # Must not raise — degrades to a global / unscoped search.
+                results = query.resolve_search_agents_for_mention(
+                    MockInfo(),
+                    text_search="Agent",
+                    corpus_id=bad_corpus_id,
+                )
+                # The unscoped fallback at minimum surfaces the global agent.
+                agent_names = [a.name for a in results]
+                self.assertIn(
+                    self.global_agent.name,
+                    agent_names,
+                    "Malformed corpus_id should fall back to global / "
+                    "unscoped search, not surface a 500.",
+                )
