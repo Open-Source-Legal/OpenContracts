@@ -142,7 +142,8 @@
     "postcss": "^8.5.10",
     "rollup": "^4.59.0",
     "immutable": ">=3.8.3",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@graphql-codegen/cli": "^5.0.2",
