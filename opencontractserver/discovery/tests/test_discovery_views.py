@@ -99,10 +99,10 @@ class LlmsTxtTest(TestCase):
         """Verify H1 title, blockquote, and H2 sections per llmstxt.org spec."""
         response = self.client.get("/llms.txt")
         content = response.content.decode()
-        # H1 title
-        self.assertIn("# OpenContracts", content)
-        # Blockquote summary
-        self.assertIn("> OpenContracts is an open-source", content)
+        # H1 title — rebranded from OpenContracts to cite in v3 release line
+        self.assertIn("# cite", content)
+        # Blockquote summary (citation-graph framing)
+        self.assertIn("> cite is the citation layer", content)
         # H2 sections
         self.assertIn("## MCP Server", content)
         self.assertIn("## Available Collections", content)
@@ -333,12 +333,12 @@ class WellKnownMcpTest(TestCase):
         response = self.client.get("/.well-known/mcp.json")
         data = json.loads(response.content)
         self.assertIn("mcpServers", data)
-        self.assertIn("opencontracts", data["mcpServers"])
+        self.assertIn("cite", data["mcpServers"])
 
     def test_global_server_entry(self):
         response = self.client.get("/.well-known/mcp.json")
         data = json.loads(response.content)
-        server = data["mcpServers"]["opencontracts"]
+        server = data["mcpServers"]["cite"]
         self.assertIn("/mcp/", server["url"])
         self.assertEqual(server["transport"], "streamable-http")
         self.assertIsNone(server["authentication"])
@@ -347,14 +347,14 @@ class WellKnownMcpTest(TestCase):
         response = self.client.get("/.well-known/mcp.json")
         data = json.loads(response.content)
         slug = self.corpus.slug
-        key = f"opencontracts-{slug}"
+        key = f"cite-{slug}"
         self.assertIn(key, data["mcpServers"])
         self.assertIn(f"/mcp/corpus/{slug}/", data["mcpServers"][key]["url"])
 
     def test_resolves_hostname(self):
         response = self.client.get("/.well-known/mcp.json")
         data = json.loads(response.content)
-        server = data["mcpServers"]["opencontracts"]
+        server = data["mcpServers"]["cite"]
         self.assertIn("http://testserver", server["url"])
         self.assertNotIn("THIS_HOST", server["url"])
 
@@ -369,7 +369,7 @@ class WellKnownMcpTest(TestCase):
         with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
             response = self.client.get("/.well-known/mcp.json")
         data = json.loads(response.content)
-        global_server = data["mcpServers"]["opencontracts"]
+        global_server = data["mcpServers"]["cite"]
         self.assertIsNotNone(global_server["authentication"])
         self.assertEqual(global_server["authentication"]["type"], "oauth2")
         self.assertIn(
@@ -379,7 +379,7 @@ class WellKnownMcpTest(TestCase):
         # The same auth block must be attached to corpus-scoped server entries
         # so clients discover auth uniformly whichever endpoint they pick.
         slug = self.corpus.slug
-        scoped_server = data["mcpServers"][f"opencontracts-{slug}"]
+        scoped_server = data["mcpServers"][f"cite-{slug}"]
         self.assertEqual(
             scoped_server["authentication"], global_server["authentication"]
         )
@@ -437,7 +437,7 @@ class DiscoveryNoCorpusesTest(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         # Should still have the core sections
-        self.assertIn("# OpenContracts", content)
+        self.assertIn("# cite", content)
         self.assertIn("## MCP Server", content)
         # But no Available Collections section
         self.assertNotIn("## Available Collections", content)
@@ -460,7 +460,7 @@ class DiscoveryNoCorpusesTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.content)
         # Should still have global server
-        self.assertIn("opencontracts", data["mcpServers"])
+        self.assertIn("cite", data["mcpServers"])
         # But no corpus-scoped servers beyond the global one
         self.assertEqual(len(data["mcpServers"]), 1)
 
