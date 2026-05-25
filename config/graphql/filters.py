@@ -228,9 +228,15 @@ class CorpusFilter(django_filters.FilterSet):
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         qs = super().filter_queryset(queryset)
         # Personal corpuses are private singletons — they should not
-        # surface when the user explicitly asks for a Top sort.  Other
-        # sorts (default ``created`` ordering, ``-modified``, etc.) keep
-        # the existing behaviour so the My Corpuses tab still shows them.
+        # surface when the user is browsing shared/public content via a
+        # Top sort (ranking a single-user "My Documents" corpus against
+        # cross-user content is meaningless).  We scope the exclusion to
+        # the discovery surface only: when ``mine`` is explicitly True
+        # the user is on the "My Corpuses" tab and wants to see THEIR
+        # corpora — including the personal one — sorted by score.
+        # Otherwise (mine unset, isPublic=True, sharedWithMe=True, etc.)
+        # the personal corpus would be cross-ranked against other users'
+        # content and should drop out.
         #
         # graphene-django translates the GraphQL camelCase ``orderBy``
         # argument to the snake_case ``order_by`` filter name before it
@@ -238,7 +244,9 @@ class CorpusFilter(django_filters.FilterSet):
         # snake_case key.  ``self.data`` carries the raw alias ("top" /
         # "-top"); OrderingFilter doesn't mutate it in place when it
         # cleans the queryset.
-        if self.data.get("order_by") in ("top", "-top"):
+        if self.data.get("order_by") in ("top", "-top") and not self.data.get(
+            "mine"
+        ):
             qs = qs.exclude(is_personal=True)
         return qs
 

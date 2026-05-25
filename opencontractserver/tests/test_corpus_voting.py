@@ -609,6 +609,53 @@ class CorpusVoteGraphQLTests(TransactionTestCase):
         self.assertEqual(result["data"]["corpus"]["myVote"], "UPVOTE")
         self.assertEqual(result["data"]["corpus"]["upvoteCount"], 1)
 
+    def test_top_sort_excludes_personal_corpus_on_discovery_surface(self) -> None:
+        """The ``orderBy: "top"`` discovery sort hides personal corpora.
+
+        Personal corpora are single-user singletons that have no meaningful
+        ranking against shared content, so the filter strips them anywhere
+        the user is browsing the cross-user discovery surface (``mine`` is
+        not True). This pins the behavior end-to-end through graphene.
+        """
+        # A personal corpus is auto-created for every user by a signal
+        # handler — one per user is enforced by the
+        # ``one_personal_corpus_per_user`` constraint, so reuse alice's.
+        personal_corpus = Corpus.objects.get(
+            creator=self.alice, is_personal=True
+        )
+        query = """
+            query {
+                corpuses(orderBy: "-top") { edges { node { id } } }
+            }
+        """
+        request = self._build_request(self.alice)
+        result = self.client.execute(query, context_value=request)
+        self.assertIsNone(result.get("errors"), msg=json.dumps(result))
+        returned_ids = {edge["node"]["id"] for edge in result["data"]["corpuses"]["edges"]}
+        self.assertNotIn(_corpus_relay_id(personal_corpus.pk), returned_ids)
+
+    def test_top_sort_on_mine_tab_keeps_personal_corpus(self) -> None:
+        """The ``mine=True`` (My Corpuses) tab keeps personal corpora visible
+        even under a Top sort, so users always see all of their own content.
+
+        Regression test for the silent personal-corpus drop noted on PR #1789
+        review (the original filter excluded ``is_personal=True`` on every
+        Top-sorted query, including the user's own tab).
+        """
+        personal_corpus = Corpus.objects.get(
+            creator=self.alice, is_personal=True
+        )
+        query = """
+            query {
+                corpuses(orderBy: "-top", mine: true) { edges { node { id } } }
+            }
+        """
+        request = self._build_request(self.alice)
+        result = self.client.execute(query, context_value=request)
+        self.assertIsNone(result.get("errors"), msg=json.dumps(result))
+        returned_ids = {edge["node"]["id"] for edge in result["data"]["corpuses"]["edges"]}
+        self.assertIn(_corpus_relay_id(personal_corpus.pk), returned_ids)
+
     def test_corpuses_list_my_vote_is_not_n_plus_one(self) -> None:
         """The corpus list resolver must annotate ``my_vote`` with a single
         per-page ``Subquery`` rather than firing one query per card.

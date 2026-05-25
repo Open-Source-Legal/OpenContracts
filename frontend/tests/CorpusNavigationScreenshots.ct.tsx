@@ -57,6 +57,10 @@ const navCorpus: CorpusType = {
   labelSet: null,
   allowComments: true,
   preferredEmbedder: null,
+  upvoteCount: 0,
+  downvoteCount: 0,
+  score: 0,
+  myVote: null,
   myPermissions: [
     "update_corpus",
     "read_corpus",
@@ -328,6 +332,33 @@ const discoveryMocks: MockedResponse[] = [
  * -------------------------------------------------------------------------- */
 
 const corpusListMocks: MockedResponse[] = [
+  // The Corpuses view memoizes its variables from corpusListSort (default
+  // "-created"), so the actual query sent on first render is
+  // `{ orderBy: "-created" }`. We also keep the bare-variables and
+  // textSearch="" variants because legacy callers/refetches may shed the
+  // sort variable.
+  {
+    request: { query: GET_CORPUSES, variables: { orderBy: "-created" } },
+    result: {
+      data: {
+        corpuses: {
+          edges: [
+            { node: navCorpus, __typename: "CorpusTypeEdge" },
+            { node: secondCorpus, __typename: "CorpusTypeEdge" },
+            { node: thirdCorpus, __typename: "CorpusTypeEdge" },
+          ],
+          pageInfo: {
+            hasNextPage: false,
+            hasPreviousPage: false,
+            startCursor: null,
+            endCursor: null,
+            __typename: "PageInfo",
+          },
+          __typename: "CorpusTypeConnection",
+        },
+      },
+    },
+  },
   {
     request: { query: GET_CORPUSES, variables: {} },
     result: {
