@@ -3,21 +3,15 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_SHADOWS,
   OS_LEGAL_SPACING,
-  OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
 import {
   COOKIE_CONSENT_GRID_BREAKPOINT,
   MOBILE_VIEW_BREAKPOINT,
 } from "../../assets/configurations/constants";
-import {
-  modalFooterBorder,
-  modalFooterMobile,
-} from "../widgets/modals/sharedModalStyles";
 import { useMutation, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
 import {
   AlertTriangle,
-  Cookie,
   Users,
   Settings,
   Monitor,
@@ -47,32 +41,69 @@ import {
   setAnalyticsConsent,
   isPostHogConfigured,
 } from "../../utils/analytics";
+import { CiteMark } from "../brand/CiteMark";
 
+/**
+ * CookieConsentDialog — cite rebrand.
+ *
+ * The modal retains every piece of information from the OpenContracts-era
+ * version (demo-system caveat, cookie usage explainer, "data we collect",
+ * "data you agree to share", analytics breakdown when PostHog is wired
+ * up, MIT-style disclaimer). The visual language was rewritten against
+ * the cite brand system: Source Serif 4 for display copy, slate/teal/
+ * warm-paper palette only, sentence-case titles, the [•] icon mark
+ * instead of decorative badges, no warning-yellow demo banner, and a
+ * navy primary button per the brand spec (navy chrome for primary CTAs,
+ * teal reserved for accent / links / active states).
+ */
+
+// Brand-correct typography stacks. Don't pull from OS_LEGAL_TYPOGRAPHY here
+// — the legacy fontFamilySerif resolves to Georgia, but the cite brand
+// spec requires Source Serif 4 with the Source Serif Pro / Georgia
+// fallback chain so the wordmark style carries through.
 const sansFont = css`
-  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans};
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 `;
 
 const serifFont = css`
-  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
+  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
 `;
 
-const StyledModalWrapper = styled.div`
-  .oc-modal-overlay {
+/**
+ * Global CSS overrides for the @os-legal/ui Modal classes when used by
+ * the cookie consent dialog. The Modal renders its body via
+ * `createPortal(content, document.body)` — that takes the rendered DOM
+ * out of any styled-components wrapper, so selectors like
+ * `.oc-modal-overlay` or `.oc-button--primary` can't be scoped to a
+ * styled.div parent the way styled-components 6 normally arranges them.
+ * Inline these as a plain stylesheet (NavMenu uses the same pattern
+ * for its `.oc-navbar` overrides) and they apply correctly to the
+ * portaled DOM.
+ *
+ * Scoped via the `data-cookie-consent` attribute on every targeted node
+ * so these rules can never bleed into another consumer of the same
+ * Modal classes.
+ */
+const cookieModalCss = `
+  /* Overlay is the modal's parent in the portal tree, scoped via the
+     overlayClassName prop on <Modal> below. */
+  .cookie-consent-overlay {
     z-index: 2000;
-    backdrop-filter: blur(4px);
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      padding: 0;
-    }
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-overlay { padding: 0; }
   }
 
-  .oc-modal {
+  .cookie-consent-modal.oc-modal {
     max-width: ${OS_LEGAL_SPACING.modalMaxWidth};
     width: calc(100vw - ${OS_LEGAL_SPACING.modalSideGutter});
-    border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
+    border-radius: 8px;
     box-shadow: ${OS_LEGAL_SHADOWS.modalOverlay};
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    background: #fafaf7;
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-modal.oc-modal {
       width: 100%;
       max-width: 100%;
       max-height: 100vh;
@@ -83,122 +114,132 @@ const StyledModalWrapper = styled.div`
     }
   }
 
-  .oc-modal-header {
+  .cookie-consent-modal .oc-modal-header {
     border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
-    padding: 1.5rem 1.75rem;
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      padding: 1rem 1.125rem;
+    padding: 1.5rem 1.75rem 1.25rem;
+    background: #fafaf7;
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-modal .oc-modal-header {
+      padding: 1.125rem 1.125rem 1rem;
       flex-shrink: 0;
     }
   }
 
-  .oc-modal-header__title {
-    ${serifFont}
-    font-size: 1.5rem;
+  .cookie-consent-modal .oc-modal-header__title {
+    font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+    font-size: 1.625rem;
     font-weight: 400;
-    line-height: 1.2;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
     color: ${OS_LEGAL_COLORS.textPrimary};
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      font-size: 1.1875rem;
-      letter-spacing: -0.005em;
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-modal .oc-modal-header__title {
+      font-size: 1.3125rem;
+      letter-spacing: -0.4px;
     }
   }
 
-  .oc-modal-body {
-    padding: 1.5rem 1.75rem 1.25rem;
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-      padding: 1rem 1.125rem 1.25rem;
+  .cookie-consent-modal .oc-modal-body {
+    padding: 1.5rem 1.75rem 1.5rem;
+    background: #fafaf7;
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-modal .oc-modal-body {
+      padding: 1.125rem 1.125rem 1.25rem;
       flex: 1 1 auto;
       overflow-y: auto;
-      background: ${OS_LEGAL_COLORS.background};
     }
   }
 
-  .oc-modal-footer {
-    ${modalFooterBorder}
-    ${modalFooterMobile}
+  .cookie-consent-modal .oc-modal-footer {
     padding: 1rem 1.75rem;
     display: flex;
     justify-content: flex-end;
-
-    @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    background: #fafaf7;
+    border-top: 1px solid ${OS_LEGAL_COLORS.border};
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-modal .oc-modal-footer {
       padding: 0.875rem 1.125rem;
-      /* bottom intentionally overrides the shorthand to extend into the
-         safe-area inset on notched devices */
       padding-bottom: calc(0.875rem + env(safe-area-inset-bottom, 0px));
-      background: ${OS_LEGAL_COLORS.surface};
       box-shadow: ${OS_LEGAL_SHADOWS.footerLiftMobile};
       flex-shrink: 0;
+    }
+  }
 
-      button {
-        height: 48px;
-        font-size: 0.9375rem;
-        font-weight: 600;
-        border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
-      }
+  /* Override the @os-legal/ui primary Button to the brand navy chrome.
+     Teal stays reserved for accent / links / active states per the cite
+     brand system. */
+  .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary {
+    background: #0f172a;
+    color: #fafaf7;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 500;
+    letter-spacing: 0;
+    border-radius: 6px;
+    padding: 0.625rem 1.125rem;
+    transition: background 0.15s ease;
+  }
+  .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary:hover:not(:disabled):not(.oc-button--loading),
+  .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary:focus-visible {
+    background: #1e293b;
+  }
+  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
+    .cookie-consent-modal .oc-modal-footer .oc-button.oc-button--primary {
+      width: 100%;
+      height: 48px;
+      font-size: 0.9375rem;
     }
   }
 `;
 
-const HeaderTitleRow = styled.span`
+const TitleColumn = styled.span`
   display: flex;
-  align-items: center;
-  gap: 0.875rem;
+  flex-direction: column;
+  gap: 8px;
   min-width: 0;
-
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    gap: 0.625rem;
-  }
 `;
 
-const IconBadge = styled.span`
+const Eyebrow = styled.span`
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: ${OS_LEGAL_SPACING.iconBadgeDesktop};
-  height: ${OS_LEGAL_SPACING.iconBadgeDesktop};
-  border-radius: 50%;
-  background: ${OS_LEGAL_COLORS.accentSurface};
-  color: ${OS_LEGAL_COLORS.accent};
-  flex-shrink: 0;
+  gap: 8px;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: ${OS_LEGAL_COLORS.textMuted};
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    width: ${OS_LEGAL_SPACING.iconBadgeMobile};
-    height: ${OS_LEGAL_SPACING.iconBadgeMobile};
-    /* Crisp 1px outline on the smaller mobile badge so the accent ring
-       remains visible against the light surface — desktop badge is large
-       enough not to need it. */
-    box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.accentMedium};
+    font-size: 10px;
+    letter-spacing: 0.5px;
   }
 `;
 
 const DemoBanner = styled.div`
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
+  gap: 12px;
   padding: 0.875rem 1rem;
-  background: ${OS_LEGAL_COLORS.warningSurface};
-  border: 1px solid ${OS_LEGAL_COLORS.warningBorder};
-  border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
+  background: #ffffff;
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-left: 3px solid #0f766e;
+  border-radius: 6px;
   margin-bottom: 1.5rem;
 
   > svg {
     flex-shrink: 0;
-    color: ${OS_LEGAL_COLORS.warningText};
-    margin-top: 1px;
+    color: ${OS_LEGAL_COLORS.textPrimary};
+    margin-top: 2px;
   }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     padding: 0.75rem 0.875rem;
-    gap: 0.625rem;
-    margin-bottom: 1.125rem;
-    /* Add a left accent stripe to make the demo callout pop in the
-       higher-information-density mobile layout. */
-    border-left: ${OS_LEGAL_SPACING.borderAccentWidth} solid
-      ${OS_LEGAL_COLORS.warningText};
+    gap: 10px;
+    margin-bottom: 1.25rem;
   }
 `;
 
@@ -206,33 +247,33 @@ const DemoBannerText = styled.p`
   margin: 0;
   font-size: 0.8125rem;
   line-height: 1.5;
-  color: ${OS_LEGAL_COLORS.warningText};
+  color: ${OS_LEGAL_COLORS.textSecondary};
   ${sansFont}
 
-  @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    font-size: 0.8125rem;
-    line-height: 1.45;
+  strong {
+    font-weight: 500;
+    color: ${OS_LEGAL_COLORS.textPrimary};
   }
 `;
 
 const LeadSection = styled.section`
-  margin: 0 0 1.25rem;
+  margin: 0 0 1.5rem;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    margin: 0 0 1rem;
+    margin: 0 0 1.25rem;
   }
 `;
 
 const SectionLabel = styled.h4`
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
   margin: 0 0 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: ${OS_LEGAL_COLORS.textTertiary};
+  letter-spacing: 0.6px;
+  color: ${OS_LEGAL_COLORS.textMuted};
   ${sansFont}
 
   svg {
@@ -241,20 +282,24 @@ const SectionLabel = styled.h4`
   }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    font-size: 0.6875rem;
-    letter-spacing: 0.07em;
+    font-size: 10px;
+    letter-spacing: 0.5px;
   }
 `;
 
 const LeadBody = styled.p`
   margin: 0;
-  font-size: 0.9375rem;
+  ${serifFont}
+  font-size: 1rem;
   line-height: 1.6;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  ${sansFont}
+  color: ${OS_LEGAL_COLORS.textPrimary};
+
+  em {
+    font-style: italic;
+  }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     line-height: 1.55;
   }
 `;
@@ -263,7 +308,7 @@ const TwoColumnGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
 
   @media (max-width: ${COOKIE_CONSENT_GRID_BREAKPOINT}px) {
     grid-template-columns: 1fr;
@@ -271,7 +316,7 @@ const TwoColumnGrid = styled.div`
   }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
   }
 `;
 
@@ -280,24 +325,22 @@ const DataCard = styled.section`
   flex-direction: column;
   gap: 0.625rem;
   padding: 1rem 1.125rem 1.125rem;
-  background: ${OS_LEGAL_COLORS.surface};
+  background: #ffffff;
   border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: ${OS_LEGAL_SPACING.borderRadiusCard};
+  border-radius: 6px;
 
   &.cookie-consent__analytics {
-    margin-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
   }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     padding: 0.875rem 0.875rem 0.9375rem;
     gap: 0.5rem;
-    border-radius: ${OS_LEGAL_SPACING.borderRadiusCardMobile};
-    /* Subtle elevation pulls the card off the body background; only
-       needed at the higher visual density of the mobile layout. */
-    box-shadow: ${OS_LEGAL_SHADOWS.card};
+    /* Brand: shadows are subtle to absent. Cards sit on the page
+       with a 1px border only — no elevation. */
 
     &.cookie-consent__analytics {
-      margin-bottom: 1rem;
+      margin-bottom: 1.25rem;
     }
   }
 `;
@@ -321,24 +364,23 @@ const DataList = styled.ul`
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: 4px;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    gap: 0.3125rem;
+    gap: 5px;
   }
 `;
 
 const DataListItem = styled.li`
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 10px;
   padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
   line-height: 1.4;
-  // textSecondary used over textTertiary so prose meets WCAG AA on surfaceLight.
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  border-radius: ${OS_LEGAL_SPACING.borderRadiusListItem};
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  background: transparent;
+  border-radius: 4px;
   ${sansFont}
 
   svg {
@@ -347,15 +389,15 @@ const DataListItem = styled.li`
   }
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    padding: 0.5rem 0.625rem;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    background: ${OS_LEGAL_COLORS.accentSurface};
-    color: ${OS_LEGAL_COLORS.textPrimary};
+    /* On mobile, soften with a slate-tinted surface so the rows
+       remain scannable inside the body. */
+    padding: 0.5625rem 0.625rem;
+    gap: 8px;
+    background: ${OS_LEGAL_COLORS.surfaceLight};
 
     svg {
-      width: ${OS_LEGAL_SPACING.iconInlineMobile};
-      height: ${OS_LEGAL_SPACING.iconInlineMobile};
+      width: 14px;
+      height: 14px;
     }
   }
 `;
@@ -363,35 +405,48 @@ const DataListItem = styled.li`
 const AnalyticsNote = styled.p`
   margin: 0.125rem 0 0;
   font-size: 0.75rem;
-  line-height: 1.5;
+  line-height: 1.55;
   color: ${OS_LEGAL_COLORS.textMuted};
   ${sansFont}
 `;
 
 const DisclaimerBlock = styled.aside`
-  padding: 0.75rem 0.875rem;
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  border-left: ${OS_LEGAL_SPACING.borderAccentWidth} solid
-    ${OS_LEGAL_COLORS.borderHover};
-  border-radius: ${OS_LEGAL_SPACING.borderRadiusButton};
+  padding: 0.875rem 1rem;
+  background: #ffffff;
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 6px;
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
-    padding: 0.625rem 0.75rem;
+    padding: 0.75rem 0.875rem;
   }
+`;
+
+const DisclaimerLabel = styled.span`
+  display: block;
+  margin-bottom: 0.375rem;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: ${OS_LEGAL_COLORS.textMuted};
 `;
 
 const Disclaimer = styled.p`
   margin: 0;
-  // 0.75rem (12px) keeps legal disclaimer text at the WCAG-recommended minimum.
+  /* 12px keeps the legal disclaimer at the WCAG-recommended minimum.
+     ALL CAPS is preserved here — it's a legal-text convention used in
+     the MIT-style warranty disclaimer the project ships under, not
+     emphatic marketing copy. */
   font-size: 0.75rem;
-  line-height: 1.55;
-  letter-spacing: 0.01em;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
   color: ${OS_LEGAL_COLORS.textMuted};
   ${sansFont}
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     font-size: 0.6875rem;
-    line-height: 1.5;
+    line-height: 1.55;
   }
 `;
 
@@ -443,35 +498,42 @@ export const CookieConsentDialog = () => {
   };
 
   return (
-    <StyledModalWrapper>
-      <Modal open onClose={() => {}}>
+    <>
+      <style>{cookieModalCss}</style>
+      <Modal
+        open
+        onClose={() => {}}
+        className="cookie-consent-modal"
+        overlayClassName="cookie-consent-overlay"
+      >
         <ModalHeader
           title={
-            <HeaderTitleRow>
-              <IconBadge>
-                <Cookie size={20} />
-              </IconBadge>
-              Cookie Policy &amp; Terms
-            </HeaderTitleRow>
+            <TitleColumn>
+              <Eyebrow>
+                <CiteMark size={12} ariaLabel="" />
+                Privacy
+              </Eyebrow>
+              Cookies and terms
+            </TitleColumn>
           }
         />
         <ModalBody>
           <DemoBanner>
             <AlertTriangle size={18} />
             <DemoBannerText>
-              <strong>Demo system</strong> — no guarantee of uptime or data
-              retention. Accounts and data may be deleted at any time.
+              <strong>Demo system.</strong> No guarantee of uptime or data
+              retention — accounts and data may be deleted at any time.
             </DemoBannerText>
           </DemoBanner>
 
           <LeadSection>
             <SectionLabel>
               <Shield size={14} />
-              Cookie Usage
+              Cookie usage
             </SectionLabel>
             <LeadBody>
-              This site uses cookies to enhance your experience and help us
-              improve OpenContracts. We do not sell or share user information.
+              <em>cite</em> uses cookies to enhance your experience and help us
+              improve the platform. We do not sell or share user information.
             </LeadBody>
           </LeadSection>
 
@@ -479,7 +541,7 @@ export const CookieConsentDialog = () => {
             <DataCard>
               <SectionLabel>
                 <FileText size={14} />
-                Data We Collect
+                Data we collect
               </SectionLabel>
               <DataList>
                 <DataListItem>
@@ -500,7 +562,7 @@ export const CookieConsentDialog = () => {
             <DataCard>
               <SectionLabel>
                 <Share2 size={14} />
-                Data You Agree to Share
+                Data you agree to share
               </SectionLabel>
               <DataCardLead>
                 By using this demo, you agree to share the following under a CC0
@@ -543,7 +605,7 @@ export const CookieConsentDialog = () => {
                 </DataListItem>
               </DataList>
               <AnalyticsNote>
-                Analytics data is used solely to improve OpenContracts and is
+                Analytics data is used solely to improve <em>cite</em> and is
                 never sold or shared with third parties. You can opt out at any
                 time through your browser settings or by using Do Not Track.
               </AnalyticsNote>
@@ -551,6 +613,7 @@ export const CookieConsentDialog = () => {
           )}
 
           <DisclaimerBlock>
+            <DisclaimerLabel>Warranty disclaimer</DisclaimerLabel>
             <Disclaimer>
               THE SOFTWARE IS PROVIDED &ldquo;AS IS&rdquo;, WITHOUT WARRANTY OF
               ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
@@ -571,10 +634,10 @@ export const CookieConsentDialog = () => {
             leftIcon={<Check size={16} />}
             onClick={handleAccept}
           >
-            Accept &amp; Continue
+            Accept and continue
           </Button>
         </ModalFooter>
       </Modal>
-    </StyledModalWrapper>
+    </>
   );
 };
