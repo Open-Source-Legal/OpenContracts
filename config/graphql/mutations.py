@@ -210,8 +210,10 @@ from config.graphql.user_mutations import (
 # Import voting mutations
 from config.graphql.voting_mutations import (
     RemoveConversationVoteMutation,
+    RemoveCorpusVoteMutation,
     RemoveVoteMutation,
     VoteConversationMutation,
+    VoteCorpusMutation,
     VoteMessageMutation,
 )
 
@@ -398,6 +400,8 @@ class Mutation(graphene.ObjectType):
     remove_vote = RemoveVoteMutation.Field()
     vote_conversation = VoteConversationMutation.Field()
     remove_conversation_vote = RemoveConversationVoteMutation.Field()
+    vote_corpus = VoteCorpusMutation.Field()
+    remove_corpus_vote = RemoveCorpusVoteMutation.Field()
 
     # NOTIFICATION MUTATIONS #####################################################
     mark_notification_read = MarkNotificationReadMutation.Field()

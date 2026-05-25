@@ -237,6 +237,13 @@ export const Corpuses = () => {
   const [corpusListActiveFilter, setCorpusListActiveFilter] =
     useState<string>("all");
 
+  // Active sort for the Corpuses list view.  Values map 1:1 to the
+  // backend ``orderBy`` argument on GET_CORPUSES.  Empty string =
+  // "default" = the model's intrinsic ``ordering = ("created",)``; any
+  // other value is one of the tuple-mapped options exposed by
+  // ``CorpusFilter.order_by`` (top / -top / -modified / title).
+  const [corpusListSort, setCorpusListSort] = useState<string>("");
+
   // Track whether CorpusChat is showing a conversation (vs the list view)
   // Used to hide parent navigation header when CorpusChat handles its own
   const [chatInConversation, setChatInConversation] = useState<boolean>(false);
@@ -474,8 +481,16 @@ export const Corpuses = () => {
     } else if (corpusListActiveFilter === "public") {
       vars.isPublic = true;
     }
+    // Sort is opt-in: an empty string means "let the backend apply its
+    // default model ordering" and we omit the variable entirely so the
+    // GraphQL filter does not invoke the OrderingFilter (the
+    // ``filter_queryset`` personal-corpus exclusion only kicks in for
+    // explicit Top sorts).
+    if (corpusListSort) {
+      vars.orderBy = corpusListSort;
+    }
     return vars;
-  }, [corpus_search_term, corpusListActiveFilter]);
+  }, [corpus_search_term, corpusListActiveFilter, corpusListSort]);
 
   // Now that auth is guaranteed to be ready before this component renders,
   // we can use a regular useQuery
@@ -1455,6 +1470,8 @@ export const Corpuses = () => {
         activeFilter={corpusListActiveFilter}
         onFilterChange={setCorpusListActiveFilter}
         filterCounts={corpus_filter_counts}
+        sortValue={corpusListSort}
+        onSortChange={setCorpusListSort}
       />
     );
   } else if (

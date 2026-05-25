@@ -381,6 +381,44 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return self._document_count
         return self.document_count()
 
+    # Voting — denormalized counts live directly on the model so they
+    # serialize for free through the DjangoObjectType field auto-discovery.
+    # ``my_vote`` requires a custom resolver because the answer depends on
+    # the calling user (or the anonymous session key for guest voters).
+    my_vote = graphene.String(
+        description=(
+            "Current viewer's vote on this corpus: 'UPVOTE', 'DOWNVOTE', or null. "
+            "Resolved against the authenticated user when present, otherwise "
+            "against the Django session id for guest voters."
+        )
+    )
+
+    def resolve_my_vote(self, info) -> str | None:
+        """Look up the viewer's vote — handles auth + anonymous branches.
+
+        Returns the uppercased vote type (matching the
+        ``MessageType.user_vote`` / ``ConversationType.user_vote`` shape
+        already on the wire) or ``None`` when the viewer has not voted.
+        """
+        from opencontractserver.corpuses.services import CorpusVoteService
+
+        request = info.context
+        user = getattr(request, "user", None)
+        session_key = None
+
+        # Anonymous voters are tracked by Django session id, which is only
+        # present once the session middleware has written to it (we lazily
+        # ensure the session exists in the vote mutation; reading here is
+        # passive — we just look up whatever's already on the request).
+        session = getattr(request, "session", None)
+        if session is not None:
+            session_key = session.session_key
+
+        vote_type = CorpusVoteService.get_user_vote_type(
+            user, self, session_key=session_key
+        )
+        return vote_type.upper() if vote_type else None
+
     # Efficient annotation count field - uses annotation from resolver
     annotation_count = graphene.Int(
         description="Count of annotations in this corpus (optimized)"

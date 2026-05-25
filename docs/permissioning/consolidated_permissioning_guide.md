@@ -309,33 +309,70 @@ The GraphQL layer translates between backend Django Guardian format and frontend
 
 ### Voting Permissions
 
-Voting on messages and conversations/threads uses a **visibility-based permission model**:
+Voting on messages, conversations/threads, and corpuses uses a **visibility-based permission model**:
 
 **Rule: If you can see it, you can vote on it.**
 
 This simple convention means:
-- Users can upvote/downvote any message or thread they have READ access to
-- Users CANNOT vote on their own messages or threads (enforced server-side)
+- Users can upvote/downvote any message, thread, or corpus they have READ access to
+- Users CANNOT vote on their own messages, threads, or corpuses (enforced server-side)
 - No explicit "VOTE" permission type exists - voting is implicitly allowed with READ access
-- Vote counts are denormalized on ChatMessage and Conversation models for performance
+- Vote counts are denormalized on ChatMessage / Conversation / Corpus models for performance
 
 **Implementation Details:**
 - `MessageVote` model: Tracks votes on ChatMessage objects
 - `ConversationVote` model: Tracks votes on Conversation/Thread objects
-- One vote per user per object (enforced via database constraint)
+- `CorpusVote` model: Tracks votes on Corpus objects (see below for anonymous-voter handling)
+- One vote per user per object (enforced via database UNIQUE constraint)
 - Users can change their vote type (upvote ↔ downvote)
-- Vote mutations check visibility via `Conversation.objects.visible_to_user(user)`
+- Vote mutations check visibility via the matching `Model.objects.visible_to_user(user)` filter (routed through `BaseService.get_or_none` in the service layer)
 
 **Mutations:**
-- `voteMessage(messageId, voteType)` - Vote on a message
-- `removeVote(messageId)` - Remove vote from a message
-- `voteConversation(conversationId, voteType)` - Vote on a thread
-- `removeConversationVote(conversationId)` - Remove vote from a thread
+- `voteMessage(messageId, voteType)` - Vote on a message (`@login_required`)
+- `removeVote(messageId)` - Remove vote from a message (`@login_required`)
+- `voteConversation(conversationId, voteType)` - Vote on a thread (`@login_required`)
+- `removeConversationVote(conversationId)` - Remove vote from a thread (`@login_required`)
+- `voteCorpus(corpusId, voteType)` - Vote on a corpus (**no `@login_required`** — see Corpus-specific notes below)
+- `removeCorpusVote(corpusId)` - Remove vote from a corpus (**no `@login_required`**)
 
 **GraphQL Fields:**
 - `MessageType.userVote` - Current user's vote ("UPVOTE", "DOWNVOTE", or null)
 - `ConversationType.userVote` - Current user's vote on the thread
-- `upvoteCount` / `downvoteCount` - Denormalized vote counts on both types
+- `CorpusType.myVote` - Current viewer's vote on the corpus (named `myVote` rather than `userVote` because it generalises to anonymous viewers — see below)
+- `upvoteCount` / `downvoteCount` - Denormalized vote counts on all three types
+- `CorpusType.score` - `upvoteCount - downvoteCount`, indexed for `orderBy: "top"` sorts on the corpus list view
+
+#### Corpus Voting — Anonymous Voter Support
+
+Unlike message and conversation voting, **corpus voting accepts anonymous callers**. The discovery surface (`/corpuses`) is reachable without login, and public corpora are visible to anonymous users; allowing them to upvote/downvote turns score into a meaningful community signal rather than a leaderboard for authenticated users only.
+
+**Two voter shapes share one table (`CorpusVote`):**
+
+| Voter shape | `creator` | `session_key` | UNIQUE constraint |
+|-------------|-----------|---------------|-------------------|
+| Authenticated | NOT NULL (user FK) | NULL | `one_vote_per_user_per_corpus` (partial, `creator IS NOT NULL`) |
+| Anonymous | NULL | NOT NULL (Django session id) | `one_anon_vote_per_session_per_corpus` (partial, `creator IS NULL AND session_key IS NOT NULL`) |
+
+The **two partial UNIQUE indexes** (rather than a single composite UNIQUE) are required because Postgres treats every NULL as distinct — an unconditional `UNIQUE(corpus, creator)` would let unbounded anonymous rows accumulate, and an unconditional `UNIQUE(corpus, session_key)` would block every authenticated row.
+
+A salted SHA-256 `ip_hash` is recorded for audit/abuse review but is intentionally **NOT** part of the unique constraint — shared NATs would otherwise prevent legitimate co-located voters from voting.
+
+**Permission gating (both branches):**
+- READ visibility on the corpus is the only check (`BaseService.get_or_none(Corpus, pk, user)`).
+- For anonymous viewers, `Corpus.objects.visible_to_user(AnonymousUser())` already filters down to public corpuses only, so the READ gate naturally blocks anonymous voting on private corpora.
+- Self-vote (creator voting on their own corpus) is blocked on the authenticated branch; anonymous voters by definition are not the creator.
+
+**Session bootstrap:**
+The `voteCorpus` mutation calls `session.save()` on first cast to materialise a `session_key` so subsequent votes from the same browser dedupe correctly. The `removeCorpusVote` mutation reads `session_key` passively — it never creates a session for callers who haven't voted.
+
+**Sort surface:**
+`CorpusFilter.order_by` (GraphQL arg `orderBy`) is tuple-mapped to expose `top` / `-top` for score sorting, `created` / `-modified` / `title` for traditional sorts. When `orderBy` is `top` or `-top`, `is_personal=True` corpora are excluded — personal "My Documents" corpora are private singletons that should not rank against shared content.
+
+**Implementation:**
+- Model + signal-driven count maintenance: `opencontractserver/corpuses/models.py` (`CorpusVote`, `CorpusVoteType`) + `opencontractserver/corpuses/signals.py` (`update_corpus_vote_counts_on_save` / `_on_delete`)
+- Service: `opencontractserver/corpuses/services/votes.py` (`CorpusVoteService`)
+- GraphQL: `config/graphql/voting_mutations.py` (`VoteCorpusMutation`, `RemoveCorpusVoteMutation`)
+- Tests: `opencontractserver/tests/test_corpus_voting.py`
 
 ## Permission Model Summary by Object Type
 

@@ -326,6 +326,14 @@ export type RawCorpusType = Node & {
   categories?: CorpusCategoryType[];
   license?: Maybe<Scalars["String"]>;
   licenseLink?: Maybe<Scalars["String"]>;
+  // Voting — denormalized counts maintained server-side by signal handlers
+  // on CorpusVote save/delete.  ``score`` is upvoteCount - downvoteCount and
+  // is the column used by the ``orderBy: "top"`` sort path.  ``myVote`` is
+  // the viewer's current vote: "UPVOTE", "DOWNVOTE", or null.
+  upvoteCount?: Scalars["Int"];
+  downvoteCount?: Scalars["Int"];
+  score?: Scalars["Int"];
+  myVote?: Maybe<"UPVOTE" | "DOWNVOTE">;
 };
 
 export type CorpusType = Omit<RawCorpusType, "myPermissions"> & {

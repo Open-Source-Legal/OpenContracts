@@ -34,6 +34,7 @@ from opencontractserver.corpuses.services.folder_documents import (
 from opencontractserver.corpuses.services.folders import FolderCRUDService
 from opencontractserver.corpuses.services.lifecycle import DocumentLifecycleService
 from opencontractserver.corpuses.services.paths import CorpusPathService
+from opencontractserver.corpuses.services.votes import CorpusVoteService
 
 __all__ = [
     "FolderCRUDService",
@@ -42,4 +43,5 @@ __all__ = [
     "CorpusService",
     "DocumentLifecycleService",
     "CorpusPathService",
+    "CorpusVoteService",
 ]

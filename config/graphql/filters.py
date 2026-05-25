@@ -203,6 +203,39 @@ class CorpusFilter(django_filters.FilterSet):
         # "Shared" = visible to me, but neither created by me nor public.
         return queryset.exclude(creator=user).exclude(is_public=True)
 
+    # Ordering surface for the Corpuses list view.  ``order_by`` (GraphQL
+    # arg ``orderBy``) is the canonical user-facing knob — tuple-mapped to
+    # the underlying column so the GraphQL surface (``top`` / ``-top``)
+    # stays decoupled from the schema (``score``).  ``score`` is the
+    # denormalized column maintained by signal handlers on ``CorpusVote``
+    # save/delete, so ORDER BY score has the supporting db_index and runs
+    # without a JOIN-and-aggregate per page.
+    #
+    # SECURITY NOTE: when the user opts into score sorting we exclude
+    # personal corpuses (the per-user "My Documents" corpus is never
+    # interesting to rank against shared content).  The exclusion lives in
+    # ``filter_queryset`` rather than the OrderingFilter method so it
+    # composes cleanly with the tab filters above.
+    order_by = OrderingFilter(
+        fields=(
+            ("score", "top"),
+            ("created", "created"),
+            ("modified", "modified"),
+            ("title", "title"),
+        )
+    )
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        qs = super().filter_queryset(queryset)
+        # Personal corpuses are private singletons — they should not
+        # surface when the user explicitly asks for a Top sort.  Other
+        # sorts (default ``created`` ordering, ``-modified``, etc.) keep
+        # the existing behaviour so the My Corpuses tab still shows them.
+        order_value = self.data.get("order_by") or self.data.get("orderBy")
+        if order_value in ("top", "-top"):
+            qs = qs.exclude(is_personal=True)
+        return qs
+
     class Meta:
         model = Corpus
         fields = {
