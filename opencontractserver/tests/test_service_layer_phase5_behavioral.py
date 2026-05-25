@@ -643,6 +643,45 @@ class TestAnalysisLifecycleServiceBehavioral(TestCase):
         self.assertTrue(result.ok)
         mock_si.assert_called_once_with(analysis_pk=self.analysis.id)
 
+    @patch(
+        "opencontractserver.tasks.delete_analysis_and_annotations_task.si",
+    )
+    def test_delete_analysis_threads_request_into_initial_lookup(self, mock_si):
+        """Initial visibility lookup must thread ``request`` into the Tier-2 cache.
+
+        Regression for PR #1770 follow-up: the lookup half of the two-step
+        check used the bare ``get_for_user_or_none`` helper which has no
+        ``request=`` kwarg, silently bypassing the request-scoped cache.
+        It now routes through ``cls.get_or_none`` (``BaseService``) so the
+        ``request`` is forwarded — the subsequent ``user_can`` call reuses
+        the cached entry instead of issuing a duplicate permission query.
+        """
+        from types import SimpleNamespace
+
+        # ``BaseService.get_or_none`` imports ``get_for_user_or_none`` at
+        # module load time, so the patch target is the ``base`` module's
+        # local reference, not the ``conventions`` source — patching the
+        # source would leave ``BaseService`` calling the unwrapped function.
+        from opencontractserver.shared.services import base as base_module
+
+        mock_si.return_value.apply_async.return_value = None
+        request = SimpleNamespace()
+
+        with patch.object(
+            base_module,
+            "get_for_user_or_none",
+            wraps=base_module.get_for_user_or_none,
+        ) as wrapped_lookup:
+            result = AnalysisLifecycleService.delete_analysis(
+                self.superuser, self.analysis.id, request=request
+            )
+
+        self.assertTrue(result.ok)
+        wrapped_lookup.assert_called_once()
+        # ``request`` must be threaded through — otherwise the Tier-2
+        # permission cache is silently bypassed for the lookup half.
+        self.assertIs(wrapped_lookup.call_args.kwargs.get("request"), request)
+
 
 # ---------------------------------------------------------------------------
 # NotificationService — mark_all_read anonymous guard + other reads

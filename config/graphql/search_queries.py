@@ -425,7 +425,18 @@ class SearchQueryMixin:
         """
         from opencontractserver.agents.services import AgentConfigurationService
 
-        corpus_pk = int(from_global_id(corpus_id)[1]) if corpus_id else None
+        # IDOR-safe global-id decode: a malformed ``corpus_id`` (bad
+        # base64, non-numeric body, or a stray byte string) would
+        # otherwise raise inside ``from_global_id`` / ``int()`` and
+        # surface as a 500. Treat it as "no corpus scope" so the
+        # resolver degrades gracefully — mirrors the IDOR-safe decode
+        # pattern in ``resolve_search_notes_for_mention`` above.
+        corpus_pk: int | None = None
+        if corpus_id:
+            try:
+                corpus_pk = int(from_global_id(corpus_id)[1])
+            except (ValueError, TypeError, UnicodeDecodeError):
+                corpus_pk = None
 
         qs = AgentConfigurationService.search_mentionable_agents(
             info.context.user,
