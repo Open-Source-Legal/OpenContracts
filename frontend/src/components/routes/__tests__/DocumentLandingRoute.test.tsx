@@ -70,6 +70,9 @@ describe("DocumentLandingRoute - State-Driven Rendering", () => {
       edges: [],
       pageInfo: { hasNextPage: false, hasPreviousPage: false },
     },
+    upvoteCount: 0,
+    downvoteCount: 0,
+    score: 0,
   };
 
   beforeEach(() => {
