@@ -458,10 +458,10 @@ const CompactBadge = styled.span`
   font-weight: 700;
 `;
 
-/** Inline expandable panel holding the full control set. */
-const CompactExpandPanel = styled(motion.div)`
-  overflow: hidden;
-`;
+/** Inline expandable panel holding the full control set. ``overflow`` is set
+ * inline by the consumer: ``hidden`` while the height-expand animation runs,
+ * ``visible`` once settled so the Content Types dropdown menu can spill out. */
+const CompactExpandPanel = styled(motion.div)``;
 
 /** Inner padding wrapper so the height animation has no padding jump. */
 const CompactExpandInner = styled.div`
@@ -488,6 +488,12 @@ export const SidebarControlBar: React.FC<SidebarControlBarProps> = memo(
     /* Mobile-only: the collapsed "Filter & sort" panel — closed by default so
        the annotation list starts high. */
     const [compactExpanded, setCompactExpanded] = useState(false);
+    /* Mobile-only: tracks whether the height-expand animation has settled.
+       While animating we need ``overflow: hidden`` so the collapse doesn't
+       leak content; once fully open we must switch to ``overflow: visible``
+       so the absolutely-positioned Content Types dropdown menu isn't clipped
+       by the panel. */
+    const [compactPanelSettled, setCompactPanelSettled] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown when clicking outside
@@ -739,6 +745,20 @@ export const SidebarControlBar: React.FC<SidebarControlBarProps> = memo(
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
+                onAnimationStart={() => setCompactPanelSettled(false)}
+                onAnimationComplete={(definition) => {
+                  if (
+                    typeof definition === "object" &&
+                    definition !== null &&
+                    (definition as { height?: string | number }).height ===
+                      "auto"
+                  ) {
+                    setCompactPanelSettled(true);
+                  }
+                }}
+                style={{
+                  overflow: compactPanelSettled ? "visible" : "hidden",
+                }}
               >
                 <CompactExpandInner>{filterSection}</CompactExpandInner>
               </CompactExpandPanel>
