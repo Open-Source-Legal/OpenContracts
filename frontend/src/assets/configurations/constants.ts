@@ -1,7 +1,8 @@
 import { OS_LEGAL_COLORS } from "./osLegalStyles";
 
-// Rendered in the NavBar version pill. v3.0.0 is the cite rebrand GA milestone.
-export const VERSION_TAG = "v3.0.0";
+// Rendered in the NavBar version pill. v3.0.0.rc1 ships the cite rebrand
+// as a release candidate; the GA cut will drop the suffix.
+export const VERSION_TAG = "v3.0.0.rc1";
 // Small-mobile breakpoint - used by chat widget styles for the tightest
 // viewports (very small phones), where chat-bubble arrows are removed and
 // font sizes shrink. Distinct from MOBILE_VIEW_BREAKPOINT (600).

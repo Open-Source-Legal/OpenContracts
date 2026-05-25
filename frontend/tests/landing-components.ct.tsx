@@ -6,6 +6,7 @@ import { CallToAction } from "../src/components/landing/CallToAction";
 import { NewHeroSection } from "../src/components/landing/NewHeroSection";
 import { DiscoveryLanding } from "../src/views/DiscoveryLanding";
 import { FeaturedCollections } from "../src/components/landing/FeaturedCollections";
+import { GetStarted } from "../src/components/landing/GetStarted";
 import { LandingTestWrapper } from "./LandingTestWrapper";
 import {
   GET_DISCOVERY_DATA,
@@ -307,16 +308,21 @@ test.describe("DiscoveryLanding Page", () => {
       </LandingTestWrapper>
     );
 
-    // Check hero section - updated text after redesign
-    await expect(page.locator("text=The open platform for")).toBeVisible({
+    // Hero text updated for the cite rebrand. Both lines are split into
+    // separate spans by NewHeroSection, so assert each independently.
+    await expect(page.locator("text=The citation layer")).toBeVisible({
       timeout: 15000,
     });
+    await expect(
+      page.locator("text=underneath the public record.")
+    ).toBeVisible();
 
-    // Doc screenshot: full discovery landing page integration
+    // Doc screenshot: full discovery landing page integration. The release
+    // screenshot freezes the v3.0.0.rc1 (cite RC1) shape in amber.
     await docScreenshot(page, "landing--discovery-page--anonymous", {
       fullPage: true,
     });
-    await releaseScreenshot(page, "v3.0.0.b3", "landing-page", {
+    await releaseScreenshot(page, "v3.0.0.rc1", "landing-page", {
       fullPage: true,
     });
 
@@ -473,6 +479,97 @@ test.describe("NewHeroSection", () => {
     // Brief settle, then assert URL is unchanged.
     await page.waitForTimeout(200);
     expect(new URL(page.url()).pathname).not.toContain("/discover/search");
+
+    await component.unmount();
+  });
+
+  test("renders the cite headline (mark + slate line + teal line)", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <LandingTestWrapper mocks={[emptyCategoriesMock]}>
+        <NewHeroSection selectedCategory={null} onCategoryChange={() => {}} />
+      </LandingTestWrapper>
+    );
+
+    // Both lines of the cite hero, plus the [•] icon mark and the
+    // search box with its rebrand placeholder.
+    await expect(page.locator("text=The citation layer")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(
+      page.locator("text=underneath the public record.")
+    ).toBeVisible();
+    // SearchBox renders the placeholder as an input attribute, so use
+    // getByPlaceholder rather than text= which only matches text nodes.
+    await expect(
+      component.getByPlaceholder("Search the citation graph…")
+    ).toBeVisible();
+    // The hero's [•] mark is rendered aria-hidden, so target it via the
+    // structural svg role rather than an accessible name.
+    await expect(component.locator("svg").first()).toBeVisible();
+
+    // Doc screenshot: close-up of the rebranded hero so docs can show
+    // the cite mark / two-line headline / search row in isolation.
+    await docScreenshot(page, "landing--hero--cite-headline", {
+      element: component,
+    });
+
+    await component.unmount();
+  });
+});
+
+// ============================================================================
+// GetStarted: cite [•]-bulleted action list
+// ============================================================================
+test.describe("GetStarted Component", () => {
+  test("renders the cite-bulleted action list for anonymous visitors", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <LandingTestWrapper>
+        <GetStarted
+          isAuthenticated={false}
+          isDismissed={false}
+          onDismiss={() => {}}
+        />
+      </LandingTestWrapper>
+    );
+
+    // Section title (sentence case per the brand voice) and all four
+    // action labels from home_page.md.
+    await expect(page.locator("text=Get started")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator("text=Cite your first document")).toBeVisible();
+    await expect(page.locator("text=Browse the citation graph")).toBeVisible();
+    await expect(page.locator("text=Create a new corpus")).toBeVisible();
+    await expect(page.locator("text=Read the contributor guide")).toBeVisible();
+
+    // Doc screenshot: the rebranded Get Started card with its
+    // bracketed-node bullets.
+    await docScreenshot(page, "landing--get-started--cite-bullets", {
+      element: component,
+    });
+
+    await component.unmount();
+  });
+
+  test("returns null when isDismissed is true", async ({ mount, page }) => {
+    const component = await mount(
+      <LandingTestWrapper>
+        <GetStarted
+          isAuthenticated={false}
+          isDismissed={true}
+          onDismiss={() => {}}
+        />
+      </LandingTestWrapper>
+    );
+
+    // The whole card collapses, so the section title should not appear.
+    await expect(page.locator("text=Get started")).toHaveCount(0);
 
     await component.unmount();
   });
