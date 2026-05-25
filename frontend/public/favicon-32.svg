@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>cite favicon, 32px</title>
+  <desc>The cite favicon at 32 pixels. Stroke weights tuned for legibility at this size.</desc>
+  <rect width="32" height="32" fill="#FAFAF7"/>
+  <g transform="translate(16, 16)">
+    <line x1="-10" y1="-10" x2="-10" y2="10" stroke="#1E293B" stroke-width="1.8"/>
+    <line x1="-10" y1="-10" x2="-5" y2="-10" stroke="#1E293B" stroke-width="1.8"/>
+    <line x1="-10" y1="10" x2="-5" y2="10" stroke="#1E293B" stroke-width="1.8"/>
+    <line x1="10" y1="-10" x2="10" y2="10" stroke="#1E293B" stroke-width="1.8"/>
+    <line x1="10" y1="-10" x2="5" y2="-10" stroke="#1E293B" stroke-width="1.8"/>
+    <line x1="10" y1="10" x2="5" y2="10" stroke="#1E293B" stroke-width="1.8"/>
+    <circle cx="0" cy="0" r="3.8" fill="#0F766E"/>
+  </g>
+</svg>

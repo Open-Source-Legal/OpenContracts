@@ -5,6 +5,7 @@ import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { SearchBox, FilterTabs } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
+import { CiteMark } from "../brand/CiteMark";
 import {
   GET_CORPUS_CATEGORIES,
   GetCorpusCategoriesOutput,
@@ -16,43 +17,77 @@ interface NewHeroSectionProps {
 }
 
 /**
- * Minimal Hero Section - matches Storybook design
+ * Landing hero — cite rebrand.
  *
- * Features:
- * - Clean white background (no gradient)
- * - Serif font (Georgia) for title
- * - "legal knowledge" on second line in teal
- * - Full-width search box
- * - FilterTabs directly below search
+ * Headline: "[•] The citation layer / underneath the public record."
+ * - first line: slate ink
+ * - second line: teal accent
+ * - the `[•]` icon mark sits at roughly cap-height of the serif
+ *
+ * Subhead in muted slate with the word *cite* italicized in Source Serif.
  */
 
 const HeroSection = styled.section`
   margin-bottom: 48px;
 `;
 
-const HeroTitle = styled.h1`
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 48px;
+const HeroTitleRow = styled.h1`
+  font-family: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman",
+    serif;
+  font-size: 42px;
   font-weight: 400;
-  line-height: 1.2;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
   color: ${OS_LEGAL_COLORS.textPrimary};
   margin: 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 
-  @media (max-width: 768px) {
+  @media (max-width: 1023px) {
     font-size: 36px;
+  }
+  @media (max-width: 767px) {
+    font-size: 30px;
   }
 `;
 
-const TealText = styled.span`
+const FirstLine = styled.span`
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+
+  @media (max-width: 767px) {
+    gap: 10px;
+  }
+`;
+
+const MarkSlot = styled.span`
+  /* Aligns the icon mark with the cap-height of the serif. */
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  transform: translateY(-2px);
+`;
+
+const SecondLine = styled.span`
   color: ${OS_LEGAL_COLORS.accent};
 `;
 
 const HeroSubtitle = styled.p`
-  font-size: 18px;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
   line-height: 1.6;
   color: ${OS_LEGAL_COLORS.textSecondary};
   margin: 0 0 36px;
   max-width: 620px;
+
+  em {
+    font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+    color: ${OS_LEGAL_COLORS.textPrimary};
+  }
 `;
 
 const SearchContainer = styled.div`
@@ -71,8 +106,9 @@ export const NewHeroSection: React.FC<NewHeroSectionProps> = ({
   const navigate = useNavigate();
 
   // Fetch categories for FilterTabs
-  const { data: categoryData, loading: categoryLoading } =
-    useQuery<GetCorpusCategoriesOutput>(GET_CORPUS_CATEGORIES);
+  const { data: categoryData } = useQuery<GetCorpusCategoriesOutput>(
+    GET_CORPUS_CATEGORIES
+  );
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -117,20 +153,24 @@ export const NewHeroSection: React.FC<NewHeroSectionProps> = ({
 
   return (
     <HeroSection>
-      <HeroTitle>
-        The open platform for
-        <br />
-        <TealText>legal knowledge</TealText>
-      </HeroTitle>
+      <HeroTitleRow>
+        <FirstLine>
+          <MarkSlot aria-hidden="true">
+            <CiteMark size={38} />
+          </MarkSlot>
+          The citation layer
+        </FirstLine>
+        <SecondLine>underneath the public record.</SecondLine>
+      </HeroTitleRow>
       <HeroSubtitle>
-        Collaboratively annotate legislation, contracts, case law, and legal
-        knowledge. Built by the community, for the community.
+        Every public document cites other public documents. <em>cite</em> makes
+        that graph open, traversable, and yours.
       </HeroSubtitle>
 
       {/* Search */}
       <SearchContainer>
         <SearchBox
-          placeholder="Search across all legal knowledge..."
+          placeholder="Search the citation graph…"
           value={searchQuery}
           onChange={handleSearchChange}
           onSubmit={handleSearchSubmit}

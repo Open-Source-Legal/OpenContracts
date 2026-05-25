@@ -225,23 +225,23 @@ test.describe("NavMenu Component", () => {
   });
 
   test.describe("Branding", () => {
-    test("should display Open Contracts brand name", async ({
-      mount,
-      page,
-    }) => {
+    // Branding assertions updated for the v3 cite rebrand: the wordmark
+    // is now `[cite]` (brackets preserved per brand spec) and the logo
+    // is an inline SVG icon mark rather than a PNG.
+    test("should display cite brand name", async ({ mount, page }) => {
       const component = await mount(<NavMenuTestWrapper />);
 
-      await expect(page.locator("text=Open Contracts")).toBeVisible({
+      await expect(page.locator("text=[cite]")).toBeVisible({
         timeout: 5000,
       });
 
       await component.unmount();
     });
 
-    test("should display logo image", async ({ mount, page }) => {
+    test("should display the cite icon mark", async ({ mount, page }) => {
       const component = await mount(<NavMenuTestWrapper />);
 
-      await expect(page.locator('img[alt="Open Contracts Logo"]')).toBeVisible({
+      await expect(page.locator('svg[aria-label="cite"]').first()).toBeVisible({
         timeout: 5000,
       });
 

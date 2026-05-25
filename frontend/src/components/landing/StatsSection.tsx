@@ -45,7 +45,11 @@ function formatNumber(num: number): string {
   return num.toLocaleString();
 }
 
-// Stat configurations matching Storybook design
+// Stat configurations — cite rebrand. Sublabels match the matter-of-fact
+// voice in `02_copy/home_page.md`. Labels stay tied to real backend fields
+// (the cite spec calls the third row "Citations in the graph" — we'll
+// rename here once a citations-graph counter ships; today the closest
+// honest mapping is the thread count).
 const statConfigs = [
   {
     key: "totalUsers" as keyof CommunityStats,
@@ -59,12 +63,12 @@ const statConfigs = [
   },
   {
     key: "totalThreads" as keyof CommunityStats,
-    label: "Discussions",
-    sublabel: "active threads",
+    label: "Threads",
+    sublabel: "active discussions",
   },
   {
     key: "activeUsersThisWeek" as keyof CommunityStats,
-    label: "Active This Week",
+    label: "Active this week",
     sublabel: "contributors",
   },
 ];

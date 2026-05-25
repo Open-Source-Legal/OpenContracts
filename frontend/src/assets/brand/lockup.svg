@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="320" height="120">
+  <title>cite brand lockup</title>
+  <desc>The cite product brand lockup showing opensource.legal as the parent brand in Inter above the cite wordmark in Source Serif, used in product headers, footers, and READMEs.</desc>
+  <text x="160" y="36" text-anchor="middle"
+    style="font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 400; fill: #64748B; letter-spacing: 0.8px;">opensource.legal</text>
+  <text x="160" y="92" text-anchor="middle"
+    style="font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif; font-size: 48px; font-weight: 400; fill: #1E293B; letter-spacing: -1px;">[cite]</text>
+</svg>

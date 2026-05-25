@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <title>cite favicon, 16px fallback</title>
+  <desc>The cite favicon at 16 pixels. At this size the brackets dissolve in rasterization, so the favicon falls back to the bare teal node — the brand atom alone. The bracketed full mark is used at 24px and up.</desc>
+  <rect width="16" height="16" fill="#FAFAF7"/>
+  <circle cx="8" cy="8" r="3.5" fill="#0F766E"/>
+</svg>

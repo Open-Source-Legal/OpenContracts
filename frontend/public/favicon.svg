@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>cite icon mark</title>
+  <desc>The cite icon mark — square brackets containing a teal node. Used as favicon, app icon, social avatar, and inline citation marker beside annotated passages in product UI.</desc>
+  <g transform="translate(32, 32)">
+    <line x1="-19" y1="-20" x2="-19" y2="20" stroke="#1E293B" stroke-width="2.4"/>
+    <line x1="-19" y1="-20" x2="-11" y2="-20" stroke="#1E293B" stroke-width="2.4"/>
+    <line x1="-19" y1="20" x2="-11" y2="20" stroke="#1E293B" stroke-width="2.4"/>
+    <line x1="19" y1="-20" x2="19" y2="20" stroke="#1E293B" stroke-width="2.4"/>
+    <line x1="19" y1="-20" x2="11" y2="-20" stroke="#1E293B" stroke-width="2.4"/>
+    <line x1="19" y1="20" x2="11" y2="20" stroke="#1E293B" stroke-width="2.4"/>
+    <circle cx="0" cy="0" r="7" fill="#0F766E"/>
+  </g>
+</svg>

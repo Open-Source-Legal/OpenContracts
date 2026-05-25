@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <title>inline citation marker</title>
+  <desc>Small inline citation marker used in product UI next to annotated passages. Sits at x-height beside the text it annotates.</desc>
+  <g transform="translate(8, 8)">
+    <line x1="-6" y1="-5" x2="-6" y2="5" stroke="#1E293B" stroke-width="1.2"/>
+    <line x1="-6" y1="-5" x2="-3" y2="-5" stroke="#1E293B" stroke-width="1.2"/>
+    <line x1="-6" y1="5" x2="-3" y2="5" stroke="#1E293B" stroke-width="1.2"/>
+    <line x1="6" y1="-5" x2="6" y2="5" stroke="#1E293B" stroke-width="1.2"/>
+    <line x1="6" y1="-5" x2="3" y2="-5" stroke="#1E293B" stroke-width="1.2"/>
+    <line x1="6" y1="5" x2="3" y2="5" stroke="#1E293B" stroke-width="1.2"/>
+    <circle cx="0" cy="0" r="2.5" fill="#0F766E"/>
+  </g>
+</svg>

@@ -9,7 +9,7 @@ import UserSettingsModal from "../modals/UserSettingsModal";
 import { VERSION_TAG } from "../../assets/configurations/constants";
 import { useNavMenu } from "./useNavMenu";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
-import logo from "../../assets/images/os_legal_128.png";
+import { CiteMark } from "../brand/CiteMark";
 import {
   MobileNavMenu,
   type MobileNavItem,
@@ -63,6 +63,15 @@ const navbarCustomStyles = `
   .oc-navbar .oc-chip {
     background: rgba(255, 255, 255, 0.15) !important;
     color: rgba(255, 255, 255, 0.9) !important;
+  }
+  /* cite wordmark — Source Serif 4 with the brackets preserved.
+     Overrides the @os-legal/ui default of 600-weight Inter so the
+     wordmark reads as a typographic mark, not a UI label. */
+  .oc-navbar__brand-name {
+    font-family: 'Source Serif 4', 'Source Serif Pro', Georgia, serif !important;
+    font-weight: 400 !important;
+    font-size: 22px !important;
+    letter-spacing: -0.5px !important;
   }
 `;
 
@@ -210,12 +219,16 @@ export const NavMenu = () => {
     [userMenuItems]
   );
 
+  // cite icon mark — the bracketed teal node. Rendered for both nav surfaces
+  // beside the wordmark; brackets are kept in the brand-paper color (warm
+  // paper #FAFAF7) so the mark sits cleanly on the navy chrome.
   const logoNode = useMemo(
     () => (
-      <img
-        src={logo}
-        alt="Open Contracts Logo"
-        style={{ width: 32, height: 32, objectFit: "contain" }}
+      <CiteMark
+        size={28}
+        bracketColor="#FAFAF7"
+        nodeColor="#0F766E"
+        ariaLabel="cite"
       />
     ),
     []
@@ -227,7 +240,7 @@ export const NavMenu = () => {
         <UserSettingsModal />
         <MobileNavMenu
           logo={logoNode}
-          brandName="Open Contracts"
+          brandName="[cite]"
           items={mobileNavItems}
           activeId={activeId}
           userName={displayName}
@@ -248,7 +261,7 @@ export const NavMenu = () => {
       <NavbarHeightSync />
       <NavBar
         logo={logoNode}
-        brandName="Open Contracts"
+        brandName="[cite]"
         version={VERSION_TAG}
         items={navItems}
         activeId={activeId}

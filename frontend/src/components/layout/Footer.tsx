@@ -1,16 +1,36 @@
 import styled from "styled-components";
 import { Link } from "react-router-dom";
 
-import logo from "../../assets/images/os_legal_128.png";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
 
-const CenteredImage = styled.img<{ $small?: boolean }>`
-  display: block;
-  margin: 0 auto;
-  max-width: 100%;
-  height: auto;
-  width: ${(props) => (props.$small ? "auto" : "150px")};
-  ${(props) => props.$small && "height: 50px;"}
+// Stacked opensource.legal + [cite] lockup used in the footer. Matches the
+// production SVG in /assets/brand/lockup.svg but inlined so it inherits the
+// dark footer background color via CSS rather than the SVG's hard-coded fill.
+const Lockup = styled.div<{ $small?: boolean }>`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: ${(props) => (props.$small ? "2px" : "6px")};
+  margin: 0 auto 1.25em;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.85);
+`;
+
+const LockupHandle = styled.span<{ $small?: boolean }>`
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: ${(props) => (props.$small ? "10px" : "12px")};
+  font-weight: 400;
+  letter-spacing: 0.8px;
+  color: rgba(255, 255, 255, 0.55);
+`;
+
+const LockupWordmark = styled.span<{ $small?: boolean }>`
+  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-size: ${(props) => (props.$small ? "28px" : "36px")};
+  font-weight: 400;
+  letter-spacing: -0.5px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
 `;
 
 const FooterContainer = styled.footer<{ $compact?: boolean }>`
@@ -93,91 +113,85 @@ const InlineLinks = styled.ul`
 export function Footer() {
   const { width } = useWindowDimensions();
 
-  if (width <= 1000) {
+  const isCompact = width <= 1000;
+  const isSmall = width <= 400;
+
+  const lockup = (
+    <Lockup $small={isSmall} aria-label="opensource.legal [cite]">
+      <LockupHandle $small={isSmall}>opensource.legal</LockupHandle>
+      <LockupWordmark $small={isSmall}>[cite]</LockupWordmark>
+    </Lockup>
+  );
+
+  const inlineLinks = (
+    <InlineLinks>
+      <li>
+        <Link to="/about">About</Link>
+      </li>
+      <li>
+        <Link to="/contact">Contact</Link>
+      </li>
+      <li>
+        <Link to="/terms_of_service">Terms of Service</Link>
+      </li>
+      <li>
+        <Link to="/privacy">Privacy Policy</Link>
+      </li>
+    </InlineLinks>
+  );
+
+  const orgBlock = (
+    <>
+      <div>
+        <FooterHeading>opensource.legal</FooterHeading>
+        <FooterLinkList>
+          <li>
+            <a
+              href="https://github.com/Open-Source-Legal"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
+          </li>
+          <li>
+            <Link to="/about">About cite</Link>
+          </li>
+        </FooterLinkList>
+      </div>
+      <div>
+        <FooterHeading>opensource.legal &copy; 2021–2026</FooterHeading>
+        <p>
+          The citation layer underneath the public record. Originally shipped as
+          Open Contracts; renamed to <em>cite</em> for v3. Built by{" "}
+          <a href="https://github.com/JSv4">JSv4</a> and contributors. Use of
+          this tool is governed by the terms of service.
+        </p>
+      </div>
+    </>
+  );
+
+  if (isCompact) {
     return (
       <FooterContainer $compact>
         <FooterInner>
-          <CenteredImage
-            src={logo}
-            alt="Open Contracts Logo"
-            $small={width <= 400}
-          />
-          <InlineLinks>
-            <li>
-              <Link to="/">Site Map</Link>
-            </li>
-            <li>
-              <Link to="/contact">Contact Us</Link>
-            </li>
-            <li>
-              <Link to="/terms_of_service">Terms of Service</Link>
-            </li>
-            <li>
-              <Link to="/privacy">Privacy Policy</Link>
-            </li>
-          </InlineLinks>
+          {lockup}
+          {inlineLinks}
           <FooterDivider />
-          <FooterGrid>
-            <div>
-              <FooterHeading>Open Source Legaltech</FooterHeading>
-              <FooterLinkList>
-                <li>
-                  <a href="https://github.com/Open-Source-Legal">Github</a>
-                </li>
-              </FooterLinkList>
-            </div>
-            <div>
-              <FooterHeading>OpenSource.Legal &copy;2021-2026</FooterHeading>
-              <p>
-                Open Contracts was developed by{" "}
-                <a href="https://github.com/JSv4">JSv4</a>. Use of this tool is
-                governed by the terms of service.
-              </p>
-            </div>
-          </FooterGrid>
-        </FooterInner>
-      </FooterContainer>
-    );
-  } else {
-    return (
-      <FooterContainer>
-        <FooterInner>
-          <FooterGrid>
-            <div>
-              <FooterHeading>Open Source Legaltech</FooterHeading>
-              <FooterLinkList>
-                <li>
-                  <a href="https://github.com/Open-Source-Legal">Github</a>
-                </li>
-              </FooterLinkList>
-            </div>
-            <div>
-              <FooterHeading>OpenSource.Legal &copy;2021-2026</FooterHeading>
-              <p>
-                Open Contracts was developed by{" "}
-                <a href="https://github.com/JSv4">JSv4</a>. Use of this tool is
-                governed by the terms of service.
-              </p>
-            </div>
-          </FooterGrid>
-          <FooterDivider />
-          <CenteredImage src={logo} alt="Open Contracts Logo" />
-          <InlineLinks>
-            <li>
-              <Link to="/">Site Map</Link>
-            </li>
-            <li>
-              <Link to="/contact">Contact Us</Link>
-            </li>
-            <li>
-              <Link to="/terms_of_service">Terms of Service</Link>
-            </li>
-            <li>
-              <Link to="/privacy">Privacy Policy</Link>
-            </li>
-          </InlineLinks>
+          <FooterGrid>{orgBlock}</FooterGrid>
         </FooterInner>
       </FooterContainer>
     );
   }
+
+  return (
+    <FooterContainer>
+      <FooterInner>
+        <FooterGrid>{orgBlock}</FooterGrid>
+        <FooterDivider />
+        {lockup}
+        {inlineLinks}
+      </FooterInner>
+    </FooterContainer>
+  );
 }

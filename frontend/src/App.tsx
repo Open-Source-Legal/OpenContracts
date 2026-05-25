@@ -45,6 +45,7 @@ import { DocumentKnowledgeBase } from "./components/knowledge_base";
 
 import { PrivacyPolicy } from "./views/PrivacyPolicy";
 import { TermsOfService } from "./views/TermsOfService";
+import { About } from "./views/About";
 import { Corpuses } from "./views/Corpuses";
 import { Documents } from "./views/Documents";
 import { Labelsets } from "./views/LabelSets";
@@ -401,6 +402,7 @@ export const App = () => {
           <Route path="/annotations" element={<Annotations />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms_of_service" element={<TermsOfService />} />
+          <Route path="/about" element={<About />} />
           <Route path="/extracts/:extractId" element={<ExtractDetailRoute />} />
           <Route path="/extracts" element={<Extracts />} />
           <Route path="/admin/badges" element={<BadgeManagement />} />

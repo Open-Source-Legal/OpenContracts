@@ -244,18 +244,16 @@ test.describe("CallToAction Component", () => {
       </LandingTestWrapper>
     );
 
-    // Check CTA content
-    await expect(page.locator("text=Ready to dive in?")).toBeVisible({
-      timeout: 10000,
-    });
-    await expect(page.locator("text=Get Started Free")).toBeVisible();
-
-    // Check features
-    await expect(page.locator("text=Open Source & Free")).toBeVisible();
-    await expect(page.locator("text=AI-Powered Analysis")).toBeVisible();
-
-    // Allow framer-motion animations to fully settle before screenshot
-    await page.waitForTimeout(1000);
+    // CallToAction was rewritten for the cite rebrand — the gradient
+    // "Ready to dive in?" block was replaced with an editorial-voice
+    // "About cite" paragraph and a sign-in / read-more pair.
+    await expect(
+      page.locator(
+        "text=cite is built like infrastructure rather than a product."
+      )
+    ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("text=Sign in to contribute")).toBeVisible();
+    await expect(page.locator("text=Read the full story")).toBeVisible();
 
     // Doc screenshot: call-to-action section for anonymous users
     await docScreenshot(page, "landing--call-to-action--anonymous", {
@@ -273,9 +271,11 @@ test.describe("CallToAction Component", () => {
     );
 
     // CTA should not be visible for authenticated users
-    await expect(page.locator("text=Ready to dive in?")).not.toBeVisible({
-      timeout: 5000,
-    });
+    await expect(
+      page.locator(
+        "text=cite is built like infrastructure rather than a product."
+      )
+    ).not.toBeVisible({ timeout: 5000 });
 
     await component.unmount();
   });
@@ -442,9 +442,8 @@ test.describe("NewHeroSection", () => {
       </LandingTestWrapper>
     );
 
-    const input = component.getByPlaceholder(
-      "Search across all legal knowledge..."
-    );
+    // Placeholder updated for the cite rebrand: "Search the citation graph…"
+    const input = component.getByPlaceholder("Search the citation graph…");
     await input.fill("indemnity caps");
     await input.press("Enter");
 
@@ -466,9 +465,8 @@ test.describe("NewHeroSection", () => {
       </LandingTestWrapper>
     );
 
-    const input = component.getByPlaceholder(
-      "Search across all legal knowledge..."
-    );
+    // Placeholder updated for the cite rebrand: "Search the citation graph…"
+    const input = component.getByPlaceholder("Search the citation graph…");
     await input.fill("   ");
     await input.press("Enter");
 

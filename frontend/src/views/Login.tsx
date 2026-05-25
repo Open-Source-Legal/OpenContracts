@@ -10,7 +10,7 @@ import {
 } from "../graphql/mutations";
 import { toast } from "react-toastify";
 import { User, Lock } from "lucide-react";
-import logo from "../assets/images/os_legal_128_regular.png";
+import { CiteMark } from "../components/brand/CiteMark";
 import { useCacheManager } from "../hooks/useCacheManager";
 
 const PageWrapper = styled.div`
@@ -32,23 +32,32 @@ const LoginCard = styled.div`
   max-width: 400px;
 `;
 
-const Logo = styled.img`
-  width: 15vh;
-  height: auto;
-  margin-bottom: 0px;
+const LogoSlot = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
 `;
 
 const Title = styled.h1`
-  font-size: 1.8rem;
-  color: #333;
-  margin-bottom: 0.5rem;
-  margin-top: 0.25rem;
+  font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  font-size: 2rem;
+  font-weight: 400;
+  letter-spacing: -0.5px;
+  color: #1e293b;
+  margin: 0 0 0.5rem;
 `;
 
 const Subtitle = styled.p`
-  font-size: 1rem;
-  color: #666;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.875rem;
+  color: #64748b;
   margin-bottom: 2rem;
+
+  em {
+    font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+    font-style: italic;
+    color: #1e293b;
+  }
 `;
 
 const Form = styled.form`
@@ -64,12 +73,13 @@ const InputWrapper = styled.div`
 const Input = styled.input`
   width: 100%;
   padding: 0.75rem 1rem 0.75rem 2.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
   font-size: 1rem;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   &:focus {
     outline: none;
-    border-color: #00b5ad;
+    border-color: #0f766e;
   }
 `;
 
@@ -82,16 +92,22 @@ const IconWrapper = styled.div`
 `;
 
 const LoginButton = styled.button`
-  background-color: #00b5ad;
-  color: white;
+  background-color: #0f172a;
+  color: #fafaf7;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0.75rem;
-  font-size: 1rem;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: background-color 0.2s ease;
   &:hover {
-    background-color: #009c95;
+    background-color: #1e293b;
+  }
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 `;
 
@@ -130,9 +146,11 @@ export const Login = () => {
     <PageWrapper>
       <LoginCard>
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <Logo src={logo} alt="Open Contracts Logo" />
-          <Title>Open Contracts</Title>
-          <Subtitle>The Open Contract Analytics Platform</Subtitle>
+          <LogoSlot>
+            <CiteMark size={56} />
+          </LogoSlot>
+          <Title>[cite]</Title>
+          <Subtitle>The citation layer underneath the public record.</Subtitle>
         </div>
         <Form onSubmit={handleLoginClick}>
           <InputWrapper>
