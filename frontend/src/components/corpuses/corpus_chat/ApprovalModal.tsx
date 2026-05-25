@@ -61,6 +61,10 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
             padding: "2rem",
             maxWidth: "500px",
             width: "100%",
+            maxHeight: "100%",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
             boxShadow:
               "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
           }}
@@ -74,6 +78,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               alignItems: "center",
               gap: "0.75rem",
               marginBottom: "1.5rem",
+              flexShrink: 0,
             }}
           >
             <AlertCircle
@@ -96,7 +101,14 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
             </button>
           </div>
 
-          <div style={{ marginBottom: "1.5rem" }}>
+          <div
+            style={{
+              marginBottom: "1.5rem",
+              flex: 1,
+              minHeight: 0,
+              overflowY: "auto",
+            }}
+          >
             <p
               style={{
                 margin: "0 0 1rem 0",
@@ -130,7 +142,14 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                     <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
                       Arguments:
                     </div>
-                    <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                    <pre
+                      style={{
+                        margin: 0,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
                       {JSON.stringify(
                         pendingApproval.toolCall.arguments,
                         null,
@@ -147,6 +166,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               display: "flex",
               gap: "1rem",
               justifyContent: "flex-end",
+              flexShrink: 0,
             }}
           >
             <Button

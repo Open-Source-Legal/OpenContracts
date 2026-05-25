@@ -149,4 +149,57 @@ test.describe("ApprovalModal", () => {
 
     await component.unmount();
   });
+
+  test("constrains modal height and scrolls body when args are very long", async ({
+    mount,
+    page,
+  }) => {
+    // Build a tool call whose arguments produce a multi-thousand-char JSON
+    // payload — the bug was that the modal grew unbounded and pushed the
+    // Approve/Reject buttons off-screen.
+    const longText = "Lorem ipsum dolor sit amet ".repeat(400);
+    const longArgsApproval: PendingApproval = {
+      messageId: "msg-long",
+      toolCall: {
+        name: "update_corpus_description",
+        arguments: { new_content: longText },
+        tool_call_id: "tc-long",
+      },
+    };
+
+    const component = await mount(
+      <ApprovalModal
+        pendingApproval={longArgsApproval}
+        show={true}
+        onHide={() => {}}
+        onDecision={() => {}}
+      />
+    );
+
+    const approveBtn = page.getByRole("button", { name: "Approve" });
+    const rejectBtn = page.getByRole("button", { name: "Reject" });
+    await expect(approveBtn).toBeVisible({ timeout: 5000 });
+    await expect(rejectBtn).toBeVisible();
+
+    // Both action buttons must remain inside the viewport regardless of how
+    // much JSON the tool call carries.
+    const viewport = page.viewportSize();
+    const approveBox = await approveBtn.boundingBox();
+    const rejectBox = await rejectBtn.boundingBox();
+    expect(viewport).not.toBeNull();
+    expect(approveBox).not.toBeNull();
+    expect(rejectBox).not.toBeNull();
+    if (viewport && approveBox && rejectBox) {
+      expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(
+        viewport.height
+      );
+      expect(approveBox.y).toBeGreaterThanOrEqual(0);
+      expect(rejectBox.y + rejectBox.height).toBeLessThanOrEqual(
+        viewport.height
+      );
+      expect(rejectBox.y).toBeGreaterThanOrEqual(0);
+    }
+
+    await component.unmount();
+  });
 });
