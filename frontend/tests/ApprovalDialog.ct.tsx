@@ -20,7 +20,6 @@ test.describe("ApprovalDialog", () => {
     const component = await mount(
       <ApprovalDialog
         pendingApproval={sampleApproval}
-        show={true}
         onHide={() => {}}
         onDecision={() => {}}
       />
@@ -39,40 +38,35 @@ test.describe("ApprovalDialog", () => {
     await expect(page.getByRole("button", { name: "Approve" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reject" })).toBeVisible();
 
-    await docScreenshot(page, "chat--approval-dialog--pending");
+    // Modal exposes dialog semantics for screen readers
+    await expect(page.getByRole("dialog")).toBeVisible();
+
+    await docScreenshot(page, "chat--approval-modal--pending");
 
     await component.unmount();
   });
 
-  test("does not render when show is false", async ({ mount, page }) => {
-    const component = await mount(
-      <ApprovalDialog
-        pendingApproval={sampleApproval}
-        show={false}
-        onHide={() => {}}
-        onDecision={() => {}}
-      />
-    );
-
-    await expect(page.getByText("Tool Approval Required")).not.toBeVisible();
-
-    await component.unmount();
-  });
-
-  test("does not render when pendingApproval is null", async ({
+  test("calls onHide when the close button is clicked", async ({
     mount,
     page,
   }) => {
+    let hidden = false;
+
     const component = await mount(
       <ApprovalDialog
-        pendingApproval={null}
-        show={true}
-        onHide={() => {}}
+        pendingApproval={sampleApproval}
+        onHide={() => {
+          hidden = true;
+        }}
         onDecision={() => {}}
       />
     );
 
-    await expect(page.getByText("Tool Approval Required")).not.toBeVisible();
+    const closeBtn = page.getByRole("button", { name: "Close approval modal" });
+    await expect(closeBtn).toBeVisible({ timeout: 5000 });
+    await closeBtn.click();
+
+    expect(hidden).toBe(true);
 
     await component.unmount();
   });
@@ -86,7 +80,6 @@ test.describe("ApprovalDialog", () => {
     const component = await mount(
       <ApprovalDialog
         pendingApproval={sampleApproval}
-        show={true}
         onHide={() => {}}
         onDecision={(approved) => {
           decision = approved;
@@ -113,7 +106,6 @@ test.describe("ApprovalDialog", () => {
     const component = await mount(
       <ApprovalDialog
         pendingApproval={sampleApproval}
-        show={true}
         onHide={() => {}}
         onDecision={(approved) => {
           decision = approved;
@@ -135,7 +127,6 @@ test.describe("ApprovalDialog", () => {
     const component = await mount(
       <ApprovalDialog
         pendingApproval={sampleApproval}
-        show={true}
         onHide={() => {}}
         onDecision={() => {}}
       />
@@ -170,7 +161,6 @@ test.describe("ApprovalDialog", () => {
     const component = await mount(
       <ApprovalDialog
         pendingApproval={longArgsApproval}
-        show={true}
         onHide={() => {}}
         onDecision={() => {}}
       />

@@ -1,11 +1,3 @@
-/**
- * ApprovalDialog
- *
- * Single source of truth for the "Tool Approval Required" overlay shown when
- * an agent tool call needs human confirmation. Used by both CorpusChat and
- * the document right-tray ChatTray.
- */
-
 import React from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle, X, XCircle } from "lucide-react";
@@ -17,24 +9,16 @@ import { RequestingAgentAttribution } from "./RequestingAgentAttribution";
 export type { PendingApproval };
 
 export interface ApprovalDialogProps {
-  /** Pending approval data (tool call info). Null if no approval is pending. */
-  pendingApproval: PendingApproval | null;
-  /** Whether the overlay should be visible. */
-  show: boolean;
-  /** Callback to hide the overlay (e.g. clicking the X button). */
+  pendingApproval: PendingApproval;
   onHide: () => void;
-  /** Callback when the user approves or rejects the tool call. */
   onDecision: (approved: boolean) => void;
 }
 
 export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
   pendingApproval,
-  show,
   onHide,
   onDecision,
 }) => {
-  if (!pendingApproval || !show) return null;
-
   return (
     <motion.div
       style={{
@@ -55,13 +39,16 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
       exit={{ opacity: 0 }}
     >
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="approval-dialog-title"
         style={{
           backgroundColor: "white",
           borderRadius: "12px",
           padding: "2rem",
           maxWidth: "500px",
           width: "100%",
-          maxHeight: "100%",
+          maxHeight: "calc(100% - 2rem)",
           boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
@@ -85,7 +72,10 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
             size={24}
             style={{ color: OS_LEGAL_COLORS.folderIcon }}
           />
-          <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600 }}>
+          <h3
+            id="approval-dialog-title"
+            style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600 }}
+          >
             Tool Approval Required
           </h3>
           <button

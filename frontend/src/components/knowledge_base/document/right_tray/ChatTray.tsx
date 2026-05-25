@@ -1218,12 +1218,13 @@ export const ChatTray: React.FC<ChatTrayProps> = ({
 
       {/* Approval Overlay */}
       <AnimatePresence>
-        <ApprovalDialog
-          pendingApproval={pendingApproval}
-          show={showApprovalModal}
-          onHide={() => setShowApprovalModal(false)}
-          onDecision={sendApprovalDecision}
-        />
+        {showApprovalModal && pendingApproval && (
+          <ApprovalDialog
+            pendingApproval={pendingApproval}
+            onHide={() => setShowApprovalModal(false)}
+            onDecision={sendApprovalDecision}
+          />
+        )}
       </AnimatePresence>
     </ChatContainer>
   );

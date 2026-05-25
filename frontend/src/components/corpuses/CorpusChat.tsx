@@ -1581,12 +1581,15 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
       </ConversationIndicator>
 
       {/* Approval Overlay */}
-      <ApprovalDialog
-        pendingApproval={pendingApproval}
-        show={showApprovalModal}
-        onHide={() => setShowApprovalModal(false)}
-        onDecision={sendApprovalDecision}
-      />
+      <AnimatePresence>
+        {showApprovalModal && pendingApproval && (
+          <ApprovalDialog
+            pendingApproval={pendingApproval}
+            onHide={() => setShowApprovalModal(false)}
+            onDecision={sendApprovalDecision}
+          />
+        )}
+      </AnimatePresence>
     </ChatContainer>
   );
 };
