@@ -21,7 +21,7 @@ import type {
   ContextStatus,
   MessageData,
 } from "../../../chat/types";
-import type { PendingApproval } from "./ApprovalOverlay";
+import type { PendingApproval } from "../../../chat/types";
 import type { UseChatStreamHandlersReturn } from "./useChatStreamHandlers";
 
 export interface UseChatAgentMessageHandlerParams {

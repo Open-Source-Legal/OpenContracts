@@ -32,7 +32,7 @@ import {
   deriveTimelineEntryType,
 } from "../../../widgets/chat/timelineEntryFactory";
 import { CHAT_AUTOSCROLL_THRESHOLD_PX } from "../../../../assets/configurations/constants";
-import type { PendingApproval } from "./ApprovalOverlay";
+import type { PendingApproval } from "../../../chat/types";
 
 export interface UseChatStreamHandlersParams {
   setChat: React.Dispatch<React.SetStateAction<ChatMessageProps[]>>;

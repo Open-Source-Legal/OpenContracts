@@ -27,7 +27,7 @@ import type {
   CompactionNotice,
   WebSocketSources,
 } from "../../../../chat/types";
-import type { PendingApproval } from "../ApprovalOverlay";
+import type { PendingApproval } from "../../../../chat/types";
 
 interface HarnessState {
   chat: ChatMessageProps[];
