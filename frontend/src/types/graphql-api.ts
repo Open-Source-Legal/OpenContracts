@@ -330,9 +330,14 @@ export type RawCorpusType = Node & {
   // on CorpusVote save/delete.  ``score`` is upvoteCount - downvoteCount and
   // is the column used by the ``orderBy: "top"`` sort path.  ``myVote`` is
   // the viewer's current vote: "UPVOTE", "DOWNVOTE", or null.
-  upvoteCount?: Scalars["Int"];
-  downvoteCount?: Scalars["Int"];
-  score?: Scalars["Int"];
+  //
+  // upvoteCount / downvoteCount / score are non-optional: the backend
+  // model fields default to 0 and the columns can never be absent on a
+  // CorpusType row, so callers don't need a null-guard.  myVote stays
+  // optional because it genuinely is null for any viewer who hasn't voted.
+  upvoteCount: Scalars["Int"];
+  downvoteCount: Scalars["Int"];
+  score: Scalars["Int"];
   myVote?: Maybe<"UPVOTE" | "DOWNVOTE">;
 };
 

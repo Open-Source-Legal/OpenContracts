@@ -1,5 +1,5 @@
 /**
- * OpenContracts Social Media Preview Worker
+ * cite Social Media Preview Worker
  *
  * This Cloudflare Worker intercepts requests from social media crawlers
  * and returns HTML with Open Graph meta tags for rich link previews.

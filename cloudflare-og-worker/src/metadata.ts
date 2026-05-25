@@ -1,7 +1,7 @@
 /**
  * GraphQL metadata fetching for OG previews
  *
- * Fetches minimal metadata from the OpenContracts backend API
+ * Fetches minimal metadata from the cite backend API
  * for generating Open Graph tags. Only returns data for public entities.
  */
 
@@ -205,7 +205,7 @@ function composeDocInCorpusDescription(
   if (corpusTitle) {
     return `Document in ${corpusTitle}`;
   }
-  return "Document on OpenContracts";
+  return "Document on cite.opensource.legal";
 }
 
 /**
@@ -254,7 +254,7 @@ function extractMetadata(
 
       return {
         title: doc.title,
-        description: doc.description || "Document on OpenContracts",
+        description: doc.description || "Document on cite.opensource.legal",
         image: doc.iconUrl || `${env.OG_IMAGE_BASE}/document-og.png`,
         type,
         entityName: doc.title,

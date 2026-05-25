@@ -32,8 +32,10 @@ export const MetaTags: React.FC<MetaTagsProps> = ({
   const baseUrl = window.location.origin;
 
   // Derive meta values from entity if not explicitly provided
-  let pageTitle = title || "OpenContracts";
-  let pageDescription = description || "Legal document analysis platform";
+  let pageTitle = title || "cite — the citation layer for agentic workflows";
+  let pageDescription =
+    description ||
+    "cite turns a repository of documents into an open citation graph that humans and AI agents can read, reason over, and contribute back to.";
 
   if (!title && entity) {
     if ("title" in entity) {

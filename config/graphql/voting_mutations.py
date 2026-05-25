@@ -39,6 +39,7 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services import CorpusVoteService
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.auth import is_authenticated_user
 from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
 )
@@ -467,11 +468,7 @@ class VoteCorpusMutation(graphene.Mutation):
                 obj=None,
             )
 
-        is_authenticated = bool(
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and not getattr(user, "is_anonymous", True)
-        )
+        is_authenticated = is_authenticated_user(user)
         session_key = None if is_authenticated else _ensure_session_key(info)
 
         result = CorpusVoteService.cast_vote(
@@ -543,11 +540,7 @@ class RemoveCorpusVoteMutation(graphene.Mutation):
         # caller who never voted in the first place — read whatever's on
         # the request without writing.
         session_key = None
-        is_authenticated = bool(
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and not getattr(user, "is_anonymous", True)
-        )
+        is_authenticated = is_authenticated_user(user)
         if not is_authenticated:
             session = getattr(info.context, "session", None)
             session_key = getattr(session, "session_key", None) if session else None
