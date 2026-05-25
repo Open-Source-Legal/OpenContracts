@@ -161,12 +161,16 @@ def llms_txt(request: HttpRequest) -> HttpResponse:
     corpuses = _get_public_corpuses()
 
     lines = [
-        "# OpenContracts",
+        "# cite",
         "",
         (
-            "> OpenContracts is an open-source document analytics platform for "
-            "analyzing, annotating, and querying complex documents. It provides a "
-            "Model Context Protocol (MCP) server for AI agent access."
+            "> cite is the citation layer for agentic workflows: an open citation "
+            "graph that humans and AI agents can read, reason over, and contribute "
+            "back to. Documents are nodes, citations are edges, annotations are how "
+            "humans and agents build the graph together. This instance exposes a "
+            "Model Context Protocol (MCP) endpoint so agents can traverse the graph "
+            "and cite the spans they pulled from. Released as OpenContracts since "
+            "2019; rebranded as cite for the v3 release line."
         ),
         "",
         "## MCP Server",
@@ -190,7 +194,7 @@ def llms_txt(request: HttpRequest) -> HttpResponse:
         "```json",
         "{",
         '  "mcpServers": {',
-        '    "opencontracts": {',
+        '    "cite": {',
         '      "command": "npx",',
         f'      "args": ["mcp-remote", "{base_url}/mcp/"]',
         "    }",
@@ -247,8 +251,8 @@ def llms_txt(request: HttpRequest) -> HttpResponse:
             "## Links",
             "",
             f"- [Full MCP documentation]({base_url}/llms-full.txt)",
-            "- [Source code](https://github.com/Open-Source-Legal/OpenContracts)",
-            "- [Project documentation](https://contracts.opensource.legal)",
+            "- [Source code](https://github.com/Open-Source-Legal/cite)",
+            "- [Project home](https://cite.opensource.legal)",
             "",
         ]
     )
@@ -266,18 +270,20 @@ def llms_full_txt(request: HttpRequest) -> HttpResponse:
     corpuses = _get_public_corpuses()
 
     lines = [
-        "# OpenContracts - Full MCP Documentation",
+        "# cite - Full MCP Documentation",
         "",
         (
-            "> OpenContracts is an open-source document analytics platform for "
-            "analyzing, annotating, and querying complex documents. It provides a "
-            "Model Context Protocol (MCP) server for AI agent access to public data."
+            "> cite is the citation layer for agentic workflows: an open citation "
+            "graph of documents, annotations, and the edges between them. It exposes "
+            "a Model Context Protocol (MCP) server so agents can list corpuses, "
+            "search documents and annotations, and follow citation edges. Released "
+            "as OpenContracts since 2019; rebranded as cite for the v3 release line."
         ),
         "",
         "## MCP Server Overview",
         "",
         (
-            "OpenContracts exposes a read-only MCP server so that AI assistants can "
+            "cite exposes a read-only MCP server so that AI assistants can "
             "access public corpuses, documents, annotations, and discussion threads "
             "without authentication."
         ),
@@ -299,7 +305,7 @@ def llms_full_txt(request: HttpRequest) -> HttpResponse:
         "```json",
         "{",
         '  "mcpServers": {',
-        '    "opencontracts": {',
+        '    "cite": {',
         '      "command": "npx",',
         f'      "args": ["mcp-remote", "{base_url}/mcp/"]',
         "    }",
@@ -581,8 +587,8 @@ def llms_full_txt(request: HttpRequest) -> HttpResponse:
             "",
             "## Links",
             "",
-            "- [Source code](https://github.com/Open-Source-Legal/OpenContracts)",
-            "- [Project site](https://contracts.opensource.legal)",
+            "- [Source code](https://github.com/Open-Source-Legal/cite)",
+            "- [Project home](https://cite.opensource.legal)",
             "- [MCP specification](https://modelcontextprotocol.io)",
             "",
         ]
@@ -690,13 +696,13 @@ def well_known_mcp(request: HttpRequest) -> HttpResponse:
     auth_meta = _build_mcp_auth_metadata(base_url)
 
     servers = {
-        "opencontracts": {
+        "cite": {
             "url": f"{base_url}/mcp/",
             "description": (
-                "Access to OpenContracts corpuses, annotations, and discussion "
-                "threads. Anonymous callers see only public, published resources; "
-                "authenticated callers also see private resources they own or are "
-                "shared on."
+                "Access to the cite citation graph: corpuses, documents, "
+                "annotations, and discussion threads. Anonymous callers see only "
+                "public, published resources; authenticated callers also see "
+                "private resources they own or are shared on."
             ),
             "transport": "streamable-http",
             "authentication": auth_meta,
@@ -708,7 +714,7 @@ def well_known_mcp(request: HttpRequest) -> HttpResponse:
     for c in corpuses:
         slug = c["slug"]
         title = c["title"]
-        servers[f"opencontracts-{slug}"] = {
+        servers[f"cite-{slug}"] = {
             "url": f"{base_url}/mcp/corpus/{slug}/",
             "description": f"Scoped access to: {title}",
             "transport": "streamable-http",
