@@ -1,8 +1,28 @@
 import React from "react";
+import type { Page } from "@playwright/test";
 import { test, expect } from "./utils/coverage";
 import { AgentMentionPopover } from "../src/components/chat/AgentMentionPopover";
 import type { AgentItem } from "../src/components/chat/AgentMentionPopover";
 import { docScreenshot } from "./utils/docScreenshot";
+
+// The popover listens to document-level keydown (capture phase) in a
+// useEffect. page.keyboard.press routes through whatever element holds focus,
+// and on a fresh mount the Playwright iframe sometimes doesn't yet hold
+// document focus on the first attempt, so the keystroke is silently dropped
+// (the test passes only on retry). Dispatching the KeyboardEvent on document
+// directly avoids the focus dependency.
+async function pressDocumentKey(page: Page, key: string): Promise<void> {
+  await page.evaluate((k) => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: k,
+        code: k,
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+  }, key);
+}
 
 const AGENTS: AgentItem[] = [
   { id: "1", slug: "research-bot", name: "Research Bot", scope: "GLOBAL" },
@@ -103,7 +123,12 @@ test.describe("AgentMentionPopover", () => {
         }}
       />
     );
-    await page.keyboard.press("Escape");
+    // Wait until the popover is in the DOM so the capture-phase keydown
+    // listener (attached in useEffect) is wired before dispatching Escape.
+    await expect(
+      page.locator('[data-testid="agent-mention-popover"]')
+    ).toBeVisible();
+    await pressDocumentKey(page, "Escape");
     await expect.poll(() => dismissed).toBe(true);
   });
 
@@ -137,15 +162,15 @@ test.describe("AgentMentionPopover", () => {
     const options = page.getByRole("option");
     await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
 
-    await page.keyboard.press("ArrowDown");
+    await pressDocumentKey(page, "ArrowDown");
     await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
     await expect(options.nth(0)).toHaveAttribute("aria-selected", "false");
 
-    await page.keyboard.press("ArrowDown");
+    await pressDocumentKey(page, "ArrowDown");
     await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
 
     // Wrap to first
-    await page.keyboard.press("ArrowDown");
+    await pressDocumentKey(page, "ArrowDown");
     await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
   });
 
@@ -164,7 +189,7 @@ test.describe("AgentMentionPopover", () => {
     const options = page.getByRole("option");
     await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
 
-    await page.keyboard.press("ArrowUp");
+    await pressDocumentKey(page, "ArrowUp");
     await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
   });
 
@@ -180,8 +205,8 @@ test.describe("AgentMentionPopover", () => {
         onDismiss={() => {}}
       />
     );
-    await page.keyboard.press("ArrowDown"); // move to "Auditor"
-    await page.keyboard.press("Enter");
+    await pressDocumentKey(page, "ArrowDown"); // move to "Auditor"
+    await pressDocumentKey(page, "Enter");
     await expect.poll(() => selected?.slug).toBe("auditor");
   });
 });

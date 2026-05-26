@@ -269,19 +269,15 @@ export const SidebarTab = styled(motion.button)<{
         : "translateX(-2px) scale(0.98)"};
   }
 
-  /* Active state indicator line */
-  &::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 3px;
-    height: ${(props) => (props.$isActive ? "60%" : "0")};
-    background: white;
-    border-radius: 2px 0 0 2px;
-    transition: height 0.3s ease;
-  }
+  /*
+   * Active state is conveyed by the blue gradient background (declared above)
+   * plus the blue box-shadow glow on hover. The previous active-indicator
+   * line that lived on ::after was removed because it targeted the same
+   * pseudo-element as the hover tooltip (which lives on [data-tooltip]::after).
+   * CSS cascade left the tooltip pinned at width 3px / height 60%, collapsing
+   * it into a tiny dark pill with overflowing white text instead of a readable
+   * label.
+   */
 
   /* Mobile: Icon-only tabs when panel is closed */
   @media (max-width: 768px) {
