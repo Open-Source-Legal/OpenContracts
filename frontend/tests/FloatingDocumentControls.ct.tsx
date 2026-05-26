@@ -599,6 +599,11 @@ test.describe("FloatingDocumentControls", () => {
     // Vertical: popover's top is roughly aligned with the Settings button's
     // top (within a few px tolerance), not floating hundreds of px above it.
     expect(Math.abs(panelBox.y - buttonBox.y)).toBeLessThan(8);
+
+    await docScreenshot(
+      page,
+      "knowledge-base--unified-rail--settings-popover-bare"
+    );
   });
 
   /*
@@ -662,5 +667,10 @@ test.describe("FloatingDocumentControls", () => {
     // And the rendered content is the tooltip text from data-tooltip, not
     // the empty string that used to come from the active-indicator rule.
     expect(tooltipBox.content).toContain("Annotation filters");
+
+    await docScreenshot(
+      page,
+      "knowledge-base--unified-rail--tooltip-hover-pill"
+    );
   });
 });
