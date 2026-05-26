@@ -95,6 +95,14 @@ interface FloatingDocumentControlsTestWrapperProps {
   readOnly?: boolean;
   hideDocumentTools?: boolean;
   showRightPanel?: boolean;
+  /**
+   * When true, render the controls in "bare" mode — without their own
+   * fixed bottom-right positioning. Mirrors how DesktopDocumentLayout
+   * embeds them inside the unified RightEdgeRail (panel closed). The
+   * test mounts them inside a `position: fixed; right: 0; top: 50%`
+   * rail wrapper so the popover anchors to a viewport-edge column.
+   */
+  bareContainer?: boolean;
   // Test configuration props
   showBoundingBoxes?: boolean;
   showStructural?: boolean;
@@ -302,6 +310,7 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
   readOnly = false,
   hideDocumentTools = false,
   showRightPanel = false,
+  bareContainer = false,
   showBoundingBoxes = false,
   showStructural = false,
   showSelectedOnly = false,
@@ -371,17 +380,49 @@ export const FloatingDocumentControlsTestWrapper: React.FC<
                 background: "#f5f5f5",
               }}
             >
-              <FloatingDocumentControls
-                visible={visible}
-                onAnalysesClick={onAnalysesClick}
-                onExtractsClick={onExtractsClick}
-                analysesOpen={analysesOpen}
-                extractsOpen={extractsOpen}
-                panelOffset={panelOffset}
-                readOnly={readOnly}
-                hideDocumentTools={hideDocumentTools}
-                showRightPanel={showRightPanel}
-              />
+              {bareContainer ? (
+                // Mirror the production layout: the bare controls live
+                // inside a viewport-anchored, vertically centered rail
+                // column. The popover positions relative to this column.
+                <div
+                  data-testid="rail-wrapper"
+                  style={{
+                    position: "fixed",
+                    right: 0,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    zIndex: 1999,
+                  }}
+                >
+                  <FloatingDocumentControls
+                    visible={visible}
+                    onAnalysesClick={onAnalysesClick}
+                    onExtractsClick={onExtractsClick}
+                    analysesOpen={analysesOpen}
+                    extractsOpen={extractsOpen}
+                    panelOffset={panelOffset}
+                    readOnly={readOnly}
+                    hideDocumentTools={hideDocumentTools}
+                    showRightPanel={showRightPanel}
+                    bareContainer
+                  />
+                </div>
+              ) : (
+                <FloatingDocumentControls
+                  visible={visible}
+                  onAnalysesClick={onAnalysesClick}
+                  onExtractsClick={onExtractsClick}
+                  analysesOpen={analysesOpen}
+                  extractsOpen={extractsOpen}
+                  panelOffset={panelOffset}
+                  readOnly={readOnly}
+                  hideDocumentTools={hideDocumentTools}
+                  showRightPanel={showRightPanel}
+                />
+              )}
             </div>
           </TestSetup>
         </MockedProvider>

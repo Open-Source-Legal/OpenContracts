@@ -79,11 +79,26 @@ const ActionButton = styled(SidebarTab)`
   }
 `;
 
-const ControlPanel = styled(motion.div)`
+/*
+ * Popover anchored to a button inside ControlsContainer. Two positioning
+ * modes, mirroring the container's two flex directions:
+ *
+ * - Non-bare (bottom-right floating cluster): ControlsContainer uses
+ *   `flex-direction: column-reverse`, so the trigger (Settings or Width)
+ *   sits at the BOTTOM of the stack. The popover anchors with
+ *   `bottom: calc(56px + 1rem)` so it floats directly above that trigger.
+ *
+ * - Bare (unified RightEdgeRail, panel closed): ControlsContainer uses
+ *   `flex-direction: column`, so the Settings trigger sits at the TOP of the
+ *   stack (just below the RailDivider). The popover anchors to the LEFT of
+ *   the rail with `right: calc(100% + 8px); top: 0;` so it appears beside
+ *   Settings rather than far above it (the previous behavior, which left
+ *   the popover floating high above the trigger because the bottom anchor
+ *   was measured from the BOTTOM of the column = past the other action
+ *   buttons).
+ */
+const ControlPanel = styled(motion.div)<{ $bare?: boolean }>`
   position: absolute;
-  right: 0;
-  /* Place the panel just above the button stack */
-  bottom: calc(56px + 1rem); /* button height + gap */
   background: white;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -91,9 +106,20 @@ const ControlPanel = styled(motion.div)`
   padding: 1rem;
   min-width: 240px;
 
-  @media (max-width: 768px) {
-    bottom: calc(40px + 1rem); /* smaller mobile button height */
-  }
+  ${(props) =>
+    props.$bare
+      ? `
+    right: calc(100% + 8px);
+    top: 0;
+  `
+      : `
+    right: 0;
+    bottom: calc(56px + 1rem); /* button height + gap */
+
+    @media (max-width: 768px) {
+      bottom: calc(40px + 1rem); /* smaller mobile button height */
+    }
+  `}
 `;
 
 const ControlItem = styled.div`
@@ -362,6 +388,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           <AnimatePresence>
             {expandedWidthMenu && showRightPanel && (
               <ControlPanel
+                $bare={bareContainer}
                 data-testid="width-menu-panel"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -412,6 +439,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           <AnimatePresence>
             {expandedSettings && (
               <ControlPanel
+                $bare={bareContainer}
                 data-testid="settings-panel"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
