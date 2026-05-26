@@ -14,6 +14,13 @@ name: Frontend E2E Extract Pipeline (VCR)
 env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
+  # Pin the compose project name so container names stay stable
+  # (`opencontracts-django-1`) regardless of the checkout directory.
+  # The repo was renamed `OpenContracts` → `cite`, which would otherwise
+  # change docker compose's default project name (= directory name) to
+  # `cite` and break the hardcoded container-name lookup in the wait
+  # loop below.
+  COMPOSE_PROJECT_NAME: opencontracts
 
 defaults:
   run:
