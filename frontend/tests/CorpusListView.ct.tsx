@@ -34,6 +34,7 @@ const createMockCorpus = (
   icon: null,
   isPublic: options.isPublic ?? false,
   description: `Description for ${title}`,
+  descriptionPreview: `Description for ${title}`,
   created: new Date().toISOString(),
   modified: new Date().toISOString(),
   // Map mock email back to a stable id so ownership comparisons (now id-based

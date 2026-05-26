@@ -182,6 +182,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
               email
             }
             description
+            descriptionPreview
             documentCount
             labelSet {
               id
@@ -335,7 +336,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
                 >
                   by {getCreatorDisplay(corpus.creator)}
                 </div>
-                {corpus.description && (
+                {(corpus.descriptionPreview || corpus.description) && (
                   <div
                     style={{
                       fontSize: "0.875rem",
@@ -343,7 +344,7 @@ export const AddToCorpusModal: React.FC<AddToCorpusModalProps> = ({
                       marginTop: "0.5rem",
                     }}
                   >
-                    {corpus.description}
+                    {corpus.descriptionPreview || corpus.description}
                   </div>
                 )}
               </div>

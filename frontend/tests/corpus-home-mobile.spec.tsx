@@ -12,6 +12,7 @@ const mockCorpus = {
   id: "corpus-1",
   title: "Test Corpus",
   description: "This is a test corpus description",
+  descriptionPreview: "This is a test corpus description",
   isPublic: true,
   creator: {
     email: "testuser@example.com",
