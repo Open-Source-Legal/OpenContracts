@@ -781,6 +781,23 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         return reordered
 
     @staticmethod
+    def _degrade_mode(mode: SearchMode, has_text: bool, log_prefix: str) -> SearchMode:
+        """Degrade ``"fts"``/``"hybrid"`` to ``"vector"`` when ``query_text`` is missing.
+
+        Shared by :meth:`_resolve_mode` (instance path) and :meth:`global_search`
+        (classmethod path, which doesn't have a ``VectorSearchQuery`` in scope)
+        so the rule lives in exactly one place.
+        """
+        if mode in ("fts", "hybrid") and not has_text:
+            _logger.info(
+                "%s mode '%s' requested without query_text; degrading to 'vector'.",
+                log_prefix,
+                mode,
+            )
+            return "vector"
+        return mode
+
+    @staticmethod
     def _resolve_mode(query: VectorSearchQuery) -> SearchMode:
         """Resolve the effective search mode, degrading gracefully when inputs disallow it.
 
@@ -788,16 +805,8 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         fall back to ``"vector"`` so the caller still gets results when an
         embedding is provided.
         """
-        mode = query.mode
         has_text = bool(query.query_text and query.query_text.strip())
-        if mode in ("fts", "hybrid") and not has_text:
-            _logger.info(
-                "Search mode '%s' requested without query_text; "
-                "degrading to 'vector'.",
-                mode,
-            )
-            return "vector"
-        return mode
+        return CoreAnnotationVectorStore._degrade_mode(query.mode, has_text, "Search")
 
     def search(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
         """Execute a search query, dispatching on ``query.mode``.
@@ -949,7 +958,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         text_results = self._run_fts_query(
             base_queryset, query.query_text, first_stage_top_k
         )
-        _logger.debug(f"FTS-only: arm returned {len(text_results)} results")
+        _logger.debug("FTS-only: arm returned %d results", len(text_results))
 
         results = [
             VectorSearchResult(
@@ -1231,16 +1240,9 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             get_default_reranker_instance,
         )
 
-        # Degrade FTS/hybrid without text to vector — mirrors `_resolve_mode`.
+        # Degrade FTS/hybrid without text to vector — shared with `_resolve_mode`.
         has_text = bool(query_text and query_text.strip())
-        effective_mode: SearchMode = mode
-        if effective_mode in ("fts", "hybrid") and not has_text:
-            _logger.info(
-                "global_search mode '%s' requested without query_text; "
-                "degrading to 'vector'.",
-                effective_mode,
-            )
-            effective_mode = "vector"
+        effective_mode: SearchMode = cls._degrade_mode(mode, has_text, "global_search")
 
         _logger.info(
             "Global search for user %s (mode=%s): '%s...'",
@@ -1561,10 +1563,10 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         base_queryset = await self._build_base_queryset()
         base_queryset = self._apply_metadata_filters(base_queryset, query.filters)
 
-        text_results = await sync_to_async(self._run_fts_query)(
+        text_results = await sync_to_async(CoreAnnotationVectorStore._run_fts_query)(
             base_queryset, query.query_text, first_stage_top_k
         )
-        _logger.debug(f"FTS-only async: arm returned {len(text_results)} results")
+        _logger.debug("FTS-only async: arm returned %d results", len(text_results))
 
         results = [
             VectorSearchResult(

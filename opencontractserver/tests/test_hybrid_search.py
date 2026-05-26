@@ -11,7 +11,7 @@ These tests verify:
 """
 
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
@@ -354,23 +354,63 @@ class TestSearchModeDispatch(TestCase):
         "opencontractserver.llms.vector_stores.base_vector_store"
         ".agenerate_embeddings_from_text"
     )
-    def test_async_search_mode_fts_without_text_returns_empty(
+    def test_async_search_mode_fts_without_text_degrades_to_vector(
         self, mock_aembed
     ) -> None:
-        """mode='fts' with no text degrades to vector; with no embedding -> empty."""
+        """mode='fts' with no text degrades to vector; embedding gen is skipped."""
         store = self._make_store()
         query = VectorSearchQuery(
             query_text=None,
             similarity_top_k=5,
             mode="fts",
         )
-        results = async_to_sync(store.async_search)(query)
-        self.assertIsInstance(results, list)
-        # Degrades to vector mode; with no text and no embedding, the vector
-        # path falls back to "standard filtering with limit" rather than empty.
-        # We just assert no FTS embedding generation occurred and the call
-        # completed without error.
+        # _resolve_mode is the canonical degradation contract; pin it directly.
+        self.assertEqual(CoreAnnotationVectorStore._resolve_mode(query), "vector")
+
+        # Then verify dispatch follows: async_search should route through the
+        # vector-only arm (no FTS embedding generation, no FTS arm call).
+        with patch.object(
+            CoreAnnotationVectorStore,
+            "_async_vector_only",
+            new=AsyncMock(return_value=[]),
+        ) as mock_vector_only, patch.object(
+            CoreAnnotationVectorStore, "_run_fts_query"
+        ) as mock_fts:
+            results = async_to_sync(store.async_search)(query)
+        mock_vector_only.assert_awaited_once()
+        mock_fts.assert_not_called()
         mock_aembed.assert_not_called()
+        self.assertIsInstance(results, list)
+
+    def test_async_search_mode_hybrid_dispatches_to_hybrid(self) -> None:
+        """mode='hybrid' explicitly routes async_search through async_hybrid_search."""
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text="indemnification",
+            similarity_top_k=5,
+            mode="hybrid",
+        )
+        with patch.object(
+            CoreAnnotationVectorStore,
+            "async_hybrid_search",
+            new=AsyncMock(return_value=[]),
+        ) as mock_hybrid:
+            async_to_sync(store.async_search)(query)
+        mock_hybrid.assert_awaited_once()
+
+    def test_sync_search_mode_hybrid_dispatches_to_hybrid(self) -> None:
+        """mode='hybrid' explicitly routes sync search through hybrid_search."""
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text="indemnification",
+            similarity_top_k=5,
+            mode="hybrid",
+        )
+        with patch.object(
+            CoreAnnotationVectorStore, "hybrid_search", return_value=[]
+        ) as mock_hybrid:
+            store.search(query)
+        mock_hybrid.assert_called_once()
 
     @patch(
         "opencontractserver.llms.vector_stores.base_vector_store"
