@@ -798,6 +798,47 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         return mode
 
     @staticmethod
+    def _generate_global_query_vector(
+        mode: SearchMode,
+        query_text: str,
+        embedder_path: str,
+    ) -> tuple[SearchMode, Optional[list[float]]]:
+        """Generate an embedding for the vector arm of :meth:`global_search`.
+
+        Only meaningful when ``mode`` is ``"vector"`` or ``"hybrid"`` (the modes
+        that need an embedding). Returns ``(effective_mode, query_vector)``
+        after applying embedding-availability degradation:
+
+        - Embedder unavailable / ``embed_text`` returns ``None``:
+            - ``"hybrid"`` → ``"fts"`` (the text arm can still run)
+            - ``"vector"`` → ``"vector"`` (caller MUST detect the ``None`` vector
+              and return ``[]`` — there is nothing to fall back to).
+        - Embedding successfully generated: ``mode`` unchanged.
+
+        Extracting this from :meth:`global_search` keeps the
+        ``effective_mode`` state transition (a) explicit at a single call site
+        and (b) testable in isolation rather than buried in nested ``if/else``.
+        """
+        from opencontractserver.pipeline.utils import get_default_embedder
+
+        default_embedder_class = get_default_embedder()
+        if not default_embedder_class:
+            _logger.error("Could not get default embedder for global search")
+            return ("fts" if mode == "hybrid" else mode, None)
+
+        query_vector = default_embedder_class().embed_text(query_text)
+        if query_vector is None:
+            _logger.warning("Failed to generate query embedding for global search")
+            return ("fts" if mode == "hybrid" else mode, None)
+
+        _logger.debug(
+            "Generated query embedding with dimension %d using %s",
+            len(query_vector),
+            embedder_path,
+        )
+        return (mode, query_vector)
+
+    @staticmethod
     def _resolve_mode(query: VectorSearchQuery) -> SearchMode:
         """Resolve the effective search mode, degrading gracefully when inputs disallow it.
 
@@ -830,7 +871,9 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             List of search results with annotations and similarity scores.
         """
         mode = self._resolve_mode(query)
-        _logger.info("CoreAnnotationVectorStore.search mode=%s", mode)
+        # DEBUG (not INFO): fires on every search call; reserve INFO for
+        # state transitions and configuration events.
+        _logger.debug("CoreAnnotationVectorStore.search mode=%s", mode)
         if mode == "hybrid":
             return self.hybrid_search(query)
         if mode == "fts":
@@ -1235,12 +1278,11 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         """
         from opencontractserver.documents.models import Document
         from opencontractserver.pipeline.utils import (
-            get_default_embedder,
             get_default_embedder_path,
             get_default_reranker_instance,
         )
 
-        # Degrade FTS/hybrid without text to vector — shared with `_resolve_mode`.
+        # ----- Pass 1: degrade fts/hybrid → vector when no query_text. -----
         has_text = bool(query_text and query_text.strip())
         effective_mode: SearchMode = cls._degrade_mode(mode, has_text, "global_search")
 
@@ -1310,33 +1352,24 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 modality_q |= Q(content_modalities__contains=[modality])
             base_queryset = base_queryset.filter(modality_q)
 
-        # --- Generate query embedding if needed (vector or hybrid mode). ---
+        # ----- Pass 2: generate embedding for the vector arm. -----
+        # Helper returns the post-degradation mode (hybrid → fts on embedder
+        # failure) so the only mutation of ``effective_mode`` lives at this
+        # single call site.
         query_vector: Optional[list[float]] = None
         if effective_mode in ("vector", "hybrid"):
-            default_embedder_class = get_default_embedder()
-            if not default_embedder_class:
-                _logger.error("Could not get default embedder for global search")
-                if effective_mode == "vector":
-                    return []
-                effective_mode = "fts"  # fall back to text arm only
-            else:
-                default_embedder = default_embedder_class()
-                query_vector = default_embedder.embed_text(query_text)
-                if query_vector is None:
-                    _logger.warning(
-                        "Failed to generate query embedding for global search"
-                    )
-                    if effective_mode == "vector":
-                        return []
-                    # Hybrid with no embedding: fall through to text-only path.
-                    effective_mode = "fts"
-                else:
-                    _logger.debug(
-                        "Generated query embedding with dimension %d using %s",
-                        len(query_vector),
-                        default_embedder_path,
-                    )
+            effective_mode, query_vector = cls._generate_global_query_vector(
+                effective_mode, query_text, default_embedder_path
+            )
+            # Vector-only with no embedding has nothing to fall back to.
+            if effective_mode == "vector" and query_vector is None:
+                return []
 
+        # ``oversample_k`` is computed after the embedding pass so it reflects
+        # the FINAL ``effective_mode`` (hybrid can demote to fts when the
+        # embedder is unavailable). Otherwise the FTS arm would silently
+        # over-fetch ``first_stage_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR``
+        # rows after a demotion.
         oversample_k = (
             first_stage_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
             if effective_mode == "hybrid"
@@ -1369,6 +1402,10 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         if effective_mode == "hybrid":
             results = cls._fuse_results(vector_results, text_results, first_stage_top_k)
         elif effective_mode == "fts":
+            # ``text_results`` is bounded by ``oversample_k`` which equals
+            # ``first_stage_top_k`` in fts mode, so the slice is a defensive
+            # guard rather than active truncation — kept so a future change
+            # to ``oversample_k`` can't accidentally bleed extra rows through.
             results = [
                 VectorSearchResult(
                     annotation=ann,
@@ -1395,6 +1432,8 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
+        # Applied uniformly across all modes so vector/fts/hybrid go through
+        # the same rerank → attach-block-context pipeline.
         reranked = cls._rerank_results(results, query_text, top_k, reranker)
         # Block-context attach is independent of the per-instance store
         # state, so the classmethod path can call the @staticmethod helper
@@ -1453,7 +1492,9 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             List of search results with annotations and similarity scores.
         """
         mode = self._resolve_mode(query)
-        _logger.info("CoreAnnotationVectorStore.async_search mode=%s", mode)
+        # DEBUG (not INFO): fires on every search call; reserve INFO for
+        # state transitions and configuration events.
+        _logger.debug("CoreAnnotationVectorStore.async_search mode=%s", mode)
         if mode == "hybrid":
             return await self.async_hybrid_search(query)
         if mode == "fts":

@@ -460,6 +460,174 @@ class TestSearchModeDispatch(TestCase):
         ok = VectorSearchQuery(query_text="something", mode="hybrid")
         self.assertEqual(CoreAnnotationVectorStore._resolve_mode(ok), "hybrid")
 
+    # --------------------------------------------------------------------
+    # global_search() mode dispatch — the classmethod path has its own
+    # embedding + queryset assembly (it doesn't delegate to ``search`` /
+    # ``async_search``), so it needs its own coverage.
+    # --------------------------------------------------------------------
+
+    def test_global_search_mode_vector_skips_fts(self) -> None:
+        """global_search(mode='vector') must not invoke the FTS arm."""
+        with patch.object(CoreAnnotationVectorStore, "_run_fts_query") as mock_fts:
+            results = CoreAnnotationVectorStore.global_search(
+                user_id=self.user.id,
+                query_text="indemnification",
+                top_k=5,
+                mode="vector",
+            )
+        mock_fts.assert_not_called()
+        self.assertIsInstance(results, list)
+
+    def test_global_search_mode_fts_skips_embedder(self) -> None:
+        """global_search(mode='fts') must not call the embedder factory."""
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder"
+        ) as mock_get_embedder, patch.object(
+            CoreAnnotationVectorStore, "_run_fts_query", return_value=[]
+        ) as mock_fts:
+            results = CoreAnnotationVectorStore.global_search(
+                user_id=self.user.id,
+                query_text="indemnification",
+                top_k=5,
+                mode="fts",
+            )
+        mock_get_embedder.assert_not_called()
+        mock_fts.assert_called_once()
+        self.assertIsInstance(results, list)
+
+    def test_global_search_mode_fts_without_text_degrades_to_vector(self) -> None:
+        """global_search(mode='fts') with empty text degrades to vector mode.
+
+        After degradation the FTS arm must not run.
+        """
+        with patch.object(CoreAnnotationVectorStore, "_run_fts_query") as mock_fts:
+            results = CoreAnnotationVectorStore.global_search(
+                user_id=self.user.id,
+                query_text="   ",
+                top_k=5,
+                mode="fts",
+            )
+        mock_fts.assert_not_called()
+        self.assertIsInstance(results, list)
+
+    def test_global_search_mode_hybrid_dispatches_both_arms(self) -> None:
+        """global_search(mode='hybrid') invokes the FTS arm (vector arm covered separately).
+
+        ``test_global_search_mode_vector_skips_fts`` pins the inverse, so a
+        successful FTS arm call here is sufficient to prove the dispatch.
+        """
+        with patch.object(
+            CoreAnnotationVectorStore, "_run_fts_query", return_value=[]
+        ) as mock_fts:
+            results = CoreAnnotationVectorStore.global_search(
+                user_id=self.user.id,
+                query_text="indemnification",
+                top_k=5,
+                mode="hybrid",
+            )
+        mock_fts.assert_called_once()
+        self.assertIsInstance(results, list)
+
+    def test_global_search_mode_hybrid_embedder_failure_degrades_to_fts(self) -> None:
+        """When the embedder is unavailable, hybrid must degrade to fts (not abort)."""
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder", return_value=None
+        ), patch.object(
+            CoreAnnotationVectorStore, "_run_fts_query", return_value=[]
+        ) as mock_fts:
+            results = CoreAnnotationVectorStore.global_search(
+                user_id=self.user.id,
+                query_text="indemnification",
+                top_k=5,
+                mode="hybrid",
+            )
+        # Vector arm couldn't run, but FTS arm still must (this is the whole
+        # point of the degradation contract).
+        mock_fts.assert_called_once()
+        self.assertIsInstance(results, list)
+
+    def test_global_search_mode_vector_embedder_failure_returns_empty(self) -> None:
+        """Vector-only with no embedder has nothing to fall back to — empty list."""
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder", return_value=None
+        ), patch.object(CoreAnnotationVectorStore, "_run_fts_query") as mock_fts:
+            results = CoreAnnotationVectorStore.global_search(
+                user_id=self.user.id,
+                query_text="indemnification",
+                top_k=5,
+                mode="vector",
+            )
+        self.assertEqual(results, [])
+        # FTS arm must not be silently triggered when caller asked for vector.
+        mock_fts.assert_not_called()
+
+    # --------------------------------------------------------------------
+    # _generate_global_query_vector helper — unit-level coverage of the
+    # mode + vector resolution rule extracted from global_search.
+    # --------------------------------------------------------------------
+
+    def test_generate_global_query_vector_no_embedder_class_degrades_hybrid(
+        self,
+    ) -> None:
+        """Hybrid with no embedder class → mode collapses to fts, vector is None."""
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder", return_value=None
+        ):
+            mode, vector = CoreAnnotationVectorStore._generate_global_query_vector(
+                "hybrid", "any text", get_default_embedder_path()
+            )
+        self.assertEqual(mode, "fts")
+        self.assertIsNone(vector)
+
+    def test_generate_global_query_vector_no_embedder_class_preserves_vector(
+        self,
+    ) -> None:
+        """Vector with no embedder class → mode stays vector (caller aborts on None)."""
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder", return_value=None
+        ):
+            mode, vector = CoreAnnotationVectorStore._generate_global_query_vector(
+                "vector", "any text", get_default_embedder_path()
+            )
+        self.assertEqual(mode, "vector")
+        self.assertIsNone(vector)
+
+    def test_generate_global_query_vector_embed_returns_none_degrades_hybrid(
+        self,
+    ) -> None:
+        """Hybrid where embed_text returns None → degrade to fts."""
+
+        class _FailingEmbedder:
+            def embed_text(self, _text: str) -> Optional[list[float]]:
+                return None
+
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder",
+            return_value=_FailingEmbedder,
+        ):
+            mode, vector = CoreAnnotationVectorStore._generate_global_query_vector(
+                "hybrid", "any text", get_default_embedder_path()
+            )
+        self.assertEqual(mode, "fts")
+        self.assertIsNone(vector)
+
+    def test_generate_global_query_vector_success(self) -> None:
+        """Successful embedding preserves the input mode and returns the vector."""
+
+        class _OkEmbedder:
+            def embed_text(self, _text: str) -> list[float]:
+                return constant_vector(384, 0.5)
+
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_embedder",
+            return_value=_OkEmbedder,
+        ):
+            mode, vector = CoreAnnotationVectorStore._generate_global_query_vector(
+                "hybrid", "any text", get_default_embedder_path()
+            )
+        self.assertEqual(mode, "hybrid")
+        self.assertEqual(len(vector), 384)
+
 
 class TestSearchByEmbeddingRefactor(TestCase):
     """Tests that search_by_embedding uses ORDER BY + LIMIT and returns a list.

@@ -21,7 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 class PydanticAIVectorSearchRequest(BaseModel):
-    """Pydantic model for vector search requests in PydanticAI context."""
+    """Pydantic model for vector search requests in PydanticAI context.
+
+    Fields:
+        query_text: Text query for semantic / full-text search.
+        query_embedding: Pre-computed embedding vector (bypasses embedder).
+        similarity_top_k: Maximum number of results to return.
+        filters: Additional metadata filters.
+        mode: Retrieval mode — ``"vector"``, ``"fts"``, or ``"hybrid"``
+            (default). See :data:`SearchMode` for degradation rules.
+    """
 
     query_text: Optional[str] = None
     query_embedding: Optional[list[float]] = None
