@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from "react";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Settings,
@@ -108,18 +108,18 @@ const ControlPanel = styled(motion.div)<{ $bare?: boolean }>`
 
   ${(props) =>
     props.$bare
-      ? `
-    right: calc(100% + 8px);
-    top: 0;
-  `
-      : `
-    right: 0;
-    bottom: calc(56px + 1rem); /* button height + gap */
+      ? css`
+          right: calc(100% + 8px);
+          top: 0;
+        `
+      : css`
+          right: 0;
+          bottom: calc(56px + 1rem); /* button height + gap */
 
-    @media (max-width: 768px) {
-      bottom: calc(40px + 1rem); /* smaller mobile button height */
-    }
-  `}
+          @media (max-width: 768px) {
+            bottom: calc(40px + 1rem); /* smaller mobile button height */
+          }
+        `}
 `;
 
 const ControlItem = styled.div`
@@ -387,8 +387,13 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
         <ControlsContainer $panelOffset={panelOffset} $bare={bareContainer}>
           <AnimatePresence>
             {expandedWidthMenu && showRightPanel && (
+              // No `$bare` here: the width menu is gated on `showRightPanel`
+              // and the unified rail (bare mode) only renders when the panel
+              // is closed, so this branch is unreachable when bareContainer
+              // is true. Omitting the prop keeps the non-bare anchor —
+              // bottom-right above the trigger — which is what the open-panel
+              // layout expects.
               <ControlPanel
-                $bare={bareContainer}
                 data-testid="width-menu-panel"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
