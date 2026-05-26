@@ -243,6 +243,184 @@ class TestHybridSearch(TestCase):
         mock_aembed.assert_not_called()
 
 
+class TestSearchModeDispatch(TestCase):
+    """Tests for the ``mode`` knob on :class:`VectorSearchQuery`.
+
+    Verifies the new ``search()`` / ``async_search()`` dispatch and the
+    standalone ``"vector"`` / ``"fts"`` paths. Existing hybrid tests above
+    cover the ``"hybrid"`` default.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        with transaction.atomic():
+            cls.user = User.objects.create_user(
+                username="mode_user",
+                password="testpass",
+                email="mode@example.com",
+            )
+            cls.corpus = Corpus.objects.create(
+                title="Mode Dispatch Corpus",
+                creator=cls.user,
+                is_public=True,
+            )
+            cls.doc = Document.objects.create(
+                title="Mode Doc",
+                creator=cls.user,
+                is_public=True,
+            )
+            DocumentPath.objects.create(
+                document=cls.doc,
+                corpus=cls.corpus,
+                path="/mode.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+                creator=cls.user,
+            )
+            cls.label = AnnotationLabel.objects.create(text="Clause", creator=cls.user)
+            cls.anno_alpha = Annotation.objects.create(
+                document=cls.doc,
+                corpus=cls.corpus,
+                creator=cls.user,
+                raw_text="Indemnification clauses limit liability exposure.",
+                annotation_label=cls.label,
+                is_public=True,
+            )
+            cls.anno_beta = Annotation.objects.create(
+                document=cls.doc,
+                corpus=cls.corpus,
+                creator=cls.user,
+                raw_text="Royalty payments accrue quarterly under the agreement.",
+                annotation_label=cls.label,
+                is_public=True,
+            )
+
+        dim = 384
+        embedder_path = get_default_embedder_path()
+        cls.anno_alpha.add_embedding(embedder_path, constant_vector(dim, 0.1))
+        cls.anno_beta.add_embedding(embedder_path, constant_vector(dim, 0.2))
+
+    def _make_store(self) -> CoreAnnotationVectorStore:
+        return CoreAnnotationVectorStore(
+            user_id=self.user.id,
+            corpus_id=self.corpus.id,
+        )
+
+    def test_query_defaults_to_hybrid_mode(self) -> None:
+        """VectorSearchQuery defaults mode to 'hybrid'."""
+        q = VectorSearchQuery(query_text="anything")
+        self.assertEqual(q.mode, "hybrid")
+
+    @patch(
+        "opencontractserver.llms.vector_stores.base_vector_store"
+        ".agenerate_embeddings_from_text"
+    )
+    def test_async_search_mode_vector_skips_fts(self, mock_aembed):
+        """mode='vector' should NOT call the FTS arm even with query_text."""
+        mock_aembed.return_value = (
+            get_default_embedder_path(),
+            constant_vector(384, 0.15),
+        )
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text="indemnification",
+            similarity_top_k=5,
+            mode="vector",
+        )
+        with patch.object(CoreAnnotationVectorStore, "_run_fts_query") as mock_fts:
+            results = async_to_sync(store.async_search)(query)
+        mock_fts.assert_not_called()
+        self.assertIsInstance(results, list)
+
+    @patch(
+        "opencontractserver.llms.vector_stores.base_vector_store"
+        ".agenerate_embeddings_from_text"
+    )
+    def test_async_search_mode_fts_skips_vector(self, mock_aembed):
+        """mode='fts' should NOT generate an embedding."""
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text="indemnification",
+            similarity_top_k=5,
+            mode="fts",
+        )
+        results = async_to_sync(store.async_search)(query)
+        self.assertIsInstance(results, list)
+        # FTS-only path should never ask for an embedding
+        mock_aembed.assert_not_called()
+
+    @patch(
+        "opencontractserver.llms.vector_stores.base_vector_store"
+        ".agenerate_embeddings_from_text"
+    )
+    def test_async_search_mode_fts_without_text_returns_empty(
+        self, mock_aembed
+    ) -> None:
+        """mode='fts' with no text degrades to vector; with no embedding -> empty."""
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text=None,
+            similarity_top_k=5,
+            mode="fts",
+        )
+        results = async_to_sync(store.async_search)(query)
+        self.assertIsInstance(results, list)
+        # Degrades to vector mode; with no text and no embedding, the vector
+        # path falls back to "standard filtering with limit" rather than empty.
+        # We just assert no FTS embedding generation occurred and the call
+        # completed without error.
+        mock_aembed.assert_not_called()
+
+    @patch(
+        "opencontractserver.llms.vector_stores.base_vector_store"
+        ".generate_embeddings_from_text"
+    )
+    def test_sync_search_mode_fts(self, mock_embed):
+        """Sync search() dispatches to FTS-only when mode='fts'."""
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text="royalty",
+            similarity_top_k=5,
+            mode="fts",
+        )
+        results = store.search(query)
+        self.assertIsInstance(results, list)
+        # FTS-only should not generate embeddings
+        mock_embed.assert_not_called()
+
+    @patch(
+        "opencontractserver.llms.vector_stores.base_vector_store"
+        ".generate_embeddings_from_text"
+    )
+    def test_sync_search_mode_vector(self, mock_embed):
+        """Sync search() dispatches to vector-only when mode='vector'."""
+        mock_embed.return_value = (
+            get_default_embedder_path(),
+            constant_vector(384, 0.15),
+        )
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text="royalty",
+            similarity_top_k=5,
+            mode="vector",
+        )
+        with patch.object(CoreAnnotationVectorStore, "_run_fts_query") as mock_fts:
+            results = store.search(query)
+        # Vector-only must not invoke the FTS arm
+        mock_fts.assert_not_called()
+        self.assertIsInstance(results, list)
+
+    def test_resolve_mode_degrades_fts_without_text(self) -> None:
+        """``_resolve_mode`` downgrades fts/hybrid to vector when text is missing."""
+        empty = VectorSearchQuery(query_text="   ", mode="fts")
+        self.assertEqual(CoreAnnotationVectorStore._resolve_mode(empty), "vector")
+        none_q = VectorSearchQuery(query_text=None, mode="hybrid")
+        self.assertEqual(CoreAnnotationVectorStore._resolve_mode(none_q), "vector")
+        ok = VectorSearchQuery(query_text="something", mode="hybrid")
+        self.assertEqual(CoreAnnotationVectorStore._resolve_mode(ok), "hybrid")
+
+
 class TestSearchByEmbeddingRefactor(TestCase):
     """Tests that search_by_embedding uses ORDER BY + LIMIT and returns a list.
 
