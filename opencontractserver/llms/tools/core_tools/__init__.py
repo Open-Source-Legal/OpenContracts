@@ -67,6 +67,12 @@ from .document_summaries import (  # noqa: F401
     update_document_summary,
 )
 from .documents import amove_document, move_document  # noqa: F401
+from .text_document_import import (  # noqa: F401
+    acreate_or_update_text_document,
+    aupload_text_document,
+    create_or_update_text_document,
+    upload_text_document,
+)
 from .extracts_and_analyzers import (  # noqa: F401
     alist_analyzers,
     alist_fieldsets,
@@ -202,6 +208,11 @@ __all__ = [
     # Document movement
     "amove_document",
     "move_document",
+    # Text document create / version-up
+    "acreate_or_update_text_document",
+    "aupload_text_document",
+    "create_or_update_text_document",
+    "upload_text_document",
     # Extracts & analyzers
     "alist_analyzers",
     "alist_fieldsets",

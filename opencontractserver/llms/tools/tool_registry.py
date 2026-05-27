@@ -457,6 +457,52 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         ),
     ),
     ToolDefinition(
+        name="create_or_update_text_document",
+        description=(
+            "Create a text-based document in the current corpus, or version-up "
+            "an existing one at the same path. Only text formats are supported "
+            "(text/plain, text/markdown, application/txt) — binary formats "
+            "like PDF/DOCX require the parsing pipeline and are out of scope. "
+            "The corpus path is derived from the title, so calling this tool "
+            "twice with the same title and corpus replaces the existing "
+            "document with a new version."
+        ),
+        # CORPUS category because this writes a new document/version into
+        # the corpus filesystem — only available to corpus-level agents.
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            (
+                "title",
+                "Document title. Also used to derive the corpus filesystem "
+                "path (calling with the same title version-ups the existing doc).",
+                True,
+            ),
+            (
+                "content",
+                "Full text content of the document (UTF-8).",
+                True,
+            ),
+            (
+                "description",
+                "Optional description applied to the new (or new version of) document.",
+                False,
+            ),
+            (
+                "folder_id",
+                "Optional CorpusFolder ID inside the same corpus. Omit for corpus root.",
+                False,
+            ),
+            (
+                "file_type",
+                "MIME type. One of text/plain (default), text/markdown, application/txt.",
+                False,
+            ),
+        ),
+    ),
+    ToolDefinition(
         name="move_document",
         description=(
             "Move a document to a different folder within the current corpus. "
@@ -1167,6 +1213,7 @@ class ToolFunctionRegistry:
             alist_fieldsets,
             alist_recent_analyses,
             alist_recent_extracts,
+            acreate_or_update_text_document,
             aload_document_md_summary,
             aload_document_txt_extract,
             amove_document,
@@ -1248,6 +1295,10 @@ class ToolFunctionRegistry:
             "get_corpus_description": (aget_corpus_description, ()),
             "update_corpus_description": (aupdate_corpus_description, ()),
             "move_document": (amove_document, ()),
+            "create_or_update_text_document": (
+                acreate_or_update_text_document,
+                ("upload_text_document",),
+            ),
             # CAML article review tools (corpus-scoped Readme.CAML editor)
             "read_corpus_caml_article": (aread_corpus_caml_article, ()),
             "propose_caml_citation_match": (apropose_caml_citation_match, ()),
