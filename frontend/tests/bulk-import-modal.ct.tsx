@@ -2,12 +2,17 @@
 //
 // Tests the bulk ZIP import modal styling and step navigation.
 // Uses docScreenshot to capture the visual state of each step.
+//
+// The modal posts directly to ``POST /api/imports/zip-to-corpus/`` via
+// ``fetch``; the progress test stubs ``window.fetch`` so the upload
+// resolves without an actual network request. (Previously this used an
+// Apollo MockedProvider mock for the now-removed ``IMPORT_ZIP_TO_CORPUS``
+// GraphQL mutation.)
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import { BulkImportModal } from "../src/components/widgets/modals/BulkImportModal";
 import { BulkImportTestWrapper } from "./wrappers/BulkImportTestWrapper";
 import { docScreenshot } from "./utils/docScreenshot";
-import { IMPORT_ZIP_TO_CORPUS } from "../src/graphql/mutations";
 
 test.describe("BulkImportModal", () => {
   test("should render confirm step with warning and info alerts", async ({
@@ -178,40 +183,36 @@ test.describe("BulkImportModal", () => {
     mount,
     page,
   }) => {
-    // Compute the expected base64 deterministically from the same buffer used below.
-    // Apollo MockedProvider uses deep equality (not Jest matchers) to match variables,
-    // so we must provide the exact base64 string rather than expect.any(String).
-    // Note: variableMatcher cannot be used in Playwright CT tests because functions
-    // are not serializable across the Node.js ↔ browser boundary.
-    const zipBuffer = Buffer.from("PK\x03\x04dummy-zip-content");
-    const expectedBase64 = zipBuffer.toString("base64");
-
-    const importMock = {
-      request: {
-        query: IMPORT_ZIP_TO_CORPUS,
-        variables: {
-          base64FileString: expectedBase64,
-          corpusId: "test-corpus-id",
-          makePublic: false,
-        },
-      },
-      delay: 30000,
-      result: {
-        data: {
-          importZipToCorpus: {
-            ok: true,
-            message: "Import started",
-            jobId: "test-job-123",
-          },
-        },
-      },
-    };
+    // Intercept the multipart upload to /api/imports/zip-to-corpus/ at the
+    // network layer so the progress UI has time to render. We delay the
+    // fulfilment well past the test's 30s timeout window — the test only
+    // needs to observe the in-flight state, not the success state.
+    let resolveRoute: (() => void) | undefined;
+    const routePending = new Promise<void>((resolve) => {
+      resolveRoute = resolve;
+    });
+    await page.route("**/api/imports/zip-to-corpus/", async (route) => {
+      // Park the request until the test releases it on teardown so the
+      // progress step stays visible for every assertion below.
+      await routePending;
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          job_id: "test-job-123",
+          message: "Import started",
+        }),
+      });
+    });
 
     const component = await mount(
-      <BulkImportTestWrapper mocks={[importMock]}>
+      <BulkImportTestWrapper>
         <BulkImportModal />
       </BulkImportTestWrapper>
     );
+
+    const zipBuffer = Buffer.from("PK\x03\x04dummy-zip-content");
 
     // Navigate to upload step
     await page.locator('button:has-text("Continue")').click();
@@ -219,7 +220,7 @@ test.describe("BulkImportModal", () => {
       page.locator("text=Drag & drop a ZIP file here")
     ).toBeVisible();
 
-    // Select a file (reuses the same zipBuffer that computed expectedBase64 above)
+    // Select a file
     const fileInput = page.locator('input[type="file"][accept=".zip"]');
     await fileInput.setInputFiles({
       name: "progress-test.zip",
@@ -248,6 +249,8 @@ test.describe("BulkImportModal", () => {
 
     await docScreenshot(page, "corpus--bulk-import-modal--progress-step");
 
+    // Release the parked request so unmount doesn't deadlock cleanup.
+    resolveRoute?.();
     await component.unmount();
   });
 });

@@ -208,8 +208,10 @@ class UserType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "Whether this user is permitted to import a corpus. Self-only — "
             "this exposes account-tier (usage-capped) status, which is PII. "
             "Returns ``None`` for non-self viewers. Self-views see the same "
-            "gate the server enforces in UploadCorpusImportZip / "
-            "ImportZipToCorpus: false for usage-capped users when "
+            "gate the server enforces in the corpus-export and "
+            "zip-to-corpus REST import endpoints "
+            "(/api/imports/corpus/, /api/imports/zip-to-corpus/): "
+            "false for usage-capped users when "
             "USAGE_CAPPED_USER_CAN_IMPORT_CORPUS is disabled."
         )
     )

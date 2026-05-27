@@ -1037,3 +1037,266 @@ class DocumentImportFolderIDORTests(TestCase):
         self.assertFalse(
             Document.objects.filter(creator=self.alice, title="IDOR attempt 2").exists()
         )
+
+
+ZIP_TO_CORPUS_URL = "/api/imports/zip-to-corpus/"
+CORPUS_EXPORT_URL = "/api/imports/corpus/"
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class ZipToCorpusImportViewTests(TestCase):
+    """
+    Multipart zip-with-folder-structure upload
+    (``POST /api/imports/zip-to-corpus/``).
+
+    Wraps the ``import_zip_with_folder_structure`` celery task that
+    previously sat behind the ``ImportZipToCorpus`` GraphQL mutation.
+    Tests cover the view contract (corpus/folder validation, IDOR
+    response shape, job_id + owner caching, oversize rejection); the
+    actual extraction pipeline is covered by
+    ``test_zip_import_integration.py`` and ``test_sidecar_import.py``.
+    """
+
+    client: APIClient
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="alice_ztc", password="pw", is_usage_capped=False
+        )
+        self.other = User.objects.create_user(
+            username="bob_ztc", password="pw", is_usage_capped=False
+        )
+        self.corpus = Corpus.objects.create(
+            title="Alice Corpus", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.CRUD])
+        self.folder = CorpusFolder.objects.create(
+            corpus=self.corpus, name="Inbox", creator=self.user
+        )
+        self.client = APIClient()
+        self.zip_bytes = _make_zip({"sub/a.pdf": PDF_BYTES, "sub/b.txt": TXT_BYTES})
+
+    def _login(self, user=None):
+        self.client.force_authenticate(user=user or self.user)
+
+    def _upload(self, **overrides):
+        payload = {
+            "file": SimpleUploadedFile(
+                "bundle.zip", self.zip_bytes, content_type="application/zip"
+            ),
+            "corpus_id": str(self.corpus.id),
+            "make_public": "false",
+        }
+        payload.update(overrides)
+        return self.client.post(ZIP_TO_CORPUS_URL, payload, format="multipart")
+
+    def test_unauthenticated_request_is_rejected(self):
+        response = self._upload()
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_happy_path_returns_job_id_and_caches_owner(self):
+        self._login()
+        response = self._upload()
+        self.assertEqual(response.status_code, 202, response.content)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        job_id = body["job_id"]
+        self.assertTrue(job_id)
+        cached_owner = cache.get(f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}")
+        self.assertEqual(cached_owner, self.user.id)
+
+    def test_corpus_id_accepts_relay_global_id(self):
+        self._login()
+        gid = to_global_id("CorpusType", str(self.corpus.id))
+        response = self._upload(corpus_id=gid)
+        self.assertEqual(response.status_code, 202, response.content)
+
+    def test_inaccessible_corpus_collapses_to_idor_message(self):
+        foreign = Corpus.objects.create(
+            title="Bob", creator=self.other, backend_lock=False
+        )
+        self._login()
+        denied = self._upload(corpus_id=str(foreign.id))
+        self.assertEqual(denied.status_code, 400)
+        self.assertIn("Corpus not found", denied.json()["error"])
+
+        # Non-existent corpus must surface the same string so attackers can't
+        # enumerate inaccessible corpora by comparing error messages.
+        missing = self._upload(corpus_id="999999999")
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(denied.json()["error"], missing.json()["error"])
+
+    def test_read_only_corpus_collapses_to_idor_message(self):
+        public = Corpus.objects.create(
+            title="Public",
+            creator=self.other,
+            is_public=True,
+            backend_lock=False,
+        )
+        self._login()
+        response = self._upload(corpus_id=str(public.id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Corpus not found", response.json()["error"])
+
+    def test_target_folder_in_own_corpus_succeeds(self):
+        self._login()
+        response = self._upload(target_folder_id=str(self.folder.id))
+        self.assertEqual(response.status_code, 202, response.content)
+
+    def test_cross_corpus_folder_id_is_rejected(self):
+        """
+        Mirror of the single-doc folder IDOR test: a folder that lives in
+        a different corpus must be rejected even when the caller owns the
+        target corpus.
+        """
+        other_corpus = Corpus.objects.create(
+            title="Other", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, other_corpus, [PermissionTypes.CRUD])
+        cross_folder = CorpusFolder.objects.create(
+            corpus=other_corpus, name="cross", creator=self.user
+        )
+        self._login()
+        response = self._upload(target_folder_id=str(cross_folder.id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Target folder", response.json()["error"])
+
+    def test_missing_file_is_validation_error(self):
+        self._login()
+        response = self.client.post(
+            ZIP_TO_CORPUS_URL,
+            {"corpus_id": str(self.corpus.id), "make_public": "false"},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_missing_corpus_id_is_validation_error(self):
+        self._login()
+        response = self.client.post(
+            ZIP_TO_CORPUS_URL,
+            {
+                "file": SimpleUploadedFile(
+                    "bundle.zip", self.zip_bytes, content_type="application/zip"
+                ),
+                "make_public": "false",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_non_zip_payload_is_rejected_with_explicit_error(self):
+        self._login()
+        response = self._upload(
+            file=SimpleUploadedFile(
+                "not-a-zip.pdf", PDF_BYTES, content_type="application/pdf"
+            ),
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("ZIP", response.json()["error"])
+
+    def test_oversize_zip_returns_413(self):
+        self._login()
+        with override_settings(MAX_DOCUMENT_IMPORT_SIZE_BYTES=10):
+            response = self._upload()
+        self.assertEqual(response.status_code, 413)
+
+    @override_settings(USAGE_CAPPED_USER_CAN_IMPORT_CORPUS=False)
+    def test_usage_capped_user_cannot_upload(self):
+        capped = User.objects.create_user(
+            username="capped_ztc", password="pw", is_usage_capped=True
+        )
+        # Capped users still need EDIT perm on the corpus to even reach the
+        # cap check; grant it explicitly so this test exercises the cap.
+        set_permissions_for_obj_to_user(capped, self.corpus, [PermissionTypes.CRUD])
+        self.client.force_authenticate(user=capped)
+        response = self._upload()
+        self.assertEqual(response.status_code, 403)
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class CorpusExportImportViewTests(TestCase):
+    """
+    Multipart OpenContracts corpus-export upload
+    (``POST /api/imports/corpus/``).
+
+    Wraps the ``import_corpus`` celery task that previously sat behind
+    the ``UploadCorpusImportZip`` GraphQL mutation. The placeholder
+    corpus is created synchronously so the response can return its id;
+    hydration runs asynchronously.
+    """
+
+    client: APIClient
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="alice_cex", password="pw", is_usage_capped=False
+        )
+        self.client = APIClient()
+        # Realistic corpus-export zip: any valid ZIP with the magic header
+        # is enough to pass the synchronous peek; the celery task is
+        # mocked out (CELERY_TASK_ALWAYS_EAGER=False under TestCase).
+        self.zip_bytes = _make_zip({"data.json": b"{}"})
+
+    def _login(self):
+        self.client.force_authenticate(user=self.user)
+
+    def _upload(self, **overrides):
+        payload = {
+            "file": SimpleUploadedFile(
+                "corpus_export.zip", self.zip_bytes, content_type="application/zip"
+            ),
+        }
+        payload.update(overrides)
+        return self.client.post(CORPUS_EXPORT_URL, payload, format="multipart")
+
+    def test_unauthenticated_request_is_rejected(self):
+        response = self._upload()
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_happy_path_creates_placeholder_corpus(self):
+        self._login()
+        response = self._upload()
+        self.assertEqual(response.status_code, 202, response.content)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertIn("corpus_id", body)
+        corpus = Corpus.objects.get(pk=body["corpus_id"])
+        self.assertEqual(corpus.creator, self.user)
+        # The legacy mutation seeded the title with "New Import" — keep
+        # that contract so any frontend code keying off it still works
+        # until the celery task rewrites the title from the export.
+        self.assertEqual(corpus.title, "New Import")
+
+    def test_non_zip_payload_is_rejected(self):
+        self._login()
+        response = self._upload(
+            file=SimpleUploadedFile(
+                "not-a-zip.pdf", PDF_BYTES, content_type="application/pdf"
+            ),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("ZIP", response.json()["error"])
+        # No placeholder corpus should leak through when the magic check fails.
+        self.assertFalse(Corpus.objects.filter(creator=self.user).exists())
+
+    def test_missing_file_is_validation_error(self):
+        self._login()
+        response = self.client.post(CORPUS_EXPORT_URL, {}, format="multipart")
+        self.assertEqual(response.status_code, 400)
+
+    def test_oversize_zip_returns_413(self):
+        self._login()
+        with override_settings(MAX_DOCUMENT_IMPORT_SIZE_BYTES=10):
+            response = self._upload()
+        self.assertEqual(response.status_code, 413)
+
+    @override_settings(USAGE_CAPPED_USER_CAN_IMPORT_CORPUS=False)
+    def test_usage_capped_user_cannot_upload(self):
+        capped = User.objects.create_user(
+            username="capped_cex", password="pw", is_usage_capped=True
+        )
+        self.client.force_authenticate(user=capped)
+        response = self._upload()
+        self.assertEqual(response.status_code, 403)
+        # The 403 must trip BEFORE any placeholder corpus is created.
+        self.assertFalse(Corpus.objects.filter(creator=capped).exists())

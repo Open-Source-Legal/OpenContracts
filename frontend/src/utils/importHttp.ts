@@ -81,6 +81,36 @@ export interface ImportZipRestFailure {
 
 export type ImportZipRestResult = ImportZipRestSuccess | ImportZipRestFailure;
 
+export interface ImportZipToCorpusRestInput {
+  file: File;
+  corpusId: string;
+  targetFolderId?: string | null;
+  titlePrefix?: string;
+  description?: string;
+  makePublic?: boolean;
+  customMeta?: Record<string, unknown>;
+}
+
+export interface ImportCorpusExportRestInput {
+  file: File;
+}
+
+export interface ImportCorpusExportRestSuccess {
+  ok: true;
+  corpus_id: number;
+  message?: string;
+}
+
+export interface ImportCorpusExportRestFailure {
+  ok: false;
+  error: string;
+  status_code: number;
+}
+
+export type ImportCorpusExportRestResult =
+  | ImportCorpusExportRestSuccess
+  | ImportCorpusExportRestFailure;
+
 function appendIfDefined(
   fd: FormData,
   key: string,
@@ -195,4 +225,94 @@ export async function importDocumentsZipMultipart(
     };
   }
   return { ok: true, job_id: data.job_id, message: data.message };
+}
+
+/**
+ * Bulk-zip import that preserves the zip's folder hierarchy into the
+ * specified corpus. Replaces the legacy ``ImportZipToCorpus`` GraphQL
+ * mutation that base64-encoded the entire zip into a JSON request body.
+ */
+export async function importZipToCorpusMultipart(
+  input: ImportZipToCorpusRestInput
+): Promise<ImportZipRestResult> {
+  const fd = new FormData();
+  fd.append("file", input.file);
+  fd.append("corpus_id", input.corpusId);
+  appendIfDefined(fd, "target_folder_id", input.targetFolderId ?? undefined);
+  appendIfDefined(fd, "title_prefix", input.titlePrefix);
+  appendIfDefined(fd, "description", input.description);
+  fd.append("make_public", input.makePublic ? "true" : "false");
+  if (input.customMeta && Object.keys(input.customMeta).length > 0) {
+    fd.append("custom_meta", JSON.stringify(input.customMeta));
+  }
+
+  const response = await fetch(`${getApiRoot()}/api/imports/zip-to-corpus/`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: fd,
+  });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status_code: response.status,
+      error: await parseErrorMessage(response),
+    };
+  }
+
+  const data = (await response.json()) as {
+    ok: boolean;
+    job_id?: string;
+    message?: string;
+    error?: string;
+  };
+  if (!data.ok || !data.job_id) {
+    return {
+      ok: false,
+      status_code: response.status,
+      error: data.error || "Import failed",
+    };
+  }
+  return { ok: true, job_id: data.job_id, message: data.message };
+}
+
+/**
+ * OpenContracts corpus-export zip import. Creates a new corpus owned by
+ * the requester and queues the export hydration task. Replaces the
+ * legacy ``UploadCorpusImportZip`` GraphQL mutation.
+ */
+export async function importCorpusExportMultipart(
+  input: ImportCorpusExportRestInput
+): Promise<ImportCorpusExportRestResult> {
+  const fd = new FormData();
+  fd.append("file", input.file);
+
+  const response = await fetch(`${getApiRoot()}/api/imports/corpus/`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: fd,
+  });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status_code: response.status,
+      error: await parseErrorMessage(response),
+    };
+  }
+
+  const data = (await response.json()) as {
+    ok: boolean;
+    corpus_id?: number;
+    message?: string;
+    error?: string;
+  };
+  if (!data.ok || data.corpus_id === undefined) {
+    return {
+      ok: false,
+      status_code: response.status,
+      error: data.error || "Import failed",
+    };
+  }
+  return { ok: true, corpus_id: data.corpus_id, message: data.message };
 }

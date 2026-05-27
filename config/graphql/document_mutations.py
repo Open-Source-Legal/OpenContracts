@@ -5,12 +5,10 @@ GraphQL mutations for document CRUD, upload, import/export, and versioning opera
 import base64
 import json
 import logging
-import uuid
 
 import graphene
 from celery import chain, chord, group
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Max, Q
 from django.utils import timezone
@@ -34,8 +32,7 @@ from config.graphql.ratelimits import (
 )
 from config.graphql.serializers import DocumentSerializer
 from config.telemetry import record_event
-from opencontractserver.constants.zip_import import ZIP_MAX_TOTAL_SIZE_BYTES
-from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.document_imports.services import (
     check_usage_cap,
     import_document_for_user,
@@ -47,7 +44,6 @@ from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks import (
     build_label_lookups_task,
     burn_doc_annotations,
-    import_corpus,
     import_document_to_corpus,
     package_annotated_docs,
 )
@@ -612,281 +608,6 @@ class UploadAnnotatedDocument(graphene.Mutation):
             logger.error(message)
 
         return UploadAnnotatedDocument(message=message, ok=ok)
-
-
-class UploadCorpusImportZip(graphene.Mutation):
-    class Arguments:
-        base_64_file_string = graphene.String(
-            required=True,
-            description="Base-64 encoded string for zip of corpus file you want to import",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    corpus = graphene.Field(CorpusType)
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.IMPORT)
-    def mutate(root, info, base_64_file_string) -> "UploadCorpusImportZip":
-
-        if (
-            info.context.user.is_usage_capped
-            and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS
-        ):
-            raise PermissionError(
-                "By default, new users import corpuses. Please contact the admin to "
-                "authorize your account."
-            )
-
-        try:
-            logger.info(
-                "UploadCorpusImportZip.mutate() - Received corpus import base64 encoded..."
-            )
-            corpus_obj = Corpus.objects.create(
-                title="New Import", creator=info.context.user, backend_lock=False
-            )
-            logger.info("UploadCorpusImportZip.mutate() - placeholder created...")
-
-            set_permissions_for_obj_to_user(
-                info.context.user,
-                corpus_obj,
-                [PermissionTypes.CRUD],
-                request=info.context,
-            )
-            logger.info("UploadCorpusImportZip.mutate() - permissions assigned...")
-
-            # Store our corpus in a temporary file handler which lets us rely on
-            # django-wide selection of S3 or local storage in django container
-            base64_img_bytes = base_64_file_string.encode("utf-8")
-            decoded_file_data = base64.decodebytes(base64_img_bytes)
-
-            with transaction.atomic():
-                temporary_file = TemporaryFileHandle.objects.create()
-                temporary_file.file = ContentFile(
-                    decoded_file_data,
-                    name=f"corpus_import_{uuid.uuid4()}.pdf",
-                )
-                temporary_file.save()
-                logger.info("UploadCorpusImportZip.mutate() - temporary file created.")
-
-            transaction.on_commit(
-                lambda: chain(
-                    import_corpus.s(
-                        temporary_file.id, info.context.user.id, corpus_obj.id
-                    )
-                ).apply_async()
-            )
-            logger.info("UploadCorpusImportZip.mutate() - Async task launched...")
-
-            ok = True
-            message = "Started"
-            logger.info("UploadCorpusImportZip() - Imported started")
-
-        except Exception as e:
-            ok = False
-            message = (
-                f"UploadCorpusImportZip() - could not start load job due to error: {e}"
-            )
-            corpus_obj = None
-            logger.error(message)
-
-        return UploadCorpusImportZip(message=message, ok=ok, corpus=corpus_obj)
-
-
-class ImportZipToCorpus(graphene.Mutation):
-    """
-    Mutation for importing a zip file to a corpus with folder structure preserved.
-
-    Unlike UploadDocumentsZip which discards folder structure, this mutation:
-    - Creates corpus folders matching the zip's directory structure
-    - Places documents in their corresponding folders
-    - Validates zip security (path traversal, zip bombs, etc.)
-    - Requires corpus EDIT permission
-
-    The import is processed asynchronously. Use the returned job_id to track progress.
-    """
-
-    class Arguments:
-        base64_file_string = graphene.String(
-            required=True,
-            description="Base64-encoded zip file containing documents to import",
-        )
-        corpus_id = graphene.ID(
-            required=True,
-            description="ID of the corpus to import documents into",
-        )
-        target_folder_id = graphene.ID(
-            required=False,
-            description=(
-                "Optional folder ID within the corpus to place zip contents under. "
-                "If not provided, zip contents are placed at corpus root."
-            ),
-        )
-        title_prefix = graphene.String(
-            required=False,
-            description="Optional prefix for document titles (combined with filename)",
-        )
-        description = graphene.String(
-            required=False,
-            description="Optional description to apply to all documents",
-        )
-        custom_meta = GenericScalar(
-            required=False,
-            description="Optional metadata to apply to all documents",
-        )
-        make_public = graphene.Boolean(
-            required=True,
-            description="If True, documents are immediately public",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    job_id = graphene.String(description="ID to track the import job")
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.IMPORT)
-    def mutate(
-        root,
-        info,
-        base64_file_string,
-        corpus_id,
-        make_public,
-        target_folder_id=None,
-        title_prefix=None,
-        description=None,
-        custom_meta=None,
-    ) -> "ImportZipToCorpus":
-        from celery import chain
-
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        user = info.context.user
-
-        # Check if usage-capped users can import
-        if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
-            raise PermissionError(
-                "By default, usage-capped users cannot bulk import documents. "
-                "Please contact the admin to authorize your account."
-            )
-
-        try:
-            logger.info("ImportZipToCorpus.mutate() - Received zip import request...")
-
-            # Validate and get corpus
-            # Unified error message prevents enumeration of inaccessible corpora
-            corpus_not_found_msg = (
-                "Corpus not found or you do not have permission to add "
-                "documents to it"
-            )
-            corpus = BaseService.get_or_none(
-                Corpus, from_global_id(corpus_id)[1], user, request=info.context
-            )
-            if corpus is None:
-                return ImportZipToCorpus(
-                    ok=False,
-                    message=corpus_not_found_msg,
-                    job_id=None,
-                )
-
-            # Check permission on corpus.
-            if BaseService.require_permission(
-                corpus, user, PermissionTypes.EDIT, request=info.context
-            ):
-                return ImportZipToCorpus(
-                    ok=False,
-                    message=corpus_not_found_msg,
-                    job_id=None,
-                )
-
-            # Validate target folder if provided
-            target_folder_pk = None
-            if target_folder_id:
-                try:
-                    target_folder = CorpusFolder.objects.get(
-                        id=from_global_id(target_folder_id)[1],
-                        corpus=corpus,
-                    )
-                    target_folder_pk = target_folder.id
-                except CorpusFolder.DoesNotExist:
-                    return ImportZipToCorpus(
-                        ok=False,
-                        message="Target folder not found or does not belong to this corpus",
-                        job_id=None,
-                    )
-
-            # Validate base64 string size before decoding to prevent memory exhaustion
-            # Base64 encoding adds ~33% overhead, so max encoded size is ~1.4x decoded size
-            max_encoded_size = int(ZIP_MAX_TOTAL_SIZE_BYTES * 1.4)
-            if len(base64_file_string) > max_encoded_size:
-                return ImportZipToCorpus(
-                    ok=False,
-                    message=f"File exceeds maximum allowed size of {ZIP_MAX_TOTAL_SIZE_BYTES // (1024 * 1024)}MB",
-                    job_id=None,
-                )
-
-            # Decode and store the zip file
-            base64_zip_bytes = base64_file_string.encode("utf-8")
-            decoded_file_data = base64.decodebytes(base64_zip_bytes)
-
-            job_id = str(uuid.uuid4())
-
-            with transaction.atomic():
-                temporary_file = TemporaryFileHandle.objects.create()
-                temporary_file.file = ContentFile(
-                    decoded_file_data,
-                    name=f"zip_import_{job_id}.zip",
-                )
-                temporary_file.save()
-                logger.info("ImportZipToCorpus.mutate() - Temporary file created")
-
-            # Launch async task
-            if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-                chain(
-                    import_zip_with_folder_structure.s(
-                        temporary_file.id,
-                        user.id,
-                        job_id,
-                        corpus.id,
-                        target_folder_pk,
-                        title_prefix,
-                        description,
-                        custom_meta,
-                        make_public,
-                    )
-                ).apply_async()
-            else:
-                transaction.on_commit(
-                    lambda: chain(
-                        import_zip_with_folder_structure.s(
-                            temporary_file.id,
-                            info.context.user.id,
-                            job_id,
-                            corpus.id,
-                            target_folder_pk,
-                            title_prefix,
-                            description,
-                            custom_meta,
-                            make_public,
-                        )
-                    ).apply_async()
-                )
-            logger.info("ImportZipToCorpus.mutate() - Async task launched")
-
-            return ImportZipToCorpus(
-                ok=True,
-                message=f"Import started. Job ID: {job_id}",
-                job_id=job_id,
-            )
-
-        except Exception as e:
-            logger.error(f"ImportZipToCorpus.mutate() - Error: {e}")
-            return ImportZipToCorpus(
-                ok=False,
-                message=f"Could not start import job: {e}",
-                job_id=None,
-            )
 
 
 class StartCorpusExport(graphene.Mutation):

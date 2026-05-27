@@ -6,13 +6,19 @@
  * 2. A file selection step with drag-and-drop
  * 3. Upload progress display
  *
- * The import uses the ImportZipToCorpus mutation which:
+ * The import streams the ZIP via multipart/form-data to
+ * ``POST /api/imports/zip-to-corpus/``. The backend then:
  * - Preserves folder structure from the ZIP
  * - Creates document relationships if a relationships.csv file is present
  * - Validates ZIP security (path traversal, zip bombs, etc.)
+ *
+ * The legacy ``ImportZipToCorpus`` GraphQL mutation was removed because
+ * base64-encoding large zips into a JSON request body crashed Apollo
+ * with "Payload allocation size overflow" / "NetworkError when
+ * attempting to fetch resource" for files past ~100 MB.
  */
 import React, { useState, useRef, useCallback } from "react";
-import { useMutation, useReactiveVar } from "@apollo/client";
+import { useApolloClient, useReactiveVar } from "@apollo/client";
 import {
   Modal,
   ModalHeader,
@@ -39,11 +45,7 @@ import {
 } from "../../../graphql/cache";
 import { folderCorpusIdAtom } from "../../../atoms/folderAtoms";
 import { useAtomValue } from "jotai";
-import {
-  IMPORT_ZIP_TO_CORPUS,
-  ImportZipToCorpusInputs,
-  ImportZipToCorpusOutputs,
-} from "../../../graphql/mutations";
+import { importZipToCorpusMultipart } from "../../../utils/importHttp";
 import {
   StyledModalWrapper,
   HeaderIcon,
@@ -74,25 +76,13 @@ export const BulkImportModal: React.FC = () => {
 
   const [step, setStep] = useState<UploadStep>("confirm");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [base64File, setBase64File] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [importZipMutation] = useMutation<
-    ImportZipToCorpusOutputs,
-    ImportZipToCorpusInputs
-  >(IMPORT_ZIP_TO_CORPUS, {
-    // Evict documents and folders from cache to force refetch after import
-    update(cache) {
-      cache.evict({ fieldName: "documents" });
-      cache.evict({ fieldName: "corpusFolders" });
-      cache.gc();
-    },
-  });
+  const apolloClient = useApolloClient();
 
   /**
    * Resets all modal state and closes the modal.
@@ -100,7 +90,6 @@ export const BulkImportModal: React.FC = () => {
   const handleClose = useCallback(() => {
     setStep("confirm");
     setSelectedFile(null);
-    setBase64File(null);
     setLoading(false);
     setError(null);
     setUploadProgress(0);
@@ -109,7 +98,9 @@ export const BulkImportModal: React.FC = () => {
   }, []);
 
   /**
-   * Handles file selection and converts to base64.
+   * Handles file selection. The File is held by reference and streamed
+   * directly through ``fetch`` + ``FormData`` on submit — no base64
+   * conversion, no in-memory copy of the bytes.
    */
   const handleFileSelect = useCallback((file: File) => {
     if (!file.name.toLowerCase().endsWith(".zip")) {
@@ -119,19 +110,6 @@ export const BulkImportModal: React.FC = () => {
 
     setSelectedFile(file);
     setError(null);
-
-    // Convert to base64
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      // Remove the data URL prefix (e.g., "data:application/zip;base64,")
-      const base64Data = base64.split(",")[1];
-      setBase64File(base64Data);
-    };
-    reader.onerror = () => {
-      setError("Failed to read the file. Please try again.");
-    };
-    reader.readAsDataURL(file);
   }, []);
 
   /**
@@ -192,7 +170,7 @@ export const BulkImportModal: React.FC = () => {
    * Handle the import submission.
    */
   const handleImport = useCallback(async () => {
-    if (!base64File || !corpusId) {
+    if (!selectedFile || !corpusId) {
       setError("Missing required data for import.");
       return;
     }
@@ -201,50 +179,48 @@ export const BulkImportModal: React.FC = () => {
     setStep("progress");
     setUploadProgress(10);
 
-    try {
-      // Simulate progress during upload
-      const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => Math.min(prev + 10, 90));
-      }, 500);
+    const progressInterval = setInterval(() => {
+      setUploadProgress((prev) => Math.min(prev + 10, 90));
+    }, 500);
 
-      const result = await importZipMutation({
-        variables: {
-          base64FileString: base64File,
-          corpusId,
-          targetFolderId: targetFolderId || undefined,
-          makePublic: false,
-        },
+    try {
+      const result = await importZipToCorpusMultipart({
+        file: selectedFile,
+        corpusId,
+        targetFolderId: targetFolderId || undefined,
+        makePublic: false,
       });
 
       clearInterval(progressInterval);
 
-      if (result.data?.importZipToCorpus?.ok) {
+      if (result.ok) {
+        // Match the previous GraphQL ``update(cache)`` semantics — evict
+        // the document and folder list fields so the next read refetches.
+        apolloClient.cache.evict({ fieldName: "documents" });
+        apolloClient.cache.evict({ fieldName: "corpusFolders" });
+        apolloClient.cache.gc();
+
         setUploadProgress(100);
-        toast.success(
-          `Import started! Job ID: ${
-            result.data.importZipToCorpus.jobId || "N/A"
-          }`
-        );
-        // Close modal after a brief delay to show completion
+        toast.success(`Import started! Job ID: ${result.job_id}`);
         setTimeout(() => {
           handleClose();
         }, 1500);
       } else {
-        setError(
-          result.data?.importZipToCorpus?.message ||
-            "Import failed. Please try again."
-        );
+        setError(result.error || "Import failed. Please try again.");
         setStep("upload");
         setUploadProgress(0);
       }
-    } catch (err: any) {
-      setError(err.message || "An error occurred during import.");
+    } catch (err: unknown) {
+      clearInterval(progressInterval);
+      const message =
+        err instanceof Error ? err.message : "An error occurred during import.";
+      setError(message);
       setStep("upload");
       setUploadProgress(0);
     } finally {
       setLoading(false);
     }
-  }, [base64File, corpusId, targetFolderId, importZipMutation, handleClose]);
+  }, [selectedFile, corpusId, targetFolderId, apolloClient, handleClose]);
 
   /**
    * Proceed to upload step after confirmation.
@@ -259,7 +235,6 @@ export const BulkImportModal: React.FC = () => {
   const handleBack = useCallback(() => {
     setStep("confirm");
     setSelectedFile(null);
-    setBase64File(null);
     setError(null);
   }, []);
 
@@ -478,7 +453,7 @@ export const BulkImportModal: React.FC = () => {
                 <Button
                   variant="primary"
                   onClick={handleImport}
-                  disabled={!selectedFile || !base64File || loading}
+                  disabled={!selectedFile || loading}
                 >
                   <ButtonIcon>
                     <CloudUpload />

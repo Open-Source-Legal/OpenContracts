@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authToken } from "../../graphql/cache";
 import {
+  importCorpusExportMultipart,
   importDocumentMultipart,
   importDocumentsZipMultipart,
+  importZipToCorpusMultipart,
 } from "../importHttp";
 
 /**
@@ -327,5 +329,203 @@ describe("importHttp.importDocumentsZipMultipart", () => {
 
     const fd = fetchMock.mock.calls[0][1].body as FormData;
     expect(fd.get("custom_meta")).toBe(JSON.stringify({ source: "bulk-tool" }));
+  });
+});
+
+describe("importHttp.importZipToCorpusMultipart", () => {
+  beforeEach(() => {
+    authToken("ztc-token");
+  });
+  afterEach(() => {
+    authToken("");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any)[FETCH_KEY];
+  });
+
+  it("posts FormData to /api/imports/zip-to-corpus/ with the corpus id and bearer auth", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeJsonResponse(
+        {
+          ok: true,
+          job_id: "job-ztc-1",
+          message: "Import started. Job ID: job-ztc-1",
+        },
+        { status: 202 }
+      )
+    );
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1, 2, 3])], "structured.zip", {
+      type: "application/zip",
+    });
+    const result = await importZipToCorpusMultipart({
+      file,
+      corpusId: "42",
+      targetFolderId: "7",
+      titlePrefix: "Inv-",
+      description: "Q4 invoices",
+      makePublic: true,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      job_id: "job-ztc-1",
+      message: "Import started. Job ID: job-ztc-1",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/imports/zip-to-corpus/");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer ztc-token",
+    });
+    expect(init.body).toBeInstanceOf(FormData);
+    const fd = init.body as FormData;
+    expect(fd.get("file")).toBeInstanceOf(File);
+    expect(fd.get("corpus_id")).toBe("42");
+    expect(fd.get("target_folder_id")).toBe("7");
+    expect(fd.get("title_prefix")).toBe("Inv-");
+    expect(fd.get("description")).toBe("Q4 invoices");
+    expect(fd.get("make_public")).toBe("true");
+  });
+
+  it("omits blank-string optional fields", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeJsonResponse({ ok: true, job_id: "j2" }));
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1])], "x.zip", {
+      type: "application/zip",
+    });
+    await importZipToCorpusMultipart({
+      file,
+      corpusId: "1",
+      targetFolderId: null,
+      titlePrefix: "",
+      description: "",
+      makePublic: false,
+    });
+
+    const fd = fetchMock.mock.calls[0][1].body as FormData;
+    expect(fd.has("target_folder_id")).toBe(false);
+    expect(fd.has("title_prefix")).toBe(false);
+    expect(fd.has("description")).toBe(false);
+  });
+
+  it("returns a structured error on HTTP failure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse(
+          { ok: false, error: "Corpus not found" },
+          { status: 400 }
+        )
+      );
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1])], "x.zip", {
+      type: "application/zip",
+    });
+    const result = await importZipToCorpusMultipart({
+      file,
+      corpusId: "999",
+      makePublic: false,
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: "Corpus not found",
+      status_code: 400,
+    });
+  });
+
+  it("treats a 200 response missing a job_id as a failure", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeJsonResponse({ ok: true }));
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1])], "x.zip", {
+      type: "application/zip",
+    });
+    const result = await importZipToCorpusMultipart({
+      file,
+      corpusId: "1",
+      makePublic: false,
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("importHttp.importCorpusExportMultipart", () => {
+  beforeEach(() => {
+    authToken("cex-token");
+  });
+  afterEach(() => {
+    authToken("");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any)[FETCH_KEY];
+  });
+
+  it("posts FormData to /api/imports/corpus/ and surfaces corpus_id", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse(
+          { ok: true, corpus_id: 17, message: "Import started." },
+          { status: 202 }
+        )
+      );
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1, 2])], "corpus-export.zip", {
+      type: "application/zip",
+    });
+    const result = await importCorpusExportMultipart({ file });
+
+    expect(result).toEqual({
+      ok: true,
+      corpus_id: 17,
+      message: "Import started.",
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/imports/corpus/");
+    expect(init.body).toBeInstanceOf(FormData);
+    const fd = init.body as FormData;
+    expect(fd.get("file")).toBeInstanceOf(File);
+  });
+
+  it("returns a structured error on HTTP failure", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeJsonResponse(
+        {
+          ok: false,
+          error: "You are not authorized to perform this import.",
+        },
+        { status: 403 }
+      )
+    );
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1])], "x.zip", {
+      type: "application/zip",
+    });
+    const result = await importCorpusExportMultipart({ file });
+    expect(result).toEqual({
+      ok: false,
+      error: "You are not authorized to perform this import.",
+      status_code: 403,
+    });
+  });
+
+  it("treats a 200 response missing a corpus_id as a failure", async () => {
+    // Empty body must not be interpreted as success — the helper requires
+    // ``corpus_id`` to be defined.
+    const fetchMock = vi.fn().mockResolvedValue(makeJsonResponse({ ok: true }));
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1])], "x.zip", {
+      type: "application/zip",
+    });
+    const result = await importCorpusExportMultipart({ file });
+    expect(result.ok).toBe(false);
   });
 });

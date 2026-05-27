@@ -9,45 +9,13 @@ from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
-from config.graphql.serializers import CorpusSerializer
 from opencontractserver.annotations.models import LabelSet
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.tasks.utils import package_zip_into_base64
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_TWO_PATH
 from opencontractserver.types.dicts import OpenContractsAnnotatedDocumentImportType
 from opencontractserver.types.enums import LabelType
 
 User = get_user_model()
-
-
-def _import_corpus_zip(user: User):
-
-    fixtures_path = pathlib.Path(__file__).parent / "fixtures"
-    client = Client(schema, context_value=TestContext(user))
-    export_zip_base64_file_string = package_zip_into_base64(
-        fixtures_path / "Test_Corpus_EXPORT.zip"
-    )
-
-    executed = client.execute(
-        """
-        mutation($base64FileString: String!) {
-            importOpenContractsZip(base64FileString: $base64FileString) {
-              ok
-              message
-              corpus {
-                id
-                icon
-                description
-                title
-                slug
-                backendLock
-              }
-            }
-          }
-        """,
-        variable_values={"base64FileString": export_zip_base64_file_string},
-    )
-    return executed
 
 
 class TestContext:
@@ -56,6 +24,15 @@ class TestContext:
 
 
 class GraphQLTestCase(TestCase):
+    """
+    Tests for the remaining GraphQL import mutations.
+
+    The corpus-export-zip import previously covered here (``importOpenContractsZip``)
+    moved to the multipart REST endpoint ``POST /api/imports/corpus/``; its
+    coverage now lives in ``test_document_imports_rest.py``. This file
+    retains coverage for ``importAnnotatedDocToCorpus``, which still goes
+    through GraphQL.
+    """
 
     fixtures_path = pathlib.Path(__file__).parent / "fixtures"
 
@@ -78,22 +55,6 @@ class GraphQLTestCase(TestCase):
                 label_set=self.label_set,
                 creator=self.user,
             )
-
-    def test_zip_upload(self):
-        """
-        Test that we can import an OpenContracts export via GraphQL and get back the expected
-        responses from the endpoint.
-        """
-        executed = _import_corpus_zip(self.user)
-
-        serializer = CorpusSerializer(
-            data=executed["data"]["importOpenContractsZip"]["corpus"]
-        )
-        assert serializer.is_valid(raise_exception=True)
-        assert executed["data"]["importOpenContractsZip"]["ok"] is True
-        assert executed["data"]["importOpenContractsZip"]["message"] == "Started"
-
-        # NOTE - in our current test environment, celery worker is not booted... so this never runs
 
     def test_import_document_to_corpus_mutation(self):
 
