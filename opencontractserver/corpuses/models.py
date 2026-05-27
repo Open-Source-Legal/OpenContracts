@@ -35,6 +35,9 @@ from opencontractserver.constants.licenses import (
 from opencontractserver.constants.notifications import (
     NOTIFICATION_BULK_CREATE_BATCH_SIZE,
 )
+from opencontractserver.constants.truncation import (
+    MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
+)
 from opencontractserver.corpuses.managers import CorpusActionExecutionManager
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
@@ -357,10 +360,6 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         ellipsis when truncation occurred so callers can render the cue
         without having to recompute the original length.
         """
-        from opencontractserver.constants.truncation import (
-            MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
-        )
-
         if not plain_text:
             return ""
 
@@ -571,12 +570,18 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         # consistent without each caller having to remember.
         self.description_preview = self._summarize_for_preview(self.description or "")
         # If the caller restricted the write to update_fields and is
-        # changing description, make sure the preview rides along.
+        # changing description, make sure the preview (and the modified
+        # timestamp set above) ride along — otherwise the in-memory
+        # values are computed but never reach the DB.
         update_fields = kwargs.get("update_fields")
-        if update_fields is not None and "description" in update_fields and (
-            "description_preview" not in update_fields
-        ):
-            kwargs["update_fields"] = list(update_fields) + ["description_preview"]
+        if update_fields is not None and "description" in update_fields:
+            extras = []
+            if "description_preview" not in update_fields:
+                extras.append("description_preview")
+            if "modified" not in update_fields:
+                extras.append("modified")
+            if extras:
+                kwargs["update_fields"] = list(update_fields) + extras
 
         # Detect is_public changes so we can propagate to documents.
         # Only check when updating an existing corpus and is_public might change.

@@ -22,11 +22,20 @@ def backfill_description_preview(apps, schema_editor):
     from opencontractserver.corpuses.models import Corpus as LiveCorpus
 
     Corpus = apps.get_model("corpuses", "Corpus")
+    # Chunked bulk_update so the migration scales to corpora counts in the
+    # thousands without issuing one UPDATE per row.
+    batch_size = 500
+    batch: list = []
     for corpus in Corpus.objects.only("id", "description").iterator():
         corpus.description_preview = LiveCorpus._summarize_for_preview(
             corpus.description or ""
         )
-        corpus.save(update_fields=["description_preview"])
+        batch.append(corpus)
+        if len(batch) >= batch_size:
+            Corpus.objects.bulk_update(batch, ["description_preview"])
+            batch.clear()
+    if batch:
+        Corpus.objects.bulk_update(batch, ["description_preview"])
 
 
 def noop_reverse(apps, schema_editor):

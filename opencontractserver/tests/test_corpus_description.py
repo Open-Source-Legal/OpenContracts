@@ -133,9 +133,7 @@ class SummarizeForPreviewTest(TestCase):
         result = Corpus._summarize_for_preview(text)
         # Includes the ellipsis character but stays within the cap + 1.
         self.assertTrue(result.endswith("…"))
-        self.assertLessEqual(
-            len(result), MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH + 1
-        )
+        self.assertLessEqual(len(result), MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH + 1)
 
     def test_truncation_respects_word_boundary(self):
         text = "supercalifragilistic " * 50
@@ -151,6 +149,11 @@ class SummarizeForPreviewTest(TestCase):
             body.endswith("supercalifragilistic"),
             f"unexpected truncation: {body!r}",
         )
+
+    def test_exactly_at_cap_is_not_truncated(self):
+        """Boundary: text exactly MAX chars long is returned verbatim."""
+        text = "a" * MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH
+        self.assertEqual(Corpus._summarize_for_preview(text), text)
 
 
 class UpdateDescriptionSyncTest(TestCase):
@@ -201,6 +204,29 @@ class UpdateDescriptionSyncTest(TestCase):
         self.corpus.save(update_fields=["description"])
         self.corpus.refresh_from_db()
         self.assertEqual(self.corpus.description_preview, "Update fields path.")
+
+    def test_preview_not_persisted_when_update_fields_excludes_description(self):
+        """``save(update_fields=['title'])`` must not persist preview changes.
+
+        Complementary to ``test_preview_included_when_update_fields_targets_description``
+        — verifies the cascade is scoped strictly to writes that include
+        ``description`` in ``update_fields``.
+        """
+        # Persist a known preview value first.
+        self.corpus.description = "Original blurb."
+        self.corpus.save()
+        original_preview = self.corpus.description_preview
+
+        # Now mutate description in memory but only persist title.
+        self.corpus.description = "Different blurb that must not reach DB."
+        self.corpus.title = "Renamed Corpus"
+        self.corpus.save(update_fields=["title"])
+        self.corpus.refresh_from_db()
+
+        # Title was updated; description (and therefore preview) was not.
+        self.assertEqual(self.corpus.title, "Renamed Corpus")
+        self.assertEqual(self.corpus.description, "Original blurb.")
+        self.assertEqual(self.corpus.description_preview, original_preview)
 
     def test_creates_revision(self):
         from opencontractserver.corpuses.models import CorpusDescriptionRevision

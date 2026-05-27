@@ -30,6 +30,7 @@ const GET_EDITABLE_CORPUSES = gql`
             email
           }
           description
+          descriptionPreview
           documentCount
           labelSet {
             id

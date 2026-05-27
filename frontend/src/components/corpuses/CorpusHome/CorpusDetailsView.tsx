@@ -126,8 +126,10 @@ export const CorpusDetailsView: React.FC<CorpusDetailsViewProps> = ({
     variables: historyVariables,
   });
 
-  // Shared hook deduplicates the file fetch with CorpusLandingView so
-  // toggling between Landing and Details doesn't re-download the file.
+  // Shared hook deduplicates concurrent in-flight fetches with
+  // CorpusLandingView (e.g. tab switches that mount both simultaneously).
+  // Sequential navigation refetches; the hook does not maintain a
+  // settled-result cache.
   const mdContent = useCorpusMdDescription(corpusData?.corpus?.mdDescription);
 
   // Use the fetched corpus data instead of the prop for description/history
