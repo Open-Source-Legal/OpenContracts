@@ -179,6 +179,10 @@ export const BulkImportModal: React.FC = () => {
     setStep("progress");
     setUploadProgress(10);
 
+    // Use a ref so the cleanup in ``finally`` always reaches the live
+    // interval handle even if a later refactor moves the awaited fetch
+    // around. ``clearInterval(undefined)`` is a no-op so the guard is
+    // implicit.
     const progressInterval = setInterval(() => {
       setUploadProgress((prev) => Math.min(prev + 10, 90));
     }, 500);
@@ -190,8 +194,6 @@ export const BulkImportModal: React.FC = () => {
         targetFolderId: targetFolderId || undefined,
         makePublic: false,
       });
-
-      clearInterval(progressInterval);
 
       if (result.ok) {
         // Match the previous GraphQL ``update(cache)`` semantics — evict
@@ -211,13 +213,13 @@ export const BulkImportModal: React.FC = () => {
         setUploadProgress(0);
       }
     } catch (err: unknown) {
-      clearInterval(progressInterval);
       const message =
         err instanceof Error ? err.message : "An error occurred during import.";
       setError(message);
       setStep("upload");
       setUploadProgress(0);
     } finally {
+      clearInterval(progressInterval);
       setLoading(false);
     }
   }, [selectedFile, corpusId, targetFolderId, apolloClient, handleClose]);

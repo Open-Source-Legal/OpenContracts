@@ -478,8 +478,16 @@ def import_zip_to_corpus_for_user(
             else:
                 temporary_file.file.save(storage_filename, zip_source, save=True)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"[IMPORT-ZIP-FOLDERS] Failed to stage zip: {e}")
-        return ZipImportResult(job_id=None, error=f"Failed to stage zip: {e}")
+        logger.error(
+            f"[IMPORT-ZIP-FOLDERS] Failed to stage zip for user {user.id}: {e}"
+        )
+        # Generic user-facing message — the detailed exception only
+        # appears in the server log so storage-backend internals (paths,
+        # bucket names, DB errors) don't leak into the HTTP response.
+        return ZipImportResult(
+            job_id=None,
+            error="Failed to stage the upload. Please try again.",
+        )
 
     task_signature = import_zip_with_folder_structure.s(
         temporary_file.id,
@@ -556,9 +564,14 @@ def import_corpus_export_for_user(
             else:
                 temporary_file.file.save(storage_filename, zip_source, save=True)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"[IMPORT-CORPUS] Failed to stage corpus export: {e}")
+        logger.error(
+            f"[IMPORT-CORPUS] Failed to stage corpus export for user {user.id}: {e}"
+        )
+        # Generic user-facing message — see import_zip_to_corpus_for_user
+        # for the rationale.
         return CorpusImportResult(
-            corpus=None, error=f"Failed to stage corpus export: {e}"
+            corpus=None,
+            error="Failed to stage the corpus export. Please try again.",
         )
 
     task_signature = import_corpus.s(temporary_file.id, user.id, corpus_obj.id)

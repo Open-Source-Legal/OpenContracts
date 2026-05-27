@@ -1205,11 +1205,11 @@ class ZipToCorpusImportViewTests(TestCase):
         capped = User.objects.create_user(
             username="capped_ztc", password="pw", is_usage_capped=True
         )
-        # Capped users still need EDIT perm on the corpus to even reach the
-        # cap check; grant it explicitly so this test exercises the cap.
-        set_permissions_for_obj_to_user(capped, self.corpus, [PermissionTypes.CRUD])
         self.client.force_authenticate(user=capped)
         response = self._upload()
+        # The usage-cap check in ``import_zip_to_corpus_for_user`` fires
+        # before the corpus permission check, so this user is rejected
+        # without any corpus grant being needed.
         self.assertEqual(response.status_code, 403)
 
 
