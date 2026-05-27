@@ -20,7 +20,6 @@ from graphql_relay import from_global_id
 from config.graphql.base import DRFDeletion, DRFMutation
 from config.graphql.document_types import INGESTION_SOURCE_GLOBAL_ID_TYPE
 from config.graphql.graphene_types import (
-    CorpusType,
     DocumentType,
     UserExportType,
 )
