@@ -70,6 +70,10 @@ class ZipToCorpusImportSerializer(serializers.Serializer):
     description = serializers.CharField(
         required=False, allow_blank=True, allow_null=True
     )
+    # Deliberately relaxed from the legacy GraphQL ImportZipToCorpus
+    # contract (which required make_public). The UI always supplies it,
+    # and treating omission as "private" is the safer default for API
+    # callers who omit it.
     make_public = serializers.BooleanField(required=False, default=False)
     custom_meta = serializers.JSONField(required=False, default=dict)
 
