@@ -24,9 +24,19 @@ import {
 
 const FETCH_KEY = "fetch";
 
+// Centralise the unsafe ``globalThis`` accessor on one bag so each test's
+// before/afterEach can read/write the global ``fetch`` slot without
+// reintroducing ``as any`` casts. ``unknown`` keeps consumers honest at
+// the call sites (we only read with the right shape) without growing the
+// project-wide ``any`` count.
+const fetchSlot = globalThis as unknown as Record<string, unknown>;
+
 function setMockFetch(impl: ReturnType<typeof vi.fn>): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any)[FETCH_KEY] = impl;
+  fetchSlot[FETCH_KEY] = impl;
+}
+
+function clearMockFetch(): void {
+  delete fetchSlot[FETCH_KEY];
 }
 
 function makeJsonResponse(
@@ -48,8 +58,7 @@ describe("importHttp.importDocumentMultipart", () => {
 
   afterEach(() => {
     authToken("");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any)[FETCH_KEY];
+    clearMockFetch();
   });
 
   it("posts FormData to /api/imports/documents/ with bearer auth", async () => {
@@ -236,8 +245,7 @@ describe("importHttp.importDocumentsZipMultipart", () => {
   });
   afterEach(() => {
     authToken("");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any)[FETCH_KEY];
+    clearMockFetch();
   });
 
   it("posts FormData to /api/imports/documents-zip/ and surfaces job_id", async () => {
@@ -338,8 +346,7 @@ describe("importHttp.importZipToCorpusMultipart", () => {
   });
   afterEach(() => {
     authToken("");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any)[FETCH_KEY];
+    clearMockFetch();
   });
 
   it("posts FormData to /api/imports/zip-to-corpus/ with the corpus id and bearer auth", async () => {
@@ -461,8 +468,7 @@ describe("importHttp.importCorpusExportMultipart", () => {
   });
   afterEach(() => {
     authToken("");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (globalThis as any)[FETCH_KEY];
+    clearMockFetch();
   });
 
   it("posts FormData to /api/imports/corpus/ and surfaces corpus_id", async () => {
