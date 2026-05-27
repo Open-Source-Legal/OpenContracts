@@ -1276,8 +1276,14 @@ class CorpusExportImportViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("ZIP", response.json()["error"])
-        # No placeholder corpus should leak through when the magic check fails.
-        self.assertFalse(Corpus.objects.filter(creator=self.user).exists())
+        # No placeholder corpus should leak through when the magic check
+        # fails. ``creator=`` alone would match the auto-created personal
+        # "My Documents" corpus (a post_save signal on User creates one);
+        # ``is_personal=False`` isolates the assertion to import-created
+        # corpora.
+        self.assertFalse(
+            Corpus.objects.filter(creator=self.user, is_personal=False).exists()
+        )
 
     def test_missing_file_is_validation_error(self):
         self._login()
@@ -1298,5 +1304,10 @@ class CorpusExportImportViewTests(TestCase):
         self.client.force_authenticate(user=capped)
         response = self._upload()
         self.assertEqual(response.status_code, 403)
-        # The 403 must trip BEFORE any placeholder corpus is created.
-        self.assertFalse(Corpus.objects.filter(creator=capped).exists())
+        # The 403 must trip BEFORE any placeholder corpus is created. The
+        # personal "My Documents" corpus is auto-created by a User post_save
+        # signal so we exclude it from the assertion — the import-created
+        # placeholder would be ``is_personal=False``.
+        self.assertFalse(
+            Corpus.objects.filter(creator=capped, is_personal=False).exists()
+        )
