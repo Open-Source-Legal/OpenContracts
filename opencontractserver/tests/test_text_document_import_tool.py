@@ -151,7 +151,9 @@ class TestCreateOrUpdateTextDocument(TestCase):
             is_deleted=False,
         )
         self.assertEqual(active.count(), 1)
-        self.assertEqual(active.first().document_id, second["document_id"])
+        active_path = active.first()
+        assert active_path is not None
+        self.assertEqual(active_path.document_id, second["document_id"])
 
     def test_markdown_file_type_supported(self):
         """text/markdown is an accepted file_type."""
