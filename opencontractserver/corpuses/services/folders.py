@@ -91,6 +91,115 @@ class FolderCRUDService(BaseService):
         return qs
 
     @classmethod
+    def get_visible_folders_with_aggregates(
+        cls,
+        user: User,
+        corpus_id: int,
+        *,
+        request: Any = None,
+    ) -> list[CorpusFolder]:
+        """
+        Visible folders with ``_path``, ``_doc_count`` and
+        ``_descendant_doc_count`` pre-attached as instance attributes.
+
+        Used by the GraphQL ``corpus_folders`` resolver to collapse the
+        per-folder query fan-out that the default ``CorpusFolderType``
+        resolvers would otherwise produce on the folder-list view:
+
+          * ``resolve_path`` -> ``CorpusFolder.get_path()`` -> recursive
+            ancestor CTE per folder
+          * ``resolve_document_count`` -> per-folder ``COUNT`` on
+            ``DocumentPath``
+          * ``resolve_descendant_document_count`` ->
+            ``CorpusFolder.get_descendant_folders()`` (recursive descendant
+            CTE) + ``COUNT`` per folder
+
+        Replaces the ``4N`` per-folder roundtrips with:
+
+          * 1 SQL query for the folder list (already done by
+            :meth:`get_visible_folders`)
+          * 1 ``GROUP BY folder_id`` query for direct document counts
+            (mirrors :meth:`get_folder_tree` line 167-176)
+          * O(N) Python passes for path resolution and descendant-count
+            roll-up (no DB)
+
+        Paths are walked via ``parent_id`` chains with memoisation so the
+        ``CorpusFolder.ancestors()`` CTE never runs.  Descendant counts are
+        rolled up post-order from each folder's direct count, so the
+        ``CorpusFolder.descendants()`` CTE never runs either.
+
+        Returns a list (not a queryset) because the aggregates are attached
+        in Python; callers that need a queryset should keep using
+        :meth:`get_visible_folders`.
+
+        Permissions: identical to :meth:`get_visible_folders` (corpus READ).
+        """
+        from django.db.models import Count
+
+        from opencontractserver.documents.models import DocumentPath
+
+        folders = list(cls.get_visible_folders(user, corpus_id, request=request))
+        if not folders:
+            return folders
+
+        # Direct doc counts via one GROUP BY (matches the existing batched
+        # pattern in get_folder_tree() so the two helpers stay query-shape
+        # equivalent).
+        direct_counts_by_folder_id: dict[int | None, int] = {
+            row["folder_id"]: row["count"]
+            for row in DocumentPath.objects.filter(
+                corpus_id=corpus_id, is_current=True, is_deleted=False
+            )
+            .values("folder_id")
+            .annotate(count=Count("id"))
+        }
+
+        # Adjacency map (parent_id -> children) for the in-memory roll-up.
+        folder_by_id: dict[int, CorpusFolder] = {f.id: f for f in folders}
+        children_by_parent_id: dict[int | None, list[CorpusFolder]] = {}
+        for folder in folders:
+            children_by_parent_id.setdefault(folder.parent_id, []).append(folder)
+
+        # Path resolution by walking parent_id chains; if a parent isn't in
+        # the visible set we stop walking (fallback to the folder's own name
+        # as the path) so we never reach for an ancestor CTE.
+        path_cache: dict[int, str] = {}
+
+        def _resolve_path(folder_id: int) -> str:
+            cached = path_cache.get(folder_id)
+            if cached is not None:
+                return cached
+            folder = folder_by_id[folder_id]
+            parent_id = folder.parent_id
+            if parent_id and parent_id in folder_by_id:
+                path = f"{_resolve_path(parent_id)}/{folder.name}"
+            else:
+                path = folder.name
+            path_cache[folder_id] = path
+            return path
+
+        # Descendant counts via post-order DFS:
+        #   descendants(f) = direct(f) + sum(descendants(c) for c in children(f))
+        descendant_count_cache: dict[int, int] = {}
+
+        def _resolve_descendant_count(folder_id: int) -> int:
+            cached = descendant_count_cache.get(folder_id)
+            if cached is not None:
+                return cached
+            total = direct_counts_by_folder_id.get(folder_id, 0)
+            for child in children_by_parent_id.get(folder_id, []):
+                total += _resolve_descendant_count(child.id)
+            descendant_count_cache[folder_id] = total
+            return total
+
+        for folder in folders:
+            folder._doc_count = direct_counts_by_folder_id.get(folder.id, 0)
+            folder._descendant_doc_count = _resolve_descendant_count(folder.id)
+            folder._path = _resolve_path(folder.id)
+
+        return folders
+
+    @classmethod
     def get_folder_by_id(
         cls,
         user: User,

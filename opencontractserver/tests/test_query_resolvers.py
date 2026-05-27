@@ -192,6 +192,189 @@ class CorpusFolderQueryResolverTest(TestCase):
         self.assertIsNone(folder)
 
 
+class CorpusFoldersQueryCountTest(TestCase):
+    """Pin the SQL fan-out of the ``corpusFolders`` resolver.
+
+    Regression test for the 10-20 s folder-browser load: the resolver used
+    to fire one ancestor CTE + one descendant CTE + two ``COUNT``s + two
+    guardian-permission ``.filter()`` queries per folder, so a corpus with
+    N folders cost ~6N round-trips.  The
+    :meth:`FolderCRUDService.get_visible_folders_with_aggregates` /
+    ``CorpusFolderType.resolve_my_permissions`` rewrite collapses the
+    aggregates into 1 GROUP BY query + 1 corpus-permission lookup that's
+    request-cached, so the query count must stay flat as N grows.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="folder_perf_user", password="testpassword"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Folder Perf Corpus", creator=self.user
+        )
+        set_permissions_for_obj_to_user(
+            user_val=self.user,
+            instance=self.corpus,
+            permissions=[PermissionTypes.ALL],
+        )
+        self.client = Client(schema, context_value=TestContext(self.user))
+
+    @staticmethod
+    def _query() -> str:
+        # Mirrors the production GET_CORPUS_FOLDERS query in
+        # ``frontend/src/graphql/queries/folders.ts`` — the same fields the
+        # FolderTreeSidebar / FolderCard / FolderToolbar surfaces ask for
+        # on every folder switch.
+        return """
+            query GetCorpusFolders($corpusId: ID!) {
+                corpusFolders(corpusId: $corpusId) {
+                    id
+                    name
+                    path
+                    documentCount
+                    descendantDocumentCount
+                    parent { id name }
+                    myPermissions
+                    isPublished
+                }
+            }
+        """
+
+    def _seed_nested_folders(self, depth: int, breadth: int) -> int:
+        """Create a balanced folder tree; returns the total folder count."""
+        roots = [
+            CorpusFolder.objects.create(
+                corpus=self.corpus, name=f"root-{i}", creator=self.user
+            )
+            for i in range(breadth)
+        ]
+        total = len(roots)
+        frontier = roots
+        for level in range(depth - 1):
+            next_frontier = []
+            for parent in frontier:
+                for j in range(breadth):
+                    child = CorpusFolder.objects.create(
+                        corpus=self.corpus,
+                        name=f"{parent.name}-l{level}-{j}",
+                        parent=parent,
+                        creator=self.user,
+                    )
+                    next_frontier.append(child)
+            frontier = next_frontier
+            total += len(frontier)
+        return total
+
+    def _run_query(self) -> dict:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        corpus_global_id = to_global_id("CorpusType", self.corpus.id)
+        # Use a fresh context per execute() so the per-request memoisation in
+        # ``CorpusFolderType.resolve_my_permissions`` is rebuilt every call.
+        # Without this the second call would inherit the first call's cache
+        # and the regression test could pass even after the per-folder
+        # fan-out was reintroduced.
+        with CaptureQueriesContext(connection) as ctx:
+            result = self.client.execute(
+                self._query(),
+                variables={"corpusId": corpus_global_id},
+                context_value=TestContext(self.user),
+            )
+        self.assertIsNone(result.get("errors"), msg=result.get("errors"))
+        return {"result": result, "queries": list(ctx.captured_queries)}
+
+    def test_query_count_is_independent_of_folder_count(self):
+        """Sql count must be flat across folder-count growth (was ~6N+1)."""
+        small_count = self._seed_nested_folders(depth=2, breadth=2)
+        small_run = self._run_query()
+        small_queries = len(small_run["queries"])
+        self.assertEqual(len(small_run["result"]["data"]["corpusFolders"]), small_count)
+
+        # Wipe and reseed with a much larger tree; cache state on the
+        # graphene client / Django connection is reused but the per-request
+        # ``info.context`` cache is fresh because each ``client.execute``
+        # builds a new context.
+        CorpusFolder.objects.filter(corpus=self.corpus).delete()
+        large_count = self._seed_nested_folders(depth=3, breadth=5)
+        large_run = self._run_query()
+        large_queries = len(large_run["queries"])
+        self.assertEqual(len(large_run["result"]["data"]["corpusFolders"]), large_count)
+
+        # Hard invariant: the query count must not scale with folder count.
+        # We allow a small slack for tree_queries' ``with_tree_fields`` CTE
+        # bookkeeping, but a 1-folder vs 155-folder gap of more than a
+        # handful of queries means the per-folder fan-out has regressed.
+        self.assertLess(
+            large_queries - small_queries,
+            5,
+            msg=(
+                f"corpusFolders query count regressed: "
+                f"{small_queries} queries for {small_count} folders vs "
+                f"{large_queries} queries for {large_count} folders. "
+                f"The per-folder resolver fan-out (ancestor CTE, descendant "
+                f"CTE, document COUNT, guardian-permission filters) is back."
+            ),
+        )
+
+    def test_aggregates_match_per_folder_resolver(self):
+        """Bulk-attached aggregates must match the per-folder resolver answers."""
+        # Tree: root with one direct doc + two children; one child has one doc.
+        root = CorpusFolder.objects.create(
+            corpus=self.corpus, name="root", creator=self.user
+        )
+        child_a = CorpusFolder.objects.create(
+            corpus=self.corpus, name="child-a", parent=root, creator=self.user
+        )
+        CorpusFolder.objects.create(
+            corpus=self.corpus, name="child-b", parent=root, creator=self.user
+        )
+
+        pdf_root = ContentFile(b"%PDF-1.4 root", name="root.pdf")
+        doc_root = Document.objects.create(
+            creator=self.user, title="Root doc", pdf_file=pdf_root
+        )
+        DocumentPath.objects.create(
+            corpus=self.corpus,
+            document=doc_root,
+            folder=root,
+            path="/root.pdf",
+            is_current=True,
+            is_deleted=False,
+            version_number=1,
+            creator=self.user,
+        )
+        pdf_child = ContentFile(b"%PDF-1.4 child", name="child.pdf")
+        doc_child = Document.objects.create(
+            creator=self.user, title="Child doc", pdf_file=pdf_child
+        )
+        DocumentPath.objects.create(
+            corpus=self.corpus,
+            document=doc_child,
+            folder=child_a,
+            path="/child.pdf",
+            is_current=True,
+            is_deleted=False,
+            version_number=1,
+            creator=self.user,
+        )
+
+        run = self._run_query()
+        by_name = {f["name"]: f for f in run["result"]["data"]["corpusFolders"]}
+
+        self.assertEqual(by_name["root"]["path"], "root")
+        self.assertEqual(by_name["root"]["documentCount"], 1)
+        self.assertEqual(by_name["root"]["descendantDocumentCount"], 2)
+
+        self.assertEqual(by_name["child-a"]["path"], "root/child-a")
+        self.assertEqual(by_name["child-a"]["documentCount"], 1)
+        self.assertEqual(by_name["child-a"]["descendantDocumentCount"], 1)
+
+        self.assertEqual(by_name["child-b"]["path"], "root/child-b")
+        self.assertEqual(by_name["child-b"]["documentCount"], 0)
+        self.assertEqual(by_name["child-b"]["descendantDocumentCount"], 0)
+
+
 class DeletedDocumentsQueryResolverTest(TestCase):
     """Test deleted_documents_in_corpus query resolver."""
 

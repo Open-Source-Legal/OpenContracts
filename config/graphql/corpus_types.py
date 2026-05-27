@@ -156,15 +156,40 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_path(self, info) -> Any:
-        """Get full path from root to this folder."""
+        """Get full path from root to this folder.
+
+        Prefers the ``_path`` attribute attached by
+        :meth:`FolderCRUDService.get_visible_folders_with_aggregates` so the
+        list-view resolver doesn't fire a recursive ancestor CTE per folder.
+        Falls back to the per-folder ``get_path()`` for single-folder reads
+        (e.g. the ``corpusFolder(id:)`` resolver).
+        """
+        if hasattr(self, "_path"):
+            return self._path
         return self.get_path()
 
     def resolve_document_count(self, info) -> Any:
-        """Get count of documents directly in this folder."""
+        """Get count of documents directly in this folder.
+
+        Prefers the ``_doc_count`` attribute attached by
+        :meth:`FolderCRUDService.get_visible_folders_with_aggregates` so the
+        list-view resolver doesn't fire a per-folder ``COUNT`` on
+        ``DocumentPath``.
+        """
+        if hasattr(self, "_doc_count"):
+            return self._doc_count
         return self.get_document_count()
 
     def resolve_descendant_document_count(self, info) -> Any:
-        """Get count of documents in this folder and all subfolders."""
+        """Get count of documents in this folder and all subfolders.
+
+        Prefers the ``_descendant_doc_count`` attribute attached by
+        :meth:`FolderCRUDService.get_visible_folders_with_aggregates` so the
+        list-view resolver doesn't fire a recursive descendant CTE + COUNT
+        per folder.
+        """
+        if hasattr(self, "_descendant_doc_count"):
+            return self._descendant_doc_count
         return self.get_descendant_document_count()
 
     def resolve_children(self, info) -> Any:
@@ -172,6 +197,60 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         return BaseService.filter_visible_qs(
             self.children, info.context.user, request=info.context
         )
+
+    def resolve_my_permissions(self, info) -> list[str]:
+        """Permissions are inherited from the parent corpus.
+
+        ``CorpusFolder`` rows never carry guardian permission rows (see
+        ``opencontractserver/corpuses/models.py`` ``CorpusFolder`` class
+        docstring), so the default
+        :meth:`AnnotatePermissionsForReadMixin.resolve_my_permissions`
+        would burn two empty ``.filter()`` queries per folder against
+        ``corpusfolderuserobjectpermission_set`` and
+        ``corpusfoldergroupobjectpermission_set`` — a ``2N`` fan-out on the
+        folder-list view. Resolve once per ``(corpus, user)`` per request
+        by delegating to the parent corpus's resolver and translating the
+        permission strings.
+        """
+        context = info.context
+        user = getattr(context, "user", None)
+        if not is_authenticated_user(user):
+            # Anonymous users still get ``read_corpusfolder`` if the folder
+            # itself is public, matching the mixin's public-read branch.
+            return ["read_corpusfolder"] if self.is_public else []
+
+        cache_attr = f"_corpus_folder_perms_{self.corpus_id}_{user.id}"
+        cached = getattr(context, cache_attr, None)
+        if cached is None:
+            corpus_perms = AnnotatePermissionsForReadMixin.resolve_my_permissions(
+                self.corpus, info
+            )
+            # corpus_perms entries end in ``_corpus`` (e.g. ``read_corpus``);
+            # rewrite to the folder model name so the API contract matches
+            # what the AnnotatePermissionsForReadMixin would have returned.
+            cached = [
+                (
+                    f"{perm[: -len('corpus')]}corpusfolder"
+                    if perm.endswith("_corpus")
+                    else perm
+                )
+                for perm in corpus_perms
+            ]
+            setattr(context, cache_attr, cached)
+
+        if self.is_public and "read_corpusfolder" not in cached:
+            return [*cached, "read_corpusfolder"]
+        return list(cached)
+
+    def resolve_is_published(self, info) -> bool:
+        """``CorpusFolder`` rows never carry guardian permission rows, so the
+        ``DEFAULT_PERMISSIONS_GROUP`` is never granted on a folder; the
+        answer is always ``False``. Override the mixin's
+        :meth:`resolve_is_published` to skip the per-folder
+        ``get_groups_with_perms`` + ``.filter().count()`` queries it would
+        otherwise run on the folder-list view.
+        """
+        return False
 
     class Meta:
         model = CorpusFolder
