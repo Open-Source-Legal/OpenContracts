@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from "react";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Settings,
@@ -79,11 +79,26 @@ const ActionButton = styled(SidebarTab)`
   }
 `;
 
-const ControlPanel = styled(motion.div)`
+/*
+ * Popover anchored to a button inside ControlsContainer. Two positioning
+ * modes, mirroring the container's two flex directions:
+ *
+ * - Non-bare (bottom-right floating cluster): ControlsContainer uses
+ *   `flex-direction: column-reverse`, so the trigger (Settings or Width)
+ *   sits at the BOTTOM of the stack. The popover anchors with
+ *   `bottom: calc(56px + 1rem)` so it floats directly above that trigger.
+ *
+ * - Bare (unified RightEdgeRail, panel closed): ControlsContainer uses
+ *   `flex-direction: column`, so the Settings trigger sits at the TOP of the
+ *   stack (just below the RailDivider). The popover anchors to the LEFT of
+ *   the rail with `right: calc(100% + 8px); top: 0;` so it appears beside
+ *   Settings rather than far above it (the previous behavior, which left
+ *   the popover floating high above the trigger because the bottom anchor
+ *   was measured from the BOTTOM of the column = past the other action
+ *   buttons).
+ */
+const ControlPanel = styled(motion.div)<{ $bare?: boolean }>`
   position: absolute;
-  right: 0;
-  /* Place the panel just above the button stack */
-  bottom: calc(56px + 1rem); /* button height + gap */
   background: white;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -91,9 +106,20 @@ const ControlPanel = styled(motion.div)`
   padding: 1rem;
   min-width: 240px;
 
-  @media (max-width: 768px) {
-    bottom: calc(40px + 1rem); /* smaller mobile button height */
-  }
+  ${(props) =>
+    props.$bare
+      ? css`
+          right: calc(100% + 8px);
+          top: 0;
+        `
+      : css`
+          right: 0;
+          bottom: calc(56px + 1rem); /* button height + gap */
+
+          @media (max-width: 768px) {
+            bottom: calc(40px + 1rem); /* smaller mobile button height */
+          }
+        `}
 `;
 
 const ControlItem = styled.div`
@@ -361,6 +387,12 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
         <ControlsContainer $panelOffset={panelOffset} $bare={bareContainer}>
           <AnimatePresence>
             {expandedWidthMenu && showRightPanel && (
+              // No `$bare` here: the width menu is gated on `showRightPanel`
+              // and the unified rail (bare mode) only renders when the panel
+              // is closed, so this branch is unreachable when bareContainer
+              // is true. Omitting the prop keeps the non-bare anchor —
+              // bottom-right above the trigger — which is what the open-panel
+              // layout expects.
               <ControlPanel
                 data-testid="width-menu-panel"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -412,6 +444,7 @@ export const FloatingDocumentControls: React.FC<FloatingDocumentControlsProps> =
           <AnimatePresence>
             {expandedSettings && (
               <ControlPanel
+                $bare={bareContainer}
                 data-testid="settings-panel"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}

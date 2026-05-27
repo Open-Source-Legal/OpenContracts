@@ -207,9 +207,22 @@ const EmptyStateWrapper = styled.div`
   border-radius: 16px;
 `;
 
-// Wrapper to handle right-click context menu on cards
+// Wrapper for each row in the corpus list.
+//
+// We reserve a fixed rail on the left (``padding-left``) so the vertical
+// vote pill has somewhere to live without ever overlapping the corpus
+// avatar inside ``CollectionCard``. The padding is applied unconditionally
+// — personal corpora (where the vote widget is suppressed) keep the same
+// indent so every row stays vertically aligned in the list.
+const VOTE_RAIL_WIDTH = 36;
+
 const CardWrapper = styled.div`
   position: relative;
+  padding-left: ${VOTE_RAIL_WIDTH}px;
+
+  @media (max-width: 480px) {
+    padding-left: 30px;
+  }
 `;
 
 // MCP button overlay for corpus cards. Always visible so MCP discovery is
@@ -222,16 +235,26 @@ const MCPButtonOverlay = styled.div`
   z-index: 10;
 `;
 
-// Vote pill overlay — pinned to the top-LEFT of each card so the
-// MCP/kebab cluster on the right keeps its layout.  z-index matches the
-// MCP overlay (10) so they share the same stacking context above the
-// card body but below any open context menu (z-index >= 100 in the
-// ContextMenu component).
+// Vote pill rail — pinned to the dedicated ``VOTE_RAIL_WIDTH`` strip on
+// the LEFT of the wrapper, vertically centred. Sits in the wrapper's
+// padding so it never overlaps the corpus avatar inside CollectionCard.
+// z-index matches the MCP overlay (10) so they share the same stacking
+// context above the card body but below any open context menu
+// (z-index >= 100 in the ContextMenu component).
 const VoteWidgetOverlay = styled.div`
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: ${VOTE_RAIL_WIDTH}px;
   z-index: 10;
+
+  @media (max-width: 480px) {
+    width: 30px;
+  }
 `;
 
 // Sort dropdown — a plain ``<select>`` styled to match the OS-Legal
@@ -256,6 +279,10 @@ const SortLabel = styled.label`
 
 const SortSelect = styled.select`
   appearance: none;
+  /* Safari < 15 needs the vendor prefix to actually suppress the native
+     dropdown affordance — without it, Safari renders the default chevron
+     in addition to our custom one. */
+  -webkit-appearance: none;
   background: white;
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 8px;
@@ -687,10 +714,12 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                       key={corpus.id}
                       onContextMenu={(e) => handleOpenContextMenu(e, corpus.id)}
                     >
-                      {/* Vote pill overlay (top-left). Hidden on the user's
-                          own personal corpus — voting on "My Documents"
-                          would be self-vote anyway and the widget would
-                          render a permanently-disabled control. */}
+                      {/* Vertical vote pill in the wrapper's left rail.
+                          Hidden on the user's own personal corpus — voting
+                          on "My Documents" would be self-vote anyway and
+                          the widget would render a permanently-disabled
+                          control. The rail (padding-left on CardWrapper)
+                          is reserved regardless so all rows stay aligned. */}
                       {!corpus.isPersonal && (
                         <VoteWidgetOverlay>
                           <CorpusVoteWidget
@@ -698,6 +727,7 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                             score={corpus.score ?? 0}
                             myVote={corpus.myVote ?? null}
                             creatorId={corpus.creator?.id}
+                            orientation="vertical"
                             testId={`corpus-vote-${corpus.id}`}
                           />
                         </VoteWidgetOverlay>

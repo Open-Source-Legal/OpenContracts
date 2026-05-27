@@ -40,11 +40,12 @@ import { backendUserObj } from "../../graphql/cache";
 // Styled chrome
 // --------------------------------------------------------------------------- //
 
-const Pill = styled.div`
+const Pill = styled.div<{ $vertical: boolean }>`
   display: inline-flex;
+  flex-direction: ${({ $vertical }) => ($vertical ? "column" : "row")};
   align-items: center;
   gap: 2px;
-  padding: 2px 4px;
+  padding: ${({ $vertical }) => ($vertical ? "4px 2px" : "2px 4px")};
   background: white;
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 999px;
@@ -97,12 +98,13 @@ const ArrowButton = styled.button<{
   }
 `;
 
-const Score = styled.span<{ $score: number }>`
+const Score = styled.span<{ $score: number; $vertical: boolean }>`
   min-width: 18px;
-  padding: 0 4px;
+  padding: ${({ $vertical }) => ($vertical ? "2px 0" : "0 4px")};
   font-size: 12px;
   font-weight: 600;
   text-align: center;
+  line-height: 1;
   color: ${({ $score }) =>
     $score > 0
       ? "rgb(5, 150, 105)"
@@ -155,6 +157,13 @@ export interface CorpusVoteWidgetProps {
   testId?: string;
   /** Smaller variant used on cards (default). Reserved for future expansion. */
   size?: "sm";
+  /**
+   * Pill layout. ``"horizontal"`` (default) lays the arrows side-by-side
+   * with the score between them — used in flush, inline contexts. ``"vertical"``
+   * stacks chevron-up / score / chevron-down — used as a Reddit-style rail
+   * on corpus cards so the pill doesn't overlap the avatar.
+   */
+  orientation?: "horizontal" | "vertical";
 }
 
 export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
@@ -163,7 +172,9 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
   myVote,
   creatorId,
   testId,
+  orientation = "horizontal",
 }: CorpusVoteWidgetProps) {
+  const isVertical = orientation === "vertical";
   const backendUser = useReactiveVar(backendUserObj);
   const isOwn = Boolean(
     backendUser?.id && creatorId && backendUser.id === creatorId
@@ -284,7 +295,7 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
         void upvote({ variables: { corpusId } });
       }
     },
-    [disabled, isOwn, effectiveVote, corpusId, upvote, removeVote]
+    [stop, disabled, isOwn, effectiveVote, corpusId, upvote, removeVote]
   );
 
   const handleDownvote = useCallback(
@@ -302,7 +313,7 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
         void downvote({ variables: { corpusId } });
       }
     },
-    [disabled, isOwn, effectiveVote, corpusId, downvote, removeVote]
+    [stop, disabled, isOwn, effectiveVote, corpusId, downvote, removeVote]
   );
 
   const title = isOwn
@@ -310,7 +321,12 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
     : "Click to upvote or downvote";
 
   return (
-    <Pill data-testid={testId} title={title} onClick={stop}>
+    <Pill
+      data-testid={testId}
+      title={title}
+      onClick={stop}
+      $vertical={isVertical}
+    >
       <ArrowButton
         type="button"
         $variant="up"
@@ -322,7 +338,11 @@ export const CorpusVoteWidget = React.memo(function CorpusVoteWidget({
       >
         <ChevronUp size={14} />
       </ArrowButton>
-      <Score $score={displayScore} aria-label={`Score: ${displayScore}`}>
+      <Score
+        $score={displayScore}
+        $vertical={isVertical}
+        aria-label={`Score: ${displayScore}`}
+      >
         {displayScore}
       </Score>
       <ArrowButton

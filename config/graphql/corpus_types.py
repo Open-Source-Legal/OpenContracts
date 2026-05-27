@@ -27,6 +27,7 @@ from opencontractserver.corpuses.models import (
     CorpusVote,
 )
 from opencontractserver.shared.services.base import BaseService
+from opencontractserver.utils.auth import is_authenticated_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -485,11 +486,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # on the public list view. Authenticated viewers key on creator;
         # anonymous viewers key on the Django session key — both branches
         # mirror ``CorpusVoteService.get_user_vote_type``.
-        is_auth = bool(
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and not getattr(user, "is_anonymous", True)
-        )
+        is_auth = is_authenticated_user(user)
         if is_auth:
             viewer_filter = Q(creator=user, session_key__isnull=True)
         else:

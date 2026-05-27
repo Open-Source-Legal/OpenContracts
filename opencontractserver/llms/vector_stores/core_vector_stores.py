@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
@@ -113,6 +113,18 @@ async def _safe_execute_queryset(queryset) -> list:
         return list(queryset)
 
 
+SearchMode = Literal["vector", "fts", "hybrid"]
+"""Retrieval mode for :class:`VectorSearchQuery`.
+
+- ``"vector"``: pgvector cosine similarity only.
+- ``"fts"``: PostgreSQL full-text search (``tsvector``) only.
+- ``"hybrid"``: both arms fused via Reciprocal Rank Fusion. *Default.*
+
+``"fts"`` and ``"hybrid"`` degrade to ``"vector"`` when no ``query_text`` is
+supplied; ``"hybrid"`` degrades to text-only when embedding generation fails.
+"""
+
+
 @dataclass
 class VectorSearchQuery:
     """Framework-agnostic vector search query."""
@@ -121,6 +133,7 @@ class VectorSearchQuery:
     query_embedding: Optional[list[float]] = None
     similarity_top_k: int = 100
     filters: Optional[dict[str, Any]] = None
+    mode: SearchMode = "hybrid"
 
 
 @dataclass
@@ -767,8 +780,83 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             )
         return reordered
 
+    @staticmethod
+    def _degrade_mode(mode: SearchMode, has_text: bool, log_prefix: str) -> SearchMode:
+        """Degrade ``"fts"``/``"hybrid"`` to ``"vector"`` when ``query_text`` is missing.
+
+        Shared by :meth:`_resolve_mode` (instance path) and :meth:`global_search`
+        (classmethod path, which doesn't have a ``VectorSearchQuery`` in scope)
+        so the rule lives in exactly one place.
+        """
+        if mode in ("fts", "hybrid") and not has_text:
+            _logger.info(
+                "%s mode '%s' requested without query_text; degrading to 'vector'.",
+                log_prefix,
+                mode,
+            )
+            return "vector"
+        return mode
+
+    @staticmethod
+    def _generate_global_query_vector(
+        mode: SearchMode,
+        query_text: str,
+        embedder_path: str,
+    ) -> tuple[SearchMode, Optional[list[float]]]:
+        """Generate an embedding for the vector arm of :meth:`global_search`.
+
+        Only meaningful when ``mode`` is ``"vector"`` or ``"hybrid"`` (the modes
+        that need an embedding). Returns ``(effective_mode, query_vector)``
+        after applying embedding-availability degradation:
+
+        - Embedder unavailable / ``embed_text`` returns ``None``:
+            - ``"hybrid"`` → ``"fts"`` (the text arm can still run)
+            - ``"vector"`` → ``"vector"`` (caller MUST detect the ``None`` vector
+              and return ``[]`` — there is nothing to fall back to).
+        - Embedding successfully generated: ``mode`` unchanged.
+
+        Extracting this from :meth:`global_search` keeps the
+        ``effective_mode`` state transition (a) explicit at a single call site
+        and (b) testable in isolation rather than buried in nested ``if/else``.
+        """
+        from opencontractserver.pipeline.utils import get_default_embedder
+
+        default_embedder_class = get_default_embedder()
+        if not default_embedder_class:
+            _logger.error("Could not get default embedder for global search")
+            return ("fts" if mode == "hybrid" else mode, None)
+
+        query_vector = default_embedder_class().embed_text(query_text)
+        if query_vector is None:
+            _logger.warning("Failed to generate query embedding for global search")
+            return ("fts" if mode == "hybrid" else mode, None)
+
+        _logger.debug(
+            "Generated query embedding with dimension %d using %s",
+            len(query_vector),
+            embedder_path,
+        )
+        return (mode, query_vector)
+
+    @staticmethod
+    def _resolve_mode(query: VectorSearchQuery) -> SearchMode:
+        """Resolve the effective search mode, degrading gracefully when inputs disallow it.
+
+        ``"fts"`` and ``"hybrid"`` require ``query_text``; without it they
+        fall back to ``"vector"`` so the caller still gets results when an
+        embedding is provided.
+        """
+        has_text = bool(query.query_text and query.query_text.strip())
+        return CoreAnnotationVectorStore._degrade_mode(query.mode, has_text, "Search")
+
     def search(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
-        """Execute a vector search query and return results.
+        """Execute a search query, dispatching on ``query.mode``.
+
+        Modes:
+            - ``"hybrid"`` (default): RRF fusion of vector + full-text arms
+              via :meth:`hybrid_search`.
+            - ``"vector"``: pgvector cosine similarity only.
+            - ``"fts"``: PostgreSQL full-text search only.
 
         When a global reranker is configured (``PipelineSettings.default_reranker``)
         the first-stage retrieval oversamples candidates
@@ -777,11 +865,25 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         degrade gracefully to the first-stage ordering.
 
         Args:
-            query: The search query containing text/embedding and filters
+            query: The search query containing text/embedding, filters, and mode.
 
         Returns:
-            List of search results with annotations and similarity scores
+            List of search results with annotations and similarity scores.
         """
+        mode = self._resolve_mode(query)
+        # DEBUG (not INFO): fires on every search call; reserve INFO for
+        # state transitions and configuration events.
+        _logger.debug("CoreAnnotationVectorStore.search mode=%s", mode)
+        if mode == "hybrid":
+            return self.hybrid_search(query)
+        if mode == "fts":
+            return self._run_fts_only_sync(query)
+        return self._run_vector_only_sync(query)
+
+    def _run_vector_only_sync(
+        self, query: VectorSearchQuery
+    ) -> list[VectorSearchResult]:
+        """Vector-only sync search path (pgvector cosine similarity)."""
         reranker = self._get_reranker()
         first_stage_top_k = self._effective_first_stage_top_k(
             query.similarity_top_k, reranker
@@ -879,6 +981,41 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         # oversampled first-stage pool.
         return self._attach_block_context_sync(reranked, self.user_id)
 
+    def _run_fts_only_sync(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
+        """Full-text-only sync search path (PostgreSQL ``tsvector`` ranking).
+
+        Caller is expected to have ensured ``query.query_text`` is non-empty
+        (see :meth:`_resolve_mode`); otherwise this returns an empty list.
+        """
+        if not (query.query_text and query.query_text.strip()):
+            return []
+
+        reranker = self._get_reranker()
+        first_stage_top_k = self._effective_first_stage_top_k(
+            query.similarity_top_k, reranker
+        )
+
+        base_queryset = async_to_sync(self._build_base_queryset)()
+        base_queryset = self._apply_metadata_filters(base_queryset, query.filters)
+
+        text_results = self._run_fts_query(
+            base_queryset, query.query_text, first_stage_top_k
+        )
+        _logger.debug("FTS-only: arm returned %d results", len(text_results))
+
+        results = [
+            VectorSearchResult(
+                annotation=ann,
+                similarity_score=getattr(ann, "text_rank", 1.0),
+            )
+            for ann in text_results
+        ]
+
+        reranked = self._apply_rerank(
+            results, query.query_text, query.similarity_top_k, reranker
+        )
+        return self._attach_block_context_sync(reranked, self.user_id)
+
     @staticmethod
     def _fuse_results(
         vector_results: list,
@@ -938,8 +1075,9 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             _logger.warning("Hybrid search: no results from either arm")
             return []
 
-    def _run_fts_query(self, queryset, query_text: str, oversample_k: int) -> list:
-        """Execute the full-text search arm of hybrid search (sync).
+    @staticmethod
+    def _run_fts_query(queryset, query_text: str, oversample_k: int) -> list:
+        """Execute the full-text search arm of hybrid/fts search (sync).
 
         Args:
             queryset: Base annotation queryset (already filtered).
@@ -1109,6 +1247,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         query_text: str,
         top_k: int = 100,
         modalities: Optional[list[str]] = None,
+        mode: SearchMode = "hybrid",
     ) -> list["VectorSearchResult"]:
         """
         Search across ALL documents the user has access to using DEFAULT_EMBEDDER.
@@ -1128,21 +1267,34 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             query_text: The text query to search for
             top_k: Maximum number of results to return
             modalities: Optional filter by content modalities (e.g., ["TEXT"], ["IMAGE"])
+            mode: Retrieval mode — ``"vector"``, ``"fts"``, or ``"hybrid"``
+                (default). ``"hybrid"`` fuses pgvector + ``tsvector`` arms via
+                Reciprocal Rank Fusion. ``"fts"`` requires non-empty
+                ``query_text``; ``"hybrid"`` degrades to vector-only when text is
+                missing and to text-only when embedding generation fails.
 
         Returns:
             List of VectorSearchResult with annotations and similarity scores
         """
         from opencontractserver.documents.models import Document
         from opencontractserver.pipeline.utils import (
-            get_default_embedder,
             get_default_embedder_path,
             get_default_reranker_instance,
         )
 
-        _logger.info(f"Global search for user {user_id}: '{query_text[:50]}...'")
+        # ----- Pass 1: degrade fts/hybrid → vector when no query_text. -----
+        has_text = bool(query_text and query_text.strip())
+        effective_mode: SearchMode = cls._degrade_mode(mode, has_text, "global_search")
+
+        _logger.info(
+            "Global search for user %s (mode=%s): '%s...'",
+            user_id,
+            effective_mode,
+            (query_text or "")[:50],
+        )
 
         # Resolve global reranker (if configured) so we know how much to
-        # oversample from the first-stage vector search.
+        # oversample from the first-stage retrieval.
         reranker = get_default_reranker_instance()
         if reranker is not None:
             first_stage_top_k = max(
@@ -1151,27 +1303,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         else:
             first_stage_top_k = top_k
 
-        # Get default embedder configuration
         default_embedder_path = get_default_embedder_path()
-        default_embedder_class = get_default_embedder()
-
-        if not default_embedder_class:
-            _logger.error("Could not get default embedder for global search")
-            return []
-
-        # Generate query embedding using default embedder
-        default_embedder = default_embedder_class()
-        query_vector = default_embedder.embed_text(query_text)
-
-        if query_vector is None:
-            _logger.warning("Failed to generate query embedding for global search")
-            return []
-
-        embed_dim = len(query_vector)
-        _logger.debug(
-            f"Generated query embedding with dimension {embed_dim} "
-            f"using {default_embedder_path}"
-        )
 
         # Get all documents visible to user using the canonical visible_to_user pattern
         # This respects document permissions, is_public flag, and corpus membership
@@ -1193,7 +1325,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         # Build annotation queryset - filter to accessible documents
         # This implicitly respects corpus permissions since Document.visible_to_user
         # already considers corpus membership and permissions
-        queryset = Annotation.objects.select_related(
+        base_queryset = Annotation.objects.select_related(
             "annotation_label", "document", "corpus"
         ).filter(
             Q(document_id__in=accessible_doc_ids)
@@ -1211,42 +1343,97 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             | Q(structural=False, creator_id=user_id)
             | Q(structural=False, is_public=True)
         )
-        queryset = queryset.filter(visibility_q)
+        base_queryset = base_queryset.filter(visibility_q)
 
         # Apply modality filter if specified
         if modalities:
             modality_q = Q()
             for modality in modalities:
                 modality_q |= Q(content_modalities__contains=[modality])
-            queryset = queryset.filter(modality_q)
+            base_queryset = base_queryset.filter(modality_q)
 
-        _logger.debug("Global search queryset built, searching by embedding")
+        # ----- Pass 2: generate embedding for the vector arm. -----
+        # Helper returns the post-degradation mode (hybrid → fts on embedder
+        # failure) so the only mutation of ``effective_mode`` lives at this
+        # single call site.
+        query_vector: Optional[list[float]] = None
+        if effective_mode in ("vector", "hybrid"):
+            effective_mode, query_vector = cls._generate_global_query_vector(
+                effective_mode, query_text, default_embedder_path
+            )
+            # Vector-only with no embedding has nothing to fall back to.
+            if effective_mode == "vector" and query_vector is None:
+                return []
 
-        # Perform vector search using DEFAULT_EMBEDDER embeddings.
-        # TODO: This path uses vector-only search. Integrate full-text search
-        # with RRF fusion (like hybrid_search) for improved result quality.
-        queryset = queryset.search_by_embedding(
-            query_vector=query_vector,
-            embedder_path=default_embedder_path,
-            top_k=first_stage_top_k,
+        # ``oversample_k`` is computed after the embedding pass so it reflects
+        # the FINAL ``effective_mode`` (hybrid can demote to fts when the
+        # embedder is unavailable). Otherwise the FTS arm would silently
+        # over-fetch ``first_stage_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR``
+        # rows after a demotion.
+        oversample_k = (
+            first_stage_top_k * HYBRID_SEARCH_OVERSAMPLE_FACTOR
+            if effective_mode == "hybrid"
+            else first_stage_top_k
         )
 
-        # Execute and convert to results
-        annotations = list(queryset)
-        _logger.info(f"Global search returned {len(annotations)} annotations")
-
-        results = []
-        for annotation in annotations:
-            similarity_score = getattr(annotation, "similarity_score", 1.0)
-            if similarity_score != similarity_score:  # NaN check
-                similarity_score = 1.0
-            results.append(
-                VectorSearchResult(
-                    annotation=annotation, similarity_score=similarity_score
+        # --- Vector arm. ---
+        vector_results: list = []
+        if effective_mode in ("vector", "hybrid") and query_vector is not None:
+            vector_results = list(
+                base_queryset.search_by_embedding(
+                    query_vector=query_vector,
+                    embedder_path=default_embedder_path,
+                    top_k=oversample_k,
                 )
             )
+            _logger.debug(
+                "Global search vector arm returned %d results", len(vector_results)
+            )
+
+        # --- FTS arm. ---
+        text_results: list = []
+        if effective_mode in ("fts", "hybrid") and has_text:
+            text_results = cls._run_fts_query(base_queryset, query_text, oversample_k)
+            _logger.debug(
+                "Global search FTS arm returned %d results", len(text_results)
+            )
+
+        # --- Combine. ---
+        if effective_mode == "hybrid":
+            results = cls._fuse_results(vector_results, text_results, first_stage_top_k)
+        elif effective_mode == "fts":
+            # ``text_results`` is bounded by ``oversample_k`` which equals
+            # ``first_stage_top_k`` in fts mode, so the slice is a defensive
+            # guard rather than active truncation — kept so a future change
+            # to ``oversample_k`` can't accidentally bleed extra rows through.
+            results = [
+                VectorSearchResult(
+                    annotation=ann,
+                    similarity_score=getattr(ann, "text_rank", 1.0),
+                )
+                for ann in text_results[:first_stage_top_k]
+            ]
+        else:  # vector
+            results = []
+            for annotation in vector_results[:first_stage_top_k]:
+                similarity_score = getattr(annotation, "similarity_score", 1.0)
+                if similarity_score != similarity_score:  # NaN check
+                    similarity_score = 1.0
+                results.append(
+                    VectorSearchResult(
+                        annotation=annotation, similarity_score=similarity_score
+                    )
+                )
+
+        _logger.info(
+            "Global search returned %d results (mode=%s)",
+            len(results),
+            effective_mode,
+        )
 
         # Second-stage reranking (opt-in via PipelineSettings.default_reranker).
+        # Applied uniformly across all modes so vector/fts/hybrid go through
+        # the same rerank → attach-block-context pipeline.
         reranked = cls._rerank_results(results, query_text, top_k, reranker)
         # Block-context attach is independent of the per-instance store
         # state, so the classmethod path can call the @staticmethod helper
@@ -1261,6 +1448,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         query_text: str,
         top_k: int = 100,
         modalities: Optional[list[str]] = None,
+        mode: SearchMode = "hybrid",
     ) -> list["VectorSearchResult"]:
         """
         Async version of global_search.
@@ -1272,6 +1460,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             query_text: The text query to search for
             top_k: Maximum number of results to return
             modalities: Optional filter by content modalities
+            mode: Retrieval mode — see :meth:`global_search`.
 
         Returns:
             List of VectorSearchResult with annotations and similarity scores
@@ -1282,28 +1471,40 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             query_text=query_text,
             top_k=top_k,
             modalities=modalities,
+            mode=mode,
         )
 
     async def async_search(self, query: VectorSearchQuery) -> list[VectorSearchResult]:
-        """Async version of search that properly handles Django ORM in async context.
+        """Async search dispatching on ``query.mode``.
 
-        When a text query is provided, delegates to ``async_hybrid_search()``
-        which combines vector similarity with full-text search via RRF fusion.
-        This mirrors the sync ``resolve_semantic_search`` resolver behaviour
-        so callers going through ``async_search`` get the same hybrid benefit.
+        Modes:
+            - ``"hybrid"`` (default): RRF fusion of vector + full-text arms
+              via :meth:`async_hybrid_search`. Mirrors the sync
+              ``resolve_semantic_search`` resolver behaviour so callers going
+              through ``async_search`` get the same hybrid benefit.
+            - ``"vector"``: pgvector cosine similarity only.
+            - ``"fts"``: PostgreSQL full-text search only.
 
         Args:
-            query: The search query containing text/embedding and filters
+            query: The search query containing text/embedding, filters, and mode.
 
         Returns:
-            List of search results with annotations and similarity scores
+            List of search results with annotations and similarity scores.
         """
-        # Delegate to hybrid search when a text query is present — mirrors
-        # the sync GraphQL resolver logic in resolve_semantic_search.
-        if query.query_text and query.query_text.strip():
+        mode = self._resolve_mode(query)
+        # DEBUG (not INFO): fires on every search call; reserve INFO for
+        # state transitions and configuration events.
+        _logger.debug("CoreAnnotationVectorStore.async_search mode=%s", mode)
+        if mode == "hybrid":
             return await self.async_hybrid_search(query)
+        if mode == "fts":
+            return await self._async_fts_only(query)
+        return await self._async_vector_only(query)
 
-        # Vector-only / no-text path: embedding lookup without FTS overhead.
+    async def _async_vector_only(
+        self, query: VectorSearchQuery
+    ) -> list[VectorSearchResult]:
+        """Vector-only async search path (pgvector cosine similarity)."""
         # See `async_hybrid_search` above — `_get_reranker` opens a sync DB
         # transaction via `PipelineSettings.get_instance()` and must be
         # awaited through `sync_to_async` from an async context.
@@ -1377,10 +1578,45 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 )
             )
 
-        # This branch only runs when query.query_text is empty/whitespace
-        # (the text path was intercepted above and routed to async_hybrid_search).
         # _aapply_rerank is still called so it can trim to top_k; it short-
         # circuits on empty query_text without invoking the reranker.
+        reranked = await self._aapply_rerank(
+            results, query.query_text, query.similarity_top_k, reranker
+        )
+        return await self._aattach_block_context(reranked)
+
+    async def _async_fts_only(
+        self, query: VectorSearchQuery
+    ) -> list[VectorSearchResult]:
+        """Full-text-only async search path (PostgreSQL ``tsvector`` ranking).
+
+        Caller is expected to have ensured ``query.query_text`` is non-empty
+        (see :meth:`_resolve_mode`); otherwise this returns an empty list.
+        """
+        if not (query.query_text and query.query_text.strip()):
+            return []
+
+        reranker = await sync_to_async(self._get_reranker, thread_sensitive=True)()
+        first_stage_top_k = self._effective_first_stage_top_k(
+            query.similarity_top_k, reranker
+        )
+
+        base_queryset = await self._build_base_queryset()
+        base_queryset = self._apply_metadata_filters(base_queryset, query.filters)
+
+        text_results = await sync_to_async(CoreAnnotationVectorStore._run_fts_query)(
+            base_queryset, query.query_text, first_stage_top_k
+        )
+        _logger.debug("FTS-only async: arm returned %d results", len(text_results))
+
+        results = [
+            VectorSearchResult(
+                annotation=ann,
+                similarity_score=getattr(ann, "text_rank", 1.0),
+            )
+            for ann in text_results
+        ]
+
         reranked = await self._aapply_rerank(
             results, query.query_text, query.similarity_top_k, reranker
         )
@@ -1390,6 +1626,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
 # Re-exported so downstream callers can annotate against the protocol.
 __all__ = [
     "CoreAnnotationVectorStore",
+    "SearchMode",
     "VectorSearchQuery",
     "VectorSearchResult",
     "VectorStoreProtocol",

@@ -12,6 +12,7 @@ from opencontractserver.llms.tools.pydantic_ai_tools import PydanticAIDependenci
 from opencontractserver.llms.vector_stores.core_vector_stores import (
     BlockContext,
     CoreAnnotationVectorStore,
+    SearchMode,
     VectorSearchQuery,
     VectorSearchResult,
 )
@@ -20,12 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 class PydanticAIVectorSearchRequest(BaseModel):
-    """Pydantic model for vector search requests in PydanticAI context."""
+    """Pydantic model for vector search requests in PydanticAI context.
+
+    Fields:
+        query_text: Text query for semantic / full-text search.
+        query_embedding: Pre-computed embedding vector (bypasses embedder).
+        similarity_top_k: Maximum number of results to return.
+        filters: Additional metadata filters.
+        mode: Retrieval mode — ``"vector"``, ``"fts"``, or ``"hybrid"``
+            (default). See :data:`SearchMode` for degradation rules.
+    """
 
     query_text: Optional[str] = None
     query_embedding: Optional[list[float]] = None
     similarity_top_k: int = 10
     filters: Optional[dict[str, Any]] = None
+    mode: SearchMode = "hybrid"
 
 
 def _block_context_to_dict(bc: BlockContext) -> dict[str, Any]:
@@ -206,20 +217,26 @@ class PydanticAIAnnotationVectorStore:
         query_embedding: Optional[list[float]] = None,
         similarity_top_k: int = 10,
         filters: Optional[dict[str, Any]] = None,
+        mode: SearchMode = "hybrid",
     ) -> PydanticAIVectorSearchResponse:
-        """Search annotations using vector similarity.
+        """Search annotations using vector similarity, FTS, or hybrid RRF.
 
         Args:
-            query_text: Text query for semantic search
+            query_text: Text query for semantic / full-text search
             query_embedding: Pre-computed embedding vector
             similarity_top_k: Maximum number of results to return
             filters: Additional metadata filters
+            mode: Retrieval mode — ``"vector"``, ``"fts"``, or ``"hybrid"``
+                (default). See :data:`SearchMode` for degradation rules.
 
         Returns:
             PydanticAIVectorSearchResponse with search results
         """
         logger.debug(
-            f"PydanticAI vector search: query_text='{query_text}', top_k={similarity_top_k}"
+            "PydanticAI vector search: query_text=%r, top_k=%d, mode=%s",
+            query_text,
+            similarity_top_k,
+            mode,
         )
 
         # Create search query
@@ -228,6 +245,7 @@ class PydanticAIAnnotationVectorStore:
             query_embedding=query_embedding,
             similarity_top_k=similarity_top_k,
             filters=filters,
+            mode=mode,
         )
 
         # Execute search using core store's async method
@@ -244,14 +262,17 @@ class PydanticAIAnnotationVectorStore:
         query_embedding: Optional[list[float]] = None,
         similarity_top_k: int = 10,
         filters: Optional[dict[str, Any]] = None,
+        mode: SearchMode = "hybrid",
     ) -> PydanticAIVectorSearchResponse:
         """Synchronous search method for backward compatibility.
 
         Args:
-            query_text: Text query for semantic search
+            query_text: Text query for semantic / full-text search
             query_embedding: Pre-computed embedding vector
             similarity_top_k: Maximum number of results to return
             filters: Additional metadata filters
+            mode: Retrieval mode — ``"vector"``, ``"fts"``, or ``"hybrid"``
+                (default). See :data:`SearchMode` for degradation rules.
 
         Returns:
             PydanticAIVectorSearchResponse with search results
@@ -262,6 +283,7 @@ class PydanticAIAnnotationVectorStore:
             query_embedding=query_embedding,
             similarity_top_k=similarity_top_k,
             filters=filters,
+            mode=mode,
         )
 
         # Execute search using core store

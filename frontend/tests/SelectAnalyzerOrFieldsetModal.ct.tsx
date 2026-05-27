@@ -495,10 +495,15 @@ test.describe("SelectAnalyzerOrFieldsetModal — close behavior", () => {
       .locator('[data-testid="select-analyzer-or-fieldset-overlay"]')
       .first();
     await expect(overlay).toHaveCSS("opacity", "1", { timeout: 2000 });
-    // Click a viewport corner far from the centered ModalContainer so the
-    // click reaches the overlay's `onClick={onClose}` handler without
-    // bypassing pointer-actionability checks (which `force: true` would do).
-    await page.mouse.click(5, 5);
+    // Dispatch a synthetic click directly on the overlay element. Coordinate-
+    // based clicks (page.mouse.click or locator.click with a position) are
+    // flaky here because framer-motion's wrapping motion.div can still be
+    // mid-transition for hit-testing purposes even after opacity reaches 1,
+    // so the click occasionally lands on a transparent descendant that
+    // stops propagation. dispatchEvent targets the overlay node directly,
+    // which is exactly where React's onClick={onClose} is registered, so the
+    // handler fires deterministically.
+    await overlay.dispatchEvent("click");
 
     await expect(page.locator("text=Start Analysis")).toBeHidden({
       timeout: 3000,

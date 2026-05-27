@@ -1,7 +1,7 @@
-# OpenContracts OG Preview Worker
+# cite OG Preview Worker
 # Intercepts social media crawlers and returns OG meta tags for deep-links
 
-name = "opencontracts-og"
+name = "cite-og"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
@@ -11,11 +11,17 @@ SITE_URL = "http://localhost:3000"
 API_URL = "http://localhost:8000"
 OG_IMAGE_BASE = "http://localhost:3000/static/og-images"
 
-# Production environment (contracts.opensource.legal)
+# Production environment
+# Routes both the new canonical cite.opensource.legal domain and the legacy
+# contracts.opensource.legal domain (kept alive during the 90-day grace
+# period — see README.md "Routes" section).
 [env.production]
-vars = { SITE_URL = "https://contracts.opensource.legal", API_URL = "https://contracts.opensource.legal", OG_IMAGE_BASE = "https://contracts.opensource.legal/static/og-images" }
+vars = { SITE_URL = "https://cite.opensource.legal", API_URL = "https://cite.opensource.legal", OG_IMAGE_BASE = "https://cite.opensource.legal/static/og-images" }
 
 routes = [
+  { pattern = "cite.opensource.legal/c/*", zone_name = "opensource.legal" },
+  { pattern = "cite.opensource.legal/d/*", zone_name = "opensource.legal" },
+  { pattern = "cite.opensource.legal/e/*", zone_name = "opensource.legal" },
   { pattern = "contracts.opensource.legal/c/*", zone_name = "opensource.legal" },
   { pattern = "contracts.opensource.legal/d/*", zone_name = "opensource.legal" },
   { pattern = "contracts.opensource.legal/e/*", zone_name = "opensource.legal" },
