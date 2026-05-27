@@ -463,8 +463,10 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "an existing one at the same path. Only text formats are supported "
             "(text/plain, text/markdown, application/txt) — binary formats "
             "like PDF/DOCX require the parsing pipeline and are out of scope. "
-            "The corpus path is derived from the title, so calling this tool "
-            "twice with the same title and corpus replaces the existing "
+            "The corpus path is derived from the title via filename "
+            "sanitisation (non-alphanumeric characters other than -_. collapse "
+            "to _), so calling this tool twice with the same — or with two "
+            "titles that sanitize to the same path — replaces the existing "
             "document with a new version."
         ),
         # CORPUS category because this writes a new document/version into

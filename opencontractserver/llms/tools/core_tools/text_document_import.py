@@ -29,6 +29,12 @@ def _derive_path_from_title(title: str) -> str:
     Mirrors the sanitisation used by ``Corpus.add_document`` so that
     callers that pass the same title repeatedly hit the same path and
     therefore the same version tree.
+
+    Note: non-alphanumeric characters (other than ``-``, ``_``, ``.``)
+    collapse to ``_``, so distinct titles can derive to the same path.
+    For example, ``"My Doc"`` and ``"My_Doc"`` both produce
+    ``/documents/My_Doc`` — calling the tool with either title will
+    version-up the other.
     """
     safe_title = "".join(
         c if c.isalnum() or c in "-_." else "_" for c in title[:MAX_FILENAME_LENGTH]
@@ -99,8 +105,8 @@ def create_or_update_text_document(
     if not title or not title.strip():
         raise ValueError("title must be a non-empty string.")
 
-    if content is None:
-        raise ValueError("content must be a string (got None).")
+    if not content or not content.strip():
+        raise ValueError("content must be a non-empty string.")
 
     if file_type not in TEXT_MIMETYPES:
         raise ValueError(
@@ -149,7 +155,7 @@ def create_or_update_text_document(
 
     content_bytes = content.encode("utf-8")
 
-    document, status, _path_record = corpus.import_content(
+    document, status, path_record = corpus.import_content(
         content=content_bytes,
         user=user,
         path=path,
@@ -173,12 +179,12 @@ def create_or_update_text_document(
         "document_id": document.id,
         "corpus_id": corpus.id,
         "path": path,
-        "version_number": _path_record.version_number,
+        "version_number": path_record.version_number,
         "file_type": file_type,
         "byte_count": len(content_bytes),
         "message": (
             f"Document {document.id} {status} at {path} "
-            f"(v{_path_record.version_number}) in corpus {corpus.id}."
+            f"(v{path_record.version_number}) in corpus {corpus.id}."
         ),
     }
 

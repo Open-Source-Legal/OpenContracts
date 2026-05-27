@@ -6,6 +6,8 @@ architecture: first call at a given title creates a fresh document,
 subsequent calls with the same title version-up the existing document.
 """
 
+from unittest.mock import patch
+
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save
@@ -19,7 +21,9 @@ from opencontractserver.documents.signals import (
 )
 from opencontractserver.llms.tools.core_tools import (
     acreate_or_update_text_document,
+    aupload_text_document,
     create_or_update_text_document,
+    upload_text_document,
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -201,6 +205,46 @@ class TestCreateOrUpdateTextDocument(TestCase):
             )
         self.assertIn("content", str(ctx.exception))
 
+    def test_empty_string_content_rejected(self):
+        """Empty / whitespace-only content must be rejected (no 0-byte docs)."""
+        for empty in ("", "   ", "\n\t"):
+            with self.assertRaises(ValueError) as ctx:
+                create_or_update_text_document(
+                    corpus_id=self.corpus.id,
+                    title="OK title",
+                    content=empty,
+                    author_id=self.user.id,
+                )
+            self.assertIn("content", str(ctx.exception))
+
+    def test_quota_exceeded_rejected(self):
+        """A user over the upload quota gets a ValueError before any DB write."""
+        with patch(
+            "opencontractserver.documents.document_service."
+            "DocumentService.check_user_upload_quota",
+            return_value=(False, "Your usage is capped at 10 documents."),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                create_or_update_text_document(
+                    corpus_id=self.corpus.id,
+                    title="Over Cap",
+                    content="some text",
+                    author_id=self.user.id,
+                )
+            self.assertIn("capped", str(ctx.exception))
+
+    def test_upload_text_document_alias_works(self):
+        """The upload_text_document alias delegates to the same implementation."""
+        result = upload_text_document(
+            corpus_id=self.corpus.id,
+            title="Via Alias",
+            content="aliased",
+            author_id=self.user.id,
+        )
+        self.assertEqual(result["status"], "created")
+        doc = Document.objects.get(pk=result["document_id"])
+        self.assertEqual(doc.txt_extract_file.read(), b"aliased")
+
     def test_nonexistent_user_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             create_or_update_text_document(
@@ -320,3 +364,27 @@ class TestCreateOrUpdateTextDocumentAsync(TransactionTestCase):
         self.assertEqual(result["version_number"], 1)
         doc = Document.objects.get(pk=result["document_id"])
         self.assertEqual(doc.txt_extract_file.read(), b"async content")
+
+    def test_async_alias_routes_to_same_implementation(self):
+        """The aupload_text_document alias is callable end-to-end."""
+        post_save.disconnect(
+            process_doc_on_create_atomic,
+            sender=Document,
+            dispatch_uid=DOC_CREATE_UID,
+        )
+        try:
+            result = async_to_sync(aupload_text_document)(
+                corpus_id=self.corpus.id,
+                title="Async Alias",
+                content="async aliased",
+                author_id=self.user.id,
+            )
+        finally:
+            post_save.connect(
+                process_doc_on_create_atomic,
+                sender=Document,
+                dispatch_uid=DOC_CREATE_UID,
+            )
+        self.assertEqual(result["status"], "created")
+        doc = Document.objects.get(pk=result["document_id"])
+        self.assertEqual(doc.txt_extract_file.read(), b"async aliased")

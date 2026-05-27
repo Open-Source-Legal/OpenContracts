@@ -212,9 +212,14 @@ def import_document(
             )
 
             # Determine file storage based on file type
-            # Text files go to txt_extract_file, everything else to pdf_file
+            # Text files go to txt_extract_file, everything else to pdf_file.
+            # Mirror the create-path logic (lines 324-343): if a File object
+            # was passed explicitly, use it; otherwise materialise the
+            # ``content`` bytes into a fresh ContentFile. Reusing the old
+            # doc's stored file here would silently drop the new content on
+            # a version-up (it inherits the previous version's bytes).
             if is_text:
-                effective_txt_file = txt_file or old_doc.txt_extract_file
+                effective_txt_file = txt_file
                 if not effective_txt_file:
                     effective_txt_file = _create_content_file(
                         content=content,
@@ -224,7 +229,7 @@ def import_document(
                     )
                 effective_pdf_file = None
             else:
-                effective_pdf_file = pdf_file or old_doc.pdf_file
+                effective_pdf_file = pdf_file
                 if not effective_pdf_file:
                     effective_pdf_file = _create_content_file(
                         content=content,
