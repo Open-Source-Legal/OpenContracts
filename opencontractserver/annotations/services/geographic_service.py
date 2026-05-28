@@ -53,6 +53,24 @@ _ALL_GEO_LABELS = frozenset(_LABEL_TYPE_TO_LABEL_TEXT.values())
 _PIN_SAMPLE_DOC_LIMIT = 5
 
 
+def _validate_label_types(label_types: list[str] | None) -> None:
+    """Validate caller-supplied ``label_types`` against the known set.
+
+    Called by both ``aggregate_for_corpus`` and ``aggregate_global`` BEFORE
+    any visibility short-circuit so a typo (``"city "``, ``"municipality"``)
+    fails fast with a clear error rather than silently returning ``[]``
+    when the corpus happens to be empty or inaccessible.
+    """
+    if label_types is None:
+        return
+    for lt in label_types:
+        if lt not in _LABEL_TYPE_TO_LABEL_TEXT:
+            raise ValueError(
+                f"Unknown label_type '{lt}'; expected one of "
+                f"{sorted(_LABEL_TYPE_TO_LABEL_TEXT)}"
+            )
+
+
 @dataclass(frozen=True)
 class BBox:
     """Map bounding box used as an optional spatial filter.
@@ -95,10 +113,10 @@ def _label_type_label_filter(label_types: list[str] | None) -> Q:
     surfacing the misconfiguration to the API caller is safer than
     quietly broadening the result set.
     """
+    target_texts: list[str] = []
     if label_types is None:
-        target_texts = _ALL_GEO_LABELS
+        target_texts.extend(_ALL_GEO_LABELS)
     else:
-        target_texts = []
         for lt in label_types:
             if lt not in _LABEL_TYPE_TO_LABEL_TEXT:
                 raise ValueError(
@@ -106,7 +124,7 @@ def _label_type_label_filter(label_types: list[str] | None) -> Q:
                     f"{sorted(_LABEL_TYPE_TO_LABEL_TEXT)}"
                 )
             target_texts.append(_LABEL_TYPE_TO_LABEL_TEXT[lt])
-    return Q(annotation_label__text__in=list(target_texts))
+    return Q(annotation_label__text__in=target_texts)
 
 
 def _row_to_pin(row: dict) -> GeographicPin:
@@ -267,6 +285,11 @@ class GeographicAnnotationService(BaseService):
         from opencontractserver.annotations.models import Annotation
         from opencontractserver.corpuses.services import CorpusDocumentService
 
+        # Validate up front — must happen before any short-circuit so a
+        # typo in ``label_types`` doesn't get masked by an empty corpus
+        # returning [].
+        _validate_label_types(label_types)
+
         visible_docs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=user, corpus=corpus, request=request
         )
@@ -308,6 +331,11 @@ class GeographicAnnotationService(BaseService):
         ``visible_to_user`` manager does not currently consume it.
         """
         from opencontractserver.annotations.models import Annotation
+
+        # Validate up front — symmetric with ``aggregate_for_corpus`` so a
+        # typo in ``label_types`` fails fast even when ``visible_to_user``
+        # would otherwise return an empty queryset.
+        _validate_label_types(label_types)
 
         qs = Annotation.objects.visible_to_user(user)
         return _aggregate_pins(qs, label_types=label_types, bbox=bbox)

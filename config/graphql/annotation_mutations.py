@@ -3,7 +3,7 @@ GraphQL mutations for annotation, relationship, and note operations.
 """
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import graphene
 from django.core.exceptions import ValidationError
@@ -494,7 +494,7 @@ def _create_geographic_annotation(
     raw_text: str,
     json: Any,
     annotation_type,
-    geocode_label_type: str,
+    geocode_label_type: Literal["country", "state", "city"],
     country_hint: str | None,
     state_hint: str | None,
 ) -> tuple[bool, str, "Annotation | None"]:

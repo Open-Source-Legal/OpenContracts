@@ -19,6 +19,8 @@ resolver missed must NEVER contribute pins.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -59,6 +61,25 @@ class _GeoFixtureMixin:
       * City pin with ``geocoded: False`` on ``doc_public`` (must be
         excluded from aggregation entirely)
     """
+
+    # Class-level declarations so mypy can see the attrs the
+    # ``_build_geo_fixture`` classmethod assigns on ``cls``. Without
+    # these the subclasses ``GeographicAnnotationServiceCorpusTests`` /
+    # ``GeographicAnnotationServiceGlobalTests`` are flagged
+    # ``"no attribute 'owner'"`` etc. The Any typing matches the
+    # pattern used elsewhere in this test module where get_user_model()
+    # returns a runtime class that isn't ergonomic to spell as a type.
+    owner: Any
+    viewer: Any
+    corpus: Corpus
+    doc_public: Document
+    doc_private: Document
+    country_label: AnnotationLabel
+    city_label: AnnotationLabel
+    ann_country_public: Annotation
+    ann_country_private: Annotation
+    ann_city_tokyo: Annotation
+    ann_city_failed: Annotation
 
     @classmethod
     def _build_geo_fixture(cls):
@@ -141,7 +162,7 @@ class _GeoFixtureMixin:
             "admin_codes": {"iso_alpha2": "JP"},
             "geocoded": True,
         }
-        FailedCity = {
+        FailedCity: dict[str, Any] = {
             "canonical_name": None,
             "lat": None,
             "lng": None,

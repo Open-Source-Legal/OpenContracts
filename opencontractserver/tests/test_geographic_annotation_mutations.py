@@ -16,6 +16,8 @@ real implementation, so over-testing each wrapper is just duplication.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from graphene.test import Client
@@ -169,7 +171,13 @@ class _BaseGeoMutationTestCase(TestCase):
         )
         set_permissions_for_obj_to_user(self.owner, self.corpus, [PermissionTypes.CRUD])
 
-        self.client = Client(schema)
+        # graphene ships without ``py.typed``, so mypy treats ``Client``
+        # as a concrete class without the inline-annotated ``.execute``
+        # method. Sister test modules (``test_url_annotation`` etc.)
+        # are baselined; this PR is type-checked, so annotate as Any
+        # to bypass the known graphene/mypy gap without silencing the
+        # whole module.
+        self.client: Any = Client(schema)
 
     def _vars(self, **extra):
         """Compose the shared GraphQL variables block."""

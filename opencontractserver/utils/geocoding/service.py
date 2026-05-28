@@ -275,7 +275,7 @@ def _row_to_resolved(row: dict, label_type: LabelTypeLiteral) -> ResolvedPlace:
             admin_codes={"iso_alpha2": "US", "admin1": row["code"]},
         )
     # city
-    admin_codes: dict = {"iso_alpha2": row["country_code"]}
+    admin_codes = {"iso_alpha2": row["country_code"]}
     if row.get("admin1_code"):
         admin_codes["admin1"] = row["admin1_code"]
     return ResolvedPlace(
