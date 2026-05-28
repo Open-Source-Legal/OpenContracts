@@ -1087,3 +1087,88 @@ class ApplyCamlArticleEditPreviewTests(TestCase):
         self.assertTrue(result["preview"].startswith("EDGE."))
         # And the offset reported back is also 0.
         self.assertEqual(result["char_offset"], 0)
+
+
+class AapplyCamlArticleEditCreatesVersionTreeSiblingTest(TransactionTestCase):
+    """Pin Task 8.5: agent CAML edits create a version-tree sibling.
+
+    After the refactor, ``_apply_caml_article_edit`` routes its write through
+    ``opencontractserver.documents.versioning.import_document`` (the canonical
+    dual-tree workhorse).  Each successful edit:
+
+    1. Creates a NEW ``Document`` sharing the existing ``version_tree_id``
+       with the previous head.
+    2. Flips the old ``DocumentPath.is_current`` to ``False``.
+    3. Creates a new ``DocumentPath`` with ``is_current=True`` and a bumped
+       ``version_number``.
+
+    The previous Document remains in the version tree as a historical
+    sibling (its blob is NOT orphaned).  The returned ``document_id`` now
+    points at the new head, not the old locked doc.
+
+    Uses ``TransactionTestCase`` because the async tool wrapper
+    (``_db_sync_to_async`` with ``thread_sensitive=False``) runs on a helper
+    thread with its own DB connection; ``TestCase`` rollback isolation would
+    hide the setUp data from that thread.
+
+    Spec: ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``
+    §4.1.1 §4.7.
+    """
+
+    def setUp(self):
+        from opencontractserver.documents.versioning import import_document
+
+        self.user = User.objects.create_user(username="aae", password="x")
+        self.corpus = Corpus.objects.create(title="C", creator=self.user)
+        import_document(
+            corpus=self.corpus,
+            path="Readme.CAML",
+            content=b"Hello target world.",
+            user=self.user,
+            file_type="text/markdown",
+            title="Readme.CAML",
+        )
+
+    def test_edit_creates_new_version_tree_sibling(self):
+        import asyncio
+
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        # Capture pre-edit head: the DocumentPath ``is_current`` row pins
+        # the head, not the Document row (the FK direction is
+        # DocumentPath → Document).
+        first = DocumentPath.objects.get(
+            corpus=self.corpus, path="Readme.CAML", is_current=True
+        ).document
+        tree_id = first.version_tree_id
+
+        result = asyncio.run(
+            aapply_caml_article_edit(
+                corpus_id=self.corpus.pk,
+                author_id=self.user.pk,
+                target_text="target",
+                replacement_text="replacement",
+                rationale="test",
+            )
+        )
+        self.assertTrue(result["applied"])
+
+        # New current head exists and is a sibling sharing the tree id.
+        current = DocumentPath.objects.get(
+            corpus=self.corpus, path="Readme.CAML", is_current=True
+        ).document
+        self.assertEqual(current.version_tree_id, tree_id)
+        self.assertNotEqual(current.pk, first.pk)
+        # The old doc remains in the version tree.
+        self.assertEqual(Document.objects.filter(version_tree_id=tree_id).count(), 2)
+        # The returned ``document_id`` points at the new head, not the
+        # previously-locked (now historical) doc.
+        self.assertEqual(result["document_id"], current.pk)
+        # Body of the new head reflects the substitution.
+        current.refresh_from_db()
+        current.txt_extract_file.open("r")
+        try:
+            body = current.txt_extract_file.read()
+        finally:
+            current.txt_extract_file.close()
+        self.assertEqual(body, "Hello replacement world.")
