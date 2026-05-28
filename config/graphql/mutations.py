@@ -193,6 +193,12 @@ from config.graphql.pipeline_settings_mutations import (
     UpdateToolSecretsMutation,
 )
 
+# Import research mutations
+from config.graphql.research_mutations import (
+    CancelResearchReport,
+    StartResearchReport,
+)
+
 # Import smart label mutations
 from config.graphql.smart_label_mutations import (
     SmartLabelListMutation,
@@ -408,6 +414,10 @@ class Mutation(graphene.ObjectType):
     mark_notification_unread = MarkNotificationUnreadMutation.Field()
     mark_all_notifications_read = MarkAllNotificationsReadMutation.Field()
     delete_notification = DeleteNotificationMutation.Field()
+
+    # RESEARCH REPORT MUTATIONS #################################################
+    start_research_report = StartResearchReport.Field()
+    cancel_research_report = CancelResearchReport.Field()
 
     # AGENT CONFIGURATION MUTATIONS ##############################################
     create_agent_configuration = CreateAgentConfigurationMutation.Field()
