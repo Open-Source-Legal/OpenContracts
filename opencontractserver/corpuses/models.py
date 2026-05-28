@@ -1445,6 +1445,7 @@ class CorpusActionTrigger(django.db.models.TextChoices):
     EDIT_DOCUMENT = "edit_document", "Edit Document"
     NEW_THREAD = "new_thread", "New Thread Created"
     NEW_MESSAGE = "new_message", "New Message Posted"
+    MANUAL_BATCH = "manual_batch", "Manual Batch Run"
 
 
 class CorpusAction(BaseOCModel):

@@ -153,7 +153,13 @@ class TestCorpusActionConstants(TestCase):
             self.assertIsInstance(tool, str)
 
     def test_default_tools_by_trigger_keys(self):
-        expected_keys = {"add_document", "edit_document", "new_thread", "new_message"}
+        expected_keys = {
+            "add_document",
+            "edit_document",
+            "new_thread",
+            "new_message",
+            "manual_batch",
+        }
         self.assertEqual(set(DEFAULT_TOOLS_BY_TRIGGER.keys()), expected_keys)
 
     def test_document_triggers_use_document_tools(self):
@@ -163,6 +169,10 @@ class TestCorpusActionConstants(TestCase):
         )
         self.assertEqual(
             DEFAULT_TOOLS_BY_TRIGGER["edit_document"],
+            DEFAULT_DOCUMENT_ACTION_TOOLS,
+        )
+        self.assertEqual(
+            DEFAULT_TOOLS_BY_TRIGGER["manual_batch"],
             DEFAULT_DOCUMENT_ACTION_TOOLS,
         )
 
