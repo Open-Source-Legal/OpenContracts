@@ -112,6 +112,12 @@ from .search import (  # noqa: F401
     asearch_exact_text_as_sources,
     search_exact_text_as_sources,
 )
+from .text_document_import import (  # noqa: F401
+    acreate_or_update_text_document,
+    aupload_text_document,
+    create_or_update_text_document,
+    upload_text_document,
+)
 from .text_extracts import (  # noqa: F401
     aload_document_txt_extract,
     get_cached_txt_extract_length,
@@ -202,6 +208,11 @@ __all__ = [
     # Document movement
     "amove_document",
     "move_document",
+    # Text document create / version-up
+    "acreate_or_update_text_document",
+    "aupload_text_document",
+    "create_or_update_text_document",
+    "upload_text_document",
     # Extracts & analyzers
     "alist_analyzers",
     "alist_fieldsets",

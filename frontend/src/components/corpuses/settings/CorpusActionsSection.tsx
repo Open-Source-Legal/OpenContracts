@@ -21,6 +21,7 @@ import {
   Calendar,
   CheckCircle,
   Library,
+  Layers,
 } from "lucide-react";
 import { CorpusActionData } from "../CreateCorpusActionModal";
 import {
@@ -90,8 +91,10 @@ interface CorpusActionsSectionProps {
   onEditAction: (action: CorpusActionData) => void;
   onDeleteAction: (id: string) => void;
   onRunAction?: (action: CorpusAction) => void;
+  onBatchRunAction?: (action: CorpusAction) => void;
   onUpdate?: () => void;
   isSuperuser?: boolean;
+  canUpdate?: boolean;
 }
 
 // ============================================================================
@@ -196,8 +199,10 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
   onEditAction,
   onDeleteAction,
   onRunAction,
+  onBatchRunAction,
   onUpdate,
   isSuperuser,
+  canUpdate,
 }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerContainerRef = useRef<HTMLDivElement>(null);
@@ -558,6 +563,20 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
                         <Play size={14} />
                       </IconButton>
                     )}
+
+                    {canUpdate &&
+                      !action.fieldset &&
+                      !action.analyzer &&
+                      !action.disabled && (
+                        <IconButton
+                          size="sm"
+                          aria-label="Run this agent action on every document in the corpus"
+                          title="Run on every document (skips already-processed docs)"
+                          onClick={() => onBatchRunAction?.(action)}
+                        >
+                          <Layers size={14} />
+                        </IconButton>
+                      )}
 
                     <IconButton
                       size="sm"
