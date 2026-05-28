@@ -82,54 +82,95 @@ def backfill_caml_doc_for_corpus(
     *,
     md_description_body: str,
 ) -> None:
-    """Idempotent per-corpus backfill: create the Readme.CAML doc if
-    missing and refresh the cache columns.
+    """Idempotent per-corpus backfill: ensure a Readme.CAML Document
+    exists for the corpus (with a current ``DocumentPath`` linking it),
+    and refresh the corpus's cache columns from ``md_description_body``.
 
-    Lives in this module so the data migration (whose filename starts
-    with a digit and cannot be ``import``-ed normally) can re-use the
-    logic, and tests can exercise it directly without importlib.
-    Uses the live model registry (NOT ``apps.get_model``) — callers
-    inside Django data migrations should use the migration-local
-    ``backfill_all`` instead, which goes through the historical models.
+    The Document<->Corpus relationship lives on ``DocumentPath`` (the
+    Phase-2 corpus-isolation junction introduced by issue #1464);
+    creation is routed through
+    :func:`opencontractserver.documents.versioning.import_document`,
+    the canonical dual-tree versioning workhorse which handles the
+    ``Document``, ``DocumentPath``, ``version_tree_id``, and
+    ``is_current`` transitions atomically. Lookup of the existing
+    Readme.CAML doc goes through
+    :meth:`opencontractserver.corpuses.services.corpus_documents.CorpusDocumentService.get_corpus_caml_articles`
+    so the DocumentPath join stays consistent with the rest of the
+    corpus-scoped read surface.
+
+    Used by:
+
+    * The V2 import shim (Task 14) — passes the legacy
+      ``md_description`` body so the canonical CAML doc is synthesised
+      on import.
+    * The data migration (Task 7) — but migrations operate on the
+      historical model registry, so they call their own migration-local
+      equivalent rather than importing this function. The two
+      implementations share semantics (and the same
+      ``compute_cache_from_caml_body`` derivation) by design; this
+      module is also referenced from the migration as the per-corpus
+      logic spec.
+
+    The Document ``post_save`` signal (Task 3, not yet shipped) will
+    eventually cascade-refresh the cache columns whenever the
+    Readme.CAML body changes. Until that signal lands this helper
+    writes the cache columns directly via
+    :func:`compute_cache_from_caml_body` + ``Corpus.objects.filter().update``
+    so its contract holds today and remains correct once the signal
+    arrives (the duplicate update is idempotent).
+
+    Args:
+        corpus_pk: Primary key of the corpus to backfill.
+        md_description_body: Canonical Readme.CAML body to use as the
+            source of truth. An empty string with no existing CAML doc
+            is a no-op for the FK but still resets the cache columns.
+
+    Spec:
+        ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``
+        section 4.1.
     """
-    import uuid
-
-    from django.core.files.base import ContentFile
-
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+        MARKDOWN_MIME_TYPE,
+    )
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.documents.models import Document
+    from opencontractserver.corpuses.services.corpus_documents import (
+        CorpusDocumentService,
+    )
+    from opencontractserver.documents.versioning import import_document
 
-    # NOTE: The ``corpus=`` filter/create kwargs below resolve to a
-    # Document<->Corpus relationship introduced by later tasks in the
-    # canonical-CAML refactor (Task 2 adds ``Corpus.readme_caml_document``;
-    # the Document<->Corpus FK lookup is rewired in the same window).
-    # ``# type: ignore[misc]`` is scoped to those exact lines so unrelated
-    # typing regressions still surface. The ``readme_caml_document_id=``
-    # update kwarg goes through ``QuerySet.update(**kwargs: Any)`` so it
-    # does not need an ignore today.
     corpus = Corpus.objects.get(pk=corpus_pk)
-    doc = Document.objects.filter(
-        corpus=corpus,  # type: ignore[misc]
-        title="Readme.CAML",
-        file_type="text/markdown",
-    ).first()
-    if doc is None and md_description_body:
-        doc = Document.objects.create(
-            corpus=corpus,  # type: ignore[misc]
-            title="Readme.CAML",
-            file_type="text/markdown",
-            creator=corpus.creator,
-            version_tree_id=uuid.uuid4(),
+    existing = (
+        CorpusDocumentService.get_corpus_caml_articles(corpus.creator, corpus)
+        .first()
+    )
+
+    if existing is None:
+        if not md_description_body:
+            # No CAML doc, no body to seed one with — explicitly zero
+            # the cache columns so the corpus row stays internally
+            # consistent (description/preview empty, FK null).
+            Corpus.objects.filter(pk=corpus.pk).update(
+                description="",
+                description_preview="",
+                readme_caml_document_id=None,
+            )
+            return
+
+        doc, _status, _path = import_document(
+            corpus=corpus,
+            path=CAML_ARTICLE_TITLE,
+            content=md_description_body.encode("utf-8"),
+            user=corpus.creator,
+            file_type=MARKDOWN_MIME_TYPE,
+            title=CAML_ARTICLE_TITLE,
         )
-        doc.txt_extract_file.save(
-            "Readme.CAML.md",
-            ContentFile(md_description_body.encode("utf-8")),
-            save=True,
-        )
-    if doc is not None:
-        plain, preview = compute_cache_from_caml_body(md_description_body)
-        Corpus.objects.filter(pk=corpus.pk).update(
-            description=plain,
-            description_preview=preview,
-            readme_caml_document_id=doc.pk,
-        )
+    else:
+        doc = existing
+
+    plain, preview = compute_cache_from_caml_body(md_description_body)
+    Corpus.objects.filter(pk=corpus.pk).update(
+        description=plain,
+        description_preview=preview,
+        readme_caml_document_id=doc.pk,
+    )

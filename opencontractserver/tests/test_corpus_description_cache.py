@@ -95,3 +95,76 @@ class CorpusReadmeCamlFKTest(TestCase):
         )
         self.assertIsNone(corpus.readme_caml_document)
         self.assertIsNone(corpus.readme_caml_document_id)
+
+
+class BackfillCamlDocForCorpusTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            username="backfill-user", password="x"
+        )
+
+    def test_creates_caml_doc_with_documentpath_when_missing(self):
+        from opencontractserver.corpuses.services.description_cache import (
+            backfill_caml_doc_for_corpus,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        backfill_caml_doc_for_corpus(
+            corpus.pk, md_description_body="Backfill body."
+        )
+
+        docs = Document.objects.filter(
+            title="Readme.CAML", file_type="text/markdown"
+        )
+        self.assertEqual(docs.count(), 1)
+        path = DocumentPath.objects.filter(
+            corpus=corpus, document=docs.first(), is_current=True
+        ).first()
+        self.assertIsNotNone(path)
+        self.assertFalse(path.is_deleted)
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Backfill body.")
+        self.assertEqual(corpus.readme_caml_document_id, docs.first().pk)
+
+    def test_idempotent_does_not_duplicate_doc_or_path(self):
+        from opencontractserver.corpuses.services.description_cache import (
+            backfill_caml_doc_for_corpus,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        backfill_caml_doc_for_corpus(
+            corpus.pk, md_description_body="Body v1."
+        )
+        backfill_caml_doc_for_corpus(
+            corpus.pk, md_description_body="Body v1."
+        )
+
+        self.assertEqual(
+            Document.objects.filter(title="Readme.CAML").count(), 1
+        )
+        self.assertEqual(
+            DocumentPath.objects.filter(
+                corpus=corpus, path="Readme.CAML", is_current=True, is_deleted=False
+            ).count(),
+            1,
+        )
+
+    def test_no_op_when_body_empty_and_no_existing_caml(self):
+        from opencontractserver.corpuses.services.description_cache import (
+            backfill_caml_doc_for_corpus,
+        )
+        from opencontractserver.documents.models import Document
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        backfill_caml_doc_for_corpus(corpus.pk, md_description_body="")
+
+        self.assertEqual(
+            Document.objects.filter(title="Readme.CAML").count(), 0
+        )
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "")
+        self.assertIsNone(corpus.readme_caml_document_id)
