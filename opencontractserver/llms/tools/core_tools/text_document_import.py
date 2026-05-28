@@ -15,6 +15,7 @@ from typing import Any
 
 from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
+    MAX_FILE_UPLOAD_SIZE_BYTES,
     MAX_FILENAME_LENGTH,
     TEXT_MIMETYPES,
 )
@@ -48,7 +49,7 @@ def _derive_path_from_title(title: str) -> str:
 def create_or_update_text_document(
     corpus_id: int,
     title: str,
-    content: str,
+    content: str | None,
     # author_id is always injected from agent context (never LLM-provided),
     # so it is required (int) rather than the int | None = None convention
     # used by tools where the parameter may be absent.
@@ -96,6 +97,7 @@ def create_or_update_text_document(
 
     from opencontractserver.corpuses.services import FolderCRUDService
     from opencontractserver.documents.document_service import DocumentService
+    from opencontractserver.shared.services.base import BaseService
     from opencontractserver.types.enums import PermissionTypes
     from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -114,6 +116,16 @@ def create_or_update_text_document(
             f"Only text-based formats are supported: {sorted(TEXT_MIMETYPES)}."
         )
 
+    # Cap in-memory payload size before encoding so a runaway agent can't
+    # allocate gigabytes of bytes here. Mirrors Django's
+    # ``DATA_UPLOAD_MAX_MEMORY_SIZE`` so HTTP and tool upload paths share
+    # the same ceiling.
+    if len(content) > MAX_FILE_UPLOAD_SIZE_BYTES:
+        raise ValueError(
+            f"content exceeds the maximum upload size "
+            f"({MAX_FILE_UPLOAD_SIZE_BYTES} bytes)."
+        )
+
     # Resolve user first so subsequent lookups can be scoped to objects
     # visible to that user (IDOR prevention per CLAUDE.md).
     try:
@@ -121,14 +133,18 @@ def create_or_update_text_document(
     except User.DoesNotExist:
         raise ValueError(f"User with id={author_id} does not exist.")
 
-    try:
-        corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
-    except Corpus.DoesNotExist:
+    # Route corpus visibility + write-permission through the shared service
+    # layer (CLAUDE.md rule 7 — no inline Tier-0 ``visible_to_user`` /
+    # ``user_can`` in LLM tools). ``get_or_none`` returns the corpus only
+    # when the user has READ; ``user_has`` then gates the UPDATE check that
+    # produces the distinct ``PermissionError`` branch the tests pin.
+    corpus = BaseService.get_or_none(Corpus, corpus_id, user)
+    if corpus is None:
         raise ValueError(
             f"Corpus with id={corpus_id} does not exist or is not accessible."
         )
 
-    if not corpus.user_can(user, PermissionTypes.UPDATE):
+    if not BaseService.user_has(corpus, user, PermissionTypes.UPDATE):
         raise PermissionError(
             "Permission denied: you do not have write access to this corpus."
         )
@@ -192,7 +208,7 @@ def create_or_update_text_document(
 async def acreate_or_update_text_document(
     corpus_id: int,
     title: str,
-    content: str,
+    content: str | None,
     # See create_or_update_text_document() for why author_id is int.
     author_id: int,
     description: str = "",

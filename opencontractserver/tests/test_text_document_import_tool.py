@@ -177,7 +177,7 @@ class TestCreateOrUpdateTextDocument(TestCase):
             create_or_update_text_document(
                 corpus_id=self.corpus.id,
                 title="OK title",
-                content=None,  # type: ignore[arg-type]
+                content=None,
                 author_id=self.user.id,
             )
         self.assertIn("content", str(ctx.exception))
@@ -193,6 +193,24 @@ class TestCreateOrUpdateTextDocument(TestCase):
                     author_id=self.user.id,
                 )
             self.assertIn("content", str(ctx.exception))
+
+    def test_oversize_content_rejected(self):
+        """Content larger than MAX_FILE_UPLOAD_SIZE_BYTES is rejected pre-encoding."""
+        # Patch the module's reference so the test doesn't have to allocate
+        # gigabytes of bytes to trigger the cap.
+        with patch(
+            "opencontractserver.llms.tools.core_tools."
+            "text_document_import.MAX_FILE_UPLOAD_SIZE_BYTES",
+            16,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                create_or_update_text_document(
+                    corpus_id=self.corpus.id,
+                    title="Big",
+                    content="x" * 32,
+                    author_id=self.user.id,
+                )
+            self.assertIn("maximum upload size", str(ctx.exception).lower())
 
     def test_quota_exceeded_rejected(self):
         """A user over the upload quota gets a ValueError before any DB write."""
@@ -283,7 +301,9 @@ class TestCreateOrUpdateTextDocument(TestCase):
             content="x",
             author_id=self.user.id,
         )
-        # / and # are sanitised to _
+        # Each non-alphanumeric char collapses to a single ``_``: ``" / "``
+        # becomes ``___`` (space, ``/``, space) and ``" #"`` becomes ``__``
+        # (space, ``#``).
         self.assertEqual(result["path"], "/documents/Contract___Draft__3")
 
 
