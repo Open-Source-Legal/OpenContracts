@@ -235,6 +235,22 @@ class PydanticAIDependencies(BaseModel):
         description="Side-channel callback that receives UnifiedStreamEvent objects",
     )
 
+    # Telemetry sink for in-run HistoryProcessor shrinks. The processor in
+    # ``opencontractserver.llms.history_processors`` calls this synchronously
+    # (it is invoked inside pydantic-ai's request-prep path, which is async,
+    # but the callback itself must be sync so it can be safely called from
+    # the request hot path without spawning a task). The callable receives
+    # a single ``InRunShrinkEvent`` instance (see history_processors.py).
+    # Set by ``PydanticAICoreAgent._stream_core`` when streaming; left as
+    # ``None`` for non-streaming chats (which get log-only telemetry).
+    on_in_run_shrink: Optional[Callable[[Any], None]] = Field(
+        default=None,
+        description=(
+            "Side-channel callback invoked when the in-run HistoryProcessor "
+            "shrinks the message history. Receives an InRunShrinkEvent."
+        ),
+    )
+
     # Flag to bypass tool approval gates for automated/pre-authorized execution
     # Used by agent-based corpus actions where tools are pre-authorized
     skip_approval_gate: bool = Field(
