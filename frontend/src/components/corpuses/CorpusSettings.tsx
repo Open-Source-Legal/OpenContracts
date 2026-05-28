@@ -484,7 +484,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
 
         {actionToBatchRun && (
           <BatchRunCorpusActionModal
-            open={!!actionToBatchRun}
+            open
             actionId={actionToBatchRun.id}
             actionName={actionToBatchRun.name}
             onClose={() => setActionToBatchRun(null)}

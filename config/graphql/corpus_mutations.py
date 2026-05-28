@@ -1428,23 +1428,7 @@ class RunCorpusAction(graphene.Mutation):
 
 
 class StartCorpusActionBatchRun(graphene.Mutation):
-    """
-    Run an agent-based corpus action against every eligible document in the corpus.
-
-    "Eligible" = active in the corpus (non-deleted, non-CAML) AND does not
-    already have a queued / running / completed ``CorpusActionExecution`` for
-    this same action. Failed and skipped executions are deliberately
-    re-queued so this mutation doubles as a retry path.
-
-    Requires corpus ``UPDATE`` permission (looser than the superuser-only
-    single-document ``RunCorpusAction``). Capped per-call at
-    ``BATCH_RUN_MAX_DOCS`` documents — over the cap is a refusal, not a
-    truncation, so the user knows they need to narrow scope.
-
-    All validation, doc-set computation, row creation, and Celery dispatch
-    happen inside ``CorpusActionService.batch_run_on_corpus`` — this
-    resolver is a thin GraphQL-to-service adapter.
-    """
+    """Run an agent-based corpus action against every eligible document in the corpus."""
 
     class Arguments:
         corpus_action_id = graphene.ID(

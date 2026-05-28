@@ -52,16 +52,6 @@ interface BatchRunCorpusActionModalProps {
   onQueued?: () => void;
 }
 
-/**
- * Confirmation modal for batch-running an agent-based corpus action across
- * every eligible document in the corpus. Eligible = active doc with no
- * queued / running / completed execution for this action; failed executions
- * are intentionally re-queued so the button doubles as a retry path.
- *
- * Counts are reported by the server in the mutation response — we do not
- * pre-fetch a preview, since the eligible-doc computation is exactly what
- * the mutation does, and the response surfaces the numbers anyway.
- */
 export const BatchRunCorpusActionModal: React.FC<
   BatchRunCorpusActionModalProps
 > = ({ open, actionId, actionName, onClose, onQueued }) => {

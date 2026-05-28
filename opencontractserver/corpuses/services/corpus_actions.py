@@ -1,17 +1,4 @@
-"""Batch-execution operations for agent-based corpus actions.
-
-``CorpusActionService`` owns the *batch* side of corpus actions — running a
-single ``CorpusAction`` across every active document in its corpus that has
-not yet been processed. The per-row CRUD for ``CorpusAction`` lives in
-``config/graphql/corpus_mutations.py`` and is mediated by DRF; this service
-is specifically the "Run on all documents" surface that the
-``StartCorpusActionBatchRun`` GraphQL mutation calls into.
-
-Pairs with the existing single-document ``RunCorpusAction`` mutation: same
-``run_agent_corpus_action`` Celery task, same ``CorpusActionExecution.bulk_queue``
-row creation, same ``transaction.on_commit`` dispatch — but for the whole
-corpus at once.
-"""
+"""Batch-execution operations for agent-based corpus actions."""
 
 from __future__ import annotations
 
@@ -39,16 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BatchRunSummary:
-    """Result envelope for ``CorpusActionService.batch_run_on_corpus``.
-
-    ``executions`` is the list of freshly created ``CorpusActionExecution``
-    rows (status = ``QUEUED``). ``skipped_already_run_count`` counts active
-    documents that were excluded because they already had a queued, running,
-    or completed execution for the same action — these are intentionally
-    not re-queued. ``total_active_documents`` is the size of the corpus's
-    active-document set before filtering, so callers can render a sensible
-    progress message.
-    """
+    """Result envelope for ``CorpusActionService.batch_run_on_corpus``."""
 
     executions: list[CorpusActionExecution]
     queued_count: int
@@ -73,29 +51,7 @@ class CorpusActionService(BaseService):
         *,
         request: Any = None,
     ) -> ServiceResult[BatchRunSummary]:
-        """Queue an agent action against every eligible document in its corpus.
-
-        ``action_id`` is the raw PK of the ``CorpusAction``. The service
-        resolves it internally — the gate is corpus ``UPDATE``, not direct
-        permission on the action row, so corpus collaborators (who hold
-        corpus UPDATE but not necessarily a Guardian grant on the action
-        itself) can press the button.
-
-        Eligibility:
-        * The document has an active (non-deleted, non-CAML) path in
-          ``action.corpus``.
-        * The document does NOT already have a queued, running, or completed
-          ``CorpusActionExecution`` for this exact ``action``. Failed and
-          skipped executions are deliberately re-queued so the button doubles
-          as a retry path.
-
-        IDOR safety: a missing action and an action in a corpus the user
-        lacks UPDATE on both return the same ``_NOT_FOUND_MESSAGE``.
-
-        Dispatch happens inside ``transaction.on_commit`` so the
-        ``CorpusActionExecution`` rows are visible to the Celery worker
-        before it tries to load them.
-        """
+        """Queue an agent action against every eligible document in its corpus."""
         # Local imports keep this module importable when the corpuses app is
         # still loading (the model module is heavy and pulls in signals).
         from opencontractserver.corpuses.models import (
@@ -133,7 +89,13 @@ class CorpusActionService(BaseService):
         )
         total_active = len(active_doc_ids)
 
+        # TODO(double-click): the eligibility check below runs outside the
+        # transaction.atomic block, so two near-simultaneous batch-run calls
+        # can both pass _already_run_document_ids and double-insert. Followup
+        # is a partial unique index on (corpus_action, document) WHERE status
+        # IN ('queued','running').
         already_run_ids = cls._already_run_document_ids(action)
+        # sort eligible_ids so insertion order is deterministic (tests + logs)
         eligible_ids = sorted(active_doc_ids - already_run_ids)
         skipped_count = len(active_doc_ids & already_run_ids)
 
@@ -208,15 +170,7 @@ class CorpusActionService(BaseService):
 
     @classmethod
     def _already_run_document_ids(cls, action: CorpusAction) -> set[int]:
-        """Document IDs that already have a non-terminal-failed execution for ``action``.
-
-        "Already run" = ``QUEUED`` (in flight), ``RUNNING`` (in flight), or
-        ``COMPLETED`` (success). ``FAILED`` and ``SKIPPED`` are intentionally
-        excluded so the batch button retries them.
-
-        Backed by the composite ``corpusactionexec_dedup`` index on
-        ``(corpus_action, document, status)``.
-        """
+        """Document IDs with a QUEUED, RUNNING, or COMPLETED execution for ``action``."""
         from opencontractserver.corpuses.models import CorpusActionExecution
 
         return set(
@@ -228,5 +182,7 @@ class CorpusActionService(BaseService):
                     CorpusActionExecution.Status.COMPLETED,
                 ],
                 document_id__isnull=False,
-            ).values_list("document_id", flat=True)
+            )
+            .values_list("document_id", flat=True)
+            .distinct()
         )
