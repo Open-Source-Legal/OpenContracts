@@ -93,7 +93,9 @@ export const BatchRunCorpusActionModal: React.FC<
       <Modal open={open} onClose={onClose} size="sm">
         <ModalHeader
           title={
-            <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span
+              style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+            >
               <Layers size={18} />
               Run on every document
             </span>
@@ -102,9 +104,9 @@ export const BatchRunCorpusActionModal: React.FC<
         />
         <ModalBody>
           <InfoLine>
-            <strong>{actionName}</strong> will run against every active
-            document in this corpus that hasn&rsquo;t already been processed
-            by this action.
+            <strong>{actionName}</strong> will run against every active document
+            in this corpus that hasn&rsquo;t already been processed by this
+            action.
           </InfoLine>
           <InfoLine>
             Failed runs will be retried. Documents that already have a queued,
@@ -115,9 +117,9 @@ export const BatchRunCorpusActionModal: React.FC<
           <WarningRow>
             <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
             <span>
-              This dispatches one agent run per document. Larger corpuses
-              may take several minutes; watch the Action Execution History
-              section for progress.
+              This dispatches one agent run per document. Larger corpuses may
+              take several minutes; watch the Action Execution History section
+              for progress.
             </span>
           </WarningRow>
         </ModalBody>
