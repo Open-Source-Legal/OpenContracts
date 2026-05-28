@@ -18,8 +18,12 @@ import {
 } from "../../graphql/mutations";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
-const StyledModalWrapper = styled.div`
-  .oc-modal {
+// Use ``styled(Modal)`` so the width override piggybacks on the
+// className styled-components passes to the Modal (a supported prop)
+// rather than reaching into the library's internal class via an outer
+// wrapper div. Same convention as ``CreateCorpusActionModal``.
+const StyledModal = styled(Modal)`
+  &.oc-modal {
     max-width: 520px;
     width: 100%;
   }
@@ -79,54 +83,52 @@ export const BatchRunCorpusActionModal: React.FC<
   };
 
   return (
-    <StyledModalWrapper>
-      <Modal open={open} onClose={onClose} size="sm">
-        <ModalHeader
-          title={
-            <span
-              style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
-            >
-              <Layers size={18} />
-              Run on every document
-            </span>
-          }
-          onClose={onClose}
-        />
-        <ModalBody>
-          <InfoLine>
-            <strong>{actionName}</strong> will run against every active document
-            in this corpus that hasn&rsquo;t already been processed by this
-            action.
-          </InfoLine>
-          <InfoLine>
-            Failed runs will be retried. Documents that already have a queued,
-            running, or completed execution for this action are skipped &mdash;
-            press this button again later to pick up new documents as they
-            arrive.
-          </InfoLine>
-          <WarningRow>
-            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-            <span>
-              This dispatches one agent run per document. Larger corpuses may
-              take several minutes; watch the Action Execution History section
-              for progress.
-            </span>
-          </WarningRow>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="secondary" onClick={onClose} disabled={running}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            loading={running}
-            disabled={running}
-            onClick={handleRun}
+    <StyledModal open={open} onClose={onClose} size="sm">
+      <ModalHeader
+        title={
+          <span
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
           >
-            Run on all documents
-          </Button>
-        </ModalFooter>
-      </Modal>
-    </StyledModalWrapper>
+            <Layers size={18} />
+            Run on every document
+          </span>
+        }
+        onClose={onClose}
+      />
+      <ModalBody>
+        <InfoLine>
+          <strong>{actionName}</strong> will run against every active document
+          in this corpus that hasn&rsquo;t already been processed by this
+          action.
+        </InfoLine>
+        <InfoLine>
+          Failed runs will be retried. Documents that already have a queued,
+          running, or completed execution for this action are skipped &mdash;
+          press this button again later to pick up new documents as they
+          arrive.
+        </InfoLine>
+        <WarningRow>
+          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>
+            This dispatches one agent run per document. Larger corpuses may
+            take several minutes; watch the Action Execution History section
+            for progress.
+          </span>
+        </WarningRow>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="secondary" onClick={onClose} disabled={running}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          loading={running}
+          disabled={running}
+          onClick={handleRun}
+        >
+          Run on all documents
+        </Button>
+      </ModalFooter>
+    </StyledModal>
   );
 };

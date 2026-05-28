@@ -2372,6 +2372,11 @@ export interface RunCorpusActionOutput {
   };
 }
 
+// The mutation exposes ``executions`` on the server side too, but the UI
+// only renders the summary toast and refetches the action list via
+// ``onQueued`` — fetching the freshly queued rows here would just bloat
+// the response. Re-add the field if a future toast/listing wants to show
+// the queued documents.
 export const START_CORPUS_ACTION_BATCH_RUN = gql`
   mutation StartCorpusActionBatchRun($corpusActionId: ID!) {
     startCorpusActionBatchRun(corpusActionId: $corpusActionId) {
@@ -2380,14 +2385,6 @@ export const START_CORPUS_ACTION_BATCH_RUN = gql`
       queuedCount
       skippedAlreadyRunCount
       totalActiveDocuments
-      executions {
-        id
-        status
-        document {
-          id
-          title
-        }
-      }
     }
   }
 `;
@@ -2403,11 +2400,6 @@ export interface StartCorpusActionBatchRunOutput {
     queuedCount: number;
     skippedAlreadyRunCount: number;
     totalActiveDocuments: number;
-    executions: Array<{
-      id: string;
-      status: string;
-      document: { id: string; title: string } | null;
-    }>;
   };
 }
 

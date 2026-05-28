@@ -84,47 +84,49 @@ class CorpusActionService(BaseService):
                 "This action is disabled. Re-enable it before batch-running."
             )
 
-        active_doc_ids = set(
-            corpus._get_active_documents().values_list("id", flat=True)
-        )
-        total_active = len(active_doc_ids)
-
-        # TODO(double-click): the eligibility check below runs outside the
-        # transaction.atomic block, so two near-simultaneous batch-run calls
-        # can both pass _already_run_document_ids and double-insert. Followup
-        # is a partial unique index on (corpus_action, document) WHERE status
-        # IN ('queued','running').
-        already_run_ids = cls._already_run_document_ids(action)
-        # sort eligible_ids so insertion order is deterministic (tests + logs)
-        eligible_ids = sorted(active_doc_ids - already_run_ids)
-        skipped_count = len(active_doc_ids & already_run_ids)
-
-        if not eligible_ids:
-            cls.log_action(
-                "Batch-run skipped (no eligible docs) for",
-                action,
-                user,
-                total_active=total_active,
-                skipped_already_run=skipped_count,
-            )
-            return ServiceResult.success(
-                BatchRunSummary(
-                    executions=[],
-                    queued_count=0,
-                    skipped_already_run_count=skipped_count,
-                    total_active_documents=total_active,
-                )
-            )
-
-        if len(eligible_ids) > BATCH_RUN_MAX_DOCS:
-            return ServiceResult.failure(
-                f"Batch run would queue {len(eligible_ids)} documents, "
-                f"which exceeds the per-call cap of {BATCH_RUN_MAX_DOCS}. "
-                "Wait for in-flight runs to finish before pressing again, or "
-                "narrow the corpus first."
-            )
-
+        # Both snapshots and the bulk insert sit inside the same
+        # ``transaction.atomic`` block so two near-simultaneous batch-run
+        # calls cannot both pass ``_already_run_document_ids`` and
+        # double-insert. The remaining race window — between two
+        # serialized transactions — is closed by the planned partial
+        # unique index on (corpus_action, document) WHERE status IN
+        # ('queued','running'); this code is its belt half.
         with transaction.atomic():
+            active_doc_ids = set(
+                corpus._get_active_documents().values_list("id", flat=True)
+            )
+            total_active = len(active_doc_ids)
+            already_run_ids = cls._already_run_document_ids(action)
+            # sort eligible_ids so insertion order is deterministic
+            # (tests + logs)
+            eligible_ids = sorted(active_doc_ids - already_run_ids)
+            skipped_count = len(active_doc_ids & already_run_ids)
+
+            if not eligible_ids:
+                cls.log_action(
+                    "Batch-run skipped (no eligible docs) for",
+                    action,
+                    user,
+                    total_active=total_active,
+                    skipped_already_run=skipped_count,
+                )
+                return ServiceResult.success(
+                    BatchRunSummary(
+                        executions=[],
+                        queued_count=0,
+                        skipped_already_run_count=skipped_count,
+                        total_active_documents=total_active,
+                    )
+                )
+
+            if len(eligible_ids) > BATCH_RUN_MAX_DOCS:
+                return ServiceResult.failure(
+                    f"The eligible set ({len(eligible_ids)} documents) "
+                    f"exceeds the per-call cap of {BATCH_RUN_MAX_DOCS}. "
+                    "Wait for in-flight runs to complete, or narrow the "
+                    "corpus first."
+                )
+
             executions = CorpusActionExecution.bulk_queue(
                 corpus_action=action,
                 document_ids=eligible_ids,
