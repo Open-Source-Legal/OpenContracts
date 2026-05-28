@@ -30,6 +30,7 @@ from opencontractserver.pipeline.base.file_types import (
     MIME_TO_FILE_TYPE,
     FileTypeEnum,
 )
+from opencontractserver.pipeline.base.llm_provider import BaseLLMProvider
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
 from opencontractserver.pipeline.base.reranker import BaseReranker
@@ -48,6 +49,7 @@ class ComponentType(str, Enum):
     POST_PROCESSOR = "post_processor"
     ENRICHER = "enricher"
     RERANKER = "reranker"
+    LLM_PROVIDER = "llm_provider"
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,11 @@ class PipelineComponentDefinition:
     vector_size: Optional[int] = None  # Only for embedders
     # Modality support (only for embedders) - stored as tuple of strings for serializability
     supported_modalities: tuple[str, ...] = ("TEXT",)
+    # LLM-provider metadata (only set for ComponentType.LLM_PROVIDER entries).
+    # ``provider_key`` is pydantic-ai's prefix (e.g. ``"anthropic"``).
+    provider_key: Optional[str] = None
+    supported_models: tuple[str, ...] = ()
+    requires_api_key: bool = True
     component_class: Optional[type] = field(
         default=None, compare=False, hash=False
     )  # Reference to actual class
@@ -117,6 +124,11 @@ class PipelineComponentDefinition:
             result["is_multimodal"] = self.is_multimodal
             result["supports_text"] = self.supports_text
             result["supports_images"] = self.supports_images
+        # Include provider routing info for LLM providers
+        if self.component_type == ComponentType.LLM_PROVIDER:
+            result["provider_key"] = self.provider_key
+            result["supported_models"] = list(self.supported_models)
+            result["requires_api_key"] = self.requires_api_key
         return result
 
 
@@ -149,10 +161,13 @@ class PipelineComponentRegistry:
         self._post_processors: tuple[PipelineComponentDefinition, ...] = ()
         self._enrichers: tuple[PipelineComponentDefinition, ...] = ()
         self._rerankers: tuple[PipelineComponentDefinition, ...] = ()
+        self._llm_providers: tuple[PipelineComponentDefinition, ...] = ()
 
         # Name -> Definition lookup for fast access
         self._by_name: dict[str, PipelineComponentDefinition] = {}
         self._by_class_name: dict[str, PipelineComponentDefinition] = {}
+        # Provider-key -> Definition for LLM provider routing
+        self._llm_providers_by_key: dict[str, PipelineComponentDefinition] = {}
 
         # File type -> Components lookup for filtering
         self._parsers_by_filetype: dict[str, list[PipelineComponentDefinition]] = {}
@@ -274,6 +289,12 @@ class PipelineComponentRegistry:
             component_class, "vector_size", None
         )
 
+        # LLM-provider-specific metadata. Pulled unconditionally so the
+        # dataclass receives sensible defaults for non-LLM components.
+        provider_key = getattr(component_class, "provider_key", None) or None
+        supported_models = tuple(getattr(component_class, "supported_models", ()) or ())
+        requires_api_key = bool(getattr(component_class, "requires_api_key", True))
+
         # Extract settings schema if the component has a Settings dataclass
         settings_schema: tuple[dict, ...] = ()
         try:
@@ -307,6 +328,9 @@ class PipelineComponentRegistry:
             settings_schema=settings_schema,
             vector_size=vector_size,
             supported_modalities=supported_modalities,
+            provider_key=provider_key,
+            supported_models=supported_models,
+            requires_api_key=requires_api_key,
             component_class=component_class,
         )
 
@@ -400,6 +424,43 @@ class PipelineComponentRegistry:
             self._by_class_name[defn.class_name] = defn
         self._rerankers = tuple(rerankers)
 
+        # Discover LLM providers
+        llm_provider_classes = self._discover_subclasses(
+            "opencontractserver.pipeline.llm_providers", BaseLLMProvider
+        )
+        llm_providers = []
+        for cls in llm_provider_classes:
+            defn = self._create_definition(cls, ComponentType.LLM_PROVIDER)
+            llm_providers.append(defn)
+            self._by_name[defn.name] = defn
+            self._by_class_name[defn.class_name] = defn
+            # Provider-key collisions would silently shadow earlier
+            # registrations; warn loudly so a bad install is obvious.
+            if defn.provider_key:
+                if defn.provider_key in self._llm_providers_by_key:
+                    existing = self._llm_providers_by_key[defn.provider_key]
+                    logger.warning(
+                        "Duplicate LLM provider_key %r: %s shadows %s",
+                        defn.provider_key,
+                        defn.class_name,
+                        existing.class_name,
+                    )
+                self._llm_providers_by_key[defn.provider_key] = defn
+            else:
+                # A subclass that forgot ``provider_key`` would otherwise
+                # land in the catalog but be unreachable from the
+                # resolver (which keys lookups by provider prefix).  The
+                # registry only logs once at startup so a louder warning
+                # is justified — otherwise the failure mode is "model
+                # spec X is unroutable" with no obvious cause.
+                logger.warning(
+                    "LLM provider %s has no provider_key — "
+                    "key-based lookups will not find it; the resolver "
+                    "cannot route to this provider.",
+                    defn.class_name,
+                )
+        self._llm_providers = tuple(llm_providers)
+
         logger.info(
             f"Pipeline registry initialized: "
             f"{len(self._parsers)} parsers, "
@@ -407,7 +468,8 @@ class PipelineComponentRegistry:
             f"{len(self._thumbnailers)} thumbnailers, "
             f"{len(self._post_processors)} post-processors, "
             f"{len(self._enrichers)} enrichers, "
-            f"{len(self._rerankers)} rerankers"
+            f"{len(self._rerankers)} rerankers, "
+            f"{len(self._llm_providers)} llm-providers"
         )
 
     # -------------------------------------------------------------------------
@@ -443,6 +505,20 @@ class PipelineComponentRegistry:
     def rerankers(self) -> tuple[PipelineComponentDefinition, ...]:
         """Get all registered rerankers."""
         return self._rerankers
+
+    @property
+    def llm_providers(self) -> tuple[PipelineComponentDefinition, ...]:
+        """Get all registered LLM providers."""
+        return self._llm_providers
+
+    def get_llm_provider_by_key(
+        self, provider_key: str
+    ) -> Optional[PipelineComponentDefinition]:
+        """Get an LLM provider definition by its pydantic-ai prefix.
+
+        Example: ``"anthropic"`` → the AnthropicProvider definition.
+        """
+        return self._llm_providers_by_key.get(provider_key)
 
     def get_by_name(self, name: str) -> Optional[PipelineComponentDefinition]:
         """Get a component definition by class name (e.g., 'DoclingParser')."""
@@ -529,6 +605,18 @@ def get_all_rerankers_cached() -> tuple[PipelineComponentDefinition, ...]:
     return get_registry().rerankers
 
 
+def get_all_llm_providers_cached() -> tuple[PipelineComponentDefinition, ...]:
+    """Get all registered LLM providers (cached)."""
+    return get_registry().llm_providers
+
+
+def get_llm_provider_by_key_cached(
+    provider_key: str,
+) -> Optional[PipelineComponentDefinition]:
+    """Get an LLM provider by its pydantic-ai prefix (cached)."""
+    return get_registry().get_llm_provider_by_key(provider_key)
+
+
 def get_component_by_name_cached(name: str) -> Optional[PipelineComponentDefinition]:
     """Get a component definition by name (cached)."""
     return get_registry().get_by_name(name)
@@ -585,6 +673,7 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "post_processors": registry.post_processors,
         "enrichers": registry.enrichers,
         "rerankers": registry.rerankers,
+        "llm_providers": registry.llm_providers,
     }
 
 

@@ -91,18 +91,28 @@ def get_context_window_for_model(model_name: str) -> int:
     Performs an exact lookup first, then falls back to longest-prefix
     matching.  Returns :data:`DEFAULT_CONTEXT_WINDOW` if the model is
     completely unknown.
+
+    Accepts both bare names (``"claude-opus-4-6"``) and pydantic-ai
+    provider-prefixed specs (``"anthropic:claude-opus-4-6"``) — the
+    provider prefix is stripped before lookup since the
+    :data:`MODEL_CONTEXT_WINDOWS` constants are keyed by bare model
+    name only.
     """
     if not model_name:
         return DEFAULT_CONTEXT_WINDOW
 
+    # Strip pydantic-ai provider prefix (e.g. "anthropic:") so prefixed
+    # and bare specs hit the same lookup table.
+    lookup_name = model_name.split(":", 1)[1] if ":" in model_name else model_name
+
     # Exact match
-    if model_name in MODEL_CONTEXT_WINDOWS:
-        return MODEL_CONTEXT_WINDOWS[model_name]
+    if lookup_name in MODEL_CONTEXT_WINDOWS:
+        return MODEL_CONTEXT_WINDOWS[lookup_name]
 
     # Prefix match — try longest match first for specificity
     best_match: str | None = None
     for prefix in MODEL_CONTEXT_WINDOWS:
-        if model_name.startswith(prefix):
+        if lookup_name.startswith(prefix):
             if best_match is None or len(prefix) > len(best_match):
                 best_match = prefix
 

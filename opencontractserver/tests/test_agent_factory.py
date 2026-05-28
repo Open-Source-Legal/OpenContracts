@@ -113,9 +113,19 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
             tools=raw_tools,
         )
 
+        # Runtime LLM configuration: ``UnifiedAgentFactory`` now resolves
+        # the model spec via the canonical priority chain (per-call →
+        # per-agent → corpus.preferred_llm → settings) BEFORE building
+        # ``AgentConfig``, passing the result through as ``model_name``.
+        # ``self.corpus1`` was created without a ``preferred_llm`` so
+        # the resolver falls back to ``settings.OPENAI_MODEL`` and
+        # normalises to canonical ``"openai:<model>"`` form.
+        from opencontractserver.llms.llm_registry import resolve_model_spec
+
+        expected_model = resolve_model_spec()
         mock_get_config.assert_called_once_with(
             user_id=None,
-            model_name=None,
+            model_name=expected_model,
             system_prompt=None,
             temperature=0.7,
             max_tokens=None,
@@ -153,9 +163,17 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
             self.corpus1, framework=AgentFramework.PYDANTIC_AI
         )
 
+        # Runtime LLM configuration: factory resolves model_name via
+        # the priority chain (per-call → per-agent → corpus.preferred_llm
+        # → settings) before invoking ``get_default_config``. With no
+        # corpus.preferred_llm set, the resolver returns the normalised
+        # settings default (``"openai:<OPENAI_MODEL>"``).
+        from opencontractserver.llms.llm_registry import resolve_model_spec
+
+        expected_model = resolve_model_spec()
         mock_get_config.assert_called_once_with(
             user_id=None,
-            model_name=None,  # Resolved by get_default_config from settings
+            model_name=expected_model,
             system_prompt=None,
             temperature=0.7,  # Default
             max_tokens=None,  # Default
