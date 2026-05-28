@@ -197,7 +197,6 @@ export const UPDATE_CORPUS_DESCRIPTION = gql`
             email
           }
           created
-          diff
           snapshot
         }
       }
@@ -228,7 +227,6 @@ export interface UpdateCorpusDescriptionOutputs {
           email: string;
         };
         created: string;
-        diff: string;
         snapshot?: string;
       }>;
     };
