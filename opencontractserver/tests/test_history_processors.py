@@ -23,6 +23,9 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from opencontractserver.constants.context_guardrails import (
+    IN_RUN_TRIM_NOTICE_MARKER,
+)
 from opencontractserver.llms.context_guardrails import CompactionConfig
 from opencontractserver.llms.history_processors import (
     InRunShrinkEvent,
@@ -140,7 +143,7 @@ def test_over_threshold_shrinks_oldest_tool_return():
     assert isinstance(old_return_part, ToolReturnPart)
     assert isinstance(old_return_part.content, str)
     assert len(old_return_part.content) < 5_000
-    assert "in-run trim" in old_return_part.content
+    assert IN_RUN_TRIM_NOTICE_MARKER in old_return_part.content
     assert old_return_part.tool_call_id == "OLD"
 
     # A telemetry event was emitted exactly once.
@@ -180,9 +183,17 @@ def test_drops_older_thinking_parts():
     deps = _FakeDeps()
     result = _run(messages, deps)
 
-    # Older ModelResponse no longer carries a ThinkingPart.
-    old_resp_new = result[1]
-    assert isinstance(old_resp_new, ModelResponse)
+    # Older ModelResponse no longer carries a ThinkingPart. Locate it by
+    # the ToolCallPart's tool_call_id rather than positional index so the
+    # assertion survives fixture reshuffles.
+    old_resp_new = next(
+        m
+        for m in result
+        if isinstance(m, ModelResponse)
+        and any(
+            isinstance(p, ToolCallPart) and p.tool_call_id == "OLD" for p in m.parts
+        )
+    )
     assert not any(isinstance(p, ThinkingPart) for p in old_resp_new.parts)
     # But ToolCallPart survives.
     assert any(isinstance(p, ToolCallPart) for p in old_resp_new.parts)
@@ -318,8 +329,14 @@ def test_in_run_enabled_false_short_circuits():
     assert deps.events == []
 
 
-def test_no_shrinkable_content_logs_warning(caplog):
-    """Over threshold but no ToolReturnPart/ThinkingPart → log + unchanged."""
+def test_no_shrinkable_content_logs_info(caplog):
+    """Over threshold but no ToolReturnPart/ThinkingPart → log + unchanged.
+
+    Logged at INFO (not WARNING): the older prefix being all
+    ``UserPromptPart`` is a structural condition the in-run processor
+    intentionally does not handle (turn-level compaction picks it up
+    instead), so it must not page on log monitors that alert at WARNING+.
+    """
     # Stuff a giant UserPromptPart in an old message — we never shrink those.
     huge = ModelRequest(parts=[UserPromptPart(content="x" * 800_000)])
     recent_pairs: list[ModelMessage] = []
@@ -334,13 +351,20 @@ def test_no_shrinkable_content_logs_warning(caplog):
     deps = _FakeDeps()
 
     with caplog.at_level(
-        logging.WARNING, logger="opencontractserver.llms.history_processors"
+        logging.INFO, logger="opencontractserver.llms.history_processors"
     ):
         result = _run(messages, deps)
 
     assert result is messages or list(result) == list(messages)
-    assert any(
-        "no ToolReturnPart or ThinkingPart" in rec.message for rec in caplog.records
+    matching = [
+        rec
+        for rec in caplog.records
+        if "no ToolReturnPart or ThinkingPart" in rec.message
+    ]
+    assert matching, "expected the unshrinkable-prefix log line"
+    assert all(rec.levelno == logging.INFO for rec in matching), (
+        "unshrinkable-prefix log line must be INFO, not WARNING — see "
+        "history_processors.py for rationale"
     )
     assert deps.events == []
 

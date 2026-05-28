@@ -35,6 +35,9 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.tools import RunContext
 
+from opencontractserver.constants.context_guardrails import (
+    IN_RUN_TRIM_NOTICE_MARKER,
+)
 from opencontractserver.llms.context_guardrails import (
     CompactionConfig,
     estimate_token_count,
@@ -72,9 +75,13 @@ class InRunShrinkEvent:
     thinking_parts_dropped: int
 
 
-# Trim notice appended to truncated tool-return content. Stable string so
-# tests and the model can both recognise it.
-_TRIM_NOTICE_TEMPLATE = "\n\n…[in-run trim: {elided} chars elided]"
+# Trim notice appended to truncated tool-return content. The stable
+# marker substring (``in-run trim``) lives in ``constants.context_guardrails``
+# (``IN_RUN_TRIM_NOTICE_MARKER``) so dashboards, log scrapers, and tests
+# can recognise a shrunk return without coupling to this private template.
+_TRIM_NOTICE_TEMPLATE = (
+    "\n\n…[" + IN_RUN_TRIM_NOTICE_MARKER + ": {elided} chars elided]"
+)
 
 
 def _estimate_total_tokens(messages: list[ModelMessage], system_prompt: str) -> int:
@@ -249,7 +256,10 @@ async def shrink_old_artifacts_processor(
         older, recent = _split_protected_suffix(messages, cfg.in_run_keep_recent_pairs)
         if not older:
             # Nothing to shrink — everything is in the protected suffix.
-            logger.warning(
+            # This is a structural condition, not a degraded state, so log
+            # at INFO rather than WARNING to avoid alarming production log
+            # monitors that page on WARNING+ from this module.
+            logger.info(
                 "[history_processors] over threshold (%d > %d) but no older "
                 "messages outside protected suffix of %d pairs; skipping",
                 tokens_before,
@@ -272,10 +282,17 @@ async def shrink_old_artifacts_processor(
             thinking_parts_dropped += dt
 
         if tool_returns_shrunk == 0 and thinking_parts_dropped == 0:
-            logger.warning(
-                "[history_processors] over threshold (%d > %d) but found "
-                "no ToolReturnPart or ThinkingPart to shrink in the older "
-                "prefix (%d messages); returning unchanged",
+            # Structurally uncompressible by this processor (the older
+            # prefix's bulk lives in UserPromptPart / TextPart, which the
+            # in-run shrink intentionally does not touch). Log at INFO so
+            # production log monitors don't page on a benign condition;
+            # turn-level compaction (MessageHistoryService) handles the
+            # uncompressible content on the next turn boundary.
+            logger.info(
+                "[history_processors] over threshold (%d > %d) but found no "
+                "ToolReturnPart or ThinkingPart to shrink in the older prefix "
+                "(%d messages); UserPromptPart is not compacted by the in-run "
+                "processor — returning unchanged",
                 tokens_before,
                 threshold,
                 len(older),

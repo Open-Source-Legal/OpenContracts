@@ -79,6 +79,18 @@ def make_pydantic_ai_agent(
     processors are each wrapped in ``ProcessHistory(...)`` and both lists
     run after ours.
 
+    Legacy processor signatures: pydantic-ai's ``ProcessHistory`` accepts
+    both ``(messages)`` and ``(ctx: RunContext, messages)`` forms, sync or
+    async. Dispatch is decided by inspecting the *type annotation* of the
+    first parameter — only an annotation that is (or originates in)
+    ``RunContext`` selects the two-argument call path. Untyped parameters
+    therefore always fall through to the single-argument path, so an
+    untyped two-argument processor (``def fn(ctx, messages):``) will be
+    invoked with a single positional argument and raise ``TypeError`` at
+    runtime. If a caller wants the ``RunContext`` form they MUST annotate
+    the first parameter as ``RunContext`` (or a parameterised
+    ``RunContext[...]``).
+
     Raises:
         TypeError: If ``system_prompt`` is supplied at all (even ``None``).
     """

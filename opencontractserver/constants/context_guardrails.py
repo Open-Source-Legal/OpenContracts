@@ -175,3 +175,11 @@ IN_RUN_TOOL_RETURN_TARGET_CHARS: int = 4_000
 # useful once the next iteration has committed to a tool call or response.
 # Set to False to preserve older thinking for debugging.
 IN_RUN_DROP_THINKING_DEFAULT: bool = True
+
+# Stable substring inserted into a tool return's ``content`` when the
+# in-run history processor shrinks it. The full marker is templated with
+# the number of elided characters (see ``history_processors._TRIM_NOTICE_TEMPLATE``),
+# but the leading literal is exposed here so callers, dashboards, and
+# tests can recognise a shrunk tool return without coupling to the
+# private template string.
+IN_RUN_TRIM_NOTICE_MARKER: str = "in-run trim"

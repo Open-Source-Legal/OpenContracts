@@ -49,15 +49,30 @@ def _agent_capabilities(agent) -> list:
     here so a future rename surfaces in a single, well-marked spot
     instead of three near-identical tests. The wrapping ``AttributeError``
     fails the test with a precise pointer to this contract.
+
+    Upstream source pointers (pydantic-ai ~1.102.x, the version pinned in
+    ``requirements/base.txt``):
+
+    - ``pydantic_ai/agent/__init__.py`` — ``_root_capability =
+      CombinedCapability(capabilities)`` is constructed in ``Agent``'s
+      ``__init__``-time setup; ``root_capability`` is exposed as a
+      ``@property`` on ``AbstractAgent`` (``pydantic_ai/agent/abstract.py``)
+      and forwarded through ``Agent`` / ``AgentWrapper``.
+    - ``pydantic_ai/capabilities/combined.py`` — ``CombinedCapability``
+      stores the underlying list as the ``capabilities`` attribute.
+
+    When bumping pydantic-ai, sanity-check those two files first; the
+    ``AttributeError`` tripwire below names this docstring so the
+    diagnosis path is obvious.
     """
     try:
         return list(agent.root_capability.capabilities)
     except AttributeError as exc:  # pragma: no cover - tripwire path
         raise AssertionError(
             "pydantic-ai changed its internal capability accessor "
-            "(``Agent.root_capability.capabilities``). Update "
-            "_agent_capabilities() in this test file to match the new "
-            "shape. Original error: " + repr(exc)
+            "(``Agent.root_capability.capabilities``). See the upstream "
+            "pointers in _agent_capabilities() above; update this helper "
+            "to match the new shape. Original error: " + repr(exc)
         ) from exc
 
 

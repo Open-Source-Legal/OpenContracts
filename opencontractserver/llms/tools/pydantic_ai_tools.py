@@ -19,6 +19,12 @@ from opencontractserver.llms.context_guardrails import (
     truncate_tool_output,
 )
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
+
+# Imported for its type, used only in the ``on_in_run_shrink`` callback
+# annotation. ``history_processors`` itself imports from
+# ``context_guardrails`` only (no edge back into ``pydantic_ai_tools``), so
+# there is no circular import to defer behind ``TYPE_CHECKING``.
+from opencontractserver.llms.history_processors import InRunShrinkEvent
 from opencontractserver.llms.tools.tool_factory import CoreTool
 
 logger = logging.getLogger(__name__)
@@ -254,7 +260,7 @@ class PydanticAIDependencies(BaseModel):
     # a single ``InRunShrinkEvent`` instance (see history_processors.py).
     # Set by ``PydanticAICoreAgent._stream_core`` when streaming; left as
     # ``None`` for non-streaming chats (which get log-only telemetry).
-    on_in_run_shrink: Optional[Callable[[Any], None]] = Field(
+    on_in_run_shrink: Optional[Callable[[InRunShrinkEvent], None]] = Field(
         default=None,
         description=(
             "Side-channel callback invoked when the in-run HistoryProcessor "
