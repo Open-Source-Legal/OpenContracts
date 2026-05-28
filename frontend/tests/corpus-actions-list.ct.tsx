@@ -89,4 +89,73 @@ test.describe("CorpusActionsSection - List View", () => {
 
     await component.unmount();
   });
+
+  test("shows the Layers batch-run button only for enabled agent actions when the viewer has UPDATE", async ({
+    mount,
+    page,
+  }) => {
+    let batchRunCalls = 0;
+    let lastBatchRunActionId: string | undefined;
+
+    const component = await mount(
+      <MockedProvider mocks={[]} addTypename={false}>
+        <CorpusActionsSection
+          actions={mockActions}
+          canUpdate={true}
+          onAddAction={() => {}}
+          onEditAction={() => {}}
+          onDeleteAction={() => {}}
+          onBatchRunAction={(action) => {
+            batchRunCalls += 1;
+            lastBatchRunActionId = action.id;
+          }}
+        />
+      </MockedProvider>
+    );
+
+    // Three actions total: action-1 (agent, enabled), action-2 (fieldset),
+    // action-3 (agent, disabled). Only action-1 should get a Layers button.
+    const layersButtons = page.locator(
+      'button[aria-label="Run this agent action on every document in the corpus"]'
+    );
+    await expect(layersButtons).toHaveCount(1);
+
+    await layersButtons.first().click();
+    expect(batchRunCalls).toBe(1);
+    expect(lastBatchRunActionId).toBe("action-1");
+
+    await docScreenshot(
+      page,
+      "corpus-actions--list-view--layers-button-visible",
+      { fullPage: true }
+    );
+
+    await component.unmount();
+  });
+
+  test("hides the Layers batch-run button when the viewer cannot UPDATE the corpus", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MockedProvider mocks={[]} addTypename={false}>
+        <CorpusActionsSection
+          actions={mockActions}
+          canUpdate={false}
+          onAddAction={() => {}}
+          onEditAction={() => {}}
+          onDeleteAction={() => {}}
+          onBatchRunAction={() => {}}
+        />
+      </MockedProvider>
+    );
+
+    await expect(
+      page.locator(
+        'button[aria-label="Run this agent action on every document in the corpus"]'
+      )
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
 });

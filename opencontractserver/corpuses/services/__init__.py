@@ -10,6 +10,8 @@ Each service inherits :class:`opencontractserver.shared.services.base.BaseServic
   — folder CRUD, the folder tree, search, and bulk structure creation.
 - :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`
   — document-in-folder placement, listing, and counts.
+- :class:`~opencontractserver.corpuses.services.corpus_actions.CorpusActionService`
+  — batch execution of agent-based corpus actions across every active doc.
 - :class:`~opencontractserver.corpuses.services.corpus_documents.CorpusDocumentService`
   — document-in-corpus reads / writes and corpus membership.
 - :class:`~opencontractserver.corpuses.services.corpus_service.CorpusService`
@@ -24,6 +26,10 @@ Import the specific service you need from this package::
     from opencontractserver.corpuses.services import FolderCRUDService
 """
 
+from opencontractserver.corpuses.services.corpus_actions import (
+    BatchRunSummary,
+    CorpusActionService,
+)
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
 )
@@ -37,6 +43,8 @@ from opencontractserver.corpuses.services.paths import CorpusPathService
 from opencontractserver.corpuses.services.votes import CorpusVoteService
 
 __all__ = [
+    "BatchRunSummary",
+    "CorpusActionService",
     "FolderCRUDService",
     "FolderDocumentService",
     "CorpusDocumentService",

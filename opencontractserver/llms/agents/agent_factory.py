@@ -383,6 +383,13 @@ class UnifiedAgentFactory:
         if "skip_approval_gate" in kwargs:
             deps_kwargs["skip_approval_gate"] = kwargs.pop("skip_approval_gate")
 
+        # Mirror the document path: ``restrict_tool_names`` constrains the
+        # final tool set to just the named tools (used by deep-research and
+        # other automated corpus agents that want a strict tool surface).
+        create_kwargs: dict[str, Any] = {}
+        if "restrict_tool_names" in kwargs:
+            create_kwargs["restrict_tool_names"] = kwargs.pop("restrict_tool_names")
+
         # Resolve corpus first so its ``preferred_llm`` can feed into the
         # model resolver below.
         try:
@@ -478,6 +485,8 @@ class UnifiedAgentFactory:
                 corpus_id=corpus_obj.id if corpus_obj else None,
                 user_id=user_id,
                 corpus_action_id=config.corpus_action_id,
+                conversation_id=getattr(config, "conversation_id", None)
+                or getattr(getattr(config, "conversation", None), "id", None),
             )
             if tools
             else []
@@ -489,7 +498,7 @@ class UnifiedAgentFactory:
             )
 
             return await PydanticAICorpusAgent.create(
-                corpus, config, framework_tools, **deps_kwargs
+                corpus, config, framework_tools, **deps_kwargs, **create_kwargs
             )
         else:
             raise ValueError(f"Unsupported framework: {framework}")
@@ -503,6 +512,7 @@ def _convert_tools_for_framework(
     corpus_id: int | None = None,
     user_id: int | None = None,
     corpus_action_id: int | None = None,
+    conversation_id: int | None = None,
 ) -> list:
     """Convert tools to framework-specific format with context injection.
 
@@ -513,6 +523,7 @@ def _convert_tools_for_framework(
         corpus_id: Corpus ID to inject into tools that accept it
         user_id: User ID to inject for author_id/creator_id params
         corpus_action_id: CorpusAction ID to inject into tools that accept it
+        conversation_id: Conversation ID to inject into tools that accept it
 
     Returns:
         List of framework-specific tools
@@ -522,7 +533,12 @@ def _convert_tools_for_framework(
     for tool in tools:
         if isinstance(tool, CoreTool):
             inject_params = build_inject_params_for_context(
-                tool, document_id, corpus_id, user_id, corpus_action_id
+                tool,
+                document_id,
+                corpus_id,
+                user_id,
+                corpus_action_id,
+                conversation_id,
             )
             framework_tools.append(
                 UnifiedToolFactory.create_tool(
@@ -533,7 +549,12 @@ def _convert_tools_for_framework(
             # Convert function to CoreTool
             ct = CoreTool.from_function(tool)
             inject_params = build_inject_params_for_context(
-                ct, document_id, corpus_id, user_id, corpus_action_id
+                ct,
+                document_id,
+                corpus_id,
+                user_id,
+                corpus_action_id,
+                conversation_id,
             )
             framework_tools.append(
                 UnifiedToolFactory.create_tool(

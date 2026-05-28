@@ -48,6 +48,12 @@ class NotificationTypeChoices(models.TextChoices):
     # Visibility changes (I-1: corpus public-flip cascade audit trail)
     DOCUMENT_PUBLICIZED = "DOCUMENT_PUBLICIZED", "Document Made Public via Corpus"
 
+    # Deep research reports
+    RESEARCH_REPORT_COMPLETE = "RESEARCH_REPORT_COMPLETE", "Research Report Complete"
+    RESEARCH_REPORT_FAILED = "RESEARCH_REPORT_FAILED", "Research Report Failed"
+    RESEARCH_REPORT_CANCELLED = "RESEARCH_REPORT_CANCELLED", "Research Report Cancelled"
+    RESEARCH_REPORT_PROGRESS = "RESEARCH_REPORT_PROGRESS", "Research Report Progress"
+
 
 class Notification(models.Model):
     """

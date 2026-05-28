@@ -23,6 +23,7 @@ def build_inject_params_for_context(
     corpus_id: int | None = None,
     user_id: int | None = None,
     corpus_action_id: int | None = None,
+    conversation_id: int | None = None,
 ) -> dict[str, Any]:
     """
     Inspect a CoreTool's function signature and build inject_params dict
@@ -57,6 +58,8 @@ def build_inject_params_for_context(
             inject[param_name] = user_id
         elif param_name == "corpus_action_id" and corpus_action_id is not None:
             inject["corpus_action_id"] = corpus_action_id
+        elif param_name == "conversation_id" and conversation_id is not None:
+            inject["conversation_id"] = conversation_id
 
     if inject:
         logger.debug(

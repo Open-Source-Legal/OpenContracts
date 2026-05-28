@@ -36,6 +36,7 @@ import {
   CorpusActionData,
 } from "./CreateCorpusActionModal";
 import { RunCorpusActionModal } from "./RunCorpusActionModal";
+import { BatchRunCorpusActionModal } from "./BatchRunCorpusActionModal";
 import { CorpusMetadataSettings } from "./CorpusMetadataSettings";
 import { CorpusAgentSettings } from "./CorpusAgentSettings";
 import { CorpusAgentManagement } from "./CorpusAgentManagement";
@@ -250,6 +251,10 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
     id: string;
     name: string;
   } | null>(null);
+  const [actionToBatchRun, setActionToBatchRun] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   // Fetch corpus actions
   const { data: actionsData, refetch: refetchActions } = useQuery<
@@ -380,8 +385,12 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
           onRunAction={(action) =>
             setActionToRun({ id: action.id, name: action.name })
           }
+          onBatchRunAction={(action) =>
+            setActionToBatchRun({ id: action.id, name: action.name })
+          }
           onUpdate={() => refetchActions()}
           isSuperuser={isSuperuser}
+          canUpdate={canUpdate}
         />
 
         {/* Action Execution History - Permission Gated to owner/admin/editor */}
@@ -470,6 +479,16 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
             actionId={actionToRun.id}
             actionName={actionToRun.name}
             onClose={() => setActionToRun(null)}
+          />
+        )}
+
+        {actionToBatchRun && (
+          <BatchRunCorpusActionModal
+            open
+            actionId={actionToBatchRun.id}
+            actionName={actionToBatchRun.name}
+            onClose={() => setActionToBatchRun(null)}
+            onQueued={() => refetchActions()}
           />
         )}
 

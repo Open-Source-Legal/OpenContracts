@@ -1562,6 +1562,18 @@ class CorpusActionTrigger(django.db.models.TextChoices):
     EDIT_DOCUMENT = "edit_document", "Edit Document"
     NEW_THREAD = "new_thread", "New Thread Created"
     NEW_MESSAGE = "new_message", "New Message Posted"
+    MANUAL_BATCH = "manual_batch", "Manual Batch Run"
+
+
+# Subset of CorpusActionTrigger that can be configured as an automatic-fire
+# trigger on a CorpusAction / CorpusActionTemplate definition. MANUAL_BATCH
+# is excluded because it is an execution-context label, not an event a user
+# can configure an action to react to.
+AUTO_FIRE_TRIGGER_CHOICES: list[tuple[str, str]] = [
+    (value, label)
+    for value, label in CorpusActionTrigger.choices
+    if value != CorpusActionTrigger.MANUAL_BATCH.value
+]
 
 
 class CorpusAction(BaseOCModel):
@@ -1601,7 +1613,7 @@ class CorpusAction(BaseOCModel):
         "agent_config.available_tools or trigger-appropriate defaults.",
     )
     trigger = django.db.models.CharField(
-        max_length=256, choices=CorpusActionTrigger.choices
+        max_length=256, choices=AUTO_FIRE_TRIGGER_CHOICES
     )
     disabled = django.db.models.BooleanField(null=False, default=False, blank=True)
     run_on_all_corpuses = django.db.models.BooleanField(
@@ -1800,7 +1812,7 @@ class CorpusActionTemplate(BaseOCModel):
     )
 
     trigger = django.db.models.CharField(
-        max_length=256, choices=CorpusActionTrigger.choices
+        max_length=256, choices=AUTO_FIRE_TRIGGER_CHOICES
     )
 
     is_active = django.db.models.BooleanField(

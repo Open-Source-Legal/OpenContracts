@@ -3346,6 +3346,47 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         if config.user_id is not None:
             effective_tools.append(update_corpus_desc_tool_wrapped)
 
+            # Deep-research kickoff: lets the chat agent spawn a
+            # long-running, autonomous research job over this corpus.
+            # Goes through the standard converter so ``corpus_id``,
+            # ``user_id``, and ``conversation_id`` get auto-injected.
+            from opencontractserver.llms.agents.agent_factory import (
+                _convert_tools_for_framework,
+            )
+            from opencontractserver.llms.tools.research_tools import (
+                start_deep_research_tool,
+            )
+            from opencontractserver.llms.types import AgentFramework
+
+            converted = _convert_tools_for_framework(
+                [start_deep_research_tool],
+                AgentFramework.PYDANTIC_AI,
+                document_id=None,
+                corpus_id=context.corpus.id,
+                user_id=config.user_id,
+                conversation_id=getattr(conversation_manager.conversation, "id", None),
+            )
+            effective_tools.extend(converted)
+
+        # ``restrict_tool_names`` mirrors the document-agent path: when
+        # provided, drop every default tool whose name is not in the set.
+        # Caller-supplied tools (deduplicated below) are NOT filtered —
+        # the caller has explicitly opted them in. Used by the deep-research
+        # task to keep the agent's surface strictly read-only.
+        restrict_tool_names: set[str] | None = kwargs.pop("restrict_tool_names", None)
+        if restrict_tool_names is not None:
+            allowed = set(restrict_tool_names)
+            before_count = len(effective_tools)
+            effective_tools = [
+                t for t in effective_tools if get_tool_name(t) in allowed
+            ]
+            logger.debug(
+                "restrict_tool_names trimmed corpus tools %d -> %d (allowed=%s)",
+                before_count,
+                len(effective_tools),
+                sorted(allowed),
+            )
+
         if tools:
             effective_tools = deduplicate_tools(
                 effective_tools, tools, context="Caller"
@@ -3362,6 +3403,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         agent_deps_instance = PydanticAIDependencies(
             user_id=config.user_id,
             corpus_id=context.corpus.id,
+            conversation_id=getattr(conversation_manager.conversation, "id", None),
             max_tool_output_chars=config.compaction.max_tool_output_chars,
             model_name=config.model_name,
             context_window_tokens=get_context_window_for_model(config.model_name),
