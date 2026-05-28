@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **In-run history compaction via pydantic-ai `history_processors`.** A new
   `shrink_old_artifacts_processor` in `opencontractserver/llms/history_processors.py`
-  is unconditionally installed on every agent constructed through
+  is unconditionally installed as a `ProcessHistory` capability on every agent constructed through
   `make_pydantic_ai_agent`. Before each model request inside an
   `Agent.run()` loop, the processor checks whether cumulative tokens
   exceed `CompactionConfig.threshold_ratio * context_window`; when over
@@ -52,22 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     ran only once before `Agent.run()` started; tool calls/returns
     generated inside the autonomous loop accumulated unbounded until
     pydantic-ai's `UsageLimits.request_tokens_limit` terminated the run.
-  - **Note on deprecated parameter usage**: pydantic-ai 1.62 emits
-    `PydanticAIDeprecationWarning` when constructing `Agent(history_processors=…)`
-    in favour of a v2 API (`capabilities=[ProcessHistory(fn)]`,
-    `Hooks(before_model_request=fn)`). The v2 API has NOT shipped in
-    pydantic-ai 1.62 yet (neither `ProcessHistory` nor `Hooks` is
-    exported), so `make_pydantic_ai_agent` uses the deprecated form
-    and silences the forward-looking warning with a narrowly-scoped
-    `warnings.catch_warnings()` filter targeting only that custom
-    warning class. Re-evaluate when pydantic-ai 2.0 lands.
   - Tests: `opencontractserver/tests/test_history_processors.py` (12
     unit tests covering threshold gate, shrink, ThinkingPart drop,
     tool_call_id preservation, last-message invariant, short
     histories, disabled config, deps=None, callback contract,
     production-path config resolution, empty-parts guard).
-    `opencontractserver/tests/test_pydantic_ai_factory.py` gets two
-    new tests pinning factory injection order.
+    `opencontractserver/tests/test_pydantic_ai_factory.py` gets three
+    new tests pinning `ProcessHistory` injection order, legacy-kwarg
+    auto-wrapping, and modern `capabilities=` passthrough.
 
 - **Agentic `create_or_update_text_document` tool — create or version-up a text document in a corpus** (`opencontractserver/llms/tools/core_tools/text_document_import.py`, `opencontractserver/llms/tools/core_tools/__init__.py`, `opencontractserver/llms/tools/tool_registry.py`). New corpus-scoped LLM tool that lets a corpus-level agent author or version-up a text-based document inside the active corpus. Initial scope is **text formats only** (`text/plain` default, `text/markdown`, `application/txt` — the `TEXT_MIMETYPES` set); binary formats like PDF/DOCX still require the parsing pipeline and are intentionally out of scope. The tool derives the corpus filesystem path from the `title` using the same sanitisation as `Corpus.add_document` (`MAX_FILENAME_LENGTH` truncation, non-alphanumeric → `_`, `DEFAULT_DOCUMENT_PATH_PREFIX` prefix) so calling it twice with the same `title` in the same corpus hits the same path and the dual-tree versioning architecture (`opencontractserver/documents/versioning.py::import_document`) creates a new version on top of the existing tree. Returns `{status: "created"|"updated", document_id, corpus_id, path, version_number, file_type, byte_count, message}`. IDOR-safe: user / corpus / folder lookups all return the same "does not exist or is not accessible" message regardless of whether the row is missing or unreachable. Permissions: requires `PermissionTypes.UPDATE` on the corpus (raises `PermissionError` otherwise) and grants `CRUD` on the resulting document to the author. Quota: routes through `DocumentService.check_user_upload_quota` so capped users get a clean `ValueError` instead of a half-created doc. Registered as `ToolCategory.CORPUS` with `requires_corpus=True`, `requires_approval=True`, `requires_write_permission=True` (mirrors `move_document`'s HITL posture). `aupload_text_document` / `upload_text_document` are exported as aliases for callers that prefer the verb-first name. Tests in `opencontractserver/tests/test_text_document_import_tool.py` cover the create path, in-folder placement, second-call version-up (asserts shared `version_tree_id`, `is_current` flip on the old row, single active `DocumentPath`), `text/markdown` acceptance, `application/pdf` rejection, empty-title rejection, `None`-content rejection, nonexistent-user rejection, IDOR rejection on a corpus owned by another user, read-only-corpus rejection (`PermissionError`), folder-in-wrong-corpus rejection, and an `acreate_or_update_text_document` async-wrapper smoke test.
 
