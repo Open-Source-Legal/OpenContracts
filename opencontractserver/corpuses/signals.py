@@ -330,26 +330,14 @@ def _is_readme_caml_document(doc: "Document") -> bool:
     return doc.title == CAML_ARTICLE_TITLE and doc.file_type == MARKDOWN_MIME_TYPE
 
 
-def _read_caml_body(doc: "Document") -> str:
-    """Return the Readme.CAML body as text.
-
-    Tolerant of binary-mode storage: opens the field in text mode first,
-    then falls back to binary + utf-8 decode on any error.
-    """
-    if not (doc.txt_extract_file and doc.txt_extract_file.name):
-        return ""
-    try:
-        doc.txt_extract_file.open("r")
-        try:
-            return doc.txt_extract_file.read()
-        finally:
-            doc.txt_extract_file.close()
-    except Exception:
-        try:
-            doc.txt_extract_file.open("rb")
-            return doc.txt_extract_file.read().decode("utf-8", errors="ignore")
-        finally:
-            doc.txt_extract_file.close()
+# ``_read_caml_body`` was promoted to a public helper in
+# ``corpuses/services/description_cache.read_caml_body`` (Task 9) so the
+# GraphQL ``descriptionRevisions`` facade can reuse the same I/O contract.
+# Keep a private re-export here so legacy importers (and the cache
+# refresh below) don't need to change.
+from opencontractserver.corpuses.services.description_cache import (  # noqa: E402
+    read_caml_body as _read_caml_body,
+)
 
 
 def _corpus_ids_owning_caml_doc(doc_id: int) -> list[int]:

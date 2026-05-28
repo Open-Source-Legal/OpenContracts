@@ -5,17 +5,25 @@ description. ``Corpus.description`` and ``Corpus.description_preview`` are
 auto-maintained read-only projections refreshed via signal on Readme.CAML
 save. This module is the single derivation point.
 
-No ORM access — everything is a string transform so the helpers can be
+Most helpers here are string transforms — no ORM access — so they can be
 called safely from data migrations, signal handlers, and import shims.
+``read_caml_body`` is the one exception: it reads bytes off a
+``Document.txt_extract_file`` FieldFile, so it lives here for DRY (used
+by the signal handler in ``corpuses/signals.py`` and the GraphQL
+revisions facade in ``config/graphql/corpus_types.py``).
 """
 
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from opencontractserver.constants.truncation import (
     MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
 )
+
+if TYPE_CHECKING:
+    from opencontractserver.documents.models import Document
 
 
 def markdown_to_plain_text(md: str) -> str:
@@ -60,6 +68,34 @@ def summarize_for_preview(plain_text: str) -> str:
     if last_space > MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH // 2:
         cut = cut[:last_space]
     return cut.rstrip() + "…"
+
+
+def read_caml_body(doc: "Document") -> str:
+    """Return the Readme.CAML body as text.
+
+    Tolerant of binary-mode storage: opens the field in text mode first,
+    then falls back to binary + utf-8 decode on any error. Returns the
+    empty string when the document has no ``txt_extract_file``.
+
+    Promoted from a private helper in ``corpuses/signals.py`` so the
+    GraphQL ``descriptionRevisions`` facade (which reads the
+    txt_extract_file body of each Readme.CAML version-tree sibling) can
+    share the same I/O contract as the cache-refresh signal handler.
+    """
+    if not (doc.txt_extract_file and doc.txt_extract_file.name):
+        return ""
+    try:
+        doc.txt_extract_file.open("r")
+        try:
+            return doc.txt_extract_file.read()
+        finally:
+            doc.txt_extract_file.close()
+    except Exception:
+        try:
+            doc.txt_extract_file.open("rb")
+            return doc.txt_extract_file.read().decode("utf-8", errors="ignore")
+        finally:
+            doc.txt_extract_file.close()
 
 
 def compute_cache_from_caml_body(
