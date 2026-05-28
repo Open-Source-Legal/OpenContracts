@@ -139,3 +139,44 @@ def test_instructions_survive_non_empty_message_history() -> None:
         "precedence rules, or the factory has been refactored incorrectly. "
         f"All messages observed: {all_msgs!r}"
     )
+
+
+def test_factory_injects_in_run_history_processor() -> None:
+    """The factory installs shrink_old_artifacts_processor as the first
+    entry in history_processors on every constructed Agent."""
+    from opencontractserver.llms.history_processors import (
+        shrink_old_artifacts_processor,
+    )
+
+    agent = make_pydantic_ai_agent(
+        model=TestModel(),
+        instructions="placeholder",
+    )
+
+    # pydantic-ai exposes the processors on the Agent instance.
+    assert len(agent.history_processors) >= 1
+    assert agent.history_processors[0] is shrink_old_artifacts_processor
+
+
+def test_factory_preserves_caller_processors_after_ours() -> None:
+    """Caller-supplied history_processors run AFTER ours, in original order."""
+    from opencontractserver.llms.history_processors import (
+        shrink_old_artifacts_processor,
+    )
+
+    async def caller_proc_one(messages):
+        return messages
+
+    async def caller_proc_two(messages):
+        return messages
+
+    agent = make_pydantic_ai_agent(
+        model=TestModel(),
+        instructions="placeholder",
+        history_processors=[caller_proc_one, caller_proc_two],
+    )
+
+    assert len(agent.history_processors) == 3
+    assert agent.history_processors[0] is shrink_old_artifacts_processor
+    assert agent.history_processors[1] is caller_proc_one
+    assert agent.history_processors[2] is caller_proc_two

@@ -34,6 +34,7 @@ from pydantic_ai.messages import (
     ThinkingPart,
     ToolReturnPart,
 )
+from pydantic_ai.tools import RunContext
 
 from opencontractserver.llms.context_guardrails import (
     CompactionConfig,
@@ -204,7 +205,7 @@ def _shrink_message(
 
 
 async def shrink_old_artifacts_processor(
-    ctx: Any,
+    ctx: RunContext,
     messages: list[ModelMessage],
 ) -> list[ModelMessage]:
     """Threshold-gated in-run history shrink. See module docstring."""

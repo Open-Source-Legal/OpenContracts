@@ -58,7 +58,7 @@ class _FakeRunContext:
 def _run(messages: list[ModelMessage], deps: _FakeDeps) -> list[ModelMessage]:
     """Helper to invoke the async processor synchronously."""
     ctx = _FakeRunContext(deps=deps)
-    return asyncio.run(shrink_old_artifacts_processor(ctx, messages))
+    return asyncio.run(shrink_old_artifacts_processor(ctx, messages))  # type: ignore[arg-type]
 
 
 def _make_pair(
@@ -350,7 +350,7 @@ def test_deps_none_does_not_crash():
         ModelRequest(parts=[UserPromptPart(content="hi")]),
     ]
     ctx = _FakeRunContext(deps=None)
-    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))
+    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))  # type: ignore[arg-type]
     assert result == messages
 
 
@@ -421,7 +421,7 @@ def test_resolves_compaction_from_deps_compaction_field():
 
     deps = _ProdDeps()
     ctx = _FakeRunContext(deps=deps)
-    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))
+    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))  # type: ignore[arg-type]
 
     # in_run_enabled=False short-circuits — old tool return is untouched.
     old_return = result[1]
