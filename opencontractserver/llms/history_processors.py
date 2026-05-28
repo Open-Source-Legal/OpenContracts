@@ -84,13 +84,18 @@ def _resolve_config(ctx: Any) -> tuple[CompactionConfig, str, str]:
         model_name = ""
         system_prompt = ""
     else:
-        # ``config_compaction`` is the test-fake field name. Production
-        # code path: ``deps.config.compaction``. Both supported.
-        if hasattr(deps, "config_compaction"):
-            cfg = getattr(deps, "config_compaction") or CompactionConfig()
+        # Production path: ``PydanticAIDependencies.compaction``.
+        # Test stubs may expose ``config_compaction`` instead — both
+        # supported.
+        direct = getattr(deps, "compaction", None)
+        if isinstance(direct, CompactionConfig):
+            cfg = direct
         else:
-            config = getattr(deps, "config", None)
-            cfg = getattr(config, "compaction", None) or CompactionConfig()
+            legacy = getattr(deps, "config_compaction", None)
+            if isinstance(legacy, CompactionConfig):
+                cfg = legacy
+            else:
+                cfg = CompactionConfig()
         model_name = getattr(deps, "model_name", "") or ""
         system_prompt = getattr(deps, "system_prompt", "") or ""
     return cfg, model_name, system_prompt
@@ -102,7 +107,7 @@ def _split_protected_suffix(
     """Return ``(older, recent)`` such that ``older + recent == messages``.
 
     ``recent`` contains the last ``keep_recent_pairs`` pairs of
-    ModelResponse+ModelRequest plus any trailing leading ModelRequest
+    ModelResponse+ModelRequest plus any trailing ModelRequest
     (so the final ``ModelRequest`` invariant is preserved).
     """
     if keep_recent_pairs <= 0 or not messages:
@@ -128,21 +133,15 @@ def _split_protected_suffix(
 def _shrink_tool_return_part(
     part: ToolReturnPart, target_chars: int
 ) -> tuple[ToolReturnPart, bool]:
-    """Return ``(maybe_shrunk_part, was_shrunk)``."""
+    """Return ``(maybe_shrunk_part, was_shrunk)``.
+
+    For non-string contents (dict/list), stringifies first so the
+    truncation arithmetic is uniform; the shrunk copy carries the
+    stringified, truncated form so the model sees a string.
+    """
     content = part.content
     if not isinstance(content, str):
-        # Non-string returns (dict/list) — stringify length check only.
         content = str(content)
-        if len(content) <= target_chars:
-            return part, False
-        # Coerce to string in the shrunk copy so the model sees a string.
-        truncated = content[:target_chars] + _TRIM_NOTICE_TEMPLATE.format(
-            elided=len(content) - target_chars
-        )
-        return (
-            dataclasses.replace(part, content=truncated),
-            True,
-        )
 
     if len(content) <= target_chars:
         return part, False
@@ -190,6 +189,13 @@ def _shrink_message(
                 changed = True
                 continue
             resp_parts.append(resp_part)
+        # Guard: never produce an empty ModelResponse — if dropping
+        # thinking would leave zero parts, keep the message intact.
+        # Rare in practice (most ModelResponses also have a TextPart
+        # or ToolCallPart), but the structural invariant matters more
+        # than a single shrink.
+        if changed and not resp_parts:
+            return msg, 0, 0
         if changed:
             return dataclasses.replace(msg, parts=resp_parts), 0, thinking_dropped
         return msg, 0, 0

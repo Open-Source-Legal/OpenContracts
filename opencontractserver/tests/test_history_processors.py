@@ -52,7 +52,7 @@ class _FakeDeps:
 class _FakeRunContext:
     """Minimal RunContext stand-in. The processor only reads ``.deps``."""
 
-    deps: _FakeDeps | None
+    deps: Any
 
 
 def _run(messages: list[ModelMessage], deps: _FakeDeps) -> list[ModelMessage]:
@@ -203,6 +203,8 @@ def test_drops_older_thinking_parts():
     # old_resp, R0-resp, R1-resp (all outside the keep_recent_pairs=4 window).
     assert len(deps.events) == 1
     assert deps.events[0].thinking_parts_dropped == 3
+    # The 600k char old tool return was also shrunk in the same pass.
+    assert deps.events[0].tool_returns_shrunk == 1
 
 
 def test_preserves_tool_call_id_correlation():
@@ -380,3 +382,83 @@ def test_callback_receives_correct_event_shape():
     assert evt.thinking_parts_dropped == 1
     assert evt.context_window == 200_000
     assert evt.tokens_before > evt.tokens_after > 0
+
+
+def test_resolves_compaction_from_deps_compaction_field():
+    """When deps has a ``compaction`` field (production path), the
+    processor reads its config from there instead of falling back to
+    defaults."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    # Build a stub that exposes ``compaction`` (production field name),
+    # not ``config_compaction``. The CompactionConfig disables in-run
+    # so we should see a hard no-op.
+    @dataclass
+    class _ProdDeps:
+        compaction: CompactionConfig = field(
+            default_factory=lambda: CompactionConfig(in_run_enabled=False)
+        )
+        model_name: str = "claude-opus-4"
+        system_prompt: str = ""
+        on_in_run_shrink: Any = None
+        events: list[InRunShrinkEvent] = field(default_factory=list)
+
+        def __post_init__(self) -> None:
+            if self.on_in_run_shrink is None:
+                self.on_in_run_shrink = self.events.append
+
+    deps = _ProdDeps()
+    ctx = _FakeRunContext(deps=deps)
+    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))
+
+    # in_run_enabled=False short-circuits — old tool return is untouched.
+    old_return = result[1]
+    assert isinstance(old_return, ModelRequest)
+    old_part = old_return.parts[0]
+    assert isinstance(old_part, ToolReturnPart)
+    old_content = old_part.content
+    assert isinstance(old_content, str)
+    assert len(old_content) == 600_000
+    assert deps.events == []
+
+
+def test_thinking_only_modelresponse_is_not_emptied():
+    """A ModelResponse with only ThinkingPart is left intact (no empty parts)."""
+    # An old ModelResponse with only a giant ThinkingPart.
+    only_thinking = ModelResponse(parts=[ThinkingPart(content="t" * 600_000)])
+    # Pair it with a ModelRequest so the structure is valid.
+    old_req = ModelRequest(
+        parts=[UserPromptPart(content="paired with thinking-only response")]
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        only_thinking,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    # The thinking-only ModelResponse is left intact (we didn't strip the
+    # only thing it contained).
+    first = result[0]
+    assert isinstance(first, ModelResponse)
+    assert len(first.parts) == 1
+    assert isinstance(first.parts[0], ThinkingPart)

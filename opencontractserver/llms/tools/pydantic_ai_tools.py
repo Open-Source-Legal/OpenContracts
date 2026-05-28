@@ -14,7 +14,10 @@ from opencontractserver.constants.context_guardrails import (
     DEFAULT_CONTEXT_WINDOW,
     MAX_TOOL_OUTPUT_CHARS,
 )
-from opencontractserver.llms.context_guardrails import truncate_tool_output
+from opencontractserver.llms.context_guardrails import (
+    CompactionConfig,
+    truncate_tool_output,
+)
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.tool_factory import CoreTool
 
@@ -319,6 +322,22 @@ class PydanticAIDependencies(BaseModel):
             "Fraction of the context window at which compaction triggers. "
             "Tools should target a budget below this to avoid forcing "
             "compaction on the next turn."
+        ),
+    )
+
+    # Full per-agent compaction configuration. The processor in
+    # ``opencontractserver.llms.history_processors`` reads its in-run
+    # knobs (in_run_enabled, in_run_keep_recent_pairs, ...) from this
+    # field. Defaults to ``CompactionConfig()`` so the production
+    # defaults from ``constants/context_guardrails.py`` apply when no
+    # caller-supplied config is propagated. ``PydanticAICoreAgent``
+    # subclasses copy ``AgentConfig.compaction`` here at construction
+    # time (see ``_apply_context_budget``).
+    compaction: CompactionConfig = Field(
+        default_factory=CompactionConfig,
+        description=(
+            "Full per-agent CompactionConfig; the in-run "
+            "HistoryProcessor reads its knobs from this field."
         ),
     )
 
