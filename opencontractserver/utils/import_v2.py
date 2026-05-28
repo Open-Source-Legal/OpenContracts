@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -44,7 +44,6 @@ from opencontractserver.corpuses.models import (
 from opencontractserver.types.dicts import (
     AgentConfigExport,
     CorpusFolderExport,
-    DescriptionRevisionExport,
     StructuralAnnotationSetExport,
 )
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
@@ -294,7 +293,7 @@ def import_agent_config(
 
 def import_md_description_revisions(
     md_description: str | None,
-    revisions_data: list[DescriptionRevisionExport],
+    revisions_data: list[dict[str, Any]],
     corpus: Corpus,
     user_obj: UserModel,
     doc_filename_to_doc: dict[str, Document] | None = None,

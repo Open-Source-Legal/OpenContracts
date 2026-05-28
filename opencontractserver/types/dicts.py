@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -549,20 +549,6 @@ class AgentConfigExport(TypedDict):
     document_agent_instructions: Optional[str]
 
 
-class DescriptionRevisionExport(TypedDict):
-    """
-    Export format for CorpusDescriptionRevision.
-    """
-
-    version: int
-    diff: str
-    snapshot: Optional[str]
-    checksum_base: str
-    checksum_full: str
-    created: str  # ISO format timestamp
-    author_email: str
-
-
 class ConversationExport(TypedDict):
     """
     Export format for Conversation (discussion threads).
@@ -760,9 +746,13 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
     # Agent configuration
     agent_config: AgentConfigExport
 
-    # Markdown description and revision history
+    # Markdown description and revision history (V2 legacy fields).
+    # The revision dict shape is intentionally loose — V2 import only
+    # reads ``version``, ``snapshot``, ``created``, ``author_email`` via
+    # ``.get()`` in ``utils/import_v2.py::import_md_description_revisions``,
+    # and V3 archives omit both fields entirely.
     md_description: Optional[str]
-    md_description_revisions: list[DescriptionRevisionExport]
+    md_description_revisions: list[dict[str, Any]]
 
     # Post-processors configuration
     post_processors: list[str]

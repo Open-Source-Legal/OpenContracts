@@ -13,13 +13,16 @@ from django.db import migrations, models
 def backfill_description_preview(apps, schema_editor):
     """Populate ``description_preview`` for every existing Corpus row.
 
-    We can't call ``Corpus._summarize_for_preview`` on the historical model
-    apps registry directly (it's a staticmethod on the *current* model, not
-    historical), so we import the helper from the live model module. The
-    helper is pure-string-manipulation with no ORM access, so calling it
-    from a data migration is safe.
+    The previewing helper used to live as ``Corpus._summarize_for_preview``
+    and was relocated to ``opencontractserver.corpuses.services.description_cache``
+    during the Canonical-CAML refactor (migration 0053). We import from
+    that module here so this historical migration keeps working after the
+    model strip-down. The helper is pure-string-manipulation with no ORM
+    access, so calling it from a data migration is safe.
     """
-    from opencontractserver.corpuses.models import Corpus as LiveCorpus
+    from opencontractserver.corpuses.services.description_cache import (
+        summarize_for_preview,
+    )
 
     Corpus = apps.get_model("corpuses", "Corpus")
     # Chunked bulk_update so the migration scales to corpora counts in the
@@ -27,9 +30,7 @@ def backfill_description_preview(apps, schema_editor):
     batch_size = 500
     batch: list = []
     for corpus in Corpus.objects.only("id", "description").iterator():
-        corpus.description_preview = LiveCorpus._summarize_for_preview(
-            corpus.description or ""
-        )
+        corpus.description_preview = summarize_for_preview(corpus.description or "")
         batch.append(corpus)
         if len(batch) >= batch_size:
             Corpus.objects.bulk_update(batch, ["description_preview"])

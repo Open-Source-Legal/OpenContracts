@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import difflib
-import hashlib
 import logging
-import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
 import django
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.files.base import ContentFile
 from django.core.validators import URLValidator
 from django.db import transaction
 from django.utils import timezone
@@ -34,9 +30,6 @@ from opencontractserver.constants.licenses import (
 )
 from opencontractserver.constants.notifications import (
     NOTIFICATION_BULK_CREATE_BATCH_SIZE,
-)
-from opencontractserver.constants.truncation import (
-    MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
 )
 from opencontractserver.corpuses.managers import CorpusActionExecutionManager
 from opencontractserver.shared.Models import BaseOCModel
@@ -71,15 +64,6 @@ def calculate_temporary_filepath(instance: Any, filename: str) -> str:
         instance,
         filename,
         "temporary_files/",
-    )
-
-
-def calculate_description_filepath(instance: Any, filename: str) -> str:
-    """Generate a unique path for corpus markdown descriptions."""
-    return calc_oc_file_path(
-        instance,
-        filename,
-        f"user_{instance.creator.id}/{instance.__class__.__name__}/md_descriptions/{uuid.uuid4()}",
     )
 
 
@@ -175,12 +159,6 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         help_text=(
             "Case-sensitive slug unique per creator. Allowed: A-Z, a-z, 0-9, hyphen (-)."
         ),
-    )
-    md_description = django.db.models.FileField(
-        blank=True,
-        null=True,
-        upload_to=calculate_description_filepath,
-        help_text="Markdown description file for this corpus.",
     )
     icon = django.db.models.FileField(
         blank=True, null=True, upload_to=calculate_icon_filepath
@@ -338,174 +316,6 @@ class Corpus(InstanceUserCanMixin, TreeNode):
     created = django.db.models.DateTimeField(default=timezone.now)
     modified = django.db.models.DateTimeField(default=timezone.now, blank=True)
 
-    # ------ Revision mechanics ------ #
-    REVISION_SNAPSHOT_INTERVAL = 10
-
-    def _read_md_description_content(self) -> str:
-        """Return the current markdown description as text.
-
-        Handles both text-mode and binary-mode reads so it works regardless of
-        how the file was saved.
-        """
-        if not (self.md_description and self.md_description.name):
-            return ""
-
-        # First try text-mode which yields `str` directly.
-        try:
-            self.md_description.open("r")
-            try:
-                return self.md_description.read()
-            finally:
-                self.md_description.close()
-        except Exception:
-            # Fall back to binary mode and decode manually.
-            try:
-                self.md_description.open("rb")
-                return self.md_description.read().decode("utf-8", errors="ignore")
-            finally:
-                self.md_description.close()
-
-    @staticmethod
-    def _summarize_for_preview(plain_text: str) -> str:
-        """Generate a short card/hero preview from a plain-text description.
-
-        Takes the first paragraph (split on blank lines), collapses internal
-        newlines into spaces, and truncates at a word boundary capped by
-        ``MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH``. Appends a single-character
-        ellipsis when truncation occurred so callers can render the cue
-        without having to recompute the original length.
-        """
-        if not plain_text:
-            return ""
-
-        first_paragraph = plain_text.split("\n\n", 1)[0].strip()
-        # Collapse any remaining newlines so the preview is a single line.
-        first_paragraph = re.sub(r"\s+", " ", first_paragraph)
-
-        if len(first_paragraph) <= MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH:
-            return first_paragraph
-
-        # Truncate at the last word boundary before the cap so we don't
-        # slice a word in half.
-        cut = first_paragraph[:MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH]
-        last_space = cut.rfind(" ")
-        if last_space > MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH // 2:
-            cut = cut[:last_space]
-        return cut.rstrip() + "…"
-
-    @staticmethod
-    def _markdown_to_plain_text(md: str) -> str:
-        """Convert markdown to plain text by stripping formatting syntax.
-
-        Handles the most common markdown constructs. Table cell separators
-        and exotic extensions are not covered — the output is best-effort
-        plain text suitable for card display and search indexing.
-        """
-        text = md
-        # Remove fenced code blocks (keep content)
-        text = re.sub(
-            r"^```[^\n]*\n(.*?)^```", r"\1", text, flags=re.MULTILINE | re.DOTALL
-        )
-        # Remove HTML tags
-        text = re.sub(r"<[^>]+>", "", text)
-        # Remove headings markers
-        text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-        # Remove bold/italic markers (DOTALL for multiline spans)
-        text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text, flags=re.DOTALL)
-        text = re.sub(r"_{1,3}(.+?)_{1,3}", r"\1", text, flags=re.DOTALL)
-        # Remove strikethrough
-        text = re.sub(r"~~(.+?)~~", r"\1", text, flags=re.DOTALL)
-        # Remove images ![alt](url) — must run before links
-        text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
-        # Convert links [text](url) → text
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-        # Remove inline code backticks
-        text = re.sub(r"`(.+?)`", r"\1", text)
-        # Remove blockquote markers
-        text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
-        # Remove horizontal rules
-        text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
-        # Remove list markers
-        text = re.sub(r"^[\s]*[-*+]\s+", "", text, flags=re.MULTILINE)
-        text = re.sub(r"^[\s]*\d+\.\s+", "", text, flags=re.MULTILINE)
-        # Collapse multiple blank lines
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-    def update_description(
-        self, *, new_content: str, author: AbstractBaseUser | int
-    ) -> CorpusDescriptionRevision | None:
-        """Create a new revision and update md_description.
-
-        Also keeps the plain-text ``description`` field in sync so that
-        list views and card components always reflect the latest content.
-
-        Args:
-            new_content (str): Markdown content.
-            author (User | int): Responsible user.
-        Returns:
-            CorpusDescriptionRevision | None: the stored revision or None if no content change.
-        """
-
-        author_obj: AbstractBaseUser
-        if isinstance(author, int):
-            author_obj = get_user_model().objects.get(pk=author)
-        else:
-            author_obj = author
-
-        original_content = self._read_md_description_content()
-
-        if original_content == (new_content or ""):
-            return None  # No change
-
-        with transaction.atomic():
-            # Save new markdown file
-            filename = f"{uuid.uuid4()}.md"
-            self.md_description.save(
-                filename, ContentFile(new_content.encode("utf-8")), save=False
-            )
-            # Keep the plain-text description field in sync
-            self.description = self._markdown_to_plain_text(new_content)
-            self.modified = timezone.now()
-            self.save()
-
-            # Compute next version
-            from opencontractserver.corpuses.models import (  # avoid circular
-                CorpusDescriptionRevision,
-            )
-
-            latest_rev = (
-                CorpusDescriptionRevision.objects.filter(corpus_id=self.pk)
-                .order_by("-version")
-                .first()
-            )
-            next_version = 1 if latest_rev is None else latest_rev.version + 1
-
-            diff_text = "\n".join(
-                difflib.unified_diff(
-                    original_content.splitlines(),
-                    new_content.splitlines(),
-                    lineterm="",
-                )
-            )
-
-            should_snapshot = next_version % self.REVISION_SNAPSHOT_INTERVAL == 0
-            snapshot_text = (
-                new_content if should_snapshot or next_version == 1 else None
-            )
-
-            revision = CorpusDescriptionRevision.objects.create(
-                corpus=self,
-                author=author_obj,  # type: ignore[misc]
-                version=next_version,
-                diff=diff_text,
-                snapshot=snapshot_text,
-                checksum_base=hashlib.sha256(original_content.encode()).hexdigest(),
-                checksum_full=hashlib.sha256(new_content.encode()).hexdigest(),
-            )
-
-        return revision
-
     objects = PermissionedTreeQuerySet.as_manager(with_tree_fields=True)
 
     class Meta:
@@ -578,25 +388,6 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             self.created_with_embedder = self.preferred_embedder or default_embedder
 
         self.modified = timezone.now()
-
-        # Keep description_preview in sync with description automatically.
-        # Cheap string op; runs on every save so packaging imports, direct
-        # ORM writes, and the versioned update_description path all stay
-        # consistent without each caller having to remember.
-        self.description_preview = self._summarize_for_preview(self.description or "")
-        # If the caller restricted the write to update_fields and is
-        # changing description, make sure the preview (and the modified
-        # timestamp set above) ride along — otherwise the in-memory
-        # values are computed but never reach the DB.
-        update_fields = kwargs.get("update_fields")
-        if update_fields is not None and "description" in update_fields:
-            extras = []
-            if "description_preview" not in update_fields:
-                extras.append("description_preview")
-            if "modified" not in update_fields:
-                extras.append("modified")
-            if extras:
-                kwargs["update_fields"] = list(update_fields) + extras
 
         # Detect is_public changes so we can propagate to documents.
         # Only check when updating an existing corpus and is_public might change.
@@ -1849,47 +1640,6 @@ class CorpusActionTemplate(BaseOCModel):
         action = CorpusAction(**kwargs)
         action.save()
         return action
-
-
-# -------------------- CorpusDescriptionRevision -------------------- #
-
-
-class CorpusDescriptionRevision(django.db.models.Model):
-    """Append-only history for Corpus markdown description."""
-
-    corpus = django.db.models.ForeignKey(
-        "corpuses.Corpus",
-        on_delete=django.db.models.CASCADE,
-        related_name="revisions",
-    )
-
-    author = django.db.models.ForeignKey(
-        get_user_model(),
-        on_delete=django.db.models.SET_NULL,
-        null=True,
-        related_name="corpus_revisions",
-    )
-
-    version = django.db.models.PositiveIntegerField()
-    diff = django.db.models.TextField(blank=True)
-    snapshot = django.db.models.TextField(null=True, blank=True)
-    checksum_base = django.db.models.CharField(max_length=64, blank=True)
-    checksum_full = django.db.models.CharField(max_length=64, blank=True)
-    created = django.db.models.DateTimeField(default=timezone.now, db_index=True)
-
-    class Meta:
-        unique_together = ("corpus", "version")
-        ordering = ("corpus_id", "version")
-        indexes = [
-            django.db.models.Index(fields=["corpus"]),
-            django.db.models.Index(fields=["author"]),
-            django.db.models.Index(fields=["created"]),
-        ]
-
-    def __str__(self) -> str:
-        return (
-            f"CorpusDescriptionRevision(corpus_id={self.corpus_id}, v={self.version})"
-        )
 
 
 # --------------------------------------------------------------------------- #
