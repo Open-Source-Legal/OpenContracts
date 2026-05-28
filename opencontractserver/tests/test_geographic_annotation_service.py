@@ -397,3 +397,74 @@ class GeographicAnnotationServiceMiscTests(TestCase):
         box = BBox(south=35.0, west=-10.0, north=60.0, east=30.0)
         self.assertTrue(_bbox_contains(box, 48.0, 2.0))  # Paris
         self.assertFalse(_bbox_contains(box, 35.0, 139.0))  # Tokyo
+
+
+class GeographicQueryResolverErrorTests(TestCase):
+    """The GraphQL resolvers must wrap the service's ``ValueError`` for an
+    unknown ``label_types`` entry as a ``GraphQLError`` rather than letting
+    it bubble up as an unhandled 500. Added in response to PR #1823 review.
+    """
+
+    def test_corpus_resolver_returns_graphql_error_on_bad_label_type(self):
+        from graphene.test import Client
+        from graphql_relay import to_global_id
+
+        from config.graphql.schema import schema
+
+        owner = User.objects.create_user(username="resolver-owner", password="x")
+        corpus = Corpus.objects.create(title="resolver-c", creator=owner)
+        set_permissions_for_obj_to_user(owner, corpus, [PermissionTypes.CRUD])
+
+        class _Ctx:
+            def __init__(self, u):
+                self.user = u
+                self.META = {}
+                self.method = "POST"
+
+        client: Any = Client(schema)
+        result = client.execute(
+            """
+            query Q($id: ID!, $lt: [String]) {
+              geographicAnnotationsForCorpus(corpusId: $id, labelTypes: $lt) {
+                canonicalName
+              }
+            }
+            """,
+            variables={
+                "id": to_global_id("CorpusType", corpus.pk),
+                "lt": ["municipality"],
+            },
+            context_value=_Ctx(owner),
+        )
+        # The resolver MUST surface a clean GraphQL error (not an unhandled
+        # ``ValueError``) and MUST NOT return data for the field.
+        self.assertIn("errors", result)
+        self.assertTrue(any("municipality" in str(e) for e in result["errors"]))
+
+    def test_global_resolver_returns_graphql_error_on_bad_label_type(self):
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        owner = User.objects.create_user(username="resolver-owner-g", password="x")
+
+        class _Ctx:
+            def __init__(self, u):
+                self.user = u
+                self.META = {}
+                self.method = "POST"
+
+        client: Any = Client(schema)
+        result = client.execute(
+            """
+            query Q($lt: [String]) {
+              globalGeographicAnnotations(labelTypes: $lt) {
+                canonicalName
+              }
+            }
+            """,
+            variables={"lt": ["municipality"]},
+            context_value=_Ctx(owner),
+        )
+        self.assertIn("errors", result)
+        self.assertTrue(any("municipality" in str(e) for e in result["errors"]))

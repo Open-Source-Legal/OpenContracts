@@ -419,6 +419,15 @@ def resolve_place(
     # ---- Exact name match ----------------------------------------------
     # The pre-built index covers ALL rows; when hints narrow the candidate
     # pool we must verify the indexed hit still passes the filter.
+    #
+    # The ``exact_row in filtered_rows`` membership check below (and the
+    # ``alias_row in filtered_rows`` check in the alias branch) is O(n)
+    # — Python's ``list.__contains__`` walks the list and calls
+    # ``dict.__eq__`` per element. That's fine for the current dataset
+    # sizes (< 200 cities, ~190 countries, ~55 states). If the bundled
+    # dataset is ever expanded to GeoNames' full ``cities1000`` (~130k
+    # rows), build an ``id(row)`` → ``True`` set from ``filtered_rows``
+    # once and use that for membership instead.
     target_key = _normalise(text)
     exact_row = slice_["exact"].get(target_key)
     if exact_row is not None and exact_row in filtered_rows:

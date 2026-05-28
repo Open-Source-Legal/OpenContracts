@@ -11,6 +11,7 @@ from django.db.models import Prefetch, Q
 from graphene import relay
 from graphene_django.fields import DjangoConnectionField
 from graphene_django.filter import DjangoFilterConnectionField
+from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
@@ -735,12 +736,14 @@ class AnnotationQueryMixin:
         lambda: GeographicAnnotationPinType,
         corpus_id=graphene.ID(required=True),
         bbox=graphene.Argument(lambda: BBoxInputType),
-        zoom=graphene.Int(
+        zoom=graphene.Float(
             description=(
                 "Optional map zoom level used by the consumer to pick a label "
                 "type. Not currently consumed server-side — the resolver "
                 "returns every label type and lets the client decide which "
-                "to render at the current zoom."
+                "to render at the current zoom. ``Float`` accommodates the "
+                "fractional zoom levels (e.g. 12.5) that Mapbox / MapLibre "
+                "use natively."
             )
         ),
         label_types=graphene.List(
@@ -790,18 +793,25 @@ class AnnotationQueryMixin:
                 south=bbox.south, west=bbox.west, north=bbox.north, east=bbox.east
             )
 
-        return GeographicAnnotationService.aggregate_for_corpus(
-            user=info.context.user,
-            corpus=corpus,
-            bbox=bbox_obj,
-            label_types=label_types,
-            request=info.context,
-        )
+        # ``aggregate_for_corpus`` raises ``ValueError`` on an unknown
+        # ``label_types`` entry. Surface it as a clean ``GraphQLError`` so
+        # the client gets an actionable, sanitised message instead of an
+        # unhandled-exception 500.
+        try:
+            return GeographicAnnotationService.aggregate_for_corpus(
+                user=info.context.user,
+                corpus=corpus,
+                bbox=bbox_obj,
+                label_types=label_types,
+                request=info.context,
+            )
+        except ValueError as exc:
+            raise GraphQLError(str(exc)) from exc
 
     global_geographic_annotations = graphene.List(
         lambda: GeographicAnnotationPinType,
         bbox=graphene.Argument(lambda: BBoxInputType),
-        zoom=graphene.Int(),
+        zoom=graphene.Float(),
         label_types=graphene.List(graphene.String),
         description=(
             "Aggregated geographic pins across every annotation visible to "
@@ -832,12 +842,19 @@ class AnnotationQueryMixin:
                 south=bbox.south, west=bbox.west, north=bbox.north, east=bbox.east
             )
 
-        return GeographicAnnotationService.aggregate_global(
-            user=info.context.user,
-            bbox=bbox_obj,
-            label_types=label_types,
-            request=info.context,
-        )
+        # Symmetric with ``resolve_geographic_annotations_for_corpus``:
+        # convert the service's ``ValueError`` for an unknown label type
+        # into a ``GraphQLError`` rather than letting it escape as a
+        # generic 500.
+        try:
+            return GeographicAnnotationService.aggregate_global(
+                user=info.context.user,
+                bbox=bbox_obj,
+                label_types=label_types,
+                request=info.context,
+            )
+        except ValueError as exc:
+            raise GraphQLError(str(exc)) from exc
 
 
 class BBoxInputType(graphene.InputObjectType):

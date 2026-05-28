@@ -512,6 +512,13 @@ def _create_geographic_annotation(
     """
     from opencontractserver.utils.geocoding import resolve_place
 
+    # Guard empty / whitespace-only ``raw_text`` up front — an empty span
+    # produces a no-op annotation (``geocoded=False``, no canonical_name)
+    # that pollutes the user's annotation set without contributing to the
+    # map. Surface a clear error instead of silently creating it.
+    if not raw_text or not raw_text.strip():
+        return False, "raw_text must not be empty", None
+
     parents = _resolve_annotation_parents(
         user, corpus_pk, document_pk, request=info.context
     )

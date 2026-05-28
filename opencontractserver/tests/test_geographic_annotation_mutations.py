@@ -254,6 +254,24 @@ class AddCountryAnnotationTests(_BaseGeoMutationTestCase):
         # Critically: nothing written.
         self.assertEqual(Annotation.objects.count(), before)
 
+    def test_empty_raw_text_rejected_without_creating_annotation(self):
+        # Guard added in response to PR #1823 review: an empty / whitespace
+        # span shouldn't create a no-op ``geocoded=False`` annotation that
+        # silently pollutes the user's annotation set. The mutation must
+        # return ``ok=False`` with a clear message and write nothing.
+        before = Annotation.objects.count()
+        for blank in ("", "   ", "\t\n"):
+            result = self.client.execute(
+                ADD_COUNTRY_MUTATION,
+                variables=self._vars(rawText=blank),
+                context_value=_MutationContext(self.owner),
+            )
+            payload = result["data"]["addCountryAnnotation"]
+            self.assertFalse(payload["ok"])
+            self.assertIsNone(payload["annotation"])
+            self.assertIn("raw_text", payload["message"])
+        self.assertEqual(Annotation.objects.count(), before)
+
     def test_ungeocodable_text_still_creates_annotation(self):
         # The spec is explicit: the user's labelling work survives a
         # resolver miss; only the map aggregation skips the row.

@@ -167,6 +167,17 @@ def _aggregate_pins(
     bounded by the geographic label set (typically < 1000 distinct
     canonical names per corpus / < 10000 globally), so the Python pass is
     cheap and keeps the query portable across SQLite/PG/etc.
+
+    **Memory note (issue #1819 review):** each bucket carries a
+    ``document_count_set`` of full document PKs for accurate
+    deduplication. For ``aggregate_for_corpus`` the set is bounded by
+    corpus size and stays small. For ``aggregate_global`` on a popular
+    canonical name (e.g. "United States" across a large multi-corpus
+    deployment) this set could grow to hundreds of thousands of entries
+    per pin. If profiling ever shows this as a hotspot, switch to a
+    DB-side ``COUNT(DISTINCT document_id)`` aggregate keyed by
+    ``(label_text, data->>canonical_name, data->>lat, data->>lng)`` —
+    ``sample_document_ids`` would still need the bounded Python pass.
     """
     qs = qs.filter(_label_type_label_filter(label_types))
     qs = qs.exclude(data__isnull=True)
