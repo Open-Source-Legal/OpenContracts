@@ -247,3 +247,90 @@ class UpdateDescriptionSyncTest(TestCase):
         )
         self.corpus.refresh_from_db()
         self.assertEqual(self.corpus.description, "from int author")
+
+
+class UpdateDescriptionWritesThroughCamlTest(TestCase):
+    """CorpusService.update_description must write via import_document.
+
+    Task 8 of the Canonical-CAML Corpus Description Refactor (spec
+    ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``
+    §4.6): the editor's write path no longer mutates the legacy
+    ``md_description`` FileField — it creates or extends the corpus's
+    ``Readme.CAML`` Document version tree through
+    :func:`opencontractserver.documents.versioning.import_document`. The
+    Document ``post_save`` signal then cascades the cache refresh onto
+    ``Corpus.description`` / ``.description_preview`` /
+    ``.readme_caml_document_id``.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username="utc-user", password="x")
+
+    def test_update_description_creates_caml_doc_if_missing(self):
+        from opencontractserver.corpuses.services.corpus_service import (
+            CorpusService,
+        )
+        from opencontractserver.documents.models import DocumentPath
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        # The Readme.CAML cache cascade is wired via Document/DocumentPath
+        # ``post_save`` + ``transaction.on_commit`` (see
+        # ``opencontractserver/corpuses/signals.py``). Under ``TestCase``
+        # the surrounding transaction never commits, so we wrap the call
+        # in ``captureOnCommitCallbacks(execute=True)`` to run the
+        # deferred refresh synchronously inside the assertion scope.
+        with self.captureOnCommitCallbacks(execute=True):
+            CorpusService.update_description(self.user, corpus, "# Hello\n\nWorld.")
+        # Exactly one DocumentPath for Readme.CAML
+        paths = DocumentPath.objects.filter(
+            corpus=corpus, path="Readme.CAML", is_current=True
+        )
+        self.assertEqual(paths.count(), 1)
+        doc = paths.first().document
+        self.assertEqual(doc.title, "Readme.CAML")
+        self.assertEqual(doc.file_type, "text/markdown")
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Hello\n\nWorld.")
+
+    def test_update_description_creates_version_tree_sibling_on_edit(self):
+        from opencontractserver.corpuses.services.corpus_service import (
+            CorpusService,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            CorpusService.update_description(self.user, corpus, "v1 body")
+        # Capture initial state
+        first_head = DocumentPath.objects.get(
+            corpus=corpus, path="Readme.CAML", is_current=True
+        ).document
+        tree_id = first_head.version_tree_id
+
+        with self.captureOnCommitCallbacks(execute=True):
+            CorpusService.update_description(self.user, corpus, "v2 body")
+        # New DocumentPath is now current; old one flipped to False
+        current_paths = DocumentPath.objects.filter(
+            corpus=corpus, path="Readme.CAML", is_current=True
+        )
+        self.assertEqual(current_paths.count(), 1)
+        new_head = current_paths.first().document
+        self.assertEqual(new_head.version_tree_id, tree_id)
+        self.assertNotEqual(new_head.pk, first_head.pk)
+        # Two versions in the version tree
+        self.assertEqual(Document.objects.filter(version_tree_id=tree_id).count(), 2)
+
+    def test_update_description_enforces_permission_for_non_creator(self):
+        from opencontractserver.corpuses.services.corpus_service import (
+            CorpusService,
+        )
+
+        intruder = User.objects.create_user(username="intruder", password="x")
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        # The existing CorpusService.update_description path gates on a
+        # creator-only check. Verify the new wrapper still refuses the
+        # write rather than silently routing it through import_document.
+        result = CorpusService.update_description(intruder, corpus, "# Hijack")
+        self.assertFalse(result.ok)
+        self.assertIn("permission", result.error.lower())

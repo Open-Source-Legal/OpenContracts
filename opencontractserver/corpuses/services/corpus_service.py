@@ -29,7 +29,8 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 if TYPE_CHECKING:
-    from opencontractserver.corpuses.models import Corpus, CorpusDescriptionRevision
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import Document
     from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
@@ -49,26 +50,76 @@ class CorpusService(BaseService):
         user: User,
         corpus: Corpus,
         new_content: str,
-    ) -> ServiceResult[CorpusDescriptionRevision | None]:
-        """Update a corpus's markdown description, creating a new revision.
+    ) -> ServiceResult[Document | None]:
+        """Update a corpus's markdown description by writing a Readme.CAML doc.
+
+        Routes through
+        :func:`opencontractserver.documents.versioning.import_document` —
+        the canonical dual-tree workhorse — so the editor write path uses
+        the same versioning mechanics as every other CAML write (V2 import
+        shim, migration backfill, agent edit tool). First call creates the
+        Readme.CAML Document and its root ``DocumentPath``; subsequent
+        calls create new version-tree siblings, atomically flipping the
+        old Document's and DocumentPath's ``is_current`` flags. The
+        Document ``post_save`` signal cascades the cache refresh onto
+        ``Corpus.description`` / ``.description_preview`` /
+        ``.readme_caml_document_id``.
 
         Creator-only by design: even collaborators with a guardian UPDATE
         grant cannot edit the description, so revision history stays
         attributable to a single author. Callers MUST have already gated
         corpus READ (the GraphQL wrapper does so via ``get_for_user_or_none``).
 
-        Returns ``ServiceResult.success`` whose value is the new
-        :class:`CorpusDescriptionRevision`, or ``None`` when ``new_content``
-        is identical to the current description (no revision created).
+        Returns ``ServiceResult.success`` whose value is the new Readme.CAML
+        :class:`Document` head, or ``None`` when ``new_content`` is
+        byte-identical to the current Readme.CAML body (no new version
+        created).
+
+        Spec:
+            ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``
+            §4.6.
         """
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
+        from opencontractserver.corpuses.signals import _read_caml_body
+        from opencontractserver.documents.versioning import import_document
+
         if corpus.creator_id != getattr(user, "id", None):
             return ServiceResult.failure(
                 "Corpus not found or you do not have permission to update it."
             )
 
-        revision = corpus.update_description(new_content=new_content, author=user)
+        # No-op when the candidate body is byte-identical to the current
+        # CAML head. ``import_document`` does not deduplicate on content
+        # (see its docstring: "No content-based deduplication is
+        # performed"), so we filter the no-op here to match the
+        # pre-refactor contract (``update_description`` returned ``None``
+        # for unchanged content).
+        candidate_body = new_content or ""
+        existing = CorpusDocumentService.get_corpus_caml_articles(user, corpus).first()
+        if existing is not None:
+            current_body = _read_caml_body(existing)
+            if current_body == candidate_body:
+                return ServiceResult.success(None)
+        elif candidate_body == "":
+            # No CAML doc yet and the new body is empty — nothing to do.
+            return ServiceResult.success(None)
+
+        doc, _status, _path = import_document(
+            corpus=corpus,
+            path=CAML_ARTICLE_TITLE,
+            content=candidate_body.encode("utf-8"),
+            user=user,
+            file_type=MARKDOWN_MIME_TYPE,
+            title=CAML_ARTICLE_TITLE,
+        )
         cls.log_action("Updated description for", corpus, user)
-        return ServiceResult.success(revision)
+        return ServiceResult.success(doc)
 
     @classmethod
     def delete_corpus(
