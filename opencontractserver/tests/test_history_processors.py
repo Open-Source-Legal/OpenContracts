@@ -418,6 +418,54 @@ def test_resolves_compaction_from_deps_compaction_field():
     assert deps.events == []
 
 
+def test_callback_exception_does_not_propagate(caplog):
+    """A raising ``on_in_run_shrink`` callback must not break the run.
+
+    Pins the defensive contract on the callback seam: telemetry
+    failures (e.g. websocket already closed, builder mid-teardown)
+    must never bubble out of the processor — otherwise the outer
+    ``try/except`` would turn the shrink into a silent no-op and
+    the agent run would keep accumulating context.
+    """
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    def _raises(_event: InRunShrinkEvent) -> None:
+        raise RuntimeError("simulated telemetry sink failure")
+
+    deps = _FakeDeps(on_in_run_shrink=_raises)
+
+    with caplog.at_level(
+        logging.ERROR, logger="opencontractserver.llms.history_processors"
+    ):
+        result = _run(messages, deps)
+
+    # Shrink still applied to the old tool return — callback failure
+    # must not undo the actual compaction work.
+    old_return = result[2]
+    assert isinstance(old_return, ModelRequest)
+    old_part = old_return.parts[0]
+    assert isinstance(old_part, ToolReturnPart)
+    assert isinstance(old_part.content, str)
+    assert len(old_part.content) < 5_000
+    # And the failure surfaced via logger.exception, not by escaping.
+    assert any(
+        "on_in_run_shrink callback raised" in rec.message for rec in caplog.records
+    )
+
+
 def test_thinking_only_modelresponse_is_not_emptied():
     """A ModelResponse with only ThinkingPart is left intact (no empty parts)."""
     # An old ModelResponse with only a giant ThinkingPart.

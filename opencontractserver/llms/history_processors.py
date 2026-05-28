@@ -44,6 +44,23 @@ from opencontractserver.llms.context_guardrails import (
 logger = logging.getLogger(__name__)
 
 
+# ``dataclasses.replace`` only works on stdlib ``@dataclass`` instances. We
+# rely on it for ``ToolReturnPart`` / ``ModelRequest`` / ``ModelResponse``.
+# If a future pydantic-ai release migrates any of these to ``BaseModel``,
+# ``replace()`` would raise at runtime — and the outer ``try/except`` in
+# ``shrink_old_artifacts_processor`` would silently swallow it, leaving the
+# processor a no-op with no visible signal. Fail loudly at import time
+# instead so the pydantic-ai bump that breaks the assumption is caught by
+# CI rather than degrading silently in production.
+for _msg_type in (ToolReturnPart, ModelRequest, ModelResponse):
+    if not hasattr(_msg_type, "__dataclass_fields__"):
+        raise RuntimeError(
+            f"pydantic-ai message type {_msg_type.__name__} is no longer a "
+            "stdlib @dataclass; dataclasses.replace() calls in "
+            "history_processors.py will fail. Update the shrink helpers."
+        )
+
+
 @dataclass(frozen=True)
 class InRunShrinkEvent:
     """Telemetry payload describing a single in-run shrink pass."""
@@ -98,9 +115,15 @@ def _split_protected_suffix(
 ) -> tuple[list[ModelMessage], list[ModelMessage]]:
     """Return ``(older, recent)`` such that ``older + recent == messages``.
 
-    ``recent`` contains the last ``keep_recent_pairs`` pairs of
-    ModelResponse+ModelRequest plus any trailing ModelRequest
-    (so the final ``ModelRequest`` invariant is preserved).
+    The split point is the ``keep_recent_pairs``-th most-recent
+    ``ModelResponse`` (counted from the tail). Every message at or after
+    that index — including any trailing ``ModelRequest`` — is in
+    ``recent``. The terminology "pairs" reflects the normal pydantic-ai
+    flow where each ``ModelResponse`` is followed by exactly one
+    ``ModelRequest`` (the response's tool returns + the next user turn);
+    in an atypical history where multiple ``ModelRequest`` messages
+    follow a single ``ModelResponse``, all of them stay together in the
+    recent suffix because the split anchor is the response boundary.
     """
     if keep_recent_pairs <= 0 or not messages:
         return list(messages), []
@@ -211,6 +234,13 @@ async def shrink_old_artifacts_processor(
 
         tokens_before = _estimate_total_tokens(messages, system_prompt)
         context_window = get_context_window_for_model(model_name)
+        # ``threshold_ratio`` is shared by design with the outer
+        # turn-level compaction (in ``MessageHistoryService``). A single
+        # ratio keeps the kick-in point coherent across both layers — if
+        # the outer pass already wants to compact persisted history,
+        # the in-loop pass should also be willing to shrink older
+        # tool returns. Do not split into two ratios without rethinking
+        # both call sites together.
         threshold = int(context_window * cfg.threshold_ratio)
 
         if tokens_before <= threshold:
@@ -277,7 +307,7 @@ async def shrink_old_artifacts_processor(
         if callable(callback):
             try:
                 callback(event)
-            except Exception:  # pragma: no cover - defensive
+            except Exception:
                 logger.exception(
                     "[history_processors] on_in_run_shrink callback raised"
                 )

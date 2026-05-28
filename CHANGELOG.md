@@ -75,6 +75,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Regression test pinned in
   `opencontractserver/tests/test_context_guardrails.py::TestRefreshContextBudgetFallback::test_compaction_config_is_copied_to_deps`.
 
+- **Loud import-time guard on `dataclasses.replace` assumption.**
+  `opencontractserver/llms/history_processors.py` now asserts at
+  module import that `ToolReturnPart`, `ModelRequest`, and
+  `ModelResponse` remain stdlib `@dataclass` types. A future
+  pydantic-ai release migrating any of them to `pydantic.BaseModel`
+  would have broken `replace()` inside the processor — and the
+  defensive outer `try/except` would have silently swallowed the
+  exception, turning the in-run shrink into a no-op with no visible
+  signal. Now CI fails loudly on the next pydantic-ai bump that
+  invalidates the assumption.
+
+- **Telemetry-callback failures no longer silently disable shrink
+  side-effects via the outer try/except.** Pinned a regression test
+  (`test_callback_exception_does_not_propagate`) confirming that a
+  raising `on_in_run_shrink` callback is caught locally, logged via
+  `logger.exception`, and does NOT bubble out of the inner callback
+  block — so the actual message-list shrink still survives even when
+  a telemetry sink dies mid-run.
+
 - **Deep-research agent — chat-triggered, long-running corpus research with grounded citations** (new app `opencontractserver/research/`, new Celery task `opencontractserver/tasks/research_tasks.py`, new chat tool `opencontractserver/llms/tools/research_tools.py`, GraphQL surface in `config/graphql/research_{types,queries,mutations}.py`). A user in a corpus chat can ask the agent to "research X" and a long-lived (5-30 min) autonomous research job kicks off in the background. The job runs a PydanticAI corpus agent with a read-only retrieval surface plus two job-bound scratchpad tools (`record_finding`, `finalize_report`), produces a markdown report with footnote citations, and notifies the user when complete (new `RESEARCH_REPORT_*` `NotificationTypeChoices` values, broadcast via the existing notification WebSocket) plus drops a system `ChatMessage` back into the originating conversation.
   - **`ResearchReport` model** (sibling of `Analysis`/`Extract`) tracks the full lifecycle: corpus FK, prompt, status (`JobStatus` + new `CANCELLED`), `started_at`/`completed_at`/`last_progress_at`, `cancel_requested` (cooperative cancel polled between tool calls), step budget, rendered `content` markdown, structured `findings`/`citations`/`tool_call_log`/`model_usage`/`warnings` JSON sidecars, and M2M to `source_annotations`/`source_documents` for provenance. Creator-only visibility in v1 (no sharing → no IDOR surface to defend on shared reports). Migration: `opencontractserver/research/migrations/0001_initial.py` + `opencontractserver/notifications/migrations/0005_add_research_report_notification_types.py`.
   - **`ResearchReportService`** (`opencontractserver/research/services/research_reports.py`) — canonical entry point per CLAUDE.md rule 7. Lifecycle helpers (`mark_started` / `mark_progress` / `mark_completed` / `mark_failed` / `mark_cancelled`), scratchpad writes (`append_finding`, `append_tool_call`), terminal `finalize` (runs citation post-processor: parses `<cite ids="...">claim</cite>` placeholder tags into `[^n]` footnote markers + builds the `## Sources` section + populates the `source_annotations` / `source_documents` M2Ms), and a concurrency soft-guard (`start` refuses a second QUEUED/RUNNING report for the same `(user, corpus)` within `DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS`).
