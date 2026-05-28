@@ -33,7 +33,6 @@ from opencontractserver.conversations.models import (
 )
 from opencontractserver.corpuses.models import (
     Corpus,
-    CorpusDescriptionRevision,
     CorpusFolder,
 )
 from opencontractserver.documents.models import Document, DocumentPath, IngestionSource
@@ -65,7 +64,9 @@ def build_rich_test_corpus(user) -> Corpus:
     - User annotations: token, span, doc-type, plus a parent-linked
       token annotation
     - Cross-document corpus-level relationship
-    - md_description text + two CorpusDescriptionRevision rows
+    - md description routed through CorpusService.update_description so
+      the corpus has a canonical Readme.CAML Document on construction
+      (the V3 export carries it forward via annotated_docs)
     - Conversations (corpus-level + doc-level) with messages and a vote,
       using fixed historical timestamps so timestamp preservation is
       checked too
@@ -344,27 +345,31 @@ def build_rich_test_corpus(user) -> Corpus:
     cross_rel.source_annotations.set([annot_a_tok.id])
     cross_rel.target_annotations.set([annot_b_tok.id])
 
-    # ----- Markdown description & revisions --------------------------
+    # ----- Markdown description (canonical CAML write path) ----------
+    #
+    # Routed through ``CorpusService.update_description`` so the fixture
+    # produces a real Readme.CAML Document on construction (Task 14 of
+    # the Canonical-CAML refactor).  The legacy
+    # ``corpus.md_description.save(...)`` + ``CorpusDescriptionRevision``
+    # write path is gone — V3 export carries the CAML doc forward via
+    # ``annotated_docs`` like any other Document, and the importer
+    # re-attaches it on the other side.
+    #
+    # ``update_description`` cascades the cache refresh via the Document
+    # ``post_save`` signal's ``transaction.on_commit`` hook, but Django's
+    # ``TestCase`` wraps the test in a transaction that never commits.
+    # Refresh the cache columns directly here so the snapshot helpers
+    # observe canonical state regardless of which TestCase / atomic
+    # context the fixture is invoked from.
+    from opencontractserver.corpuses.services.corpus_service import CorpusService
+    from opencontractserver.corpuses.signals import (
+        _refresh_description_cache_for_corpus,
+    )
+
     md_text = "# Roundtrip Corpus\n\nA test corpus for export round-tripping.\n"
-    corpus.md_description.save("description.md", ContentFile(md_text.encode("utf-8")))
-    CorpusDescriptionRevision.objects.create(
-        corpus=corpus,
-        author=user,
-        version=1,
-        diff="Initial markdown description",
-        snapshot=md_text,
-        checksum_base="",
-        checksum_full="rev-1-checksum",
-    )
-    CorpusDescriptionRevision.objects.create(
-        corpus=corpus,
-        author=user,
-        version=2,
-        diff="Minor edit",
-        snapshot=md_text,
-        checksum_base="rev-1-checksum",
-        checksum_full="rev-2-checksum",
-    )
+    CorpusService.update_description(user, corpus, md_text)
+    _refresh_description_cache_for_corpus(corpus.pk)
+    corpus.refresh_from_db()
 
     # ----- Manual metadata schema ------------------------------------
     from opencontractserver.extracts.models import Column, Datacell, Fieldset

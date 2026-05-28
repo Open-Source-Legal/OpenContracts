@@ -24,7 +24,6 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import ProtectedError
-from django.utils import timezone
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
@@ -40,7 +39,6 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.corpuses.models import (
     Corpus,
-    CorpusDescriptionRevision,
     CorpusFolder,
 )
 from opencontractserver.types.dicts import (
@@ -302,81 +300,179 @@ def import_md_description_revisions(
     doc_filename_to_doc: dict[str, Document] | None = None,
     annot_old_id_to_new_pk: dict[str | int, int] | None = None,
 ) -> None:
-    """
-    Import markdown description and revision history.
+    """V2 back-compat: synthesize a Readme.CAML Document from md_description.
 
-    If ``doc_filename_to_doc`` and/or ``annot_old_id_to_new_pk`` are provided,
-    ``oc-import://`` placeholder links in the current ``md_description`` are
-    rewritten to live URLs that reference the imported documents and
-    annotations.  Revision snapshots / diffs are intentionally left untouched
-    because their ``checksum_base`` / ``checksum_full`` fields refer to that
-    historical content; rewriting would invalidate the chain.  Bulk-import
-    authors only write the current README, so this is a deliberate scope
-    choice — see ``utils/caml_rewrite.py``.
+    On a V2 import:
+
+    * If ``annotated_docs`` already contains a Readme.CAML, skip with a
+      warning (``annotated_docs`` wins).
+    * Otherwise create a ``Readme.CAML`` Document with the
+      ``md_description`` body, replay each revision snapshot as a
+      version-tree sibling (oldest first), and run ``oc-import://`` link
+      rewriting on the synthesized body.
+
+    On a V3 import this function is a no-op — V3 archives do not carry
+    the legacy top-level ``md_description`` / ``md_description_revisions``
+    keys (the Readme.CAML Document rides in ``annotated_docs`` like any
+    other Document).
+
+    The Document ``post_save`` signal (Task 3) cascades the cache refresh
+    onto ``Corpus.description`` / ``.description_preview`` /
+    ``.readme_caml_document_id`` after each ``import_document`` call
+    commits.
 
     Args:
-        md_description: Current markdown description content
-        revisions_data: List of revision dicts
-        corpus: Target Corpus instance
-        user_obj: User performing import
+        md_description: Current markdown description content (V2 only).
+        revisions_data: List of revision dicts (V2 only).
+        corpus: Target Corpus instance.
+        user_obj: User performing import (fallback author when a
+            revision's recorded author_email cannot be resolved).
         doc_filename_to_doc: Optional mapping of zip filename to imported
-            Document instance.  Used to rewrite document references.
-        annot_old_id_to_new_pk: Optional mapping of old annotation id (string
-            or int, as in ``data.json``) to new annotation pk.  Used to
-            rewrite annotation references.
+            Document instance — used to rewrite ``oc-import://`` document
+            references in the synthesized body.
+        annot_old_id_to_new_pk: Optional mapping of old annotation id
+            (string or int, as in ``data.json``) to new annotation pk —
+            used to rewrite ``oc-import://`` annotation references in
+            the synthesized body. Revision snapshots are NOT rewritten
+            (their checksums refer to the historical content; rewriting
+            would invalidate the chain) — see ``utils/caml_rewrite.py``.
+
+    Spec:
+        ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``
+        §4.8.
     """
-    try:
-        # Rewrite oc-import:// links if maps are supplied (bulk-import path).
-        if md_description and (doc_filename_to_doc or annot_old_id_to_new_pk):
-            from opencontractserver.utils.caml_rewrite import rewrite_oc_import_links
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+        MARKDOWN_MIME_TYPE,
+    )
+    from opencontractserver.corpuses.services.corpus_documents import (
+        CorpusDocumentService,
+    )
+    from opencontractserver.documents.models import Document
+    from opencontractserver.documents.versioning import import_document
 
-            # Stats are already logged inside rewrite_oc_import_links and the
-            # import task has no caller to surface them to, so we discard the
-            # tuple's second element here.
-            md_description, _stats = rewrite_oc_import_links(
-                content=md_description,
-                corpus=corpus,
-                doc_filename_to_doc=doc_filename_to_doc or {},
-                annot_old_id_to_new_pk=annot_old_id_to_new_pk or {},
-            )
+    # V3 archives don't carry md_description / revisions — skip silently
+    # so the dispatcher can call this shim unconditionally.
+    if not md_description and not revisions_data:
+        return
 
-        # Import current description
-        if md_description:
-            filename = "description.md"
-            corpus.md_description.save(
-                filename, ContentFile(md_description.encode("utf-8")), save=True
-            )
+    # ``annotated_docs`` wins: if a Readme.CAML Document is already
+    # attached to the corpus (e.g. a hand-crafted V2 artifact, or any V3
+    # path that reached this function with leftover legacy keys) we
+    # leave it alone.
+    existing = CorpusDocumentService.get_corpus_caml_articles(
+        corpus.creator, corpus
+    ).first()
+    if existing is not None:
+        logger.warning(
+            "V2 import: artifact contains md_description but Readme.CAML "
+            "doc already exists in annotated_docs for corpus_id=%s — "
+            "annotated_docs wins, ignoring md_description.",
+            corpus.pk,
+        )
+        return
 
-        # Import revision history
-        for revision_data in revisions_data:
-            # Try to get original author, fall back to import user
-            author_email = revision_data.get("author_email", "")
-            author = User.objects.filter(email=author_email).first() or user_obj
+    # Rewrite ``oc-import://`` links on the current body using the
+    # filename + annotation id maps the importer aggregates while
+    # creating Documents.  Revision snapshots are left untouched.
+    body = md_description or ""
+    if body and (doc_filename_to_doc or annot_old_id_to_new_pk):
+        from opencontractserver.utils.caml_rewrite import rewrite_oc_import_links
 
-            # Parse timestamp
-            created_str = revision_data.get("created", "")
-            created = timezone.now()
-            if created_str:
-                try:
-                    created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
-                except Exception:
-                    pass
+        body, _stats = rewrite_oc_import_links(
+            content=body,
+            corpus=corpus,
+            doc_filename_to_doc=doc_filename_to_doc or {},
+            annot_old_id_to_new_pk=annot_old_id_to_new_pk or {},
+        )
 
-            CorpusDescriptionRevision.objects.create(
-                corpus=corpus,
-                author=author,
-                version=revision_data["version"],
-                diff=revision_data.get("diff", ""),
-                snapshot=revision_data.get("snapshot"),
-                checksum_base=revision_data.get("checksum_base", ""),
-                checksum_full=revision_data.get("checksum_full", ""),
-                created=created,
-            )
+    # Replay revision snapshots oldest-first via ``import_document`` so
+    # each subsequent call chains into the SAME version_tree (the
+    # workhorse opens the existing ``Readme.CAML`` DocumentPath and
+    # creates a new sibling).  After all revisions land, write the
+    # CURRENT body as the final head so it sits at the top of the
+    # version_tree with revisions trailing as historical siblings.
+    sorted_revisions = sorted(revisions_data, key=lambda r: r.get("version", 0))
+    historical_creates: list[tuple[int, datetime]] = []
 
-        logger.info(f"Imported {len(revisions_data)} description revisions")
+    for rev in sorted_revisions:
+        snap = rev.get("snapshot")
+        if not snap:
+            # Diff-only revisions can't be replayed standalone — the
+            # workhorse needs raw bytes for the new sibling's
+            # ``txt_extract_file``.
+            continue
 
-    except Exception as e:
-        logger.error(f"Error importing markdown description: {e}")
+        # Resolve original author; fall back to the importing user.
+        author_email = rev.get("author_email") or ""
+        author = User.objects.filter(email=author_email).first() or user_obj
+
+        new_head, _status, _path = import_document(
+            corpus=corpus,
+            path=CAML_ARTICLE_TITLE,
+            content=snap.encode("utf-8"),
+            user=author,
+            file_type=MARKDOWN_MIME_TYPE,
+            title=CAML_ARTICLE_TITLE,
+        )
+
+        # Preserve historical ``created`` timestamp when provided.
+        # ``Document.created`` is ``auto_now_add`` so we patch it
+        # post-create via ``QuerySet.update``.
+        created_str = rev.get("created") or ""
+        if created_str:
+            try:
+                created_dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                historical_creates.append((new_head.pk, created_dt))
+            except Exception:
+                logger.debug(
+                    "import_md_description_revisions: could not parse "
+                    "revision created timestamp %r — leaving auto_now_add "
+                    "default in place.",
+                    created_str,
+                )
+
+    # Write the current body as the FINAL head so it lands at the top
+    # of the version_tree.  Always issue this call when ``md_description``
+    # is non-empty so the cache cascade reflects the V2 head body — even
+    # if it's byte-identical to the last revision snapshot, ``import_document``
+    # creates a new sibling (no content-based dedup) and the FK flip is
+    # what matters for the cache refresh signal.
+    if body:
+        import_document(
+            corpus=corpus,
+            path=CAML_ARTICLE_TITLE,
+            content=body.encode("utf-8"),
+            user=user_obj,
+            file_type=MARKDOWN_MIME_TYPE,
+            title=CAML_ARTICLE_TITLE,
+        )
+
+    # Restore historical ``created`` timestamps on the sibling Documents.
+    for pk, created_dt in historical_creates:
+        Document.objects.filter(pk=pk).update(created=created_dt)
+
+    # Cascade the cache refresh deterministically. The Document
+    # ``post_save`` signal also schedules a refresh via
+    # ``transaction.on_commit``, but the importer runs inside a long
+    # outer transaction (especially under ``fork_corpus``'s atomic
+    # wrapper, and inside Django TestCase test transactions), so
+    # on_commit may not fire before the caller reads back the corpus
+    # row.  Calling the helper directly here pins the cache to the
+    # head body the moment this shim completes — duplicate work with
+    # the signal is harmless (idempotent update).
+    from opencontractserver.corpuses.signals import (
+        _refresh_description_cache_for_corpus,
+    )
+
+    _refresh_description_cache_for_corpus(corpus.pk)
+
+    logger.info(
+        "Imported %d description revision snapshot(s) + current body into "
+        "Readme.CAML for corpus_id=%s.",
+        len(sorted_revisions),
+        corpus.pk,
+    )
 
 
 def import_metadata_schema(

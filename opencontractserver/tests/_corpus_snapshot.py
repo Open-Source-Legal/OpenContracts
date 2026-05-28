@@ -32,14 +32,18 @@ from opencontractserver.annotations.models import (
     StructuralAnnotationSet,
 )
 from opencontractserver.constants.corpus_forking import FORK_TITLE_PREFIX
+from opencontractserver.constants.document_processing import (
+    CAML_ARTICLE_TITLE,
+    MARKDOWN_MIME_TYPE,
+)
 from opencontractserver.conversations.models import Conversation  # noqa: E402
 from opencontractserver.conversations.models import ChatMessage, MessageVote
 from opencontractserver.corpuses.models import (
     Corpus,
-    CorpusDescriptionRevision,
     CorpusFolder,
 )
-from opencontractserver.documents.models import DocumentPath
+from opencontractserver.corpuses.services.description_cache import read_caml_body
+from opencontractserver.documents.models import Document, DocumentPath
 
 _FORK_PREFIX_RE = re.compile(rf"^({re.escape(FORK_TITLE_PREFIX)})+")
 
@@ -73,10 +77,18 @@ def snapshot_corpus(
     norm = _strip_fork if strip_fork_prefix else (lambda t: t or "")
 
     # ----- Active corpus-isolated documents via DocumentPath -----
+    #
+    # Excludes the corpus's canonical ``Readme.CAML`` Document — it's an
+    # implementation detail of the description, not a user-facing
+    # document, and is snapshotted separately via the dedicated
+    # ``md_description`` / ``revisions`` slices below.  Matches the
+    # ``include_caml=False`` default on
+    # ``CorpusDocumentService.get_corpus_documents`` so the snapshot's
+    # doc-count slice aligns with the user-visible document surface.
     active_paths = list(
-        DocumentPath.objects.filter(
-            corpus=corpus, is_current=True, is_deleted=False
-        ).select_related("document", "folder", "ingestion_source")
+        DocumentPath.objects.filter(corpus=corpus, is_current=True, is_deleted=False)
+        .exclude(path=CAML_ARTICLE_TITLE, document__file_type=MARKDOWN_MIME_TYPE)
+        .select_related("document", "folder", "ingestion_source")
     )
     active_docs = [p.document for p in active_paths]
 
@@ -260,23 +272,42 @@ def snapshot_corpus(
         )
 
     # ----- Markdown description + revisions -----
+    #
+    # Post-Task 14 the canonical source is the corpus's Readme.CAML
+    # Document (plus its version_tree siblings for revisions).  Read the
+    # current head body via ``read_caml_body`` and list siblings via the
+    # cached FK + ``version_tree_id`` lookup — same shape as the
+    # ``descriptionRevisions`` resolver.
     md_content = ""
-    if corpus.md_description and corpus.md_description.name:
-        with corpus.md_description.open("r") as f:
-            md_content = f.read()
-    revisions = list(
-        CorpusDescriptionRevision.objects.filter(corpus=corpus).order_by("version")
-    )
-    revision_summary = [
-        {
-            "version": r.version,
-            "diff": r.diff,
-            "snapshot": r.snapshot,
-            "checksum_base": r.checksum_base,
-            "checksum_full": r.checksum_full,
-        }
-        for r in revisions
-    ]
+    revision_summary: list[dict[str, Any]] = []
+    head_caml = corpus.readme_caml_document
+    if head_caml is not None:
+        md_content = read_caml_body(head_caml)
+        siblings = list(
+            Document.objects.filter(
+                version_tree_id=head_caml.version_tree_id,
+                title=CAML_ARTICLE_TITLE,
+                file_type=MARKDOWN_MIME_TYPE,
+            ).order_by("pk")
+        )
+        # Snapshot the version-tree siblings as ``(creator_email, body)``
+        # pairs — the historical ``CorpusDescriptionRevision`` columns
+        # (``version``, ``diff``, ``checksum_*``) are gone in the
+        # canonical-CAML world.  Body comparison is the meaningful
+        # round-trip invariant; the PKs / created timestamps get
+        # re-minted on every import.
+        revision_summary = sorted(
+            (
+                {
+                    "creator_email": (
+                        d.creator.email if d.creator_id and d.creator else ""
+                    ),
+                    "body": read_caml_body(d),
+                }
+                for d in siblings
+            ),
+            key=lambda r: (r["body"], r["creator_email"]),
+        )
 
     # ----- Conversations + messages + votes -----
     convs = list(

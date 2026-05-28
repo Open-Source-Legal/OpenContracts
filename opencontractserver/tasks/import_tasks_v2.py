@@ -472,11 +472,16 @@ def _import_corpus(
             if agent_config:
                 import_agent_config(agent_config, corpus_obj)
 
-            # Import markdown description.
+            # V2 back-compat: synthesize a Readme.CAML Document from the
+            # legacy ``md_description`` + ``md_description_revisions`` top-level
+            # keys.  V3 archives don't carry those keys (the CAML doc rides
+            # in ``annotated_docs`` like any other Document), so the call is
+            # a clean no-op on V3 — the shim early-returns on empty input.
             # Pass the doc-filename and annotation id maps so any
             # ``oc-import://`` placeholder links written in the README by
             # the zip author are rewritten to live URLs after all referenced
-            # objects have been created.  See utils/caml_rewrite.py.
+            # objects have been created.  See utils/caml_rewrite.py and
+            # spec §4.8 of the Canonical-CAML refactor.
             md_description = v2_data.get("md_description")
             md_revisions = v2_data.get("md_description_revisions", [])
             if md_description or md_revisions:
@@ -514,6 +519,27 @@ def _import_corpus(
                     user_obj,
                     doc_hash_to_doc=doc_hash_to_corpus_doc,
                 )
+
+            # Refresh description cache deterministically.
+            #
+            # V3 archives carry the Readme.CAML Document inside
+            # ``annotated_docs``, so it lands via the normal
+            # ``_import_document_with_annotations`` path. The Document
+            # ``post_save`` signal schedules a cache refresh via
+            # ``transaction.on_commit``, but the import runs inside a
+            # long outer transaction (and under TestCase test
+            # transactions on_commit may not fire), so on_commit can be
+            # delayed past the point where callers read back the corpus
+            # row. Calling the helper directly here pins
+            # ``corpus.description`` / ``.description_preview`` /
+            # ``.readme_caml_document_id`` to the imported CAML head the
+            # moment the import returns — duplicate work with the signal
+            # is harmless (idempotent update).
+            from opencontractserver.corpuses.signals import (
+                _refresh_description_cache_for_corpus,
+            )
+
+            _refresh_description_cache_for_corpus(corpus_obj.id)
 
         logger.info("Import completed successfully for corpus %s", corpus_obj.id)
         return corpus_obj.id

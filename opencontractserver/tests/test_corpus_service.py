@@ -35,12 +35,22 @@ class TestCorpusServiceUpdateDescription(TestCase):
         )
 
     def test_creator_updates_description_creates_revision(self):
+        """Post-canonical-CAML refactor (Task 8), update_description returns
+        the new Readme.CAML ``Document`` head rather than a
+        ``CorpusDescriptionRevision`` row — same write semantics, new
+        return shape."""
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+
         result = CorpusService.update_description(
             self.creator, self.corpus, "# New description"
         )
         self.assertTrue(result.ok)
         assert result.value is not None
-        self.assertEqual(result.value.version, 1)
+        self.assertEqual(result.value.title, CAML_ARTICLE_TITLE)
+        self.assertEqual(result.value.file_type, MARKDOWN_MIME_TYPE)
 
     def test_unchanged_content_returns_success_with_no_revision(self):
         # Identical to the (empty) current description — no revision created.
