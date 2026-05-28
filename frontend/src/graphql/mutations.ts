@@ -2372,6 +2372,45 @@ export interface RunCorpusActionOutput {
   };
 }
 
+export const START_CORPUS_ACTION_BATCH_RUN = gql`
+  mutation StartCorpusActionBatchRun($corpusActionId: ID!) {
+    startCorpusActionBatchRun(corpusActionId: $corpusActionId) {
+      ok
+      message
+      queuedCount
+      skippedAlreadyRunCount
+      totalActiveDocuments
+      executions {
+        id
+        status
+        document {
+          id
+          title
+        }
+      }
+    }
+  }
+`;
+
+export interface StartCorpusActionBatchRunInput {
+  corpusActionId: string;
+}
+
+export interface StartCorpusActionBatchRunOutput {
+  startCorpusActionBatchRun: {
+    ok: boolean;
+    message: string;
+    queuedCount: number;
+    skippedAlreadyRunCount: number;
+    totalActiveDocuments: number;
+    executions: Array<{
+      id: string;
+      status: string;
+      document: { id: string; title: string } | null;
+    }>;
+  };
+}
+
 export const ADD_TEMPLATE_TO_CORPUS = gql`
   mutation AddTemplateToCorpus($templateId: ID!, $corpusId: ID!) {
     addTemplateToCorpus(templateId: $templateId, corpusId: $corpusId) {

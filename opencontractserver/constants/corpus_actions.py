@@ -45,6 +45,7 @@ DEFAULT_TOOLS_BY_TRIGGER: dict[str, list[str]] = {
     "edit_document": DEFAULT_DOCUMENT_ACTION_TOOLS,
     "new_thread": DEFAULT_THREAD_ACTION_TOOLS,
     "new_message": DEFAULT_THREAD_ACTION_TOOLS,
+    "manual_batch": DEFAULT_DOCUMENT_ACTION_TOOLS,
 }
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,7 @@ TRIGGER_DESCRIPTIONS: dict[str, str] = {
     "edit_document": "was just edited in",
     "new_thread": "triggered by new thread in",
     "new_message": "triggered by new message in",
+    "manual_batch": "was batch-processed in",
 }
 
 # ---------------------------------------------------------------------------
@@ -67,3 +69,13 @@ MAX_DESCRIPTION_PREVIEW_LENGTH = 500
 
 # Max characters of a thread message preview in the system prompt.
 MAX_MESSAGE_PREVIEW_LENGTH = 200
+
+# ---------------------------------------------------------------------------
+# Manual batch-run limits
+# ---------------------------------------------------------------------------
+# Hard cap on the number of documents a single batch-run mutation may queue.
+# Prevents one click from fanning out hundreds of agent runs and flooding the
+# LLM rate limit. If the eligible-document set exceeds this, the mutation
+# refuses; the user is expected to narrow scope or wait for in-flight runs
+# to complete before pressing again.
+BATCH_RUN_MAX_DOCS = 200

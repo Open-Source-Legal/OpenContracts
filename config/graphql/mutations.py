@@ -83,6 +83,7 @@ from config.graphql.corpus_mutations import (
     RemoveDocumentsFromCorpus,
     RunCorpusAction,
     SetCorpusVisibility,
+    StartCorpusActionBatchRun,
     StartCorpusFork,
     ToggleCorpusMemory,
     UpdateCorpusAction,
@@ -189,6 +190,12 @@ from config.graphql.pipeline_settings_mutations import (
     UpdateComponentSecretsMutation,
     UpdatePipelineSettingsMutation,
     UpdateToolSecretsMutation,
+)
+
+# Import research mutations
+from config.graphql.research_mutations import (
+    CancelResearchReport,
+    StartResearchReport,
 )
 
 # Import smart label mutations
@@ -307,6 +314,7 @@ class Mutation(graphene.ObjectType):
     update_corpus_action = UpdateCorpusAction.Field()
     delete_corpus_action = DeleteCorpusAction.Field()
     run_corpus_action = RunCorpusAction.Field()
+    start_corpus_action_batch_run = StartCorpusActionBatchRun.Field()
     add_template_to_corpus = AddTemplateToCorpus.Field()
     toggle_corpus_memory = ToggleCorpusMemory.Field()
 
@@ -406,6 +414,10 @@ class Mutation(graphene.ObjectType):
     mark_notification_unread = MarkNotificationUnreadMutation.Field()
     mark_all_notifications_read = MarkAllNotificationsReadMutation.Field()
     delete_notification = DeleteNotificationMutation.Field()
+
+    # RESEARCH REPORT MUTATIONS #################################################
+    start_research_report = StartResearchReport.Field()
+    cancel_research_report = CancelResearchReport.Field()
 
     # AGENT CONFIGURATION MUTATIONS ##############################################
     create_agent_configuration = CreateAgentConfigurationMutation.Field()

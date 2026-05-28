@@ -221,13 +221,18 @@ class CorpusQueryMixin:
         Get all folders in a corpus.
         Returns flat list - frontend reconstructs tree from parentId relationships.
 
-        Delegates to FolderCRUDService.get_visible_folders() for
-        permission checking and query optimization.
+        Delegates to ``FolderCRUDService.get_visible_folders_with_aggregates``
+        so ``path`` / ``documentCount`` / ``descendantDocumentCount`` arrive
+        pre-attached on each folder instance. Without this the per-folder
+        resolvers in ``CorpusFolderType`` fire a recursive ancestor CTE plus
+        a recursive descendant CTE plus two ``COUNT``s per folder, which
+        fans out to hundreds of round-trips on a corpus with ~100 folders
+        and was the root cause of the 10-20 s folder-browser load.
         """
         from opencontractserver.corpuses.services import FolderCRUDService
 
         _, corpus_pk = from_global_id(corpus_id)
-        return FolderCRUDService.get_visible_folders(
+        return FolderCRUDService.get_visible_folders_with_aggregates(
             user=info.context.user,
             corpus_id=int(corpus_pk),
             request=info.context,
