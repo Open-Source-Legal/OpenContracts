@@ -18,6 +18,16 @@ POST /api/imports/documents-zip/
     queues ``process_documents_zip`` (see
     ``opencontractserver/tasks/import_tasks.py``). Returns a ``job_id``
     for status polling via the existing GraphQL job-status resolver.
+
+POST /api/imports/zip-to-corpus/
+    Bulk zip import **preserving folder structure** into a specific
+    corpus. Queues ``import_zip_with_folder_structure``. Returns a
+    ``job_id`` for status polling.
+
+POST /api/imports/corpus/
+    OpenContracts corpus-export zip import. Creates a new corpus owned
+    by the requester and queues ``import_corpus`` to hydrate it from
+    the export. Returns the placeholder ``corpus_id``.
 """
 
 from __future__ import annotations
@@ -37,13 +47,17 @@ from rest_framework.views import APIView
 
 from config.rest_jwt_auth import GraphQLJWTAuthentication
 from opencontractserver.document_imports.serializers import (
+    CorpusExportImportSerializer,
     DocumentImportSerializer,
     DocumentsZipImportSerializer,
+    ZipToCorpusImportSerializer,
 )
 from opencontractserver.document_imports.services import (
     DocumentImportPermissionError,
+    import_corpus_export_for_user,
     import_document_for_user,
     import_documents_zip_for_user,
+    import_zip_to_corpus_for_user,
 )
 
 logger = logging.getLogger(__name__)
@@ -236,6 +250,116 @@ class DocumentsZipImportView(APIView):
                 "ok": True,
                 "job_id": result.job_id,
                 "message": f"Import started. Job ID: {result.job_id}",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ZipToCorpusImportView(APIView):
+    """
+    Bulk-zip import that **preserves folder structure** into a specific
+    corpus. Replaces the legacy ``ImportZipToCorpus`` GraphQL mutation.
+
+    Auth and throttling intentionally match the other ``/api/imports/*``
+    views — bearer JWT only, ``DocumentImportThrottle`` scope.
+    """
+
+    authentication_classes = [GraphQLJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [DocumentImportThrottle]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request: Request) -> Response:
+        serializer = ZipToCorpusImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        uploaded: UploadedFile = cast(UploadedFile, data["file"])
+        oversize = _enforce_size_cap(uploaded)
+        if oversize is not None:
+            return oversize
+
+        try:
+            result = import_zip_to_corpus_for_user(
+                user=request.user,
+                zip_source=uploaded,
+                corpus_id=data["corpus_id"],
+                target_folder_id=_normalise_optional(data.get("target_folder_id")),
+                title_prefix=_normalise_optional(data.get("title_prefix")),
+                description=_normalise_optional(data.get("description")),
+                custom_meta=data.get("custom_meta") or None,
+                make_public=bool(data.get("make_public", False)),
+            )
+        except DocumentImportPermissionError as e:
+            logger.info("Zip-to-corpus import denied", extra={"code": e.code})
+            return Response(
+                {"ok": False, "error": _public_permission_message(e.code)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if result.error or result.job_id is None:
+            return Response(
+                {"ok": False, "error": result.error or "Import failed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "ok": True,
+                "job_id": result.job_id,
+                "message": f"Import started. Job ID: {result.job_id}",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CorpusExportImportView(APIView):
+    """
+    OpenContracts corpus-export zip import. Replaces the legacy
+    ``UploadCorpusImportZip`` GraphQL mutation.
+
+    Creates a new placeholder corpus owned by the requester and queues
+    ``import_corpus`` to hydrate it from the uploaded export.
+    """
+
+    authentication_classes = [GraphQLJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [DocumentImportThrottle]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request: Request) -> Response:
+        serializer = CorpusExportImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        uploaded: UploadedFile = cast(UploadedFile, data["file"])
+        oversize = _enforce_size_cap(uploaded)
+        if oversize is not None:
+            return oversize
+
+        try:
+            result = import_corpus_export_for_user(
+                user=request.user,
+                zip_source=uploaded,
+            )
+        except DocumentImportPermissionError as e:
+            logger.info("Corpus-export import denied", extra={"code": e.code})
+            return Response(
+                {"ok": False, "error": _public_permission_message(e.code)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if result.error or result.corpus is None:
+            return Response(
+                {"ok": False, "error": result.error or "Import failed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "ok": True,
+                "corpus_id": result.corpus.id,
+                "message": "Import started.",
             },
             status=status.HTTP_202_ACCEPTED,
         )
