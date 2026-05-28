@@ -26,6 +26,7 @@ from typing import Any
 from django.db.models import Q, QuerySet
 
 from opencontractserver.constants.annotations import (
+    GEOGRAPHIC_PIN_SAMPLE_DOC_LIMIT,
     OC_CITY_LABEL,
     OC_COUNTRY_LABEL,
     OC_STATE_LABEL,
@@ -45,12 +46,6 @@ _LABEL_TYPE_TO_LABEL_TEXT: dict[str, str] = {
 }
 
 _ALL_GEO_LABELS = frozenset(_LABEL_TYPE_TO_LABEL_TEXT.values())
-
-# Cap on the ``sample_document_ids`` list returned per pin so a hotspot
-# (e.g. 10k documents tagged "New York") doesn't ship an enormous list
-# to the client. The frontend uses this preview to decide whether to
-# expand the pin into a side panel — it doesn't need the full set.
-_PIN_SAMPLE_DOC_LIMIT = 5
 
 
 def _validate_label_types(label_types: list[str] | None) -> None:
@@ -107,29 +102,22 @@ class GeographicPin:
 def _label_type_label_filter(label_types: list[str] | None) -> Q:
     """Build a ``Q`` filter constraining annotations to the geographic labels.
 
-    When ``label_types`` is None we want every geographic label; when the
-    caller passes an explicit list we narrow to that subset. Unknown
-    label-type strings raise rather than silently degrading to "all" —
-    surfacing the misconfiguration to the API caller is safer than
-    quietly broadening the result set.
+    Pre-condition: ``label_types`` has already been validated by
+    :func:`_validate_label_types` (the public service methods call it).
+    Building the queryset is the only responsibility here.
     """
     target_texts: list[str] = []
     if label_types is None:
         target_texts.extend(_ALL_GEO_LABELS)
     else:
         for lt in label_types:
-            if lt not in _LABEL_TYPE_TO_LABEL_TEXT:
-                raise ValueError(
-                    f"Unknown label_type '{lt}'; expected one of "
-                    f"{sorted(_LABEL_TYPE_TO_LABEL_TEXT)}"
-                )
             target_texts.append(_LABEL_TYPE_TO_LABEL_TEXT[lt])
     return Q(annotation_label__text__in=target_texts)
 
 
 def _row_to_pin(row: dict) -> GeographicPin:
     """Project a grouped row from ``aggregate_pins`` into a ``GeographicPin``."""
-    sample_ids = row["sample_ids"][:_PIN_SAMPLE_DOC_LIMIT]
+    sample_ids = row["sample_ids"][:GEOGRAPHIC_PIN_SAMPLE_DOC_LIMIT]
     return GeographicPin(
         canonical_name=row["canonical_name"],
         label_type=row["label_type"],
@@ -235,7 +223,7 @@ def _aggregate_pins(
             continue
         if doc_id and doc_id not in bucket["document_count_set"]:
             bucket["document_count_set"].add(doc_id)
-            if len(bucket["sample_ids"]) < _PIN_SAMPLE_DOC_LIMIT:
+            if len(bucket["sample_ids"]) < GEOGRAPHIC_PIN_SAMPLE_DOC_LIMIT:
                 bucket["sample_ids"].append(doc_id)
 
     pins: list[GeographicPin] = []

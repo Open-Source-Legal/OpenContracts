@@ -379,6 +379,15 @@ def resolve_place(
         hints)`` always produces the same answer, by design. Refreshing
         the bundled dataset is the only way to change a result; see
         ``docs/credits/geonames.md`` for the regeneration recipe.
+
+        **Hint fallback semantics.** When ``country_hint`` / ``state_hint``
+        narrow the candidate pool to zero rows (e.g. a typo'd hint, or a
+        hint that points at a country slice this dataset doesn't carry —
+        only US states are bundled today), the resolver falls back to
+        the unfiltered candidate pool rather than returning ``None``.
+        This keeps user experience graceful when a hint is best-effort.
+        Callers that need hint-strict matching can verify the returned
+        ``ResolvedPlace.admin_codes`` against the hint after the call.
     """
     if not text or not isinstance(text, str):
         return None

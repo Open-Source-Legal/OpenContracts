@@ -127,6 +127,16 @@ class ResolvePlaceStateTests(SimpleTestCase):
     def test_no_match_returns_none(self):
         self.assertIsNone(resolve_place("Zzzqqq", "state"))
 
+    def test_non_us_country_hint_falls_back_to_unfiltered(self):
+        # Bundled state data is US-only. A non-US ``country_hint``
+        # narrows the candidate pool to zero — per the documented hint
+        # fallback semantics, the resolver should fall back to the
+        # unfiltered pool rather than returning None, so the user's
+        # text isn't lost to a best-effort hint that didn't apply.
+        result = _must_resolve("Texas", "state", country_hint="France")
+        self.assertEqual(result.canonical_name, "Texas")
+        self.assertEqual(result.admin_codes["admin1"], "TX")
+
 
 class ResolvePlaceCityTests(SimpleTestCase):
     """City lookups — covers disambiguation via hints."""

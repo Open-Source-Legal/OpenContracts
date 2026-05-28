@@ -49,6 +49,14 @@ OC_COUNTRY_LABEL_DESCRIPTION = "Geocoded country reference"
 OC_STATE_LABEL_DESCRIPTION = "Geocoded state / first-level admin division"
 OC_CITY_LABEL_DESCRIPTION = "Geocoded city / locality reference"
 
+# Per-pin cap on the bounded ``sample_document_ids`` preview shipped with
+# each map aggregation row. The frontend uses this preview to decide
+# whether to expand the pin into a side panel — the side panel pulls the
+# full document set on demand, so the preview only needs to be enough to
+# show "yes, multiple documents here". Five is the size at which the
+# preview comfortably fits a hover/popover without overflowing.
+GEOGRAPHIC_PIN_SAMPLE_DOC_LIMIT = 5
+
 # Built-in relationship label name for subtree group rows materialized
 # during structural-annotation ingestion. One row per non-leaf node:
 # source_annotations = [ancestor], target_annotations = [transitive descendants].
