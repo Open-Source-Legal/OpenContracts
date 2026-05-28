@@ -14,6 +14,7 @@ from opencontractserver.llms.agents.core_agents import (
     _is_public,
     get_default_config,
 )
+from opencontractserver.llms.llm_registry import resolve_model_spec
 from opencontractserver.llms.tools.tool_factory import (
     CoreTool,
     UnifiedToolFactory,
@@ -184,29 +185,9 @@ class UnifiedAgentFactory:
         # Back-compat: `restrict_tools=True` without names does nothing useful
         kwargs.pop("restrict_tools", None)
 
-        config = get_default_config(
-            user_id=user_id,
-            model_name=model or kwargs.get("model_name"),
-            system_prompt=system_prompt,
-            temperature=temperature or kwargs.get("temperature", 0.7),
-            max_tokens=max_tokens,
-            streaming=(
-                streaming if streaming is not None else kwargs.get("streaming", True)
-            ),
-            conversation=conversation,
-            conversation_id=conversation_id,
-            loaded_messages=loaded_messages,
-            embedder_path=embedder_path,
-            tools=tools or [],
-            **persistence_flags,
-            **kwargs,
-        )
-
-        # --------------------------------------------------------------
-        # Public corpus/document ⇒ strip approval-gated tools
-        # --------------------------------------------------------------
-
-        # Resolve privacy status (best-effort – failures default to private)
+        # Resolve privacy status (best-effort – failures default to private).
+        # We do this BEFORE building ``AgentConfig`` so the corpus's
+        # ``preferred_llm`` can feed into the model resolver below.
         try:
             doc_obj = (
                 document
@@ -227,6 +208,39 @@ class UnifiedAgentFactory:
             # For other exceptions (e.g., network errors), default to private
             doc_obj = None
             corpus_obj = None
+
+        # Resolve the LLM model spec via the canonical priority chain:
+        #   explicit call arg → corpus default → settings.
+        # Per-agent (``AgentConfiguration``) overrides are layered in by
+        # the caller — they pass ``model=agent_config.preferred_llm``
+        # into this factory, which becomes the ``explicit`` arg here and
+        # naturally wins over the corpus default.
+        resolved_model = resolve_model_spec(
+            explicit=model or kwargs.get("model_name"),
+            corpus_preferred=getattr(corpus_obj, "preferred_llm", None),
+        )
+
+        config = get_default_config(
+            user_id=user_id,
+            model_name=resolved_model,
+            system_prompt=system_prompt,
+            temperature=temperature or kwargs.get("temperature", 0.7),
+            max_tokens=max_tokens,
+            streaming=(
+                streaming if streaming is not None else kwargs.get("streaming", True)
+            ),
+            conversation=conversation,
+            conversation_id=conversation_id,
+            loaded_messages=loaded_messages,
+            embedder_path=embedder_path,
+            tools=tools or [],
+            **persistence_flags,
+            **kwargs,
+        )
+
+        # --------------------------------------------------------------
+        # Public corpus/document ⇒ strip approval-gated tools
+        # --------------------------------------------------------------
 
         # Corpus memory injection
         if corpus_obj and getattr(corpus_obj, "memory_enabled", False):
@@ -369,9 +383,35 @@ class UnifiedAgentFactory:
         if "skip_approval_gate" in kwargs:
             deps_kwargs["skip_approval_gate"] = kwargs.pop("skip_approval_gate")
 
+        # Resolve corpus first so its ``preferred_llm`` can feed into the
+        # model resolver below.
+        try:
+            corpus_obj = (
+                corpus
+                if isinstance(corpus, Corpus)
+                else await Corpus.objects.aget(id=corpus)
+            )
+        except Corpus.DoesNotExist:
+            # Re-raise this exception so callers can handle it appropriately
+            raise
+        except Exception:
+            # For other exceptions (e.g., network errors), default to private
+            corpus_obj = None
+
+        # Resolve the LLM model spec via the canonical priority chain:
+        #   explicit call arg → corpus default → settings.
+        # Per-agent (``AgentConfiguration``) overrides are layered in by
+        # the caller — they pass ``model=agent_config.preferred_llm``
+        # into this factory, which becomes the ``explicit`` arg here and
+        # naturally wins over the corpus default.
+        resolved_model = resolve_model_spec(
+            explicit=model or kwargs.get("model_name"),
+            corpus_preferred=getattr(corpus_obj, "preferred_llm", None),
+        )
+
         config = get_default_config(
             user_id=user_id,
-            model_name=model or kwargs.get("model_name"),
+            model_name=resolved_model,
             system_prompt=system_prompt,
             temperature=temperature or kwargs.get("temperature", 0.7),
             max_tokens=max_tokens,
@@ -390,20 +430,6 @@ class UnifiedAgentFactory:
         # --------------------------------------------------------------
         # Public corpus/document ⇒ strip approval-gated tools
         # --------------------------------------------------------------
-
-        # Resolve privacy status (best-effort – failures default to private)
-        try:
-            corpus_obj = (
-                corpus
-                if isinstance(corpus, Corpus)
-                else await Corpus.objects.aget(id=corpus)
-            )
-        except Corpus.DoesNotExist:
-            # Re-raise this exception so callers can handle it appropriately
-            raise
-        except Exception:
-            # For other exceptions (e.g., network errors), default to private
-            corpus_obj = None
 
         # Corpus memory injection
         if corpus_obj and getattr(corpus_obj, "memory_enabled", False):

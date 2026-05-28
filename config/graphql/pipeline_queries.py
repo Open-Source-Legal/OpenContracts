@@ -72,9 +72,14 @@ class PipelineQueryMixin:
             else:
                 # Get compatible components from cached registry
                 components_data = get_components_by_mimetype_cached(mime_type_str)
+            # MIME-filtered queries do not return LLM providers (they are
+            # not file-type-scoped), so we leave them out of the response
+            # to keep the contract explicit.
+            llm_providers_data: Sequence[PipelineComponentDefinition] = ()
         else:
             # Get all components from cached registry
             components_data = get_all_components_cached()
+            llm_providers_data = components_data.get("llm_providers", ())
 
         user = info.context.user
 
@@ -172,6 +177,11 @@ class PipelineQueryMixin:
             )
             if defn.vector_size is not None:
                 component_info.vector_size = defn.vector_size
+            # LLM-provider routing fields (set only for LLM providers).
+            if defn.provider_key:
+                component_info.provider_key = defn.provider_key
+                component_info.supported_models = list(defn.supported_models)
+                component_info.requires_api_key = defn.requires_api_key
             return component_info
 
         return PipelineComponentsType(
@@ -190,6 +200,9 @@ class PipelineQueryMixin:
             rerankers=[
                 to_graphql_type(d, "reranker")
                 for d in components_data.get("rerankers", [])
+            ],
+            llm_providers=[
+                to_graphql_type(d, "llm_provider") for d in llm_providers_data
             ],
         )
 

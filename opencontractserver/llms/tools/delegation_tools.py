@@ -291,6 +291,11 @@ def build_delegation_tool(
         }
         if agent.system_instructions:
             common_kwargs["system_prompt"] = agent.system_instructions
+        # Per-agent LLM override: when the AgentConfiguration pins a
+        # specific model the sub-agent runs on that one, otherwise the
+        # factory's resolver falls back to the corpus / settings default.
+        if agent.preferred_llm:
+            common_kwargs["model"] = agent.preferred_llm
 
         try:
             if document is not None:

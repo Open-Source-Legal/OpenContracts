@@ -107,6 +107,23 @@ class AgentConfiguration(BaseOCModel):
         help_text="Subset of tools that require explicit user permission to use",
     )
 
+    # LLM override
+    #
+    # When set, agent invocations driven by this configuration use the
+    # specified pydantic-ai model spec instead of the corpus default.
+    # Spec format is ``"{provider_key}:{model_name}"`` (e.g.
+    # ``"anthropic:claude-haiku-4-5"``); bare names default to openai
+    # for back-compat. Empty / null falls through to the corpus
+    # ``preferred_llm`` and then to settings.
+    preferred_llm = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        help_text="Optional pydantic-ai model spec to use when this agent runs "
+        "(e.g. 'anthropic:claude-haiku-4-5'). Overrides Corpus.preferred_llm. "
+        "Empty falls back to the corpus default, then settings.",
+    )
+
     # Display
     badge_config = models.JSONField(
         default=dict,
@@ -175,7 +192,24 @@ class AgentConfiguration(BaseOCModel):
         return f"{self.name}{scope_label}"
 
     def save(self, *args, **kwargs):
-        """Auto-generate slug from name if not provided."""
+        """Auto-generate slug and validate preferred_llm before saving."""
+        # Validate / normalise preferred_llm so we never persist a
+        # malformed spec or a provider we can't route to.
+        if self.preferred_llm:
+            from django.core.exceptions import ValidationError
+
+            from opencontractserver.llms.llm_registry import (
+                LLMProviderNotRegistered,
+                normalise_model_spec,
+                validate_model_spec,
+            )
+
+            try:
+                validate_model_spec(self.preferred_llm)
+            except (ValueError, LLMProviderNotRegistered) as exc:
+                raise ValidationError({"preferred_llm": str(exc)}) from exc
+            self.preferred_llm = normalise_model_spec(self.preferred_llm)
+
         if not self.slug:
             base_slug = slugify(self.name)
             # Ensure uniqueness by appending a number if needed

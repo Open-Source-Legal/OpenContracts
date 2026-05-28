@@ -172,6 +172,7 @@ class AgentConfigurationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             "is_active",
             "creator",
             "is_public",
+            "preferred_llm",
             "created",
             "modified",
             "mention_format",

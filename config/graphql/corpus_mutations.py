@@ -111,6 +111,12 @@ class CreateCorpusMutation(DRFMutation):
         icon = graphene.String(required=False)
         label_set = graphene.String(required=False)
         preferred_embedder = graphene.String(required=False)
+        preferred_llm = graphene.String(
+            required=False,
+            description="Optional pydantic-ai model spec for this corpus's agents "
+            "(e.g. 'anthropic:claude-opus-4-6'). When unset, agents fall back to "
+            "settings.DEFAULT_LLM / settings.OPENAI_MODEL.",
+        )
         slug = graphene.String(required=False)
         categories = graphene.List(
             graphene.ID, required=False, description="Category IDs to assign"
@@ -170,6 +176,12 @@ class UpdateCorpusMutation(DRFMutation):
         icon = graphene.String(required=False)
         label_set = graphene.String(required=False)
         preferred_embedder = graphene.String(required=False)
+        preferred_llm = graphene.String(
+            required=False,
+            description="Optional pydantic-ai model spec for this corpus's agents "
+            "(e.g. 'anthropic:claude-opus-4-6'). Pass empty string to clear and "
+            "fall back to settings.DEFAULT_LLM / settings.OPENAI_MODEL.",
+        )
         slug = graphene.String(required=False)
         # NOTE: is_public removed - use SetCorpusVisibility mutation instead
         # This prevents bypassing permission checks via UpdateCorpusMutation

@@ -154,6 +154,7 @@ class AgentConfigurationService(BaseService):
         avatar_url: str | None = None,
         corpus: Corpus | None = None,
         is_public: bool = True,
+        preferred_llm: str | None = None,
         request: Any = None,
     ) -> ServiceResult[AgentConfiguration]:
         """Create a new agent configuration.
@@ -196,21 +197,37 @@ class AgentConfigurationService(BaseService):
                     "corpus_id must not be provided for GLOBAL scope agents."
                 )
 
-        agent = AgentConfiguration.objects.create(
-            name=name,
-            slug=slug or "",  # empty triggers auto-generation in ``save()``
-            description=description,
-            system_instructions=system_instructions,
-            available_tools=available_tools or [],
-            permission_required_tools=permission_required_tools or [],
-            badge_config=badge_config or {},
-            avatar_url=avatar_url,
-            scope=scope,
-            corpus=corpus,
-            creator=user,
-            is_public=is_public,
-            is_active=True,
-        )
+        # ``save()`` validates and normalises preferred_llm; raising
+        # ``ValidationError`` from there would bubble up as an
+        # ``IntegrityError``-style failure. Convert that to a clean
+        # ServiceResult.failure so the GraphQL caller gets a usable
+        # message.
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        try:
+            agent = AgentConfiguration.objects.create(
+                name=name,
+                slug=slug or "",  # empty triggers auto-generation in ``save()``
+                description=description,
+                system_instructions=system_instructions,
+                available_tools=available_tools or [],
+                permission_required_tools=permission_required_tools or [],
+                badge_config=badge_config or {},
+                avatar_url=avatar_url,
+                scope=scope,
+                corpus=corpus,
+                creator=user,
+                is_public=is_public,
+                is_active=True,
+                preferred_llm=preferred_llm or None,
+            )
+        except DjangoValidationError as exc:
+            message_dict = getattr(exc, "message_dict", None)
+            if message_dict and "preferred_llm" in message_dict:
+                return ServiceResult.failure(
+                    f"Invalid preferred_llm: {'; '.join(message_dict['preferred_llm'])}"
+                )
+            return ServiceResult.failure(str(exc))
 
         set_permissions_for_obj_to_user(
             user, agent, [PermissionTypes.CRUD], is_new=True, request=request
@@ -234,6 +251,8 @@ class AgentConfigurationService(BaseService):
         avatar_url: str | None = None,
         is_active: bool | None = None,
         is_public: bool | None = None,
+        preferred_llm: str | None = None,
+        clear_preferred_llm: bool = False,
         request: Any = None,
     ) -> ServiceResult[AgentConfiguration]:
         """Update an agent configuration after CRUD-permission verification.
@@ -273,8 +292,27 @@ class AgentConfigurationService(BaseService):
             agent.is_active = is_active
         if is_public is not None:
             agent.is_public = is_public
+        # preferred_llm has explicit None semantics: ``None`` (the
+        # default kwarg) means "no change", whereas ``clear_preferred_llm=True``
+        # explicitly resets the override. This avoids the ambiguity of
+        # using empty string as a clear-signal — empty would fail
+        # validation in ``save()``.
+        if clear_preferred_llm:
+            agent.preferred_llm = None
+        elif preferred_llm is not None:
+            agent.preferred_llm = preferred_llm
 
-        agent.save()
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        try:
+            agent.save()
+        except DjangoValidationError as exc:
+            message_dict = getattr(exc, "message_dict", None)
+            if message_dict and "preferred_llm" in message_dict:
+                return ServiceResult.failure(
+                    f"Invalid preferred_llm: {'; '.join(message_dict['preferred_llm'])}"
+                )
+            return ServiceResult.failure(str(exc))
         cls.log_action("Updated", agent, user)
         return ServiceResult.success(agent)
 
