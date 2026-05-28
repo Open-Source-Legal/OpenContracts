@@ -14,7 +14,6 @@ priority order and returns the canonical model spec.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from django.conf import settings
 
@@ -89,9 +88,9 @@ def validate_model_spec(spec: str) -> None:
 
 def resolve_model_spec(
     *,
-    explicit: Optional[str] = None,
-    agent_preferred: Optional[str] = None,
-    corpus_preferred: Optional[str] = None,
+    explicit: str | None = None,
+    agent_preferred: str | None = None,
+    corpus_preferred: str | None = None,
 ) -> str:
     """Resolve a model spec by walking the documented priority order.
 

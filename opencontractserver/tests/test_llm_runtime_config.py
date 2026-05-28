@@ -11,12 +11,17 @@ Phase 1 of the runtime LLM configuration roadmap.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.corpuses.models import Corpus
+
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User as UserModel
 from opencontractserver.llms.llm_registry import (
     DEFAULT_PROVIDER_KEY,
     LLMProviderNotRegistered,
@@ -166,7 +171,7 @@ class TestPipelineRegistryDiscoversLLMProviders(TestCase):
 
     def test_provider_metadata_round_trips(self):
         anthropic = get_llm_provider_by_key_cached("anthropic")
-        self.assertIsNotNone(anthropic)
+        assert anthropic is not None
         self.assertEqual(anthropic.component_type, ComponentType.LLM_PROVIDER)
         self.assertEqual(anthropic.title, "Anthropic")
         self.assertTrue(anthropic.requires_api_key)
@@ -174,7 +179,7 @@ class TestPipelineRegistryDiscoversLLMProviders(TestCase):
 
     def test_ollama_marked_no_api_key(self):
         ollama = get_llm_provider_by_key_cached("ollama")
-        self.assertIsNotNone(ollama)
+        assert ollama is not None
         self.assertFalse(ollama.requires_api_key)
 
     def test_unknown_provider_returns_none(self):
@@ -195,6 +200,8 @@ class TestPipelineRegistryDiscoversLLMProviders(TestCase):
 
 
 class TestCorpusPreferredLLMField(TestCase):
+    user: UserModel
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -268,6 +275,8 @@ class TestCorpusPreferredLLMField(TestCase):
 
 
 class TestAgentConfigurationPreferredLLMField(TestCase):
+    user: UserModel
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -316,6 +325,8 @@ class TestAgentConfigurationPreferredLLMField(TestCase):
 
 class TestAgentFactoryUsesPriorityChain(TestCase):
     """End-to-end test that the factory threads the resolver through."""
+
+    user: UserModel
 
     @classmethod
     def setUpTestData(cls):
@@ -414,6 +425,8 @@ class TestDelegationToolPassesAgentPreferredLLM(TestCase):
     end-to-end integration tests already covering @-mention agent
     responses.
     """
+
+    user: UserModel
 
     @classmethod
     def setUpTestData(cls):
