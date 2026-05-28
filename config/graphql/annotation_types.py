@@ -53,6 +53,13 @@ class AnnotationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectT
 
 class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     json = GenericScalar()  # noqa
+    # ``data`` carries label-specific structured metadata (e.g. the
+    # ``{canonical_name, lat, lng, admin_codes, geocoded}`` payload that
+    # the OC_COUNTRY/OC_STATE/OC_CITY mutations write — see #1819).
+    # Declared explicitly as ``GenericScalar`` so graphene-django doesn't
+    # try to coerce the JSONField into a typed graphene field; the
+    # existing ``json`` declaration above uses the same pattern.
+    data = GenericScalar()  # noqa
     annotation_type = graphene.String(
         description="Annotation type (e.g. TOKEN_LABEL, SPAN_LABEL). "
         "Returns raw DB value to avoid enum serialization errors on invalid data.",

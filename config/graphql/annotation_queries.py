@@ -726,3 +726,159 @@ class AnnotationQueryMixin:
         return BaseService.filter_visible(
             Note, info.context.user, request=info.context
         ).get(id=django_pk)
+
+    # GEOGRAPHIC ANNOTATION AGGREGATION ########################
+    # Issue #1819 — surface aggregated map pins without leaking the
+    # underlying annotation rows. The query mixin holds both the corpus
+    # and global flavours so frontend (#1820 / #1821) calls one schema.
+    geographic_annotations_for_corpus = graphene.List(
+        lambda: GeographicAnnotationPinType,
+        corpus_id=graphene.ID(required=True),
+        bbox=graphene.Argument(lambda: BBoxInputType),
+        zoom=graphene.Int(
+            description=(
+                "Optional map zoom level used by the consumer to pick a label "
+                "type. Not currently consumed server-side — the resolver "
+                "returns every label type and lets the client decide which "
+                "to render at the current zoom."
+            )
+        ),
+        label_types=graphene.List(
+            graphene.String,
+            description=(
+                "Optional subset of label types to include: 'country', "
+                "'state', 'city'. Defaults to all three."
+            ),
+        ),
+        description=(
+            "Aggregated geographic pins for a single corpus. Pins are "
+            "deduplicated by ``(label_type, canonical_name, lat, lng)`` and "
+            "ship a bounded ``sample_document_ids`` preview rather than the "
+            "full annotation row set. Document visibility uses MIN(document, "
+            "corpus) so private documents inside a public corpus stay hidden."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_geographic_annotations_for_corpus(
+        self, info, corpus_id, bbox=None, zoom=None, label_types=None
+    ) -> list:
+        """Resolve corpus-scoped pins via :class:`GeographicAnnotationService`.
+
+        ``zoom`` is accepted for forward compatibility with the map UI but
+        is not consumed today; the server returns all label types and the
+        frontend picks the right one for the current cluster threshold.
+        """
+        from opencontractserver.annotations.services import (
+            BBox,
+            GeographicAnnotationService,
+        )
+        from opencontractserver.corpuses.models import Corpus
+
+        django_pk = from_global_id(corpus_id)[1]
+        corpus = BaseService.get_or_none(
+            Corpus, django_pk, info.context.user, request=info.context
+        )
+        # IDOR-safe: same empty response whether the corpus doesn't exist or
+        # is invisible — never leaks existence.
+        if corpus is None:
+            return []
+
+        bbox_obj = None
+        if bbox is not None:
+            bbox_obj = BBox(
+                south=bbox.south, west=bbox.west, north=bbox.north, east=bbox.east
+            )
+
+        return GeographicAnnotationService.aggregate_for_corpus(
+            user=info.context.user,
+            corpus=corpus,
+            bbox=bbox_obj,
+            label_types=label_types,
+            request=info.context,
+        )
+
+    global_geographic_annotations = graphene.List(
+        lambda: GeographicAnnotationPinType,
+        bbox=graphene.Argument(lambda: BBoxInputType),
+        zoom=graphene.Int(),
+        label_types=graphene.List(graphene.String),
+        description=(
+            "Aggregated geographic pins across every annotation visible to "
+            "the requesting user (the Discover map surface). Same shape as "
+            "``geographicAnnotationsForCorpus``."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_global_geographic_annotations(
+        self, info, bbox=None, zoom=None, label_types=None
+    ) -> list:
+        """Resolve global pins via :class:`GeographicAnnotationService`.
+
+        No ``@login_required`` — the Discover page must work for anonymous
+        visitors. ``Annotation.objects.visible_to_user`` enforces the
+        anonymous-friendly visibility rules (public corpus + public
+        document) inside the service.
+        """
+        from opencontractserver.annotations.services import (
+            BBox,
+            GeographicAnnotationService,
+        )
+
+        bbox_obj = None
+        if bbox is not None:
+            bbox_obj = BBox(
+                south=bbox.south, west=bbox.west, north=bbox.north, east=bbox.east
+            )
+
+        return GeographicAnnotationService.aggregate_global(
+            user=info.context.user,
+            bbox=bbox_obj,
+            label_types=label_types,
+            request=info.context,
+        )
+
+
+class BBoxInputType(graphene.InputObjectType):
+    """Map bounding-box input shared by both geographic queries.
+
+    Fields use standard map conventions: ``south <= north``; ``west`` may
+    exceed ``east`` for boxes that cross the antimeridian (180°/-180°
+    longitude seam) and the resolver handles the wrap-around explicitly.
+    """
+
+    south = graphene.Float(required=True)
+    west = graphene.Float(required=True)
+    north = graphene.Float(required=True)
+    east = graphene.Float(required=True)
+
+
+class GeographicAnnotationPinType(graphene.ObjectType):
+    """A single aggregated geographic pin returned to the map UI.
+
+    Mirrors :class:`GeographicPin` from the service layer one-to-one — the
+    resolver projects the dataclass directly into this type via field
+    resolvers below. ``label_type`` is a literal string ("country" /
+    "state" / "city") rather than an enum so a future label-type expansion
+    doesn't break the schema.
+    """
+
+    canonical_name = graphene.String(required=True)
+    label_type = graphene.String(required=True)
+    lat = graphene.Float(required=True)
+    lng = graphene.Float(required=True)
+    document_count = graphene.Int(required=True)
+    sample_document_ids = graphene.List(graphene.ID)
+
+    def resolve_sample_document_ids(self, info) -> list:
+        """Wrap raw integer PKs as Relay global IDs.
+
+        The service layer carries integer PKs for cheap lookup; the GraphQL
+        contract is ``[ID]`` so we encode here. Done in the resolver
+        rather than the service so the service stays decoupled from the
+        Relay encoding scheme.
+        """
+        from graphql_relay import to_global_id
+
+        return [to_global_id("DocumentType", pk) for pk in self.sample_document_ids]
