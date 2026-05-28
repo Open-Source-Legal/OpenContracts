@@ -2285,3 +2285,38 @@ class TestTwoCycleCompactionIntegration(SimpleTestCase):
             max_chars + 10,  # small slack for ellipsis
             "Merged summary must respect the cap after two cycles",
         )
+
+
+class TestCompactionConfigInRunFields(SimpleTestCase):
+    """Tests for the four new in-run history-compaction fields."""
+
+    def test_in_run_defaults_match_constants(self):
+        from opencontractserver.constants.context_guardrails import (
+            IN_RUN_DROP_THINKING_DEFAULT,
+            IN_RUN_KEEP_RECENT_PAIRS,
+            IN_RUN_TOOL_RETURN_TARGET_CHARS,
+        )
+
+        cfg = CompactionConfig()
+        self.assertTrue(cfg.in_run_enabled)
+        self.assertEqual(cfg.in_run_keep_recent_pairs, IN_RUN_KEEP_RECENT_PAIRS)
+        self.assertEqual(
+            cfg.in_run_tool_return_target_chars, IN_RUN_TOOL_RETURN_TARGET_CHARS
+        )
+        self.assertEqual(cfg.in_run_drop_thinking, IN_RUN_DROP_THINKING_DEFAULT)
+
+    def test_in_run_keep_recent_pairs_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_keep_recent_pairs=0)
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_keep_recent_pairs=-1)
+
+    def test_in_run_tool_return_target_chars_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_tool_return_target_chars=0)
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_tool_return_target_chars=-100)
+
+    def test_in_run_enabled_false_constructs_cleanly(self):
+        cfg = CompactionConfig(in_run_enabled=False)
+        self.assertFalse(cfg.in_run_enabled)
