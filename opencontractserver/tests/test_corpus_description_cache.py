@@ -168,3 +168,167 @@ class BackfillCamlDocForCorpusTest(TestCase):
         corpus.refresh_from_db()
         self.assertEqual(corpus.description, "")
         self.assertIsNone(corpus.readme_caml_document_id)
+
+
+class ReadmeCamlSignalTest(TestCase):
+    """Tests for Task 3's Document/DocumentPath signal handlers that keep
+    ``Corpus.description``, ``Corpus.description_preview``, and
+    ``Corpus.readme_caml_document_id`` in sync with the canonical
+    Readme.CAML body.
+
+    All trigger code is wrapped in ``captureOnCommitCallbacks`` because
+    the signal defers its cache writes to ``transaction.on_commit``;
+    inside a Django ``TestCase`` no real commit ever fires, so without
+    capturing the callbacks the cache refresh would never run.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            username="caml-signal-user", password="x"
+        )
+
+    def _create_caml(self, corpus, body):
+        """Create the corpus's Readme.CAML doc via the canonical
+        ``import_document`` path.
+
+        Wrapped in ``captureOnCommitCallbacks(execute=True)`` so the
+        post-commit cache-refresh callback actually fires inside the
+        test's outer atomic block.
+        """
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+        from opencontractserver.documents.versioning import import_document
+
+        with self.captureOnCommitCallbacks(execute=True):
+            doc, _status, _path = import_document(
+                corpus=corpus,
+                path=CAML_ARTICLE_TITLE,
+                content=body.encode("utf-8"),
+                user=self.user,
+                file_type=MARKDOWN_MIME_TYPE,
+                title=CAML_ARTICLE_TITLE,
+            )
+        return doc
+
+    def test_creating_caml_doc_populates_corpus_cache(self):
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        doc = self._create_caml(corpus, "# Hello\n\nWorld.")
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Hello\n\nWorld.")
+        self.assertEqual(corpus.description_preview, "Hello")
+        self.assertEqual(corpus.readme_caml_document_id, doc.pk)
+
+    def test_editing_caml_body_refreshes_cache(self):
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        old_doc = self._create_caml(corpus, "Old body.")
+        new_doc = self._create_caml(corpus, "New body.")
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "New body.")
+        self.assertEqual(corpus.description_preview, "New body.")
+        self.assertEqual(corpus.readme_caml_document_id, new_doc.pk)
+        self.assertNotEqual(corpus.readme_caml_document_id, old_doc.pk)
+
+    def test_hard_deleting_caml_doc_clears_cache(self):
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        doc = self._create_caml(corpus, "Some body.")
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Some body.")
+        self.assertEqual(corpus.readme_caml_document_id, doc.pk)
+
+        # Hard delete: must remove DocumentPath rows first because
+        # ``DocumentPath.document`` is ``on_delete=PROTECT``. This mirrors
+        # ``permanently_delete_document`` semantics.
+        with self.captureOnCommitCallbacks(execute=True):
+            DocumentPath.objects.filter(document=doc).delete()
+            Document.objects.filter(pk=doc.pk).delete()
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "")
+        self.assertEqual(corpus.description_preview, "")
+        self.assertIsNone(corpus.readme_caml_document_id)
+
+    def test_soft_deleting_caml_doc_via_path_clears_cache(self):
+        """Soft delete = flip the current DocumentPath to is_deleted=True.
+
+        The signal must clear the cache because there's no longer an
+        active path pointing at the Readme.CAML doc.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        doc = self._create_caml(corpus, "Some body.")
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.readme_caml_document_id, doc.pk)
+
+        path = DocumentPath.objects.filter(
+            corpus=corpus, document=doc, is_current=True
+        ).first()
+        self.assertIsNotNone(path)
+        with self.captureOnCommitCallbacks(execute=True):
+            path.is_deleted = True
+            path.save(update_fields=["is_deleted"])
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "")
+        self.assertEqual(corpus.description_preview, "")
+        self.assertIsNone(corpus.readme_caml_document_id)
+
+    def test_non_caml_doc_save_does_not_touch_cache(self):
+        from opencontractserver.documents.versioning import import_document
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        self._create_caml(corpus, "Original.")
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Original.")
+        original_caml_fk = corpus.readme_caml_document_id
+
+        # Create a non-CAML doc in the same corpus. It must not disturb
+        # the cache columns.
+        with self.captureOnCommitCallbacks(execute=True):
+            import_document(
+                corpus=corpus,
+                path="Other.pdf",
+                content=b"unrelated",
+                user=self.user,
+                file_type="application/pdf",
+                title="Other",
+            )
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Original.")
+        self.assertEqual(corpus.description_preview, "Original.")
+        self.assertEqual(corpus.readme_caml_document_id, original_caml_fk)
+
+    def test_direct_cache_write_is_overwritten_on_next_caml_save(self):
+        """Codifies the read-only-cache invariant (spec §4.2):
+        manual writes to ``description`` are silently overwritten on the
+        next Readme.CAML save.
+        """
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        self._create_caml(corpus, "Body one.")
+
+        # Drift the cache by hand-writing via QuerySet.update so
+        # Corpus.save() doesn't immediately recompute description_preview.
+        Corpus.objects.filter(pk=corpus.pk).update(
+            description="hand-written drift"
+        )
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "hand-written drift")
+
+        # Version-up the CAML doc; the signal must overwrite the drift.
+        self._create_caml(corpus, "Body two.")
+
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Body two.")
+        self.assertEqual(corpus.description_preview, "Body two.")
