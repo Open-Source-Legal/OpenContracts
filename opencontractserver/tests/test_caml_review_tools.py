@@ -74,7 +74,15 @@ print("not prose")
 
 
 def _create_caml_doc(corpus: Corpus, user, *, content: str = SAMPLE_CAML) -> Document:
-    """Create a Readme.CAML Document linked to ``corpus`` with ``content``."""
+    """Create a Readme.CAML Document linked to ``corpus`` with ``content``.
+
+    Uses the canonical path ``"Readme.CAML"`` (matching
+    ``CAML_ARTICLE_TITLE``) so that subsequent ``import_document`` calls
+    looking up by that path can find and version-up the existing
+    DocumentPath. Pre-refactor fixtures relied on ``corpus.add_document``
+    auto-generating ``documents/Readme.CAML`` — that prefixed path is
+    not what the canonical write paths use.
+    """
     doc = Document.objects.create(
         title="Readme.CAML",
         creator=user,
@@ -89,7 +97,9 @@ def _create_caml_doc(corpus: Corpus, user, *, content: str = SAMPLE_CAML) -> Doc
         ContentFile(content.encode("utf-8")),
         save=True,
     )
-    linked_doc, _, _ = corpus.add_document(document=doc, user=user)
+    linked_doc, _, _ = corpus.add_document(
+        document=doc, user=user, path="Readme.CAML"
+    )
     return linked_doc
 
 
@@ -541,8 +551,32 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         self.caml_doc = _create_caml_doc(self.corpus, self.owner)
 
     def _read_caml_body(self) -> str:
-        self.caml_doc.refresh_from_db()
-        with self.caml_doc.txt_extract_file.open("r") as fh:
+        """Read the body of the current Readme.CAML head.
+
+        After the canonical-CAML refactor each edit creates a new
+        Document at the head of the version_tree (spec §4.1.1), so
+        ``self.caml_doc`` is the *historical* sibling once an edit lands.
+        Re-resolve the current head via DocumentPath each call.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        path = (
+            DocumentPath.objects.select_related("document")
+            .filter(
+                corpus=self.corpus,
+                path="Readme.CAML",
+                is_current=True,
+                is_deleted=False,
+            )
+            .first()
+        )
+        if path is None:
+            self.caml_doc.refresh_from_db()
+            with self.caml_doc.txt_extract_file.open("r") as fh:
+                return fh.read()
+        head = path.document
+        head.refresh_from_db()
+        with head.txt_extract_file.open("r") as fh:
             return fh.read()
 
     def test_replaces_single_occurrence(self):
@@ -561,7 +595,22 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
             rationale="Add citation pointing at supply-chain annotation.",
         )
         self.assertTrue(result["applied"])
-        self.assertEqual(result["document_id"], self.caml_doc.id)
+        # After the canonical-CAML refactor each edit creates a new
+        # Document at the head of the version_tree (spec §4.1.1) — the
+        # returned document_id therefore points at the new head, NOT
+        # the historical sibling captured in self.caml_doc.
+        from opencontractserver.documents.models import DocumentPath
+
+        current_head = (
+            DocumentPath.objects.get(
+                corpus=self.corpus,
+                path="Readme.CAML",
+                is_current=True,
+                is_deleted=False,
+            ).document
+        )
+        self.assertEqual(result["document_id"], current_head.id)
+        self.assertNotEqual(current_head.id, self.caml_doc.id)
         self.assertIn("{{@cite sentence}}", self._read_caml_body())
 
     def test_zero_matches_raises(self):
@@ -771,18 +820,24 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         self.assertTrue(result["applied"])
         self.assertIn("{{@cite sentence}}", self._read_caml_body())
 
-    def test_old_blob_is_deleted_after_edit(self):
-        """Each edit must rotate to a new blob and clean up the previous one.
+    def test_edit_creates_new_version_tree_sibling(self):
+        """Each edit must create a new Document at the head of the version
+        tree, leaving the previous Document as a historical sibling.
 
-        Without explicit cleanup, ``FieldFile.save`` accumulates orphaned
-        files in storage on every call (it picks a fresh suffixed name on
-        collision rather than overwriting in place). This test pins the
-        behaviour: after an edit, the *previous* blob name no longer
-        exists in storage.
+        After the canonical-CAML refactor (spec §4.1.1) CAML edits no
+        longer overwrite the same blob in place; they go through
+        ``import_document`` which creates a new Document sharing the
+        existing ``version_tree_id`` and flips ``DocumentPath.is_current``
+        flags atomically. The old Document retains its blob — it's a
+        historical version, not orphaned storage.
         """
         from django.core.files.storage import default_storage
 
+        from opencontractserver.documents.models import Document, DocumentPath
+
         old_name = self.caml_doc.txt_extract_file.name
+        old_doc_id = self.caml_doc.id
+        tree_id = self.caml_doc.version_tree_id
         assert old_name, "Fixture CAML doc must have a non-empty file name."
         self.assertTrue(default_storage.exists(old_name))
 
@@ -797,17 +852,29 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
                 "Force majeure clauses were updated in 2023 to "
                 "cover supply-chain shocks. {{@cite sentence}}"
             ),
-            rationale="rotate blob",
+            rationale="version up",
         )
-        self.caml_doc.refresh_from_db()
-        new_name = self.caml_doc.txt_extract_file.name
-        assert new_name, "Edit must leave a non-empty file pointer."
-        self.assertNotEqual(new_name, old_name)
-        self.assertTrue(default_storage.exists(new_name))
-        self.assertFalse(
-            default_storage.exists(old_name),
-            f"Old CAML blob {old_name!r} was orphaned in storage after edit.",
+
+        # New head is a different Document sharing the version_tree_id
+        new_head = DocumentPath.objects.get(
+            corpus=self.corpus,
+            path="Readme.CAML",
+            is_current=True,
+            is_deleted=False,
+        ).document
+        self.assertNotEqual(new_head.id, old_doc_id)
+        self.assertEqual(new_head.version_tree_id, tree_id)
+
+        # Two Documents in the tree now (head + historical sibling)
+        self.assertEqual(
+            Document.objects.filter(version_tree_id=tree_id).count(), 2
         )
+
+        # Both blobs persist — the old one is a historical record, not
+        # orphaned storage.
+        self.assertTrue(default_storage.exists(old_name))
+        self.assertNotEqual(new_head.txt_extract_file.name, old_name)
+        self.assertTrue(default_storage.exists(new_head.txt_extract_file.name))
 
 
 # --------------------------------------------------------------------------- #
