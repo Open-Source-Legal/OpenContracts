@@ -1495,6 +1495,40 @@ class TestRefreshContextBudgetFallback(SimpleTestCase):
             None, AgentConfig(model_name="gpt-4o"), self._make_history_result(0)
         )
 
+    def test_compaction_config_is_copied_to_deps(self):
+        """Per-conversation ``CompactionConfig`` overrides must reach
+        ``agent_deps.compaction`` so the in-run history processor sees
+        them. Regression for the bug where only ``threshold_ratio`` was
+        forwarded and every other knob silently defaulted.
+        """
+        from opencontractserver.llms.agents.core_agents import AgentConfig
+        from opencontractserver.llms.agents.pydantic_ai_agents import (
+            PydanticAICoreAgent,
+        )
+        from opencontractserver.llms.context_guardrails import CompactionConfig
+        from opencontractserver.llms.tools.pydantic_ai_tools import (
+            PydanticAIDependencies,
+        )
+
+        deps = PydanticAIDependencies()
+        custom = CompactionConfig(
+            threshold_ratio=0.42,
+            in_run_enabled=False,
+            in_run_keep_recent_pairs=2,
+            in_run_tool_return_target_chars=123,
+            in_run_drop_thinking=False,
+        )
+        config = AgentConfig(model_name="gpt-4o", compaction=custom)
+
+        PydanticAICoreAgent._apply_context_budget(
+            deps, config, self._make_history_result(0)
+        )
+
+        # The full config is propagated — not just threshold_ratio.
+        self.assertIs(deps.compaction, custom)
+        self.assertEqual(deps.compaction.in_run_keep_recent_pairs, 2)
+        self.assertFalse(deps.compaction.in_run_enabled)
+
 
 class _FakePart:
     """Lightweight pydantic-ai-part stand-in for ``_part_text`` tests."""
@@ -2285,3 +2319,38 @@ class TestTwoCycleCompactionIntegration(SimpleTestCase):
             max_chars + 10,  # small slack for ellipsis
             "Merged summary must respect the cap after two cycles",
         )
+
+
+class TestCompactionConfigInRunFields(SimpleTestCase):
+    """Tests for the four new in-run history-compaction fields."""
+
+    def test_in_run_defaults_match_constants(self):
+        from opencontractserver.constants.context_guardrails import (
+            IN_RUN_DROP_THINKING_DEFAULT,
+            IN_RUN_KEEP_RECENT_PAIRS,
+            IN_RUN_TOOL_RETURN_TARGET_CHARS,
+        )
+
+        cfg = CompactionConfig()
+        self.assertTrue(cfg.in_run_enabled)
+        self.assertEqual(cfg.in_run_keep_recent_pairs, IN_RUN_KEEP_RECENT_PAIRS)
+        self.assertEqual(
+            cfg.in_run_tool_return_target_chars, IN_RUN_TOOL_RETURN_TARGET_CHARS
+        )
+        self.assertEqual(cfg.in_run_drop_thinking, IN_RUN_DROP_THINKING_DEFAULT)
+
+    def test_in_run_keep_recent_pairs_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_keep_recent_pairs=0)
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_keep_recent_pairs=-1)
+
+    def test_in_run_tool_return_target_chars_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_tool_return_target_chars=0)
+        with self.assertRaises(ValueError):
+            CompactionConfig(in_run_tool_return_target_chars=-100)
+
+    def test_in_run_enabled_false_constructs_cleanly(self):
+        cfg = CompactionConfig(in_run_enabled=False)
+        self.assertFalse(cfg.in_run_enabled)

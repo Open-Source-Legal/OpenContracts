@@ -14,8 +14,17 @@ from opencontractserver.constants.context_guardrails import (
     DEFAULT_CONTEXT_WINDOW,
     MAX_TOOL_OUTPUT_CHARS,
 )
-from opencontractserver.llms.context_guardrails import truncate_tool_output
+from opencontractserver.llms.context_guardrails import (
+    CompactionConfig,
+    truncate_tool_output,
+)
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
+
+# Imported for its type, used only in the ``on_in_run_shrink`` callback
+# annotation. ``history_processors`` itself imports from
+# ``context_guardrails`` only (no edge back into ``pydantic_ai_tools``), so
+# there is no circular import to defer behind ``TYPE_CHECKING``.
+from opencontractserver.llms.history_processors import InRunShrinkEvent
 from opencontractserver.llms.tools.tool_factory import CoreTool
 
 logger = logging.getLogger(__name__)
@@ -243,6 +252,22 @@ class PydanticAIDependencies(BaseModel):
         description="Side-channel callback that receives UnifiedStreamEvent objects",
     )
 
+    # Telemetry sink for in-run HistoryProcessor shrinks. The processor in
+    # ``opencontractserver.llms.history_processors`` calls this synchronously
+    # (it is invoked inside pydantic-ai's request-prep path, which is async,
+    # but the callback itself must be sync so it can be safely called from
+    # the request hot path without spawning a task). The callable receives
+    # a single ``InRunShrinkEvent`` instance (see history_processors.py).
+    # Set by ``PydanticAICoreAgent._stream_core`` when streaming; left as
+    # ``None`` for non-streaming chats (which get log-only telemetry).
+    on_in_run_shrink: Optional[Callable[[InRunShrinkEvent], None]] = Field(
+        default=None,
+        description=(
+            "Side-channel callback invoked when the in-run HistoryProcessor "
+            "shrinks the message history. Receives an InRunShrinkEvent."
+        ),
+    )
+
     # Flag to bypass tool approval gates for automated/pre-authorized execution
     # Used by agent-based corpus actions where tools are pre-authorized
     skip_approval_gate: bool = Field(
@@ -311,6 +336,22 @@ class PydanticAIDependencies(BaseModel):
             "Fraction of the context window at which compaction triggers. "
             "Tools should target a budget below this to avoid forcing "
             "compaction on the next turn."
+        ),
+    )
+
+    # Full per-agent compaction configuration. The processor in
+    # ``opencontractserver.llms.history_processors`` reads its in-run
+    # knobs (in_run_enabled, in_run_keep_recent_pairs, ...) from this
+    # field. Defaults to ``CompactionConfig()`` so the production
+    # defaults from ``constants/context_guardrails.py`` apply when no
+    # caller-supplied config is propagated. ``PydanticAICoreAgent``
+    # subclasses copy ``AgentConfig.compaction`` here at construction
+    # time (see ``_apply_context_budget``).
+    compaction: CompactionConfig = Field(
+        default_factory=CompactionConfig,
+        description=(
+            "Full per-agent CompactionConfig; the in-run "
+            "HistoryProcessor reads its knobs from this field."
         ),
     )
 

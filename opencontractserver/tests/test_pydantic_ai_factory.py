@@ -41,6 +41,41 @@ from opencontractserver.llms.agents.pydantic_ai_factory import (
 SENTINEL_INSTRUCTION = "OPENCONTRACTS_SENTINEL_INSTRUCTION_ISSUE_1451"
 
 
+def _agent_capabilities(agent) -> list:
+    """Return the agent's capability list.
+
+    Reaches into ``Agent.root_capability.capabilities`` — a pydantic-ai
+    internal accessor that isn't promised by the public API. Centralised
+    here so a future rename surfaces in a single, well-marked spot
+    instead of three near-identical tests. The wrapping ``AttributeError``
+    fails the test with a precise pointer to this contract.
+
+    Upstream source pointers (pydantic-ai ~1.102.x, the version pinned in
+    ``requirements/base.txt``):
+
+    - ``pydantic_ai/agent/__init__.py`` — ``_root_capability =
+      CombinedCapability(capabilities)`` is constructed in ``Agent``'s
+      ``__init__``-time setup; ``root_capability`` is exposed as a
+      ``@property`` on ``AbstractAgent`` (``pydantic_ai/agent/abstract.py``)
+      and forwarded through ``Agent`` / ``AgentWrapper``.
+    - ``pydantic_ai/capabilities/combined.py`` — ``CombinedCapability``
+      stores the underlying list as the ``capabilities`` attribute.
+
+    When bumping pydantic-ai, sanity-check those two files first; the
+    ``AttributeError`` tripwire below names this docstring so the
+    diagnosis path is obvious.
+    """
+    try:
+        return list(agent.root_capability.capabilities)
+    except AttributeError as exc:  # pragma: no cover - tripwire path
+        raise AssertionError(
+            "pydantic-ai changed its internal capability accessor "
+            "(``Agent.root_capability.capabilities``). See the upstream "
+            "pointers in _agent_capabilities() above; update this helper "
+            "to match the new shape. Original error: " + repr(exc)
+        ) from exc
+
+
 def test_factory_blocks_system_prompt_keyword() -> None:
     """Passing ``system_prompt=<str>`` must fail loudly."""
     with pytest.raises(TypeError, match="system_prompt"):
@@ -139,3 +174,79 @@ def test_instructions_survive_non_empty_message_history() -> None:
         "precedence rules, or the factory has been refactored incorrectly. "
         f"All messages observed: {all_msgs!r}"
     )
+
+
+def test_factory_injects_in_run_history_processor() -> None:
+    """The factory installs shrink_old_artifacts_processor as the first
+    ProcessHistory capability on every constructed Agent."""
+    from pydantic_ai.capabilities import ProcessHistory
+
+    from opencontractserver.llms.history_processors import (
+        shrink_old_artifacts_processor,
+    )
+
+    agent = make_pydantic_ai_agent(
+        model=TestModel(),
+        instructions="placeholder",
+    )
+
+    caps = _agent_capabilities(agent)
+    process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
+    assert len(process_history_caps) >= 1
+    assert process_history_caps[0].processor is shrink_old_artifacts_processor
+
+
+def test_factory_preserves_legacy_history_processors_after_ours() -> None:
+    """Caller-supplied history_processors=[...] (legacy form) are each
+    wrapped in ProcessHistory and appended after ours."""
+    from pydantic_ai.capabilities import ProcessHistory
+
+    from opencontractserver.llms.history_processors import (
+        shrink_old_artifacts_processor,
+    )
+
+    async def caller_proc_one(messages):
+        return messages
+
+    async def caller_proc_two(messages):
+        return messages
+
+    agent = make_pydantic_ai_agent(
+        model=TestModel(),
+        instructions="placeholder",
+        history_processors=[caller_proc_one, caller_proc_two],
+    )
+
+    caps = _agent_capabilities(agent)
+    process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
+    assert len(process_history_caps) == 3
+    assert process_history_caps[0].processor is shrink_old_artifacts_processor
+    assert process_history_caps[1].processor is caller_proc_one
+    assert process_history_caps[2].processor is caller_proc_two
+
+
+def test_factory_preserves_caller_capabilities_after_ours() -> None:
+    """Caller-supplied capabilities=[...] are appended after our
+    ProcessHistory entry — the new API path is also accepted."""
+    from pydantic_ai.capabilities import ProcessHistory
+
+    from opencontractserver.llms.history_processors import (
+        shrink_old_artifacts_processor,
+    )
+
+    async def caller_proc(messages):
+        return messages
+
+    caller_capability = ProcessHistory(caller_proc)
+
+    agent = make_pydantic_ai_agent(
+        model=TestModel(),
+        instructions="placeholder",
+        capabilities=[caller_capability],
+    )
+
+    caps = _agent_capabilities(agent)
+    process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
+    assert len(process_history_caps) == 2
+    assert process_history_caps[0].processor is shrink_old_artifacts_processor
+    assert process_history_caps[1] is caller_capability
