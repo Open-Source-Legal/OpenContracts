@@ -36,7 +36,7 @@ def backfill_created_with_llm(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("corpuses", "0050_corpus_description_preview"),
+        ("corpuses", "0051_add_manual_batch_trigger"),
     ]
 
     operations = [

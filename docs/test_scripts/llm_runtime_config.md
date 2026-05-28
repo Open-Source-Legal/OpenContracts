@@ -10,7 +10,7 @@ set.
 
 ## Prerequisites
 
-- Migrations `corpuses/0051_corpus_preferred_llm` and
+- Migrations `corpuses/0052_corpus_preferred_llm` and
   `agents/0014_agentconfiguration_preferred_llm` applied.
 - A superuser exists (for the Django shell snippets below).
 - Provider API keys in env-vars for any non-Ollama provider you'll
