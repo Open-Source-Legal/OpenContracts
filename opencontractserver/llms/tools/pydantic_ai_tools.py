@@ -219,6 +219,14 @@ class PydanticAIDependencies(BaseModel):
     user_id: Optional[int] = Field(default=None, description="Current user ID")
     document_id: Optional[int] = Field(default=None, description="Current document ID")
     corpus_id: Optional[int] = Field(default=None, description="Current corpus ID")
+    # Populated by the corpus agent factory when the agent is bound to a
+    # conversation. Tools that need to associate a long-running job with
+    # the originating chat (e.g. ``astart_deep_research``) read it from
+    # here rather than trusting an LLM-provided value.
+    conversation_id: Optional[int] = Field(
+        default=None,
+        description="Conversation ID this agent is currently bound to (if any)",
+    )
     # Typed as a Protocol (not the concrete classes) to avoid the circular
     # import between ``opencontractserver.llms.tools.pydantic_ai_tools`` and
     # ``opencontractserver.llms.vector_stores.pydantic_ai_vector_stores``.

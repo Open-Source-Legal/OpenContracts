@@ -164,6 +164,7 @@ LOCAL_APPS = [
     "opencontractserver.document_imports",
     "opencontractserver.discovery",
     "opencontractserver.benchmarks",
+    "opencontractserver.research",
 ]
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -1278,6 +1279,32 @@ PIPELINE_SETTINGS_CACHE_TTL_SECONDS = env.int(
 )
 
 LLMS_DEFAULT_AGENT_FRAMEWORK = "pydantic_ai"
+
+# Deep Research Agent
+# ------------------------------------------------------------------------------
+# Budget knobs for ``opencontractserver.tasks.research_tasks.run_deep_research``.
+# Per-job ``max_steps`` lives on the ResearchReport row; these are the system
+# ceilings and defaults.
+DEEP_RESEARCH_DEFAULT_MAX_STEPS = env.int("DEEP_RESEARCH_DEFAULT_MAX_STEPS", default=60)
+DEEP_RESEARCH_MAX_TOKENS_DEFAULT = env.int(
+    "DEEP_RESEARCH_MAX_TOKENS_DEFAULT", default=400_000
+)
+DEEP_RESEARCH_SOFT_TIME_LIMIT = env.int(
+    "DEEP_RESEARCH_SOFT_TIME_LIMIT", default=60 * 30
+)  # 30 min
+DEEP_RESEARCH_HARD_TIME_LIMIT = env.int(
+    "DEEP_RESEARCH_HARD_TIME_LIMIT", default=60 * 60
+)  # 60 min
+DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS = env.int(
+    "DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS",
+    default=DEEP_RESEARCH_SOFT_TIME_LIMIT * 2,
+)
+DEEP_RESEARCH_SIMILARITY_TOP_K = env.int("DEEP_RESEARCH_SIMILARITY_TOP_K", default=6)
+# Soft-block: don't start a second QUEUED/RUNNING report for the same
+# (user, corpus) within this many seconds.
+DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS = env.int(
+    "DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS", default=60 * 60
+)
 
 # Default Agent Instructions
 # ------------------------------------------------------------------------------

@@ -28,6 +28,7 @@ class JobStatus(str, enum.Enum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
     @classmethod
     def choices(cls):
