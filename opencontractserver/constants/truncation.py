@@ -31,7 +31,10 @@ MAX_DOC_TITLE_FALLBACK_LENGTH = 50
 # Maximum characters of an error message stored in notification data payloads.
 MAX_NOTIFICATION_ERROR_LENGTH = 500
 
-# Maximum characters of the auto-generated Corpus.description_preview field,
-# used for card layouts, list snippets, and hero subtitles where the full
-# markdown/plain-text description would otherwise wrap into a long block.
+# Maximum characters of the Corpus description preview projected from the
+# Readme.CAML document body into ``Corpus.description_preview``. The preview
+# is the single-paragraph excerpt shown in list/card surfaces; the full plain
+# text projection lives in ``Corpus.description``. See the canonical-CAML
+# refactor spec at
+# ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``.
 MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH = 280
