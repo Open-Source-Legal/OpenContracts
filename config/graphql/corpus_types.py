@@ -214,7 +214,7 @@ class CorpusFolderType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         context = info.context
         user = getattr(context, "user", None)
-        if not is_authenticated_user(user):
+        if user is None or not is_authenticated_user(user):
             # Anonymous users still get ``read_corpusfolder`` if the folder
             # itself is public, matching the mixin's public-read branch.
             return ["read_corpusfolder"] if self.is_public else []
