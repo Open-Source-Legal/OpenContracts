@@ -546,6 +546,7 @@ export const GET_CORPUS_WITH_HISTORY = gql`
       slug
       title
       description
+      descriptionPreview
       mdDescription
       icon
       created
@@ -608,6 +609,7 @@ export interface GetCorpusWithHistoryQuery {
     slug?: string | null;
     title: string;
     description: string;
+    descriptionPreview?: string | null;
     mdDescription?: string | null;
     icon?: string | null;
     created: string;
@@ -778,6 +780,7 @@ export const GET_CORPUSES = gql`
             slug
           }
           description
+          descriptionPreview
           isPublic
           isPersonal
           is_selected @client

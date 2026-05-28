@@ -94,6 +94,7 @@ const corpusWithHistoryMock: MockedResponse = {
         slug: "supply-chain-analysis",
         title: "Supply Chain Analysis",
         description: "A corpus of supply chain agreements",
+        descriptionPreview: "A corpus of supply chain agreements",
         mdDescription: null,
         icon: "",
         created: "2024-01-01T00:00:00Z",

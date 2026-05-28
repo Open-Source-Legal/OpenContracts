@@ -30,6 +30,7 @@ const GET_EDITABLE_CORPUSES = gql`
             email
           }
           description
+          descriptionPreview
           documentCount
           labelSet {
             id
@@ -53,6 +54,7 @@ const mockCorpuses = [
       email: "admin@example.com",
     },
     description: "A corpus for analyzing contracts",
+    descriptionPreview: "A corpus for analyzing contracts",
     documentCount: 15,
     labelSet: { id: "TGFiZWxTZXRUeXBlOjE=", title: "Legal Terms" },
     myPermissions: ["read_corpus", "update_corpus"],
@@ -67,6 +69,7 @@ const mockCorpuses = [
       email: "user@example.com",
     },
     description: "Collection of non-disclosure agreements",
+    descriptionPreview: "Collection of non-disclosure agreements",
     documentCount: 8,
     labelSet: null,
     myPermissions: ["read_corpus", "update_corpus"],

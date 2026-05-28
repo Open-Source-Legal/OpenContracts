@@ -17,7 +17,7 @@ mutation + Layers-icon UI button. Confirms that:
 ## Prerequisites
 
 - Local stack up: `docker compose -f local.yml up`.
-- Migrations applied through `corpuses/0050_add_manual_batch_trigger`.
+- Migrations applied through `corpuses/0051_add_manual_batch_trigger`.
 - An LLM API key configured on the `agents.AgentConfiguration` you'll use
   (or test against a lightweight `task_instructions`-only action that just
   exercises the dispatch path — the agent will fail to load the LLM but the

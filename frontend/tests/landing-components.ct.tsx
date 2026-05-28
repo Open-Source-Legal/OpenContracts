@@ -39,6 +39,8 @@ const mockCorpuses = [
       slug: "legal-contracts",
       title: "Legal Contracts Collection",
       description: "A comprehensive collection of legal contracts for analysis",
+      descriptionPreview:
+        "A comprehensive collection of legal contracts for analysis",
       icon: null,
       isPublic: true,
       created: "2024-01-15T10:30:00Z",
@@ -63,6 +65,7 @@ const mockCorpuses = [
       slug: "research-papers",
       title: "Research Papers Archive",
       description: "Academic research papers on various topics",
+      descriptionPreview: "Academic research papers on various topics",
       icon: null,
       isPublic: true,
       created: "2024-02-01T14:00:00Z",

@@ -358,33 +358,11 @@ export const DELETE_EXPORT = gql`
   }
 `;
 
-export interface StartImportCorpusInputs {
-  base64FileString: string;
-}
-
-export interface StartImportCorpusExport {
-  importOpenContractsZip: {
-    ok: boolean;
-    message: string;
-    corpus: CorpusType | null;
-  };
-}
-
-export const START_IMPORT_CORPUS = gql`
-  mutation ($base64FileString: String!) {
-    importOpenContractsZip(base64FileString: $base64FileString) {
-      ok
-      message
-      corpus {
-        id
-        icon
-        description
-        title
-        backendLock
-      }
-    }
-  }
-`;
+// NOTE: ``importOpenContractsZip`` (corpus-export ZIP import) was migrated
+// from GraphQL to multipart REST. See
+// ``frontend/src/utils/importHttp.ts::importCorpusExportMultipart`` and the
+// ``POST /api/imports/corpus/`` endpoint. Base64-encoding large ZIPs into a
+// JSON request body crashed Apollo for files past ~100 MB.
 
 export interface StartForkCorpusInput {
   corpusId: string;
@@ -3573,52 +3551,12 @@ export const DELETE_DOCUMENT_RELATIONSHIP = gql`
 `;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// ZIP IMPORT MUTATION - Imports zip file with folder structure preserved
+/// ZIP IMPORT (folder-structure-preserving) was migrated from GraphQL to
+/// multipart REST. See
+/// ``frontend/src/utils/importHttp.ts::importZipToCorpusMultipart`` and the
+/// ``POST /api/imports/zip-to-corpus/`` endpoint. The base64-over-GraphQL
+/// transport crashed Apollo for ZIPs past ~100 MB.
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export interface ImportZipToCorpusInputs {
-  base64FileString: string;
-  corpusId: string;
-  targetFolderId?: string;
-  titlePrefix?: string;
-  description?: string;
-  customMeta?: Record<string, any>;
-  makePublic: boolean;
-}
-
-export interface ImportZipToCorpusOutputs {
-  importZipToCorpus: {
-    ok: boolean;
-    message: string;
-    jobId?: string;
-  };
-}
-
-export const IMPORT_ZIP_TO_CORPUS = gql`
-  mutation ImportZipToCorpus(
-    $base64FileString: String!
-    $corpusId: ID!
-    $targetFolderId: ID
-    $titlePrefix: String
-    $description: String
-    $customMeta: GenericScalar
-    $makePublic: Boolean!
-  ) {
-    importZipToCorpus(
-      base64FileString: $base64FileString
-      corpusId: $corpusId
-      targetFolderId: $targetFolderId
-      titlePrefix: $titlePrefix
-      description: $description
-      customMeta: $customMeta
-      makePublic: $makePublic
-    ) {
-      ok
-      message
-      jobId
-    }
-  }
-`;
 
 /**
  * Agent configuration CRUD mutations used by CorpusAgentManagement.

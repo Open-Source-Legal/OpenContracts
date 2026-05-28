@@ -97,7 +97,6 @@ from config.graphql.document_mutations import (
     DeleteExport,
     DeleteMultipleDocuments,
     EmptyTrash,
-    ImportZipToCorpus,
     PermanentlyDeleteDocument,
     RestoreDeletedDocument,
     RestoreDocumentToVersion,
@@ -106,7 +105,6 @@ from config.graphql.document_mutations import (
     UpdateDocument,
     UpdateDocumentSummary,
     UploadAnnotatedDocument,
-    UploadCorpusImportZip,
     UploadDocument,
     UploadDocumentsZip,
 )
@@ -323,11 +321,11 @@ class Mutation(graphene.ObjectType):
     move_documents_to_folder = MoveDocumentsToFolderMutation.Field()
 
     # IMPORT MUTATIONS #########################################################
-    import_open_contracts_zip = UploadCorpusImportZip.Field()
+    # Corpus-export ZIP and folder-preserving bulk ZIP imports are exposed
+    # via multipart REST endpoints (/api/imports/corpus/ and
+    # /api/imports/zip-to-corpus/), not GraphQL — base64-over-GraphQL was
+    # crashing Apollo for large files. See opencontractserver/document_imports/.
     import_annotated_doc_to_corpus = UploadAnnotatedDocument.Field()
-    import_zip_to_corpus = (
-        ImportZipToCorpus.Field()
-    )  # Bulk import with folder structure
 
     # EXPORT MUTATIONS #########################################################
     export_corpus = StartCorpusExport.Field()  # Limited by user.is_usage_capped

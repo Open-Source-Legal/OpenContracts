@@ -14,6 +14,7 @@ from .fork_tasks import fork_corpus
 from .import_tasks import (
     import_corpus,
     import_document_to_corpus,
+    import_zip_with_folder_structure,
     process_documents_zip,
 )
 from .lookup_tasks import build_label_lookups_task
@@ -36,6 +37,7 @@ __all__ = [
     "build_label_lookups_task",
     "import_corpus",
     "import_document_to_corpus",
+    "import_zip_with_folder_structure",
     "process_documents_zip",
     "make_corpus_public_task",
     "make_analysis_public_task",

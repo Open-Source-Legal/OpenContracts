@@ -256,10 +256,10 @@ def _create_document_processed_notifications(
         recipients.add(document.creator)
 
     # Add corpus owners from DocumentPath data (bulk fetch to avoid N+1)
-    corpus_creator_ids = {
-        data.get("corpus__creator_id")
+    corpus_creator_ids: set[int] = {
+        data["corpus__creator_id"]
         for data in corpus_data
-        if data.get("corpus__creator_id")
+        if data.get("corpus__creator_id") is not None
     }
     if corpus_creator_ids:
         corpus_creators = User.objects.filter(pk__in=corpus_creator_ids)

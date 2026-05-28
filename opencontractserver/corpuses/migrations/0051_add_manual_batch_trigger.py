@@ -18,7 +18,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("corpuses", "0049_corpusvote_corpus_upvote_count_and_more"),
+        ("corpuses", "0050_corpus_description_preview"),
     ]
 
     operations = [
