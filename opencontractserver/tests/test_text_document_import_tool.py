@@ -10,15 +10,10 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.db.models.signals import post_save
 from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
-from opencontractserver.documents.signals import (
-    DOC_CREATE_UID,
-    process_doc_on_create_atomic,
-)
 from opencontractserver.llms.tools.core_tools import (
     acreate_or_update_text_document,
     aupload_text_document,
@@ -34,28 +29,10 @@ User = get_user_model()
 class TestCreateOrUpdateTextDocument(TestCase):
     """Sync tests for create_or_update_text_document.
 
-    The signal that fires document parsing on create is disconnected for the
-    duration of these tests — text content imports don't need binary parsing
-    and the celery task has no real media to operate on inside a TestCase.
+    Document processing signals are disabled session-wide by the
+    ``disable_document_processing_signals`` autouse fixture in
+    ``conftest.py``, so this class doesn't need its own disconnect.
     """
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        post_save.disconnect(
-            process_doc_on_create_atomic,
-            sender=Document,
-            dispatch_uid=DOC_CREATE_UID,
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        post_save.connect(
-            process_doc_on_create_atomic,
-            sender=Document,
-            dispatch_uid=DOC_CREATE_UID,
-        )
-        super().tearDownClass()
 
     def setUp(self):
         self.user = User.objects.create_user(username="author", password="pw")
@@ -315,50 +292,22 @@ class TestCreateOrUpdateTextDocumentAsync(TransactionTestCase):
 
     Uses TransactionTestCase because async_to_sync runs the coroutine in a
     separate thread that cannot see uncommitted data from TestCase's
-    in-transaction wrapper. The processing signal is disconnected for the
-    setUp because committed Document creates fire on_commit celery tasks.
+    in-transaction wrapper. Document processing signals are disabled
+    session-wide by the ``disable_document_processing_signals`` autouse
+    fixture in ``conftest.py``.
     """
 
     def setUp(self):
-        try:
-            post_save.disconnect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
-            self.user = User.objects.create_user(username="async_author", password="pw")
-            self.corpus = Corpus.objects.create(title="Async Corpus", creator=self.user)
-        finally:
-            post_save.connect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
-
-    def tearDown(self):
-        # The async tool emits create signals through on_commit; disconnecting
-        # for the duration of the test avoids touching live media.
-        pass
+        self.user = User.objects.create_user(username="async_author", password="pw")
+        self.corpus = Corpus.objects.create(title="Async Corpus", creator=self.user)
 
     def test_async_wrapper_creates_document(self):
-        post_save.disconnect(
-            process_doc_on_create_atomic,
-            sender=Document,
-            dispatch_uid=DOC_CREATE_UID,
+        result = async_to_sync(acreate_or_update_text_document)(
+            corpus_id=self.corpus.id,
+            title="From Async",
+            content="async content",
+            author_id=self.user.id,
         )
-        try:
-            result = async_to_sync(acreate_or_update_text_document)(
-                corpus_id=self.corpus.id,
-                title="From Async",
-                content="async content",
-                author_id=self.user.id,
-            )
-        finally:
-            post_save.connect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
 
         self.assertEqual(result["status"], "created")
         self.assertEqual(result["version_number"], 1)
@@ -367,24 +316,12 @@ class TestCreateOrUpdateTextDocumentAsync(TransactionTestCase):
 
     def test_async_alias_routes_to_same_implementation(self):
         """The aupload_text_document alias is callable end-to-end."""
-        post_save.disconnect(
-            process_doc_on_create_atomic,
-            sender=Document,
-            dispatch_uid=DOC_CREATE_UID,
+        result = async_to_sync(aupload_text_document)(
+            corpus_id=self.corpus.id,
+            title="Async Alias",
+            content="async aliased",
+            author_id=self.user.id,
         )
-        try:
-            result = async_to_sync(aupload_text_document)(
-                corpus_id=self.corpus.id,
-                title="Async Alias",
-                content="async aliased",
-                author_id=self.user.id,
-            )
-        finally:
-            post_save.connect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
         self.assertEqual(result["status"], "created")
         doc = Document.objects.get(pk=result["document_id"])
         self.assertEqual(doc.txt_extract_file.read(), b"async aliased")
