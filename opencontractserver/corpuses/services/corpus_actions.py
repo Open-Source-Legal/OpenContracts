@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -169,20 +170,20 @@ class CorpusActionService(BaseService):
                 user_id=user.id,
             )
 
-            action_id = action.id
-            user_id = user.id
+            action_pk = action.id
+            user_pk = user.id
             for execution in executions:
-                exec_id = execution.id
-                doc_id = execution.document_id
-                # Bind via default args so each closure captures the row it
-                # was created for (the loop variable would otherwise leak the
-                # last iteration's value into every scheduled call).
+                # ``functools.partial`` eagerly binds the arguments, so each
+                # callback captures the row it was created for (a lambda
+                # closing over the loop variable would leak the last
+                # iteration's value into every scheduled call).
                 transaction.on_commit(
-                    lambda eid=exec_id, did=doc_id: run_agent_corpus_action.delay(
-                        corpus_action_id=action_id,
-                        document_id=did,
-                        user_id=user_id,
-                        execution_id=eid,
+                    partial(
+                        run_agent_corpus_action.delay,
+                        corpus_action_id=action_pk,
+                        document_id=execution.document_id,
+                        user_id=user_pk,
+                        execution_id=execution.id,
                         force=True,
                     )
                 )

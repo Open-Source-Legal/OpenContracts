@@ -48,7 +48,7 @@ START_BATCH_RUN_MUTATION = """
 """
 
 
-def _add_doc_to_corpus(corpus: Corpus, doc: Document, user: User) -> DocumentPath:
+def _add_doc_to_corpus(corpus: Corpus, doc: Document, user) -> DocumentPath:
     """Attach a document to a corpus via an active DocumentPath."""
     return DocumentPath.objects.create(
         document=doc,
@@ -143,6 +143,7 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
 
         self.assertTrue(result.ok, result.error)
         summary = result.value
+        assert summary is not None
         self.assertEqual(summary.queued_count, 5)
         self.assertEqual(summary.skipped_already_run_count, 0)
         self.assertEqual(summary.total_active_documents, 5)
@@ -233,6 +234,7 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
 
         self.assertTrue(result.ok, result.error)
         summary = result.value
+        assert summary is not None
         self.assertEqual(summary.queued_count, 3)
         self.assertEqual(summary.skipped_already_run_count, 2)
         self.assertEqual(summary.total_active_documents, 5)
@@ -263,6 +265,7 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
 
         self.assertTrue(result.ok)
         summary = result.value
+        assert summary is not None
         self.assertEqual(summary.queued_count, 5)
         self.assertEqual(summary.skipped_already_run_count, 0)
         self.assertEqual(mock_task.delay.call_count, 5)
@@ -297,6 +300,7 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
 
         self.assertTrue(result.ok)
         summary = result.value
+        assert summary is not None
         self.assertEqual(summary.queued_count, 3)
         self.assertEqual(summary.skipped_already_run_count, 2)
         self.assertEqual(mock_task.delay.call_count, 3)
@@ -322,6 +326,7 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
 
         self.assertTrue(result.ok)
         summary = result.value
+        assert summary is not None
         self.assertEqual(summary.queued_count, 0)
         self.assertEqual(summary.skipped_already_run_count, 5)
         self.assertEqual(len(summary.executions), 0)
@@ -339,6 +344,7 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
 
         self.assertTrue(result.ok)
         summary = result.value
+        assert summary is not None
         self.assertEqual(summary.total_active_documents, 4)
         self.assertEqual(summary.queued_count, 4)
         self.assertEqual(mock_task.delay.call_count, 4)

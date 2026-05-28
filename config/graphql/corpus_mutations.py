@@ -1491,7 +1491,7 @@ class StartCorpusActionBatchRun(graphene.Mutation):
             action_id=action_id,
             request=info.context,
         )
-        if not result.ok:
+        if not result.ok or result.value is None:
             return StartCorpusActionBatchRun(ok=False, message=result.error)
 
         summary = result.value
