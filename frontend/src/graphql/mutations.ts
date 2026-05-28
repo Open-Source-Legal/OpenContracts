@@ -2372,11 +2372,7 @@ export interface RunCorpusActionOutput {
   };
 }
 
-// The mutation exposes ``executions`` on the server side too, but the UI
-// only renders the summary toast and refetches the action list via
-// ``onQueued`` — fetching the freshly queued rows here would just bloat
-// the response. Re-add the field if a future toast/listing wants to show
-// the queued documents.
+// `executions` omitted — UI reads summary counts only; re-add if a future caller needs the queued rows.
 export const START_CORPUS_ACTION_BATCH_RUN = gql`
   mutation StartCorpusActionBatchRun($corpusActionId: ID!) {
     startCorpusActionBatchRun(corpusActionId: $corpusActionId) {

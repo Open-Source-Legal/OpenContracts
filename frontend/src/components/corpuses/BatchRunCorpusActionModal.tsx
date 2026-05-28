@@ -18,10 +18,7 @@ import {
 } from "../../graphql/mutations";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
-// Use ``styled(Modal)`` so the width override piggybacks on the
-// className styled-components passes to the Modal (a supported prop)
-// rather than reaching into the library's internal class via an outer
-// wrapper div. Same convention as ``CreateCorpusActionModal``.
+// styled(Modal) piggybacks on the className prop; matches CreateCorpusActionModal convention.
 const StyledModal = styled(Modal)`
   &.oc-modal {
     max-width: 520px;

@@ -84,13 +84,8 @@ class CorpusActionService(BaseService):
                 "This action is disabled. Re-enable it before batch-running."
             )
 
-        # Both snapshots and the bulk insert sit inside the same
-        # ``transaction.atomic`` block so two near-simultaneous batch-run
-        # calls cannot both pass ``_already_run_document_ids`` and
-        # double-insert. The remaining race window — between two
-        # serialized transactions — is closed by the planned partial
-        # unique index on (corpus_action, document) WHERE status IN
-        # ('queued','running'); this code is its belt half.
+        # Atomic block narrows (does not eliminate) the double-queue race;
+        # real fix is a partial unique index on (corpus_action, document) WHERE status IN ('queued','running').
         with transaction.atomic():
             active_doc_ids = set(
                 corpus._get_active_documents().values_list("id", flat=True)
