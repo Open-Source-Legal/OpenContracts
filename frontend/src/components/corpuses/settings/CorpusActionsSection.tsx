@@ -132,9 +132,7 @@ const PickerItem = styled.button<{ disabled?: boolean }>`
   cursor: ${({ disabled }) => (disabled ? "not-allowed" : "pointer")};
   opacity: ${({ disabled }) => (disabled ? 0.5 : 1)};
   pointer-events: ${({ disabled }) => (disabled ? "none" : "auto")};
-  transition:
-    background 0.15s ease,
-    opacity 0.15s ease;
+  transition: background 0.15s ease, opacity 0.15s ease;
 
   &:hover {
     background: ${({ disabled }) =>
@@ -222,7 +220,7 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
       top: rect.bottom + 4,
       left: Math.max(
         PICKER_DROPDOWN_VIEWPORT_PADDING,
-        rect.right - PICKER_DROPDOWN_WIDTH,
+        rect.right - PICKER_DROPDOWN_WIDTH
       ),
     });
   }, []);
@@ -274,12 +272,10 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
 
   // Filter out templates already added to the corpus
   const addedTemplateIds = new Set(
-    actions
-      .filter((a) => a.sourceTemplate?.id)
-      .map((a) => a.sourceTemplate!.id),
+    actions.filter((a) => a.sourceTemplate?.id).map((a) => a.sourceTemplate!.id)
   );
   const availableTemplates = templates.filter(
-    (t) => !addedTemplateIds.has(t.id),
+    (t) => !addedTemplateIds.has(t.id)
   );
 
   const handleAddTemplate = async (templateId: string) => {
@@ -292,7 +288,7 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
         onUpdate?.();
       } else {
         toast.error(
-          data?.addTemplateToCorpus?.message || "Failed to add template",
+          data?.addTemplateToCorpus?.message || "Failed to add template"
         );
       }
     } catch (error: unknown) {
@@ -391,7 +387,7 @@ export const CorpusActionsSection: React.FC<CorpusActionsSectionProps> = ({
                     ))
                   )}
                 </PickerDropdown>,
-                document.body,
+                document.body
               )}
           </PickerContainer>
           <Button

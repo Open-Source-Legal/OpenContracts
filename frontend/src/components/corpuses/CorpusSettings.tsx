@@ -140,7 +140,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
   // Form state
   const [slugDraft, setSlugDraft] = useState<string>("");
   const [publicDraft, setPublicDraft] = useState<boolean>(
-    Boolean(corpus.isPublic),
+    Boolean(corpus.isPublic)
   );
   const [originalSlug, setOriginalSlug] = useState<string>("");
   const [categoriesDraft, setCategoriesDraft] = useState<string[]>([]);
@@ -214,7 +214,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
       } else {
         setPublicDraft(Boolean(corpus.isPublic));
         toast.error(
-          data.setCorpusVisibility?.message || "Failed to update visibility",
+          data.setCorpusVisibility?.message || "Failed to update visibility"
         );
       }
     },
@@ -243,7 +243,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
   // Modal and action state
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [actionToDelete, setActionToDelete] = React.useState<string | null>(
-    null,
+    null
   );
   const [actionToEdit, setActionToEdit] =
     React.useState<CorpusActionData | null>(null);
@@ -281,7 +281,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
         refetchActions();
       } else {
         toast.error(
-          `Failed to delete action: ${data.deleteCorpusAction.message}`,
+          `Failed to delete action: ${data.deleteCorpusAction.message}`
         );
       }
     },
