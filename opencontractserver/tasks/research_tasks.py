@@ -15,6 +15,7 @@ from typing import Any, Callable, cast
 
 from asgiref.sync import sync_to_async
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.utils import timezone
 
@@ -160,6 +161,24 @@ def run_deep_research(self, research_report_id: int) -> dict:
         _send_completion_notification(report, "RESEARCH_REPORT_CANCELLED")
         _insert_completion_chat_message(report)
         return {"status": "cancelled", "report_id": research_report_id}
+    except SoftTimeLimitExceeded:
+        # Celery's soft time limit fires before the hard kill; preserve
+        # partial findings, surface as CANCELLED (not FAILED) so the user
+        # sees a clean "we ran out of time" terminal rather than a stack
+        # trace.
+        logger.warning(
+            "[DeepResearch] Report %s hit soft time limit; "
+            "cancelling and preserving partial findings",
+            research_report_id,
+        )
+        ResearchReportService.mark_cancelled(
+            report,
+            warning="Research stopped: exceeded the time budget for a "
+            "single run. Partial findings (if any) are preserved.",
+        )
+        _send_completion_notification(report, "RESEARCH_REPORT_CANCELLED")
+        _insert_completion_chat_message(report)
+        return {"status": "cancelled_timeout", "report_id": research_report_id}
     except Exception as exc:
         logger.exception("[DeepResearch] Report %s failed", research_report_id)
         ResearchReportService.mark_failed(
@@ -324,9 +343,7 @@ async def _run_deep_research_async(report: ResearchReport) -> dict:
             ),
             markdown_body=salvage_body,
             retrieved_annotation_ids=retrieved,
-        )
-        await sync_to_async(ResearchReportService.mark_completed)(
-            report, warnings=["budget_exhausted"]
+            warnings=["budget_exhausted"],
         )
         await sync_to_async(report.refresh_from_db)()
 

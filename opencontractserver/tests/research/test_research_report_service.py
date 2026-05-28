@@ -43,9 +43,13 @@ class ResearchReportServiceTestCase(TestCase):
     # start()
     # ------------------------------------------------------------------
     def test_start_creates_queued_row_and_enqueues_task(self):
+        # ``ResearchReportService.start`` defers the Celery ``delay`` to
+        # ``transaction.on_commit`` so the row is durable before the worker
+        # picks it up. In a ``TestCase`` (transaction rolled back at tear-down)
+        # those callbacks never fire unless we explicitly capture them.
         with patch(
             "opencontractserver.tasks.research_tasks.run_deep_research.delay"
-        ) as enqueued:
+        ) as enqueued, self.captureOnCommitCallbacks(execute=True):
             report = ResearchReportService.start(
                 user=self.user,
                 corpus=self.corpus,

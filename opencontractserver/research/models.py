@@ -17,6 +17,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils.text import slugify
 
+from opencontractserver.research.constants import DEFAULT_MAX_STEPS_FALLBACK
 from opencontractserver.shared.Managers import BaseVisibilityManager
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.types.enums import JobStatus
@@ -106,7 +107,9 @@ class ResearchReport(BaseOCModel):
     # Budget
     # ------------------------------------------------------------------
     max_steps = models.IntegerField(
-        default=getattr(settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", 60),
+        default=getattr(
+            settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", DEFAULT_MAX_STEPS_FALLBACK
+        ),
     )
     step_count = models.IntegerField(default=0)
 

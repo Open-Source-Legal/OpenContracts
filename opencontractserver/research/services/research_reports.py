@@ -8,6 +8,7 @@ Celery, chat tools) MUST NOT touch ``ResearchReport.objects`` directly.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -15,6 +16,10 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from opencontractserver.research.constants import (
+    DEFAULT_MAX_STEPS_FALLBACK,
+    MAX_RESEARCH_STEPS_CEILING,
+)
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import JobStatus, PermissionTypes
@@ -68,31 +73,50 @@ class ResearchReportService(BaseService):
         if error:
             raise PermissionError(error)
 
+        default_max_steps: int = getattr(
+            settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", DEFAULT_MAX_STEPS_FALLBACK
+        )
+        resolved_max_steps: int = (
+            int(max_steps) if max_steps is not None else default_max_steps
+        )
+        # Hard ceiling so a user-supplied ``max_steps`` can't burn an
+        # unbounded LLM budget. ``max(1, ...)`` keeps a floor so callers
+        # can't queue a zero-budget run that would no-op immediately.
+        resolved_max_steps = max(1, min(resolved_max_steps, MAX_RESEARCH_STEPS_CEILING))
+        resolved_title = title or _derive_title_from_prompt(prompt)
+
         guard_seconds = getattr(
             settings, "DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS", 3600
         )
         cutoff = timezone.now() - timedelta(seconds=guard_seconds)
         active_states = (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
-        if ResearchReport.objects.filter(
-            creator=user,
-            corpus=corpus,
-            status__in=active_states,
-            created__gte=cutoff,
-        ).exists():
-            raise ConcurrentResearchInProgress(
-                "You already have a research job queued or running on this corpus. "
-                "Wait for it to finish or cancel it before starting another."
-            )
 
-        default_max_steps: int = getattr(
-            settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", 60
-        )
-        resolved_max_steps: int = (
-            int(max_steps) if max_steps is not None else default_max_steps
-        )
-        resolved_title = title or _derive_title_from_prompt(prompt)
-
+        # Single atomic block + ``select_for_update`` so the
+        # concurrency-guard check and the row insert are serialised
+        # against concurrent ``start()`` calls for the same
+        # ``(creator, corpus)`` — closes the TOCTOU window where two
+        # requests can both pass ``.exists()`` before either creates a
+        # row. The ``select_for_update`` here locks at most a single row
+        # (the most recent active report for this user+corpus), so it is
+        # cheap even on a hot corpus.
         with transaction.atomic():
+            active_for_pair = (
+                ResearchReport.objects.select_for_update()
+                .filter(
+                    creator=user,
+                    corpus=corpus,
+                    status__in=active_states,
+                    created__gte=cutoff,
+                )
+                .order_by("-created")
+                .first()
+            )
+            if active_for_pair is not None:
+                raise ConcurrentResearchInProgress(
+                    "You already have a research job queued or running on "
+                    "this corpus. Wait for it to finish or cancel it before "
+                    "starting another."
+                )
             report = ResearchReport.objects.create(
                 creator=user,
                 corpus=corpus,
@@ -182,18 +206,23 @@ class ResearchReportService(BaseService):
         )
 
     @classmethod
-    def mark_cancelled(cls, report: ResearchReport) -> None:
+    def mark_cancelled(
+        cls,
+        report: ResearchReport,
+        *,
+        warning: str | None = None,
+    ) -> None:
         report.status = JobStatus.CANCELLED.value
         report.completed_at = timezone.now()
         report.last_progress_at = report.completed_at
-        report.save(
-            update_fields=[
-                "status",
-                "completed_at",
-                "last_progress_at",
-                "modified",
-            ]
-        )
+        update_fields = ["status", "completed_at", "last_progress_at", "modified"]
+        if warning:
+            # Append to the warnings JSON sidecar so the UI can surface
+            # *why* the report stopped (e.g. soft-time-limit) without
+            # losing partial findings to a misleading FAILED label.
+            report.warnings = list(report.warnings or []) + [warning]
+            update_fields.append("warnings")
+        report.save(update_fields=update_fields)
 
     # ------------------------------------------------------------------
     # Scratchpad writes (called from agent-bound tool closures)
@@ -240,6 +269,7 @@ class ResearchReportService(BaseService):
         executive_summary: str,
         markdown_body: str,
         retrieved_annotation_ids: list[int],
+        warnings: list[str] | None = None,
     ) -> None:
         """Render the final report and mark it COMPLETED.
 
@@ -289,16 +319,20 @@ class ResearchReportService(BaseService):
         report.status = JobStatus.COMPLETED.value
         report.completed_at = timezone.now()
         report.last_progress_at = report.completed_at
-        report.save(
-            update_fields=[
-                "content",
-                "citations",
-                "status",
-                "completed_at",
-                "last_progress_at",
-                "modified",
-            ]
-        )
+        update_fields = [
+            "content",
+            "citations",
+            "status",
+            "completed_at",
+            "last_progress_at",
+            "modified",
+        ]
+        if warnings:
+            # Append rather than replace so prior warnings from
+            # ``append_finding`` / ``append_tool_call`` survive.
+            report.warnings = list(report.warnings or []) + list(warnings)
+            update_fields.append("warnings")
+        report.save(update_fields=update_fields)
 
         # Populate M2M provenance links. Restrict to annotation IDs that
         # exist (defensive: agent could in principle cite a deleted row).
@@ -382,8 +416,6 @@ def _render_citations(
     (``arecord_finding`` validates), but we keep this defensive so a
     rogue finding never produces a broken markdown link.
     """
-    import re
-
     from opencontractserver.annotations.models import Annotation
 
     pattern = re.compile(

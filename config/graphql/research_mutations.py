@@ -8,6 +8,7 @@ from graphql_relay import from_global_id
 
 from config.graphql.research_types import ResearchReportType
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.research.constants import MAX_RESEARCH_PROMPT_CHARS
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.research.services.research_reports import (
     ConcurrentResearchInProgress,
@@ -16,6 +17,14 @@ from opencontractserver.research.services.research_reports import (
 from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_global_pk(global_id: str) -> int | None:
+    """Decode a relay global id to its integer pk, or ``None`` if malformed."""
+    try:
+        return int(from_global_id(global_id)[1])
+    except (ValueError, TypeError, UnicodeDecodeError, IndexError):
+        return None
 
 
 class StartResearchReport(graphene.Mutation):
@@ -35,7 +44,17 @@ class StartResearchReport(graphene.Mutation):
     def mutate(
         root, info, corpus_id, prompt, title=None, max_steps=None
     ) -> "StartResearchReport":
-        corpus_pk = int(from_global_id(corpus_id)[1])
+        corpus_pk = _decode_global_pk(corpus_id)
+        if corpus_pk is None:
+            return StartResearchReport(
+                ok=False, message="Corpus not found or not visible.", obj=None
+            )
+        if prompt is None or len(prompt) > MAX_RESEARCH_PROMPT_CHARS:
+            return StartResearchReport(
+                ok=False,
+                message=(f"Prompt must be 1–{MAX_RESEARCH_PROMPT_CHARS} characters."),
+                obj=None,
+            )
         corpus = BaseService.get_or_none(
             Corpus, corpus_pk, info.context.user, request=info.context
         )
@@ -76,7 +95,11 @@ class CancelResearchReport(graphene.Mutation):
 
     @login_required
     def mutate(root, info, id) -> "CancelResearchReport":
-        pk = int(from_global_id(id)[1])
+        pk = _decode_global_pk(id)
+        if pk is None:
+            return CancelResearchReport(
+                ok=False, message="Research report not found.", obj=None
+            )
         report = BaseService.get_or_none(
             ResearchReport, pk, info.context.user, request=info.context
         )

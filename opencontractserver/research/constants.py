@@ -37,8 +37,36 @@ DEEP_RESEARCH_READ_ONLY_TOOLS: list[str] = [
     "get_partial_note_content",
     "get_corpus_description",
     "list_documents",
-    "ask_document",
+    # ``ask_document`` is intentionally excluded: its sub-agent surfaces
+    # annotation IDs in ``DocAnswer.sources`` but does NOT append them to
+    # ``PydanticAIDependencies.retrieved_annotation_ids`` (the citation
+    # whitelist that ``record_finding`` validates against). Re-adding it
+    # without first wiring the sub-agent's source IDs back into the
+    # accumulator would silently break the closed-citation-graph
+    # invariant for any annotation seen only via ``ask_document``.
 ]
+
+
+# Hard ceilings to keep user-supplied inputs from blowing past a sensible
+# budget. ``settings.DEEP_RESEARCH_*`` knobs still parametrise defaults;
+# these constants only cap the user-facing surface.
+
+# Max characters accepted for the research prompt. Roughly aligns with
+# 2.5k tokens at the conservative 1 token / 4 chars heuristic, well below
+# any model's prompt-window. Anything beyond this is almost certainly an
+# accidental dump (a whole document pasted into the modal).
+MAX_RESEARCH_PROMPT_CHARS = 10_000
+
+# Absolute ceiling on per-job tool-call budget. A misbehaving agent at
+# the default step budget already costs real money; we refuse to let
+# a single user-supplied ``max_steps`` push past this no matter what.
+MAX_RESEARCH_STEPS_CEILING = 500
+
+# Default ``max_steps`` used when no ``DEEP_RESEARCH_DEFAULT_MAX_STEPS``
+# setting is configured. Surfaced as a constant so the ``ResearchReport``
+# model field default and the service-layer fallback agree (per
+# CLAUDE.md rule 4 — no magic numbers).
+DEFAULT_MAX_STEPS_FALLBACK = 60
 
 
 def build_deep_research_system_prompt(

@@ -10,14 +10,20 @@ from graphene_django import DjangoObjectType
 from config.graphql.annotation_types import AnnotationType
 from config.graphql.base import CountableConnection
 from config.graphql.document_types import DocumentType
-from config.graphql.permissioning.permission_annotator.mixins import (
-    AnnotatePermissionsForReadMixin,
-)
 from opencontractserver.research.models import ResearchReport
 
 
-class ResearchReportType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    """Deep-research job + final report."""
+class ResearchReportType(DjangoObjectType):
+    """Deep-research job + final report.
+
+    Permissions are intentionally **creator-only** in v1 — there is no
+    sharing surface (no `is_public`, no `object_shared_with`), so we
+    skip `AnnotatePermissionsForReadMixin` (which assumes guardian
+    permission tables that ``ResearchReport`` does not allocate, and
+    would silently swallow the resulting AttributeError as ``[]``).
+    The custom ``my_permissions`` resolver below mirrors what the mixin
+    would return for the creator's own row.
+    """
 
     findings = GenericScalar()
     citations = GenericScalar()
@@ -27,6 +33,11 @@ class ResearchReportType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     duration_seconds = graphene.Float(
         description="Seconds between start and completion (null if not finished)."
+    )
+
+    my_permissions = graphene.List(
+        graphene.String,
+        description="Action verbs the calling user is allowed on this report.",
     )
 
     full_source_annotation_list = graphene.List(
@@ -40,6 +51,27 @@ class ResearchReportType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     def resolve_duration_seconds(self, info) -> Any:
         return self.duration_seconds
+
+    def resolve_my_permissions(self, info) -> list[str]:
+        """Return creator-only permissions; v1 has no sharing surface."""
+        user = getattr(info.context, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            return []
+        if getattr(user, "is_superuser", False):
+            return [
+                "read_researchreport",
+                "update_researchreport",
+                "remove_researchreport",
+            ]
+        if self.creator_id == getattr(user, "id", None):
+            # Creator sees their own report end-to-end; cancel routes
+            # through the dedicated mutation, not a guardian grant.
+            return [
+                "read_researchreport",
+                "update_researchreport",
+                "remove_researchreport",
+            ]
+        return []
 
     def resolve_full_source_annotation_list(self, info) -> Any:
         return self.source_annotations.all()
