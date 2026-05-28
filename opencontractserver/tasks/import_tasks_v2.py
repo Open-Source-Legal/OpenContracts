@@ -347,8 +347,15 @@ def _import_corpus(
         chain.  Callers that don't (the standalone Celery import task)
         accept partial state on failure.
     """
-    is_v2 = version == "2.0"
-    logger.info("Using %s import format", "V2" if is_v2 else "V1")
+    # V3 archives share the V2 import shape minus the legacy top-level
+    # ``md_description`` / ``md_description_revisions`` keys; the
+    # corresponding V2 back-compat shim that synthesises a Readme.CAML
+    # Document from those keys is a no-op on V3 archives.
+    is_v2 = version in {"2.0", "3.0"}
+    logger.info(
+        "Using %s import format",
+        "V3" if version == "3.0" else "V2" if version == "2.0" else "V1",
+    )
 
     try:
         # ===== Shared: Setup corpus, labelset, and labels =====

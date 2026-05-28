@@ -786,6 +786,54 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
     action_trail: NotRequired[ActionTrailExport]
 
 
+class OpenContractsExportDataJsonPythonTypeV3(TypedDict):
+    """
+    Export format V3.0 — canonical-CAML corpus export.
+
+    Identical to V2 minus the two top-level fields ``md_description`` and
+    ``md_description_revisions``. Under V3 the corpus description is the
+    Readme.CAML Document, which ships in ``annotated_docs`` like every
+    other Document; description revisions are version-tree siblings on
+    the Readme.CAML DocumentPath chain. See the Canonical-CAML
+    Description Refactor design doc §4.8.
+
+    The V2 TypedDict (``OpenContractsExportDataJsonV2Type``) is preserved
+    so the V2 import shim can still type-check legacy archives.
+    """
+
+    # Version marker for format detection — always "3.0".
+    version: str
+
+    # ===== V1-compatible top-level fields =====
+    annotated_docs: dict[str, OpenContractDocExport]
+    doc_labels: dict[str, AnnotationLabelPythonType]
+    text_labels: dict[str, AnnotationLabelPythonType]
+    corpus: OpenContractCorpusV2Type
+    label_set: OpenContractsLabelSetType
+
+    # ===== V2 fields (carried forward in V3) =====
+    structural_annotation_sets: dict[str, StructuralAnnotationSetExport]
+    folders: list[CorpusFolderExport]
+    document_paths: list[DocumentPathExport]
+    relationships: list[OpenContractsRelationshipPythonType]
+    agent_config: AgentConfigExport
+    post_processors: list[str]
+
+    # Lineage tracking; omitted entirely when the corpus has no ingestion
+    # sources to record.
+    ingestion_sources: NotRequired[list[IngestionSourceExport]]
+
+    # Manual metadata schema (Fieldset + manual Columns + non-extract
+    # Datacells). Omitted when the corpus has no attached Fieldset.
+    metadata_schema: NotRequired[MetadataSchemaExport]
+
+    # ===== Optional V2/V3 fields (driven by export flags) =====
+    conversations: NotRequired[list[ConversationExport]]
+    messages: NotRequired[list[ChatMessageExport]]
+    message_votes: NotRequired[list[MessageVoteExport]]
+    action_trail: NotRequired[ActionTrailExport]
+
+
 # ============================================================================
 # Worker Document Upload Format
 # ============================================================================

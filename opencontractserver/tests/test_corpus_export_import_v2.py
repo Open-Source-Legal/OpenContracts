@@ -62,7 +62,6 @@ from opencontractserver.utils.export_v2 import (
     package_conversations,
     package_corpus_folders,
     package_document_paths,
-    package_md_description_revisions,
     package_structural_annotation_set,
 )
 from opencontractserver.utils.import_v2 import (
@@ -268,32 +267,14 @@ class TestV2ExportUtilities(TestCase):
             result["document_agent_instructions"], "Test document instructions"
         )
 
-    def test_package_md_description_revisions(self):
-        """Test exporting markdown description and revisions."""
-        # Set markdown description
-        md_content = "# Test Corpus\n\nThis is a test."
-        self.corpus.md_description.save(
-            "description.md", ContentFile(md_content.encode())
-        )
-
-        # Create revisions
-        CorpusDescriptionRevision.objects.create(
-            corpus=self.corpus,
-            author=self.user,
-            version=1,
-            diff="Initial version",
-            snapshot=md_content,
-            checksum_base="",
-            checksum_full="abc123",
-        )
-
-        # Export
-        current_md, revisions = package_md_description_revisions(self.corpus)
-
-        # Verify
-        self.assertEqual(current_md, md_content)
-        self.assertEqual(len(revisions), 1)
-        self.assertEqual(revisions[0]["version"], 1)
+    # NOTE: the legacy ``test_package_md_description_revisions`` was removed
+    # alongside the ``package_md_description_revisions`` helper itself: under
+    # the canonical-CAML refactor (export schema V3) the corpus description
+    # rides in ``annotated_docs`` as the Readme.CAML Document, so there is no
+    # longer a dedicated export path for the legacy field. V2 *import*
+    # back-compat (synthesising a Readme.CAML Document from V2 archives) is
+    # still covered by ``test_import_md_description_revisions`` below and by
+    # the dedicated V2 round-trip cases.
 
     def test_package_conversations(self):
         """Test exporting conversations and messages."""
