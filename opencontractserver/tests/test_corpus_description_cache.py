@@ -6,11 +6,13 @@ single derivation point for the auto-maintained ``Corpus.description`` and
 ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``.
 """
 
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase
 
 from opencontractserver.constants.truncation import (
     MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
 )
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.description_cache import (
     compute_cache_from_caml_body,
     markdown_to_plain_text,
@@ -77,3 +79,19 @@ class ComputeCacheFromCamlBodyTest(SimpleTestCase):
 
     def test_none_body_returns_empty_pair(self):
         self.assertEqual(compute_cache_from_caml_body(None), ("", ""))
+
+
+class CorpusReadmeCamlFKTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            username="caml-fk-user", password="x"
+        )
+
+    def test_fk_field_exists_and_defaults_null(self):
+        corpus = Corpus.objects.create(
+            title="C", creator=self.user
+        )
+        self.assertIsNone(corpus.readme_caml_document)
+        self.assertIsNone(corpus.readme_caml_document_id)

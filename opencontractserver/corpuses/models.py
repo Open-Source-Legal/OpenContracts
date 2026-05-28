@@ -152,6 +152,21 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             "``MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH`` characters."
         ),
     )
+    readme_caml_document = django.db.models.ForeignKey(
+        "documents.Document",
+        null=True,
+        blank=True,
+        on_delete=django.db.models.SET_NULL,
+        related_name="+",
+        editable=False,
+        help_text=(
+            "Auto-maintained pointer to the corpus's Readme.CAML Document "
+            "(the canonical source for the description). Refreshed via "
+            "post_save signal on Document. Do not write directly. "
+            "``related_name='+'`` because Document↔Corpus is mediated by "
+            "DocumentPath; there is no useful reverse accessor here."
+        ),
+    )
     slug = django.db.models.CharField(
         max_length=128,
         db_index=True,
