@@ -143,7 +143,9 @@ def test_instructions_survive_non_empty_message_history() -> None:
 
 def test_factory_injects_in_run_history_processor() -> None:
     """The factory installs shrink_old_artifacts_processor as the first
-    entry in history_processors on every constructed Agent."""
+    ProcessHistory capability on every constructed Agent."""
+    from pydantic_ai.capabilities import ProcessHistory
+
     from opencontractserver.llms.history_processors import (
         shrink_old_artifacts_processor,
     )
@@ -153,13 +155,17 @@ def test_factory_injects_in_run_history_processor() -> None:
         instructions="placeholder",
     )
 
-    # pydantic-ai exposes the processors on the Agent instance.
-    assert len(agent.history_processors) >= 1
-    assert agent.history_processors[0] is shrink_old_artifacts_processor
+    caps = agent.root_capability.capabilities
+    process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
+    assert len(process_history_caps) >= 1
+    assert process_history_caps[0].processor is shrink_old_artifacts_processor
 
 
-def test_factory_preserves_caller_processors_after_ours() -> None:
-    """Caller-supplied history_processors run AFTER ours, in original order."""
+def test_factory_preserves_legacy_history_processors_after_ours() -> None:
+    """Caller-supplied history_processors=[...] (legacy form) are each
+    wrapped in ProcessHistory and appended after ours."""
+    from pydantic_ai.capabilities import ProcessHistory
+
     from opencontractserver.llms.history_processors import (
         shrink_old_artifacts_processor,
     )
@@ -176,7 +182,36 @@ def test_factory_preserves_caller_processors_after_ours() -> None:
         history_processors=[caller_proc_one, caller_proc_two],
     )
 
-    assert len(agent.history_processors) == 3
-    assert agent.history_processors[0] is shrink_old_artifacts_processor
-    assert agent.history_processors[1] is caller_proc_one
-    assert agent.history_processors[2] is caller_proc_two
+    caps = agent.root_capability.capabilities
+    process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
+    assert len(process_history_caps) == 3
+    assert process_history_caps[0].processor is shrink_old_artifacts_processor
+    assert process_history_caps[1].processor is caller_proc_one
+    assert process_history_caps[2].processor is caller_proc_two
+
+
+def test_factory_preserves_caller_capabilities_after_ours() -> None:
+    """Caller-supplied capabilities=[...] are appended after our
+    ProcessHistory entry — the new API path is also accepted."""
+    from pydantic_ai.capabilities import ProcessHistory
+
+    from opencontractserver.llms.history_processors import (
+        shrink_old_artifacts_processor,
+    )
+
+    async def caller_proc(messages):
+        return messages
+
+    caller_capability = ProcessHistory(caller_proc)
+
+    agent = make_pydantic_ai_agent(
+        model=TestModel(),
+        instructions="placeholder",
+        capabilities=[caller_capability],
+    )
+
+    caps = agent.root_capability.capabilities
+    process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
+    assert len(process_history_caps) == 2
+    assert process_history_caps[0].processor is shrink_old_artifacts_processor
+    assert process_history_caps[1] is caller_capability

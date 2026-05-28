@@ -21,10 +21,12 @@ codebase. It refuses ``system_prompt=`` outright (raising ``TypeError``)
 so the regression cannot reappear silently. Use ``instructions=`` instead.
 
 In addition, the factory unconditionally installs the in-run history
-compaction processor (``shrink_old_artifacts_processor``) as the first
-entry in ``history_processors``, so every constructed agent benefits from
-the same threshold-gated shrink behaviour. Caller-supplied processors,
-if any, run after ours.
+compaction processor (``shrink_old_artifacts_processor``) as a
+``ProcessHistory`` capability, so every constructed agent benefits from
+the same threshold-gated shrink behaviour. Callers may pass extra
+capabilities via ``capabilities=`` or legacy history processors via
+``history_processors=`` (each is wrapped in ``ProcessHistory``); both
+run after ours so the in-run shrink is applied first.
 
 Tests that need to intercept agent construction should patch
 ``opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent`` —
@@ -37,11 +39,10 @@ pinned pydantic-ai version.
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any
 
 from pydantic_ai.agent import Agent as PydanticAIAgent
-from pydantic_ai.agent import PydanticAIDeprecationWarning
+from pydantic_ai.capabilities import ProcessHistory
 
 from opencontractserver.llms.history_processors import (
     shrink_old_artifacts_processor,
@@ -61,7 +62,7 @@ def make_pydantic_ai_agent(
     **kwargs: Any,
 ) -> PydanticAIAgent[Any]:
     """Construct a ``pydantic_ai.Agent`` with the system_prompt foot-gun blocked
-    and the in-run history compaction processor installed.
+    and the in-run history compaction processor installed as a capability.
 
     ``model`` is required and keyword-only-after-positional, matching every
     existing call site. ``system_prompt`` is forbidden — pass the system
@@ -69,9 +70,14 @@ def make_pydantic_ai_agent(
     survives the ``message_history``-non-empty path used by OpenContracts'
     chat flow. Other kwargs are forwarded verbatim to ``pydantic_ai.Agent``.
 
-    The in-run compaction processor is prepended to whatever
-    ``history_processors=`` the caller passed (so caller-supplied processors
-    run on already-shrunk history).
+    The in-run compaction processor is wrapped in a ``ProcessHistory``
+    capability and prepended to the resulting ``capabilities=`` list, so
+    it runs before any caller-supplied processor/capability.
+
+    Caller-supplied ``history_processors=[...]`` (legacy form) and
+    ``capabilities=[...]`` (modern form) are both accepted; legacy
+    processors are each wrapped in ``ProcessHistory(...)`` and both lists
+    run after ours.
 
     Raises:
         TypeError: If ``system_prompt`` is supplied at all (even ``None``).
@@ -86,23 +92,18 @@ def make_pydantic_ai_agent(
             "See issue #1451 and CLAUDE.md pitfall #14."
         )
 
-    caller_processors = list(kwargs.pop("history_processors", None) or [])
-    kwargs["history_processors"] = [
-        shrink_old_artifacts_processor,
-        *caller_processors,
+    legacy_processors = list(kwargs.pop("history_processors", None) or [])
+    wrapped_legacy = [ProcessHistory(fn) for fn in legacy_processors]
+
+    caller_capabilities = list(kwargs.pop("capabilities", None) or [])
+
+    kwargs["capabilities"] = [
+        ProcessHistory(shrink_old_artifacts_processor),
+        *wrapped_legacy,
+        *caller_capabilities,
     ]
 
-    # The ``history_processors=`` parameter is deprecated in pydantic-ai
-    # 1.62 in favour of a v2 API (``capabilities=[ProcessHistory(fn)]`` or
-    # ``Hooks(before_model_request=fn)``). The replacement API has NOT
-    # shipped in pydantic-ai 1.62 yet — neither ``ProcessHistory`` nor
-    # ``Hooks`` is exported from the package — so the only workable path
-    # is to keep using ``history_processors=`` and silence the forward-
-    # looking ``PydanticAIDeprecationWarning``. Re-evaluate when pydantic-
-    # ai 2.0 lands and the v2 API is available.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", PydanticAIDeprecationWarning)
-        # Forward ``model`` as a keyword so call sites and tests that
-        # asserted against ``kwargs["model"]`` (the canonical form pydantic-
-        # ai documents) keep working.
-        return PydanticAIAgent(model=model, **kwargs)
+    # Forward ``model`` as a keyword so call sites and tests that asserted
+    # against ``kwargs["model"]`` (the canonical form pydantic-ai documents)
+    # keep working.
+    return PydanticAIAgent(model=model, **kwargs)
