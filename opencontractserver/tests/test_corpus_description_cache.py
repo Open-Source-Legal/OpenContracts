@@ -438,3 +438,48 @@ class MdDescriptionResolverTest(TestCase):
         bare = Corpus.objects.create(title="Bare", creator=self.user)
         result = CorpusType.resolve_md_description(bare, None)
         self.assertIsNone(result)
+
+
+class ReadmeCamlDocumentFieldTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            username="rcdf-user", password="x"
+        )
+        cls.corpus = Corpus.objects.create(title="C", creator=cls.user)
+        from opencontractserver.documents.versioning import import_document
+        import_document(
+            corpus=cls.corpus,
+            path="Readme.CAML",
+            content=b"# Field test body",
+            user=cls.user,
+            file_type="text/markdown",
+            title="Readme.CAML",
+        )
+        # Make sure the FK is populated (signal may not have fired
+        # inside the wrapping setUpTestData transaction).
+        cls.corpus.refresh_from_db()
+        if cls.corpus.readme_caml_document_id is None:
+            from opencontractserver.documents.models import DocumentPath
+            head = DocumentPath.objects.filter(
+                corpus=cls.corpus, path="Readme.CAML", is_current=True
+            ).select_related("document").first()
+            cls.corpus.readme_caml_document_id = head.document_id
+            cls.corpus.save(update_fields=["readme_caml_document"])
+            cls.corpus.refresh_from_db()
+
+    def test_field_resolves_to_caml_document(self):
+        from config.graphql.corpus_types import CorpusType
+
+        doc = CorpusType.resolve_readme_caml_document(self.corpus, None)
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc.title, "Readme.CAML")
+        self.assertEqual(doc.file_type, "text/markdown")
+
+    def test_field_is_none_when_corpus_lacks_caml_doc(self):
+        from config.graphql.corpus_types import CorpusType
+
+        bare = Corpus.objects.create(title="Bare", creator=self.user)
+        result = CorpusType.resolve_readme_caml_document(bare, None)
+        self.assertIsNone(result)

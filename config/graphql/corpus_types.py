@@ -321,6 +321,26 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             return file_field.url
         return info.context.build_absolute_uri(file_field.url)
 
+    readme_caml_document = graphene.Field(
+        "config.graphql.document_types.DocumentType",
+        description=(
+            "The corpus's canonical Readme.CAML Document — the source of "
+            "truth for the rich description. Use this for revision history, "
+            "permissions, and direct content access. The mdDescription "
+            "string field exposes the same body as a file URL."
+        ),
+    )
+
+    def resolve_readme_caml_document(self, info) -> Any:
+        """Optional rich-object access to the canonical Readme.CAML doc.
+
+        Existing clients use mdDescription (URL) or descriptionPreview
+        (text). New clients that need revision history or any other
+        Document field can fetch it here. Resolves from the cached FK
+        — see spec §4.5.
+        """
+        return self.readme_caml_document
+
     # Optional list of description revisions
     description_revisions = graphene.List(lambda: CorpusDescriptionRevisionType)
 
