@@ -1,16 +1,22 @@
 /**
  * ImportCorpusModal - Modal for importing a full OpenContracts corpus export ZIP.
  *
- * The import uses the importOpenContractsZip mutation, which:
+ * The import streams the ZIP via multipart/form-data to
+ * ``POST /api/imports/corpus/``. The backend then:
  * - Creates a NEW corpus (the user becomes the creator with CRUD permissions)
  * - Hydrates documents, annotations, label sets, and analyses from the export
  *
  * Visibility of the trigger button is gated on the server-derived
  * `me.canImportCorpus` field; this modal still defends itself against
- * disallowed users by showing a permission error if the mutation fails.
+ * disallowed users by showing the server's permission error if the
+ * upload is rejected.
+ *
+ * The legacy ``importOpenContractsZip`` GraphQL mutation was removed
+ * because base64-encoding large export zips into a JSON request body
+ * crashed Apollo for files past ~100 MB.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useReactiveVar } from "@apollo/client";
+import { useApolloClient, useReactiveVar } from "@apollo/client";
 import {
   Modal,
   ModalHeader,
@@ -33,11 +39,7 @@ import {
 
 import { UPLOAD } from "../../../assets/configurations/constants";
 import { showImportCorpusModal } from "../../../graphql/cache";
-import {
-  START_IMPORT_CORPUS,
-  StartImportCorpusExport,
-  StartImportCorpusInputs,
-} from "../../../graphql/mutations";
+import { importCorpusExportMultipart } from "../../../utils/importHttp";
 import {
   AlertBody,
   AlertBox,
@@ -66,7 +68,6 @@ export const ImportCorpusModal: React.FC = () => {
 
   const [step, setStep] = useState<ImportStep>("confirm");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [base64File, setBase64File] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +77,7 @@ export const ImportCorpusModal: React.FC = () => {
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
   );
+  const apolloClient = useApolloClient();
 
   const clearProgressInterval = useCallback(() => {
     if (progressIntervalRef.current !== null) {
@@ -86,21 +88,9 @@ export const ImportCorpusModal: React.FC = () => {
 
   useEffect(() => clearProgressInterval, [clearProgressInterval]);
 
-  const [startImportCorpus] = useMutation<
-    StartImportCorpusExport,
-    StartImportCorpusInputs
-  >(START_IMPORT_CORPUS, {
-    update(cache) {
-      // Make the freshly-created corpus visible in the corpus list view.
-      cache.evict({ fieldName: "corpuses" });
-      cache.gc();
-    },
-  });
-
   const handleClose = useCallback(() => {
     setStep("confirm");
     setSelectedFile(null);
-    setBase64File(null);
     setLoading(false);
     setError(null);
     setUploadProgress(0);
@@ -122,18 +112,7 @@ export const ImportCorpusModal: React.FC = () => {
     }
 
     setSelectedFile(file);
-    setBase64File(null);
     setError(null);
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      setBase64File(base64.split(",")[1]);
-    };
-    reader.onerror = () => {
-      setError("Failed to read the file. Please try again.");
-    };
-    reader.readAsDataURL(file);
   }, []);
 
   const handleFileInputChange = useCallback(
@@ -177,7 +156,7 @@ export const ImportCorpusModal: React.FC = () => {
   }, []);
 
   const handleImport = useCallback(async () => {
-    if (!base64File) {
+    if (!selectedFile) {
       setError("Please choose a ZIP file to import.");
       return;
     }
@@ -191,21 +170,20 @@ export const ImportCorpusModal: React.FC = () => {
     }, 500);
 
     try {
-      const result = await startImportCorpus({
-        variables: { base64FileString: base64File },
-      });
+      const result = await importCorpusExportMultipart({ file: selectedFile });
 
       clearProgressInterval();
 
-      if (result.data?.importOpenContractsZip?.ok) {
+      if (result.ok) {
+        // Make the freshly-created corpus visible in the corpus list view.
+        apolloClient.cache.evict({ fieldName: "corpuses" });
+        apolloClient.cache.gc();
+
         setUploadProgress(100);
         toast.success("SUCCESS! Corpus file upload and import has started.");
         setTimeout(() => handleClose(), 1500);
       } else {
-        setError(
-          result.data?.importOpenContractsZip?.message ||
-            "Import failed. Please try again."
-        );
+        setError(result.error || "Import failed. Please try again.");
         setStep("upload");
         setUploadProgress(0);
       }
@@ -219,14 +197,13 @@ export const ImportCorpusModal: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [base64File, startImportCorpus, handleClose, clearProgressInterval]);
+  }, [selectedFile, apolloClient, handleClose, clearProgressInterval]);
 
   const handleConfirm = useCallback(() => setStep("upload"), []);
 
   const handleBack = useCallback(() => {
     setStep("confirm");
     setSelectedFile(null);
-    setBase64File(null);
     setError(null);
   }, []);
 
@@ -377,8 +354,6 @@ export const ImportCorpusModal: React.FC = () => {
     }
   };
 
-  const isReadingFile = selectedFile !== null && base64File === null;
-
   if (!visible) return null;
 
   return (
@@ -425,12 +400,12 @@ export const ImportCorpusModal: React.FC = () => {
                 <Button
                   variant="primary"
                   onClick={handleImport}
-                  disabled={!selectedFile || !base64File || loading}
+                  disabled={!selectedFile || loading}
                 >
                   <ButtonIcon>
-                    {isReadingFile ? <Loader /> : <CloudUpload />}
+                    <CloudUpload />
                   </ButtonIcon>
-                  {isReadingFile ? "Reading file…" : "Start Import"}
+                  Start Import
                 </Button>
               </>
             )}

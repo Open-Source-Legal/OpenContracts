@@ -966,8 +966,8 @@ export const Corpuses = () => {
 
     // Imports are gated by a global env kill-switch (used to disable for the
     // public demo) AND by the server-derived `canImportCorpus` permission on
-    // the authenticated user. Mirrors the backend check in
-    // UploadCorpusImportZip / ImportZipToCorpus.
+    // the authenticated user. Mirrors the backend check in the
+    // /api/imports/corpus/ and /api/imports/zip-to-corpus/ REST endpoints.
     if (REACT_APP_ALLOW_IMPORTS && backendUser?.canImportCorpus) {
       corpus_actions.push({
         icon: "cloud upload",
