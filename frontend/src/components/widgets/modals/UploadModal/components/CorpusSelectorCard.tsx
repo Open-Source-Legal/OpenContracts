@@ -117,9 +117,9 @@ export const CorpusSelectorCard: React.FC<CorpusSelectorCardProps> = ({
                 {corpus.icon && <CorpusCardIcon src={corpus.icon} alt="" />}
                 <CorpusCardTitle>{corpus.title}</CorpusCardTitle>
               </CorpusCardHeader>
-              {corpus.description && (
+              {(corpus.descriptionPreview || corpus.description) && (
                 <CorpusCardDescription>
-                  {corpus.description}
+                  {corpus.descriptionPreview || corpus.description}
                 </CorpusCardDescription>
               )}
               <CorpusCardMeta>

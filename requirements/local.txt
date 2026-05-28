@@ -7,7 +7,7 @@ watchfiles==1.2.0  # https://github.com/samuelcolvin/watchfiles
 # ------------------------------------------------------------------------------
 
 mypy==2.1.0  # https://github.com/python/mypy
-django-stubs==6.0.4  # https://github.com/typeddjango/django-stubs
+django-stubs==6.0.5  # https://github.com/typeddjango/django-stubs
 pytest==9.0.3  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
@@ -24,7 +24,7 @@ django-silk==5.5.0
 # ------------------------------------------------------------------------------
 flake8==7.3.0 # https://github.com/PyCQA/flake8
 flake8-isort==7.0.0  # https://github.com/gforcada/flake8-isort
-coverage==7.14.0  # https://github.com/nedbat/coveragepy
+coverage==7.14.1  # https://github.com/nedbat/coveragepy
 black==26.5.1  # https://github.com/psf/black
 pre-commit==4.6.0  # https://github.com/pre-commit/pre-commit
 
@@ -58,7 +58,7 @@ ipython>=9.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.34.2,<3 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
-tornado>=6.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
+tornado>=6.5.6 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.7.0 # not directly required, pinned by Snyk to avoid a vulnerability
 zipp>=4.1.0 # not directly required, pinned by Snyk to avoid a vulnerability
 pillow>=12.2.0 # not directly required, pinned by Snyk to avoid a vulnerability

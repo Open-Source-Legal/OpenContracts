@@ -39,7 +39,11 @@ from opencontractserver.constants.zip_import import (
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
-from opencontractserver.tasks import process_documents_zip
+from opencontractserver.tasks import (
+    import_corpus,
+    import_zip_with_folder_structure,
+    process_documents_zip,
+)
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -88,6 +92,20 @@ class ZipImportResult:
     """Result of a bulk zip import."""
 
     job_id: str | None
+    error: str | None
+
+
+@dataclass
+class CorpusImportResult:
+    """Result of an OpenContracts corpus-export zip import.
+
+    Unlike the bulk-zip path, the corpus-export import creates a brand-new
+    corpus synchronously (as a placeholder) and then asynchronously
+    hydrates it from the zip. We surface the placeholder corpus so callers
+    can deep-link or refresh their corpus list.
+    """
+
+    corpus: Corpus | None
     error: str | None
 
 
@@ -376,3 +394,194 @@ def import_documents_zip_for_user(
 
     logger.info(f"[IMPORT-ZIP] Zip job {job_id} staged for user {user.id}")
     return ZipImportResult(job_id=job_id, error=None)
+
+
+def import_zip_to_corpus_for_user(
+    *,
+    user,
+    zip_source: UploadedFile | bytes,
+    corpus_id: Any,
+    target_folder_id: Any = None,
+    title_prefix: str | None = None,
+    description: str | None = None,
+    custom_meta: dict | None = None,
+    make_public: bool = False,
+) -> ZipImportResult:
+    """
+    Stage a zip in a :class:`TemporaryFileHandle` and queue
+    ``import_zip_with_folder_structure`` to ingest it into ``corpus_id``,
+    preserving the zip's folder hierarchy. Sidecar JSON / labels.json /
+    relationships.csv handling lives in the celery task — this service is
+    only responsible for permission gating, staging, and IDOR-safe
+    enqueuing.
+
+    ``zip_source`` may be raw bytes (legacy/test paths) or an
+    :class:`UploadedFile` (REST/multipart path). The latter is preferred:
+    Django streams it through storage without buffering the whole archive
+    in memory.
+
+    Both ``corpus_id`` and ``target_folder_id`` accept either a Relay
+    global id or a raw primary key.
+
+    Returns :class:`ZipImportResult`. On failure, ``job_id`` is ``None``
+    and ``error`` carries a user-safe message.
+    """
+    if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
+        raise DocumentImportPermissionError(
+            DocumentImportPermissionError.BULK_UPLOAD_DENIED,
+            "By default, usage-capped users cannot bulk import documents. "
+            "Please contact the admin to authorize your account.",
+        )
+
+    if not _peek_zip_magic(zip_source):
+        return ZipImportResult(
+            job_id=None,
+            error="Uploaded file does not appear to be a valid ZIP archive",
+        )
+
+    corpus_pk = _resolve_pk(corpus_id)
+    try:
+        corpus = Corpus.objects.visible_to_user(user).get(id=corpus_pk)
+    except (Corpus.DoesNotExist, ValueError, TypeError):
+        return ZipImportResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
+    if not corpus.user_can(user, PermissionTypes.EDIT):
+        return ZipImportResult(job_id=None, error=CORPUS_NOT_FOUND_MSG)
+
+    target_folder_pk: int | None = None
+    if target_folder_id is not None:
+        folder_pk = _resolve_pk(target_folder_id)
+        try:
+            folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
+        except (CorpusFolder.DoesNotExist, ValueError, TypeError):
+            return ZipImportResult(
+                job_id=None,
+                error="Target folder not found or does not belong to this corpus",
+            )
+        target_folder_pk = folder.id
+
+    job_id = str(uuid.uuid4())
+    cache.set(
+        f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
+        user.id,
+        BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+    )
+
+    storage_filename = f"zip_import_{job_id}.zip"
+    try:
+        with transaction.atomic():
+            temporary_file = TemporaryFileHandle.objects.create()
+            if isinstance(zip_source, (bytes, bytearray)):
+                temporary_file.file = ContentFile(
+                    bytes(zip_source), name=storage_filename
+                )
+                temporary_file.save()
+            else:
+                temporary_file.file.save(storage_filename, zip_source, save=True)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            f"[IMPORT-ZIP-FOLDERS] Failed to stage zip for user {user.id}: {e}"
+        )
+        # Generic user-facing message — the detailed exception only
+        # appears in the server log so storage-backend internals (paths,
+        # bucket names, DB errors) don't leak into the HTTP response.
+        return ZipImportResult(
+            job_id=None,
+            error="Failed to stage the upload. Please try again.",
+        )
+
+    task_signature = import_zip_with_folder_structure.s(
+        temporary_file.id,
+        user.id,
+        job_id,
+        corpus.id,
+        target_folder_pk,
+        title_prefix,
+        description,
+        custom_meta,
+        make_public,
+    )
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        chain(task_signature).apply_async()
+    else:
+        transaction.on_commit(lambda: chain(task_signature).apply_async())
+
+    logger.info(
+        f"[IMPORT-ZIP-FOLDERS] Zip job {job_id} staged for user {user.id} "
+        f"into corpus {corpus.id}"
+    )
+    return ZipImportResult(job_id=job_id, error=None)
+
+
+def import_corpus_export_for_user(
+    *,
+    user,
+    zip_source: UploadedFile | bytes,
+) -> CorpusImportResult:
+    """
+    Create a placeholder :class:`Corpus`, stage the OpenContracts export
+    zip in a :class:`TemporaryFileHandle`, and queue ``import_corpus`` to
+    hydrate the corpus from the export.
+
+    The placeholder corpus is created synchronously (so the caller has
+    something to deep-link / show in their corpus list immediately); the
+    background task rewrites its title/description/etc. from the import.
+
+    Returns :class:`CorpusImportResult`. On failure, ``corpus`` is
+    ``None`` and ``error`` carries a user-safe message. On a permission
+    denial (``USAGE_CAPPED``) the function raises
+    :class:`DocumentImportPermissionError` so the caller can map it to a
+    403 rather than a generic 400.
+    """
+    if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
+        raise DocumentImportPermissionError(
+            DocumentImportPermissionError.BULK_UPLOAD_DENIED,
+            "By default, usage-capped users cannot import corpuses. "
+            "Please contact the admin to authorize your account.",
+        )
+
+    if not _peek_zip_magic(zip_source):
+        return CorpusImportResult(
+            corpus=None,
+            error="Uploaded file does not appear to be a valid ZIP archive",
+        )
+
+    storage_filename = f"corpus_import_{uuid.uuid4()}.zip"
+    try:
+        with transaction.atomic():
+            corpus_obj = Corpus.objects.create(
+                title="New Import",
+                creator=user,
+                backend_lock=False,
+            )
+            set_permissions_for_obj_to_user(user, corpus_obj, [PermissionTypes.CRUD])
+
+            temporary_file = TemporaryFileHandle.objects.create()
+            if isinstance(zip_source, (bytes, bytearray)):
+                temporary_file.file = ContentFile(
+                    bytes(zip_source), name=storage_filename
+                )
+                temporary_file.save()
+            else:
+                temporary_file.file.save(storage_filename, zip_source, save=True)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            f"[IMPORT-CORPUS] Failed to stage corpus export for user {user.id}: {e}"
+        )
+        # Generic user-facing message — see import_zip_to_corpus_for_user
+        # for the rationale.
+        return CorpusImportResult(
+            corpus=None,
+            error="Failed to stage the corpus export. Please try again.",
+        )
+
+    task_signature = import_corpus.s(temporary_file.id, user.id, corpus_obj.id)
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        chain(task_signature).apply_async()
+    else:
+        transaction.on_commit(lambda: chain(task_signature).apply_async())
+
+    logger.info(
+        f"[IMPORT-CORPUS] Corpus export staged into corpus {corpus_obj.id} "
+        f"for user {user.id}"
+    )
+    return CorpusImportResult(corpus=corpus_obj, error=None)

@@ -222,7 +222,7 @@ export const FeaturedCollections: React.FC<FeaturedCollectionsProps> = ({
               imageAlt={corpus.title || "Corpus icon"}
               status={status}
               title={corpus.title || "Untitled Collection"}
-              description={corpus.description}
+              description={corpus.descriptionPreview || corpus.description}
               stats={stats}
               onClick={() => handleCorpusClick(corpus)}
             />

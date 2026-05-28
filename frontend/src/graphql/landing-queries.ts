@@ -55,6 +55,7 @@ export interface GetTrendingCorpusesOutput {
         | "slug"
         | "title"
         | "description"
+        | "descriptionPreview"
         | "icon"
         | "isPublic"
         | "created"
@@ -224,6 +225,7 @@ export const GET_DISCOVERY_DATA = gql`
           slug
           title
           description
+          descriptionPreview
           icon
           isPublic
           created
