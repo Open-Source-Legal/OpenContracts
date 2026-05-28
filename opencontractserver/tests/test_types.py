@@ -78,17 +78,20 @@ class TestJobStatus(TestCase):
         self.assertEqual(JobStatus.RUNNING.value, "RUNNING")
         self.assertEqual(JobStatus.COMPLETED.value, "COMPLETED")
         self.assertEqual(JobStatus.FAILED.value, "FAILED")
+        # ``CANCELLED`` added with deep-research agent — long-running jobs
+        # need a cooperative-cancel terminal state distinct from FAILED.
+        self.assertEqual(JobStatus.CANCELLED.value, "CANCELLED")
 
     def test_is_string_enum(self):
         self.assertIsInstance(JobStatus.CREATED, str)
 
     def test_member_count(self):
-        self.assertEqual(len(JobStatus), 5)
+        self.assertEqual(len(JobStatus), 6)
 
     def test_choices(self):
         choices = JobStatus.choices()
         self.assertIsInstance(choices, list)
-        self.assertEqual(len(choices), 5)
+        self.assertEqual(len(choices), 6)
         # JobStatus.choices uses (key, key) format
         for key, value in choices:
             self.assertIsNotNone(key)
