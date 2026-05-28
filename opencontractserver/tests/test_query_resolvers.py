@@ -374,6 +374,46 @@ class CorpusFoldersQueryCountTest(TestCase):
         self.assertEqual(by_name["child-b"]["documentCount"], 0)
         self.assertEqual(by_name["child-b"]["descendantDocumentCount"], 0)
 
+    def test_anonymous_user_inherits_public_corpus_read(self):
+        """Anonymous viewer of a public corpus must see ``read_corpusfolder``.
+
+        ``CorpusFolder.user_can`` delegates to the corpus, so an anonymous
+        viewer of a public-but-not-folder-public corpus can read folders.
+        The ``my_permissions`` list must mirror that decision, otherwise
+        the frontend disables folder-browsing UI for an anon viewer.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        self.corpus.is_public = True
+        self.corpus.save(update_fields=["is_public"])
+        # Folder explicitly NOT public — only inherits from the corpus.
+        CorpusFolder.objects.create(
+            corpus=self.corpus,
+            name="public-via-corpus",
+            creator=self.user,
+            is_public=False,
+        )
+
+        anon_client = Client(schema, context_value=TestContext(AnonymousUser()))
+        corpus_gid = to_global_id("CorpusType", self.corpus.id)
+        result = anon_client.execute(
+            """
+                query Q($corpusId: ID!) {
+                    corpusFolders(corpusId: $corpusId) {
+                        name myPermissions isPublished
+                    }
+                }
+            """,
+            variables={"corpusId": corpus_gid},
+            context_value=TestContext(AnonymousUser()),
+        )
+        self.assertIsNone(result.get("errors"), msg=result.get("errors"))
+        folders_by_name = {f["name"]: f for f in result["data"]["corpusFolders"]}
+        folder = folders_by_name["public-via-corpus"]
+        self.assertIn("read_corpusfolder", folder["myPermissions"])
+        # ``isPublished`` is always False for folders (no guardian rows).
+        self.assertFalse(folder["isPublished"])
+
 
 class DeletedDocumentsQueryResolverTest(TestCase):
     """Test deleted_documents_in_corpus query resolver."""
