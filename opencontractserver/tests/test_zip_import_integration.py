@@ -4,9 +4,11 @@ Integration tests for zip import with folder structure preservation.
 These tests verify:
 - Folder structure creation from zip paths
 - Celery task for zip import
-- GraphQL mutation for zip import
 - Permission checks
 - Error handling and partial success scenarios
+
+The REST transport (``POST /api/imports/zip-to-corpus/``) that wraps the
+celery task is covered separately in ``test_document_imports_rest.py``.
 """
 
 import io

@@ -1,9 +1,11 @@
 """
-Tests for annotation sidecar import via ImportZipToCorpus.
+Tests for annotation sidecar import via the zip-to-corpus pipeline.
 
 These tests verify the ability to import pre-annotated documents by
 including a co-located .json sidecar (OpenContractDocExport format)
-alongside the source document file in a zip upload.
+alongside the source document file in a zip upload, exercising the
+``import_zip_with_folder_structure`` celery task that backs the
+``POST /api/imports/zip-to-corpus/`` REST endpoint.
 
 Uses real PDF fixtures and realistic PAWLs/annotation data — no mocks.
 """

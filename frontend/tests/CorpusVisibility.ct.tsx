@@ -21,6 +21,7 @@ test.describe("Corpus Visibility Settings", () => {
     id: "Q29ycHVzVHlwZTox",
     title: "Test Corpus",
     description: "Test description",
+    descriptionPreview: "Test description",
     allowComments: true,
     isPublic: false,
     slug: "test-corpus",

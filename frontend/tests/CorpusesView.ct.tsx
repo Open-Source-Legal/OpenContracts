@@ -23,6 +23,7 @@ const dummyCorpus: CorpusType = {
   icon: null,
   isPublic: false,
   description: "",
+  descriptionPreview: "",
   created: new Date().toISOString(),
   modified: new Date().toISOString(),
   creator: { id: "USER1", email: "tester@example.com", __typename: "UserType" },

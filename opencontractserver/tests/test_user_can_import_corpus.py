@@ -2,7 +2,8 @@
 
 The frontend uses this server-derived flag to gate visibility of the
 "Import Corpus" action. It must mirror the permission check enforced by
-UploadCorpusImportZip / ImportZipToCorpus.
+the corpus-export and zip-to-corpus REST import endpoints
+(``/api/imports/corpus/`` and ``/api/imports/zip-to-corpus/``).
 """
 
 from django.contrib.auth import get_user_model

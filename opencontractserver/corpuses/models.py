@@ -35,6 +35,9 @@ from opencontractserver.constants.licenses import (
 from opencontractserver.constants.notifications import (
     NOTIFICATION_BULK_CREATE_BATCH_SIZE,
 )
+from opencontractserver.constants.truncation import (
+    MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
+)
 from opencontractserver.corpuses.managers import CorpusActionExecutionManager
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
@@ -138,6 +141,17 @@ class Corpus(InstanceUserCanMixin, TreeNode):
     # Model variables
     title = django.db.models.CharField(max_length=1024, db_index=True)
     description = django.db.models.TextField(default="", blank=True)
+    description_preview = django.db.models.TextField(
+        default="",
+        blank=True,
+        editable=False,
+        help_text=(
+            "Auto-generated truncated plain-text preview derived from "
+            "``description``. Used by card layouts, list snippets, and hero "
+            "subtitles so users never see a wall of raw text. Capped at "
+            "``MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH`` characters."
+        ),
+    )
     slug = django.db.models.CharField(
         max_length=128,
         db_index=True,
@@ -337,6 +351,34 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 self.md_description.close()
 
     @staticmethod
+    def _summarize_for_preview(plain_text: str) -> str:
+        """Generate a short card/hero preview from a plain-text description.
+
+        Takes the first paragraph (split on blank lines), collapses internal
+        newlines into spaces, and truncates at a word boundary capped by
+        ``MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH``. Appends a single-character
+        ellipsis when truncation occurred so callers can render the cue
+        without having to recompute the original length.
+        """
+        if not plain_text:
+            return ""
+
+        first_paragraph = plain_text.split("\n\n", 1)[0].strip()
+        # Collapse any remaining newlines so the preview is a single line.
+        first_paragraph = re.sub(r"\s+", " ", first_paragraph)
+
+        if len(first_paragraph) <= MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH:
+            return first_paragraph
+
+        # Truncate at the last word boundary before the cap so we don't
+        # slice a word in half.
+        cut = first_paragraph[:MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH]
+        last_space = cut.rfind(" ")
+        if last_space > MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH // 2:
+            cut = cut[:last_space]
+        return cut.rstrip() + "…"
+
+    @staticmethod
     def _markdown_to_plain_text(md: str) -> str:
         """Convert markdown to plain text by stripping formatting syntax.
 
@@ -521,6 +563,25 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             self.created_with_embedder = self.preferred_embedder or default_embedder
 
         self.modified = timezone.now()
+
+        # Keep description_preview in sync with description automatically.
+        # Cheap string op; runs on every save so packaging imports, direct
+        # ORM writes, and the versioned update_description path all stay
+        # consistent without each caller having to remember.
+        self.description_preview = self._summarize_for_preview(self.description or "")
+        # If the caller restricted the write to update_fields and is
+        # changing description, make sure the preview (and the modified
+        # timestamp set above) ride along — otherwise the in-memory
+        # values are computed but never reach the DB.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "description" in update_fields:
+            extras = []
+            if "description_preview" not in update_fields:
+                extras.append("description_preview")
+            if "modified" not in update_fields:
+                extras.append("modified")
+            if extras:
+                kwargs["update_fields"] = list(update_fields) + extras
 
         # Detect is_public changes so we can propagate to documents.
         # Only check when updating an existing corpus and is_public might change.

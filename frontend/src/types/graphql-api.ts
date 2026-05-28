@@ -299,6 +299,10 @@ export type RawCorpusType = Node & {
   is_selected?: boolean;
   is_opened?: boolean;
   description?: Scalars["String"];
+  // Auto-generated short summary (first paragraph, ~280 chars) used by
+  // card layouts and hero subtitles. Synced server-side from
+  // ``description`` on every save — see ``Corpus._summarize_for_preview``.
+  descriptionPreview?: Scalars["String"];
   mdDescription?: Maybe<Scalars["String"]>;
   icon?: Maybe<Scalars["String"]>;
   documents?: DocumentTypeConnection;

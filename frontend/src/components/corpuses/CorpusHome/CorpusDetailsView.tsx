@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -26,6 +26,7 @@ import { CorpusType } from "../../../types/graphql-api";
 import { PermissionTypes } from "../../types";
 import { getPermissions } from "../../../utils/transform";
 import { getCreatorDisplay } from "../../../utils/userDisplay";
+import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
 import { tocExpandAll } from "../../../graphql/cache";
 import { updateTocExpandedParam } from "../../../utils/navigationUtils";
 import { CorpusAbout } from "../CorpusAbout/CorpusAbout";
@@ -101,7 +102,6 @@ export const CorpusDetailsView: React.FC<CorpusDetailsViewProps> = ({
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [mdContent, setMdContent] = React.useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTabType>("about");
   // Intentionally preserved across tab switches so returning to Documents keeps the filter
   const [docSearchQuery, setDocSearchQuery] = useState("");
@@ -126,23 +126,11 @@ export const CorpusDetailsView: React.FC<CorpusDetailsViewProps> = ({
     variables: historyVariables,
   });
 
-  // Fetch markdown content from URL
-  useEffect(() => {
-    if (corpusData?.corpus?.mdDescription) {
-      fetch(corpusData.corpus.mdDescription)
-        .then((res) => {
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-          }
-          return res.text();
-        })
-        .then((text) => setMdContent(text))
-        .catch((err) => {
-          console.error("Error fetching corpus description:", err);
-          setMdContent(null);
-        });
-    }
-  }, [corpusData]);
+  // Shared hook deduplicates concurrent in-flight fetches with
+  // CorpusLandingView (e.g. tab switches that mount both simultaneously).
+  // Sequential navigation refetches; the hook does not maintain a
+  // settled-result cache.
+  const mdContent = useCorpusMdDescription(corpusData?.corpus?.mdDescription);
 
   // Use the fetched corpus data instead of the prop for description/history
   const fullCorpus = corpusData?.corpus || corpus;
