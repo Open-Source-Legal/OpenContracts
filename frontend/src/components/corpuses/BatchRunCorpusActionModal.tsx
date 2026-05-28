@@ -104,15 +104,14 @@ export const BatchRunCorpusActionModal: React.FC<
         <InfoLine>
           Failed runs will be retried. Documents that already have a queued,
           running, or completed execution for this action are skipped &mdash;
-          press this button again later to pick up new documents as they
-          arrive.
+          press this button again later to pick up new documents as they arrive.
         </InfoLine>
         <WarningRow>
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
           <span>
-            This dispatches one agent run per document. Larger corpuses may
-            take several minutes; watch the Action Execution History section
-            for progress.
+            This dispatches one agent run per document. Larger corpuses may take
+            several minutes; watch the Action Execution History section for
+            progress.
           </span>
         </WarningRow>
       </ModalBody>
