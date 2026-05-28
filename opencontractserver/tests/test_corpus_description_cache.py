@@ -381,3 +381,60 @@ class WithReadmeCamlDocQuerysetTest(TestCase):
             f"Expected ≤3 queries, got {len(ctx.captured_queries)}: "
             + "\n".join(q["sql"][:120] for q in ctx.captured_queries),
         )
+
+
+class MdDescriptionResolverTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            username="resolver-user", password="x"
+        )
+        cls.corpus = Corpus.objects.create(title="C", creator=cls.user)
+        from opencontractserver.documents.versioning import import_document
+        import_document(
+            corpus=cls.corpus,
+            path="Readme.CAML",
+            content=b"# Hello",
+            user=cls.user,
+            file_type="text/markdown",
+            title="Readme.CAML",
+        )
+        # The signal handler that populates the FK runs via
+        # transaction.on_commit. setUpTestData runs inside a single
+        # outer transaction in TestCase, so we have to flush manually
+        # or pre-populate the FK by re-resolving.
+        from opencontractserver.documents.models import DocumentPath
+        cls.corpus.refresh_from_db()
+        if cls.corpus.readme_caml_document_id is None:
+            # Fallback: resolve the head ourselves (signal couldn't fire
+            # mid-setUpTestData). This keeps the test deterministic.
+            head = DocumentPath.objects.filter(
+                corpus=cls.corpus, path="Readme.CAML", is_current=True
+            ).select_related("document").first()
+            cls.corpus.readme_caml_document_id = head.document_id
+            cls.corpus.save(update_fields=["readme_caml_document"])
+            cls.corpus.refresh_from_db()
+
+    def test_md_description_resolves_to_caml_doc_url(self):
+        from config.graphql.corpus_types import CorpusType
+
+        class FakeRequest:
+            def build_absolute_uri(self, url):
+                return f"https://example.com{url}"
+
+        class FakeInfo:
+            context = FakeRequest()
+
+        url = CorpusType.resolve_md_description(self.corpus, FakeInfo())
+        self.assertIsNotNone(url)
+        # The CAML doc body lives in txt_extract_file → URL should reference
+        # the configured storage path for txt-extract files.
+        self.assertTrue(url.startswith("https://example.com/"))
+
+    def test_md_description_is_none_without_caml_doc(self):
+        from config.graphql.corpus_types import CorpusType
+
+        bare = Corpus.objects.create(title="Bare", creator=self.user)
+        result = CorpusType.resolve_md_description(bare, None)
+        self.assertIsNone(result)

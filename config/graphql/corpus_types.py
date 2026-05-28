@@ -296,13 +296,30 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_icon(self, info) -> Any:
         return "" if not self.icon else info.context.build_absolute_uri(self.icon.url)
 
-    # File link resolver for markdown description
+    # File link resolver for markdown description — reads through the
+    # canonical Readme.CAML Document body (the source of truth for the
+    # corpus's description). See spec §4.5.
     def resolve_md_description(self, info) -> Any:
-        return (
-            ""
-            if not self.md_description
-            else info.context.build_absolute_uri(self.md_description.url)
-        )
+        """Resolve to the URL of the Readme.CAML Document's body file.
+
+        After the canonical-CAML refactor, the corpus's description lives
+        in the Readme.CAML Document (title='Readme.CAML',
+        file_type='text/markdown'). The denormalized
+        ``readme_caml_document`` FK + ``with_readme_caml_doc`` queryset
+        helper let us return the URL without a per-row Document fetch on
+        list queries.
+
+        Returns ``None`` when no CAML doc exists for the corpus.
+        """
+        doc = self.readme_caml_document
+        if doc is None:
+            return None
+        file_field = doc.txt_extract_file
+        if not file_field or not file_field.name:
+            return None
+        if info is None or getattr(info, "context", None) is None:
+            return file_field.url
+        return info.context.build_absolute_uri(file_field.url)
 
     # Optional list of description revisions
     description_revisions = graphene.List(lambda: CorpusDescriptionRevisionType)
@@ -480,6 +497,12 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         request = info.context
         user = getattr(request, "user", None)
         visible_qs = BaseService.filter_visible_qs(queryset, user, request=request)
+        # Prefetch the Readme.CAML FK so mdDescription / readmeCamlDocument
+        # resolve in O(1) per row. See spec §4.5.
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
+        visible_qs = CorpusDocumentService.with_readme_caml_doc(visible_qs)
 
         # Annotate the viewer's vote in one Subquery per page so
         # ``resolve_my_vote`` doesn't fire N queries (one per corpus card)
