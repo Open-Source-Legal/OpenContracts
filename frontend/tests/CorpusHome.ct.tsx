@@ -201,6 +201,7 @@ const corpusHistoryMock: MockedResponse = {
         slug: "test-corpus",
         title: dummyCorpus.title,
         description: dummyCorpus.description,
+        descriptionPreview: dummyCorpus.description,
         mdDescription: null,
         created: dummyCorpus.created,
         modified: dummyCorpus.modified,

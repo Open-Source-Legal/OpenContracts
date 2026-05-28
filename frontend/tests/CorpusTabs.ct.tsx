@@ -61,6 +61,7 @@ const createMockCorpus = (overrides: Partial<CorpusType> = {}): CorpusType => ({
   icon: null,
   isPublic: false,
   description: "A comprehensive test corpus for tab testing",
+  descriptionPreview: "A comprehensive test corpus for tab testing",
   created: new Date().toISOString(),
   modified: new Date().toISOString(),
   creator: {

@@ -30,3 +30,8 @@ MAX_DOC_TITLE_FALLBACK_LENGTH = 50
 
 # Maximum characters of an error message stored in notification data payloads.
 MAX_NOTIFICATION_ERROR_LENGTH = 500
+
+# Maximum characters of the auto-generated Corpus.description_preview field,
+# used for card layouts, list snippets, and hero subtitles where the full
+# markdown/plain-text description would otherwise wrap into a long block.
+MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH = 280

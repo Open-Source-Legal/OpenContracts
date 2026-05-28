@@ -753,7 +753,11 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
                         imageAlt={corpus.title || "Corpus icon"}
                         status={visibilityStatus}
                         title={corpus.title || "Untitled Corpus"}
-                        description={corpus.description || "No description"}
+                        description={
+                          corpus.descriptionPreview ||
+                          corpus.description ||
+                          "No description"
+                        }
                         stats={formatStats(corpus)}
                         onClick={() => handleCorpusClick(corpus)}
                         menu={

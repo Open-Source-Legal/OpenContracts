@@ -34,6 +34,7 @@ test.describe("Metadata Workflow Integration", () => {
     slug: "test-corpus",
     title: "Test Corpus",
     description: "Test corpus for metadata workflow",
+    descriptionPreview: "Test corpus for metadata workflow",
     icon: null,
     isPublic: false,
     created: new Date().toISOString(),
