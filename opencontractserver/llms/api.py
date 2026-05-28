@@ -44,6 +44,7 @@ class AgentAPI:
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
         model: Optional[str] = None,
+        agent_preferred_llm: Optional[str] = None,
         system_prompt: Optional[str] = None,
         conversation: Optional[Conversation] = None,
         conversation_id: Optional[int] = None,
@@ -64,7 +65,11 @@ class AgentAPI:
             document: Document ID, instance, or path
             framework: "pydantic_ai"
             user_id: User ID for message attribution (None = anonymous/ephemeral session)
-            model: LLM model name (e.g., "gpt-4", "claude-3-sonnet")
+            model: LLM model name (e.g., "gpt-4", "claude-3-sonnet").  Per-call
+                override — wins over every persisted default.
+            agent_preferred_llm: Per-agent override
+                (``AgentConfiguration.preferred_llm``).  Wins over the corpus
+                default but loses to a per-call ``model=``.
             system_prompt: Custom system prompt (auto-generated if None)
             conversation: Existing conversation object to continue
             conversation_id: Existing conversation ID to load
@@ -144,6 +149,7 @@ class AgentAPI:
             conversation_id=conversation_id,
             loaded_messages=messages,
             model=model,
+            agent_preferred_llm=agent_preferred_llm,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -162,6 +168,7 @@ class AgentAPI:
         framework: Optional[FrameworkType] = None,
         user_id: Optional[int] = None,
         model: Optional[str] = None,
+        agent_preferred_llm: Optional[str] = None,
         system_prompt: Optional[str] = None,
         conversation: Optional[Conversation] = None,
         conversation_id: Optional[int] = None,
@@ -182,7 +189,11 @@ class AgentAPI:
             corpus_id: Corpus ID
             framework: "pydantic_ai"
             user_id: User ID for message attribution (None = anonymous/ephemeral session)
-            model: LLM model name (e.g., "gpt-4", "claude-3-sonnet")
+            model: LLM model name (e.g., "gpt-4", "claude-3-sonnet").  Per-call
+                override — wins over every persisted default.
+            agent_preferred_llm: Per-agent override
+                (``AgentConfiguration.preferred_llm``).  Wins over the corpus
+                default but loses to a per-call ``model=``.
             system_prompt: Custom system prompt (auto-generated if None)
             conversation: Existing conversation object to continue
             conversation_id: Existing conversation ID to load
@@ -263,6 +274,7 @@ class AgentAPI:
             conversation_id=conversation_id,
             loaded_messages=messages,
             model=model,
+            agent_preferred_llm=agent_preferred_llm,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,

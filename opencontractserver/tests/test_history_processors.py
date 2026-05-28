@@ -1,0 +1,520 @@
+"""Unit tests for ``opencontractserver.llms.history_processors``.
+
+Pure-unit (no DB, no LLM, no Django setup). Each test constructs a
+fabricated pydantic-ai message list, runs the processor on it, and
+asserts the resulting list has the expected shape.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass, field
+from typing import Any
+
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+
+from opencontractserver.constants.context_guardrails import (
+    IN_RUN_TRIM_NOTICE_MARKER,
+)
+from opencontractserver.llms.context_guardrails import CompactionConfig
+from opencontractserver.llms.history_processors import (
+    InRunShrinkEvent,
+    shrink_old_artifacts_processor,
+)
+
+
+# A minimal stand-in for PydanticAIDependencies that only carries the
+# fields the processor reads. Avoids importing the full pydantic model
+# (which has many other required fields) into a pure-unit test.
+@dataclass
+class _FakeDeps:
+    model_name: str = "claude-opus-4"
+    system_prompt: str = ""
+    compaction: CompactionConfig = field(default_factory=CompactionConfig)
+    on_in_run_shrink: Any = None
+    # Events captured by a default sink for easy assertion.
+    events: list[InRunShrinkEvent] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Default callback appends to ``events`` if the test didn't set one.
+        if self.on_in_run_shrink is None:
+            self.on_in_run_shrink = self.events.append
+
+
+@dataclass
+class _FakeRunContext:
+    """Minimal RunContext stand-in. The processor only reads ``.deps``."""
+
+    deps: Any
+
+
+def _run(messages: list[ModelMessage], deps: _FakeDeps) -> list[ModelMessage]:
+    """Helper to invoke the async processor synchronously."""
+    ctx = _FakeRunContext(deps=deps)
+    return asyncio.run(shrink_old_artifacts_processor(ctx, messages))  # type: ignore[arg-type]
+
+
+def _make_pair(
+    *,
+    tool_call_id: str,
+    tool_name: str,
+    return_chars: int,
+    thinking_chars: int = 0,
+) -> tuple[ModelResponse, ModelRequest]:
+    """Build a (ModelResponse-with-ToolCall, ModelRequest-with-ToolReturn) pair."""
+    parts_resp: list[Any] = [TextPart(content="step")]
+    if thinking_chars:
+        parts_resp.append(ThinkingPart(content="t" * thinking_chars))
+    parts_resp.append(
+        ToolCallPart(
+            tool_name=tool_name,
+            args="{}",
+            tool_call_id=tool_call_id,
+        )
+    )
+    response = ModelResponse(parts=parts_resp)
+    request = ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name=tool_name,
+                content="r" * return_chars,
+                tool_call_id=tool_call_id,
+            ),
+        ]
+    )
+    return response, request
+
+
+def test_under_threshold_returns_messages_unchanged():
+    """When total tokens are below threshold, processor is a no-op."""
+    resp, req = _make_pair(tool_call_id="A", tool_name="search", return_chars=200)
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hi")]),
+        resp,
+        req,
+        ModelResponse(parts=[TextPart(content="done")]),
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+    assert result is messages or list(result) == list(messages)
+    assert deps.events == []
+
+
+def test_over_threshold_shrinks_oldest_tool_return():
+    """One ToolReturnPart far in the past is shrunk to target_chars."""
+    # claude-opus-4 has a 200_000 token window. Build messages so total
+    # exceeds 0.75 * 200_000 = 150_000 tokens estimated. A 600_000-char
+    # tool return alone is ~600_000 / 3.5 = ~171_428 tokens.
+    old_resp, old_req = _make_pair(
+        tool_call_id="OLD", tool_name="load_document_text", return_chars=600_000
+    )
+    # Five recent pairs so the OLD pair is outside the protected suffix.
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=100)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelResponse(parts=[TextPart(content="thinking")]),
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    # OLD return is now ≤ target_chars + trim notice length.
+    old_return_msg = result[2]
+    assert isinstance(old_return_msg, ModelRequest)
+    old_return_part = old_return_msg.parts[0]
+    assert isinstance(old_return_part, ToolReturnPart)
+    assert isinstance(old_return_part.content, str)
+    assert len(old_return_part.content) < 5_000
+    assert IN_RUN_TRIM_NOTICE_MARKER in old_return_part.content
+    assert old_return_part.tool_call_id == "OLD"
+
+    # A telemetry event was emitted exactly once.
+    assert len(deps.events) == 1
+    evt = deps.events[0]
+    assert evt.tool_returns_shrunk == 1
+    assert evt.tokens_before > evt.tokens_after
+    assert evt.context_window == 200_000
+
+
+def test_drops_older_thinking_parts():
+    """ThinkingPart in older messages is dropped; recent ones survive."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="OLD",
+        tool_name="load_document_text",
+        return_chars=600_000,
+        thinking_chars=8_000,
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(
+            tool_call_id=f"R{i}",
+            tool_name="ping",
+            return_chars=50,
+            thinking_chars=200,  # recent ThinkingParts should survive
+        )
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelResponse(parts=[TextPart(content="step")]),
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    # Older ModelResponse no longer carries a ThinkingPart. Locate it by
+    # the ToolCallPart's tool_call_id rather than positional index so the
+    # assertion survives fixture reshuffles.
+    old_resp_new = next(
+        m
+        for m in result
+        if isinstance(m, ModelResponse)
+        and any(
+            isinstance(p, ToolCallPart) and p.tool_call_id == "OLD" for p in m.parts
+        )
+    )
+    assert not any(isinstance(p, ThinkingPart) for p in old_resp_new.parts)
+    # But ToolCallPart survives.
+    assert any(isinstance(p, ToolCallPart) for p in old_resp_new.parts)
+
+    # A recent ModelResponse still carries its ThinkingPart. Older
+    # responses had theirs stripped, so the first surviving ThinkingPart
+    # must live inside the protected ``keep_recent_pairs`` suffix —
+    # whichever positional index that lands at as the fixture evolves.
+    recent_resp = next(
+        m
+        for m in result
+        if isinstance(m, ModelResponse)
+        and any(isinstance(p, ThinkingPart) for p in m.parts)
+    )
+    assert any(isinstance(p, ThinkingPart) for p in recent_resp.parts)
+
+    # Telemetry event reflects the drop.
+    # Older prefix has 3 ModelResponses with ThinkingParts:
+    # old_resp, R0-resp, R1-resp (all outside the keep_recent_pairs=4 window).
+    assert len(deps.events) == 1
+    assert deps.events[0].thinking_parts_dropped == 3
+    # The 600k char old tool return was also shrunk in the same pass.
+    assert deps.events[0].tool_returns_shrunk == 1
+
+
+def test_preserves_tool_call_id_correlation():
+    """Shrinking a return must not alter its tool_call_id or its
+    ToolCallPart counterpart."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="UNIQUE_ID_42",
+        tool_name="similarity_search",
+        return_chars=600_000,
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelResponse(parts=[TextPart(content="step")]),
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    # ToolCallPart in the ModelResponse still references the same id.
+    tool_call_part = next(p for p in result[1].parts if isinstance(p, ToolCallPart))
+    assert tool_call_part.tool_call_id == "UNIQUE_ID_42"
+
+    # ToolReturnPart still references the same id (just shrunk content).
+    tool_return_part = result[2].parts[0]
+    assert isinstance(tool_return_part, ToolReturnPart)
+    assert tool_return_part.tool_call_id == "UNIQUE_ID_42"
+    assert tool_return_part.tool_name == "similarity_search"
+
+
+def test_last_message_is_modelrequest_invariant():
+    """Processor must never touch the very last message (always a ModelRequest)."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="OLD", tool_name="load_document_text", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    last = ModelRequest(parts=[UserPromptPart(content="LAST_SENTINEL")])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelResponse(parts=[TextPart(content="step")]),
+        last,
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    assert isinstance(result[-1], ModelRequest)
+    last_part = result[-1].parts[0]
+    assert isinstance(last_part, UserPromptPart)
+    assert last_part.content == "LAST_SENTINEL"
+
+
+def test_history_shorter_than_keep_recent_pairs_is_noop():
+    """3 messages with keep_recent_pairs=4: nothing is older → no-op."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000
+    )
+    messages: list[ModelMessage] = [
+        old_resp,
+        old_req,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+    deps = _FakeDeps()  # default keep_recent_pairs=4
+    result = _run(messages, deps)
+
+    # Even though we're over threshold, nothing should be shrunk.
+    old_return = result[1]
+    assert isinstance(old_return, ModelRequest)
+    assert isinstance(old_return.parts[0], ToolReturnPart)
+    assert isinstance(old_return.parts[0].content, str)
+    assert len(old_return.parts[0].content) == 600_000
+    assert deps.events == []
+
+
+def test_in_run_enabled_false_short_circuits():
+    """When config.in_run_enabled is False, processor is a hard no-op."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+    deps = _FakeDeps(compaction=CompactionConfig(in_run_enabled=False))
+    result = _run(messages, deps)
+
+    old_return = result[1]
+    assert isinstance(old_return.parts[0], ToolReturnPart)
+    assert isinstance(old_return.parts[0].content, str)
+    assert len(old_return.parts[0].content) == 600_000
+    assert deps.events == []
+
+
+def test_no_shrinkable_content_logs_info(caplog):
+    """Over threshold but no ToolReturnPart/ThinkingPart → log + unchanged.
+
+    Logged at INFO (not WARNING): the older prefix being all
+    ``UserPromptPart`` is a structural condition the in-run processor
+    intentionally does not handle (turn-level compaction picks it up
+    instead), so it must not page on log monitors that alert at WARNING+.
+    """
+    # Stuff a giant UserPromptPart in an old message — we never shrink those.
+    huge = ModelRequest(parts=[UserPromptPart(content="x" * 800_000)])
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        huge,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+    deps = _FakeDeps()
+
+    with caplog.at_level(
+        logging.INFO, logger="opencontractserver.llms.history_processors"
+    ):
+        result = _run(messages, deps)
+
+    assert result is messages or list(result) == list(messages)
+    matching = [
+        rec
+        for rec in caplog.records
+        if "no ToolReturnPart or ThinkingPart" in rec.message
+    ]
+    assert matching, "expected the unshrinkable-prefix log line"
+    assert all(rec.levelno == logging.INFO for rec in matching), (
+        "unshrinkable-prefix log line must be INFO, not WARNING — see "
+        "history_processors.py for rationale"
+    )
+    assert deps.events == []
+
+
+def test_deps_none_does_not_crash():
+    """Running without deps falls back to module defaults."""
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hi")]),
+    ]
+    ctx = _FakeRunContext(deps=None)
+    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))  # type: ignore[arg-type]
+    assert result == messages
+
+
+def test_callback_receives_correct_event_shape():
+    """on_in_run_shrink callback is called once with a fully-populated event."""
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000, thinking_chars=8_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    captured: list[InRunShrinkEvent] = []
+    deps = _FakeDeps(on_in_run_shrink=captured.append)
+    _run(messages, deps)
+
+    assert len(captured) == 1
+    evt = captured[0]
+    assert isinstance(evt, InRunShrinkEvent)
+    assert evt.tool_returns_shrunk == 1
+    assert evt.thinking_parts_dropped == 1
+    assert evt.context_window == 200_000
+    assert evt.tokens_before > evt.tokens_after > 0
+
+
+def test_resolves_compaction_from_deps_compaction_field():
+    """`_resolve_config` reads ``deps.compaction`` (the production field
+    name on ``PydanticAIDependencies``). Pins the contract that the
+    stub used elsewhere in this file mirrors production.
+    """
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps(compaction=CompactionConfig(in_run_enabled=False))
+    result = _run(messages, deps)
+
+    # in_run_enabled=False short-circuits — old tool return is untouched.
+    old_return = result[1]
+    assert isinstance(old_return, ModelRequest)
+    old_part = old_return.parts[0]
+    assert isinstance(old_part, ToolReturnPart)
+    old_content = old_part.content
+    assert isinstance(old_content, str)
+    assert len(old_content) == 600_000
+    assert deps.events == []
+
+
+def test_callback_exception_does_not_propagate(caplog):
+    """A raising ``on_in_run_shrink`` callback must not break the run.
+
+    Pins the defensive contract on the callback seam: telemetry
+    failures (e.g. websocket already closed, builder mid-teardown)
+    must never bubble out of the processor — otherwise the outer
+    ``try/except`` would turn the shrink into a silent no-op and
+    the agent run would keep accumulating context.
+    """
+    old_resp, old_req = _make_pair(
+        tool_call_id="A", tool_name="t", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    def _raises(_event: InRunShrinkEvent) -> None:
+        raise RuntimeError("simulated telemetry sink failure")
+
+    deps = _FakeDeps(on_in_run_shrink=_raises)
+
+    with caplog.at_level(
+        logging.ERROR, logger="opencontractserver.llms.history_processors"
+    ):
+        result = _run(messages, deps)
+
+    # Shrink still applied to the old tool return — callback failure
+    # must not undo the actual compaction work.
+    old_return = result[2]
+    assert isinstance(old_return, ModelRequest)
+    old_part = old_return.parts[0]
+    assert isinstance(old_part, ToolReturnPart)
+    assert isinstance(old_part.content, str)
+    assert len(old_part.content) < 5_000
+    # And the failure surfaced via logger.exception, not by escaping.
+    assert any(
+        "on_in_run_shrink callback raised" in rec.message for rec in caplog.records
+    )
+
+
+def test_thinking_only_modelresponse_is_not_emptied():
+    """A ModelResponse with only ThinkingPart is left intact (no empty parts)."""
+    # An old ModelResponse with only a giant ThinkingPart.
+    only_thinking = ModelResponse(parts=[ThinkingPart(content="t" * 600_000)])
+    # Pair it with a ModelRequest so the structure is valid.
+    old_req = ModelRequest(
+        parts=[UserPromptPart(content="paired with thinking-only response")]
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        only_thinking,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    # The thinking-only ModelResponse is left intact (we didn't strip the
+    # only thing it contained).
+    first = result[0]
+    assert isinstance(first, ModelResponse)
+    assert len(first.parts) == 1
+    assert isinstance(first.parts[0], ThinkingPart)

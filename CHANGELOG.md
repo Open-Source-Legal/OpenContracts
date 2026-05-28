@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `opencontractserver/tests/test_geographic_annotation_service.py` — fixture with public + private document in a shared corpus pins the MIN(document, corpus) semantic: viewer with corpus READ + no document-level READ on the private doc sees the France pin with `documentCount=1`, NOT 2. Also covers bbox filtering (Europe-only box excludes Tokyo), antimeridian-crossing bbox (`_bbox_contains` handles the wrap-around), label-type filtering, ungeocodable-row exclusion from aggregation, sample-ID cap, unknown-label-type rejection, and the IDOR-safe empty-list response for a user with no corpus permission.
     - `docs/test_scripts/geographic_annotations_smoke.md` — manual smoke test exercising the full mutation → service → aggregation loop against a live shell, used as the integration gate before the foundation is consumed by the map UI.
 
+- **Runtime LLM configuration — per-corpus default model + per-agent override + pipeline-component-style provider registry.** Previously, the only knob for LLM selection was a per-call `agents.for_document(model="…")` string that bypassed the codebase entirely (no validation, no persistence, no per-corpus default); the global model came from `settings.OPENAI_MODEL` and could only be changed by redeploying. Three changes together let users pick a model per corpus, override it per agent, and discover what's available without redeploying.
+  - **`BaseLLMProvider` pipeline component + four shipped providers** (`opencontractserver/pipeline/base/llm_provider.py`, `opencontractserver/pipeline/llm_providers/{openai,anthropic,google,ollama}_provider.py`). New abstract pipeline component class mirroring `BaseEmbedder`'s shape: each subclass declares a `provider_key` (pydantic-ai's prefix — `"openai"`, `"anthropic"`, `"google-gla"`, `"ollama"`), a `supported_models` tuple of suggested bare model names exposed to the UI, and a `requires_api_key: bool`. Concrete providers carry no behaviour — pydantic-ai owns client instantiation; these classes exist so the rest of the system has a discovery surface to enumerate and validate against.
+  - **`PipelineComponentRegistry` extended with the new component type** (`opencontractserver/pipeline/registry.py`). `ComponentType.LLM_PROVIDER` added to the enum, `_llm_providers` / `_llm_providers_by_key` storage and a discovery block in `_discover_all_components()`, plus `get_all_llm_providers_cached()` / `get_llm_provider_by_key_cached()` module-level helpers and three new metadata fields (`provider_key`, `supported_models`, `requires_api_key`) on `PipelineComponentDefinition` (set only for LLM providers; absent on other component types). The registry log line and `get_all_components_cached()` dict both pick up the new bucket.
+  - **`opencontractserver/llms/llm_registry.py` — model-spec parsing, validation, and the priority-chain resolver.** `parse_model_spec("anthropic:claude-opus-4-6") → ("anthropic", "claude-opus-4-6")`; bare strings (no colon) default to the `openai` provider so legacy `OPENAI_MODEL="gpt-4o"` values keep working. `normalise_model_spec` returns the canonical `"{provider}:{model}"` form. `validate_model_spec` raises `LLMProviderNotRegistered` for unknown providers (model names themselves are not strictly enforced — the `supported_models` tuple is a UI suggestion, not a runtime gate). `resolve_model_spec(explicit=..., agent_preferred=..., corpus_preferred=...)` walks the documented priority chain: per-call → per-agent → per-corpus → `settings.DEFAULT_LLM` → legacy `settings.OPENAI_MODEL` → hard fallback `"gpt-4o"`.
+  - **`Corpus.preferred_llm` + `Corpus.created_with_llm` audit field** (`opencontractserver/corpuses/models.py`, migration `corpuses/0052_corpus_preferred_llm.py`). New `CharField(128)` for the corpus's preferred pydantic-ai model spec and an editable=False audit-trail column stamped at creation. `Corpus.save()` validates and normalises `preferred_llm` on every write via the new registry (`ValidationError` on malformed spec / unknown provider) and freezes `created_with_llm` to the resolved default at first save. The audit column is backfilled for existing rows in the migration's `RunPython` step. Unlike `preferred_embedder`, `preferred_llm` is freely mutable — swapping LLMs doesn't invalidate stored data.
+  - **`AgentConfiguration.preferred_llm`** (`opencontractserver/agents/models.py`, migration `agents/0014_agentconfiguration_preferred_llm.py`). New nullable `CharField(128)` so a single agent (e.g. the doc-summarizer @-mention) can override the corpus default with its own model. Same `save()`-time validation as `Corpus.preferred_llm`. Null means "fall back to corpus default" — preserves pre-feature behaviour for every existing agent row.
+  - **Agent factory threads the resolver through** (`opencontractserver/llms/agents/agent_factory.py`). `UnifiedAgentFactory.create_document_agent` and `create_corpus_agent` now resolve the corpus object BEFORE building `AgentConfig`, then call `resolve_model_spec(explicit=model, agent_preferred=agent_preferred_llm, corpus_preferred=corpus.preferred_llm)` and pass the result as `model_name=` to `get_default_config()`. `agents.for_*` exposes a dedicated `agent_preferred_llm=` kwarg so the per-agent slot is exercised by production code (not just tests): `agent_tasks.generate_agent_response` (the @-mention task) and `delegation_tools.build_delegation_tool` (the sub-agent @-mention) forward `agent_preferred_llm=agent_config.preferred_llm`, which means a per-call `model=` still wins over the agent's persisted preference.
+  - **`get_context_window_for_model` handles provider-prefixed specs** (`opencontractserver/llms/context_guardrails.py`). Strips the pydantic-ai provider prefix before the lookup table check so `"anthropic:claude-opus-4-6"` resolves to the same 200K window as the bare `"claude-opus-4-6"`. Without this fix, the resolver's canonical-form normalisation (always prefixed) would have collapsed every model to `DEFAULT_CONTEXT_WINDOW` and broken compaction sizing for Claude/Gemini.
+  - **GraphQL surface** (`config/graphql/{pipeline_types,pipeline_queries,corpus_mutations,agent_mutations,agent_types,serializers}.py`).
+    - `PipelineComponentType` gains `providerKey` / `supportedModels` / `requiresApiKey` (set only for LLM providers); `PipelineComponentsType` gains an `llmProviders` field that surfaces the registered providers via the existing `pipelineComponents` query. The query resolver pulls `llm_providers` directly off the registry (bypasses the non-superuser enabled-components filter — LLM providers are metadata, not credentials).
+    - `CreateCorpusMutation` and `UpdateCorpusMutation` accept `preferred_llm: String`; `CorpusSerializer` exposes `preferred_llm` (writable) and `created_with_llm` (read-only).
+    - `CreateAgentConfigurationMutation` accepts `preferred_llm`; `UpdateAgentConfigurationMutation` accepts `preferred_llm` (set/replace) plus a separate `clear_preferred_llm: Boolean` (explicit reset back to the corpus default — avoids empty-string ambiguity). Both flow through `AgentConfigurationService.create_agent` / `update_agent`, which convert `ValidationError` raised by `AgentConfiguration.save()` into `ServiceResult.failure` with a clean message. `AgentConfigurationType` adds `preferred_llm` to its exposed fields.
+  - **Tests** (`opencontractserver/tests/test_llm_runtime_config.py`). Covers spec parsing edge cases, normalisation, validator (known/unknown providers, malformed strings), the four-rung resolver priority chain, registry discovery of the four shipped providers, `Corpus.preferred_llm` save-path validation + `created_with_llm` audit-stamp + audit-field immutability, `AgentConfiguration.preferred_llm` save-path validation, the prefix-stripping fix in `get_context_window_for_model`, and an end-to-end scenario asserting the resolver winning order with real `Corpus` rows.
+
 ### Fixed
 
 - **Large bulk-import and corpus-export-import ZIPs no longer fail with "NetworkError when attempting to fetch resource."** Both modals were the last upload paths still routing through GraphQL with the full ZIP base64-encoded into a JSON request body (`BulkImportModal.tsx`, `ImportCorpusModal.tsx`). For files past ~100 MB, base64 inflation (+33%) plus Apollo's JSON.stringify of the request body exceeded V8's contiguous-string allocation limit, so the request never reached the network. Migrated both to multipart REST:
@@ -33,6 +47,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Tests** — `opencontractserver/tests/test_document_imports_rest.py` adds `ZipToCorpusImportViewTests` and `CorpusExportImportViewTests` covering happy path, IDOR error collapse for inaccessible/read-only/non-existent corpora, cross-corpus folder rejection, non-ZIP rejection, oversize (413), usage-cap gating, and the corpus-export placeholder-corpus contract. `test_graphql_import_export_mutations.py` drops `test_zip_upload` (moved to REST). `frontend/src/utils/__tests__/importHttp.test.ts` adds `importZipToCorpusMultipart` and `importCorpusExportMultipart` coverage. `frontend/tests/bulk-import-modal.ct.tsx` swaps the Apollo MockedProvider mock for a `window.fetch` stub on `/api/imports/zip-to-corpus/`.
 
 ### Added
+
+- **In-run history compaction via pydantic-ai `history_processors`.** A new
+  `shrink_old_artifacts_processor` in `opencontractserver/llms/history_processors.py`
+  is unconditionally installed as a `ProcessHistory` capability on every agent constructed through
+  `make_pydantic_ai_agent`. Before each model request inside an
+  `Agent.run()` loop, the processor checks whether cumulative tokens
+  exceed `CompactionConfig.threshold_ratio * context_window`; when over
+  threshold it truncates older `ToolReturnPart.content` to
+  `in_run_tool_return_target_chars` (default 4,000 chars) and drops
+  older `ThinkingPart` instances entirely, while leaving the last
+  `in_run_keep_recent_pairs` (default 4) ModelResponse/ModelRequest
+  pairs untouched. Tool call/return correlation is preserved by
+  shrinking in place (never dropping `ToolCallPart` or its paired
+  `ToolReturnPart`). Empty-`parts` ModelResponses are also guarded —
+  if dropping the only ThinkingPart would empty the parts list, the
+  message is left intact.
+  - `CompactionConfig` gains four new fields with sensible defaults:
+    `in_run_enabled`, `in_run_keep_recent_pairs`,
+    `in_run_tool_return_target_chars`, `in_run_drop_thinking`. Set
+    `in_run_enabled=False` as a kill switch if regression appears.
+  - New constants in `opencontractserver/constants/context_guardrails.py`:
+    `IN_RUN_KEEP_RECENT_PAIRS`, `IN_RUN_TOOL_RETURN_TARGET_CHARS`,
+    `IN_RUN_DROP_THINKING_DEFAULT`.
+  - New `compaction: CompactionConfig` field on `PydanticAIDependencies`
+    so the processor reads its knobs from the production path (`deps.compaction`).
+  - New telemetry: streamed chats emit a `ThoughtEvent` with metadata
+    key `in_run_shrink` whenever the processor fires; non-streamed
+    chats produce an INFO log line with the same numbers (tokens
+    before/after, tool returns shrunk, thinking parts dropped).
+  - Closes the in-loop context-pressure gap surfaced by the deep-research
+    agent in PR #1814: previously the OpenContracts compaction pipeline
+    ran only once before `Agent.run()` started; tool calls/returns
+    generated inside the autonomous loop accumulated unbounded until
+    pydantic-ai's `UsageLimits.request_tokens_limit` terminated the run.
+  - Tests: `opencontractserver/tests/test_history_processors.py` (12
+    unit tests covering threshold gate, shrink, ThinkingPart drop,
+    tool_call_id preservation, last-message invariant, short
+    histories, disabled config, deps=None, callback contract,
+    production-path config resolution, empty-parts guard).
+    `opencontractserver/tests/test_pydantic_ai_factory.py` gets three
+    new tests pinning `ProcessHistory` injection order, legacy-kwarg
+    auto-wrapping, and modern `capabilities=` passthrough.
+
+### Fixed
+
+- **Per-conversation `CompactionConfig` overrides reach the in-run
+  history processor.** `PydanticAICoreAgent._apply_context_budget`
+  was forwarding only `compaction.threshold_ratio` onto
+  `agent_deps.compaction_threshold_ratio` and never copying the full
+  config object to `agent_deps.compaction` — so any caller-supplied
+  `in_run_enabled` / `in_run_keep_recent_pairs` /
+  `in_run_tool_return_target_chars` / `in_run_drop_thinking`
+  silently fell back to defaults inside the processor. Now
+  `agent_deps.compaction = config.compaction` is set on every turn.
+  Regression test pinned in
+  `opencontractserver/tests/test_context_guardrails.py::TestRefreshContextBudgetFallback::test_compaction_config_is_copied_to_deps`.
+
+- **Loud import-time guard on `dataclasses.replace` assumption.**
+  `opencontractserver/llms/history_processors.py` now asserts at
+  module import that `ToolReturnPart`, `ModelRequest`, and
+  `ModelResponse` remain stdlib `@dataclass` types. A future
+  pydantic-ai release migrating any of them to `pydantic.BaseModel`
+  would have broken `replace()` inside the processor — and the
+  defensive outer `try/except` would have silently swallowed the
+  exception, turning the in-run shrink into a no-op with no visible
+  signal. Now CI fails loudly on the next pydantic-ai bump that
+  invalidates the assumption.
+
+- **Telemetry-callback failures no longer silently disable shrink
+  side-effects via the outer try/except.** Pinned a regression test
+  (`test_callback_exception_does_not_propagate`) confirming that a
+  raising `on_in_run_shrink` callback is caught locally, logged via
+  `logger.exception`, and does NOT bubble out of the inner callback
+  block — so the actual message-list shrink still survives even when
+  a telemetry sink dies mid-run.
 
 - **Deep-research agent — chat-triggered, long-running corpus research with grounded citations** (new app `opencontractserver/research/`, new Celery task `opencontractserver/tasks/research_tasks.py`, new chat tool `opencontractserver/llms/tools/research_tools.py`, GraphQL surface in `config/graphql/research_{types,queries,mutations}.py`). A user in a corpus chat can ask the agent to "research X" and a long-lived (5-30 min) autonomous research job kicks off in the background. The job runs a PydanticAI corpus agent with a read-only retrieval surface plus two job-bound scratchpad tools (`record_finding`, `finalize_report`), produces a markdown report with footnote citations, and notifies the user when complete (new `RESEARCH_REPORT_*` `NotificationTypeChoices` values, broadcast via the existing notification WebSocket) plus drops a system `ChatMessage` back into the originating conversation.
   - **`ResearchReport` model** (sibling of `Analysis`/`Extract`) tracks the full lifecycle: corpus FK, prompt, status (`JobStatus` + new `CANCELLED`), `started_at`/`completed_at`/`last_progress_at`, `cancel_requested` (cooperative cancel polled between tool calls), step budget, rendered `content` markdown, structured `findings`/`citations`/`tool_call_log`/`model_usage`/`warnings` JSON sidecars, and M2M to `source_annotations`/`source_documents` for provenance. Creator-only visibility in v1 (no sharing → no IDOR surface to defend on shared reports). Migration: `opencontractserver/research/migrations/0001_initial.py` + `opencontractserver/notifications/migrations/0005_add_research_report_notification_types.py`.

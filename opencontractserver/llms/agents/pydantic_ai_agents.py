@@ -446,6 +446,10 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         )
         agent_deps.estimated_used_tokens = history_result.estimated_tokens
         agent_deps.compaction_threshold_ratio = config.compaction.threshold_ratio
+        # Propagate the full CompactionConfig so the in-run history
+        # processor (which reads ``deps.compaction``) sees per-conversation
+        # overrides to ``in_run_*`` knobs rather than the default.
+        agent_deps.compaction = config.compaction
         # Reset the per-turn tally of implicit-chunk characters. Without this
         # the counter would accumulate across turns and starve the budget on
         # long-running streaming sessions.
@@ -977,6 +981,47 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             )
             builder.add(compaction_evt)
             yield compaction_evt
+
+        # Wire the in-run HistoryProcessor's telemetry callback. The
+        # processor in ``opencontractserver.llms.history_processors`` is
+        # installed by ``make_pydantic_ai_agent`` and reads this callback
+        # off ``ctx.deps`` (i.e. our ``self.agent_deps``). The closure
+        # below converts each ``InRunShrinkEvent`` into a ``ThoughtEvent``
+        # appended to the streaming timeline so users see when in-loop
+        # compaction fires. Non-streaming (_chat_raw) never sets this
+        # callback, so those chats get log-only telemetry from the
+        # processor itself.
+        def _on_in_run_shrink(event: Any) -> None:
+            try:
+                thought_evt = ThoughtEvent(
+                    thought=(
+                        f"Trimmed tool outputs to fit context: "
+                        f"{event.tokens_before:,} → {event.tokens_after:,} "
+                        f"estimated tokens "
+                        f"({event.context_window:,} token window); "
+                        f"{event.tool_returns_shrunk} tool returns shrunk, "
+                        f"{event.thinking_parts_dropped} thinking parts dropped"
+                    ),
+                    user_message_id=user_msg_id,
+                    llm_message_id=llm_msg_id,
+                    metadata={
+                        "in_run_shrink": {
+                            "tokens_before": event.tokens_before,
+                            "tokens_after": event.tokens_after,
+                            "context_window": event.context_window,
+                            "tool_returns_shrunk": event.tool_returns_shrunk,
+                            "thinking_parts_dropped": event.thinking_parts_dropped,
+                        }
+                    },
+                )
+                builder.add(thought_evt)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "Failed to append in-run shrink ThoughtEvent to timeline"
+                )
+
+        if self.agent_deps is not None:
+            self.agent_deps.on_in_run_shrink = _on_in_run_shrink
 
         try:
             logger.debug(

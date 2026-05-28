@@ -61,6 +61,12 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
             description="Whether agent is publicly visible",
             default_value=True,
         )
+        preferred_llm = graphene.String(
+            required=False,
+            description="Optional pydantic-ai model spec to use when this agent runs "
+            "(e.g. 'anthropic:claude-haiku-4-5'). Overrides Corpus.preferred_llm. "
+            "Empty falls back to the corpus default.",
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -82,6 +88,7 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
         avatar_url=None,
         corpus_id=None,
         is_public=True,
+        preferred_llm=None,
     ) -> "CreateAgentConfigurationMutation":
         user = info.context.user
 
@@ -127,6 +134,7 @@ class CreateAgentConfigurationMutation(graphene.Mutation):
                 scope=scope,
                 corpus=corpus,
                 is_public=is_public,
+                preferred_llm=preferred_llm,
                 request=info.context,
             )
             if not result.ok:
@@ -169,6 +177,19 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
         avatar_url = graphene.String(required=False)
         is_active = graphene.Boolean(required=False)
         is_public = graphene.Boolean(required=False)
+        preferred_llm = graphene.String(
+            required=False,
+            description="Set/replace the per-agent LLM override "
+            "(e.g. 'anthropic:claude-haiku-4-5'). Pass null to leave "
+            "the existing value unchanged; pass clearPreferredLlm=true "
+            "to reset back to the corpus default.",
+        )
+        clear_preferred_llm = graphene.Boolean(
+            required=False,
+            default_value=False,
+            description="When true, clears any per-agent LLM override "
+            "so the agent falls back to the corpus default.",
+        )
 
     ok = graphene.Boolean()
     message = graphene.String()
@@ -190,6 +211,8 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
         avatar_url=None,
         is_active=None,
         is_public=None,
+        preferred_llm=None,
+        clear_preferred_llm=False,
     ) -> "UpdateAgentConfigurationMutation":
         user = info.context.user
 
@@ -229,6 +252,8 @@ class UpdateAgentConfigurationMutation(graphene.Mutation):
                 avatar_url=avatar_url,
                 is_active=is_active,
                 is_public=is_public,
+                preferred_llm=preferred_llm,
+                clear_preferred_llm=clear_preferred_llm,
                 request=info.context,
             )
             if not result.ok:
