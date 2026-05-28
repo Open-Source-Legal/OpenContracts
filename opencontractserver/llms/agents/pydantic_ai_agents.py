@@ -446,6 +446,10 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         )
         agent_deps.estimated_used_tokens = history_result.estimated_tokens
         agent_deps.compaction_threshold_ratio = config.compaction.threshold_ratio
+        # Propagate the full CompactionConfig so the in-run history
+        # processor (which reads ``deps.compaction``) sees per-conversation
+        # overrides to ``in_run_*`` knobs rather than the default.
+        agent_deps.compaction = config.compaction
         # Reset the per-turn tally of implicit-chunk characters. Without this
         # the counter would accumulate across turns and starve the budget on
         # long-running streaming sessions.

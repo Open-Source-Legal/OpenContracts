@@ -41,6 +41,26 @@ from opencontractserver.llms.agents.pydantic_ai_factory import (
 SENTINEL_INSTRUCTION = "OPENCONTRACTS_SENTINEL_INSTRUCTION_ISSUE_1451"
 
 
+def _agent_capabilities(agent) -> list:
+    """Return the agent's capability list.
+
+    Reaches into ``Agent.root_capability.capabilities`` — a pydantic-ai
+    internal accessor that isn't promised by the public API. Centralised
+    here so a future rename surfaces in a single, well-marked spot
+    instead of three near-identical tests. The wrapping ``AttributeError``
+    fails the test with a precise pointer to this contract.
+    """
+    try:
+        return list(agent.root_capability.capabilities)
+    except AttributeError as exc:  # pragma: no cover - tripwire path
+        raise AssertionError(
+            "pydantic-ai changed its internal capability accessor "
+            "(``Agent.root_capability.capabilities``). Update "
+            "_agent_capabilities() in this test file to match the new "
+            "shape. Original error: " + repr(exc)
+        ) from exc
+
+
 def test_factory_blocks_system_prompt_keyword() -> None:
     """Passing ``system_prompt=<str>`` must fail loudly."""
     with pytest.raises(TypeError, match="system_prompt"):
@@ -155,7 +175,7 @@ def test_factory_injects_in_run_history_processor() -> None:
         instructions="placeholder",
     )
 
-    caps = agent.root_capability.capabilities
+    caps = _agent_capabilities(agent)
     process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
     assert len(process_history_caps) >= 1
     assert process_history_caps[0].processor is shrink_old_artifacts_processor
@@ -182,7 +202,7 @@ def test_factory_preserves_legacy_history_processors_after_ours() -> None:
         history_processors=[caller_proc_one, caller_proc_two],
     )
 
-    caps = agent.root_capability.capabilities
+    caps = _agent_capabilities(agent)
     process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
     assert len(process_history_caps) == 3
     assert process_history_caps[0].processor is shrink_old_artifacts_processor
@@ -210,7 +230,7 @@ def test_factory_preserves_caller_capabilities_after_ours() -> None:
         capabilities=[caller_capability],
     )
 
-    caps = agent.root_capability.capabilities
+    caps = _agent_capabilities(agent)
     process_history_caps = [c for c in caps if isinstance(c, ProcessHistory)]
     assert len(process_history_caps) == 2
     assert process_history_caps[0].processor is shrink_old_artifacts_processor

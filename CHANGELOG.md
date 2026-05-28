@@ -61,6 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     new tests pinning `ProcessHistory` injection order, legacy-kwarg
     auto-wrapping, and modern `capabilities=` passthrough.
 
+### Fixed
+
+- **Per-conversation `CompactionConfig` overrides reach the in-run
+  history processor.** `PydanticAICoreAgent._apply_context_budget`
+  was forwarding only `compaction.threshold_ratio` onto
+  `agent_deps.compaction_threshold_ratio` and never copying the full
+  config object to `agent_deps.compaction` — so any caller-supplied
+  `in_run_enabled` / `in_run_keep_recent_pairs` /
+  `in_run_tool_return_target_chars` / `in_run_drop_thinking`
+  silently fell back to defaults inside the processor. Now
+  `agent_deps.compaction = config.compaction` is set on every turn.
+  Regression test pinned in
+  `opencontractserver/tests/test_context_guardrails.py::TestRefreshContextBudgetFallback::test_compaction_config_is_copied_to_deps`.
+
 - **Deep-research agent — chat-triggered, long-running corpus research with grounded citations** (new app `opencontractserver/research/`, new Celery task `opencontractserver/tasks/research_tasks.py`, new chat tool `opencontractserver/llms/tools/research_tools.py`, GraphQL surface in `config/graphql/research_{types,queries,mutations}.py`). A user in a corpus chat can ask the agent to "research X" and a long-lived (5-30 min) autonomous research job kicks off in the background. The job runs a PydanticAI corpus agent with a read-only retrieval surface plus two job-bound scratchpad tools (`record_finding`, `finalize_report`), produces a markdown report with footnote citations, and notifies the user when complete (new `RESEARCH_REPORT_*` `NotificationTypeChoices` values, broadcast via the existing notification WebSocket) plus drops a system `ChatMessage` back into the originating conversation.
   - **`ResearchReport` model** (sibling of `Analysis`/`Extract`) tracks the full lifecycle: corpus FK, prompt, status (`JobStatus` + new `CANCELLED`), `started_at`/`completed_at`/`last_progress_at`, `cancel_requested` (cooperative cancel polled between tool calls), step budget, rendered `content` markdown, structured `findings`/`citations`/`tool_call_log`/`model_usage`/`warnings` JSON sidecars, and M2M to `source_annotations`/`source_documents` for provenance. Creator-only visibility in v1 (no sharing → no IDOR surface to defend on shared reports). Migration: `opencontractserver/research/migrations/0001_initial.py` + `opencontractserver/notifications/migrations/0005_add_research_report_notification_types.py`.
   - **`ResearchReportService`** (`opencontractserver/research/services/research_reports.py`) — canonical entry point per CLAUDE.md rule 7. Lifecycle helpers (`mark_started` / `mark_progress` / `mark_completed` / `mark_failed` / `mark_cancelled`), scratchpad writes (`append_finding`, `append_tool_call`), terminal `finalize` (runs citation post-processor: parses `<cite ids="...">claim</cite>` placeholder tags into `[^n]` footnote markers + builds the `## Sources` section + populates the `source_annotations` / `source_documents` M2Ms), and a concurrency soft-guard (`start` refuses a second QUEUED/RUNNING report for the same `(user, corpus)` within `DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS`).

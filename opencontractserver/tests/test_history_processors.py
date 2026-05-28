@@ -37,7 +37,7 @@ from opencontractserver.llms.history_processors import (
 class _FakeDeps:
     model_name: str = "claude-opus-4"
     system_prompt: str = ""
-    config_compaction: CompactionConfig = field(default_factory=CompactionConfig)
+    compaction: CompactionConfig = field(default_factory=CompactionConfig)
     on_in_run_shrink: Any = None
     # Events captured by a default sink for easy assertion.
     events: list[InRunShrinkEvent] = field(default_factory=list)
@@ -187,15 +187,16 @@ def test_drops_older_thinking_parts():
     # But ToolCallPart survives.
     assert any(isinstance(p, ToolCallPart) for p in old_resp_new.parts)
 
-    # A recent ModelResponse still carries its ThinkingPart.
-    # With keep_recent_pairs=4 and messages structured as:
-    #   [0]=start-req [1]=old-resp [2]=old-req
-    #   [3]=R0-resp [4]=R0-req [5]=R1-resp [6]=R1-req   ← older prefix (0..6)
-    #   [7]=R2-resp [8]=R2-req [9]=R3-resp [10]=R3-req
-    #   [11]=R4-resp [12]=R4-req [13]=final-resp [14]=final-req  ← recent (7..14)
-    # result[7] is R2-resp, the first ModelResponse inside the protected suffix.
-    recent_resp = result[7]  # first ModelResponse in the protected recent suffix
-    assert isinstance(recent_resp, ModelResponse)
+    # A recent ModelResponse still carries its ThinkingPart. Older
+    # responses had theirs stripped, so the first surviving ThinkingPart
+    # must live inside the protected ``keep_recent_pairs`` suffix —
+    # whichever positional index that lands at as the fixture evolves.
+    recent_resp = next(
+        m
+        for m in result
+        if isinstance(m, ModelResponse)
+        and any(isinstance(p, ThinkingPart) for p in m.parts)
+    )
     assert any(isinstance(p, ThinkingPart) for p in recent_resp.parts)
 
     # Telemetry event reflects the drop.
@@ -307,7 +308,7 @@ def test_in_run_enabled_false_short_circuits():
         *recent_pairs,
         ModelRequest(parts=[UserPromptPart(content="continue")]),
     ]
-    deps = _FakeDeps(config_compaction=CompactionConfig(in_run_enabled=False))
+    deps = _FakeDeps(compaction=CompactionConfig(in_run_enabled=False))
     result = _run(messages, deps)
 
     old_return = result[1]
@@ -385,9 +386,10 @@ def test_callback_receives_correct_event_shape():
 
 
 def test_resolves_compaction_from_deps_compaction_field():
-    """When deps has a ``compaction`` field (production path), the
-    processor reads its config from there instead of falling back to
-    defaults."""
+    """`_resolve_config` reads ``deps.compaction`` (the production field
+    name on ``PydanticAIDependencies``). Pins the contract that the
+    stub used elsewhere in this file mirrors production.
+    """
     old_resp, old_req = _make_pair(
         tool_call_id="A", tool_name="t", return_chars=600_000
     )
@@ -402,26 +404,8 @@ def test_resolves_compaction_from_deps_compaction_field():
         ModelRequest(parts=[UserPromptPart(content="continue")]),
     ]
 
-    # Build a stub that exposes ``compaction`` (production field name),
-    # not ``config_compaction``. The CompactionConfig disables in-run
-    # so we should see a hard no-op.
-    @dataclass
-    class _ProdDeps:
-        compaction: CompactionConfig = field(
-            default_factory=lambda: CompactionConfig(in_run_enabled=False)
-        )
-        model_name: str = "claude-opus-4"
-        system_prompt: str = ""
-        on_in_run_shrink: Any = None
-        events: list[InRunShrinkEvent] = field(default_factory=list)
-
-        def __post_init__(self) -> None:
-            if self.on_in_run_shrink is None:
-                self.on_in_run_shrink = self.events.append
-
-    deps = _ProdDeps()
-    ctx = _FakeRunContext(deps=deps)
-    result = asyncio.run(shrink_old_artifacts_processor(ctx, messages))  # type: ignore[arg-type]
+    deps = _FakeDeps(compaction=CompactionConfig(in_run_enabled=False))
+    result = _run(messages, deps)
 
     # in_run_enabled=False short-circuits — old tool return is untouched.
     old_return = result[1]

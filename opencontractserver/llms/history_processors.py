@@ -22,9 +22,8 @@ Telemetry: every shrink logs an INFO line and invokes
 
 from __future__ import annotations
 
-import dataclasses
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pydantic_ai.messages import (
@@ -77,28 +76,20 @@ def _estimate_total_tokens(messages: list[ModelMessage], system_prompt: str) -> 
 
 
 def _resolve_config(ctx: Any) -> tuple[CompactionConfig, str, str]:
-    """Pull the relevant fields off ``ctx.deps`` with defensive fallbacks."""
+    """Pull the relevant fields off ``ctx.deps``.
+
+    ``deps.compaction`` is the canonical attribute (matches
+    :class:`PydanticAIDependencies`). Missing or wrong-typed values fall
+    back to module defaults so the processor never crashes on a
+    misconfigured stub.
+    """
     deps = getattr(ctx, "deps", None)
-    cfg: CompactionConfig
     if deps is None:
-        cfg = CompactionConfig()
-        model_name = ""
-        system_prompt = ""
-    else:
-        # Production path: ``PydanticAIDependencies.compaction``.
-        # Test stubs may expose ``config_compaction`` instead — both
-        # supported.
-        direct = getattr(deps, "compaction", None)
-        if isinstance(direct, CompactionConfig):
-            cfg = direct
-        else:
-            legacy = getattr(deps, "config_compaction", None)
-            if isinstance(legacy, CompactionConfig):
-                cfg = legacy
-            else:
-                cfg = CompactionConfig()
-        model_name = getattr(deps, "model_name", "") or ""
-        system_prompt = getattr(deps, "system_prompt", "") or ""
+        return CompactionConfig(), "", ""
+    direct = getattr(deps, "compaction", None)
+    cfg = direct if isinstance(direct, CompactionConfig) else CompactionConfig()
+    model_name = getattr(deps, "model_name", "") or ""
+    system_prompt = getattr(deps, "system_prompt", "") or ""
     return cfg, model_name, system_prompt
 
 
@@ -150,7 +141,7 @@ def _shrink_tool_return_part(
     truncated = content[:target_chars] + _TRIM_NOTICE_TEMPLATE.format(
         elided=len(content) - target_chars
     )
-    return dataclasses.replace(part, content=truncated), True
+    return replace(part, content=truncated), True
 
 
 def _shrink_message(
@@ -176,7 +167,7 @@ def _shrink_message(
             else:
                 new_parts.append(part)
         if changed:
-            return dataclasses.replace(msg, parts=new_parts), returns_shrunk, 0
+            return replace(msg, parts=new_parts), returns_shrunk, 0
         return msg, 0, 0
 
     if isinstance(msg, ModelResponse):
@@ -198,7 +189,7 @@ def _shrink_message(
         if changed and not resp_parts:
             return msg, 0, 0
         if changed:
-            return dataclasses.replace(msg, parts=resp_parts), 0, thinking_dropped
+            return replace(msg, parts=resp_parts), 0, thinking_dropped
         return msg, 0, 0
 
     return msg, 0, 0
