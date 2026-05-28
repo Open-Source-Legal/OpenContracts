@@ -99,15 +99,23 @@ def backfill_caml_doc_for_corpus(
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
 
+    # NOTE: The ``corpus=`` filter/create kwargs below resolve to a
+    # Document<->Corpus relationship introduced by later tasks in the
+    # canonical-CAML refactor (Task 2 adds ``Corpus.readme_caml_document``;
+    # the Document<->Corpus FK lookup is rewired in the same window).
+    # ``# type: ignore[misc]`` is scoped to those exact lines so unrelated
+    # typing regressions still surface. The ``readme_caml_document_id=``
+    # update kwarg goes through ``QuerySet.update(**kwargs: Any)`` so it
+    # does not need an ignore today.
     corpus = Corpus.objects.get(pk=corpus_pk)
     doc = Document.objects.filter(
-        corpus=corpus,
+        corpus=corpus,  # type: ignore[misc]
         title="Readme.CAML",
         file_type="text/markdown",
     ).first()
     if doc is None and md_description_body:
         doc = Document.objects.create(
-            corpus=corpus,
+            corpus=corpus,  # type: ignore[misc]
             title="Readme.CAML",
             file_type="text/markdown",
             creator=corpus.creator,
