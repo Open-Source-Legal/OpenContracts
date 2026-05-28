@@ -7,7 +7,9 @@ single derivation point for the auto-maintained ``Corpus.description`` and
 """
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.constants.truncation import (
     MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
@@ -332,3 +334,50 @@ class ReadmeCamlSignalTest(TestCase):
         corpus.refresh_from_db()
         self.assertEqual(corpus.description, "Body two.")
         self.assertEqual(corpus.description_preview, "Body two.")
+
+
+class WithReadmeCamlDocQuerysetTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            username="qcount-user", password="x"
+        )
+        from opencontractserver.documents.versioning import import_document
+        for i in range(10):
+            corpus = Corpus.objects.create(
+                title=f"C{i}", creator=cls.user
+            )
+            import_document(
+                corpus=corpus,
+                path="Readme.CAML",
+                content=f"Body {i}".encode("utf-8"),
+                user=cls.user,
+                file_type="text/markdown",
+                title="Readme.CAML",
+            )
+
+    def test_select_related_avoids_n_plus_1_on_readme_caml_doc(self):
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
+
+        qs = CorpusDocumentService.with_readme_caml_doc(
+            Corpus.objects.all()
+        )
+
+        with CaptureQueriesContext(connection) as ctx:
+            corpuses = list(qs)
+            # Access the FK on every row — must NOT trigger an extra
+            # query per row (that's the point of select_related).
+            for corpus in corpuses:
+                _ = corpus.readme_caml_document
+        # Without select_related this would be 1 + 10 = 11 queries.
+        # With select_related it is 1 query (one JOIN).
+        # Permit a small slack for any meta queries Django emits.
+        self.assertLess(
+            len(ctx.captured_queries),
+            4,
+            f"Expected ≤3 queries, got {len(ctx.captured_queries)}: "
+            + "\n".join(q["sql"][:120] for q in ctx.captured_queries),
+        )

@@ -135,6 +135,20 @@ class CorpusDocumentService(BaseService):
             qs = qs.exclude(file_type=MARKDOWN_MIME_TYPE)
         return qs
 
+    @staticmethod
+    def with_readme_caml_doc(qs: "QuerySet[Corpus]") -> "QuerySet[Corpus]":
+        """Return ``qs`` with ``readme_caml_document`` prefetched.
+
+        Apply on every queryset where ``mdDescription`` or
+        ``readmeCamlDocument`` may be selected so the resolver does not
+        issue a per-row Document fetch. See spec §4.5 at
+        ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``.
+
+        The GraphQL resolver layer wires this into the corpus list/single
+        entry points; tasks 5–6 below add those call sites.
+        """
+        return qs.select_related("readme_caml_document")
+
     @classmethod
     def get_corpus_documents(
         cls,
