@@ -623,6 +623,68 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ).values("vote_type")[:1]
         return visible_qs.annotate(_viewer_vote=Subquery(viewer_vote_subquery))
 
+    @classmethod
+    def get_node(cls, info, id) -> Any:
+        """Cache + visibility-check FK/relay-node Corpus lookups.
+
+        ``graphene-django``'s auto-generated FK resolver for a ``ForeignKey``
+        pointing at a ``DjangoObjectType`` calls ``cls.get_node(info, pk)``
+        rather than using the parent row's cached FK value (see
+        ``graphene_django/converter.py``'s ``custom_resolver``). Because
+        ``Corpus(InstanceUserCanMixin, TreeNode)`` is registered with
+        ``with_tree_fields=True``, every such ``get_node`` triggers a
+        recursive ``WITH __rank_table`` CTE — making per-row FK access on
+        ``annotation.corpus`` the dominant cost on the corpus document-list
+        view (one badge per document). See the diagnosis notes in
+        ``config/graphql/custom_resolvers.py``.
+
+        This override does two things:
+
+        1. **Request-level memoisation.** Same ``pk`` inside one GraphQL
+           request hits the DB once, not N times. Stored on
+           ``info.context._corpus_node_cache``.
+        2. **Tightens visibility on FK-via-Node access.** Graphene's default
+           ``DjangoObjectType.get_node`` does an unprotected
+           ``Corpus.objects.get(pk=id)`` — a relay client could resolve any
+           corpus by id. Routing through
+           ``BaseService.get_or_none(Corpus, pk, user, request=info.context)``
+           applies the canonical ``MIN(document, corpus)``-aware READ check
+           AND threads the Tier-2 request-scoped permission cache
+           (``docs/permissioning/consolidated_permissioning_guide.md`` §2727),
+           bringing FK / Node access into agreement with the rest of the
+           schema (the root ``node(id:)`` query already filters via
+           ``OpenContractsNode.get_node_from_global_id``
+           in ``config/graphql/base.py``). Going through ``BaseService`` is
+           required by the §"always go through services/" architecture
+           invariant — inline ``Corpus.objects.visible_to_user(user).get(...)``
+           would trip the ``opencontracts.E001`` system check.
+        """
+        try:
+            pk = int(id)
+        except (TypeError, ValueError):
+            return None
+
+        cache = getattr(info.context, "_corpus_node_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                info.context._corpus_node_cache = cache
+            except AttributeError:
+                # ``info.context`` may be frozen in some test contexts; skip
+                # caching but still apply visibility.
+                cache = None
+
+        if cache is not None and pk in cache:
+            return cache[pk]
+
+        corpus = BaseService.get_or_none(
+            Corpus, pk, info.context.user, request=info.context
+        )
+
+        if cache is not None:
+            cache[pk] = corpus
+        return corpus
+
 
 class CorpusStatsType(graphene.ObjectType):
     total_docs = graphene.Int()
