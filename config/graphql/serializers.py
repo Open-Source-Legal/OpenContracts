@@ -70,6 +70,22 @@ class CorpusSerializer(serializers.ModelSerializer):
             "created_with_llm",
         ]
 
+    def validate_preferred_llm(self, value: str | None) -> str | None:
+        """Normalise empty / whitespace ``preferred_llm`` to ``None``.
+
+        The corpus update mutation documents ``""`` as "clear the
+        override," but the DB column is nullable and the resolver
+        treats ``None`` and ``""`` identically.  Persisting ``""``
+        leaves the column semantically ambiguous (a future
+        ``filter(preferred_llm__isnull=True)`` would silently miss the
+        empty-string rows).  Normalising at the serializer layer keeps
+        the DB state consistent regardless of which input the frontend
+        sends.
+        """
+        if value is None or not value.strip():
+            return None
+        return value
+
     def validate(self, attrs) -> Any:
         attrs = super().validate(attrs)
 

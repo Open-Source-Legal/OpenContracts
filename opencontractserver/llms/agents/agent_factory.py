@@ -119,6 +119,7 @@ class UnifiedAgentFactory:
         loaded_messages: Optional[list[ChatMessage]] = None,
         # Configuration options
         model: Optional[str] = None,
+        agent_preferred_llm: Optional[str] = None,
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -210,13 +211,17 @@ class UnifiedAgentFactory:
             corpus_obj = None
 
         # Resolve the LLM model spec via the canonical priority chain:
-        #   explicit call arg → corpus default → settings.
-        # Per-agent (``AgentConfiguration``) overrides are layered in by
-        # the caller — they pass ``model=agent_config.preferred_llm``
-        # into this factory, which becomes the ``explicit`` arg here and
-        # naturally wins over the corpus default.
+        #   explicit call arg → per-agent override → corpus default → settings.
+        # ``model=`` is reserved for per-call overrides; the persisted
+        # per-agent override (``AgentConfiguration.preferred_llm``) flows
+        # in via ``agent_preferred_llm=`` so a per-call ``model=`` still
+        # wins.  ``model_name`` is popped from kwargs so it can never
+        # collide with the explicit ``model_name=`` kwarg the factory
+        # already passes to ``get_default_config`` below.
+        kwarg_model_name = kwargs.pop("model_name", None)
         resolved_model = resolve_model_spec(
-            explicit=model or kwargs.get("model_name"),
+            explicit=model or kwarg_model_name,
+            agent_preferred=agent_preferred_llm,
             corpus_preferred=getattr(corpus_obj, "preferred_llm", None),
         )
 
@@ -327,6 +332,7 @@ class UnifiedAgentFactory:
         loaded_messages: Optional[list[ChatMessage]] = None,
         # Configuration options
         model: Optional[str] = None,
+        agent_preferred_llm: Optional[str] = None,
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -406,13 +412,17 @@ class UnifiedAgentFactory:
             corpus_obj = None
 
         # Resolve the LLM model spec via the canonical priority chain:
-        #   explicit call arg → corpus default → settings.
-        # Per-agent (``AgentConfiguration``) overrides are layered in by
-        # the caller — they pass ``model=agent_config.preferred_llm``
-        # into this factory, which becomes the ``explicit`` arg here and
-        # naturally wins over the corpus default.
+        #   explicit call arg → per-agent override → corpus default → settings.
+        # ``model=`` is reserved for per-call overrides; the persisted
+        # per-agent override (``AgentConfiguration.preferred_llm``) flows
+        # in via ``agent_preferred_llm=`` so a per-call ``model=`` still
+        # wins.  ``model_name`` is popped from kwargs so it can never
+        # collide with the explicit ``model_name=`` kwarg the factory
+        # already passes to ``get_default_config`` below.
+        kwarg_model_name = kwargs.pop("model_name", None)
         resolved_model = resolve_model_spec(
-            explicit=model or kwargs.get("model_name"),
+            explicit=model or kwarg_model_name,
+            agent_preferred=agent_preferred_llm,
             corpus_preferred=getattr(corpus_obj, "preferred_llm", None),
         )
 

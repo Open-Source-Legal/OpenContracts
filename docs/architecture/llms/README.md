@@ -2828,7 +2828,10 @@ resolve_model_spec(
 )
 ```
 
-The [agent factory](../../../opencontractserver/llms/agents/agent_factory.py) calls the resolver automatically — pass `model=agent_config.preferred_llm` (or `None`) into `agents.for_*` and the factory layers it correctly against the corpus default.
+The [agent factory](../../../opencontractserver/llms/agents/agent_factory.py) calls the resolver automatically. Callers pick the slot that matches semantics:
+
+- `agents.for_*(model="anthropic:claude-opus-4-6")` — per-call override. Wins over every persisted default.
+- `agents.for_*(agent_preferred_llm=agent_config.preferred_llm)` — per-agent override. Wins over the corpus default but yields to a per-call `model=`. The @-mention task ([`agent_tasks.py`](../../../opencontractserver/tasks/agent_tasks.py)) and the delegation sub-agent path ([`delegation_tools.py`](../../../opencontractserver/llms/tools/delegation_tools.py)) use this slot.
 
 ### Model spec format
 

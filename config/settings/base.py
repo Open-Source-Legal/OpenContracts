@@ -1030,6 +1030,14 @@ PRIVACY_FILTER_TIMEOUT_SECONDS = env.int("PRIVACY_FILTER_TIMEOUT_SECONDS", defau
 # LLM SETTING
 OPENAI_API_KEY = env.str("OPENAI_API_KEY", default="")
 OPENAI_MODEL = env.str("OPENAI_MODEL", default="gpt-4o")
+# ``DEFAULT_LLM`` is the install-wide fallback for pydantic-ai agents,
+# consulted by ``opencontractserver.llms.llm_registry.resolve_model_spec``
+# *before* the legacy ``OPENAI_MODEL``.  Use the pydantic-ai
+# provider-prefixed form, e.g.
+#   DEFAULT_LLM = "anthropic:claude-sonnet-4-6"
+# Per-corpus (``Corpus.preferred_llm``) and per-agent
+# (``AgentConfiguration.preferred_llm``) values still win over this.
+DEFAULT_LLM = env.str("DEFAULT_LLM", default="")
 EMBEDDINGS_MODEL = env.str("EMBEDDINGS_MODEL", default="gpt-4o")
 HF_TOKEN = env.str("HF_TOKEN", default="")
 HF_EMBEDDINGS_ENDPOINT = env.str("HF_EMBEDDINGS_ENDPOINT", default="")

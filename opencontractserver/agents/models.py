@@ -193,17 +193,21 @@ class AgentConfiguration(BaseOCModel):
 
     def save(self, *args, **kwargs):
         """Auto-generate slug and validate preferred_llm before saving."""
+        # Local imports keep Django startup free of llm_registry's lazy
+        # pipeline-registry walk, but for readability they live at the
+        # top of the method body rather than inside the guarded block
+        # (matches the pattern in ``Corpus.save``).
+        from django.core.exceptions import ValidationError
+
+        from opencontractserver.llms.llm_registry import (
+            LLMProviderNotRegistered,
+            normalise_model_spec,
+            validate_model_spec,
+        )
+
         # Validate / normalise preferred_llm so we never persist a
         # malformed spec or a provider we can't route to.
         if self.preferred_llm:
-            from django.core.exceptions import ValidationError
-
-            from opencontractserver.llms.llm_registry import (
-                LLMProviderNotRegistered,
-                normalise_model_spec,
-                validate_model_spec,
-            )
-
             try:
                 validate_model_spec(self.preferred_llm)
             except (ValueError, LLMProviderNotRegistered) as exc:

@@ -274,6 +274,61 @@ class TestCorpusPreferredLLMField(TestCase):
         self.assertEqual(corpus.created_with_llm, original)
 
 
+class TestCorpusSerializerNormalisesPreferredLLM(TestCase):
+    """``CorpusSerializer`` must collapse ``""`` / whitespace to ``None``.
+
+    The corpus update mutation documents ``""`` as "clear the override,"
+    so the serializer is responsible for normalising it before the model
+    sees the value.  Without this, the DB persists ``""`` (semantically
+    distinct from ``NULL`` for any future direct ORM filter).
+    """
+
+    user: UserModel
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username="serializer-user",
+            password="test",
+            email="serializer@test.com",
+        )
+
+    def setUp(self):
+        reset_registry()
+
+    def test_empty_string_clears_preferred_llm(self):
+        from config.graphql.serializers import CorpusSerializer
+
+        corpus = Corpus.objects.create(
+            title="To Clear",
+            creator=self.user,
+            preferred_llm="anthropic:claude-opus-4-6",
+        )
+        serializer = CorpusSerializer(
+            instance=corpus, data={"preferred_llm": ""}, partial=True
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        corpus.refresh_from_db()
+        self.assertIsNone(corpus.preferred_llm)
+
+    def test_whitespace_only_clears_preferred_llm(self):
+        from config.graphql.serializers import CorpusSerializer
+
+        corpus = Corpus.objects.create(
+            title="To Clear 2",
+            creator=self.user,
+            preferred_llm="anthropic:claude-opus-4-6",
+        )
+        serializer = CorpusSerializer(
+            instance=corpus, data={"preferred_llm": "   "}, partial=True
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        corpus.refresh_from_db()
+        self.assertIsNone(corpus.preferred_llm)
+
+
 class TestAgentConfigurationPreferredLLMField(TestCase):
     user: UserModel
 
@@ -415,15 +470,18 @@ class TestContextWindowLookupHandlesPrefixedSpecs(TestCase):
         self.assertEqual(get_context_window_for_model("openai:gpt-4o"), expected)
 
 
-class TestDelegationToolPassesAgentPreferredLLM(TestCase):
-    """The @-mention sub-agent path must pass preferred_llm to the factory.
+class TestAgentConfigurationPreferredLLMPersistsForDelegation(TestCase):
+    """``AgentConfiguration.preferred_llm`` must round-trip cleanly.
 
-    We don't spin up the full delegation tool body (which requires a
-    StreamRelay, an async ORM context, and a live agents_api) — instead
-    we inspect the model attribute on the AgentConfiguration to confirm
-    the persisted value, and the call-site change is exercised by
-    end-to-end integration tests already covering @-mention agent
-    responses.
+    The delegation tool (``build_delegation_tool``) reads
+    ``agent.preferred_llm`` directly and forwards it to the factory via
+    the ``agent_preferred_llm=`` kwarg so the resolver's per-agent slot
+    is exercised by production code (not just unit tests).  We don't
+    spin up the full delegation body (it needs a StreamRelay, async ORM
+    context, and a live agents_api); end-to-end @-mention tests cover
+    that path.  Here we only assert the persisted value survives
+    validation and refresh — the call-site wiring is unit-tested by
+    ``TestResolveModelSpec.test_agent_wins_over_corpus``.
     """
 
     user: UserModel
@@ -454,8 +512,5 @@ class TestDelegationToolPassesAgentPreferredLLM(TestCase):
             preferred_llm="anthropic:claude-haiku-4-5",
         )
 
-        # The delegation tool path reads ``agent.preferred_llm`` directly
-        # and only adds ``model=`` to the factory kwargs when it is set
-        # (see ``opencontractserver/llms/tools/delegation_tools.py``).
         agent.refresh_from_db()
         self.assertEqual(agent.preferred_llm, "anthropic:claude-haiku-4-5")

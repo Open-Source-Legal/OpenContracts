@@ -446,6 +446,19 @@ class PipelineComponentRegistry:
                         existing.class_name,
                     )
                 self._llm_providers_by_key[defn.provider_key] = defn
+            else:
+                # A subclass that forgot ``provider_key`` would otherwise
+                # land in the catalog but be unreachable from the
+                # resolver (which keys lookups by provider prefix).  The
+                # registry only logs once at startup so a louder warning
+                # is justified — otherwise the failure mode is "model
+                # spec X is unroutable" with no obvious cause.
+                logger.warning(
+                    "LLM provider %s has no provider_key — "
+                    "key-based lookups will not find it; the resolver "
+                    "cannot route to this provider.",
+                    defn.class_name,
+                )
         self._llm_providers = tuple(llm_providers)
 
         logger.info(
