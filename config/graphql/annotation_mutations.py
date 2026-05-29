@@ -30,15 +30,12 @@ from opencontractserver.annotations.models import (
     validate_link_url,
 )
 from opencontractserver.constants.annotations import (
-    OC_CITY_LABEL,
     OC_CITY_LABEL_COLOR,
     OC_CITY_LABEL_DESCRIPTION,
     OC_CITY_LABEL_ICON,
-    OC_COUNTRY_LABEL,
     OC_COUNTRY_LABEL_COLOR,
     OC_COUNTRY_LABEL_DESCRIPTION,
     OC_COUNTRY_LABEL_ICON,
-    OC_STATE_LABEL,
     OC_STATE_LABEL_COLOR,
     OC_STATE_LABEL_DESCRIPTION,
     OC_STATE_LABEL_ICON,
@@ -462,21 +459,22 @@ class AddUrlAnnotation(graphene.Mutation):
 # document structure rather than user opinion, and structural rows are
 # always read-only for non-superusers per the platform's permission model.
 
-_GEOCODE_LABEL_TYPE_TO_OC_LABEL: dict[str, tuple[str, str, str, str]] = {
+# Only the visual / descriptive columns live here — the label-text column
+# is sourced from ``GEOCODE_LABEL_TYPE_TO_LABEL_TEXT`` in the geographic
+# service module so a fourth geographic label type stays a single-edit
+# change.
+_GEOCODE_LABEL_TYPE_TO_OC_LABEL_METADATA: dict[str, tuple[str, str, str]] = {
     "country": (
-        OC_COUNTRY_LABEL,
         OC_COUNTRY_LABEL_COLOR,
         OC_COUNTRY_LABEL_ICON,
         OC_COUNTRY_LABEL_DESCRIPTION,
     ),
     "state": (
-        OC_STATE_LABEL,
         OC_STATE_LABEL_COLOR,
         OC_STATE_LABEL_ICON,
         OC_STATE_LABEL_DESCRIPTION,
     ),
     "city": (
-        OC_CITY_LABEL,
         OC_CITY_LABEL_COLOR,
         OC_CITY_LABEL_ICON,
         OC_CITY_LABEL_DESCRIPTION,
@@ -526,7 +524,12 @@ def _create_geographic_annotation(
         return False, _ANNOTATION_PARENT_NOT_FOUND_MSG, None
     document, corpus = parents
 
-    label_text, color, icon, description = _GEOCODE_LABEL_TYPE_TO_OC_LABEL[
+    from opencontractserver.annotations.services.geographic_service import (
+        GEOCODE_LABEL_TYPE_TO_LABEL_TEXT,
+    )
+
+    label_text = GEOCODE_LABEL_TYPE_TO_LABEL_TEXT[geocode_label_type]
+    color, icon, description = _GEOCODE_LABEL_TYPE_TO_OC_LABEL_METADATA[
         geocode_label_type
     ]
 
@@ -713,7 +716,12 @@ class AddStateAnnotation(graphene.Mutation):
     ok = graphene.Boolean()
     message = graphene.String()
     annotation = graphene.Field(AnnotationType)
-    geocoded = graphene.Boolean()
+    geocoded = graphene.Boolean(
+        description=(
+            "True if the offline geocoder resolved the span; False when "
+            "the annotation was created but no map pin was generated."
+        )
+    )
 
     @login_required
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))
@@ -796,7 +804,12 @@ class AddCityAnnotation(graphene.Mutation):
     ok = graphene.Boolean()
     message = graphene.String()
     annotation = graphene.Field(AnnotationType)
-    geocoded = graphene.Boolean()
+    geocoded = graphene.Boolean(
+        description=(
+            "True if the offline geocoder resolved the span; False when "
+            "the annotation was created but no map pin was generated."
+        )
+    )
 
     @login_required
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))

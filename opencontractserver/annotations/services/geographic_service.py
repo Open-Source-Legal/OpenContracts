@@ -39,13 +39,13 @@ logger = logging.getLogger(__name__)
 # Map a frontend ``labelType`` filter value to the backend label text used
 # to mark the annotation. Single source of truth so callers don't sprinkle
 # label-text constants through resolvers.
-_LABEL_TYPE_TO_LABEL_TEXT: dict[str, str] = {
+GEOCODE_LABEL_TYPE_TO_LABEL_TEXT: dict[str, str] = {
     "country": OC_COUNTRY_LABEL,
     "state": OC_STATE_LABEL,
     "city": OC_CITY_LABEL,
 }
 
-_ALL_GEO_LABELS = frozenset(_LABEL_TYPE_TO_LABEL_TEXT.values())
+_ALL_GEO_LABELS = frozenset(GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.values())
 
 
 def _validate_label_types(label_types: list[str] | None) -> None:
@@ -59,10 +59,10 @@ def _validate_label_types(label_types: list[str] | None) -> None:
     if label_types is None:
         return
     for lt in label_types:
-        if lt not in _LABEL_TYPE_TO_LABEL_TEXT:
+        if lt not in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT:
             raise ValueError(
                 f"Unknown label_type '{lt}'; expected one of "
-                f"{sorted(_LABEL_TYPE_TO_LABEL_TEXT)}"
+                f"{sorted(GEOCODE_LABEL_TYPE_TO_LABEL_TEXT)}"
             )
 
 
@@ -122,7 +122,7 @@ def _label_type_label_filter(label_types: list[str] | None) -> Q:
         target_texts.extend(_ALL_GEO_LABELS)
     else:
         for lt in label_types:
-            target_texts.append(_LABEL_TYPE_TO_LABEL_TEXT[lt])
+            target_texts.append(GEOCODE_LABEL_TYPE_TO_LABEL_TEXT[lt])
     return Q(annotation_label__text__in=target_texts)
 
 
@@ -222,7 +222,11 @@ def _aggregate_pins(
         # Reverse-map the label text → label_type literal exposed to clients.
         # The dict is tiny so a linear scan is fine.
         label_type = next(
-            (lt for lt, txt in _LABEL_TYPE_TO_LABEL_TEXT.items() if txt == label_text),
+            (
+                lt
+                for lt, txt in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.items()
+                if txt == label_text
+            ),
             None,
         )
         if label_type is None:  # pragma: no cover
@@ -313,10 +317,12 @@ class GeographicAnnotationService(BaseService):
         # Corpus-scoped — annotations tied to documents the viewer can see.
         # ``corpus_id=corpus.pk`` already constrains the row set; the
         # ``document_id__in=visible_docs`` clause is the MIN-permission
-        # gate (document-level READ).
+        # gate (document-level READ). ``.values("pk")`` keeps the
+        # queryset unevaluated so Django compiles a SQL subquery — no
+        # Python-side materialisation of every visible document PK.
         qs = Annotation.objects.filter(
             corpus_id=corpus.pk,
-            document_id__in=visible_docs.values_list("pk", flat=True),
+            document_id__in=visible_docs.values("pk"),
         )
 
         return _aggregate_pins(qs, label_types=label_types, bbox=bbox)

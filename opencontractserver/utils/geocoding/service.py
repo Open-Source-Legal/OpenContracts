@@ -211,9 +211,12 @@ def _filter_candidates(
                 if alpha2 == "US":
                     pass  # rows are already US-only; nothing to do
                 else:
-                    # Non-US country hint: state lookup is meaningless for
-                    # rows in this dataset. Return empty to make the
-                    # mismatch explicit to the caller.
+                    # Non-US country hint: state lookup is meaningless
+                    # for rows in this dataset. Return empty; ``resolve_place``
+                    # treats this as "hint produced no candidates" and
+                    # falls back to the unfiltered row set, so the
+                    # mismatch surfaces as a best-effort match rather
+                    # than failing the lookup outright.
                     return []
             else:
                 filtered = [r for r in filtered if r.get("country_code") == alpha2]
@@ -433,12 +436,18 @@ def resolve_place(
     if exact_row is not None and exact_row in filtered_rows:
         return _row_to_resolved(exact_row, label_type)
 
-    # Find best exact within the filtered subset (multiple "Paris" rows etc.).
+    # Find best exact within the filtered subset (multiple "Paris" rows
+    # etc.). Tie-break by population so the largest match wins — without
+    # this the loop returns whichever row appears first in the source
+    # dataset, which is a latent bug once cities.json is regenerated
+    # from the full GeoNames ``cities1000`` dump.
     if filtered_rows is not rows:
-        name_key = "name"
-        for row in filtered_rows:
-            if _normalise(row[name_key]) == target_key:
-                return _row_to_resolved(row, label_type)
+        exact_matches = [
+            row for row in filtered_rows if _normalise(row["name"]) == target_key
+        ]
+        if exact_matches:
+            best_exact = max(exact_matches, key=_population_score)
+            return _row_to_resolved(best_exact, label_type)
 
     # ---- Alias match ---------------------------------------------------
     alias_row = slice_["alias"].get(target_key)
