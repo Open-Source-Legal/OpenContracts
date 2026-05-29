@@ -266,11 +266,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             and queryset.query.annotations
             and any(key.startswith("_can_") for key in queryset.query.annotations)
         ):
-            return (
-                queryset.select_related(*fk_joins)
-                if hasattr(queryset, "select_related")
-                else queryset
-            )
+            return queryset.select_related(*fk_joins)
 
         # Otherwise apply ``visible_to_user`` via the service layer
         # (the ``opencontracts.E001`` system check forbids inline use here),

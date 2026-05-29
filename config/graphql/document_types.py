@@ -288,11 +288,15 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # into SQL via the service queryset — ``structural=True`` is not
         # usable because imported DOC_TYPE_LABEL annotations are created with
         # ``Annotation.structural`` defaulting to False.
-        fallback_qs = AnnotationService.get_document_annotations(
-            document_id=self.id,
-            user=getattr(info.context, "user", None),
-            context=info.context,
-        ).filter(annotation_label__label_type=DOC_TYPE_LABEL)
+        fallback_qs = (
+            AnnotationService.get_document_annotations(
+                document_id=self.id,
+                user=getattr(info.context, "user", None),
+                context=info.context,
+            )
+            .filter(annotation_label__label_type=DOC_TYPE_LABEL)
+            .select_related("annotation_label")
+        )
         return _dedupe_labels(fallback_qs)
 
     all_structural_annotations = graphene.List(
