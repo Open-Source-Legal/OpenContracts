@@ -29,6 +29,9 @@ from opencontractserver.constants.context_guardrails import (
     COMPACTION_SUMMARY_TARGET_TOKENS,
     COMPACTION_THRESHOLD_RATIO,
     DEFAULT_CONTEXT_WINDOW,
+    IN_RUN_DROP_THINKING_DEFAULT,
+    IN_RUN_KEEP_RECENT_PAIRS,
+    IN_RUN_TOOL_RETURN_TARGET_CHARS,
     MAX_RECENT_MESSAGES,
     MAX_TOOL_OUTPUT_CHARS,
     MIN_RECENT_MESSAGES,
@@ -88,18 +91,28 @@ def get_context_window_for_model(model_name: str) -> int:
     Performs an exact lookup first, then falls back to longest-prefix
     matching.  Returns :data:`DEFAULT_CONTEXT_WINDOW` if the model is
     completely unknown.
+
+    Accepts both bare names (``"claude-opus-4-6"``) and pydantic-ai
+    provider-prefixed specs (``"anthropic:claude-opus-4-6"``) — the
+    provider prefix is stripped before lookup since the
+    :data:`MODEL_CONTEXT_WINDOWS` constants are keyed by bare model
+    name only.
     """
     if not model_name:
         return DEFAULT_CONTEXT_WINDOW
 
+    # Strip pydantic-ai provider prefix (e.g. "anthropic:") so prefixed
+    # and bare specs hit the same lookup table.
+    lookup_name = model_name.split(":", 1)[1] if ":" in model_name else model_name
+
     # Exact match
-    if model_name in MODEL_CONTEXT_WINDOWS:
-        return MODEL_CONTEXT_WINDOWS[model_name]
+    if lookup_name in MODEL_CONTEXT_WINDOWS:
+        return MODEL_CONTEXT_WINDOWS[lookup_name]
 
     # Prefix match — try longest match first for specificity
     best_match: str | None = None
     for prefix in MODEL_CONTEXT_WINDOWS:
-        if model_name.startswith(prefix):
+        if lookup_name.startswith(prefix):
             if best_match is None or len(prefix) > len(best_match):
                 best_match = prefix
 
@@ -440,6 +453,11 @@ class CompactionConfig:
     Allows callers to override the global defaults defined in
     :mod:`opencontractserver.constants.context_guardrails` on a
     per-conversation basis.
+
+    The ``in_run_*`` fields configure the pydantic-ai HistoryProcessor
+    installed by :func:`make_pydantic_ai_agent`; they control how
+    aggressively the processor shrinks older tool returns and drops
+    older thinking parts inside a single ``Agent.run()`` invocation.
     """
 
     enabled: bool = True
@@ -447,6 +465,12 @@ class CompactionConfig:
     min_recent_messages: int = MIN_RECENT_MESSAGES
     max_recent_messages: int = MAX_RECENT_MESSAGES
     max_tool_output_chars: int = MAX_TOOL_OUTPUT_CHARS
+
+    # In-run (pydantic-ai HistoryProcessor) compaction knobs.
+    in_run_enabled: bool = True
+    in_run_keep_recent_pairs: int = IN_RUN_KEEP_RECENT_PAIRS
+    in_run_tool_return_target_chars: int = IN_RUN_TOOL_RETURN_TARGET_CHARS
+    in_run_drop_thinking: bool = IN_RUN_DROP_THINKING_DEFAULT
 
     def __post_init__(self) -> None:
         if self.min_recent_messages > self.max_recent_messages:
@@ -461,4 +485,14 @@ class CompactionConfig:
         if self.max_tool_output_chars < 1:
             raise ValueError(
                 f"max_tool_output_chars must be positive, got {self.max_tool_output_chars}"
+            )
+        if self.in_run_keep_recent_pairs < 1:
+            raise ValueError(
+                f"in_run_keep_recent_pairs must be >= 1, "
+                f"got {self.in_run_keep_recent_pairs}"
+            )
+        if self.in_run_tool_return_target_chars < 1:
+            raise ValueError(
+                f"in_run_tool_return_target_chars must be >= 1, "
+                f"got {self.in_run_tool_return_target_chars}"
             )

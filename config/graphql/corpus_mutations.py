@@ -28,7 +28,10 @@ from opencontractserver.corpuses.models import (
     CorpusAction,
     CorpusActionTemplate,
 )
-from opencontractserver.corpuses.services import CorpusService
+from opencontractserver.corpuses.services import (
+    CorpusActionService,
+    CorpusService,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.shared.services.base import BaseService
@@ -111,6 +114,12 @@ class CreateCorpusMutation(DRFMutation):
         icon = graphene.String(required=False)
         label_set = graphene.String(required=False)
         preferred_embedder = graphene.String(required=False)
+        preferred_llm = graphene.String(
+            required=False,
+            description="Optional pydantic-ai model spec for this corpus's agents "
+            "(e.g. 'anthropic:claude-opus-4-6'). When unset, agents fall back to "
+            "settings.DEFAULT_LLM / settings.OPENAI_MODEL.",
+        )
         slug = graphene.String(required=False)
         categories = graphene.List(
             graphene.ID, required=False, description="Category IDs to assign"
@@ -170,6 +179,12 @@ class UpdateCorpusMutation(DRFMutation):
         icon = graphene.String(required=False)
         label_set = graphene.String(required=False)
         preferred_embedder = graphene.String(required=False)
+        preferred_llm = graphene.String(
+            required=False,
+            description="Optional pydantic-ai model spec for this corpus's agents "
+            "(e.g. 'anthropic:claude-opus-4-6'). Pass empty string to clear and "
+            "fall back to settings.DEFAULT_LLM / settings.OPENAI_MODEL.",
+        )
         slug = graphene.String(required=False)
         # NOTE: is_public removed - use SetCorpusVisibility mutation instead
         # This prevents bypassing permission checks via UpdateCorpusMutation
@@ -1437,6 +1452,80 @@ class RunCorpusAction(graphene.Mutation):
             ok=True,
             message="Action queued successfully.",
             obj=execution,
+        )
+
+
+class StartCorpusActionBatchRun(graphene.Mutation):
+    """Run an agent-based corpus action against every eligible document in the corpus."""
+
+    class Arguments:
+        corpus_action_id = graphene.ID(
+            required=True,
+            description="ID of the agent-based CorpusAction to batch-run",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    queued_count = graphene.Int(
+        description="Number of new CorpusActionExecution rows created."
+    )
+    skipped_already_run_count = graphene.Int(
+        description=(
+            "Active documents skipped because they already have a queued, "
+            "running, or completed execution for this action."
+        )
+    )
+    total_active_documents = graphene.Int(
+        description="Total active documents in the corpus at evaluation time."
+    )
+    executions = graphene.List(
+        CorpusActionExecutionType,
+        description="The freshly created execution rows (status=QUEUED).",
+    )
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_HEAVY)
+    def mutate(root, info, corpus_action_id: str) -> "StartCorpusActionBatchRun":
+        user = info.context.user
+
+        try:
+            _, action_pk = from_global_id(corpus_action_id)
+            action_id = int(action_pk)
+        except (ValueError, TypeError):
+            # Malformed Relay global id — same generic error as the not-found
+            # branch so it isn't a side channel for enumeration.
+            return StartCorpusActionBatchRun(
+                ok=False, message="Corpus action not found."
+            )
+
+        result = CorpusActionService.batch_run_on_corpus(
+            user=user,
+            action_id=action_id,
+            request=info.context,
+        )
+        if not result.ok or result.value is None:
+            return StartCorpusActionBatchRun(ok=False, message=result.error)
+
+        summary = result.value
+        if summary.queued_count == 0:
+            message = (
+                "No eligible documents — every active document in this corpus "
+                f"has already been run through this action "
+                f"({summary.skipped_already_run_count} skipped)."
+            )
+        else:
+            message = (
+                f"Queued {summary.queued_count} document(s) for processing; "
+                f"skipped {summary.skipped_already_run_count} already-run."
+            )
+
+        return StartCorpusActionBatchRun(
+            ok=True,
+            message=message,
+            queued_count=summary.queued_count,
+            skipped_already_run_count=summary.skipped_already_run_count,
+            total_active_documents=summary.total_active_documents,
+            executions=summary.executions,
         )
 
 

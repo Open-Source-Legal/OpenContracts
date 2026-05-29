@@ -178,12 +178,19 @@ def generate_agent_response(
         async def run_agent():
             nonlocal accumulated_content
 
-            # Build the agent - for_corpus is async
+            # Build the agent - for_corpus is async.
+            # ``agent_preferred_llm=`` carries the per-agent override into
+            # the factory's resolver.  When unset (None) the resolver
+            # falls back to the corpus default (``Corpus.preferred_llm``)
+            # and then to settings.  ``model=`` is intentionally NOT used
+            # here — that slot is reserved for per-call overrides that
+            # outrank the persisted per-agent value.
             if corpus:
                 agent = await agent_api.for_corpus(
                     corpus=corpus,
                     user_id=user.pk,
                     system_prompt=agent_config.system_instructions,
+                    agent_preferred_llm=agent_config.preferred_llm,
                     conversation=conversation,
                 )
             else:
@@ -196,6 +203,7 @@ def generate_agent_response(
                     corpus=1,  # Fallback - will need proper handling
                     user_id=user.pk,
                     system_prompt=agent_config.system_instructions,
+                    agent_preferred_llm=agent_config.preferred_llm,
                     conversation=conversation,
                 )
 

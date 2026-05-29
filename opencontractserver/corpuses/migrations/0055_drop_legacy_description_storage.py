@@ -15,7 +15,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("corpuses", "0052_canonical_caml_backfill"),
+        ("corpuses", "0054_canonical_caml_backfill"),
     ]
 
     operations = [

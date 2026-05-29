@@ -149,3 +149,37 @@ EPHEMERAL_CONTEXT_EXHAUSTION_RATIO: float = 0.9
 # exhausted its context window.  Used in both the backend consumer and the
 # frontend message handler to avoid duplicating magic strings.
 WS_ERROR_CONTEXT_EXHAUSTED: str = "CONTEXT_EXHAUSTED"
+
+
+# ---------------------------------------------------------------------------
+# In-run history compaction (pydantic-ai HistoryProcessor)
+# ---------------------------------------------------------------------------
+# Number of most-recent ModelRequest/ModelResponse pairs to leave untouched
+# when the in-run history processor decides to shrink. The processor never
+# touches tool calls or returns inside this protected suffix, so the model
+# always sees the freshest tool exchanges verbatim. Older pairs may have
+# their ToolReturnPart content truncated and their ThinkingPart instances
+# dropped (see IN_RUN_DROP_THINKING_DEFAULT below).
+IN_RUN_KEEP_RECENT_PAIRS: int = 4
+
+# Character ceiling for older ToolReturnPart content after in-run shrink.
+# Values larger than this in the protected suffix are unchanged; values
+# larger than this in older messages are truncated to this length and a
+# trim notice is appended. Chosen so a shrunk return still carries enough
+# signal for the model to recall what the tool produced without dominating
+# the budget.
+IN_RUN_TOOL_RETURN_TARGET_CHARS: int = 4_000
+
+# Whether the in-run processor strips ThinkingPart instances from messages
+# older than the protected suffix. Thinking/reasoning content is rarely
+# useful once the next iteration has committed to a tool call or response.
+# Set to False to preserve older thinking for debugging.
+IN_RUN_DROP_THINKING_DEFAULT: bool = True
+
+# Stable substring inserted into a tool return's ``content`` when the
+# in-run history processor shrinks it. The full marker is templated with
+# the number of elided characters (see ``history_processors._TRIM_NOTICE_TEMPLATE``),
+# but the leading literal is exposed here so callers, dashboards, and
+# tests can recognise a shrunk tool return without coupling to the
+# private template string.
+IN_RUN_TRIM_NOTICE_MARKER: str = "in-run trim"

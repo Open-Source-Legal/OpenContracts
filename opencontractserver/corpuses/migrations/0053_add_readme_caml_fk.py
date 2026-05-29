@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("corpuses", "0050_corpus_description_preview"),
+        ("corpuses", "0052_corpus_preferred_llm"),
         ("documents", "0039_add_preferred_enrichers_to_pipeline_settings"),
     ]
 

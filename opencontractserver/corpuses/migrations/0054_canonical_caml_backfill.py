@@ -184,7 +184,7 @@ def noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("corpuses", "0051_add_readme_caml_fk"),
+        ("corpuses", "0053_add_readme_caml_fk"),
         ("documents", "0039_add_preferred_enrichers_to_pipeline_settings"),
     ]
 

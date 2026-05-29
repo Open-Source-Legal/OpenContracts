@@ -86,6 +86,20 @@ class PipelineComponentType(graphene.ObjectType):
     supports_images = graphene.Boolean(
         description="Whether this embedder supports image input.", required=False
     )
+    # LLM-provider routing metadata (set only for ComponentType.LLM_PROVIDER)
+    provider_key = graphene.String(
+        description="LLM providers: pydantic-ai prefix (e.g. 'anthropic'). Null for other component types.",
+        required=False,
+    )
+    supported_models = graphene.List(
+        graphene.String,
+        description="LLM providers: suggested bare model names exposed to the UI. Empty for other component types.",
+        required=False,
+    )
+    requires_api_key = graphene.Boolean(
+        description="LLM providers: whether the provider needs an API credential.",
+        required=False,
+    )
     enabled = graphene.Boolean(
         description="Whether this component is enabled for use in pipeline configuration.",
         required=True,
@@ -110,6 +124,12 @@ class PipelineComponentsType(graphene.ObjectType):
     rerankers = graphene.List(
         PipelineComponentType,
         description="List of available post-retrieval rerankers.",
+    )
+    llm_providers = graphene.List(
+        PipelineComponentType,
+        description="List of available LLM providers (pydantic-ai model "
+        "families) that can be set as Corpus.preferred_llm or "
+        "AgentConfiguration.preferred_llm.",
     )
 
 

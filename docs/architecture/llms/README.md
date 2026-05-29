@@ -2803,3 +2803,63 @@ When passing tools by name to `agents.for_document()`, the [`_resolve_tools()`](
 - **Requires Corpus**: Tool is automatically filtered when `corpus=None`.
 
 > **Note**: You can create your own tools with `CoreTool.from_function(...)` and set `requires_approval=True` or `requires_corpus=True` as needed. The framework will enforce approval gates and automatic corpus filtering for you.
+
+---
+
+## Runtime LLM configuration
+
+OpenContracts lets you pick the LLM that powers an agent at three layers:
+
+1. **Per-call override** — `agents.for_corpus(corpus=X, model="anthropic:claude-opus-4-6")`.
+2. **Per-agent override** — `AgentConfiguration.preferred_llm`. Wins whenever the @-mention task or delegation sub-agent path runs this agent.
+3. **Per-corpus default** — `Corpus.preferred_llm`. Wins when no explicit/per-agent override is set.
+4. **Settings default** — `settings.DEFAULT_LLM` (preferred) → legacy `settings.OPENAI_MODEL` (back-compat) → hard fallback `"gpt-4o"`.
+
+The resolver lives in [`opencontractserver/llms/llm_registry.py`](../../../opencontractserver/llms/llm_registry.py):
+
+```python
+from opencontractserver.llms.llm_registry import resolve_model_spec
+
+# Returns "anthropic:claude-opus-4-6"
+resolve_model_spec(
+    explicit=None,
+    agent_preferred=None,
+    corpus_preferred="anthropic:claude-opus-4-6",
+)
+```
+
+The [agent factory](../../../opencontractserver/llms/agents/agent_factory.py) calls the resolver automatically. Callers pick the slot that matches semantics:
+
+- `agents.for_*(model="anthropic:claude-opus-4-6")` — per-call override. Wins over every persisted default.
+- `agents.for_*(agent_preferred_llm=agent_config.preferred_llm)` — per-agent override. Wins over the corpus default but yields to a per-call `model=`. The @-mention task ([`agent_tasks.py`](../../../opencontractserver/tasks/agent_tasks.py)) and the delegation sub-agent path ([`delegation_tools.py`](../../../opencontractserver/llms/tools/delegation_tools.py)) use this slot.
+
+### Model spec format
+
+Specs follow [`pydantic-ai`](https://ai.pydantic.dev)'s `"{provider_key}:{model_name}"` convention:
+
+| Spec                                    | Provider           | Model                |
+| --------------------------------------- | ------------------ | -------------------- |
+| `"openai:gpt-4o"`                       | OpenAI             | gpt-4o               |
+| `"anthropic:claude-opus-4-6"`           | Anthropic          | claude-opus-4-6      |
+| `"google-gla:gemini-2.0-flash"`         | Google (AI Studio) | gemini-2.0-flash     |
+| `"ollama:llama3.3"`                     | Ollama (local)     | llama3.3             |
+
+Bare strings (no colon — e.g. `"gpt-4o"`) are treated as `openai` models so legacy `OPENAI_MODEL` values keep working.
+
+### Provider registry
+
+LLM providers are registered as pluggable [pipeline components](../../pipelines/pipeline_overview.md) under [`opencontractserver/pipeline/llm_providers/`](../../../opencontractserver/pipeline/llm_providers/). Each subclass of [`BaseLLMProvider`](../../../opencontractserver/pipeline/base/llm_provider.py) declares:
+
+- `provider_key` — pydantic-ai prefix used to build the spec and route credential lookups.
+- `supported_models` — bare model names suggested to the UI (e.g. dropdown for `Corpus.preferred_llm`). Not strictly enforced at runtime so newly-released models can be used without a code change.
+- `requires_api_key` — whether the provider needs a credential (`False` for `ollama`).
+
+Add a new provider by dropping a file in `pipeline/llm_providers/` — the `PipelineComponentRegistry` walks the package on first access and registers every concrete subclass. Discover the registered providers programmatically via `get_all_llm_providers_cached()` or through the GraphQL `pipelineComponents { llmProviders { providerKey, supportedModels, requiresApiKey } }` query.
+
+### API keys
+
+Phase 1 of the runtime LLM configuration roadmap keeps API-key resolution where it has always been: provider-native environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, …) read by pydantic-ai. A future phase adds a `LLMProviderCredential` encrypted store so keys can be registered per corpus / per user via GraphQL without redeploying.
+
+### Validation
+
+`Corpus.save()` and `AgentConfiguration.save()` both run the resolver's `validate_model_spec()` — a malformed string or a provider with no registered `BaseLLMProvider` subclass raises `ValidationError({"preferred_llm": ...})`. The validator does not gate against `supported_models` so users aren't blocked from passing newly-released model names. Specs are normalised to canonical `"{provider}:{model}"` form on the way into the database.

@@ -205,6 +205,33 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         "Set automatically and never changes (audit trail).",
     )
 
+    # LLM configuration
+    #
+    # ``preferred_llm`` is a pydantic-ai model spec in the canonical
+    # ``"{provider_key}:{model_name}"`` form (e.g.
+    # ``"anthropic:claude-opus-4-6"``). Bare strings (no colon) are
+    # treated as openai models so legacy ``OPENAI_MODEL`` values keep
+    # working. Unlike ``preferred_embedder`` the field is freely
+    # mutable — swapping LLMs does not invalidate any stored data, only
+    # influences which model the agents call next.
+    preferred_llm = django.db.models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        help_text="Preferred pydantic-ai model spec for agents in this corpus "
+        "(e.g. 'anthropic:claude-opus-4-6'). Overridable per-agent via "
+        "AgentConfiguration.preferred_llm. Falls back to settings.DEFAULT_LLM "
+        "/ settings.OPENAI_MODEL when unset.",
+    )
+    created_with_llm = django.db.models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="The LLM model spec that was active when this corpus was created. "
+        "Set automatically and never changes (audit trail).",
+    )
+
     # Agent instructions
     corpus_agent_instructions = django.db.models.TextField(
         null=True,
@@ -353,7 +380,28 @@ class Corpus(InstanceUserCanMixin, TreeNode):
     # Override save to update modified on save
     def save(self, *args: Any, **kwargs: Any) -> None:
         """On save, update timestamps and freeze embedder on creation."""
+        from opencontractserver.llms.llm_registry import (
+            LLMProviderNotRegistered,
+            normalise_model_spec,
+            resolve_model_spec,
+            validate_model_spec,
+        )
         from opencontractserver.pipeline.utils import get_default_embedder_path
+
+        # Validate / normalise preferred_llm whenever it is set so we
+        # never persist a malformed spec or a provider we can't route
+        # to.  The validation function raises ``ValueError`` for
+        # malformed strings and ``LLMProviderNotRegistered`` for
+        # unknown providers — both surface as ``ValidationError`` so
+        # the serializer / mutation layer can render a clean message.
+        if self.preferred_llm:
+            try:
+                validate_model_spec(self.preferred_llm)
+            except (ValueError, LLMProviderNotRegistered) as exc:
+                from django.core.exceptions import ValidationError
+
+                raise ValidationError({"preferred_llm": str(exc)}) from exc
+            self.preferred_llm = normalise_model_spec(self.preferred_llm)
 
         # Ensure slug exists and is unique within creator scope
         if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():
@@ -386,6 +434,14 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             # This never changes, even if preferred_embedder is later updated
             # through a re-embed operation.
             self.created_with_embedder = self.preferred_embedder or default_embedder
+
+            # Freeze the LLM that was active at creation time.  Unlike
+            # the embedder, ``preferred_llm`` itself stays mutable —
+            # only ``created_with_llm`` is locked.  We always record
+            # the *resolved* default (settings.DEFAULT_LLM /
+            # settings.OPENAI_MODEL fallback) so the audit trail is
+            # never blank.
+            self.created_with_llm = resolve_model_spec(explicit=self.preferred_llm)
 
         self.modified = timezone.now()
 
@@ -1312,6 +1368,18 @@ class CorpusActionTrigger(django.db.models.TextChoices):
     EDIT_DOCUMENT = "edit_document", "Edit Document"
     NEW_THREAD = "new_thread", "New Thread Created"
     NEW_MESSAGE = "new_message", "New Message Posted"
+    MANUAL_BATCH = "manual_batch", "Manual Batch Run"
+
+
+# Subset of CorpusActionTrigger that can be configured as an automatic-fire
+# trigger on a CorpusAction / CorpusActionTemplate definition. MANUAL_BATCH
+# is excluded because it is an execution-context label, not an event a user
+# can configure an action to react to.
+AUTO_FIRE_TRIGGER_CHOICES: list[tuple[str, str]] = [
+    (value, label)
+    for value, label in CorpusActionTrigger.choices
+    if value != CorpusActionTrigger.MANUAL_BATCH.value
+]
 
 
 class CorpusAction(BaseOCModel):
@@ -1351,7 +1419,7 @@ class CorpusAction(BaseOCModel):
         "agent_config.available_tools or trigger-appropriate defaults.",
     )
     trigger = django.db.models.CharField(
-        max_length=256, choices=CorpusActionTrigger.choices
+        max_length=256, choices=AUTO_FIRE_TRIGGER_CHOICES
     )
     disabled = django.db.models.BooleanField(null=False, default=False, blank=True)
     run_on_all_corpuses = django.db.models.BooleanField(
@@ -1550,7 +1618,7 @@ class CorpusActionTemplate(BaseOCModel):
     )
 
     trigger = django.db.models.CharField(
-        max_length=256, choices=CorpusActionTrigger.choices
+        max_length=256, choices=AUTO_FIRE_TRIGGER_CHOICES
     )
 
     is_active = django.db.models.BooleanField(

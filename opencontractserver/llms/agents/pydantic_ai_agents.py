@@ -446,6 +446,10 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         )
         agent_deps.estimated_used_tokens = history_result.estimated_tokens
         agent_deps.compaction_threshold_ratio = config.compaction.threshold_ratio
+        # Propagate the full CompactionConfig so the in-run history
+        # processor (which reads ``deps.compaction``) sees per-conversation
+        # overrides to ``in_run_*`` knobs rather than the default.
+        agent_deps.compaction = config.compaction
         # Reset the per-turn tally of implicit-chunk characters. Without this
         # the counter would accumulate across turns and starve the budget on
         # long-running streaming sessions.
@@ -977,6 +981,47 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             )
             builder.add(compaction_evt)
             yield compaction_evt
+
+        # Wire the in-run HistoryProcessor's telemetry callback. The
+        # processor in ``opencontractserver.llms.history_processors`` is
+        # installed by ``make_pydantic_ai_agent`` and reads this callback
+        # off ``ctx.deps`` (i.e. our ``self.agent_deps``). The closure
+        # below converts each ``InRunShrinkEvent`` into a ``ThoughtEvent``
+        # appended to the streaming timeline so users see when in-loop
+        # compaction fires. Non-streaming (_chat_raw) never sets this
+        # callback, so those chats get log-only telemetry from the
+        # processor itself.
+        def _on_in_run_shrink(event: Any) -> None:
+            try:
+                thought_evt = ThoughtEvent(
+                    thought=(
+                        f"Trimmed tool outputs to fit context: "
+                        f"{event.tokens_before:,} → {event.tokens_after:,} "
+                        f"estimated tokens "
+                        f"({event.context_window:,} token window); "
+                        f"{event.tool_returns_shrunk} tool returns shrunk, "
+                        f"{event.thinking_parts_dropped} thinking parts dropped"
+                    ),
+                    user_message_id=user_msg_id,
+                    llm_message_id=llm_msg_id,
+                    metadata={
+                        "in_run_shrink": {
+                            "tokens_before": event.tokens_before,
+                            "tokens_after": event.tokens_after,
+                            "context_window": event.context_window,
+                            "tool_returns_shrunk": event.tool_returns_shrunk,
+                            "thinking_parts_dropped": event.thinking_parts_dropped,
+                        }
+                    },
+                )
+                builder.add(thought_evt)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "Failed to append in-run shrink ThoughtEvent to timeline"
+                )
+
+        if self.agent_deps is not None:
+            self.agent_deps.on_in_run_shrink = _on_in_run_shrink
 
         try:
             logger.debug(
@@ -3360,6 +3405,47 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         if config.user_id is not None:
             effective_tools.append(update_corpus_desc_tool_wrapped)
 
+            # Deep-research kickoff: lets the chat agent spawn a
+            # long-running, autonomous research job over this corpus.
+            # Goes through the standard converter so ``corpus_id``,
+            # ``user_id``, and ``conversation_id`` get auto-injected.
+            from opencontractserver.llms.agents.agent_factory import (
+                _convert_tools_for_framework,
+            )
+            from opencontractserver.llms.tools.research_tools import (
+                start_deep_research_tool,
+            )
+            from opencontractserver.llms.types import AgentFramework
+
+            converted = _convert_tools_for_framework(
+                [start_deep_research_tool],
+                AgentFramework.PYDANTIC_AI,
+                document_id=None,
+                corpus_id=context.corpus.id,
+                user_id=config.user_id,
+                conversation_id=getattr(conversation_manager.conversation, "id", None),
+            )
+            effective_tools.extend(converted)
+
+        # ``restrict_tool_names`` mirrors the document-agent path: when
+        # provided, drop every default tool whose name is not in the set.
+        # Caller-supplied tools (deduplicated below) are NOT filtered —
+        # the caller has explicitly opted them in. Used by the deep-research
+        # task to keep the agent's surface strictly read-only.
+        restrict_tool_names: set[str] | None = kwargs.pop("restrict_tool_names", None)
+        if restrict_tool_names is not None:
+            allowed = set(restrict_tool_names)
+            before_count = len(effective_tools)
+            effective_tools = [
+                t for t in effective_tools if get_tool_name(t) in allowed
+            ]
+            logger.debug(
+                "restrict_tool_names trimmed corpus tools %d -> %d (allowed=%s)",
+                before_count,
+                len(effective_tools),
+                sorted(allowed),
+            )
+
         if tools:
             effective_tools = deduplicate_tools(
                 effective_tools, tools, context="Caller"
@@ -3376,6 +3462,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         agent_deps_instance = PydanticAIDependencies(
             user_id=config.user_id,
             corpus_id=context.corpus.id,
+            conversation_id=getattr(conversation_manager.conversation, "id", None),
             max_tool_output_chars=config.compaction.max_tool_output_chars,
             model_name=config.model_name,
             context_window_tokens=get_context_window_for_model(config.model_name),

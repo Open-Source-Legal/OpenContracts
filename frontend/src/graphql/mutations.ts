@@ -2370,6 +2370,33 @@ export interface RunCorpusActionOutput {
   };
 }
 
+// `executions` omitted — UI reads summary counts only; re-add if a future caller needs the queued rows.
+export const START_CORPUS_ACTION_BATCH_RUN = gql`
+  mutation StartCorpusActionBatchRun($corpusActionId: ID!) {
+    startCorpusActionBatchRun(corpusActionId: $corpusActionId) {
+      ok
+      message
+      queuedCount
+      skippedAlreadyRunCount
+      totalActiveDocuments
+    }
+  }
+`;
+
+export interface StartCorpusActionBatchRunInput {
+  corpusActionId: string;
+}
+
+export interface StartCorpusActionBatchRunOutput {
+  startCorpusActionBatchRun: {
+    ok: boolean;
+    message: string;
+    queuedCount: number;
+    skippedAlreadyRunCount: number;
+    totalActiveDocuments: number;
+  };
+}
+
 export const ADD_TEMPLATE_TO_CORPUS = gql`
   mutation AddTemplateToCorpus($templateId: ID!, $corpusId: ID!) {
     addTemplateToCorpus(templateId: $templateId, corpusId: $corpusId) {

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Runtime LLM configuration — per-corpus default model + per-agent override + pipeline-component-style provider registry.** Previously, the only knob for LLM selection was a per-call `agents.for_document(model="…")` string that bypassed the codebase entirely (no validation, no persistence, no per-corpus default); the global model came from `settings.OPENAI_MODEL` and could only be changed by redeploying. Three changes together let users pick a model per corpus, override it per agent, and discover what's available without redeploying.
+  - **`BaseLLMProvider` pipeline component + four shipped providers** (`opencontractserver/pipeline/base/llm_provider.py`, `opencontractserver/pipeline/llm_providers/{openai,anthropic,google,ollama}_provider.py`). New abstract pipeline component class mirroring `BaseEmbedder`'s shape: each subclass declares a `provider_key` (pydantic-ai's prefix — `"openai"`, `"anthropic"`, `"google-gla"`, `"ollama"`), a `supported_models` tuple of suggested bare model names exposed to the UI, and a `requires_api_key: bool`. Concrete providers carry no behaviour — pydantic-ai owns client instantiation; these classes exist so the rest of the system has a discovery surface to enumerate and validate against.
+  - **`PipelineComponentRegistry` extended with the new component type** (`opencontractserver/pipeline/registry.py`). `ComponentType.LLM_PROVIDER` added to the enum, `_llm_providers` / `_llm_providers_by_key` storage and a discovery block in `_discover_all_components()`, plus `get_all_llm_providers_cached()` / `get_llm_provider_by_key_cached()` module-level helpers and three new metadata fields (`provider_key`, `supported_models`, `requires_api_key`) on `PipelineComponentDefinition` (set only for LLM providers; absent on other component types). The registry log line and `get_all_components_cached()` dict both pick up the new bucket.
+  - **`opencontractserver/llms/llm_registry.py` — model-spec parsing, validation, and the priority-chain resolver.** `parse_model_spec("anthropic:claude-opus-4-6") → ("anthropic", "claude-opus-4-6")`; bare strings (no colon) default to the `openai` provider so legacy `OPENAI_MODEL="gpt-4o"` values keep working. `normalise_model_spec` returns the canonical `"{provider}:{model}"` form. `validate_model_spec` raises `LLMProviderNotRegistered` for unknown providers (model names themselves are not strictly enforced — the `supported_models` tuple is a UI suggestion, not a runtime gate). `resolve_model_spec(explicit=..., agent_preferred=..., corpus_preferred=...)` walks the documented priority chain: per-call → per-agent → per-corpus → `settings.DEFAULT_LLM` → legacy `settings.OPENAI_MODEL` → hard fallback `"gpt-4o"`.
+  - **`Corpus.preferred_llm` + `Corpus.created_with_llm` audit field** (`opencontractserver/corpuses/models.py`, migration `corpuses/0052_corpus_preferred_llm.py`). New `CharField(128)` for the corpus's preferred pydantic-ai model spec and an editable=False audit-trail column stamped at creation. `Corpus.save()` validates and normalises `preferred_llm` on every write via the new registry (`ValidationError` on malformed spec / unknown provider) and freezes `created_with_llm` to the resolved default at first save. The audit column is backfilled for existing rows in the migration's `RunPython` step. Unlike `preferred_embedder`, `preferred_llm` is freely mutable — swapping LLMs doesn't invalidate stored data.
+  - **`AgentConfiguration.preferred_llm`** (`opencontractserver/agents/models.py`, migration `agents/0014_agentconfiguration_preferred_llm.py`). New nullable `CharField(128)` so a single agent (e.g. the doc-summarizer @-mention) can override the corpus default with its own model. Same `save()`-time validation as `Corpus.preferred_llm`. Null means "fall back to corpus default" — preserves pre-feature behaviour for every existing agent row.
+  - **Agent factory threads the resolver through** (`opencontractserver/llms/agents/agent_factory.py`). `UnifiedAgentFactory.create_document_agent` and `create_corpus_agent` now resolve the corpus object BEFORE building `AgentConfig`, then call `resolve_model_spec(explicit=model, agent_preferred=agent_preferred_llm, corpus_preferred=corpus.preferred_llm)` and pass the result as `model_name=` to `get_default_config()`. `agents.for_*` exposes a dedicated `agent_preferred_llm=` kwarg so the per-agent slot is exercised by production code (not just tests): `agent_tasks.generate_agent_response` (the @-mention task) and `delegation_tools.build_delegation_tool` (the sub-agent @-mention) forward `agent_preferred_llm=agent_config.preferred_llm`, which means a per-call `model=` still wins over the agent's persisted preference.
+  - **`get_context_window_for_model` handles provider-prefixed specs** (`opencontractserver/llms/context_guardrails.py`). Strips the pydantic-ai provider prefix before the lookup table check so `"anthropic:claude-opus-4-6"` resolves to the same 200K window as the bare `"claude-opus-4-6"`. Without this fix, the resolver's canonical-form normalisation (always prefixed) would have collapsed every model to `DEFAULT_CONTEXT_WINDOW` and broken compaction sizing for Claude/Gemini.
+  - **GraphQL surface** (`config/graphql/{pipeline_types,pipeline_queries,corpus_mutations,agent_mutations,agent_types,serializers}.py`).
+    - `PipelineComponentType` gains `providerKey` / `supportedModels` / `requiresApiKey` (set only for LLM providers); `PipelineComponentsType` gains an `llmProviders` field that surfaces the registered providers via the existing `pipelineComponents` query. The query resolver pulls `llm_providers` directly off the registry (bypasses the non-superuser enabled-components filter — LLM providers are metadata, not credentials).
+    - `CreateCorpusMutation` and `UpdateCorpusMutation` accept `preferred_llm: String`; `CorpusSerializer` exposes `preferred_llm` (writable) and `created_with_llm` (read-only).
+    - `CreateAgentConfigurationMutation` accepts `preferred_llm`; `UpdateAgentConfigurationMutation` accepts `preferred_llm` (set/replace) plus a separate `clear_preferred_llm: Boolean` (explicit reset back to the corpus default — avoids empty-string ambiguity). Both flow through `AgentConfigurationService.create_agent` / `update_agent`, which convert `ValidationError` raised by `AgentConfiguration.save()` into `ServiceResult.failure` with a clean message. `AgentConfigurationType` adds `preferred_llm` to its exposed fields.
+  - **Tests** (`opencontractserver/tests/test_llm_runtime_config.py`). Covers spec parsing edge cases, normalisation, validator (known/unknown providers, malformed strings), the four-rung resolver priority chain, registry discovery of the four shipped providers, `Corpus.preferred_llm` save-path validation + `created_with_llm` audit-stamp + audit-field immutability, `AgentConfiguration.preferred_llm` save-path validation, the prefix-stripping fix in `get_context_window_for_model`, and an end-to-end scenario asserting the resolver winning order with real `Corpus` rows.
+
 ### Changed
 
 - **Corpus description storage consolidated to a single canonical source — the `Readme.CAML` Document body.** The corpus description was previously stored in four places that drifted independently (the `Corpus.md_description` `FileField`, the `Corpus.description` plain-text projection, the `Corpus.description_preview` short excerpt added by PR #1805, and the `Readme.CAML` `Document` rendered by `CorpusArticleView`). After this refactor:
@@ -25,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Technical Details
 
-- **Migrations:** `0051_add_readme_caml_fk.py` (schema-only — adds the cache FK), `0052_canonical_caml_backfill.py` (data migration — for every Corpus with non-empty `md_description`, creates a Readme.CAML Document + DocumentPath, replays each `CorpusDescriptionRevision` row as a version-tree sibling, populates the cache columns; idempotent via lookup-before-create), `0053_drop_legacy_description_storage.py` (column + table drop; forward-only). Large deployments should schedule `0052` during a maintenance window.
+- **Migrations:** `0053_add_readme_caml_fk.py` (schema-only — adds the cache FK), `0054_canonical_caml_backfill.py` (data migration — for every Corpus with non-empty `md_description`, creates a Readme.CAML Document + DocumentPath, replays each `CorpusDescriptionRevision` row as a version-tree sibling, populates the cache columns; idempotent via lookup-before-create), `0055_drop_legacy_description_storage.py` (column + table drop; forward-only). Large deployments should schedule `0054` during a maintenance window.
 - **Spec:** `docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md` covers §4.1 source of truth, §4.4 signal flow, §4.5 GraphQL surface, §4.6 frontend impact, §4.7 agent tools, §4.8 V2 → V3 export, §4.9 data migration.
 - **Replaces PR #1805** — the `description_preview` column added there is retained as a cache column; the `LandingMarkdownSection` workaround is removed; the `useCorpusMdDescription` hook is unchanged (`CorpusDetailsView` still uses it for the About card).
 
@@ -40,6 +56,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Tests** — `opencontractserver/tests/test_document_imports_rest.py` adds `ZipToCorpusImportViewTests` and `CorpusExportImportViewTests` covering happy path, IDOR error collapse for inaccessible/read-only/non-existent corpora, cross-corpus folder rejection, non-ZIP rejection, oversize (413), usage-cap gating, and the corpus-export placeholder-corpus contract. `test_graphql_import_export_mutations.py` drops `test_zip_upload` (moved to REST). `frontend/src/utils/__tests__/importHttp.test.ts` adds `importZipToCorpusMultipart` and `importCorpusExportMultipart` coverage. `frontend/tests/bulk-import-modal.ct.tsx` swaps the Apollo MockedProvider mock for a `window.fetch` stub on `/api/imports/zip-to-corpus/`.
 
 ### Added
+
+- **In-run history compaction via pydantic-ai `history_processors`.** A new
+  `shrink_old_artifacts_processor` in `opencontractserver/llms/history_processors.py`
+  is unconditionally installed as a `ProcessHistory` capability on every agent constructed through
+  `make_pydantic_ai_agent`. Before each model request inside an
+  `Agent.run()` loop, the processor checks whether cumulative tokens
+  exceed `CompactionConfig.threshold_ratio * context_window`; when over
+  threshold it truncates older `ToolReturnPart.content` to
+  `in_run_tool_return_target_chars` (default 4,000 chars) and drops
+  older `ThinkingPart` instances entirely, while leaving the last
+  `in_run_keep_recent_pairs` (default 4) ModelResponse/ModelRequest
+  pairs untouched. Tool call/return correlation is preserved by
+  shrinking in place (never dropping `ToolCallPart` or its paired
+  `ToolReturnPart`). Empty-`parts` ModelResponses are also guarded —
+  if dropping the only ThinkingPart would empty the parts list, the
+  message is left intact.
+  - `CompactionConfig` gains four new fields with sensible defaults:
+    `in_run_enabled`, `in_run_keep_recent_pairs`,
+    `in_run_tool_return_target_chars`, `in_run_drop_thinking`. Set
+    `in_run_enabled=False` as a kill switch if regression appears.
+  - New constants in `opencontractserver/constants/context_guardrails.py`:
+    `IN_RUN_KEEP_RECENT_PAIRS`, `IN_RUN_TOOL_RETURN_TARGET_CHARS`,
+    `IN_RUN_DROP_THINKING_DEFAULT`.
+  - New `compaction: CompactionConfig` field on `PydanticAIDependencies`
+    so the processor reads its knobs from the production path (`deps.compaction`).
+  - New telemetry: streamed chats emit a `ThoughtEvent` with metadata
+    key `in_run_shrink` whenever the processor fires; non-streamed
+    chats produce an INFO log line with the same numbers (tokens
+    before/after, tool returns shrunk, thinking parts dropped).
+  - Closes the in-loop context-pressure gap surfaced by the deep-research
+    agent in PR #1814: previously the OpenContracts compaction pipeline
+    ran only once before `Agent.run()` started; tool calls/returns
+    generated inside the autonomous loop accumulated unbounded until
+    pydantic-ai's `UsageLimits.request_tokens_limit` terminated the run.
+  - Tests: `opencontractserver/tests/test_history_processors.py` (12
+    unit tests covering threshold gate, shrink, ThinkingPart drop,
+    tool_call_id preservation, last-message invariant, short
+    histories, disabled config, deps=None, callback contract,
+    production-path config resolution, empty-parts guard).
+    `opencontractserver/tests/test_pydantic_ai_factory.py` gets three
+    new tests pinning `ProcessHistory` injection order, legacy-kwarg
+    auto-wrapping, and modern `capabilities=` passthrough.
+
+### Fixed
+
+- **Per-conversation `CompactionConfig` overrides reach the in-run
+  history processor.** `PydanticAICoreAgent._apply_context_budget`
+  was forwarding only `compaction.threshold_ratio` onto
+  `agent_deps.compaction_threshold_ratio` and never copying the full
+  config object to `agent_deps.compaction` — so any caller-supplied
+  `in_run_enabled` / `in_run_keep_recent_pairs` /
+  `in_run_tool_return_target_chars` / `in_run_drop_thinking`
+  silently fell back to defaults inside the processor. Now
+  `agent_deps.compaction = config.compaction` is set on every turn.
+  Regression test pinned in
+  `opencontractserver/tests/test_context_guardrails.py::TestRefreshContextBudgetFallback::test_compaction_config_is_copied_to_deps`.
+
+- **Loud import-time guard on `dataclasses.replace` assumption.**
+  `opencontractserver/llms/history_processors.py` now asserts at
+  module import that `ToolReturnPart`, `ModelRequest`, and
+  `ModelResponse` remain stdlib `@dataclass` types. A future
+  pydantic-ai release migrating any of them to `pydantic.BaseModel`
+  would have broken `replace()` inside the processor — and the
+  defensive outer `try/except` would have silently swallowed the
+  exception, turning the in-run shrink into a no-op with no visible
+  signal. Now CI fails loudly on the next pydantic-ai bump that
+  invalidates the assumption.
+
+- **Telemetry-callback failures no longer silently disable shrink
+  side-effects via the outer try/except.** Pinned a regression test
+  (`test_callback_exception_does_not_propagate`) confirming that a
+  raising `on_in_run_shrink` callback is caught locally, logged via
+  `logger.exception`, and does NOT bubble out of the inner callback
+  block — so the actual message-list shrink still survives even when
+  a telemetry sink dies mid-run.
+
+- **Deep-research agent — chat-triggered, long-running corpus research with grounded citations** (new app `opencontractserver/research/`, new Celery task `opencontractserver/tasks/research_tasks.py`, new chat tool `opencontractserver/llms/tools/research_tools.py`, GraphQL surface in `config/graphql/research_{types,queries,mutations}.py`). A user in a corpus chat can ask the agent to "research X" and a long-lived (5-30 min) autonomous research job kicks off in the background. The job runs a PydanticAI corpus agent with a read-only retrieval surface plus two job-bound scratchpad tools (`record_finding`, `finalize_report`), produces a markdown report with footnote citations, and notifies the user when complete (new `RESEARCH_REPORT_*` `NotificationTypeChoices` values, broadcast via the existing notification WebSocket) plus drops a system `ChatMessage` back into the originating conversation.
+  - **`ResearchReport` model** (sibling of `Analysis`/`Extract`) tracks the full lifecycle: corpus FK, prompt, status (`JobStatus` + new `CANCELLED`), `started_at`/`completed_at`/`last_progress_at`, `cancel_requested` (cooperative cancel polled between tool calls), step budget, rendered `content` markdown, structured `findings`/`citations`/`tool_call_log`/`model_usage`/`warnings` JSON sidecars, and M2M to `source_annotations`/`source_documents` for provenance. Creator-only visibility in v1 (no sharing → no IDOR surface to defend on shared reports). Migration: `opencontractserver/research/migrations/0001_initial.py` + `opencontractserver/notifications/migrations/0005_add_research_report_notification_types.py`.
+  - **`ResearchReportService`** (`opencontractserver/research/services/research_reports.py`) — canonical entry point per CLAUDE.md rule 7. Lifecycle helpers (`mark_started` / `mark_progress` / `mark_completed` / `mark_failed` / `mark_cancelled`), scratchpad writes (`append_finding`, `append_tool_call`), terminal `finalize` (runs citation post-processor: parses `<cite ids="...">claim</cite>` placeholder tags into `[^n]` footnote markers + builds the `## Sources` section + populates the `source_annotations` / `source_documents` M2Ms), and a concurrency soft-guard (`start` refuses a second QUEUED/RUNNING report for the same `(user, corpus)` within `DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS`).
+  - **Closed-citation-graph invariant.** The job-bound `record_finding` closure validates every `supporting_source_id` against the live `PydanticAIDependencies.retrieved_annotation_ids` accumulator (`opencontractserver/llms/tools/pydantic_ai_tools.py:263`) — annotation IDs not surfaced by a retrieval tool in this run are rejected with an error string so the model self-corrects, defending against fabricated citations.
+  - **Chat kickoff tool** `start_deep_research` is appended to the default corpus-agent tool set for authenticated users (`opencontractserver/llms/agents/pydantic_ai_agents.py` corpus-agent factory). It calls `ResearchReportService.start`, returns a confirmation string, and ends the chat turn. `corpus_id` / `user_id` / `conversation_id` are auto-injected from `PydanticAIDependencies` (not LLM-controlled), closing the prompt-injection vector where a malicious user message could spoof a different conversation.
+  - **Plumbing changes to the agent framework** (small, additive):
+    - `restrict_tool_names` is now honoured on the corpus path in addition to the existing document path (`agent_factory.py` + `pydantic_ai_agents.py:PydanticAICorpusAgent.create`). Lets the deep-research task strictly limit the agent to read-only retrieval tools.
+    - `PydanticAIDependencies.conversation_id` (new field) + `build_inject_params_for_context` inject helper now threads conversation_id into tools that declare it (`pydantic_ai_tools.py`, `tool_factory.py`, `agent_factory.py`). `PydanticAICorpusAgent.create` populates it from the resolved conversation.
+  - **GraphQL**: `ResearchReportType` (with `findings`/`citations`/`toolCallLog`/`modelUsage`/`warnings` as `GenericScalar`, `fullSourceAnnotationList`/`fullSourceDocumentList` resolvers, `durationSeconds` derived); `researchReport(id)` + `researchReports(corpusId?, status?)` queries; `startResearchReport(corpusId, prompt, title?, maxSteps?)` + `cancelResearchReport(id)` mutations.
+  - **Settings**: `DEEP_RESEARCH_DEFAULT_MAX_STEPS` (60), `DEEP_RESEARCH_MAX_TOKENS_DEFAULT` (400k), `DEEP_RESEARCH_SOFT_TIME_LIMIT` / `DEEP_RESEARCH_HARD_TIME_LIMIT` (30/60 min), `DEEP_RESEARCH_SIMILARITY_TOP_K` (6 — lower than interactive chat to reduce vector-search load during long autonomous runs), `DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS` (1 hour).
+  - **Tests**: `opencontractserver/tests/research/test_research_report_model.py` (model defaults, slug auto-gen, `is_terminal`, creator-only visibility), `test_research_report_service.py` (lifecycle transitions, concurrency soft-guard, cancel propagation, finalize with valid + defense-in-depth filtering of rogue citations + handling of deleted annotations, citation-rendering helper unit tests), `test_research_kickoff_tool.py` (kickoff happy path, unknown corpus, concurrency soft-guard returns a friendly error string).
+  - **Out of scope for v1** (tracked for v2): sharing / `is_public` on `ResearchReport`; viewer-aware citation redaction for shared reports; document-subset scoping (currently corpus-wide only); resume-from-partial-findings; per-user notification preferences; `AgentConfiguration` integration for saved research presets; watchdog cleanup task for crashed workers (intentionally deferred — `last_progress_at` is in place for when it's added); frontend `ResearchReportView`.
+
+- **"Run on every document" for agent-based corpus actions.** Closes the gap between auto-fire-on-add and one-doc-at-a-time manual runs: a new Layers-icon button on each agent action card in `CorpusActionsSection` fans the action out to every active doc in the corpus that does not already have a queued / running / completed execution for that action (failed executions are intentionally re-queued so the same button doubles as a retry path).
+  - **New `CorpusActionTrigger.MANUAL_BATCH`** value (`opencontractserver/corpuses/models.py:1443`) so batch-run executions are distinguishable from auto-fired `ADD_DOCUMENT` / `EDIT_DOCUMENT` rows in the audit trail. Migration `corpuses/0051_add_manual_batch_trigger.py` extends `CorpusActionExecution.trigger`'s `choices` only — `CorpusAction.trigger` and `CorpusActionTemplate.trigger` now use the auto-fire-only subset (`AUTO_FIRE_TRIGGER_CHOICES`) which intentionally excludes `MANUAL_BATCH`, so they need no DDL change.
+  - **New service** `CorpusActionService.batch_run_on_corpus(user, action, request)` in `opencontractserver/corpuses/services/corpus_actions.py`. Gates on corpus `UPDATE`, refuses fieldset/analyzer/disabled actions, computes the eligible-doc set (active corpus docs minus docs with a `QUEUED|RUNNING|COMPLETED` execution for the same action), bulk-queues `CorpusActionExecution` rows via the existing `bulk_queue` classmethod, and dispatches one `run_agent_corpus_action.delay(...)` per row inside `transaction.on_commit`. Capped at `BATCH_RUN_MAX_DOCS = 200` per call (`opencontractserver/constants/corpus_actions.py`) so a single click cannot fan out hundreds of LLM calls.
+  - **New GraphQL mutation** `startCorpusActionBatchRun(corpusActionId: ID!)` (`config/graphql/corpus_mutations.py`). Permission gate is corpus `UPDATE` (looser than the superuser-only single-doc `runCorpusAction`, matching the rest of `CorpusActionsSection`). Returns `queuedCount`, `skippedAlreadyRunCount`, `totalActiveDocuments`, and the fresh execution rows (the UI consumes only the summary counts for the toast; the execution rows remain on the response for future callers that want to surface queued documents directly).
+  - **Frontend** new `BatchRunCorpusActionModal` (`frontend/src/components/corpuses/BatchRunCorpusActionModal.tsx`) — confirmation modal explaining the skip-already-run semantics. Wired into `CorpusSettings` next to the existing `RunCorpusActionModal`; the new button is `canUpdate`-gated (not `isSuperuser`) and only appears on enabled agent actions. New `START_CORPUS_ACTION_BATCH_RUN` GraphQL mutation in `frontend/src/graphql/mutations.ts`.
+  - **Tests** `opencontractserver/tests/test_batch_run_corpus_action.py` covers happy path, non-superuser collaborator with corpus UPDATE, IDOR-safe denial for outsiders, fieldset/analyzer/disabled rejection, FAILED re-queue, RUNNING/QUEUED skip, all-completed → 0 queued, soft-deleted DocumentPath exclusion, and the `BATCH_RUN_MAX_DOCS` cap. `test_constants.py` and `test_corpus_action_model.py` already auto-derive their expected keys from the `CorpusActionTrigger` enum so the new value is picked up by the existing alignment tests.
 
 - **Agentic `create_or_update_text_document` tool — create or version-up a text document in a corpus** (`opencontractserver/llms/tools/core_tools/text_document_import.py`, `opencontractserver/llms/tools/core_tools/__init__.py`, `opencontractserver/llms/tools/tool_registry.py`). New corpus-scoped LLM tool that lets a corpus-level agent author or version-up a text-based document inside the active corpus. Initial scope is **text formats only** (`text/plain` default, `text/markdown`, `application/txt` — the `TEXT_MIMETYPES` set); binary formats like PDF/DOCX still require the parsing pipeline and are intentionally out of scope. The tool derives the corpus filesystem path from the `title` using the same sanitisation as `Corpus.add_document` (`MAX_FILENAME_LENGTH` truncation, non-alphanumeric → `_`, `DEFAULT_DOCUMENT_PATH_PREFIX` prefix) so calling it twice with the same `title` in the same corpus hits the same path and the dual-tree versioning architecture (`opencontractserver/documents/versioning.py::import_document`) creates a new version on top of the existing tree. Returns `{status: "created"|"updated", document_id, corpus_id, path, version_number, file_type, byte_count, message}`. IDOR-safe: user / corpus / folder lookups all return the same "does not exist or is not accessible" message regardless of whether the row is missing or unreachable. Permissions: requires `PermissionTypes.UPDATE` on the corpus (raises `PermissionError` otherwise) and grants `CRUD` on the resulting document to the author. Quota: routes through `DocumentService.check_user_upload_quota` so capped users get a clean `ValueError` instead of a half-created doc. Registered as `ToolCategory.CORPUS` with `requires_corpus=True`, `requires_approval=True`, `requires_write_permission=True` (mirrors `move_document`'s HITL posture). `aupload_text_document` / `upload_text_document` are exported as aliases for callers that prefer the verb-first name. Tests in `opencontractserver/tests/test_text_document_import_tool.py` cover the create path, in-folder placement, second-call version-up (asserts shared `version_tree_id`, `is_current` flip on the old row, single active `DocumentPath`), `text/markdown` acceptance, `application/pdf` rejection, empty-title rejection, `None`-content rejection, nonexistent-user rejection, IDOR rejection on a corpus owned by another user, read-only-corpus rejection (`PermissionError`), folder-in-wrong-corpus rejection, and an `acreate_or_update_text_document` async-wrapper smoke test.
 
@@ -75,6 +186,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Test: `resolve_my_vote` fallback path** (`opencontractserver/tests/test_corpus_voting.py`). New `test_my_vote_resolver_uses_service_fallback_when_not_annotated` exercises the per-row `CorpusVoteService.get_user_vote_type` path that fires when the corpus instance was loaded outside `CorpusType.get_queryset` (so the `_viewer_vote` annotation isn't attached). Complements the existing `CaptureQueriesContext` test that pins the fast path.
 
 ### Fixed
+
+- **Corpus folder browser: 10-20 s load time fixed by collapsing the per-folder query fan-out in `corpusFolders`** (`opencontractserver/corpuses/services/folders.py`, `config/graphql/corpus_types.py`, `config/graphql/corpus_queries.py`). Browsing a corpus folder took 10-20 seconds against a corpus with ~100 folders because every field requested by `frontend/src/graphql/queries/folders.ts::GET_CORPUS_FOLDERS` resolved through a per-folder resolver on `CorpusFolderType`:
+  - `path` ran `CorpusFolder.get_path()` → `self.ancestors(include_self=True)` — one recursive CTE per folder.
+  - `documentCount` ran `CorpusFolder.get_document_count()` — one `DocumentPath.objects.count()` per folder.
+  - `descendantDocumentCount` ran `CorpusFolder.get_descendant_document_count()` → `self.descendants(include_self=True)` + `.count()` — one recursive CTE plus one `COUNT` per folder.
+  - `myPermissions` fell through `AnnotatePermissionsForReadMixin.resolve_my_permissions` to two `.filter()` queries per folder against the always-empty `corpusfolderuserobjectpermission_set` and `corpusfoldergroupobjectpermission_set` relations (`CorpusFolder` rows never carry guardian permission rows — see model docstring at `opencontractserver/corpuses/models.py`).
+  - `isPublished` ran `get_groups_with_perms(folder)` + `.filter().count()` per folder for the same always-empty guardian tables.
+
+  Net: ~6N + 1 SQL round-trips on the folder-list view, half of them recursive CTEs against `corpuses_corpusfolder`. With `fetchPolicy: "cache-and-network"` set on the frontend (`frontend/src/components/documents/CorpusDocumentCards.tsx:159`), every folder switch re-paid the full cost.
+
+  Fix:
+  - New `FolderCRUDService.get_visible_folders_with_aggregates(user, corpus_id, *, request)` materialises the folder list and attaches `_path`, `_doc_count`, and `_descendant_doc_count` to each instance using one `GROUP BY folder_id` query for direct document counts (mirrors the existing batched pattern in `get_folder_tree()`), an in-memory `parent_id` walk with memoisation for paths (no ancestor CTE), and a post-order DFS over the in-memory adjacency map for descendant counts (no descendant CTE).
+  - `CorpusFolderType.resolve_path` / `resolve_document_count` / `resolve_descendant_document_count` prefer the pre-attached attribute and fall back to the per-folder model methods so single-folder reads (`corpusFolder(id:)`) keep working unchanged.
+  - `CorpusFolderType.resolve_my_permissions` is overridden to delegate to the parent corpus's resolver (folders inherit corpus permissions exclusively) and memoise the result per `(corpus_id, user_id)` on `info.context`, then translate `_corpus` permission strings to `_corpusfolder` so the API contract stays consistent.
+  - `CorpusFolderType.resolve_is_published` is overridden to return `False` directly, skipping the per-folder `get_groups_with_perms` lookup.
+  - `resolve_corpus_folders` (`config/graphql/corpus_queries.py`) now calls `get_visible_folders_with_aggregates`.
+
+  Total query count is now ~5-6 regardless of folder count (folder list + GROUP BY counts + the corpus-level permission lookup), pinned by the new `CorpusFoldersQueryCountTest` in `opencontractserver/tests/test_query_resolvers.py` which seeds two folder trees of very different sizes (6 vs 155 folders) and asserts the query-count delta stays small. A second test pins the aggregate values themselves (path, direct count, descendant count) so the in-memory roll-up stays equivalent to the per-folder model methods.
 
 - **DocumentKnowledgeBase desktop rail: hover tooltip collapsed into a "tiny black dot"** (`frontend/src/components/knowledge_base/document/styled/SidebarTabs.tsx`). Regression from the unified-rail consolidation in #1764. `SidebarTab` declared both `&[data-tooltip]::after` (hover tooltip) and `&::after` (a 3px active-state indicator line) on the same pseudo-element; CSS resolves per-property, so the indicator's `width: 3px; height: 60%;` still applied to the tooltip — rendering it as a 3px-wide dark pill with overflowing text. Fix: dropped the redundant `&::after` indicator rule (active state is already conveyed by the blue gradient background and hover glow).
 
