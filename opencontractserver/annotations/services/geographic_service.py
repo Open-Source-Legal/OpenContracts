@@ -81,6 +81,17 @@ class BBox:
     north: float
     east: float
 
+    def __post_init__(self) -> None:
+        # Reject degenerate latitude band — a south>north box would silently
+        # match nothing (``_bbox_contains`` requires ``south <= lat <= north``)
+        # and quietly return an empty list, making debugging painful.
+        # Longitude is intentionally unvalidated: ``west > east`` is the
+        # antimeridian-crossing case, which is legal.
+        if self.south > self.north:
+            raise ValueError(
+                f"BBox south ({self.south}) must be <= north ({self.north})"
+            )
+
 
 @dataclass(frozen=True)
 class GeographicPin:

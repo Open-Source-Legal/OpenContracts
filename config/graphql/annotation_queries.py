@@ -787,17 +787,22 @@ class AnnotationQueryMixin:
         if corpus is None:
             return []
 
-        bbox_obj = None
-        if bbox is not None:
-            bbox_obj = BBox(
-                south=bbox.south, west=bbox.west, north=bbox.north, east=bbox.east
-            )
-
-        # ``aggregate_for_corpus`` raises ``ValueError`` on an unknown
-        # ``label_types`` entry. Surface it as a clean ``GraphQLError`` so
+        # ``BBox`` raises ``ValueError`` on a degenerate ``south > north``
+        # box, and ``aggregate_for_corpus`` raises on an unknown
+        # ``label_types`` entry. Surface both as clean ``GraphQLError`` so
         # the client gets an actionable, sanitised message instead of an
         # unhandled-exception 500.
         try:
+            bbox_obj = (
+                BBox(
+                    south=bbox.south,
+                    west=bbox.west,
+                    north=bbox.north,
+                    east=bbox.east,
+                )
+                if bbox is not None
+                else None
+            )
             return GeographicAnnotationService.aggregate_for_corpus(
                 user=info.context.user,
                 corpus=corpus,
@@ -836,17 +841,21 @@ class AnnotationQueryMixin:
             GeographicAnnotationService,
         )
 
-        bbox_obj = None
-        if bbox is not None:
-            bbox_obj = BBox(
-                south=bbox.south, west=bbox.west, north=bbox.north, east=bbox.east
-            )
-
         # Symmetric with ``resolve_geographic_annotations_for_corpus``:
-        # convert the service's ``ValueError`` for an unknown label type
-        # into a ``GraphQLError`` rather than letting it escape as a
-        # generic 500.
+        # convert ``ValueError`` from either ``BBox`` construction (degenerate
+        # south > north box) or the service's label-type validation into a
+        # ``GraphQLError`` rather than letting it escape as a generic 500.
         try:
+            bbox_obj = (
+                BBox(
+                    south=bbox.south,
+                    west=bbox.west,
+                    north=bbox.north,
+                    east=bbox.east,
+                )
+                if bbox is not None
+                else None
+            )
             return GeographicAnnotationService.aggregate_global(
                 user=info.context.user,
                 bbox=bbox_obj,
@@ -860,8 +869,9 @@ class AnnotationQueryMixin:
 class BBoxInputType(graphene.InputObjectType):
     """Map bounding-box input shared by both geographic queries.
 
-    Fields use standard map conventions: ``south <= north``; ``west`` may
-    exceed ``east`` for boxes that cross the antimeridian (180°/-180°
+    Fields use standard map conventions: ``south <= north`` (degenerate
+    ``south > north`` boxes are rejected with a ``GraphQLError``); ``west``
+    may exceed ``east`` for boxes that cross the antimeridian (180°/-180°
     longitude seam) and the resolver handles the wrap-around explicitly.
     """
 

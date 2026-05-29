@@ -398,6 +398,17 @@ class GeographicAnnotationServiceMiscTests(TestCase):
         self.assertTrue(_bbox_contains(box, 48.0, 2.0))  # Paris
         self.assertFalse(_bbox_contains(box, 35.0, 139.0))  # Tokyo
 
+    def test_degenerate_bbox_raises(self):
+        # ``south > north`` is degenerate — would silently match nothing and
+        # produce a confusing empty-list result. Reject at construction.
+        # Longitude is intentionally NOT validated (``west > east`` is the
+        # antimeridian-crossing case and must remain legal).
+        with self.assertRaises(ValueError):
+            BBox(south=60.0, west=-10.0, north=35.0, east=30.0)
+        # Equal south/north (a zero-height strip) is still legal — only
+        # strict south > north fails.
+        BBox(south=50.0, west=-10.0, north=50.0, east=30.0)
+
 
 class GeographicQueryResolverErrorTests(TestCase):
     """The GraphQL resolvers must wrap the service's ``ValueError`` for an
