@@ -49,6 +49,7 @@ from django.test.utils import CaptureQueriesContext
 from graphene.test import Client
 from graphql_relay import to_global_id
 
+from config.graphql.corpus_types import CorpusType
 from config.graphql.custom_resolvers import (
     SUPPORTED_FILTER_KEYS,
     UNSUPPORTED_FILTER_KEYS,
@@ -227,13 +228,46 @@ class DocTypeLabelsBadgeNPlusOneTests(BaseFixtureTestCase):
         so every ``Corpus.objects.get(pk=...)`` emits a recursive
         ``WITH __rank_table`` CTE. Without the ``CorpusType.get_node`` request
         cache, graphene-django's FK resolver fires one such CTE per
-        ``annotation.corpus`` access on the legacy ``docAnnotations`` path —
-        and would do the same on any other FK-via-Node access into ``Corpus``
-        elsewhere in the schema.
+        ``annotation.corpus`` FK-access on the legacy ``docAnnotations`` path.
+
+        The new ``docTypeLabels`` shape never traverses ``annotation.corpus``,
+        so it cannot exercise the regression. Use the legacy
+        ``docAnnotations { corpus { … } }`` shape instead — that's the only
+        request shape capable of producing the per-row CTE storm the cache
+        protects against.
         """
-        result_small, queries_small = self._capture_badge_queries(first=1)
-        result_large, queries_large = self._capture_badge_queries(first=len(self.docs))
+        legacy_corpus_query = """
+        query ($corpusId: String, $first: Int!) {
+          documents(inCorpusWithId: $corpusId includeCaml: true first: $first) {
+            edges {
+              node {
+                id
+                docAnnotations(annotationLabel_LabelType: DOC_TYPE_LABEL) {
+                  edges { node { id corpus { id title } } }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        def _capture_legacy_queries(first: int):
+            client = Client(schema)
+            with CaptureQueriesContext(connection) as ctx:
+                result = client.execute(
+                    legacy_corpus_query,
+                    variables={
+                        "corpusId": to_global_id("CorpusType", self.corpus.pk),
+                        "first": first,
+                    },
+                    context_value=_FakeRequest(self.user),
+                )
+            return result, list(ctx.captured_queries)
+
+        result_small, queries_small = _capture_legacy_queries(first=1)
+        result_large, queries_large = _capture_legacy_queries(first=len(self.docs))
         self.assertIsNone(result_large.get("errors"), msg=result_large.get("errors"))
+        self.assertIsNone(result_small.get("errors"), msg=result_small.get("errors"))
 
         def _count_corpus_ctes(sqls):
             count = 0
@@ -259,6 +293,45 @@ class DocTypeLabelsBadgeNPlusOneTests(BaseFixtureTestCase):
                 "cache. See config/graphql/corpus_types.py."
             ),
         )
+
+    def test_corpus_get_node_is_request_cached(self) -> None:
+        """``CorpusType.get_node`` hits the DB once per pk per request.
+
+        Even where the legacy ``annotation.corpus`` access path isn't reached,
+        any FK / relay-Node access into ``Corpus`` (e.g. a relay
+        ``node(id: <CorpusType:N>)`` directly, or any GraphQL FK pointing at
+        ``CorpusType``) routes through ``CorpusType.get_node``. The request
+        cache must collapse N calls for the same pk to a single SQL fetch.
+        """
+
+        class _Ctx:
+            def __init__(self, user) -> None:
+                self.user = user
+
+        info = _FakeInfo(_Ctx(self.user))
+        with CaptureQueriesContext(connection) as ctx:
+            first = CorpusType.get_node(info, self.corpus.pk)
+        first_call_queries = len(ctx.captured_queries)
+        self.assertIsNotNone(first)
+
+        with CaptureQueriesContext(connection) as ctx2:
+            for _ in range(10):
+                cached = CorpusType.get_node(info, self.corpus.pk)
+                self.assertEqual(cached.pk, first.pk)
+        self.assertEqual(
+            len(ctx2.captured_queries),
+            0,
+            msg=(
+                "CorpusType.get_node fired SQL on subsequent calls with the "
+                f"same pk ({len(ctx2.captured_queries)} queries for 10 calls)."
+                " Expected zero — the result must be cached on "
+                "info.context._corpus_node_cache."
+            ),
+        )
+        # Sanity check: the first call did at least one query (the actual
+        # lookup) — guards against a vacuous pass if the cache short-circuits
+        # on a None sentinel that the test then keeps re-checking.
+        self.assertGreaterEqual(first_call_queries, 1)
 
     # ------------------------------------------------------------------ #
     # Anonymous-user lookup caching
@@ -320,7 +393,17 @@ class DocTypeLabelsBadgeNPlusOneTests(BaseFixtureTestCase):
         the speedup is visible on the test output. Not an assertion — the
         other tests in this module pin the actual invariants. This one
         exists to give a single number to point at when discussing the fix.
+
+        Gated by ``OC_PRINT_SLAP_MEASUREMENT=1`` so a normal CI run doesn't
+        emit measurement noise on stderr for every invocation.
         """
+        import os
+
+        if os.environ.get("OC_PRINT_SLAP_MEASUREMENT") != "1":
+            self.skipTest(
+                "Set OC_PRINT_SLAP_MEASUREMENT=1 to print measurement output."
+            )
+
         import statistics
         import time
 

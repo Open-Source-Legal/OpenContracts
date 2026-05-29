@@ -191,6 +191,10 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
     # see ``config/graphql/document_types.py``) — that's where the prefetch is
     # actually consumed. This path is only hit by callers that legitimately
     # need cursor pagination over a document's annotations.
+    # Lazy-imported: this fallback ``_as_queryset`` path is only hit when the
+    # connection-shaped ``docAnnotations`` is actually requested (rare —
+    # ``docTypeLabels`` is the corpus-list shape), so we avoid loading
+    # ``annotations.models`` at GraphQL schema-build time.
     from opencontractserver.annotations.models import Annotation
 
     def _as_queryset(items):

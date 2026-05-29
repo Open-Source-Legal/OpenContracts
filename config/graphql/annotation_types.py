@@ -253,40 +253,31 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # auto-generated FK resolver falls through to ``cls.get_node(info, pk)``
         # → ``Corpus.objects.get(pk)`` per row — and because ``Corpus`` is a
         # ``TreeNode`` registered with ``with_tree_fields=True``, every such
-        # ``get`` triggers a recursive ``WITH __rank_table`` CTE. On a document
-        # list with one annotation badge per doc that's the dominant cost
-        # (see ``config/graphql/custom_resolvers.py`` header note).
+        # ``get`` triggers a recursive ``WITH __rank_table`` CTE.
         # ``AnnotationService.get_document_annotations`` already adds
         # ``annotation_label`` / ``creator`` / ``analysis`` but not ``corpus``,
-        # so the join is added here regardless of which path produced the
-        # queryset — including the optimizer-annotated branch above.
-        def _with_fk_joins(qs):
-            if not hasattr(qs, "select_related"):
-                return qs
-            return qs.select_related("annotation_label", "corpus")
+        # so the join is added here regardless of which path produced the qs.
+        fk_joins = ("annotation_label", "corpus")
 
-        # Check if permissions were already handled by the query optimizer
-        # The optimizer adds _can_read, _can_create, etc. annotations
-        if hasattr(queryset, "query") and queryset.query.annotations:
-            # Check if the queryset has permission annotations from the optimizer
-            if any(key.startswith("_can_") for key in queryset.query.annotations):
-                # Permissions already handled by query optimizer, don't filter again
-                return _with_fk_joins(queryset)
-
-        # Chain the queryset's own ``visible_to_user`` through the service
-        # layer so the visibility filter stays a single ``WHERE`` expression
-        # tree (no correlated ``pk__in`` subquery over the full table), then
-        # layer the FK ``select_related`` on the result. Going through
-        # ``BaseService`` is required by the §"always go through services/"
-        # architecture invariant in
-        # ``docs/permissioning/consolidated_permissioning_guide.md`` — inline
-        # ``queryset.visible_to_user(...)`` here would also trip the
-        # ``opencontracts.E001`` Django system check.
-        return _with_fk_joins(
-            BaseService.filter_visible_qs(
-                queryset, info.context.user, request=info.context
+        # The query optimizer adds ``_can_*`` annotations and has already
+        # filtered for visibility — don't re-filter.
+        if (
+            hasattr(queryset, "query")
+            and queryset.query.annotations
+            and any(key.startswith("_can_") for key in queryset.query.annotations)
+        ):
+            return (
+                queryset.select_related(*fk_joins)
+                if hasattr(queryset, "select_related")
+                else queryset
             )
-        )
+
+        # Otherwise apply ``visible_to_user`` via the service layer
+        # (the ``opencontracts.E001`` system check forbids inline use here),
+        # then layer the FK joins on top.
+        return BaseService.filter_visible_qs(
+            queryset, info.context.user, request=info.context
+        ).select_related(*fk_joins)
 
 
 class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):

@@ -675,20 +675,8 @@ export const DocumentItem: React.FC<DocumentItemProps> = ({
   const canEdit = my_permissions.includes(PermissionTypes.CAN_UPDATE);
   const canDelete = my_permissions.includes(PermissionTypes.CAN_REMOVE);
 
-  // ``docTypeLabels`` is the post-#1829 flat-list field — already filtered to
-  // DOC_TYPE_LABEL on the backend and resolved from a single batched prefetch
-  // across every document edge (see ``DocumentType.resolve_doc_type_labels``).
-  // ``docLabelAnnotations`` is the legacy connection-shaped field; we still
-  // accept it as a fallback so this component renders correctly during a
-  // staged rollout / against an older backend.
   let doc_label_objs = item?.docTypeLabels
     ? item.docTypeLabels.filter((lbl): lbl is AnnotationLabelType => !!lbl)
-    : item?.docLabelAnnotations
-    ? item.docLabelAnnotations.edges
-        .map((edge) =>
-          edge?.node?.annotationLabel ? edge.node.annotationLabel : undefined
-        )
-        .filter((lbl): lbl is AnnotationLabelType => !!lbl)
     : [];
 
   return (

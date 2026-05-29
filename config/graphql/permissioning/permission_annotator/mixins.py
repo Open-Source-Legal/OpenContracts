@@ -20,6 +20,11 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+# Sentinel cached when ``User.get_anonymous()`` raises, so subsequent calls in
+# the same request short-circuit instead of retrying the failing lookup N times.
+_ANON_USER_LOOKUP_FAILED: int = -1
+
+
 def _get_anonymous_user_id(info: Any) -> int | None:
     """Return the django-guardian anonymous-user pk, cached on the request.
 
@@ -34,15 +39,20 @@ def _get_anonymous_user_id(info: Any) -> int | None:
     because callers only ever compare ``user.id == anon.id``.
     """
     cached = getattr(info.context, "_anon_user_id", None)
+    if cached == _ANON_USER_LOOKUP_FAILED:
+        return None
     if cached is not None:
         return cached
     try:
         anon_id = User.get_anonymous().id  # type: ignore[attr-defined]
     except Exception:
         # No anonymous user configured (e.g. guardian not installed or its
-        # creation signal hasn't run yet in a bare test setup). Fail soft —
-        # callers treat None as "not anonymous", matching today's behaviour
-        # if ``User.get_anonymous()`` would have raised.
+        # creation signal hasn't run yet in a bare test setup). Cache the
+        # sentinel so we don't retry per node in the same request.
+        try:
+            info.context._anon_user_id = _ANON_USER_LOOKUP_FAILED
+        except AttributeError:
+            pass
         return None
     try:
         info.context._anon_user_id = anon_id

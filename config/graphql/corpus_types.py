@@ -625,39 +625,16 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_node(cls, info, id) -> Any:
-        """Cache + visibility-check FK/relay-node Corpus lookups.
+        """Cache + visibility-check FK/relay-node ``Corpus`` lookups.
 
-        ``graphene-django``'s auto-generated FK resolver for a ``ForeignKey``
-        pointing at a ``DjangoObjectType`` calls ``cls.get_node(info, pk)``
-        rather than using the parent row's cached FK value (see
-        ``graphene_django/converter.py``'s ``custom_resolver``). Because
-        ``Corpus(InstanceUserCanMixin, TreeNode)`` is registered with
-        ``with_tree_fields=True``, every such ``get_node`` triggers a
-        recursive ``WITH __rank_table`` CTE — making per-row FK access on
-        ``annotation.corpus`` the dominant cost on the corpus document-list
-        view (one badge per document). See the diagnosis notes in
-        ``config/graphql/custom_resolvers.py``.
-
-        This override does two things:
-
-        1. **Request-level memoisation.** Same ``pk`` inside one GraphQL
-           request hits the DB once, not N times. Stored on
-           ``info.context._corpus_node_cache``.
-        2. **Tightens visibility on FK-via-Node access.** Graphene's default
-           ``DjangoObjectType.get_node`` does an unprotected
-           ``Corpus.objects.get(pk=id)`` — a relay client could resolve any
-           corpus by id. Routing through
-           ``BaseService.get_or_none(Corpus, pk, user, request=info.context)``
-           applies the canonical ``MIN(document, corpus)``-aware READ check
-           AND threads the Tier-2 request-scoped permission cache
-           (``docs/permissioning/consolidated_permissioning_guide.md`` §2727),
-           bringing FK / Node access into agreement with the rest of the
-           schema (the root ``node(id:)`` query already filters via
-           ``OpenContractsNode.get_node_from_global_id``
-           in ``config/graphql/base.py``). Going through ``BaseService`` is
-           required by the §"always go through services/" architecture
-           invariant — inline ``Corpus.objects.visible_to_user(user).get(...)``
-           would trip the ``opencontracts.E001`` system check.
+        ``Corpus`` is a ``with_tree_fields=True`` ``TreeNode``, so every
+        ``Corpus.objects.get(pk=...)`` emits a recursive ``WITH __rank_table``
+        CTE. Graphene's default ``DjangoObjectType.get_node`` fires that CTE
+        once per FK-via-Node access AND does an unprotected lookup that
+        bypasses visibility. This override caches the result on
+        ``info.context._corpus_node_cache`` and routes the fetch through
+        ``BaseService.get_or_none`` so visibility + the Tier-2 permission
+        cache apply (also required by the ``opencontracts.E001`` system check).
         """
         try:
             pk = int(id)
