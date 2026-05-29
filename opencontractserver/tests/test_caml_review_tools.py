@@ -97,9 +97,7 @@ def _create_caml_doc(corpus: Corpus, user, *, content: str = SAMPLE_CAML) -> Doc
         ContentFile(content.encode("utf-8")),
         save=True,
     )
-    linked_doc, _, _ = corpus.add_document(
-        document=doc, user=user, path="Readme.CAML"
-    )
+    linked_doc, _, _ = corpus.add_document(document=doc, user=user, path="Readme.CAML")
     return linked_doc
 
 
@@ -601,14 +599,12 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         # the historical sibling captured in self.caml_doc.
         from opencontractserver.documents.models import DocumentPath
 
-        current_head = (
-            DocumentPath.objects.get(
-                corpus=self.corpus,
-                path="Readme.CAML",
-                is_current=True,
-                is_deleted=False,
-            ).document
-        )
+        current_head = DocumentPath.objects.get(
+            corpus=self.corpus,
+            path="Readme.CAML",
+            is_current=True,
+            is_deleted=False,
+        ).document
         self.assertEqual(result["document_id"], current_head.id)
         self.assertNotEqual(current_head.id, self.caml_doc.id)
         self.assertIn("{{@cite sentence}}", self._read_caml_body())
@@ -866,9 +862,7 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         self.assertEqual(new_head.version_tree_id, tree_id)
 
         # Two Documents in the tree now (head + historical sibling)
-        self.assertEqual(
-            Document.objects.filter(version_tree_id=tree_id).count(), 2
-        )
+        self.assertEqual(Document.objects.filter(version_tree_id=tree_id).count(), 2)
 
         # Both blobs persist — the old one is a historical record, not
         # orphaned storage.

@@ -486,6 +486,11 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         + markdown mime is defensive — a Readme.CAML version tree only
         ever contains Readme.CAML siblings — and keeps the contract
         explicit.
+
+        Annotates each sibling with ``_version_index`` (1-based, oldest
+        first) so ``CorpusDescriptionRevisionType.resolve_version`` can
+        read the position off the instance instead of re-querying the
+        full tree per row (avoids an N+1 storm on the revisions modal).
         """
         if self.readme_caml_document_id is None:
             return []
@@ -496,15 +501,18 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.documents.models import Document
 
         tree_id = self.readme_caml_document.version_tree_id
-        return list(
+        oldest_first = list(
             Document.objects.filter(
                 version_tree_id=tree_id,
                 title=CAML_ARTICLE_TITLE,
                 file_type=MARKDOWN_MIME_TYPE,
             )
             .select_related("creator")
-            .order_by("-created", "-pk")
+            .order_by("created", "pk")
         )
+        for index, doc in enumerate(oldest_first, start=1):
+            doc._version_index = index
+        return list(reversed(oldest_first))
 
     # Folder structure
     folders = graphene.List(
@@ -676,6 +684,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.corpuses.services.corpus_documents import (
             CorpusDocumentService,
         )
+
         visible_qs = CorpusDocumentService.with_readme_caml_doc(visible_qs)
 
         # Annotate the viewer's vote in one Subquery per page so
@@ -730,11 +739,11 @@ class CorpusFilterCountsType(graphene.ObjectType):
 class CorpusDescriptionRevisionType(graphene.ObjectType):
     """Backwards-compatible facade over a Readme.CAML version-tree sibling.
 
-    The legacy ``CorpusDescriptionRevision`` model is on its way out
-    (Task 15 of the canonical-CAML refactor drops it). The GraphQL shape
-    is preserved by mapping each Document sibling's metadata onto the
-    historical fields, so the frontend revision-history viewer renders
-    without changes. The instance bound to each resolver is a
+    The legacy ``CorpusDescriptionRevision`` model was dropped in
+    migration 0055. The GraphQL shape is preserved by mapping each
+    Document sibling's metadata onto the historical fields, so the
+    frontend revision-history viewer renders without changes. The
+    instance bound to each resolver is a
     ``opencontractserver.documents.models.Document`` row (a Readme.CAML
     version-tree sibling), NOT a ``CorpusDescriptionRevision``.
 
@@ -763,11 +772,16 @@ class CorpusDescriptionRevisionType(graphene.ObjectType):
         """1-indexed position within the version_tree, oldest first.
 
         Mirrors the legacy ``CorpusDescriptionRevision.version`` counter
-        so the frontend's "Version N" header keeps lining up. Resolved
-        per-row via a small query — fine for the modal-only viewer
-        usage. If this ever moves to a high-cardinality list view, the
-        list resolver should annotate the version up front.
+        so the frontend's "Version N" header keeps lining up. Reads the
+        index pre-computed by the list resolver
+        (``CorpusType.resolve_description_revisions``); falls back to a
+        per-row query when the instance is resolved outside that list
+        path (e.g. node(id:) — uncommon for this facade type).
         """
+        precomputed = getattr(self, "_version_index", None)
+        if precomputed is not None:
+            return precomputed
+
         from opencontractserver.constants.document_processing import (
             CAML_ARTICLE_TITLE,
             MARKDOWN_MIME_TYPE,

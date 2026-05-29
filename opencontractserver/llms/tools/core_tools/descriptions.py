@@ -138,6 +138,7 @@ def update_corpus_description(
         new_content = _apply_ndiff_patch(current, diff_text)
 
     if author is None:
+        assert author_id is not None  # Guarded above by the "both None" check
         author = get_user_model().objects.get(pk=author_id)
 
     result = CorpusService.update_description(author, corpus, new_content or "")

@@ -362,13 +362,13 @@ def build_rich_test_corpus(user) -> Corpus:
     # observe canonical state regardless of which TestCase / atomic
     # context the fixture is invoked from.
     from opencontractserver.corpuses.services.corpus_service import CorpusService
-    from opencontractserver.corpuses.signals import (
-        _refresh_description_cache_for_corpus,
+    from opencontractserver.corpuses.services.description_cache import (
+        refresh_description_cache_for_corpus,
     )
 
     md_text = "# Roundtrip Corpus\n\nA test corpus for export round-tripping.\n"
     CorpusService.update_description(user, corpus, md_text)
-    _refresh_description_cache_for_corpus(corpus.pk)
+    refresh_description_cache_for_corpus(corpus.pk)
     corpus.refresh_from_db()
 
     # ----- Manual metadata schema ------------------------------------

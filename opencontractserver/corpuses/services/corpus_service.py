@@ -86,7 +86,9 @@ class CorpusService(BaseService):
         from opencontractserver.corpuses.services.corpus_documents import (
             CorpusDocumentService,
         )
-        from opencontractserver.corpuses.signals import _read_caml_body
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
         from opencontractserver.documents.versioning import import_document
 
         if corpus.creator_id != getattr(user, "id", None):
@@ -103,7 +105,7 @@ class CorpusService(BaseService):
         candidate_body = new_content or ""
         existing = CorpusDocumentService.get_corpus_caml_articles(user, corpus).first()
         if existing is not None:
-            current_body = _read_caml_body(existing)
+            current_body = read_caml_body(existing)
             if current_body == candidate_body:
                 return ServiceResult.success(None)
         elif candidate_body == "":

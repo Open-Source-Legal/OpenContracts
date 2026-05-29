@@ -28,6 +28,10 @@ from django.db import transaction
 
 from config import celery_app
 from opencontractserver.constants.corpus_forking import FORK_TITLE_PREFIX
+from opencontractserver.constants.document_processing import (
+    CAML_ARTICLE_TITLE,
+    MARKDOWN_MIME_TYPE,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
@@ -345,11 +349,6 @@ def fork_corpus(
                 # the signal handler that refreshes
                 # ``corpus.description``. Prefixing it would silently
                 # detach the cache + the descriptionRevisions facade.
-                from opencontractserver.constants.document_processing import (
-                    CAML_ARTICLE_TITLE,
-                    MARKDOWN_MIME_TYPE,
-                )
-
                 is_caml = (
                     doc.title == CAML_ARTICLE_TITLE
                     and doc.file_type == MARKDOWN_MIME_TYPE

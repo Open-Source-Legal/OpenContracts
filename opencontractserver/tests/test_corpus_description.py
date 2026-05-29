@@ -195,8 +195,7 @@ class DescriptionRevisionsReadsFromVersionTreeTest(TestCase):
 
         revs = CorpusType.resolve_description_revisions(self.corpus, None)
         bodies = {
-            CorpusDescriptionRevisionType.resolve_snapshot(rev, None)
-            for rev in revs
+            CorpusDescriptionRevisionType.resolve_snapshot(rev, None) for rev in revs
         }
         # All three edits should be retrievable as snapshots.
         self.assertSetEqual(bodies, {"v1 body", "v2 body", "v3 body"})
@@ -225,6 +224,4 @@ class DescriptionRevisionsReadsFromVersionTreeTest(TestCase):
         from config.graphql.corpus_types import CorpusType
 
         bare = Corpus.objects.create(title="Bare", creator=self.user)
-        self.assertEqual(
-            CorpusType.resolve_description_revisions(bare, None), []
-        )
+        self.assertEqual(CorpusType.resolve_description_revisions(bare, None), [])

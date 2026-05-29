@@ -87,14 +87,10 @@ class CorpusReadmeCamlFKTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.user = User.objects.create_user(
-            username="caml-fk-user", password="x"
-        )
+        cls.user = User.objects.create_user(username="caml-fk-user", password="x")
 
     def test_fk_field_exists_and_defaults_null(self):
-        corpus = Corpus.objects.create(
-            title="C", creator=self.user
-        )
+        corpus = Corpus.objects.create(title="C", creator=self.user)
         self.assertIsNone(corpus.readme_caml_document)
         self.assertIsNone(corpus.readme_caml_document_id)
 
@@ -103,9 +99,7 @@ class BackfillCamlDocForCorpusTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.user = User.objects.create_user(
-            username="backfill-user", password="x"
-        )
+        cls.user = User.objects.create_user(username="backfill-user", password="x")
 
     def test_creates_caml_doc_with_documentpath_when_missing(self):
         from opencontractserver.corpuses.services.description_cache import (
@@ -114,13 +108,9 @@ class BackfillCamlDocForCorpusTest(TestCase):
         from opencontractserver.documents.models import Document, DocumentPath
 
         corpus = Corpus.objects.create(title="C", creator=self.user)
-        backfill_caml_doc_for_corpus(
-            corpus.pk, md_description_body="Backfill body."
-        )
+        backfill_caml_doc_for_corpus(corpus.pk, md_description_body="Backfill body.")
 
-        docs = Document.objects.filter(
-            title="Readme.CAML", file_type="text/markdown"
-        )
+        docs = Document.objects.filter(title="Readme.CAML", file_type="text/markdown")
         self.assertEqual(docs.count(), 1)
         path = DocumentPath.objects.filter(
             corpus=corpus, document=docs.first(), is_current=True
@@ -138,16 +128,10 @@ class BackfillCamlDocForCorpusTest(TestCase):
         from opencontractserver.documents.models import Document, DocumentPath
 
         corpus = Corpus.objects.create(title="C", creator=self.user)
-        backfill_caml_doc_for_corpus(
-            corpus.pk, md_description_body="Body v1."
-        )
-        backfill_caml_doc_for_corpus(
-            corpus.pk, md_description_body="Body v1."
-        )
+        backfill_caml_doc_for_corpus(corpus.pk, md_description_body="Body v1.")
+        backfill_caml_doc_for_corpus(corpus.pk, md_description_body="Body v1.")
 
-        self.assertEqual(
-            Document.objects.filter(title="Readme.CAML").count(), 1
-        )
+        self.assertEqual(Document.objects.filter(title="Readme.CAML").count(), 1)
         self.assertEqual(
             DocumentPath.objects.filter(
                 corpus=corpus, path="Readme.CAML", is_current=True, is_deleted=False
@@ -164,9 +148,7 @@ class BackfillCamlDocForCorpusTest(TestCase):
         corpus = Corpus.objects.create(title="C", creator=self.user)
         backfill_caml_doc_for_corpus(corpus.pk, md_description_body="")
 
-        self.assertEqual(
-            Document.objects.filter(title="Readme.CAML").count(), 0
-        )
+        self.assertEqual(Document.objects.filter(title="Readme.CAML").count(), 0)
         corpus.refresh_from_db()
         self.assertEqual(corpus.description, "")
         self.assertIsNone(corpus.readme_caml_document_id)
@@ -187,9 +169,7 @@ class ReadmeCamlSignalTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.user = User.objects.create_user(
-            username="caml-signal-user", password="x"
-        )
+        cls.user = User.objects.create_user(username="caml-signal-user", password="x")
 
     def _create_caml(self, corpus, body):
         """Create the corpus's Readme.CAML doc via the canonical
@@ -322,9 +302,7 @@ class ReadmeCamlSignalTest(TestCase):
 
         # Drift the cache by hand-writing via QuerySet.update so
         # Corpus.save() doesn't immediately recompute description_preview.
-        Corpus.objects.filter(pk=corpus.pk).update(
-            description="hand-written drift"
-        )
+        Corpus.objects.filter(pk=corpus.pk).update(description="hand-written drift")
         corpus.refresh_from_db()
         self.assertEqual(corpus.description, "hand-written drift")
 
@@ -340,18 +318,15 @@ class WithReadmeCamlDocQuerysetTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.user = User.objects.create_user(
-            username="qcount-user", password="x"
-        )
+        cls.user = User.objects.create_user(username="qcount-user", password="x")
         from opencontractserver.documents.versioning import import_document
+
         for i in range(10):
-            corpus = Corpus.objects.create(
-                title=f"C{i}", creator=cls.user
-            )
+            corpus = Corpus.objects.create(title=f"C{i}", creator=cls.user)
             import_document(
                 corpus=corpus,
                 path="Readme.CAML",
-                content=f"Body {i}".encode("utf-8"),
+                content=f"Body {i}".encode(),
                 user=cls.user,
                 file_type="text/markdown",
                 title="Readme.CAML",
@@ -362,9 +337,7 @@ class WithReadmeCamlDocQuerysetTest(TestCase):
             CorpusDocumentService,
         )
 
-        qs = CorpusDocumentService.with_readme_caml_doc(
-            Corpus.objects.all()
-        )
+        qs = CorpusDocumentService.with_readme_caml_doc(Corpus.objects.all())
 
         with CaptureQueriesContext(connection) as ctx:
             corpuses = list(qs)
@@ -387,11 +360,10 @@ class MdDescriptionResolverTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.user = User.objects.create_user(
-            username="resolver-user", password="x"
-        )
+        cls.user = User.objects.create_user(username="resolver-user", password="x")
         cls.corpus = Corpus.objects.create(title="C", creator=cls.user)
         from opencontractserver.documents.versioning import import_document
+
         import_document(
             corpus=cls.corpus,
             path="Readme.CAML",
@@ -405,13 +377,18 @@ class MdDescriptionResolverTest(TestCase):
         # outer transaction in TestCase, so we have to flush manually
         # or pre-populate the FK by re-resolving.
         from opencontractserver.documents.models import DocumentPath
+
         cls.corpus.refresh_from_db()
         if cls.corpus.readme_caml_document_id is None:
             # Fallback: resolve the head ourselves (signal couldn't fire
             # mid-setUpTestData). This keeps the test deterministic.
-            head = DocumentPath.objects.filter(
-                corpus=cls.corpus, path="Readme.CAML", is_current=True
-            ).select_related("document").first()
+            head = (
+                DocumentPath.objects.filter(
+                    corpus=cls.corpus, path="Readme.CAML", is_current=True
+                )
+                .select_related("document")
+                .first()
+            )
             cls.corpus.readme_caml_document_id = head.document_id
             cls.corpus.save(update_fields=["readme_caml_document"])
             cls.corpus.refresh_from_db()
@@ -444,11 +421,10 @@ class ReadmeCamlDocumentFieldTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.user = User.objects.create_user(
-            username="rcdf-user", password="x"
-        )
+        cls.user = User.objects.create_user(username="rcdf-user", password="x")
         cls.corpus = Corpus.objects.create(title="C", creator=cls.user)
         from opencontractserver.documents.versioning import import_document
+
         import_document(
             corpus=cls.corpus,
             path="Readme.CAML",
@@ -462,9 +438,14 @@ class ReadmeCamlDocumentFieldTest(TestCase):
         cls.corpus.refresh_from_db()
         if cls.corpus.readme_caml_document_id is None:
             from opencontractserver.documents.models import DocumentPath
-            head = DocumentPath.objects.filter(
-                corpus=cls.corpus, path="Readme.CAML", is_current=True
-            ).select_related("document").first()
+
+            head = (
+                DocumentPath.objects.filter(
+                    corpus=cls.corpus, path="Readme.CAML", is_current=True
+                )
+                .select_related("document")
+                .first()
+            )
             cls.corpus.readme_caml_document_id = head.document_id
             cls.corpus.save(update_fields=["readme_caml_document"])
             cls.corpus.refresh_from_db()

@@ -136,7 +136,7 @@ class CorpusDocumentService(BaseService):
         return qs
 
     @staticmethod
-    def with_readme_caml_doc(qs: "QuerySet[Corpus]") -> "QuerySet[Corpus]":
+    def with_readme_caml_doc(qs: QuerySet[Corpus]) -> QuerySet[Corpus]:
         """Return ``qs`` with ``readme_caml_document`` prefetched.
 
         Apply on every queryset where ``mdDescription`` or

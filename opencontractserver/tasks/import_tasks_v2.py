@@ -535,11 +535,11 @@ def _import_corpus(
             # ``.readme_caml_document_id`` to the imported CAML head the
             # moment the import returns — duplicate work with the signal
             # is harmless (idempotent update).
-            from opencontractserver.corpuses.signals import (
-                _refresh_description_cache_for_corpus,
+            from opencontractserver.corpuses.services.description_cache import (
+                refresh_description_cache_for_corpus,
             )
 
-            _refresh_description_cache_for_corpus(corpus_obj.id)
+            refresh_description_cache_for_corpus(corpus_obj.id)
 
         logger.info("Import completed successfully for corpus %s", corpus_obj.id)
         return corpus_obj.id

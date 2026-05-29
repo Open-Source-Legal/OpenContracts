@@ -320,7 +320,7 @@ def update_corpus_vote_counts_on_delete(
 #   the underlying Document save (spec §6).
 
 
-def _is_readme_caml_document(doc: "Document") -> bool:
+def _is_readme_caml_document(doc: Document) -> bool:
     """Return ``True`` iff ``doc`` is a corpus Readme.CAML article."""
     from opencontractserver.constants.document_processing import (
         CAML_ARTICLE_TITLE,
@@ -330,13 +330,12 @@ def _is_readme_caml_document(doc: "Document") -> bool:
     return doc.title == CAML_ARTICLE_TITLE and doc.file_type == MARKDOWN_MIME_TYPE
 
 
-# ``_read_caml_body`` was promoted to a public helper in
-# ``corpuses/services/description_cache.read_caml_body`` (Task 9) so the
-# GraphQL ``descriptionRevisions`` facade can reuse the same I/O contract.
-# Keep a private re-export here so legacy importers (and the cache
-# refresh below) don't need to change.
+# Cache-refresh + body-read helpers live in
+# ``corpuses/services/description_cache`` so non-signal callers (V2
+# import shim, GraphQL descriptionRevisions facade) can share the same
+# I/O + atomic-update contract.
 from opencontractserver.corpuses.services.description_cache import (  # noqa: E402
-    read_caml_body as _read_caml_body,
+    refresh_description_cache_for_corpus,
 )
 
 
@@ -358,62 +357,10 @@ def _corpus_ids_owning_caml_doc(doc_id: int) -> list[int]:
     )
 
 
-def _refresh_description_cache_for_corpus(corpus_id: int) -> None:
-    """Recompute and atomically write the cache columns for one corpus.
-
-    Reads the current head of the corpus's Readme.CAML version tree via
-    a DocumentPath join — no individual signal can assume the saved
-    instance IS still the current head, because a concurrent version-up
-    might have already moved it.
-
-    Empty / missing-head case: zero out the cache + FK so the corpus
-    row stays internally consistent.
-    """
-    from opencontractserver.constants.document_processing import (
-        CAML_ARTICLE_TITLE,
-    )
-    from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.corpuses.services.description_cache import (
-        compute_cache_from_caml_body,
-    )
-    from opencontractserver.documents.models import DocumentPath
-
-    try:
-        head_path = (
-            DocumentPath.objects.filter(
-                corpus_id=corpus_id,
-                path=CAML_ARTICLE_TITLE,
-                is_current=True,
-                is_deleted=False,
-            )
-            .select_related("document")
-            .first()
-        )
-        if head_path is None or head_path.document is None:
-            Corpus.objects.filter(pk=corpus_id).update(
-                description="",
-                description_preview="",
-                readme_caml_document_id=None,
-            )
-            return
-
-        body = _read_caml_body(head_path.document)
-        plain, preview = compute_cache_from_caml_body(body)
-        Corpus.objects.filter(pk=corpus_id).update(
-            description=plain,
-            description_preview=preview,
-            readme_caml_document_id=head_path.document_id,
-        )
-    except Exception:
-        logger.exception(
-            "Failed to refresh description cache for corpus_id=%s", corpus_id
-        )
-
-
 @receiver(post_save, sender="documents.Document")
 def refresh_corpus_description_cache_on_caml_save(
-    sender: type["Document"],
-    instance: "Document",
+    sender: type[Document],
+    instance: Document,
     **kwargs: Any,
 ) -> None:
     """Refresh corpus description cache whenever a Readme.CAML Document
@@ -430,15 +377,15 @@ def refresh_corpus_description_cache_on_caml_save(
 
     def _kickoff() -> None:
         for corpus_id in _corpus_ids_owning_caml_doc(doc_id):
-            _refresh_description_cache_for_corpus(corpus_id)
+            refresh_description_cache_for_corpus(corpus_id)
 
     transaction.on_commit(_kickoff)
 
 
 @receiver(post_delete, sender="documents.Document")
 def clear_corpus_description_cache_on_caml_delete(
-    sender: type["Document"],
-    instance: "Document",
+    sender: type[Document],
+    instance: Document,
     **kwargs: Any,
 ) -> None:
     """Clear / refresh corpus description cache on Readme.CAML hard
@@ -457,15 +404,15 @@ def clear_corpus_description_cache_on_caml_delete(
 
     def _kickoff() -> None:
         for corpus_id in affected:
-            _refresh_description_cache_for_corpus(corpus_id)
+            refresh_description_cache_for_corpus(corpus_id)
 
     transaction.on_commit(_kickoff)
 
 
 @receiver(post_save, sender="documents.DocumentPath")
 def refresh_corpus_description_cache_on_path_save(
-    sender: type["DocumentPath"],
-    instance: "DocumentPath",
+    sender: type[DocumentPath],
+    instance: DocumentPath,
     **kwargs: Any,
 ) -> None:
     """Refresh on DocumentPath save.
@@ -498,15 +445,13 @@ def refresh_corpus_description_cache_on_path_save(
         return
 
     corpus_id = instance.corpus_id
-    transaction.on_commit(
-        lambda: _refresh_description_cache_for_corpus(corpus_id)
-    )
+    transaction.on_commit(lambda: refresh_description_cache_for_corpus(corpus_id))
 
 
 @receiver(post_delete, sender="documents.DocumentPath")
 def refresh_corpus_description_cache_on_path_delete(
-    sender: type["DocumentPath"],
-    instance: "DocumentPath",
+    sender: type[DocumentPath],
+    instance: DocumentPath,
     **kwargs: Any,
 ) -> None:
     """Refresh on DocumentPath delete (hard delete or
@@ -528,6 +473,4 @@ def refresh_corpus_description_cache_on_path_delete(
         return
 
     corpus_id = instance.corpus_id
-    transaction.on_commit(
-        lambda: _refresh_description_cache_for_corpus(corpus_id)
-    )
+    transaction.on_commit(lambda: refresh_description_cache_for_corpus(corpus_id))

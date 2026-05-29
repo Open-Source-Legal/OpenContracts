@@ -15,6 +15,7 @@ revisions facade in ``config/graphql/corpus_types.py``).
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,8 @@ from opencontractserver.constants.truncation import (
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
+
+logger = logging.getLogger(__name__)
 
 
 def markdown_to_plain_text(md: str) -> str:
@@ -70,7 +73,7 @@ def summarize_for_preview(plain_text: str) -> str:
     return cut.rstrip() + "…"
 
 
-def read_caml_body(doc: "Document") -> str:
+def read_caml_body(doc: Document) -> str:
     """Return the Readme.CAML body as text.
 
     Tolerant of binary-mode storage: opens the field in text mode first,
@@ -91,11 +94,17 @@ def read_caml_body(doc: "Document") -> str:
         finally:
             doc.txt_extract_file.close()
     except Exception:
+        # Binary fallback for storage that rejects text-mode reads. Guarded
+        # so a corrupted blob returns the empty string rather than
+        # propagating into the signal handler / GraphQL resolver.
         try:
             doc.txt_extract_file.open("rb")
-            return doc.txt_extract_file.read().decode("utf-8", errors="ignore")
-        finally:
-            doc.txt_extract_file.close()
+            try:
+                return doc.txt_extract_file.read().decode("utf-8", errors="ignore")
+            finally:
+                doc.txt_extract_file.close()
+        except Exception:
+            return ""
 
 
 def compute_cache_from_caml_body(
@@ -147,13 +156,13 @@ def backfill_caml_doc_for_corpus(
       module is also referenced from the migration as the per-corpus
       logic spec.
 
-    The Document ``post_save`` signal (Task 3, not yet shipped) will
-    eventually cascade-refresh the cache columns whenever the
-    Readme.CAML body changes. Until that signal lands this helper
-    writes the cache columns directly via
-    :func:`compute_cache_from_caml_body` + ``Corpus.objects.filter().update``
-    so its contract holds today and remains correct once the signal
-    arrives (the duplicate update is idempotent).
+    The Document ``post_save`` signal (Task 3, shipped in this PR via
+    ``corpuses/signals.py``) cascade-refreshes the cache columns
+    whenever the Readme.CAML body changes. This helper still writes the
+    cache columns directly via :func:`compute_cache_from_caml_body` +
+    ``Corpus.objects.filter().update`` because the V2 import shim calls
+    it before the on_commit-deferred signal can fire; the duplicate
+    update is idempotent.
 
     Args:
         corpus_pk: Primary key of the corpus to backfill.
@@ -176,10 +185,9 @@ def backfill_caml_doc_for_corpus(
     from opencontractserver.documents.versioning import import_document
 
     corpus = Corpus.objects.get(pk=corpus_pk)
-    existing = (
-        CorpusDocumentService.get_corpus_caml_articles(corpus.creator, corpus)
-        .first()
-    )
+    existing = CorpusDocumentService.get_corpus_caml_articles(
+        corpus.creator, corpus
+    ).first()
 
     if existing is None:
         if not md_description_body:
@@ -210,3 +218,56 @@ def backfill_caml_doc_for_corpus(
         description_preview=preview,
         readme_caml_document_id=doc.pk,
     )
+
+
+def refresh_description_cache_for_corpus(corpus_id: int) -> None:
+    """Recompute and atomically write the cache columns for one corpus.
+
+    Reads the current head of the corpus's Readme.CAML version tree via
+    a DocumentPath join — no individual signal can assume the saved
+    instance IS still the current head, because a concurrent version-up
+    might have already moved it.
+
+    Empty / missing-head case: zero out the cache + FK so the corpus
+    row stays internally consistent.
+
+    Public entry point used by the signal handlers in
+    ``corpuses/signals.py``, the V2 import shim, the V2 import Celery
+    task, and the test corpus fixture.
+    """
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+    )
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import DocumentPath
+
+    try:
+        head_path = (
+            DocumentPath.objects.filter(
+                corpus_id=corpus_id,
+                path=CAML_ARTICLE_TITLE,
+                is_current=True,
+                is_deleted=False,
+            )
+            .select_related("document")
+            .first()
+        )
+        if head_path is None or head_path.document is None:
+            Corpus.objects.filter(pk=corpus_id).update(
+                description="",
+                description_preview="",
+                readme_caml_document_id=None,
+            )
+            return
+
+        body = read_caml_body(head_path.document)
+        plain, preview = compute_cache_from_caml_body(body)
+        Corpus.objects.filter(pk=corpus_id).update(
+            description=plain,
+            description_preview=preview,
+            readme_caml_document_id=head_path.document_id,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to refresh description cache for corpus_id=%s", corpus_id
+        )

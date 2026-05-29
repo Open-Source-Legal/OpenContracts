@@ -460,11 +460,11 @@ def import_md_description_revisions(
     # row.  Calling the helper directly here pins the cache to the
     # head body the moment this shim completes — duplicate work with
     # the signal is harmless (idempotent update).
-    from opencontractserver.corpuses.signals import (
-        _refresh_description_cache_for_corpus,
+    from opencontractserver.corpuses.services.description_cache import (
+        refresh_description_cache_for_corpus,
     )
 
-    _refresh_description_cache_for_corpus(corpus.pk)
+    refresh_description_cache_for_corpus(corpus.pk)
 
     logger.info(
         "Imported %d description revision snapshot(s) + current body into "

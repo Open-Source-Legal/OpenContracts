@@ -51,11 +51,17 @@ def _read_md_description(corpus) -> str:
         finally:
             field.close()
     except Exception:
-        field.open("rb")
+        # Binary fallback for storage that rejects text-mode reads. Wrap
+        # in its own try/except so a single corrupted blob does not abort
+        # the entire backfill — log and skip instead.
         try:
-            return field.read().decode("utf-8", errors="ignore")
-        finally:
-            field.close()
+            field.open("rb")
+            try:
+                return field.read().decode("utf-8", errors="ignore")
+            finally:
+                field.close()
+        except Exception:
+            return ""
 
 
 def _get_existing_caml_doc(corpus_id, Document, DocumentPath):

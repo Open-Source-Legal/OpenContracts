@@ -3171,10 +3171,11 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
             content-tree depth via ``calculate_content_version`` — same
             value the GraphQL mutation exposes (Task 8).
             """
+            from asgiref.sync import sync_to_async
+
             from opencontractserver.documents.versioning import (
                 calculate_content_version,
             )
-            from asgiref.sync import sync_to_async
 
             doc = await aupdate_corpus_description(
                 corpus_id=context.corpus.id,
