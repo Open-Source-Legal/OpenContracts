@@ -515,10 +515,16 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     },
   });
 
-  const doc_label_objs =
-    item?.docLabelAnnotations?.edges
-      .map((edge) => edge?.node?.annotationLabel)
-      .filter((lbl): lbl is AnnotationLabelType => !!lbl) ?? [];
+  // ``docTypeLabels`` is the post-#1829 flat-list field — already filtered to
+  // DOC_TYPE_LABEL and resolved from a single batched prefetch across the
+  // document edges (see ``DocumentType.resolve_doc_type_labels``).
+  // ``docLabelAnnotations`` is the legacy connection-shaped field, kept as a
+  // fallback for staged-rollout / older-backend scenarios.
+  const doc_label_objs = item?.docTypeLabels
+    ? item.docTypeLabels.filter((lbl): lbl is AnnotationLabelType => !!lbl)
+    : item?.docLabelAnnotations?.edges
+        .map((edge) => edge?.node?.annotationLabel)
+        .filter((lbl): lbl is AnnotationLabelType => !!lbl) ?? [];
 
   const renderThumbnail = (className?: string) => (
     <>

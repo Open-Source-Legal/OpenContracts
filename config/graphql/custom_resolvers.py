@@ -174,18 +174,23 @@ def resolve_doc_annotations_optimized(self, info, **kwargs) -> Any:
     if not annotations:
         return self.doc_annotations.none()
 
-    # Helper so each branch below returns a real ``QuerySet`` rather than a
-    # ``list``. ``DjangoFilterConnectionField`` wraps this resolver's return
-    # value through ``filterset_class(queryset=<iterable>)``, and
-    # ``django-filter`` reads ``.model`` off the iterable on init (see
-    # ``django_filters/filterset.py:196``) — passing a list there raises
-    # ``AttributeError: 'list' object has no attribute 'model'`` and breaks the
-    # field. The ``pk__in`` re-query is small (the resolver has already
-    # narrowed the candidate set in Python) and the ``select_related`` mirrors
-    # the prefetch in ``_apply_document_prefetches`` so FK descriptors don't
-    # fire per row; this preserves the win against the 65× annotation_label
-    # SELECT + 65× ``corpuses_corpus`` recursive-CTE storm that the old
-    # escape-hatch path produced.
+    # ``DjangoFilterConnectionField`` wraps this resolver's return value
+    # through ``filterset_class(queryset=<iterable>)``, and ``django-filter``
+    # reads ``.model`` off the iterable on init (see
+    # ``django_filters/filterset.py:196``) — returning a ``list`` here would
+    # raise ``AttributeError: 'list' object has no attribute 'model'`` and
+    # break the field. The ``pk__in`` re-query is small (the resolver has
+    # already narrowed the candidate set in Python) and the ``select_related``
+    # mirrors the prefetch in ``_apply_document_prefetches`` so FK descriptors
+    # don't fire per row.
+    #
+    # Note: this path still fires one ``COUNT(*)`` and one ``SELECT`` per
+    # parent document because graphene-django's connection wrapper insists on
+    # a real ``QuerySet``. The corpus list view's badge case bypasses this
+    # field entirely via ``DocumentType.doc_type_labels`` (a plain list field,
+    # see ``config/graphql/document_types.py``) — that's where the prefetch is
+    # actually consumed. This path is only hit by callers that legitimately
+    # need cursor pagination over a document's annotations.
     from opencontractserver.annotations.models import Annotation
 
     def _as_queryset(items):
@@ -363,20 +368,29 @@ def _selection_set_iter(
                 yield from _selection_set_iter(fragment, fragments)
 
 
-def requests_doc_label_annotations(info) -> bool:
+def requests_doc_type_labels(info) -> bool:
     """
-    Return True when the current GraphQL operation asks for the
-    ``docAnnotations`` field on each document edge with
-    ``annotationLabel_LabelType: "DOC_TYPE_LABEL"``.
+    Return ``True`` when the current GraphQL operation asks for either:
 
-    Used by ``resolve_documents`` to opt the queryset into a focused
-    prefetch (see ``_apply_document_prefetches``) so the per-document
-    fall-through in ``resolve_doc_annotations_optimized`` does not fire
-    for the corpus list view's DOC_TYPE_LABEL badge.
+    * ``docTypeLabels`` on each document edge — the flat-list field the
+      corpus document-card view actually uses for the DOC_TYPE_LABEL badge
+      (see ``DocumentType.resolve_doc_type_labels``). This is the only path
+      that consumes ``_prefetched_doc_annotations`` directly and avoids the
+      per-row ``COUNT(*)`` + ``SELECT`` + FK descriptor storm.
+    * ``docAnnotations(annotationLabel_LabelType: DOC_TYPE_LABEL)`` — the
+      legacy connection-shaped field the badge view used to read. Still
+      supported because external API consumers may rely on it; the prefetch
+      still helps even though graphene-django's connection wrapper insists
+      on a real ``QuerySet`` (one ``COUNT(*)`` + one ``SELECT`` per doc
+      remain unavoidable on that path).
 
-    The check matches the field name (``docAnnotations``) regardless of
-    GraphQL alias — the frontend uses ``doc_label_annotations: docAnnotations(...)``
-    and graphql-core preserves the underlying field name on FieldNode.name.
+    Used by ``resolve_documents`` to opt the queryset into a focused prefetch
+    (see ``_apply_document_prefetches``) of every doc's DOC_TYPE_LABEL
+    annotations + their labels + corpus in one batch SQL.
+
+    The check matches each field by its underlying name regardless of GraphQL
+    alias — graphql-core preserves the field name on ``FieldNode.name`` even
+    when the client uses ``my_alias: docTypeLabels``.
     """
     from opencontractserver.annotations.models import DOC_TYPE_LABEL
 
@@ -384,7 +398,7 @@ def requests_doc_label_annotations(info) -> bool:
     variables = getattr(info, "variable_values", {}) or {}
 
     for field_node in info.field_nodes or ():
-        # Connection: documents → edges → node → docAnnotations
+        # Connection: documents → edges → node → docTypeLabels / docAnnotations
         for edges in _selection_set_iter(field_node, fragments):
             if edges.name.value != "edges":
                 continue
@@ -392,7 +406,11 @@ def requests_doc_label_annotations(info) -> bool:
                 if node.name.value != "node":
                     continue
                 for child in _selection_set_iter(node, fragments):
-                    if child.name.value != "docAnnotations":
+                    name = child.name.value
+                    if name == "docTypeLabels":
+                        # Flat-list field is unconditional; no arg check.
+                        return True
+                    if name != "docAnnotations":
                         continue
                     for arg in child.arguments or ():
                         if arg.name.value != "annotationLabel_LabelType":
@@ -400,3 +418,8 @@ def requests_doc_label_annotations(info) -> bool:
                         if _argument_string_value(arg, variables) == DOC_TYPE_LABEL:
                             return True
     return False
+
+
+# Legacy alias preserved so external callers that imported the old name keep
+# working through the rename. New code should import ``requests_doc_type_labels``.
+requests_doc_label_annotations = requests_doc_type_labels

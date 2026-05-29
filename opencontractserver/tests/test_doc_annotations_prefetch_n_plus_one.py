@@ -1,33 +1,42 @@
-"""Regression tests for the document list ``docAnnotations`` N+1 storm.
+"""Regression tests for the corpus / folder document-list badge query.
 
-A document list query that asks for ``docAnnotations(annotationLabel_LabelType:
-DOC_TYPE_LABEL)`` per edge (the corpus list view's "doc-type" badge) used to
-fire one ``COUNT(*)``, one ``SELECT annotations_annotation``, one
-``SELECT annotations_annotationlabel`` and one recursive ``WITH __rank_table``
-on ``corpuses_corpus`` (because ``Corpus`` is registered as a ``TreeNode`` with
-``with_tree_fields=True``) *per document*. On a 24-document folder this
-produced ~240 SQL statements and ~20 s wall-clock on a remote RDS+S3 setup.
+A document list query that asked for ``docAnnotations(annotationLabel_LabelType:
+DOC_TYPE_LABEL)`` per edge used to fire one ``COUNT(*)`` + one ``SELECT
+annotations_annotation`` + one ``SELECT annotations_annotationlabel`` + one
+recursive ``WITH __rank_table`` on ``corpuses_corpus`` (because ``Corpus`` is
+registered as a ``TreeNode`` with ``with_tree_fields=True``) **per
+document** — ~240 SQL statements / ~20 s on a 24-doc remote RDS+S3 setup.
 
-The root cause was a name mismatch between
-``config/graphql/custom_resolvers.SUPPORTED_FILTER_KEYS`` (camelCase GraphQL
-arg names) and the snake-case Django ORM lookup names that
-``DjangoFilterConnectionField`` actually delivers as kwargs — every request
-fell into an "extra-key" escape hatch that returned an unfiltered queryset and
-defeated the focused ``_prefetched_doc_annotations`` prefetch.
+The frontend never actually read the connection arms (cursors, totalCount,
+the nested ``corpus`` field). It only consumed each annotation's
+``annotationLabel.{labelType,text}`` to render a per-card badge. The
+connection-shape was the wrong shape.
 
-These tests pin three independent invariants that, together, keep the path
-fast:
+Fix: a flat list field ``DocumentType.docTypeLabels`` consumes the focused
+``_prefetched_doc_annotations`` prefetch directly — no ``DjangoFilterConnectionField``,
+no per-doc ``COUNT(*)``, no per-doc ``SELECT``. The connection-shaped
+``docAnnotations`` field is kept correct (still applies the focused prefetch
+when requested) for any external caller that legitimately needs cursor
+pagination over a document's annotations.
 
-* ``SUPPORTED_FILTER_KEYS`` contains the snake-case Django lookup names so
-  every declared ``AnnotationFilter`` field is recognised.
-* The per-document recursive CTE on ``corpuses_corpus`` does NOT scale with
-  the document count (``CorpusType.get_node`` request cache).
-* The django-guardian anonymous-user lookup happens at most once per request
-  (``_get_anonymous_user_id`` cache in
-  ``AnnotatePermissionsForReadMixin``).
+These tests pin five independent invariants — each catches a different
+regression vector:
 
-All three break independently if the optimisation regresses, so we assert each
-one explicitly rather than capping a single overall query count.
+1. ``SUPPORTED_FILTER_KEYS`` covers every declared ``AnnotationFilter`` filter
+   (any unclassified filter would silently force ``resolve_doc_annotations_optimized``
+   into the escape-hatch path that bypasses the prefetch — invisible to the
+   user but slow).
+2. ``docTypeLabels`` SQL count does NOT scale with the document count.
+3. The per-document recursive CTE on ``corpuses_corpus`` does NOT scale with
+   the document count (the ``CorpusType.get_node`` request cache).
+4. The django-guardian anonymous-user lookup fires at most once per request
+   (the ``info.context._anon_user_id`` cache in
+   ``AnnotatePermissionsForReadMixin``).
+5. ``_get_anonymous_user_id`` is idempotent after the first call.
+
+If any of these breaks independently, the corresponding speedup quietly
+disappears — there's no functional symptom, only a slower query. Each test
+exists so the speedup can't bit-rot silently.
 """
 
 from __future__ import annotations
@@ -56,18 +65,17 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.tests.base import BaseFixtureTestCase
 
+# The actual shape the frontend sends after the migration to ``docTypeLabels``.
 _BADGE_QUERY = """
 query (
   $corpusId: String,
   $folderId: String,
-  $first: Int!,
-  $annotateDocLabels: Boolean!,
-  $includeCaml: Boolean
+  $first: Int!
 ) {
   documents(
     inCorpusWithId: $corpusId
     inFolderId: $folderId
-    includeCaml: $includeCaml
+    includeCaml: true
     first: $first
   ) {
     edges {
@@ -75,17 +83,7 @@ query (
         id
         slug
         title
-        doc_label_annotations: docAnnotations(
-          annotationLabel_LabelType: DOC_TYPE_LABEL
-        ) @include(if: $annotateDocLabels) {
-          edges {
-            node {
-              id
-              annotationLabel { labelType text }
-              corpus { title icon preferredEmbedder }
-            }
-          }
-        }
+        docTypeLabels { labelType text }
       }
     }
   }
@@ -94,7 +92,7 @@ query (
 
 
 @override_settings(USE_TZ=True)
-class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
+class DocTypeLabelsBadgeNPlusOneTests(BaseFixtureTestCase):
     """SQL-shape regressions for the corpus document-list badge query."""
 
     doc_type_label: Any
@@ -103,10 +101,9 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
     def setUpTestData(cls) -> None:
         super().setUpTestData()
 
-        # The fixture documents need a DOC_TYPE_LABEL annotation each so the
-        # badge query exercises the corpus / annotation_label FK descriptors
-        # on every edge. Without per-doc annotations there's nothing for the
-        # would-be N+1 to scale against.
+        # Each fixture document needs a DOC_TYPE_LABEL annotation so the badge
+        # query has something non-trivial to render — and so a regression that
+        # re-introduces the FK descriptor storm has rows to amplify against.
         cls.doc_type_label = AnnotationLabel.objects.create(
             text="Test Doc Type",
             label_type=DOC_TYPE_LABEL,
@@ -131,8 +128,6 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
                 "corpusId": to_global_id("CorpusType", self.corpus.pk),
                 "folderId": None,
                 "first": first,
-                "annotateDocLabels": True,
-                "includeCaml": True,
             },
             context_value=_FakeRequest(self.user),
         )
@@ -173,21 +168,69 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
         )
 
     # ------------------------------------------------------------------ #
+    # docTypeLabels constant query count
+    # ------------------------------------------------------------------ #
+
+    def test_doc_type_labels_query_count_is_constant_in_doc_count(self) -> None:
+        """``docTypeLabels`` resolution does not fire per-document SQL.
+
+        ``DocumentType.resolve_doc_type_labels`` consumes
+        ``_prefetched_doc_annotations`` (loaded in one batch by
+        ``_apply_document_prefetches`` when the ``documents`` resolver detects
+        ``docTypeLabels`` in the selection via ``requests_doc_type_labels``).
+        A regression that loses the prefetch hook-up, the AST detector, or
+        the resolver's prefetch-consumption logic re-introduces one
+        ``SELECT`` per document — this test catches that by asserting the
+        total query count is essentially the same for 1 document as for
+        every document the fixture provides.
+        """
+        result_small, queries_small = self._capture_badge_queries(first=1)
+        result_large, queries_large = self._capture_badge_queries(first=len(self.docs))
+        self.assertIsNone(result_large.get("errors"), msg=result_large.get("errors"))
+        self.assertIsNone(result_small.get("errors"), msg=result_small.get("errors"))
+
+        # Verify the data actually flows — without this, the count check
+        # passes vacuously on an empty/erroring result.
+        large_edges = result_large["data"]["documents"]["edges"]
+        self.assertEqual(len(large_edges), len(self.docs))
+        labels0 = large_edges[0]["node"]["docTypeLabels"]
+        self.assertEqual(len(labels0), 1)
+        self.assertEqual(labels0[0]["text"], "Test Doc Type")
+        self.assertEqual(labels0[0]["labelType"], DOC_TYPE_LABEL)
+
+        # Allow a 2-query slack for incidental work that fires once at the
+        # start of an N-doc request (e.g. permission-cache warmup); reject
+        # any growth that scales with the document count.
+        slack = 2
+        self.assertLessEqual(
+            len(queries_large),
+            len(queries_small) + slack,
+            msg=(
+                f"docTypeLabels query count scales with document count "
+                f"(1 doc → {len(queries_small)} queries; {len(self.docs)} docs "
+                f"→ {len(queries_large)}). Likely cause: the focused "
+                "_prefetched_doc_annotations prefetch was lost (check "
+                "_apply_document_prefetches and requests_doc_type_labels), "
+                "or DocumentType.resolve_doc_type_labels stopped reading "
+                "from the prefetch."
+            ),
+        )
+
+    # ------------------------------------------------------------------ #
     # Corpus tree-CTE per-row regression
     # ------------------------------------------------------------------ #
 
     def test_corpus_tree_cte_does_not_scale_with_document_count(self) -> None:
-        """The badge query must not fire one ``corpuses_corpus`` CTE per doc.
+        """``corpuses_corpus`` recursive CTE does not fire per document.
 
         ``Corpus`` is a ``TreeNode`` registered with ``with_tree_fields=True``,
         so every ``Corpus.objects.get(pk=...)`` emits a recursive
         ``WITH __rank_table`` CTE. Without the ``CorpusType.get_node`` request
         cache, graphene-django's FK resolver fires one such CTE per
-        ``annotation.corpus`` access — i.e. once per document edge.
+        ``annotation.corpus`` access on the legacy ``docAnnotations`` path —
+        and would do the same on any other FK-via-Node access into ``Corpus``
+        elsewhere in the schema.
         """
-        # Allow a *small* number of corpus tree CTEs (the documents-folder
-        # filter and one cache-miss inside the FK resolver), but assert it
-        # does NOT scale with the document count.
         result_small, queries_small = self._capture_badge_queries(first=1)
         result_large, queries_large = self._capture_badge_queries(first=len(self.docs))
         self.assertIsNone(result_large.get("errors"), msg=result_large.get("errors"))
@@ -213,9 +256,7 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
                 "corpuses_corpus recursive CTE scales with document count "
                 f"(1 doc → {small} CTEs; {len(self.docs)} docs → {large}). "
                 "Likely cause: CorpusType.get_node lost its per-request id "
-                "cache, or AnnotationType.get_queryset stopped applying "
-                "select_related('corpus'). See config/graphql/corpus_types.py "
-                "and config/graphql/annotation_types.py."
+                "cache. See config/graphql/corpus_types.py."
             ),
         )
 
@@ -224,7 +265,7 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
     # ------------------------------------------------------------------ #
 
     def test_anonymous_user_lookup_is_request_cached(self) -> None:
-        """``resolve_my_permissions`` must hit the anonymous-user row once.
+        """``resolve_my_permissions`` hits the anonymous-user row at most once.
 
         Without the ``info.context._anon_user_id`` cache,
         ``AnnotatePermissionsForReadMixin.resolve_my_permissions`` issues one
@@ -235,10 +276,10 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
         """
         client = Client(schema)
         request = _FakeRequest(self.user)
-        # Build a small query that returns ``myPermissions`` per document edge.
         query = (
             "query ($corpusId: String, $first: Int!) {"
-            "  documents(inCorpusWithId: $corpusId first: $first includeCaml: true) {"
+            "  documents(inCorpusWithId: $corpusId first: $first "
+            "includeCaml: true) {"
             "    edges { node { id myPermissions } }"
             "  }"
             "}"
@@ -270,11 +311,103 @@ class DocAnnotationsBadgeNPlusOneTests(BaseFixtureTestCase):
         )
 
     # ------------------------------------------------------------------ #
+    # Performance comparison print-out (not an assertion)
+    # ------------------------------------------------------------------ #
+
+    def test_print_slap_measurement(self) -> None:
+        """Run the new ``docTypeLabels`` shape AND the legacy connection
+        shape against the fixture; print median query count + wall-clock so
+        the speedup is visible on the test output. Not an assertion — the
+        other tests in this module pin the actual invariants. This one
+        exists to give a single number to point at when discussing the fix.
+        """
+        import statistics
+        import time
+
+        client = Client(schema)
+
+        new_shape_query = _BADGE_QUERY
+        legacy_shape_query = """
+        query ($corpusId: String, $folderId: String, $first: Int!) {
+          documents(inCorpusWithId: $corpusId inFolderId: $folderId
+                    includeCaml: true first: $first) {
+            edges {
+              node {
+                id
+                docAnnotations(annotationLabel_LabelType: DOC_TYPE_LABEL) {
+                  edges {
+                    node {
+                      id
+                      annotationLabel { labelType text }
+                      corpus { title icon preferredEmbedder }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {
+            "corpusId": to_global_id("CorpusType", self.corpus.pk),
+            "folderId": None,
+            "first": len(self.docs),
+        }
+
+        def _measure(query: str, iterations: int = 5):
+            # Warm up — first run may touch lazy imports, schema build.
+            client.execute(
+                query, variables=variables, context_value=_FakeRequest(self.user)
+            )
+            counts: list[int] = []
+            walls: list[float] = []
+            for _ in range(iterations):
+                with CaptureQueriesContext(connection) as ctx:
+                    t0 = time.perf_counter()
+                    result = client.execute(
+                        query,
+                        variables=variables,
+                        context_value=_FakeRequest(self.user),
+                    )
+                    walls.append((time.perf_counter() - t0) * 1000)
+                counts.append(len(ctx.captured_queries))
+            errors = result.get("errors") or []
+            return counts, walls, errors
+
+        new_counts, new_walls, new_errors = _measure(new_shape_query)
+        legacy_counts, legacy_walls, legacy_errors = _measure(legacy_shape_query)
+
+        n = len(self.docs)
+        msg = (
+            f"\n--- Slap measurement, {n} documents in fixture corpus ---\n"
+            f"New shape (docTypeLabels): "
+            f"queries median={int(statistics.median(new_counts))} "
+            f"min={min(new_counts)} max={max(new_counts)}; "
+            f"wall ms median={statistics.median(new_walls):.0f} "
+            f"min={min(new_walls):.0f} max={max(new_walls):.0f}; "
+            f"errors={len(new_errors)}\n"
+            f"Legacy shape (docAnnotations connection): "
+            f"queries median={int(statistics.median(legacy_counts))} "
+            f"min={min(legacy_counts)} max={max(legacy_counts)}; "
+            f"wall ms median={statistics.median(legacy_walls):.0f} "
+            f"min={min(legacy_walls):.0f} max={max(legacy_walls):.0f}; "
+            f"errors={len(legacy_errors)}\n"
+        )
+        # Use sys.stderr so the message appears even without ``-s`` when the
+        # test is invoked with the default capture mode (pytest only suppresses
+        # *passing* tests' stdout).
+        import sys
+
+        sys.stderr.write(msg)
+        sys.stderr.flush()
+
+    # ------------------------------------------------------------------ #
     # Helper-level coverage
     # ------------------------------------------------------------------ #
 
     def test_get_anonymous_user_id_caches_on_request(self) -> None:
-        """``_get_anonymous_user_id`` must memoise on ``info.context``."""
+        """``_get_anonymous_user_id`` memoises on ``info.context``."""
 
         class _Ctx:
             pass

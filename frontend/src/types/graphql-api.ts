@@ -427,6 +427,11 @@ export type RawDocumentType = Node & {
   docRelationshipCount?: Maybe<Scalars["Int"]>;
   allStructuralAnnotations?: RawServerAnnotationType[];
   docLabelAnnotations?: Maybe<AnnotationTypeConnection>;
+  // Flat list backing the corpus document-card DOC_TYPE_LABEL badge.
+  // Resolves from the focused ``_prefetched_doc_annotations`` prefetch on
+  // the backend (no Relay connection, no filterset wrapper, no per-doc
+  // ``COUNT(*)``/``SELECT``); see ``DocumentType.resolve_doc_type_labels``.
+  docTypeLabels?: Maybe<AnnotationLabelType[]>;
   metadataAnnotations?: Maybe<AnnotationTypeConnection>;
   conversations?: ConversationTypeConnection;
   chatMessages?: ChatMessageTypeConnection;

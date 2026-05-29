@@ -13,6 +13,7 @@ from graphql import GraphQLError
 from graphql_relay import from_global_id
 
 from config.graphql.annotation_types import (
+    AnnotationLabelType,
     AnnotationType,
     NoteType,
     RelationshipType,
@@ -244,6 +245,75 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ):
             return user
         raise GraphQLError("Permission denied: You do not have access to this document")
+
+    # -------------------- Doc-type label badges (corpus list view) -------------------- #
+    doc_type_labels = graphene.List(
+        graphene.NonNull(AnnotationLabelType),
+        description=(
+            "Flat list of distinct ``DOC_TYPE_LABEL`` annotation labels attached "
+            "to this document — the corpus list view's per-card label badges. "
+            "Returns labels (not annotation rows) because that's all the badge "
+            "UI reads (``annotationLabel.text`` / ``labelType``); skipping the "
+            "Relay connection / filterset wrapper avoids the per-document "
+            "``COUNT(*)`` + ``SELECT`` + per-row FK descriptor storm the old "
+            "``docAnnotations(annotationLabel_LabelType: DOC_TYPE_LABEL)`` "
+            "shape forced (see ``config/graphql/custom_resolvers.py`` notes). "
+            "Consumes ``_prefetched_doc_annotations`` when set by "
+            "``_apply_document_prefetches`` (the parent ``documents`` resolver "
+            "opts in via ``requests_doc_type_labels``); falls back to a single "
+            "targeted SELECT per document otherwise."
+        ),
+    )
+
+    def resolve_doc_type_labels(self, info) -> Any:
+        from opencontractserver.annotations.models import DOC_TYPE_LABEL
+        from opencontractserver.annotations.services import AnnotationService
+
+        prefetched = getattr(self, "_prefetched_doc_annotations", None)
+        if prefetched is not None:
+            # Prefetched rows are already filtered to DOC_TYPE_LABEL by
+            # ``_apply_document_prefetches`` and have ``annotation_label``
+            # ``select_related``-cached. De-duplicate by label id because a
+            # document can carry multiple DOC_TYPE_LABEL annotations sharing
+            # the same label, and the badge UI shows each label once.
+            seen: set[int] = set()
+            labels: list[Any] = []
+            for ann in prefetched:
+                label = ann.annotation_label
+                if label is None or label.pk in seen:
+                    continue
+                seen.add(label.pk)
+                labels.append(label)
+            return labels
+
+        # Fall back when the parent resolver didn't engage the focused prefetch
+        # (e.g. ``DocumentType`` accessed via ``node(id:)`` or any single-doc
+        # query). Route through ``AnnotationService.get_document_annotations``
+        # so the labels we surface come only from annotations the user can see
+        # — that's the canonical entry point per
+        # ``docs/permissioning/consolidated_permissioning_guide.md`` §1399 and
+        # avoids the inline ``AnnotationLabel.objects.visible_to_user(...)``
+        # call the ``opencontracts.E001`` system check would otherwise reject
+        # (``AnnotationLabel`` inherits ``BaseVisibilityManager``, so its
+        # ``visible_to_user`` is a Tier-0 primitive). Iterating the visible
+        # annotations and de-duping their labels mirrors the prefetched
+        # branch's semantic and stays at one ``SELECT`` per document on this
+        # single-doc fallback path.
+        seen_fallback: set[int] = set()
+        fallback_labels: list[Any] = []
+        for ann in AnnotationService.get_document_annotations(
+            document_id=self.id,
+            user=getattr(info.context, "user", None),
+            context=info.context,
+        ):
+            label = ann.annotation_label
+            if label is None or label.label_type != DOC_TYPE_LABEL:
+                continue
+            if label.pk in seen_fallback:
+                continue
+            seen_fallback.add(label.pk)
+            fallback_labels.append(label)
+        return fallback_labels
 
     all_structural_annotations = graphene.List(
         AnnotationType,
