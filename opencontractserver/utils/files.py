@@ -10,6 +10,7 @@ from io import BytesIO
 from typing import Union
 
 from django.conf import settings
+from django.db.models.fields.files import FieldFile
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from pypdf.generic import (
@@ -39,6 +40,43 @@ def base_64_encode_bytes(doc_bytes: bytes):
     base64_encoded_data = base64.b64encode(doc_bytes)
     base64_encoded_message = base64_encoded_data.decode("utf-8")
     return base64_encoded_message
+
+
+def read_field_file_text(
+    field_file: FieldFile,
+    *,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> str:
+    """Read a Django ``FieldFile`` as text, tolerant of storage backends
+    that return ``bytes`` from a text-mode ``open()``.
+
+    Local ``FileSystemStorage`` honors text mode, so
+    ``field_file.open("r").read()`` yields ``str``. Several
+    ``django-storages`` cloud backends (``S3Boto3Storage``,
+    ``GoogleCloudStorage``) ignore the mode and return ``bytes`` regardless;
+    see https://github.com/jschneier/django-storages/issues/382. Code that
+    forwarded that raw value into ``json.dumps`` (for example the MCP
+    ``get_document_text`` tool and document resource) therefore raised
+    ``TypeError: Object of type bytes is not JSON serializable`` only on
+    cloud-storage deployments. Routing text reads through this helper
+    normalizes the result to ``str`` regardless of ``STORAGE_BACKEND``.
+
+    Args:
+        field_file: A Django ``FieldFile`` such as
+            ``document.txt_extract_file``.
+        encoding: Encoding used to decode when the backend returns bytes.
+        errors: Error policy forwarded to ``bytes.decode`` (``"strict"``,
+            ``"ignore"``, ...).
+
+    Returns:
+        The file contents as ``str``.
+    """
+    with field_file.open("r") as f:
+        content = f.read()
+    if isinstance(content, bytes):
+        content = content.decode(encoding, errors=errors)
+    return content
 
 
 def convert_hex_to_rgb_tuple(color: str) -> tuple[int, ...]:

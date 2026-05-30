@@ -14,6 +14,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Q
 
 from opencontractserver.constants.mcp import MAX_THREAD_MESSAGE_LENGTH
+from opencontractserver.utils.files import read_field_file_text
 
 from .formatters import (
     format_annotation,
@@ -148,8 +149,7 @@ def get_document_text(
     full_text = ""
     if document.txt_extract_file:
         try:
-            with document.txt_extract_file.open("r") as f:
-                full_text = f.read()
+            full_text = read_field_file_text(document.txt_extract_file)
         except Exception:
             full_text = ""
 

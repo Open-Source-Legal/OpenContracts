@@ -19,6 +19,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bug pre-dated the Phase 6 service-layer refactor (it was not a regression).
   Regression test added: `test_smart_label_list_denies_unreadable_corpus`.
 
+### Fixed
+
+- **MCP document full-text retrieval crashed on cloud storage**
+  (`opencontractserver/mcp/tools.py::get_document_text`,
+  `opencontractserver/mcp/resources.py::get_document_resource`) — both read
+  `document.txt_extract_file` via `.open("r").read()` and placed the raw result
+  into the dict that the MCP dispatcher serializes with `json.dumps(...)`
+  (`opencontractserver/mcp/server.py:447` and `:1066`). On AWS/GCP deployments
+  django-storages backends (`S3Boto3Storage`, `GoogleCloudStorage`) return
+  `bytes` from text-mode reads (django-storages #382), so `json.dumps` raised
+  `TypeError: Object of type bytes is not JSON serializable` and downstream MCP
+  clients could not retrieve document full text. LOCAL `FileSystemStorage`
+  returns `str`, which is why dev and the test suite never reproduced it. Both
+  call sites now decode through the new `read_field_file_text()` helper
+  (`opencontractserver/utils/files.py`), which centralizes the
+  `isinstance(..., bytes)` decode workaround previously duplicated in
+  `tasks/embeddings_task.py` and `pipeline/parsers/oc_markdown_parser.py`. The
+  same routing also fixes a latent instance of this bug in the agent memory
+  reader's happy path
+  (`opencontractserver/agents/memory.py::read_memory_content`, which decoded
+  bytes only in its exception fallback, not its primary `.open("r").read()`
+  branch). Regression test:
+  `test_get_document_text_handles_bytes_from_cloud_storage`
+  (`opencontractserver/mcp/tests/test_mcp.py`); helper unit tests:
+  `opencontractserver/tests/test_files_utils.py`.
+
 ### Changed
 
 - **`BaseService.filter_visible_qs` now fails closed** (`opencontractserver/shared/services/base.py`)

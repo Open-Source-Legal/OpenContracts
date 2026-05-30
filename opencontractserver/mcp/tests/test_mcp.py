@@ -616,6 +616,45 @@ class MCPToolsDocumentsTest(TestCase):
         with self.assertRaises(Document.DoesNotExist):
             get_document_text(self.corpus.slug, "nonexistent-doc")
 
+    def test_get_document_text_handles_bytes_from_cloud_storage(self):
+        """Regression: cloud backends (S3/GCS) return bytes from ``.open("r")``
+        even in text mode (django-storages #382).
+
+        The tool must normalize to ``str`` so the dispatcher's
+        ``json.dumps(result)`` does not raise ``TypeError: Object of type
+        bytes is not JSON serializable`` — the failure reported by downstream
+        MCP clients on cloud-storage deployments. Local FileSystemStorage
+        returns ``str``, so without this simulation the suite never exercises
+        the bytes path.
+        """
+        from unittest import mock
+
+        from django.db.models.fields.files import FieldFile
+
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "Bytes-backed extracted text ✓"
+
+        class _BytesHandle:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return payload.encode("utf-8")
+
+        # Patch FieldFile.open so the read returns bytes, mimicking S3/GCS.
+        with mock.patch.object(FieldFile, "open", return_value=_BytesHandle()):
+            result = get_document_text(self.corpus.slug, self.doc1.slug)
+
+        # Decoded to str ...
+        self.assertIsInstance(result["text"], str)
+        self.assertEqual(result["text"], payload)
+        # ... and the full payload serializes cleanly (the original crash).
+        json.dumps(result, indent=2)
+
 
 class MCPToolsAnnotationsTest(TestCase):
     """Tests for MCP annotation-related tools."""
