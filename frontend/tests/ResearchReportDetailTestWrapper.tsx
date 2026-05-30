@@ -93,15 +93,22 @@ const createTestCache = () =>
 export const ResearchReportDetailTestWrapper: React.FC<{
   report: ResearchReportType;
 }> = ({ report }) => {
-  // Seed the entity reactive var the way CentralRouteManager would; the detail
-  // view falls back to it while the query loads, so content renders immediately.
-  React.useEffect(() => {
+  // Seed the entity reactive var the way CentralRouteManager would, BEFORE the
+  // child's first render, using the synchronous useState-initializer trick
+  // (same pattern as CorpusResearchReportCardsTestWrapper). A useEffect fires
+  // only AFTER the first render, so the detail view would flash its "not found"
+  // state for one frame — a flakiness risk on slow CI.
+  React.useState(() => {
     authToken("test-token");
     openedResearchReport(report);
+    return null;
+  });
+  // Reset on unmount so the seeded var doesn't leak across tests.
+  React.useEffect(() => {
     return () => {
       openedResearchReport(null);
     };
-  }, [report]);
+  }, []);
 
   const mocks: MockedResponse[] = [
     {
