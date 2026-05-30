@@ -239,8 +239,8 @@ def _cors_preflight_headers(origin: str) -> list[list[bytes]]:
 
 
 def _wrap_send_with_cors(
-    send: "ASGISend", cors_headers: list[list[bytes]]
-) -> "ASGISend":
+    send: ASGISend, cors_headers: list[list[bytes]]
+) -> ASGISend:
     """Wrap ``send`` so every ``http.response.start`` carries CORS headers.
 
     The MCP session manager writes responses directly via ``send``; wrapping
@@ -251,7 +251,7 @@ def _wrap_send_with_cors(
     if not cors_headers:
         return send
 
-    async def wrapped(message: "ASGIMessage") -> None:
+    async def wrapped(message: ASGIMessage) -> None:
         if message.get("type") == "http.response.start":
             message = dict(message)
             existing = list(message.get("headers", []))
@@ -269,7 +269,7 @@ def _wrap_send_with_cors(
 
 
 async def _send_auth_challenge(
-    scope: MutableMapping[str, Any], send: "ASGISend", *, detail: str
+    scope: MutableMapping[str, Any], send: ASGISend, *, detail: str
 ) -> None:
     """Emit a 401 carrying the RFC 9728 ``WWW-Authenticate`` challenge.
 
