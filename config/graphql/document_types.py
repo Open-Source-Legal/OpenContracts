@@ -932,15 +932,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if not has_doc_update:
             return False
 
-        # Check corpus permission.
+        # Check corpus permission via an IDOR-safe service fetch:
+        # ``get_or_none`` returns the corpus only when the user holds UPDATE
+        # on it, and ``None`` for both not-found and denied — collapsing the
+        # prior raw ``.objects.get`` fetch-then-check into one service-layer
+        # call (no behaviour change: ``corpus is not None`` ⟺ has UPDATE).
         _, corpus_pk = from_global_id(corpus_id)
-        try:
-            corpus = Corpus.objects.get(pk=corpus_pk)
-            return BaseService.user_has(
-                corpus, user, PermissionTypes.UPDATE, request=info.context
-            )
-        except Corpus.DoesNotExist:
-            return False
+        corpus = BaseService.get_or_none(
+            Corpus, corpus_pk, user, PermissionTypes.UPDATE, request=info.context
+        )
+        return corpus is not None
 
     def resolve_can_view_history(self, info) -> Any:
         """Check if user has READ permission for viewing history."""

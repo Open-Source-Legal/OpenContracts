@@ -19,6 +19,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`resolve_version_history` is scoped to `visible_to_user`** (`config/graphql/document_types.py`) — it no longer leaks version metadata (creator, hash, size) for documents hidden from the caller, matching `resolve_corpus_versions`.
   - **`get_document_folder` tolerates more than one active path** (`services/folder_documents.py`) — switched from `.get()` (could raise `MultipleObjectsReturned`, HTTP 500) to a deterministic `.order_by("-created").first()`.
   - **`get_filesystem_at_time` is scoped to the target corpus** (`documents/versioning.py`) — the outer query was an unscoped full-table scan relying solely on a correlated subquery; it now filters `corpus=corpus`.
+### Security
+
+- **SmartLabelListMutation IDOR fix** (`config/graphql/smart_label_mutations.py`)
+  — the mutation fetched a corpus by raw PK (`Corpus.objects.get(pk=...)`) and
+  returned its labelset's labels with **no corpus-READ gate**, so any
+  authenticated user could enumerate a private corpus's label taxonomy. It now
+  routes the fetch through `BaseService.get_or_none(Corpus, pk, user,
+  PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
+  "Corpus not found" response for both missing and unreadable corpuses. This
+  bug pre-dated the Phase 6 service-layer refactor (it was not a regression).
+  Regression test added: `test_smart_label_list_denies_unreadable_corpus`.
+
+### Changed
+
+- **`BaseService.filter_visible_qs` now fails closed** (`opencontractserver/shared/services/base.py`)
+  — an input lacking a `visible_to_user` method previously passed through
+  **unfiltered** (fail-open, a latent row-leak); it now raises `TypeError`.
+  Real callers always pass a permissioned QuerySet/manager, so this only
+  surfaces genuine wiring bugs. Test updated:
+  `test_filter_visible_qs_rejects_exotic_input`.
+- **Architecture audit scans `config/graphql/` recursively**
+  (`opencontractserver/shared/architecture_audit.py`) — `iter_graphql_modules`
+  switched from `glob("*.py")` to `rglob("*.py")` so resolver logic in
+  subpackages (e.g. `permissioning/permission_annotator/`) is covered by the
+  `opencontracts.E001` check and the pytest invariant. (Subpackages were clean;
+  this closes the blind spot.)
+- **`config/graphql/document_types.py::resolve_can_restore`** migrated off a raw
+  `Corpus.objects.get(...)` fetch-then-check onto `BaseService.get_or_none`
+  (behaviour-preserving; removes a service-layer bypass).
+
+### Documentation
+
+- Clarified across `CLAUDE.md` (rule 7), `docs/architecture/query_permission_patterns.md`,
+  and `docs/development/architecture_invariants.md` that the `opencontracts.E001`
+  enforcement scope is **`config/graphql/` only** — MCP tools, LLM tools, REST
+  views, and user-context Celery tasks remain *policy*, not mechanically
+  scanned, and still contain correct-but-inline Tier-0 calls.
+- Documented that `request=` is a no-op on the queryset helpers
+  (`filter_visible` / `filter_visible_qs`); the Tier-2 permission cache only
+  applies to the single-object helpers.
 
 ### Added
 

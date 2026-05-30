@@ -19,6 +19,17 @@ must reach models through `opencontractserver/<app>/services/` —
 never inline `visible_to_user`, `user_can`, or
 `user_has_permission_for_obj`.
 
+**Scope of mechanical enforcement.** Both the system check and the pytest
+invariant scan **`config/graphql/` only** (recursively, including
+subpackages such as `permissioning/permission_annotator/`). The same rule
+is *policy* for the other user-context surfaces — MCP tools
+(`opencontractserver/mcp/`), LLM tools (`opencontractserver/llms/tools/`),
+REST views, and user-context Celery tasks — but those are **not** scanned
+today and still contain correct-but-inline Tier-0 calls. A green
+`opencontracts.E001` means "no inline Tier-0 in `config/graphql/`," not
+"none anywhere." Expanding the scan (after migrating their existing inline
+usage) is tracked as future work.
+
 **Why.** Phase 6 of the Service Layer Centralization initiative (issue
 #1720). The forbidden identifiers are Tier-0 authorization primitives;
 the public entry point for any user-context caller is the service
