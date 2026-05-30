@@ -238,9 +238,7 @@ def _cors_preflight_headers(origin: str) -> list[list[bytes]]:
     ]
 
 
-def _wrap_send_with_cors(
-    send: ASGISend, cors_headers: list[list[bytes]]
-) -> ASGISend:
+def _wrap_send_with_cors(send: ASGISend, cors_headers: list[list[bytes]]) -> ASGISend:
     """Wrap ``send`` so every ``http.response.start`` carries CORS headers.
 
     The MCP session manager writes responses directly via ``send``; wrapping
