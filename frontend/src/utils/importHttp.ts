@@ -434,8 +434,8 @@ function buildDocumentMetadata(
   };
   withOptional(md, "description", input.description);
   withOptional(md, "slug", input.slug);
-  withOptional(md, "add_to_corpus_id", input.addToCorpusId ?? undefined);
-  withOptional(md, "add_to_folder_id", input.addToFolderId ?? undefined);
+  withOptional(md, "add_to_corpus_id", input.addToCorpusId);
+  withOptional(md, "add_to_folder_id", input.addToFolderId);
   if (input.customMeta && Object.keys(input.customMeta).length > 0) {
     md.custom_meta = input.customMeta;
   }
@@ -446,7 +446,7 @@ function buildZipMetadata(input: ImportZipRestInput): Record<string, unknown> {
   const md: Record<string, unknown> = { make_public: !!input.makePublic };
   withOptional(md, "title_prefix", input.titlePrefix);
   withOptional(md, "description", input.description);
-  withOptional(md, "add_to_corpus_id", input.addToCorpusId ?? undefined);
+  withOptional(md, "add_to_corpus_id", input.addToCorpusId);
   if (input.customMeta && Object.keys(input.customMeta).length > 0) {
     md.custom_meta = input.customMeta;
   }
@@ -460,7 +460,7 @@ function buildZipToCorpusMetadata(
     corpus_id: input.corpusId,
     make_public: !!input.makePublic,
   };
-  withOptional(md, "target_folder_id", input.targetFolderId ?? undefined);
+  withOptional(md, "target_folder_id", input.targetFolderId);
   withOptional(md, "title_prefix", input.titlePrefix);
   withOptional(md, "description", input.description);
   if (input.customMeta && Object.keys(input.customMeta).length > 0) {
@@ -498,8 +498,8 @@ export async function importDocumentMultipart(
   appendIfDefined(fd, "filename", input.filename ?? input.file.name);
   appendIfDefined(fd, "description", input.description);
   appendIfDefined(fd, "slug", input.slug);
-  appendIfDefined(fd, "add_to_corpus_id", input.addToCorpusId ?? undefined);
-  appendIfDefined(fd, "add_to_folder_id", input.addToFolderId ?? undefined);
+  appendIfDefined(fd, "add_to_corpus_id", input.addToCorpusId);
+  appendIfDefined(fd, "add_to_folder_id", input.addToFolderId);
   fd.append("make_public", input.makePublic ? "true" : "false");
   if (input.customMeta && Object.keys(input.customMeta).length > 0) {
     fd.append("custom_meta", JSON.stringify(input.customMeta));
@@ -547,7 +547,7 @@ export async function importDocumentsZipMultipart(
   fd.append("file", input.file);
   appendIfDefined(fd, "title_prefix", input.titlePrefix);
   appendIfDefined(fd, "description", input.description);
-  appendIfDefined(fd, "add_to_corpus_id", input.addToCorpusId ?? undefined);
+  appendIfDefined(fd, "add_to_corpus_id", input.addToCorpusId);
   fd.append("make_public", input.makePublic ? "true" : "false");
   if (input.customMeta && Object.keys(input.customMeta).length > 0) {
     fd.append("custom_meta", JSON.stringify(input.customMeta));
@@ -599,7 +599,7 @@ export async function importZipToCorpusMultipart(
   const fd = new FormData();
   fd.append("file", input.file);
   fd.append("corpus_id", input.corpusId);
-  appendIfDefined(fd, "target_folder_id", input.targetFolderId ?? undefined);
+  appendIfDefined(fd, "target_folder_id", input.targetFolderId);
   appendIfDefined(fd, "title_prefix", input.titlePrefix);
   appendIfDefined(fd, "description", input.description);
   fd.append("make_public", input.makePublic ? "true" : "false");

@@ -849,6 +849,18 @@ CHUNKED_UPLOAD_STALE_HOURS = int(env("CHUNKED_UPLOAD_STALE_HOURS", default="24")
 CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS = int(
     env("CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS", default="30")
 )
+# Grace window (hours) before an ``ASSEMBLING`` session is treated as a crashed
+# worker and made eligible for GC. Deliberately far larger than any real
+# reassembly so the staleness GC can never delete parts out from under a live
+# assembly. See ``document_imports.services.purge_stale_chunked_uploads``.
+CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS = int(
+    env("CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS", default="6")
+)
+# Block size (bytes) used when streaming stored parts into the reassembled temp
+# file. Bounds peak assembly memory to O(block), independent of file size.
+CHUNK_ASSEMBLY_BLOCK_SIZE = int(
+    env("CHUNK_ASSEMBLY_BLOCK_SIZE", default=str(8 * 1024 * 1024))
+)
 
 # Maximum metadata JSON size (in bytes) accepted by the worker upload endpoint.
 # Default: 500 MB. Set to 0 to disable the limit.

@@ -636,15 +636,18 @@ def import_corpus_export_for_user(
 
 # Block size used when streaming stored parts into the reassembled temp file.
 # Bounds peak memory during assembly to O(block), independent of file size.
-CHUNK_ASSEMBLY_BLOCK_SIZE = 8 * 1024 * 1024
+# Operator-tunable via the ``CHUNK_ASSEMBLY_BLOCK_SIZE`` setting (env-backed).
+CHUNK_ASSEMBLY_BLOCK_SIZE = settings.CHUNK_ASSEMBLY_BLOCK_SIZE
 
 # Grace window (hours) before an ``ASSEMBLING`` session is treated as a crashed
 # worker and made eligible for GC. Deliberately far larger than any real
 # reassembly (which streams parts in a single synchronous ``complete`` request
 # and finishes in seconds-to-minutes) so the staleness GC can never delete
 # parts out from under a live assembly, while a worker that died mid-assembly
-# is still eventually reclaimed. See ``purge_stale_chunked_uploads``.
-CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS = 6
+# is still eventually reclaimed. Operator-tunable via the
+# ``CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS`` setting (env-backed).
+# See ``purge_stale_chunked_uploads``.
+CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS = settings.CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS
 
 
 class ChunkedUploadError(Exception):
@@ -1133,11 +1136,15 @@ def purge_stale_chunked_uploads(
             status=ChunkedUploadStatus.COMPLETED, modified__lt=completed_cutoff
         )
 
+    # Stream each queryset with a bounded chunk size rather than materializing
+    # every stale session into memory at once — the GC can run against a large
+    # backlog (e.g. after a long outage) and must not load it all eagerly.
     purged = 0
-    for session in list(stale) + list(assembling_stale) + list(completed_stale):
-        _delete_session_parts(session)
-        session.delete()
-        purged += 1
+    for qs in (stale, assembling_stale, completed_stale):
+        for session in qs.iterator(chunk_size=100):
+            _delete_session_parts(session)
+            session.delete()
+            purged += 1
     if purged:
         logger.info("[CHUNKED] Purged %s stale chunked-upload session(s)", purged)
     return purged
