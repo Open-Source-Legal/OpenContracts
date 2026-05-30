@@ -57,6 +57,13 @@ def get_corpus_description(
     # gated upstream. Threading the live caller through here for defence-in-depth
     # would require a tool-signature + injection change and is tracked as a
     # follow-up rather than done inline.
+    #
+    # Defensive: ``corpus.creator`` can be NULL if the creating user was hard-
+    # deleted/deactivated. Without a creator there is no identity to scope the
+    # CAML lookup to, so treat it as "no readable description" rather than
+    # letting a ``None`` user reach ``get_corpus_caml_articles``.
+    if corpus.creator is None:
+        return ""
     caml_doc = CorpusDocumentService.get_corpus_caml_articles(
         corpus.creator, corpus
     ).first()

@@ -856,6 +856,16 @@ class CorpusDescriptionRevisionType(graphene.ObjectType):
         in ``corpuses/signals.py``, promoted in Task 9) so the I/O
         contract — text-mode then binary-fallback — matches the
         cache-refresh signal handler exactly.
+
+        Performance (accepted trade-off): each call opens one
+        ``txt_extract_file`` blob, so requesting ``snapshot`` for every
+        revision in one query is N storage round-trips. Pre-reading the
+        bodies in the list resolver would not reduce that count (object
+        storage has no batch read), so the effective fix is to fetch
+        ``snapshot`` only on a single-revision drill-down rather than in
+        the list query — tracked as the Task 16 frontend-query change.
+        The list path is the modal-only revision viewer, so the N reads
+        are bounded by the revision count a human is browsing.
         """
         from opencontractserver.corpuses.services.description_cache import (
             read_caml_body,

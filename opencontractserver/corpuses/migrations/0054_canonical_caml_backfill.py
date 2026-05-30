@@ -13,8 +13,10 @@ existing Readme.CAML Document attached via DocumentPath:
      version_number=N matching the revision order). Preserves
      created/modified by passing them explicitly.
   4. Populate Corpus.readme_caml_document_id pointing at the head.
-  5. Refresh Corpus.description and Corpus.description_preview via
-     compute_cache_from_caml_body.
+  5. Refresh Corpus.description and Corpus.description_preview via the
+     migration-local ``_compute_cache_from_caml_body`` (a frozen copy of the
+     live ``description_cache`` derivation, so this historical migration stays
+     self-contained).
 
 Idempotent: re-running is a no-op for already-migrated rows because
 each step uses lookup-before-create.
@@ -37,6 +39,62 @@ from django.db import migrations
 CAML_TITLE = "Readme.CAML"
 CAML_FILE_TYPE = "text/markdown"
 CAML_PATH = "Readme.CAML"
+
+# Frozen snapshot of ``MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH`` at the time this
+# migration was written. Migrations are historical snapshots, so the cache
+# derivation is inlined here (rather than importing the live
+# ``description_cache`` service) — a future rename/signature change to that
+# module must not break this historical migration on fresh installs.
+_PREVIEW_MAX_LENGTH = 280
+
+
+def _markdown_to_plain_text(md: str) -> str:
+    """Migration-local copy of ``description_cache.markdown_to_plain_text``."""
+    import re
+
+    if not md:
+        return ""
+    text = md
+    text = re.sub(r"^```[^\n]*\n(.*?)^```", r"\1", text, flags=re.MULTILINE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"_{1,3}(.+?)_{1,3}", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"~~(.+?)~~", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[\s]*[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^[\s]*\d+\.\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _summarize_for_preview(plain_text: str) -> str:
+    """Migration-local copy of ``description_cache.summarize_for_preview``."""
+    import re
+
+    if not plain_text:
+        return ""
+    first_paragraph = plain_text.split("\n\n", 1)[0].strip()
+    first_paragraph = re.sub(r"\s+", " ", first_paragraph)
+    if len(first_paragraph) <= _PREVIEW_MAX_LENGTH:
+        return first_paragraph
+    cut = first_paragraph[:_PREVIEW_MAX_LENGTH]
+    last_space = cut.rfind(" ")
+    if last_space > _PREVIEW_MAX_LENGTH // 2:
+        cut = cut[:last_space]
+    return cut.rstrip() + "…"
+
+
+def _compute_cache_from_caml_body(body) -> tuple[str, str]:
+    """Migration-local copy of ``description_cache.compute_cache_from_caml_body``."""
+    if not body:
+        return "", ""
+    plain = _markdown_to_plain_text(body)
+    return plain, _summarize_for_preview(plain)
 
 
 def _read_md_description(corpus) -> str:
@@ -151,10 +209,6 @@ def _replay_revisions(corpus, head_doc, Document, DocumentPath, RevisionModel):
 
 def backfill_all(apps, schema_editor):
     """Iterate every Corpus, backfill, refresh cache. Idempotent."""
-    from opencontractserver.corpuses.services.description_cache import (
-        compute_cache_from_caml_body,
-    )
-
     Corpus = apps.get_model("corpuses", "Corpus")
     Document = apps.get_model("documents", "Document")
     DocumentPath = apps.get_model("documents", "DocumentPath")
@@ -167,7 +221,7 @@ def backfill_all(apps, schema_editor):
             head = _create_caml_doc(corpus, body, Document, DocumentPath)
             _replay_revisions(corpus, head, Document, DocumentPath, RevisionModel)
         if head is not None:
-            plain, preview = compute_cache_from_caml_body(body or "")
+            plain, preview = _compute_cache_from_caml_body(body or "")
             Corpus.objects.filter(pk=corpus.pk).update(
                 description=plain,
                 description_preview=preview,
