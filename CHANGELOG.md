@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Chunked (resumable) uploads for large files** — work around the 100 MB
+  per-request body ceiling that upstream proxies (Cloudflare) impose on the
+  document-import REST endpoints. The client slices a file into sub-100 MB
+  parts, uploads each independently, and the server reassembles them before
+  handing the whole file to the **existing** import services (so there is one
+  import code path per kind, chunked or not).
+  - **Backend models** (`opencontractserver/document_imports/models.py`):
+    `ChunkedUploadSession` + `ChunkedUploadPart`. Parts persist through Django
+    storage (not local disk) so any web/worker process can reassemble a
+    session. Initial migration `0001_initial`.
+  - **REST endpoints** (`opencontractserver/document_imports/views.py`,
+    `urls.py`): `POST /api/imports/chunked/start/`,
+    `PUT|POST /api/imports/chunked/<id>/parts/<index>/`,
+    `POST /api/imports/chunked/<id>/complete/`, and
+    `GET /api/imports/chunked/<id>/` (progress, for resuming). `complete`
+    returns the **same** response shape as the matching single-request
+    endpoint. Part PUTs use a looser throttle scope (`document_import_chunks`,
+    5000/hour) than the whole-file `document_imports` scope (120/hour).
+  - **Service layer** (`opencontractserver/document_imports/services.py`):
+    `start_chunked_upload` / `store_chunk` / `complete_chunked_upload` plus a
+    streaming reassembler (peak memory bounded to one 8 MB block regardless of
+    file size) and `purge_stale_chunked_uploads`. All four import kinds are
+    supported (single document + the three zip flows). Per-user session
+    isolation (IDOR-safe 404s), arithmetic + integrity validation, and
+    fast-fail permission gating at `start`.
+  - **Periodic cleanup** (`opencontractserver/document_imports/tasks.py`,
+    `config/settings/base.py` `CELERY_BEAT_SCHEDULE`): hourly
+    `purge_stale_chunked_uploads` GCs abandoned sessions and their stored parts
+    after `CHUNKED_UPLOAD_STALE_HOURS` (default 24h).
+  - **New settings** (`config/settings/base.py`):
+    `CHUNKED_UPLOAD_PART_MAX_BYTES` (default 90 MB, must stay below the proxy
+    cap), `CHUNKED_UPLOAD_MAX_PARTS`, `CHUNKED_UPLOAD_STALE_HOURS`, and the
+    `document_import_chunks` throttle rate.
+  - **Frontend** (`frontend/src/utils/importHttp.ts`): the four public import
+    helpers transparently route files above `UPLOAD.CHUNK_THRESHOLD_BYTES`
+    (50 MB) through the chunked protocol — call sites and response handling are
+    unchanged. The artificial 100 MB dropzone cap was raised
+    (`constants.ts`: `MAX_FILE_SIZE_BYTES` → 2 GB for single documents;
+    bulk-zip dropzone now uses the 500 MB `MAX_IMPORT_ZIP_BYTES` cap via new
+    `FileDropZone` `maxSizeBytes`/`maxSizeDisplay` props).
+  - **Tests**: `opencontractserver/tests/test_document_imports_chunked.py`
+    (round-trip byte-exact reassembly, validation, IDOR isolation, integrity
+    checks, zip kinds, stale-session GC) and a new `importHttp chunked
+    transport` suite in
+    `frontend/src/utils/__tests__/importHttp.test.ts`.
+
 ### Security
 
 - **SmartLabelListMutation IDOR fix** (`config/graphql/smart_label_mutations.py`)

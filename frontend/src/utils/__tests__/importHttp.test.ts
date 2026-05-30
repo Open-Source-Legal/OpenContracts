@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authToken } from "../../graphql/cache";
+import { UPLOAD } from "../../assets/configurations/constants";
 import {
   importCorpusExportMultipart,
   importDocumentMultipart,
@@ -533,5 +534,181 @@ describe("importHttp.importCorpusExportMultipart", () => {
     });
     const result = await importCorpusExportMultipart({ file });
     expect(result.ok).toBe(false);
+  });
+});
+
+/**
+ * Cloudflare caps a single proxied request body at 100MB. Files above
+ * ``CHUNK_THRESHOLD_BYTES`` must therefore be uploaded over the
+ * ``/api/imports/chunked/*`` protocol (start -> parts -> complete) rather than
+ * a single request, while small files keep the single-shot path. The chunked
+ * ``complete`` body shape is identical to the single-request body, so callers
+ * get the same typed result either way.
+ */
+describe("importHttp chunked transport", () => {
+  beforeEach(() => {
+    authToken("test-token-123");
+  });
+
+  afterEach(() => {
+    authToken("");
+    clearMockFetch();
+  });
+
+  /** A File that reports ``sizeBytes`` regardless of its real (tiny) content. */
+  function makeLargeFile(
+    name: string,
+    sizeBytes: number,
+    type = "application/pdf"
+  ): File {
+    const file = new File([new Uint8Array(8)], name, { type });
+    Object.defineProperty(file, "size", { value: sizeBytes });
+    return file;
+  }
+
+  /** Route the three chunked verbs to canned responses by URL. */
+  function makeRoutedFetch(routes: {
+    start: () => Response;
+    part: () => Response;
+    complete: () => Response;
+  }): ReturnType<typeof vi.fn> {
+    return vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/chunked/start/")) return routes.start();
+      if (u.includes("/parts/")) return routes.part();
+      if (u.includes("/complete/")) return routes.complete();
+      throw new Error(`unexpected url ${u}`);
+    });
+  }
+
+  it("splits a large document into start, parts, and complete requests", async () => {
+    const sizeBytes =
+      UPLOAD.CHUNK_THRESHOLD_BYTES + UPLOAD.CHUNK_SIZE_BYTES * 2;
+    const expectedParts = Math.ceil(sizeBytes / UPLOAD.CHUNK_SIZE_BYTES);
+
+    const fetchMock = makeRoutedFetch({
+      start: () =>
+        makeJsonResponse({ ok: true, upload_id: "u-1" }, { status: 201 }),
+      part: () => makeJsonResponse({ ok: true }, { status: 200 }),
+      complete: () =>
+        makeJsonResponse(
+          { ok: true, document_id: 99, status: "created" },
+          { status: 201 }
+        ),
+    });
+    setMockFetch(fetchMock);
+
+    const file = makeLargeFile("big.pdf", sizeBytes);
+    const result = await importDocumentMultipart({
+      file,
+      title: "Big",
+      addToCorpusId: "7",
+    });
+
+    expect(result).toEqual({ ok: true, document_id: 99, status: "created" });
+
+    // 1 start + N parts + 1 complete.
+    expect(fetchMock).toHaveBeenCalledTimes(2 + expectedParts);
+
+    const calls = fetchMock.mock.calls;
+    const [startUrl, startInit] = calls[0];
+    expect(String(startUrl)).toContain("/api/imports/chunked/start/");
+    expect(startInit.method).toBe("POST");
+    expect(startInit.headers).toMatchObject({
+      Authorization: "Bearer test-token-123",
+    });
+    const startPayload = JSON.parse(startInit.body as string);
+    expect(startPayload.kind).toBe("document");
+    expect(startPayload.total_size).toBe(sizeBytes);
+    expect(startPayload.total_chunks).toBe(expectedParts);
+    expect(startPayload.metadata.title).toBe("Big");
+    expect(startPayload.metadata.add_to_corpus_id).toBe("7");
+
+    // Every part is a PUT of FormData carrying a Blob.
+    const partCall = calls[1];
+    expect(String(partCall[0])).toContain("/api/imports/chunked/u-1/parts/0/");
+    expect(partCall[1].method).toBe("PUT");
+    expect(partCall[1].body).toBeInstanceOf(FormData);
+
+    const completeCall = calls[calls.length - 1];
+    expect(String(completeCall[0])).toContain(
+      "/api/imports/chunked/u-1/complete/"
+    );
+    expect(completeCall[1].method).toBe("POST");
+  });
+
+  it("keeps small files on the single-request endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeJsonResponse({ ok: true, document_id: 3 }));
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1, 2, 3])], "small.pdf", {
+      type: "application/pdf",
+    });
+    const result = await importDocumentMultipart({ file, title: "Small" });
+
+    expect(result).toEqual({ ok: true, document_id: 3, status: undefined });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      "/api/imports/documents/"
+    );
+  });
+
+  it("aborts and surfaces the error when start is rejected", async () => {
+    const fetchMock = makeRoutedFetch({
+      start: () =>
+        makeJsonResponse(
+          { ok: false, error: "File too large.", max_bytes: 10 },
+          { status: 413 }
+        ),
+      part: () => makeJsonResponse({ ok: true }),
+      complete: () => makeJsonResponse({ ok: true }),
+    });
+    setMockFetch(fetchMock);
+
+    const file = makeLargeFile("huge.pdf", UPLOAD.CHUNK_THRESHOLD_BYTES + 1);
+    const result = await importDocumentMultipart({ file, title: "T" });
+
+    expect(result).toEqual({
+      ok: false,
+      status_code: 413,
+      error: "File too large.",
+    });
+    // No parts attempted once start fails.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("chunks a large ZIP via the documents_zip kind", async () => {
+    const fetchMock = makeRoutedFetch({
+      start: () =>
+        makeJsonResponse({ ok: true, upload_id: "z-1" }, { status: 201 }),
+      part: () => makeJsonResponse({ ok: true }),
+      complete: () =>
+        makeJsonResponse(
+          { ok: true, job_id: "job-42", message: "Import started." },
+          { status: 202 }
+        ),
+    });
+    setMockFetch(fetchMock);
+
+    const file = makeLargeFile(
+      "bundle.zip",
+      UPLOAD.CHUNK_THRESHOLD_BYTES + 1,
+      "application/zip"
+    );
+    const result = await importDocumentsZipMultipart({
+      file,
+      addToCorpusId: "5",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      job_id: "job-42",
+      message: "Import started.",
+    });
+    const startPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(startPayload.kind).toBe("documents_zip");
+    expect(startPayload.metadata.add_to_corpus_id).toBe("5");
   });
 });

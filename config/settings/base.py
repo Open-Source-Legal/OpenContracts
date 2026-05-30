@@ -792,6 +792,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
         "options": {"queue": "celery"},
     },
+    "chunked-uploads-purge-stale": {
+        "task": "opencontractserver.document_imports.tasks.purge_stale_chunked_uploads",
+        "schedule": 3600.0,  # hourly
+        "options": {"queue": "celery"},
+    },
 }
 
 # Worker Upload Processing
@@ -819,6 +824,24 @@ MAX_DOCUMENT_IMPORT_SIZE_BYTES = int(
         default=str(MAX_FILE_UPLOAD_SIZE_BYTES),
     )
 )
+
+# Chunked (resumable) upload limits
+# ------------------------------------------------------------------------------
+# Back the /api/imports/chunked/* endpoints, which slice a large file into
+# sub-ceiling parts to get past the 100 MB per-request body cap on upstream
+# proxies (Cloudflare). The assembled-file total is still bounded by
+# MAX_DOCUMENT_IMPORT_SIZE_BYTES above.
+#
+# Maximum size (bytes) of a single uploaded part. MUST stay below the smallest
+# upstream proxy body limit (Cloudflare: 100 MB). Default: 90 MB.
+CHUNKED_UPLOAD_PART_MAX_BYTES = int(
+    env("CHUNKED_UPLOAD_PART_MAX_BYTES", default=str(90 * 1024 * 1024))
+)
+# Hard cap on the number of parts in one session (bounds metadata / abuse).
+CHUNKED_UPLOAD_MAX_PARTS = int(env("CHUNKED_UPLOAD_MAX_PARTS", default="100000"))
+# Hours of inactivity before an unfinished session and its stored parts are
+# eligible for garbage collection by ``purge_stale_chunked_uploads``.
+CHUNKED_UPLOAD_STALE_HOURS = int(env("CHUNKED_UPLOAD_STALE_HOURS", default="24"))
 
 # Maximum metadata JSON size (in bytes) accepted by the worker upload endpoint.
 # Default: 500 MB. Set to 0 to disable the limit.
@@ -895,6 +918,11 @@ REST_FRAMEWORK = {
         "annotation_images": "200/hour",  # Image retrieval endpoint, authenticated (higher bandwidth)
         "annotation_images_anon": "200/hour",  # Image retrieval endpoint, anonymous
         "document_imports": "120/hour",  # Multipart document import endpoints
+        # Chunked-upload part PUTs: one large file fans out into many part
+        # requests, so this scope is far looser than ``document_imports``
+        # (which is sized for whole-file imports). ``start``/``complete`` stay
+        # on the strict ``document_imports`` scope.
+        "document_import_chunks": "5000/hour",
     },
 }
 

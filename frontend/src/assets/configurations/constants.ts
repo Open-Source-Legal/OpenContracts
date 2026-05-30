@@ -137,17 +137,36 @@ export const DEBOUNCE = {
 
 // Upload constraints
 export const UPLOAD = {
-  /** Maximum file size in bytes (100MB) */
-  MAX_FILE_SIZE_BYTES: 100 * 1024 * 1024,
-  /** Maximum file size display string */
-  MAX_FILE_SIZE_DISPLAY: "100MB",
+  /**
+   * Maximum single-document size in bytes (2GB). Files larger than
+   * ``CHUNK_THRESHOLD_BYTES`` are uploaded in chunks (see ``importHttp``),
+   * so this is no longer bounded by the 100MB upstream proxy (Cloudflare)
+   * request cap. The backend ``MAX_DOCUMENT_IMPORT_SIZE_BYTES`` is the
+   * authoritative ceiling and returns 413 above it.
+   */
+  MAX_FILE_SIZE_BYTES: 2 * 1024 * 1024 * 1024,
+  /** Maximum single-document size display string */
+  MAX_FILE_SIZE_DISPLAY: "2GB",
+  /**
+   * Slice size (50MB) for chunked uploads. Must stay below the smallest
+   * upstream proxy body limit (Cloudflare caps proxied requests at 100MB);
+   * 50MB leaves ~2x headroom for multipart framing. Mirrors the backend
+   * ``CHUNKED_UPLOAD_PART_MAX_BYTES`` guard.
+   */
+  CHUNK_SIZE_BYTES: 50 * 1024 * 1024,
+  /**
+   * Files larger than this are uploaded via the chunked endpoints instead
+   * of a single request. Equal to one chunk, so anything that would risk
+   * the proxy cap is chunked while small files keep the single-shot path.
+   */
+  CHUNK_THRESHOLD_BYTES: 50 * 1024 * 1024,
   /** Progress percentage shown while bulk upload is in flight (before completion) */
   BULK_PROGRESS_INITIAL: 50,
   /** Maximum number of corpuses to show in the inline selector preview */
   CORPUS_PREVIEW_LIMIT: 5,
-  /** Maximum corpus-import ZIP size in bytes (500MB) */
+  /** Maximum corpus-import / bulk ZIP size in bytes (500MB) */
   MAX_IMPORT_ZIP_BYTES: 500 * 1024 * 1024,
-  /** Maximum corpus-import ZIP size display string */
+  /** Maximum corpus-import / bulk ZIP size display string */
   MAX_IMPORT_ZIP_DISPLAY: "500MB",
 } as const;
 
