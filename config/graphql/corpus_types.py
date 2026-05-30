@@ -40,8 +40,12 @@ class CorpusCategoryType(DjangoObjectType):
 
     NOTE: This type does NOT use AnnotatePermissionsForReadMixin because
     corpus categories are admin-provisioned structural data that is globally
-    visible to all users. Categories are managed via Django Admin only and
-    do not have per-user permissions.
+    visible to all users and do not have per-user permissions.
+
+    Categories are managed by superusers either via Django Admin or at
+    runtime through the create/update/deleteCorpusCategory GraphQL mutations
+    (see config/graphql/corpus_category_mutations.py) and the in-app
+    "Corpus Categories" admin panel.
 
     See docs/permissioning/consolidated_permissioning_guide.md for details.
     """

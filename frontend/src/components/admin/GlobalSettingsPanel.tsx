@@ -1,7 +1,15 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
-import { Trophy, Bot, Settings, Users, Upload, LucideIcon } from "lucide-react";
+import {
+  Trophy,
+  Bot,
+  Settings,
+  Users,
+  Upload,
+  Tag,
+  LucideIcon,
+} from "lucide-react";
 
 import {
   OS_LEGAL_COLORS,
@@ -238,6 +246,15 @@ const settingsItems: SettingItem[] = [
     icon: Upload,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.accent} 0%, ${OS_LEGAL_COLORS.accentHover} 100%)`,
     route: "/admin/worker-accounts",
+  },
+  {
+    id: "corpus-categories",
+    title: "Corpus Categories",
+    description:
+      "Create and manage the category tags (e.g. Case Law, Contracts) used to organize corpuses on the Discover page.",
+    icon: Tag,
+    gradient: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+    route: "/admin/corpus-categories",
   },
   {
     id: "system-settings",
