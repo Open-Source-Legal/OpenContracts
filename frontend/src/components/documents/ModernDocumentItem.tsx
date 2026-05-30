@@ -515,10 +515,9 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     },
   });
 
-  const doc_label_objs =
-    item?.docLabelAnnotations?.edges
-      .map((edge) => edge?.node?.annotationLabel)
-      .filter((lbl): lbl is AnnotationLabelType => !!lbl) ?? [];
+  const doc_label_objs = item?.docTypeLabels
+    ? item.docTypeLabels.filter((lbl): lbl is AnnotationLabelType => !!lbl)
+    : [];
 
   const renderThumbnail = (className?: string) => (
     <>

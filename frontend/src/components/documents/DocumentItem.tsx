@@ -675,12 +675,8 @@ export const DocumentItem: React.FC<DocumentItemProps> = ({
   const canEdit = my_permissions.includes(PermissionTypes.CAN_UPDATE);
   const canDelete = my_permissions.includes(PermissionTypes.CAN_REMOVE);
 
-  let doc_label_objs = item?.docLabelAnnotations
-    ? item.docLabelAnnotations.edges
-        .map((edge) =>
-          edge?.node?.annotationLabel ? edge.node.annotationLabel : undefined
-        )
-        .filter((lbl): lbl is AnnotationLabelType => !!lbl)
+  let doc_label_objs = item?.docTypeLabels
+    ? item.docTypeLabels.filter((lbl): lbl is AnnotationLabelType => !!lbl)
     : [];
 
   return (

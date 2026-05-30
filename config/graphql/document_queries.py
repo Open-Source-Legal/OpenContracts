@@ -18,7 +18,7 @@ from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
-from config.graphql.custom_resolvers import requests_doc_label_annotations
+from config.graphql.custom_resolvers import requests_doc_type_labels
 from config.graphql.document_types import INGESTION_SOURCE_GLOBAL_ID_TYPE
 from config.graphql.filters import DocumentFilter, DocumentRelationshipFilter
 from config.graphql.graphene_types import (
@@ -70,7 +70,7 @@ class DocumentQueryMixin:
             info.context.user,
             request=info.context,
             lightweight=True,
-            with_doc_label_annotations=requests_doc_label_annotations(info),
+            with_doc_label_annotations=requests_doc_type_labels(info),
         )
 
     document = graphene.Field(DocumentType, id=graphene.ID())

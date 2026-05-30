@@ -53,6 +53,13 @@ class AnnotationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectT
 
 class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     json = GenericScalar()  # noqa
+    # ``data`` carries label-specific structured metadata (e.g. the
+    # ``{canonical_name, lat, lng, admin_codes, geocoded}`` payload that
+    # the OC_COUNTRY/OC_STATE/OC_CITY mutations write — see #1819).
+    # Declared explicitly as ``GenericScalar`` so graphene-django doesn't
+    # try to coerce the JSONField into a typed graphene field; the
+    # existing ``json`` declaration above uses the same pattern.
+    data = GenericScalar()  # noqa
     annotation_type = graphene.String(
         description="Annotation type (e.g. TOKEN_LABEL, SPAN_LABEL). "
         "Returns raw DB value to avoid enum serialization errors on invalid data.",
@@ -248,20 +255,32 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
     @classmethod
     def get_queryset(cls, queryset, info) -> Any:
-        # Check if permissions were already handled by the query optimizer
-        # The optimizer adds _can_read, _can_create, etc. annotations
-        if hasattr(queryset, "query") and queryset.query.annotations:
-            # Check if the queryset has permission annotations from the optimizer
-            if any(key.startswith("_can_") for key in queryset.query.annotations):
-                # Permissions already handled by query optimizer, don't filter again
-                return queryset
+        # Always pre-join the FKs the GraphQL type exposes
+        # (``annotation_label`` and ``corpus``). Without this, graphene-django's
+        # auto-generated FK resolver falls through to ``cls.get_node(info, pk)``
+        # → ``Corpus.objects.get(pk)`` per row — and because ``Corpus`` is a
+        # ``TreeNode`` registered with ``with_tree_fields=True``, every such
+        # ``get`` triggers a recursive ``WITH __rank_table`` CTE.
+        # ``AnnotationService.get_document_annotations`` already adds
+        # ``annotation_label`` / ``creator`` / ``analysis`` but not ``corpus``,
+        # so the join is added here regardless of which path produced the qs.
+        fk_joins = ("annotation_label", "corpus")
 
-        # Chain the queryset's own ``visible_to_user`` through the service
-        # layer so the visibility filter stays a single ``WHERE`` expression
-        # tree (no correlated ``pk__in`` subquery over the full table).
+        # The query optimizer adds ``_can_*`` annotations and has already
+        # filtered for visibility — don't re-filter.
+        if (
+            hasattr(queryset, "query")
+            and queryset.query.annotations
+            and any(key.startswith("_can_") for key in queryset.query.annotations)
+        ):
+            return queryset.select_related(*fk_joins)
+
+        # Otherwise apply ``visible_to_user`` via the service layer
+        # (the ``opencontracts.E001`` system check forbids inline use here),
+        # then layer the FK joins on top.
         return BaseService.filter_visible_qs(
             queryset, info.context.user, request=info.context
-        )
+        ).select_related(*fk_joins)
 
 
 class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
