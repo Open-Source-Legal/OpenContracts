@@ -103,9 +103,13 @@ export const CorpusResearchReportCards: React.FC<
     }
   }, [auth_token, opened_corpus?.id, refetch]);
 
-  if (error) {
-    toast.error("ERROR\nCould not fetch research reports for this corpus.");
-  }
+  // Fire the error toast from an effect, not the render body — a render-body
+  // call re-fires on every re-render while ``error`` stays truthy.
+  useEffect(() => {
+    if (error) {
+      toast.error("ERROR\nCould not fetch research reports for this corpus.");
+    }
+  }, [error]);
 
   const allReports = useMemo(
     () => (data?.researchReports?.edges ?? []).map((e) => e.node),

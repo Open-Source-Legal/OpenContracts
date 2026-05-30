@@ -10,7 +10,7 @@
  * relies on this hook for the prompt terminal flip).
  */
 
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect, useMemo } from "react";
 import {
   useNotificationWebSocket,
   NotificationUpdate,
@@ -44,13 +44,15 @@ export function useResearchCompletionNotification(
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
-  // Decode the numeric PK once (notification.data.report_id is a raw PK)
-  let numericId: number | null = null;
-  try {
-    numericId = reportId ? getNumericIdFromGlobalId(reportId) : null;
-  } catch {
-    // Invalid ID format
-  }
+  // Decode the numeric PK once (notification.data.report_id is a raw PK).
+  // Memoised because it feeds the handleNotificationCreated useCallback deps.
+  const numericId = useMemo<number | null>(() => {
+    try {
+      return reportId ? getNumericIdFromGlobalId(reportId) : null;
+    } catch {
+      return null; // Invalid ID format
+    }
+  }, [reportId]);
 
   const handleNotificationCreated = useCallback(
     (notification: NotificationUpdate) => {
@@ -63,9 +65,6 @@ export function useResearchCompletionNotification(
         notificationReportId !== undefined &&
         Number(notificationReportId) === numericId
       ) {
-        console.debug(
-          `[useResearchCompletionNotification] Report ${numericId} reached terminal state`
-        );
         onCompleteRef.current();
       }
     },

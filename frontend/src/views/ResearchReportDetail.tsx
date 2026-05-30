@@ -5,7 +5,7 @@ import {
   PageContainer,
   ContentContainer,
 } from "../components/layout/PageLayout";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import { toast } from "react-toastify";
 import {
@@ -301,7 +301,9 @@ const Row = styled.div`
   border-radius: 8px;
 `;
 
-const RowLink = styled.a`
+// Internal document/citation links must route client-side — a bare ``<a
+// href>`` to an in-app path (``/d/...``) triggers a full page reload.
+const RowLink = styled(Link)`
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -751,7 +753,7 @@ export const ResearchReportDetail: React.FC = () => {
                               </>
                             );
                             return href && href !== "#" ? (
-                              <RowLink key={i} href={href}>
+                              <RowLink key={i} to={href}>
                                 {inner}
                               </RowLink>
                             ) : (
@@ -781,11 +783,8 @@ export const ResearchReportDetail: React.FC = () => {
                               doc,
                               report.corpus ?? undefined
                             );
-                            return (
-                              <RowLink
-                                key={doc.id}
-                                href={href !== "#" ? href : undefined}
-                              >
+                            const inner = (
+                              <>
                                 <FileText
                                   size={18}
                                   color={OS_LEGAL_COLORS.textMuted}
@@ -795,7 +794,14 @@ export const ResearchReportDetail: React.FC = () => {
                                     {doc.title || "Untitled document"}
                                   </RowTitle>
                                 </RowBody>
+                              </>
+                            );
+                            return href && href !== "#" ? (
+                              <RowLink key={doc.id} to={href}>
+                                {inner}
                               </RowLink>
+                            ) : (
+                              <Row key={doc.id}>{inner}</Row>
                             );
                           })}
                         </List>
