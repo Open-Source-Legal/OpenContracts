@@ -151,7 +151,12 @@ export const UPLOAD = {
    * Slice size (50MB) for chunked uploads. Must stay below the smallest
    * upstream proxy body limit (Cloudflare caps proxied requests at 100MB);
    * 50MB leaves ~2x headroom for multipart framing. Mirrors the backend
-   * ``CHUNKED_UPLOAD_PART_MAX_BYTES`` guard.
+   * ``CHUNKED_UPLOAD_PART_MAX_BYTES`` guard (90MB).
+   *
+   * NOTE: this MUST stay below the backend ``CHUNKED_UPLOAD_PART_MAX_BYTES``
+   * (``config/settings/base.py``); a part larger than that backend cap is
+   * rejected with a 413 at ``store_chunk``. Do not widen this past the
+   * backend value without bumping it too.
    */
   CHUNK_SIZE_BYTES: 50 * 1024 * 1024,
   /**
@@ -160,6 +165,25 @@ export const UPLOAD = {
    * the proxy cap is chunked while small files keep the single-shot path.
    */
   CHUNK_THRESHOLD_BYTES: 50 * 1024 * 1024,
+  /**
+   * How many parts to upload concurrently. The backend serialises writes
+   * per ``(session, index)`` and supports idempotent re-upload, so parallel
+   * part PUTs are safe; 4 keeps a fat pipe busy without overwhelming the
+   * browser's per-host connection pool.
+   */
+  CHUNK_CONCURRENCY: 4,
+  /**
+   * Maximum attempts per part before the whole upload aborts. The backend
+   * persists parts and accepts idempotent re-upload, so a transient network
+   * blip on one part of a long upload can be retried instead of discarding
+   * the whole transfer.
+   */
+  CHUNK_MAX_ATTEMPTS: 3,
+  /**
+   * Base delay (ms) for exponential backoff between part retries:
+   * attempt N waits ``CHUNK_RETRY_BASE_DELAY_MS * 2**(N-1)``.
+   */
+  CHUNK_RETRY_BASE_DELAY_MS: 500,
   /** Progress percentage shown while bulk upload is in flight (before completion) */
   BULK_PROGRESS_INITIAL: 50,
   /** Maximum number of corpuses to show in the inline selector preview */

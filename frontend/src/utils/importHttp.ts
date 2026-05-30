@@ -41,6 +41,8 @@ export interface ImportDocumentRestInput {
   addToFolderId?: string | null;
   makePublic?: boolean;
   customMeta?: Record<string, unknown>;
+  /** Optional progress callback (fraction in ``[0, 1]``) for large uploads. */
+  onProgress?: UploadProgressCallback;
 }
 
 export interface ImportDocumentRestSuccess {
@@ -66,6 +68,8 @@ export interface ImportZipRestInput {
   addToCorpusId?: string | null;
   makePublic?: boolean;
   customMeta?: Record<string, unknown>;
+  /** Optional progress callback (fraction in ``[0, 1]``) for large uploads. */
+  onProgress?: UploadProgressCallback;
 }
 
 export interface ImportZipRestSuccess {
@@ -90,10 +94,14 @@ export interface ImportZipToCorpusRestInput {
   description?: string;
   makePublic?: boolean;
   customMeta?: Record<string, unknown>;
+  /** Optional progress callback (fraction in ``[0, 1]``) for large uploads. */
+  onProgress?: UploadProgressCallback;
 }
 
 export interface ImportCorpusExportRestInput {
   file: File;
+  /** Optional progress callback (fraction in ``[0, 1]``) for large uploads. */
+  onProgress?: UploadProgressCallback;
 }
 
 export interface ImportCorpusExportRestSuccess {
@@ -165,9 +173,81 @@ interface ChunkedTransportResult {
   error?: string;
 }
 
+/**
+ * Progress callback invoked after each successful part upload (and once at
+ * ``1`` for the single-shot path), reporting a fraction in ``[0, 1]`` of the
+ * file transferred. Lets callers drive a progress bar for large uploads.
+ */
+export type UploadProgressCallback = (fraction: number) => void;
+
 /** Whether a file is large enough to require the chunked endpoints. */
 function shouldChunkFile(file: File): boolean {
   return file.size > UPLOAD.CHUNK_THRESHOLD_BYTES;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface PartUploadOutcome {
+  ok: boolean;
+  status_code: number;
+  error?: string;
+}
+
+/**
+ * PUT a single part with exponential-backoff retry. The backend persists
+ * parts and accepts idempotent re-upload (overwriting the same index), so a
+ * transient failure can be safely retried. Non-retryable client errors
+ * (4xx other than 408/429) fail fast — retrying a 4xx just wastes attempts.
+ */
+async function putPartWithRetry(params: {
+  root: string;
+  uploadId: string;
+  index: number;
+  filename: string;
+  blob: Blob;
+}): Promise<PartUploadOutcome> {
+  const url = `${params.root}/api/imports/chunked/${params.uploadId}/parts/${params.index}/`;
+  let lastStatus = 0;
+  let lastError = "Upload failed";
+
+  for (let attempt = 1; attempt <= UPLOAD.CHUNK_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      await delay(UPLOAD.CHUNK_RETRY_BASE_DELAY_MS * 2 ** (attempt - 2));
+    }
+    // Build FormData fresh each attempt — a consumed body cannot be re-sent.
+    const fd = new FormData();
+    fd.append("file", params.blob, `${params.filename}.part${params.index}`);
+    try {
+      const partRes = await fetch(url, {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: fd,
+      });
+      if (partRes.ok) {
+        return { ok: true, status_code: partRes.status };
+      }
+      const retryable =
+        partRes.status >= 500 ||
+        partRes.status === 408 ||
+        partRes.status === 429;
+      if (!retryable) {
+        return {
+          ok: false,
+          status_code: partRes.status,
+          error: await parseErrorMessage(partRes),
+        };
+      }
+      lastStatus = partRes.status;
+      lastError = await parseErrorMessage(partRes);
+    } catch (e) {
+      // Network-level failure (offline, DNS, reset) — retryable.
+      lastStatus = 0;
+      lastError = e instanceof Error ? e.message : "Network error";
+    }
+  }
+  return { ok: false, status_code: lastStatus, error: lastError };
 }
 
 async function uploadFileInChunks(params: {
@@ -175,6 +255,7 @@ async function uploadFileInChunks(params: {
   file: File;
   filename: string;
   metadata: Record<string, unknown>;
+  onProgress?: UploadProgressCallback;
 }): Promise<ChunkedTransportResult> {
   const root = getApiRoot();
   const chunkSize = UPLOAD.CHUNK_SIZE_BYTES;
@@ -211,29 +292,47 @@ async function uploadFileInChunks(params: {
     };
   }
 
-  // 2. Upload each slice. ``File.slice`` returns a lazy Blob, so the browser
-  //    only materialises one part at a time — even a multi-GB file never sits
-  //    in memory all at once.
-  for (let i = 0; i < totalChunks; i++) {
-    const begin = i * chunkSize;
-    const end = Math.min(begin + chunkSize, totalSize);
-    const fd = new FormData();
-    fd.append(
-      "file",
-      params.file.slice(begin, end),
-      `${params.filename}.part${i}`
-    );
-    const partRes = await fetch(
-      `${root}/api/imports/chunked/${uploadId}/parts/${i}/`,
-      { method: "PUT", headers: buildAuthHeaders(), body: fd }
-    );
-    if (!partRes.ok) {
-      return {
-        ok: false,
-        status_code: partRes.status,
-        error: await parseErrorMessage(partRes),
-      };
+  // 2. Upload the slices with bounded concurrency. ``File.slice`` returns a
+  //    lazy Blob, so at most ``CHUNK_CONCURRENCY`` parts are materialised at
+  //    once — even a multi-GB file never sits in memory all at once. A worker
+  //    pool of fixed size drains a shared index counter; the first hard part
+  //    failure (after retries) aborts the remaining workers.
+  let nextIndex = 0;
+  let completed = 0;
+  let failure: ChunkedTransportResult | null = null;
+
+  const worker = async (): Promise<void> => {
+    while (failure === null) {
+      const i = nextIndex;
+      if (i >= totalChunks) return;
+      nextIndex += 1;
+
+      const begin = i * chunkSize;
+      const end = Math.min(begin + chunkSize, totalSize);
+      const outcome = await putPartWithRetry({
+        root,
+        uploadId,
+        index: i,
+        filename: params.filename,
+        blob: params.file.slice(begin, end),
+      });
+      if (!outcome.ok) {
+        failure = {
+          ok: false,
+          status_code: outcome.status_code,
+          error: outcome.error,
+        };
+        return;
+      }
+      completed += 1;
+      params.onProgress?.(completed / totalChunks);
     }
+  };
+
+  const workerCount = Math.min(UPLOAD.CHUNK_CONCURRENCY, totalChunks);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (failure !== null) {
+    return failure;
   }
 
   // 3. Reassemble + import.
@@ -381,6 +480,7 @@ export async function importDocumentMultipart(
       file: input.file,
       filename: input.filename ?? input.file.name,
       metadata: buildDocumentMetadata(input),
+      onProgress: input.onProgress,
     });
     if (!r.ok) {
       return {
@@ -431,6 +531,7 @@ export async function importDocumentsZipMultipart(
       file: input.file,
       filename: input.file.name,
       metadata: buildZipMetadata(input),
+      onProgress: input.onProgress,
     });
     if (!r.ok) {
       return {
@@ -483,6 +584,7 @@ export async function importZipToCorpusMultipart(
       file: input.file,
       filename: input.file.name,
       metadata: buildZipToCorpusMetadata(input),
+      onProgress: input.onProgress,
     });
     if (!r.ok) {
       return {
@@ -536,6 +638,7 @@ export async function importCorpusExportMultipart(
       file: input.file,
       filename: input.file.name,
       metadata: {},
+      onProgress: input.onProgress,
     });
     if (!r.ok) {
       return {

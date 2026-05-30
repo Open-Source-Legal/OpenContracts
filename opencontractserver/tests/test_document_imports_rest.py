@@ -643,7 +643,7 @@ class ServiceHelperUnitTests(TestCase):
         )
 
     def test_normalise_optional_blank_string_becomes_none(self):
-        from opencontractserver.document_imports.views import normalise_optional
+        from opencontractserver.document_imports.services import normalise_optional
 
         self.assertIsNone(normalise_optional(""))
         self.assertIsNone(normalise_optional("   "))

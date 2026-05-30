@@ -49,11 +49,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`constants.ts`: `MAX_FILE_SIZE_BYTES` → 2 GB for single documents;
     bulk-zip dropzone now uses the 500 MB `MAX_IMPORT_ZIP_BYTES` cap via new
     `FileDropZone` `maxSizeBytes`/`maxSizeDisplay` props).
+  - **Resilient frontend transport** (`frontend/src/utils/importHttp.ts`,
+    `constants.ts`): parts now upload with bounded concurrency
+    (`UPLOAD.CHUNK_CONCURRENCY`, default 4) instead of strictly sequentially,
+    each part retries with exponential backoff on transient/5xx/network
+    failures (`CHUNK_MAX_ATTEMPTS`, `CHUNK_RETRY_BASE_DELAY_MS`) while 4xx
+    client errors fail fast, and an optional `onProgress(fraction)` callback
+    on every public import helper drives a progress bar for large uploads.
+  - **GC race hardening** (`opencontractserver/document_imports/services.py`):
+    `purge_stale_chunked_uploads` no longer purges `ASSEMBLING` sessions inside
+    the normal stale window (which could delete parts out from under a live
+    `complete` reassembly); they are reclaimed only after a longer grace window
+    (`CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS`, default 6h) so a crashed
+    mid-assembly worker is still cleaned up. The Celery task now also accepts
+    `completed_retention_days` so an operator can override retention at enqueue
+    time. The single-document reassembly's whole-file-in-RAM tradeoff is
+    tracked as a streaming follow-up (issue #1843).
   - **Tests**: `opencontractserver/tests/test_document_imports_chunked.py`
     (round-trip byte-exact reassembly, validation, IDOR isolation, integrity
-    checks, zip kinds, stale-session GC) and a new `importHttp chunked
-    transport` suite in
-    `frontend/src/utils/__tests__/importHttp.test.ts`.
+    checks, zip kinds, stale-session GC, ASSEMBLING grace window) and the
+    `importHttp chunked transport` suite in
+    `frontend/src/utils/__tests__/importHttp.test.ts` (concurrency cap,
+    per-part retry, 4xx fail-fast, progress reporting).
 
 ### Security
 

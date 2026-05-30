@@ -638,6 +638,14 @@ def import_corpus_export_for_user(
 # Bounds peak memory during assembly to O(block), independent of file size.
 CHUNK_ASSEMBLY_BLOCK_SIZE = 8 * 1024 * 1024
 
+# Grace window (hours) before an ``ASSEMBLING`` session is treated as a crashed
+# worker and made eligible for GC. Deliberately far larger than any real
+# reassembly (which streams parts in a single synchronous ``complete`` request
+# and finishes in seconds-to-minutes) so the staleness GC can never delete
+# parts out from under a live assembly, while a worker that died mid-assembly
+# is still eventually reclaimed. See ``purge_stale_chunked_uploads``.
+CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS = 6
+
 
 class ChunkedUploadError(Exception):
     """
@@ -669,7 +677,7 @@ class ChunkedSessionInfo:
 
 def _chunked_total_cap() -> int:
     """Total-size ceiling for a chunked upload (0 disables the check)."""
-    return getattr(settings, "MAX_DOCUMENT_IMPORT_SIZE_BYTES", 0)
+    return settings.MAX_DOCUMENT_IMPORT_SIZE_BYTES
 
 
 def _chunked_part_cap() -> int:
@@ -678,11 +686,11 @@ def _chunked_part_cap() -> int:
     limit (Cloudflare: 100 MB) — a part that exceeds the proxy cap could
     never have reached us, so this mainly bounds abuse / misconfiguration.
     """
-    return getattr(settings, "CHUNKED_UPLOAD_PART_MAX_BYTES", 90 * 1024 * 1024)
+    return settings.CHUNKED_UPLOAD_PART_MAX_BYTES
 
 
 def _chunked_max_parts() -> int:
-    return getattr(settings, "CHUNKED_UPLOAD_MAX_PARTS", 100_000)
+    return settings.CHUNKED_UPLOAD_MAX_PARTS
 
 
 def _session_info(session: ChunkedUploadSession) -> ChunkedSessionInfo:
@@ -863,7 +871,11 @@ def store_chunk(
 
         # Bump ``modified`` so the staleness GC measures time-since-last-activity.
         locked.save(update_fields=["modified"])
-    return _session_info(session)
+    # Report from ``locked`` (the freshly re-fetched, post-write row) rather
+    # than the pre-transaction ``session`` snapshot. The immutable fields read
+    # here (``total_chunks`` / ``total_size``) are identical on both, but using
+    # ``locked`` keeps the source of truth unambiguous.
+    return _session_info(locked)
 
 
 def get_chunked_session_status(*, user, upload_id) -> ChunkedSessionInfo:
@@ -999,7 +1011,7 @@ def complete_chunked_upload(
             # therefore ~the file size, bounded by MAX_DOCUMENT_IMPORT_SIZE_BYTES
             # (the start-time total-size cap), NOT by the per-block guarantee
             # that holds for the ZIP kinds. Making import_content accept a
-            # file-like would lift this; tracked as follow-up.
+            # file-like would lift this; tracked as follow-up in issue #1843.
             file_bytes = tmp.read()
             result = import_document_for_user(
                 user=user,
@@ -1074,26 +1086,44 @@ def purge_stale_chunked_uploads(
     staleness window, plus COMPLETED sessions older than the retention
     window so the audit-trail rows don't accumulate unboundedly.
 
-    Non-COMPLETED (PENDING/ASSEMBLING/FAILED) sessions are purged after
-    ``stale_hours`` of inactivity. COMPLETED sessions — whose parts were
-    already removed on completion, so only a small metadata row remains —
-    are purged after ``completed_retention_days`` (0 keeps them forever).
+    PENDING/FAILED sessions are purged after ``stale_hours`` of inactivity.
+    ASSEMBLING sessions are purged only after a longer grace window
+    (``max(stale_hours, CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS)``) so the GC
+    never races a live ``complete`` reassembly. COMPLETED sessions — whose
+    parts were already removed on completion, so only a small metadata row
+    remains — are purged after ``completed_retention_days`` (0 keeps them
+    forever).
 
     Returns the number of sessions purged.
     """
     hours = stale_hours
     if hours is None:
-        hours = getattr(settings, "CHUNKED_UPLOAD_STALE_HOURS", 24)
+        hours = settings.CHUNKED_UPLOAD_STALE_HOURS
     retention_days = completed_retention_days
     if retention_days is None:
-        retention_days = getattr(
-            settings, "CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS", 30
-        )
+        retention_days = settings.CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS
 
     now = timezone.now()
     stale_cutoff = now - timedelta(hours=hours)
-    stale = ChunkedUploadSession.objects.filter(modified__lt=stale_cutoff).exclude(
-        status=ChunkedUploadStatus.COMPLETED
+    # Purge abandoned PENDING/FAILED sessions after the stale window. ASSEMBLING
+    # is excluded here: such a session is mid-reassembly inside a live
+    # ``complete`` request whose ``_assemble_session_to_tempfile`` streams parts
+    # WITHOUT holding the session row lock, so deleting its parts (even under
+    # ``select_for_update``) could corrupt the in-flight assembly. ASSEMBLING is
+    # reclaimed separately below on a much longer grace window.
+    stale = (
+        ChunkedUploadSession.objects.filter(modified__lt=stale_cutoff)
+        .exclude(status=ChunkedUploadStatus.COMPLETED)
+        .exclude(status=ChunkedUploadStatus.ASSEMBLING)
+    )
+
+    # A session still ASSEMBLING long past any plausible reassembly duration is
+    # a crashed worker; reclaim it after the grace window (never less than the
+    # configured stale window) so it cannot race a healthy in-progress assembly.
+    assembling_grace_hours = max(hours, CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS)
+    assembling_cutoff = now - timedelta(hours=assembling_grace_hours)
+    assembling_stale = ChunkedUploadSession.objects.filter(
+        status=ChunkedUploadStatus.ASSEMBLING, modified__lt=assembling_cutoff
     )
 
     completed_stale = ChunkedUploadSession.objects.none()
@@ -1104,7 +1134,7 @@ def purge_stale_chunked_uploads(
         )
 
     purged = 0
-    for session in list(stale) + list(completed_stale):
+    for session in list(stale) + list(assembling_stale) + list(completed_stale):
         _delete_session_parts(session)
         session.delete()
         purged += 1

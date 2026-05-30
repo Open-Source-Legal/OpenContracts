@@ -497,7 +497,10 @@ class ChunkedUploadCompleteView(APIView):
     authentication_classes = [GraphQLJWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
-    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    # ``complete`` carries no request body — the upload id comes from the URL —
+    # so a single JSON parser is sufficient. Declaring the multipart parsers
+    # would make DRF attempt multipart parsing on an empty body for nothing.
+    parser_classes = [JSONParser]
 
     def post(self, request: Request, upload_id: str) -> Response:
         try:

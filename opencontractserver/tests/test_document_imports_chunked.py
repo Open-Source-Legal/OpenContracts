@@ -427,6 +427,52 @@ class ChunkedUploadServiceUnitTests(TestCase):
         self.assertFalse(ChunkedUploadSession.objects.filter(id=session.id).exists())
         self.assertEqual(ChunkedUploadPart.objects.count(), 0)
 
+    def test_purge_spares_assembling_within_grace_but_reclaims_crashed(self):
+        """ASSEMBLING sessions are protected from the normal stale window.
+
+        A live ``complete`` request streams parts without holding the session
+        row lock, so the GC must not delete an ASSEMBLING session's parts
+        inside the (generous) grace window — only once it has clearly outlived
+        any real reassembly (a crashed worker).
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from opencontractserver.document_imports.services import (
+            CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS,
+            purge_stale_chunked_uploads,
+        )
+
+        def _make_assembling(filename: str) -> ChunkedUploadSession:
+            return ChunkedUploadSession.objects.create(
+                creator=self.user,
+                kind="document",
+                filename=filename,
+                total_size=10,
+                chunk_size=10,
+                total_chunks=1,
+                status=ChunkedUploadStatus.ASSEMBLING,
+            )
+
+        live = _make_assembling("live.pdf")
+        crashed = _make_assembling("crashed.pdf")
+
+        # ``live`` is past the 1h stale window but well within the grace window;
+        # ``crashed`` is past the grace window.
+        ChunkedUploadSession.objects.filter(id=live.id).update(
+            modified=timezone.now() - timedelta(hours=2)
+        )
+        ChunkedUploadSession.objects.filter(id=crashed.id).update(
+            modified=timezone.now()
+            - timedelta(hours=CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS + 1)
+        )
+
+        purged = purge_stale_chunked_uploads(stale_hours=1)
+        self.assertEqual(purged, 1)
+        self.assertTrue(ChunkedUploadSession.objects.filter(id=live.id).exists())
+        self.assertFalse(ChunkedUploadSession.objects.filter(id=crashed.id).exists())
+
     def test_purge_removes_old_completed_but_keeps_recent(self):
         from datetime import timedelta
 

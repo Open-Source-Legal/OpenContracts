@@ -711,4 +711,167 @@ describe("importHttp chunked transport", () => {
     expect(startPayload.kind).toBe("documents_zip");
     expect(startPayload.metadata.add_to_corpus_id).toBe("5");
   });
+
+  it("retries a transiently-failing part and then completes", async () => {
+    // Part index 0 fails once with a 503 (retryable) then succeeds; the whole
+    // upload must still complete rather than abort on the blip.
+    let part0Attempts = 0;
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/chunked/start/"))
+        return makeJsonResponse(
+          { ok: true, upload_id: "u-1" },
+          { status: 201 }
+        );
+      if (u.includes("/complete/"))
+        return makeJsonResponse(
+          { ok: true, document_id: 7, status: "created" },
+          { status: 201 }
+        );
+      if (u.includes("/parts/0/")) {
+        part0Attempts += 1;
+        if (part0Attempts === 1) {
+          return makeJsonResponse({ error: "try again" }, { status: 503 });
+        }
+      }
+      return makeJsonResponse({ ok: true }, { status: 200 });
+    });
+    setMockFetch(fetchMock);
+
+    const sizeBytes = UPLOAD.CHUNK_SIZE_BYTES * 2;
+    const file = makeLargeFile("retry.pdf", sizeBytes);
+
+    vi.useFakeTimers();
+    const promise = importDocumentMultipart({ file, title: "T" });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    vi.useRealTimers();
+
+    expect(result).toEqual({ ok: true, document_id: 7, status: "created" });
+    // Part 0 was attempted twice (initial 503 + successful retry).
+    expect(part0Attempts).toBe(2);
+  });
+
+  it("aborts after exhausting retries on a persistently-failing part", async () => {
+    const fetchMock = makeRoutedFetch({
+      start: () =>
+        makeJsonResponse({ ok: true, upload_id: "u-1" }, { status: 201 }),
+      part: () => makeJsonResponse({ error: "boom" }, { status: 500 }),
+      complete: () => makeJsonResponse({ ok: true }, { status: 201 }),
+    });
+    setMockFetch(fetchMock);
+
+    const file = makeLargeFile("fail.pdf", UPLOAD.CHUNK_SIZE_BYTES * 2);
+
+    vi.useFakeTimers();
+    const promise = importDocumentMultipart({ file, title: "T" });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    vi.useRealTimers();
+
+    expect(result).toEqual({
+      ok: false,
+      status_code: 500,
+      error: "boom",
+    });
+    // ``complete`` is never reached once a part fails.
+    const completeCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("/complete/")
+    );
+    expect(completeCalls).toHaveLength(0);
+  });
+
+  it("does not retry a 4xx client error on a part", async () => {
+    let partCalls = 0;
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/chunked/start/"))
+        return makeJsonResponse(
+          { ok: true, upload_id: "u-1" },
+          { status: 201 }
+        );
+      if (u.includes("/complete/")) return makeJsonResponse({ ok: true });
+      partCalls += 1;
+      return makeJsonResponse({ error: "bad part" }, { status: 400 });
+    });
+    setMockFetch(fetchMock);
+
+    const file = makeLargeFile("bad.pdf", UPLOAD.CHUNK_SIZE_BYTES * 2);
+    const result = await importDocumentMultipart({ file, title: "T" });
+
+    expect(result).toEqual({
+      ok: false,
+      status_code: 400,
+      error: "bad part",
+    });
+    // A 4xx is non-retryable: each worker's part fails on its first attempt.
+    // With 2 parts and 2 workers, both may fire once before the abort flips —
+    // but no part is attempted more than once.
+    expect(partCalls).toBeLessThanOrEqual(2);
+  });
+
+  it("reports upload progress ending at 1", async () => {
+    const fetchMock = makeRoutedFetch({
+      start: () =>
+        makeJsonResponse({ ok: true, upload_id: "u-1" }, { status: 201 }),
+      part: () => makeJsonResponse({ ok: true }, { status: 200 }),
+      complete: () =>
+        makeJsonResponse(
+          { ok: true, document_id: 1, status: "created" },
+          { status: 201 }
+        ),
+    });
+    setMockFetch(fetchMock);
+
+    const sizeBytes = UPLOAD.CHUNK_SIZE_BYTES * 3;
+    const expectedParts = Math.ceil(sizeBytes / UPLOAD.CHUNK_SIZE_BYTES);
+    const file = makeLargeFile("progress.pdf", sizeBytes);
+
+    const fractions: number[] = [];
+    const result = await importDocumentMultipart({
+      file,
+      title: "T",
+      onProgress: (f) => fractions.push(f),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fractions).toHaveLength(expectedParts);
+    expect(fractions[fractions.length - 1]).toBeCloseTo(1);
+    // Monotonic non-decreasing.
+    for (let i = 1; i < fractions.length; i++) {
+      expect(fractions[i]).toBeGreaterThanOrEqual(fractions[i - 1]);
+    }
+  });
+
+  it("uploads parts with bounded concurrency", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.includes("/chunked/start/"))
+        return makeJsonResponse(
+          { ok: true, upload_id: "u-1" },
+          { status: 201 }
+        );
+      if (u.includes("/complete/"))
+        return makeJsonResponse(
+          { ok: true, document_id: 1, status: "created" },
+          { status: 201 }
+        );
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return makeJsonResponse({ ok: true }, { status: 200 });
+    });
+    setMockFetch(fetchMock);
+
+    // 6 parts with a concurrency cap of 4 → peak in-flight should be 4.
+    const sizeBytes = UPLOAD.CHUNK_SIZE_BYTES * 6;
+    const file = makeLargeFile("concurrent.pdf", sizeBytes);
+    const result = await importDocumentMultipart({ file, title: "T" });
+
+    expect(result.ok).toBe(true);
+    expect(maxInFlight).toBe(UPLOAD.CHUNK_CONCURRENCY);
+  });
 });
