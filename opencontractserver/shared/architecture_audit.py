@@ -19,10 +19,21 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-# Identifiers that consumer code (resolvers, MCP tools, REST views,
-# user-context Celery tasks) MUST NOT reach into directly. They are the
+# Identifiers that consumer code MUST NOT reach into directly. They are the
 # Tier-0 authorization primitives; the public entry point for any
 # user-context caller is the service layer.
+#
+# SCOPE (read before trusting this as a blanket guarantee): this scanner —
+# and therefore the ``opencontracts.E001`` system check and the pytest
+# invariant that share it — enforces the ban *only* for files under
+# ``config/graphql/``. CLAUDE.md rule 7 states the same rule as *policy* for
+# the other user-context surfaces too (MCP tools in ``opencontractserver/mcp/``,
+# LLM tools in ``opencontractserver/llms/tools/``, REST views, and
+# user-context Celery tasks), but those surfaces are NOT mechanically scanned
+# here and currently still contain correct-but-inline Tier-0 calls. Do not
+# read a green E001 as "no inline Tier-0 anywhere" — only "none in
+# config/graphql/". Expanding the scan to those packages is tracked as future
+# work; if you add it, expect to migrate the existing inline usage first.
 FORBIDDEN_NAMES: frozenset[str] = frozenset(
     {"visible_to_user", "user_can", "user_has_permission_for_obj"}
 )
@@ -44,7 +55,12 @@ GRAPHQL_DIR: Path = Path(__file__).resolve().parents[2] / "config" / "graphql"
 
 
 def iter_graphql_modules() -> list[Path]:
-    """Return every ``.py`` file directly under ``config/graphql/``.
+    """Return every ``.py`` file under ``config/graphql/`` (recursively).
+
+    Uses ``rglob`` so resolver logic in subpackages (e.g.
+    ``config/graphql/permissioning/permission_annotator/``) is scanned too —
+    a non-recursive ``glob('*.py')`` would silently exempt those files and
+    let a future inline Tier-0 reference slip through.
 
     Skips ``__init__.py`` (which never contains resolver logic). Returns
     an empty list if the directory does not exist — keeps the audit safe
@@ -52,7 +68,7 @@ def iter_graphql_modules() -> list[Path]:
     """
     if not GRAPHQL_DIR.is_dir():
         return []
-    return sorted(p for p in GRAPHQL_DIR.glob("*.py") if p.name != "__init__.py")
+    return sorted(p for p in GRAPHQL_DIR.rglob("*.py") if p.name != "__init__.py")
 
 
 def scan_forbidden(source: str) -> list[tuple[int, str]]:
@@ -208,8 +224,12 @@ def format_violation(module_path: Path, lineno: int, name: str) -> tuple[str, st
         "How to fix:\n"
         f"{recipe}\n"
         f"Required import: {_REQUIRED_IMPORT}\n"
-        "Always pass ``request=info.context`` (or the request-equivalent) "
-        "so the Tier-2 permission cache is engaged.\n"
+        "On the single-object helpers (``get_or_none`` / ``require_permission`` "
+        "/ ``user_has``) pass ``request=info.context`` so the Tier-2 "
+        "permission cache is engaged. On the queryset helpers "
+        "(``filter_visible`` / ``filter_visible_qs``) ``request=`` is accepted "
+        "for API parity but is currently a no-op (the cache is keyed by "
+        "single object, not by queryset).\n"
         "\n"
         f"{_DOCS_POINTER}"
     )

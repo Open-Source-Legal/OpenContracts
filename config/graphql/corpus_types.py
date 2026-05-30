@@ -709,6 +709,45 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ).values("vote_type")[:1]
         return visible_qs.annotate(_viewer_vote=Subquery(viewer_vote_subquery))
 
+    @classmethod
+    def get_node(cls, info, id) -> Any:
+        """Cache + visibility-check FK/relay-node ``Corpus`` lookups.
+
+        ``Corpus`` is a ``with_tree_fields=True`` ``TreeNode``, so every
+        ``Corpus.objects.get(pk=...)`` emits a recursive ``WITH __rank_table``
+        CTE. Graphene's default ``DjangoObjectType.get_node`` fires that CTE
+        once per FK-via-Node access AND does an unprotected lookup that
+        bypasses visibility. This override caches the result on
+        ``info.context._corpus_node_cache`` and routes the fetch through
+        ``BaseService.get_or_none`` so visibility + the Tier-2 permission
+        cache apply (also required by the ``opencontracts.E001`` system check).
+        """
+        try:
+            pk = int(id)
+        except (TypeError, ValueError):
+            return None
+
+        cache = getattr(info.context, "_corpus_node_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                info.context._corpus_node_cache = cache
+            except AttributeError:
+                # ``info.context`` may be frozen in some test contexts; skip
+                # caching but still apply visibility.
+                cache = None
+
+        if cache is not None and pk in cache:
+            return cache[pk]
+
+        corpus = BaseService.get_or_none(
+            Corpus, pk, info.context.user, request=info.context
+        )
+
+        if cache is not None:
+            cache[pk] = corpus
+        return corpus
+
 
 class CorpusStatsType(graphene.ObjectType):
     total_docs = graphene.Int()

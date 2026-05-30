@@ -94,27 +94,35 @@ class BaseService:
         whole filter as a single ``WHERE`` expression tree (no correlated
         subquery over the full model table).
 
-        Defensive on input: a queryset/manager that lacks ``visible_to_user``
-        is returned unchanged so exotic shapes (prefetched caches, custom
-        wrappers) pass through harmlessly. The OpenContracts model layer
-        always exposes ``visible_to_user`` on both the manager and the
-        queryset (via ``PermissionManager.from_queryset`` or
+        Fail-closed on input: a queryset/manager that lacks
+        ``visible_to_user`` raises ``TypeError`` rather than passing the
+        rows through unfiltered. The OpenContracts model layer always
+        exposes ``visible_to_user`` on both the manager and the queryset
+        (via ``PermissionManager.from_queryset`` or
         ``PermissionedTreeQuerySet.as_manager``) so real callers always hit
-        the chained-filter path.
+        the chained-filter path; anything else is a wiring bug, and a
+        permission gate must surface that loudly instead of leaking every
+        row.
 
         ``request`` is accepted for API parity with ``filter_visible`` (see
         that method for the threading rationale — same caveat applies).
         """
         if not hasattr(queryset, "visible_to_user"):
-            # SECURITY: this branch must only fire for exotic shapes
-            # (prefetched caches, custom proxies). Real QuerySets and
-            # M2M RelatedManagers in this codebase always inherit
-            # ``visible_to_user`` from PermissionManager /
-            # PermissionedTreeQuerySet, so a manager that lands here is a
-            # latent unfiltered-queryset bug — not a security-equivalent
-            # no-op. Audit the caller, not this guard, if it ever trips
-            # on something real.
-            return queryset
+            # SECURITY (fail-closed): this can only fire for an input that is
+            # not a permissioned QuerySet/manager (a plain list, a prefetched
+            # cache, a custom proxy). Real QuerySets and M2M RelatedManagers
+            # in this codebase always inherit ``visible_to_user`` from
+            # PermissionManager / PermissionedTreeQuerySet. Returning the
+            # input unchanged here would silently emit unfiltered rows — a
+            # latent IDOR — so we raise instead. Audit the caller: pass a
+            # real model queryset/manager, or use ``filter_visible(Model, ...)``.
+            raise TypeError(
+                "filter_visible_qs received an object without a "
+                f"`visible_to_user` method ({type(queryset).__name__!r}); "
+                "refusing to return unfiltered rows. Pass a permissioned "
+                "QuerySet/manager, or use BaseService.filter_visible(Model, "
+                "user, ...)."
+            )
         # ``request`` is intentionally NOT forwarded to
         # ``visible_to_user``: the Tier-2 permission cache attached to
         # ``request`` is keyed by (user, instance, perm) for single-object
