@@ -106,7 +106,6 @@ export const ResearchReportDetailTestWrapper: React.FC<{
   const mocks: MockedResponse[] = [
     {
       request: { query: GET_RESEARCH_REPORT, variables: { id: report.id } },
-      variableMatcher: () => true,
       result: { data: { researchReport: report } },
     },
   ];
