@@ -864,6 +864,22 @@ def get_chunked_session_status(*, user, upload_id) -> ChunkedSessionInfo:
     return _session_info(_get_owned_session(user, upload_id))
 
 
+def _safe_unlink(path: str) -> None:
+    """
+    Best-effort delete of an assembly temp file.
+
+    A failure here is non-fatal: the file simply lingers in the OS temp
+    directory (reclaimed by the OS/tmpreaper) and, crucially, in the
+    assembler's error path the *original* exception is being re-raised, so
+    we must not let an unlink error mask it. We therefore swallow
+    ``OSError`` but record it at debug level rather than silently passing.
+    """
+    try:
+        os.unlink(path)
+    except OSError as exc:
+        logger.debug("[CHUNKED] Could not remove temp file %s: %s", path, exc)
+
+
 def _assemble_session_to_tempfile(session: ChunkedUploadSession):
     """
     Stream every part, in index order, into a single on-disk temp file.
@@ -886,10 +902,7 @@ def _assemble_session_to_tempfile(session: ChunkedUploadSession):
         return tmp
     except Exception:
         tmp.close()
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+        _safe_unlink(tmp.name)
         raise
 
 
@@ -1007,10 +1020,7 @@ def complete_chunked_upload(
         raise ChunkedUploadError("Import failed", http_status=400)
     finally:
         tmp.close()
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+        _safe_unlink(tmp.name)
 
     if result.error:
         # A content-level rejection (bad MIME, not-a-zip, ...). Keep the row
