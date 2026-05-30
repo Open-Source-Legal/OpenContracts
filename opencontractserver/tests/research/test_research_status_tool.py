@@ -77,9 +77,7 @@ class AcheckDeepResearchStatusTestCase(TransactionTestCase):
 
     def _run(self):
         return asyncio.run(
-            acheck_deep_research_status(
-                corpus_id=self.corpus.pk, user_id=self.user.pk
-            )
+            acheck_deep_research_status(corpus_id=self.corpus.pk, user_id=self.user.pk)
         )
 
     def test_empty_message_when_no_reports(self):
