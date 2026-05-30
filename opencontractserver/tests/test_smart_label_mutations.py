@@ -451,6 +451,45 @@ class SmartLabelMutationTestCase(TestCase):
         self.assertEqual(len(data["labels"]), 1)
         self.assertEqual(data["labels"][0]["text"], "Token Label")
 
+    def test_smart_label_list_denies_unreadable_corpus(self):
+        """SmartLabelList must not leak a private corpus's labels (IDOR).
+
+        ``corpus_with_labelset`` is private and owned by ``self.user``;
+        ``other_user`` has no permission on it. Before the corpus-READ gate
+        was added, any logged-in user could enumerate the labelset taxonomy
+        of a corpus they cannot read. The mutation must now return the same
+        IDOR-safe "Corpus not found" response it returns for a missing
+        corpus — no labels, no labelset signal.
+        """
+        mutation = """
+            mutation SmartLabelList($corpusId: String!) {
+                smartLabelList(corpusId: $corpusId) {
+                    ok
+                    message
+                    hasLabelset
+                    canCreateLabels
+                    labels {
+                        text
+                    }
+                }
+            }
+        """
+
+        variables = {
+            "corpusId": to_global_id("CorpusType", self.corpus_with_labelset.id),
+        }
+
+        # other_client = user WITHOUT any permission on the private corpus
+        result = self.other_client.execute(mutation, variables=variables)
+
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["smartLabelList"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], "Corpus not found")
+        self.assertFalse(data["hasLabelset"])
+        self.assertFalse(data["canCreateLabels"])
+        self.assertEqual(len(data["labels"]), 0)
+
     def test_smart_label_auto_labelset_title(self):
         """Test automatic labelset title generation when not provided."""
         mutation = """
