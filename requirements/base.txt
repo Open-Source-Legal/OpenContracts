@@ -87,7 +87,7 @@ mcp>=1.27.1  # https://github.com/anthropics/python-sdk
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
 twisted>=24.7.0rc1 # not directly required, pinned by Snyk to avoid a vulnerability
-ipython>=9.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
+ipython>=9.14.0 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.5.6 # not directly required, pinned by Snyk to avoid a vulnerability
