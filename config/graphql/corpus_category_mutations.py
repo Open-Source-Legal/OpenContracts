@@ -184,8 +184,12 @@ class UpdateCorpusCategory(graphene.Mutation):
 
         not_found_msg = "Category not found."
         try:
-            category_pk = from_global_id(id)[1]
+            type_name, category_pk = from_global_id(id)
         except Exception:
+            return UpdateCorpusCategory(ok=False, message=not_found_msg, obj=None)
+        # Reject a well-formed global ID for a different type so it can't
+        # silently resolve against the wrong table.
+        if type_name != "CorpusCategoryType":
             return UpdateCorpusCategory(ok=False, message=not_found_msg, obj=None)
 
         category = CorpusCategory.objects.filter(pk=category_pk).first()
@@ -261,8 +265,12 @@ class DeleteCorpusCategory(graphene.Mutation):
 
         not_found_msg = "Category not found."
         try:
-            category_pk = from_global_id(id)[1]
+            type_name, category_pk = from_global_id(id)
         except Exception:
+            return DeleteCorpusCategory(ok=False, message=not_found_msg)
+        # Reject a well-formed global ID for a different type so it can't
+        # silently resolve against the wrong table.
+        if type_name != "CorpusCategoryType":
             return DeleteCorpusCategory(ok=False, message=not_found_msg)
 
         category = CorpusCategory.objects.filter(pk=category_pk).first()

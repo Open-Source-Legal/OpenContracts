@@ -239,7 +239,16 @@ export const CorpusCategoryManagement: React.FC = () => {
   });
 
   const categories = useMemo<ManagedCorpusCategory[]>(
-    () => data?.corpusCategories?.edges?.map((edge) => edge.node) || [],
+    () =>
+      (data?.corpusCategories?.edges?.map((edge) => edge.node) || [])
+        // The query has no orderBy arg, so order client-side by sortOrder to
+        // match the column the table displays (ties fall back to name).
+        .slice()
+        .sort(
+          (a, b) =>
+            (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+            (a.name ?? "").localeCompare(b.name ?? "")
+        ),
     [data]
   );
 
