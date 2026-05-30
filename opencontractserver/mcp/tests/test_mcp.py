@@ -5924,8 +5924,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         """/mcp/me must challenge an unauthenticated request so interactive
         clients (Claude, ChatGPT) start the OAuth flow — unlike public /mcp,
         which serves anonymous callers."""
-        import json
-
         scope = {
             "type": "http",
             "path": "/mcp/me",
