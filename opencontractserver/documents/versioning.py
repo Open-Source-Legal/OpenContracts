@@ -527,6 +527,14 @@ def restore_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
         # The original path may have been reused by a new document while this
         # one was in the trash. Restoring onto an occupied path would violate
         # ``unique_active_path_per_corpus``; disambiguate so both survive.
+        #
+        # TOCTOU: the select_for_update above locks only the deleted row, not
+        # the active rows ``_disambiguate_path`` reads. A concurrent import
+        # landing on ``restore_path`` between this SELECT and the create below
+        # loses the unique-active-path race and surfaces as an IntegrityError
+        # (loud, not silent — matching the documented race note in
+        # ``Corpus.add_document``). The ``lifecycle.restore_document`` wrapper
+        # is the catch point for callers that need graceful degradation.
         restore_path = CorpusPathService._disambiguate_path(deleted.path, corpus)
 
         deleted.is_current = False

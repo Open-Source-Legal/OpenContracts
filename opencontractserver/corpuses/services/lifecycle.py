@@ -242,8 +242,10 @@ class DocumentLifecycleService(BaseService):
                 )
             else:
                 logger.info(
-                    f"Restored document {document_path.document_id} in corpus "
-                    f"{document_path.corpus_id} by user {user.id}"
+                    "Restored document %s in corpus %s by user %s",
+                    document_path.document_id,
+                    document_path.corpus_id,
+                    user.id,
                 )
             return True, ""
 

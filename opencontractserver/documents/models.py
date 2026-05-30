@@ -928,9 +928,11 @@ class DocumentPath(TreeNode, BaseOCModel):
             ("remove_documentpath", "delete DocumentPath"),
         )
 
-    # Canonical lifecycle-action vocabulary. Mirrors
+    # Canonical lifecycle-action vocabulary. A subset of
     # ``config.graphql.base_types.PathActionEnum`` so the inferred action can be
-    # returned straight to GraphQL without translation.
+    # returned straight to GraphQL without translation. ``PathActionEnum`` also
+    # defines ``RENAMED``, which ``infer_action`` never emits — a folder rename
+    # rewrites paths and surfaces here as ``MOVED``.
     ACTION_IMPORTED = "IMPORTED"
     ACTION_MOVED = "MOVED"
     ACTION_DELETED = "DELETED"
