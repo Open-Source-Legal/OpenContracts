@@ -92,7 +92,10 @@ export const CorpusResearchReportCards: React.FC<
     GetResearchReportsInput
   >(GET_RESEARCH_REPORTS, {
     variables,
-    fetchPolicy: "network-only",
+    // cache-and-network serves from cache on re-render after the first fetch
+    // (avoiding a network-only refetch storm) while still revalidating.
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
     notifyOnNetworkStatusChange: true,
     skip: !opened_corpus?.id,
   });
@@ -139,7 +142,9 @@ export const CorpusResearchReportCards: React.FC<
     });
   };
 
-  if (error && allReports.length === 0) {
+  // Only surface the error state once the request has settled (not while a
+  // retry is in flight) so a transient error doesn't flash over the spinner.
+  if (error && !loading && allReports.length === 0) {
     return (
       <Container>
         <StateWrapper>

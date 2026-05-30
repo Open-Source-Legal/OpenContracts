@@ -66,6 +66,8 @@ test.describe("ResearchReportDetail", () => {
       "http://localhost"
     ).searchParams.get("ann");
     expect(annParam).toBe(toGlobalId("ServerAnnotationType", 10));
+
+    await docScreenshot(page, "research--report-detail--citations");
   });
 
   test("renders a failed report with its error message", async ({

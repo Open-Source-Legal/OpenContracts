@@ -20,9 +20,10 @@ export const CORPUS_ID = toGlobalId("CorpusType", 1);
 function reportsMock(nodes: ResearchReportListItem[]): MockedResponse {
   return {
     // Exact variables (incl. status: undefined for the "all" filter) so the
-    // mock matches via @wry/equality. Duplicated below because the network-only
-    // query re-fires across re-renders; a single mock would exhaust ("No more
-    // mocked responses") and resolve to empty data.
+    // mock matches via @wry/equality. maxUsageCount=Infinity lets this single
+    // mock serve every re-render fire — otherwise the query drains a fixed
+    // bucket and the final fire resolves to an error ("No more mocked
+    // responses"), which the component's error state would then surface.
     request: {
       query: GET_RESEARCH_REPORTS,
       variables: {
@@ -31,6 +32,7 @@ function reportsMock(nodes: ResearchReportListItem[]): MockedResponse {
         limit: DEFAULT_LIST_PAGE_SIZE,
       },
     },
+    maxUsageCount: Number.POSITIVE_INFINITY,
     result: {
       data: {
         researchReports: {
@@ -47,9 +49,8 @@ function reportsMock(nodes: ResearchReportListItem[]): MockedResponse {
   };
 }
 
-/** The network-only query re-fires on re-render; provide ample copies. */
 function reportsMocks(nodes: ResearchReportListItem[]): MockedResponse[] {
-  return Array.from({ length: 8 }, () => reportsMock(nodes));
+  return [reportsMock(nodes)];
 }
 
 /**
@@ -87,6 +88,11 @@ export const CorpusResearchReportCardsTestWrapper: React.FC<{
           mocks={reportsMocks(nodes)}
           cache={
             new InMemoryCache({
+              // Match MockedProvider's addTypename={false}: a typename-adding
+              // cache would inject __typename into the query the mock link sees,
+              // so the mock (authored without __typename) stops matching and the
+              // query falls through to "No more mocked responses".
+              addTypename: false,
               typePolicies: {
                 Query: {
                   fields: {
