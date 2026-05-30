@@ -11,6 +11,7 @@ import { test, expect } from "./utils/coverage";
 import { ResearchReportDetailTestWrapper } from "./ResearchReportDetailTestWrapper";
 import { buildMockReport } from "./ResearchReportDetailTestWrapper";
 import { JobStatus } from "../src/types/graphql-api";
+import { docScreenshot } from "./utils/docScreenshot";
 
 test.describe("ResearchReportDetail", () => {
   test("renders a completed report: title, status, stats, and body", async ({
@@ -32,6 +33,8 @@ test.describe("ResearchReportDetail", () => {
     await expect(
       page.locator("text=several indemnification clauses").first()
     ).toBeVisible();
+
+    await docScreenshot(page, "research--report-detail--completed");
   });
 
   test("citations tab lists the cited source text", async ({ mount, page }) => {
