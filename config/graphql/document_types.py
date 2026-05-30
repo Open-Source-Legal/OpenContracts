@@ -13,6 +13,7 @@ from graphql import GraphQLError
 from graphql_relay import from_global_id
 
 from config.graphql.annotation_types import (
+    AnnotationLabelType,
     AnnotationType,
     NoteType,
     RelationshipType,
@@ -75,6 +76,20 @@ def _current_path_for_corpus(document, info, corpus_pk):
             .first()
         )
     return cache[key]
+
+
+def _dedupe_doc_type_labels(annotations: Any) -> list[Any]:
+    # A document can carry multiple DOC_TYPE_LABEL annotations sharing the same
+    # label; the badge UI shows each label once, so dedupe by label pk.
+    seen: set[int] = set()
+    labels: list[Any] = []
+    for ann in annotations:
+        label = ann.annotation_label
+        if label is None or label.pk in seen:
+            continue
+        seen.add(label.pk)
+        labels.append(label)
+    return labels
 
 
 # -------------------- Ingestion Source Types -------------------- #
@@ -270,6 +285,46 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ):
             return user
         raise GraphQLError("Permission denied: You do not have access to this document")
+
+    # -------------------- Doc-type label badges (corpus list view) -------------------- #
+    doc_type_labels = graphene.List(
+        graphene.NonNull(AnnotationLabelType),
+        description=(
+            "Flat list of distinct ``DOC_TYPE_LABEL`` annotation labels for "
+            "this document — the corpus list view's per-card badges. Resolved "
+            "from a single batched prefetch when the parent ``documents`` "
+            "resolver opts in via ``requests_doc_type_labels``; falls back to "
+            "one targeted SELECT per document otherwise. Skipping the Relay "
+            "connection wrapper avoids the per-document COUNT + SELECT + FK "
+            "descriptor storm the old ``docAnnotations`` shape forced."
+        ),
+    )
+
+    def resolve_doc_type_labels(self, info) -> Any:
+        from opencontractserver.annotations.models import DOC_TYPE_LABEL
+        from opencontractserver.annotations.services import AnnotationService
+
+        prefetched = getattr(self, "_prefetched_doc_annotations", None)
+        if prefetched is not None:
+            # ``_apply_document_prefetches`` already filtered to DOC_TYPE_LABEL
+            # and ``select_related``-cached ``annotation_label``.
+            return _dedupe_doc_type_labels(prefetched)
+
+        # Fallback path: ``DocumentType`` accessed outside the corpus-list
+        # batch (e.g. ``node(id:)``). Push ``label_type == DOC_TYPE_LABEL``
+        # into SQL via the service queryset — ``structural=True`` is not
+        # usable because imported DOC_TYPE_LABEL annotations are created with
+        # ``Annotation.structural`` defaulting to False.
+        fallback_qs = (
+            AnnotationService.get_document_annotations(
+                document_id=self.id,
+                user=getattr(info.context, "user", None),
+                context=info.context,
+            )
+            .filter(annotation_label__label_type=DOC_TYPE_LABEL)
+            .select_related("annotation_label")
+        )
+        return _dedupe_doc_type_labels(fallback_qs)
 
     all_structural_annotations = graphene.List(
         AnnotationType,
