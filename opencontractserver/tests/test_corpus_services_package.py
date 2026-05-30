@@ -28,6 +28,7 @@ from django.test import SimpleTestCase, TestCase
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.corpuses.services import (
     CorpusActionService,
+    CorpusCategoryService,
     CorpusDocumentService,
     CorpusPathService,
     CorpusService,
@@ -51,6 +52,7 @@ SEGMENTED_SERVICES = (
     CorpusPathService,
     CorpusVoteService,
     CorpusActionService,
+    CorpusCategoryService,
 )
 
 
@@ -88,6 +90,7 @@ class TestServicesPackageStructure(SimpleTestCase):
                     "CorpusPathService",
                     "CorpusVoteService",
                     "CorpusActionService",
+                    "CorpusCategoryService",
                     "BatchRunSummary",
                 ]
             ),
