@@ -3,6 +3,7 @@ GraphQL mutations for annotation, relationship, and note operations.
 """
 
 import logging
+from typing import Any, Literal
 
 import graphene
 from django.core.exceptions import ValidationError
@@ -29,6 +30,15 @@ from opencontractserver.annotations.models import (
     validate_link_url,
 )
 from opencontractserver.constants.annotations import (
+    OC_CITY_LABEL_COLOR,
+    OC_CITY_LABEL_DESCRIPTION,
+    OC_CITY_LABEL_ICON,
+    OC_COUNTRY_LABEL_COLOR,
+    OC_COUNTRY_LABEL_DESCRIPTION,
+    OC_COUNTRY_LABEL_ICON,
+    OC_STATE_LABEL_COLOR,
+    OC_STATE_LABEL_DESCRIPTION,
+    OC_STATE_LABEL_ICON,
     OC_URL_LABEL,
     OC_URL_LABEL_COLOR,
     OC_URL_LABEL_DESCRIPTION,
@@ -425,6 +435,420 @@ class AddUrlAnnotation(graphene.Mutation):
 
         return AddUrlAnnotation(
             ok=True, message="URL annotation created", annotation=annotation
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Geographic auto-creating annotation mutations — issue #1819
+# --------------------------------------------------------------------------- #
+# Each of the three mutations below mirrors ``AddUrlAnnotation`` (auto-creates
+# the corresponding OC_* label on first use, ensures the corpus has a label
+# set) but with one extra step: the supplied span text is fed to the offline
+# geocoding service (``opencontractserver/utils/geocoding``) and the resolver
+# result is stamped into ``Annotation.data`` so the map aggregation service
+# (#1820 / #1821) can group pins without ever re-running the geocoder.
+#
+# When the resolver returns ``None`` (no row in the bundled dataset matches
+# the text) the annotation is still created — the user's labelling work
+# survives — but ``data['geocoded']`` is False so the aggregation service
+# skips it. The mutation response surfaces the warning so a future agent /
+# UI can prompt the user to clean up the text or pass a hint.
+#
+# These mutations are deliberately ``structural=True``: like other OC_*
+# auto-annotations (OC_SECTION, OC_URL), the geographic conventions encode
+# document structure rather than user opinion, and structural rows are
+# always read-only for non-superusers per the platform's permission model.
+
+# Only the visual / descriptive columns live here — the label-text column
+# is sourced from ``GEOCODE_LABEL_TYPE_TO_LABEL_TEXT`` in the geographic
+# service module so a fourth geographic label type stays a single-edit
+# change.
+_GEOCODE_LABEL_TYPE_TO_OC_LABEL_METADATA: dict[str, tuple[str, str, str]] = {
+    "country": (
+        OC_COUNTRY_LABEL_COLOR,
+        OC_COUNTRY_LABEL_ICON,
+        OC_COUNTRY_LABEL_DESCRIPTION,
+    ),
+    "state": (
+        OC_STATE_LABEL_COLOR,
+        OC_STATE_LABEL_ICON,
+        OC_STATE_LABEL_DESCRIPTION,
+    ),
+    "city": (
+        OC_CITY_LABEL_COLOR,
+        OC_CITY_LABEL_ICON,
+        OC_CITY_LABEL_DESCRIPTION,
+    ),
+}
+
+
+def _create_geographic_annotation(
+    *,
+    user,
+    info,
+    corpus_pk: int | str,
+    document_pk: int | str,
+    page: int,
+    raw_text: str,
+    json: Any,
+    annotation_type,
+    geocode_label_type: Literal["country", "state", "city"],
+    country_hint: str | None,
+    state_hint: str | None,
+) -> tuple[bool, str, "Annotation | None"]:
+    """Shared body for the three Add*Annotation mutations.
+
+    Returns ``(ok, message, annotation)`` so each mutation class is a thin
+    wrapper that just unpacks the tuple — the actual ``resolve_place`` →
+    ``ensure_label_and_labelset`` → ``Annotation.save`` flow lives in one
+    place so all three label types follow the exact same contract.
+
+    Per #1819, the annotation is created even when the geocoder fails — we
+    don't want to silently lose the user's labelling work — but the
+    ``data['geocoded']`` flag distinguishes resolved from un-resolved rows
+    so the aggregation service excludes the latter.
+    """
+    from opencontractserver.utils.geocoding import resolve_place
+
+    # Guard empty / whitespace-only ``raw_text`` up front — an empty span
+    # produces a no-op annotation (``geocoded=False``, no canonical_name)
+    # that pollutes the user's annotation set without contributing to the
+    # map. Surface a clear error instead of silently creating it.
+    if not raw_text or not raw_text.strip():
+        return False, "raw_text must not be empty", None
+
+    parents = _resolve_annotation_parents(
+        user, corpus_pk, document_pk, request=info.context
+    )
+    if parents is None:
+        return False, _ANNOTATION_PARENT_NOT_FOUND_MSG, None
+    document, corpus = parents
+
+    from opencontractserver.annotations.services.geographic_service import (
+        GEOCODE_LABEL_TYPE_TO_LABEL_TEXT,
+    )
+
+    label_text = GEOCODE_LABEL_TYPE_TO_LABEL_TEXT[geocode_label_type]
+    color, icon, description = _GEOCODE_LABEL_TYPE_TO_OC_LABEL_METADATA[
+        geocode_label_type
+    ]
+
+    resolved = resolve_place(
+        raw_text,
+        geocode_label_type,
+        country_hint=country_hint,
+        state_hint=state_hint,
+    )
+    if resolved is not None:
+        annotation_data = {
+            "canonical_name": resolved.canonical_name,
+            "lat": resolved.lat,
+            "lng": resolved.lng,
+            "admin_codes": resolved.admin_codes,
+            "geocoded": True,
+        }
+        message = f"Resolved '{raw_text}' to '{resolved.canonical_name}'"
+    else:
+        annotation_data = {
+            "canonical_name": None,
+            "lat": None,
+            "lng": None,
+            "admin_codes": {},
+            "geocoded": False,
+            "raw_text": raw_text,
+        }
+        message = (
+            f"Annotation created but '{raw_text}' did not resolve to a "
+            f"known {geocode_label_type}; pin omitted from map "
+            "aggregation. Pass country_hint / state_hint to disambiguate."
+        )
+
+    with transaction.atomic():
+        label = corpus.ensure_label_and_labelset(
+            label_text=label_text,
+            creator_id=user.pk,
+            label_type=annotation_type.value,
+            color=color,
+            icon=icon,
+            description=description,
+        )
+        # Structural items are platform-managed; the corpus-level
+        # convention forbids users from editing them later (only
+        # superusers can — see ``AnnotationManager.user_can`` Phase B).
+        if not label.read_only:
+            label.read_only = True
+            label.save(update_fields=["read_only"])
+
+        annotation = Annotation(
+            page=page,
+            raw_text=raw_text,
+            corpus_id=corpus.pk,
+            document_id=document.pk,
+            annotation_label_id=label.pk,
+            creator=user,
+            json=json,
+            annotation_type=annotation_type.value,
+            structural=True,
+            data=annotation_data,
+        )
+        annotation.save()
+        set_permissions_for_obj_to_user(
+            user,
+            annotation,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
+        )
+
+    return True, message, annotation
+
+
+class AddCountryAnnotation(graphene.Mutation):
+    """Create an annotation labelled ``OC_COUNTRY`` with offline-geocoded data.
+
+    Mirrors :class:`AddUrlAnnotation` but routes through the bundled
+    geocoding service (see :mod:`opencontractserver.utils.geocoding`).
+    ``country_hint`` is intentionally absent — the country lookup is
+    self-disambiguating.
+    """
+
+    class Arguments:
+        json = GenericScalar(
+            required=True, description="New-style JSON for multipage annotations."
+        )
+        page = graphene.Int(
+            required=True, description="What page is this annotation on (0-indexed)."
+        )
+        raw_text = graphene.String(
+            required=True,
+            description="The raw text identifying the country (e.g. 'France', 'FR').",
+        )
+        corpus_id = graphene.String(
+            required=True, description="ID of the corpus this annotation is for."
+        )
+        document_id = graphene.String(
+            required=True, description="ID of the document this annotation is on."
+        )
+        annotation_type = graphene.Argument(
+            graphene.Enum.from_enum(LabelType),
+            required=True,
+            description="Annotation type: TOKEN_LABEL for PDFs, SPAN_LABEL for text.",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    annotation = graphene.Field(AnnotationType)
+    geocoded = graphene.Boolean(
+        description=(
+            "True if the offline geocoder resolved the span; False when "
+            "the annotation was created but no map pin was generated."
+        )
+    )
+
+    @login_required
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))
+    def mutate(
+        root,
+        info,
+        json,
+        page,
+        raw_text,
+        corpus_id,
+        document_id,
+        annotation_type,
+    ) -> "AddCountryAnnotation":
+        corpus_pk = from_global_id(corpus_id)[1]
+        document_pk = from_global_id(document_id)[1]
+        user = info.context.user
+
+        ok, message, annotation = _create_geographic_annotation(
+            user=user,
+            info=info,
+            corpus_pk=corpus_pk,
+            document_pk=document_pk,
+            page=page,
+            raw_text=raw_text,
+            json=json,
+            annotation_type=annotation_type,
+            geocode_label_type="country",
+            country_hint=None,
+            state_hint=None,
+        )
+        return AddCountryAnnotation(
+            ok=ok,
+            message=message,
+            annotation=annotation,
+            geocoded=bool(
+                annotation and annotation.data and annotation.data.get("geocoded")
+            ),
+        )
+
+
+class AddStateAnnotation(graphene.Mutation):
+    """Create an annotation labelled ``OC_STATE`` with offline-geocoded data.
+
+    ``country_hint`` narrows the candidate pool to a single country; today
+    the bundled state dataset is US-only, so the hint mostly exists as a
+    forward-compatibility hook for when non-US first-level admin
+    divisions are added.
+    """
+
+    class Arguments:
+        json = GenericScalar(required=True)
+        page = graphene.Int(required=True)
+        raw_text = graphene.String(
+            required=True,
+            description="The raw text identifying the state (e.g. 'Texas', 'TX').",
+        )
+        corpus_id = graphene.String(required=True)
+        document_id = graphene.String(required=True)
+        annotation_type = graphene.Argument(
+            graphene.Enum.from_enum(LabelType), required=True
+        )
+        country_hint = graphene.String(
+            required=False,
+            description=(
+                "Optional country to disambiguate the state (default: "
+                "United States, the only first-level admin set bundled today)."
+            ),
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    annotation = graphene.Field(AnnotationType)
+    geocoded = graphene.Boolean(
+        description=(
+            "True if the offline geocoder resolved the span; False when "
+            "the annotation was created but no map pin was generated."
+        )
+    )
+
+    @login_required
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))
+    def mutate(
+        root,
+        info,
+        json,
+        page,
+        raw_text,
+        corpus_id,
+        document_id,
+        annotation_type,
+        country_hint=None,
+    ) -> "AddStateAnnotation":
+        corpus_pk = from_global_id(corpus_id)[1]
+        document_pk = from_global_id(document_id)[1]
+        user = info.context.user
+
+        ok, message, annotation = _create_geographic_annotation(
+            user=user,
+            info=info,
+            corpus_pk=corpus_pk,
+            document_pk=document_pk,
+            page=page,
+            raw_text=raw_text,
+            json=json,
+            annotation_type=annotation_type,
+            geocode_label_type="state",
+            country_hint=country_hint,
+            state_hint=None,
+        )
+        return AddStateAnnotation(
+            ok=ok,
+            message=message,
+            annotation=annotation,
+            geocoded=bool(
+                annotation and annotation.data and annotation.data.get("geocoded")
+            ),
+        )
+
+
+class AddCityAnnotation(graphene.Mutation):
+    """Create an annotation labelled ``OC_CITY`` with offline-geocoded data.
+
+    ``country_hint`` / ``state_hint`` resolve via the same indexes the
+    main lookup uses, so any recognised form ("France" / "FR" / "Texas"
+    / "TX") works. Hints narrow the candidate pool BEFORE the
+    exact / alias / fuzzy chain runs, so a hinted ambiguous string
+    (e.g. "Paris" + state_hint="TX") prefers the right row even when
+    multiple rows are exact name matches.
+    """
+
+    class Arguments:
+        json = GenericScalar(required=True)
+        page = graphene.Int(required=True)
+        raw_text = graphene.String(
+            required=True,
+            description=(
+                "The raw text identifying the city. Disambiguation hints "
+                "are recommended for ambiguous names (e.g. 'Paris', 'Springfield')."
+            ),
+        )
+        corpus_id = graphene.String(required=True)
+        document_id = graphene.String(required=True)
+        annotation_type = graphene.Argument(
+            graphene.Enum.from_enum(LabelType), required=True
+        )
+        country_hint = graphene.String(
+            required=False,
+            description="Optional country to narrow candidate cities.",
+        )
+        state_hint = graphene.String(
+            required=False,
+            description=(
+                "Optional state / first-level admin division "
+                "(only applied when the country is the US in the bundled dataset)."
+            ),
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    annotation = graphene.Field(AnnotationType)
+    geocoded = graphene.Boolean(
+        description=(
+            "True if the offline geocoder resolved the span; False when "
+            "the annotation was created but no map pin was generated."
+        )
+    )
+
+    @login_required
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"))
+    def mutate(
+        root,
+        info,
+        json,
+        page,
+        raw_text,
+        corpus_id,
+        document_id,
+        annotation_type,
+        country_hint=None,
+        state_hint=None,
+    ) -> "AddCityAnnotation":
+        corpus_pk = from_global_id(corpus_id)[1]
+        document_pk = from_global_id(document_id)[1]
+        user = info.context.user
+
+        ok, message, annotation = _create_geographic_annotation(
+            user=user,
+            info=info,
+            corpus_pk=corpus_pk,
+            document_pk=document_pk,
+            page=page,
+            raw_text=raw_text,
+            json=json,
+            annotation_type=annotation_type,
+            geocode_label_type="city",
+            country_hint=country_hint,
+            state_hint=state_hint,
+        )
+        return AddCityAnnotation(
+            ok=ok,
+            message=message,
+            annotation=annotation,
+            geocoded=bool(
+                annotation and annotation.data and annotation.data.get("geocoded")
+            ),
         )
 
 

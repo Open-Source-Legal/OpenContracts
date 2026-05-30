@@ -362,6 +362,23 @@ export const PENDING_OC_URL_LABEL_ID = "__pending_oc_url__";
 // styling, and the auto-created server-side label all agree.
 export const OC_URL_LABEL_COLOR = "#2563EB";
 
+// Geographic annotation conventions — issue #1819.
+// Annotations carrying these labels are auto-created by the geocoding
+// pipeline (``opencontractserver/utils/geocoding``) and store the resolved
+// place (canonical name + lat/lng + admin codes) in ``annotation.data``.
+// The map UI (#1820, #1821) reads these labels to drive pin clustering.
+// Keep in sync with opencontractserver/constants/annotations.py.
+export const OC_COUNTRY_LABEL = "OC_COUNTRY";
+export const OC_STATE_LABEL = "OC_STATE";
+export const OC_CITY_LABEL = "OC_CITY";
+
+// Geographic label presentation — a coherent dark→light ramp (country deepest,
+// city lightest) so a map cluster that mixes label types is legible at small
+// zoom levels. Mirrors backend OC_*_LABEL_COLOR constants.
+export const OC_COUNTRY_LABEL_COLOR = "#0E3A5F";
+export const OC_STATE_LABEL_COLOR = "#1E6091";
+export const OC_CITY_LABEL_COLOR = "#3E92CC";
+
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;
 

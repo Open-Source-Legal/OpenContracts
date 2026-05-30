@@ -1056,6 +1056,23 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
         ),
     )
 
+    # Structured metadata sidecar — distinct from the positional ``json`` field
+    # (which stores token bounds / span offsets). ``data`` holds label-specific
+    # state that downstream consumers query directly. First consumer: the
+    # geocoding pipeline (#1819) stamps ``{canonical_name, lat, lng,
+    # admin_codes, geocoded}`` here on OC_COUNTRY / OC_STATE / OC_CITY rows so
+    # the map-aggregation service (#1820 / #1821) can group pins without
+    # rerunning the geocoder. Future label conventions can reuse the column
+    # rather than each one minting another sparsely-populated typed field.
+    data = django.db.models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Structured metadata sidecar for label-specific state "
+            "(e.g. geocoded place coordinates for OC_COUNTRY/OC_STATE/OC_CITY)."
+        ),
+    )
+
     # True only for annotations created by the extraction-grounding pipeline
     # (``opencontractserver/utils/extraction_grounding.py``). Backs the
     # partial UniqueConstraints below — the constraints scope to this flag

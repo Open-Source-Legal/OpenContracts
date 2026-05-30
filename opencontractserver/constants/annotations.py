@@ -25,6 +25,38 @@ OC_URL_LABEL_COLOR = "#2563EB"
 OC_URL_LABEL_ICON = "link"
 OC_URL_LABEL_DESCRIPTION = "Click-through hyperlink annotation"
 
+# Geographic annotation conventions — issue #1819.
+# Spans that have been geocoded by ``opencontractserver/utils/geocoding`` carry
+# one of these labels and write ``{canonical_name, lat, lng, admin_codes,
+# geocoded}`` into ``Annotation.data`` so the map UI (#1820, #1821) can
+# aggregate pins without re-running the geocoder. The three labels share a
+# blue→teal hue family so country / state / city pins read at a glance when
+# rendered together: country is the deepest shade, city the lightest.
+OC_COUNTRY_LABEL = "OC_COUNTRY"
+OC_STATE_LABEL = "OC_STATE"
+OC_CITY_LABEL = "OC_CITY"
+
+# Geographic label presentation. The colours form a coherent dark→light ramp
+# (country deepest, city lightest) so a map cluster that mixes label types is
+# legible at small zoom levels.
+OC_COUNTRY_LABEL_COLOR = "#0E3A5F"
+OC_STATE_LABEL_COLOR = "#1E6091"
+OC_CITY_LABEL_COLOR = "#3E92CC"
+OC_COUNTRY_LABEL_ICON = "globe"
+OC_STATE_LABEL_ICON = "map"
+OC_CITY_LABEL_ICON = "map marker alternate"
+OC_COUNTRY_LABEL_DESCRIPTION = "Geocoded country reference"
+OC_STATE_LABEL_DESCRIPTION = "Geocoded state / first-level admin division"
+OC_CITY_LABEL_DESCRIPTION = "Geocoded city / locality reference"
+
+# Per-pin cap on the bounded ``sample_document_ids`` preview shipped with
+# each map aggregation row. The frontend uses this preview to decide
+# whether to expand the pin into a side panel — the side panel pulls the
+# full document set on demand, so the preview only needs to be enough to
+# show "yes, multiple documents here". Five is the size at which the
+# preview comfortably fits a hover/popover without overflowing.
+GEOGRAPHIC_PIN_SAMPLE_DOC_LIMIT = 5
+
 # Built-in relationship label name for subtree group rows materialized
 # during structural-annotation ingestion. One row per non-leaf node:
 # source_annotations = [ancestor], target_annotations = [transitive descendants].
