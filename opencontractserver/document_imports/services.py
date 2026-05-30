@@ -30,8 +30,7 @@ from celery import chain
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.core.files import File
-from django.core.files.base import ContentFile
+from django.core.files.base import ContentFile, File
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models, transaction
 from django.utils import timezone
