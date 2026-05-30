@@ -139,6 +139,30 @@ class BackfillCamlDocForCorpusTest(TestCase):
             1,
         )
 
+    def test_existing_doc_cache_derives_from_doc_not_legacy_arg(self):
+        """When a Readme.CAML doc already exists, the cache columns must be
+        derived from the *document's* body, not the caller-supplied legacy
+        ``md_description_body`` (which may have drifted). Regression test for
+        the backfill wrong-body bug."""
+        from opencontractserver.corpuses.services.description_cache import (
+            backfill_caml_doc_for_corpus,
+        )
+        from opencontractserver.documents.models import Document
+
+        corpus = Corpus.objects.create(title="C", creator=self.user)
+        # First call creates the canonical CAML doc from this body.
+        backfill_caml_doc_for_corpus(corpus.pk, md_description_body="Canonical body.")
+        self.assertEqual(Document.objects.filter(title="Readme.CAML").count(), 1)
+
+        # Second call passes a DIFFERENT (stale) legacy body. The existing doc
+        # is canonical, so the cache must still reflect "Canonical body.".
+        backfill_caml_doc_for_corpus(
+            corpus.pk, md_description_body="Stale legacy body that must be ignored."
+        )
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.description, "Canonical body.")
+        self.assertEqual(corpus.description_preview, "Canonical body.")
+
     def test_no_op_when_body_empty_and_no_existing_caml(self):
         from opencontractserver.corpuses.services.description_cache import (
             backfill_caml_doc_for_corpus,

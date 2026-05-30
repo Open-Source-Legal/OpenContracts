@@ -321,7 +321,16 @@ def update_corpus_vote_counts_on_delete(
 
 
 def _is_readme_caml_document(doc: Document) -> bool:
-    """Return ``True`` iff ``doc`` is a corpus Readme.CAML article."""
+    """Return ``True`` iff ``doc`` is a corpus Readme.CAML article.
+
+    KNOWN FRAGILITY: this keys on the user-editable ``title`` + ``file_type``
+    rather than a structural marker. A user who renames their Readme.CAML doc
+    (or creates an unrelated ``text/markdown`` doc titled "Readme.CAML") would
+    trip these signals into a spurious cache refresh. The refresh is
+    idempotent and corpus-scoped (it re-derives from the current CAML head via
+    DocumentPath), so a false positive is wasteful but not corrupting. A
+    model-level flag would harden this; left as a follow-up.
+    """
     from opencontractserver.constants.document_processing import (
         CAML_ARTICLE_TITLE,
         MARKDOWN_MIME_TYPE,

@@ -49,6 +49,14 @@ def get_corpus_description(
     except Corpus.DoesNotExist as exc:
         raise ValueError(f"Corpus with id={corpus_id} does not exist.") from exc
 
+    # NOTE (accepted risk): the CAML lookup is performed as ``corpus.creator``
+    # rather than the calling agent's user. This tool takes only ``corpus_id``
+    # (no user is injected by the agent framework today), and an agent is only
+    # ever built for a corpus its owning user can already reach — so the
+    # description (a corpus-level README, not per-document data) is effectively
+    # gated upstream. Threading the live caller through here for defence-in-depth
+    # would require a tool-signature + injection change and is tracked as a
+    # follow-up rather than done inline.
     caml_doc = CorpusDocumentService.get_corpus_caml_articles(
         corpus.creator, corpus
     ).first()
@@ -138,7 +146,12 @@ def update_corpus_description(
         new_content = _apply_ndiff_patch(current, diff_text)
 
     if author is None:
-        assert author_id is not None  # Guarded above by the "both None" check
+        # Guarded above by the "both None" check, but use an explicit raise
+        # rather than ``assert`` — assertions are stripped under ``python -O``
+        # (production containers), which would silently pass ``None`` into
+        # ``get(pk=None)`` and surface as a confusing DoesNotExist.
+        if author_id is None:
+            raise ValueError("Provide either author or author_id.")
         author = get_user_model().objects.get(pk=author_id)
 
     result = CorpusService.update_description(author, corpus, new_content or "")

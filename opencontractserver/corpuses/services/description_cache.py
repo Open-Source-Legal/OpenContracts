@@ -209,10 +209,17 @@ def backfill_caml_doc_for_corpus(
             file_type=MARKDOWN_MIME_TYPE,
             title=CAML_ARTICLE_TITLE,
         )
+        # The doc was just written from md_description_body, so that IS its body.
+        cache_body = md_description_body
     else:
         doc = existing
+        # An existing Readme.CAML doc is already canonical — its stored body
+        # wins over the caller-supplied legacy ``md_description_body`` (which
+        # may differ). Deriving the cache from the legacy arg here would write
+        # description/preview that don't match the document of record.
+        cache_body = read_caml_body(doc)
 
-    plain, preview = compute_cache_from_caml_body(md_description_body)
+    plain, preview = compute_cache_from_caml_body(cache_body)
     Corpus.objects.filter(pk=corpus.pk).update(
         description=plain,
         description_preview=preview,

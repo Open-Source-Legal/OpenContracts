@@ -33,6 +33,7 @@ from opencontractserver.corpuses.services import (
     CorpusService,
 )
 from opencontractserver.documents.models import Document
+from opencontractserver.documents.versioning import calculate_content_version
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks import fork_corpus
@@ -307,10 +308,6 @@ class UpdateCorpusDescription(graphene.Mutation):
             # the count of ancestors up the version_tree (Rule C2). This
             # matches what the GraphQL schema previously surfaced (the
             # 1-indexed ``CorpusDescriptionRevision.version`` counter).
-            from opencontractserver.documents.versioning import (
-                calculate_content_version,
-            )
-
             new_version = calculate_content_version(new_caml_doc)
 
             return UpdateCorpusDescription(
