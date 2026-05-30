@@ -154,6 +154,7 @@ class FolderRenameMovePathReconcileTests(TestCase):
             user=self.user, corpus=self.corpus, name="Legal"
         )
         self.assertEqual(err, "")
+        assert folder is not None
         doc = self._doc_in_folder("Contract", folder)
         self.assertEqual(self._current_path(doc), "/Legal/Contract")
 
@@ -178,9 +179,11 @@ class FolderRenameMovePathReconcileTests(TestCase):
         parent, _ = FolderCRUDService.create_folder(
             user=self.user, corpus=self.corpus, name="A"
         )
+        assert parent is not None
         child, _ = FolderCRUDService.create_folder(
             user=self.user, corpus=self.corpus, name="B", parent=parent
         )
+        assert child is not None
         doc = self._doc_in_folder("Deep", child)
         self.assertEqual(self._current_path(doc), "/A/B/Deep")
 
@@ -195,9 +198,11 @@ class FolderRenameMovePathReconcileTests(TestCase):
         parent, _ = FolderCRUDService.create_folder(
             user=self.user, corpus=self.corpus, name="A"
         )
+        assert parent is not None
         child, _ = FolderCRUDService.create_folder(
             user=self.user, corpus=self.corpus, name="B", parent=parent
         )
+        assert child is not None
         doc = self._doc_in_folder("Mover", child)
         self.assertEqual(self._current_path(doc), "/A/B/Mover")
 
@@ -213,6 +218,7 @@ class FolderRenameMovePathReconcileTests(TestCase):
         folder, _ = FolderCRUDService.create_folder(
             user=self.user, corpus=self.corpus, name="Legal"
         )
+        assert folder is not None
         # add_document places the doc in the folder but with a /documents/ path
         # (NOT folder-derived), since add_document doesn't fold the folder into
         # the path.
@@ -312,6 +318,8 @@ class FolderNameCollisionTests(TestCase):
         loose_c, _ = FolderCRUDService.create_folder(
             user=self.user, corpus=self.corpus, name="C"
         )
+        assert parent is not None
+        assert loose_c is not None
 
         ok, err = FolderCRUDService.move_folder(
             user=self.user, folder=loose_c, new_parent=parent

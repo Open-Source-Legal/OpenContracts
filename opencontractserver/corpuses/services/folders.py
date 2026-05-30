@@ -540,6 +540,9 @@ class FolderCRUDService(BaseService):
                 # folder rename left paths stale). Runs in the same transaction
                 # so the rename and the path rewrites commit atomically.
                 if name_is_changing:
+                    # ``old_folder_path`` was captured (a str) above on the same
+                    # ``name_is_changing`` branch; narrow it for the typed call.
+                    assert old_folder_path is not None
                     CorpusPathService.reconcile_paths_after_folder_change(
                         corpus=folder.corpus,
                         root_folder=folder,
