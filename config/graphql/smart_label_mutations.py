@@ -275,11 +275,25 @@ class SmartLabelListMutation(graphene.Mutation):
         has_labelset = False
         can_create_labels = False
 
-        try:
-            # Get corpus
-            corpus_pk = from_global_id(corpus_id)[1]
-            corpus = Corpus.objects.get(pk=corpus_pk)
+        # IDOR-safe READ gate: only return label info for a corpus the user
+        # can actually read. ``get_or_none`` returns ``None`` for both
+        # not-found and not-permitted, so an unreadable (e.g. private) corpus
+        # is indistinguishable from a missing one. Without this gate any
+        # logged-in user could enumerate a private corpus's labelset taxonomy.
+        corpus_pk = from_global_id(corpus_id)[1]
+        corpus = BaseService.get_or_none(
+            Corpus, corpus_pk, user, PermissionTypes.READ, request=info.context
+        )
+        if corpus is None:
+            return SmartLabelListMutation(
+                ok=False,
+                message="Corpus not found",
+                labels=[],
+                has_labelset=False,
+                can_create_labels=False,
+            )
 
+        try:
             # Check permissions (boolean flag for UI/response shape — use the
             # BaseService bool helper instead of touching Tier-0 directly).
             can_create_labels = BaseService.user_has(
@@ -306,15 +320,6 @@ class SmartLabelListMutation(graphene.Mutation):
                 labels=labels,
                 has_labelset=has_labelset,
                 can_create_labels=can_create_labels,
-            )
-
-        except Corpus.DoesNotExist:
-            return SmartLabelListMutation(
-                ok=False,
-                message="Corpus not found",
-                labels=[],
-                has_labelset=False,
-                can_create_labels=False,
             )
         except Exception as e:
             logger.error(f"SmartLabelListMutation error: {e}", exc_info=True)

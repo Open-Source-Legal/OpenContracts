@@ -26,8 +26,11 @@ from config.graphql.analysis_mutations import (
 # Import annotation mutations
 from config.graphql.annotation_mutations import (
     AddAnnotation,
+    AddCityAnnotation,
+    AddCountryAnnotation,
     AddDocTypeAnnotation,
     AddRelationship,
+    AddStateAnnotation,
     AddUrlAnnotation,
     ApproveAnnotation,
     CreateNote,
@@ -250,6 +253,12 @@ class Mutation(graphene.ObjectType):
     # ANNOTATION MUTATIONS ######################################################
     add_annotation = AddAnnotation.Field()
     add_url_annotation = AddUrlAnnotation.Field()
+    # Geographic auto-annotating mutations — issue #1819. Each runs the offline
+    # geocoder against the supplied span and stamps the resolved place into
+    # ``Annotation.data`` so the map UI (#1820 / #1821) can aggregate pins.
+    add_country_annotation = AddCountryAnnotation.Field()
+    add_state_annotation = AddStateAnnotation.Field()
+    add_city_annotation = AddCityAnnotation.Field()
     remove_annotation = RemoveAnnotation.Field()
     update_annotation = UpdateAnnotation.Field()
     add_doc_type_annotation = AddDocTypeAnnotation.Field()

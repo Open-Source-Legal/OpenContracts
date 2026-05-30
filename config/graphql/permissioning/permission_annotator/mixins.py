@@ -20,6 +20,48 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+# Sentinel cached when ``User.get_anonymous()`` raises, so subsequent calls in
+# the same request short-circuit instead of retrying the failing lookup N times.
+_ANON_USER_LOOKUP_FAILED: int = -1
+
+
+def _get_anonymous_user_id(info: Any) -> int | None:
+    """Return the django-guardian anonymous-user pk, cached on the request.
+
+    ``User.get_anonymous()`` (added by django-guardian's ``GuardianUserMixin``)
+    delegates to ``guardian.utils.get_anonymous_user`` which performs an
+    uncached ``User.objects.get(...)`` on every call. ``resolve_my_permissions``
+    and ``resolve_object_shared_with`` invoke it once per GraphQL node, so a
+    list of N documents/corpuses/labelsets that includes ``myPermissions``
+    produces N anonymous-user round-trips for no semantic reason — the row
+    never changes within a request. Memoising the id on ``info.context``
+    collapses those N queries to one. Stores the **id** (not the instance)
+    because callers only ever compare ``user.id == anon.id``.
+    """
+    cached = getattr(info.context, "_anon_user_id", None)
+    if cached == _ANON_USER_LOOKUP_FAILED:
+        return None
+    if cached is not None:
+        return cached
+    try:
+        anon_id = User.get_anonymous().id  # type: ignore[attr-defined]
+    except Exception:
+        # No anonymous user configured (e.g. guardian not installed or its
+        # creation signal hasn't run yet in a bare test setup). Cache the
+        # sentinel so we don't retry per node in the same request.
+        try:
+            info.context._anon_user_id = _ANON_USER_LOOKUP_FAILED
+        except AttributeError:
+            pass
+        return None
+    try:
+        info.context._anon_user_id = anon_id
+    except AttributeError:
+        # ``info.context`` may be a frozen / immutable object in some tests.
+        pass
+    return anon_id
+
+
 class AnnotatePermissionsForReadMixin:
     """Adds ``my_permissions``, ``is_published``, and ``object_shared_with``
     fields to GraphQL types for Django models that carry guardian permission
@@ -52,14 +94,14 @@ class AnnotatePermissionsForReadMixin:
         )
 
         values: list[dict[str, Any]] = []
-        # ``get_anonymous`` is added to the User model by django-guardian's
-        # ``GuardianUserMixin``; not visible to mypy without guardian stubs.
-        anon = User.get_anonymous()  # type: ignore[attr-defined]
+        # Cached on ``info.context`` so a connection of N nodes hits the
+        # anonymous-user table once, not N times. See ``_get_anonymous_user_id``.
+        anon_id = _get_anonymous_user_id(info)
         context = info.context
 
         if context and hasattr(context, "user"):
             user = context.user
-            if user.id == anon.id:
+            if anon_id is not None and user.id == anon_id:
                 return []
 
         try:
@@ -121,10 +163,10 @@ class AnnotatePermissionsForReadMixin:
     def resolve_my_permissions(self, info) -> list[str]:
 
         # logger.info(f"resolve_my_permissions() - Start")
-        # ``get_anonymous`` is added to the User model by django-guardian's
-        # ``GuardianUserMixin``; not visible to mypy without guardian stubs.
-        anon = User.get_anonymous()  # type: ignore[attr-defined]
-        # logger.info(f"resolve_my_permissions() - anon: {anon}")
+        # Cached on ``info.context`` so a connection of N nodes hits the
+        # anonymous-user table once, not N times. See ``_get_anonymous_user_id``.
+        anon_id = _get_anonymous_user_id(info)
+        # logger.info(f"resolve_my_permissions() - anon_id: {anon_id}")
         context = info.context
         # logger.info(f"resolve_my_permissions() - context: {context}")
         user = None
@@ -133,7 +175,7 @@ class AnnotatePermissionsForReadMixin:
             # logger.info(f"resolve_my_permissions() - context has attribute user")
             user = context.user
             # logger.info(f"resolve_my_permissions() - user is: {user}")
-            if user.id == anon.id:
+            if anon_id is not None and user.id == anon_id:
                 # logger.info(f"resolve_my_permissions() - user is anon user")
                 return []
 

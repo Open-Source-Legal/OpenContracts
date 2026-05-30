@@ -48,6 +48,11 @@ from opencontractserver.shared.services.base import BaseService
 
 And always pass `request=info.context` (or the request-equivalent your
 caller has) so the Tier-2 permission cache is shared across the request.
+(Caveat: the cache is keyed by single object, so `request=` only does
+anything on the single-object helpers — `get_or_none` /
+`require_permission` / `user_has`. On the queryset helpers
+`filter_visible` / `filter_visible_qs` it is accepted for API parity but is
+currently a no-op; pass it anyway for consistency.)
 
 ### Recipe 1 — `visible_to_user`
 
@@ -139,7 +144,11 @@ operations that resolvers / tools used to inline against Tier 0:
 | `BaseService.user_has(instance, user, permission, *, request=None)` | Boolean yes/no for UI-state fields (`can_edit_summary`, `can_create_labels`, etc.). | `bool` |
 
 Resolvers should always pass `request=info.context` so the Tier-2 permission
-cache (`PermissionQueryOptimizer`) is shared across the request.
+cache (`PermissionQueryOptimizer`) is shared across the request. The cache is
+keyed by single object, so `request=` is only effective on the single-object
+helpers (`get_or_none` / `require_permission` / `user_has`); on
+`filter_visible` / `filter_visible_qs` it is accepted for API parity but is
+currently a no-op.
 
 ## Tier-0 primitives (internal foundation)
 
@@ -292,9 +301,20 @@ slip through either:
 
 The allowlist
 (`opencontractserver.shared.architecture_audit.ALLOWED_FILES`) is empty.
-Every `config/graphql/` module is scanned — `filters.py` no longer needs
-an entry because its only remaining references to forbidden identifiers
-are inside comments (which the AST scanner already ignores).
+Every `config/graphql/` module is scanned (recursively, including
+subpackages such as `permissioning/permission_annotator/`) — `filters.py`
+no longer needs an entry because its only remaining references to forbidden
+identifiers are inside comments (which the AST scanner already ignores).
+
+**Enforcement scope (important):** both layers scan **`config/graphql/`
+only**. The "always go through services" rule is *policy* for the other
+user-context surfaces — MCP tools (`opencontractserver/mcp/`), LLM tools
+(`opencontractserver/llms/tools/`), REST views, and user-context Celery
+tasks — but the scanner does **not** cover them yet, and they still contain
+correct-but-inline Tier-0 calls. A green `opencontracts.E001` means "no
+inline Tier-0 in `config/graphql/`," not "none anywhere." Expanding the
+scan to those packages (after migrating their existing inline usage) is
+tracked as future work.
 
 When you add a new resolver/mutation/MCP tool/REST view that needs
 permission-filtered access, either:
