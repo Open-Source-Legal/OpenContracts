@@ -64,6 +64,13 @@ from config.graphql.conversation_mutations import (
     UpdateMessageMutation,
 )
 
+# Import corpus mutations
+from config.graphql.corpus_category_mutations import (
+    CreateCorpusCategory,
+    DeleteCorpusCategory,
+    UpdateCorpusCategory,
+)
+
 # Import corpus folder mutations
 from config.graphql.corpus_folder_mutations import (
     CreateCorpusFolderMutation,
@@ -73,8 +80,6 @@ from config.graphql.corpus_folder_mutations import (
     MoveDocumentToFolderMutation,
     UpdateCorpusFolderMutation,
 )
-
-# Import corpus mutations
 from config.graphql.corpus_mutations import (
     AddDocumentsToCorpus,
     AddTemplateToCorpus,
@@ -326,6 +331,11 @@ class Mutation(graphene.ObjectType):
     start_corpus_action_batch_run = StartCorpusActionBatchRun.Field()
     add_template_to_corpus = AddTemplateToCorpus.Field()
     toggle_corpus_memory = ToggleCorpusMemory.Field()
+
+    # CORPUS CATEGORY MUTATIONS (superuser-only) ###############################
+    create_corpus_category = CreateCorpusCategory.Field()
+    update_corpus_category = UpdateCorpusCategory.Field()
+    delete_corpus_category = DeleteCorpusCategory.Field()
 
     # CORPUS FOLDER MUTATIONS ##################################################
     create_corpus_folder = CreateCorpusFolderMutation.Field()

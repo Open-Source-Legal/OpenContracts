@@ -576,6 +576,14 @@ export const FAILURE_COLORS = {
 /** Number of recent discussion threads shown on the corpus landing page */
 export const RECENT_THREAD_LIMIT = 3;
 
+// Corpus category (tag) default appearance. Mirrors the backend model
+// defaults (opencontractserver/constants/corpus_categories.py) so a category
+// created without an explicit icon/color renders identically on both sides.
+/** Default Lucide icon name for a corpus category. */
+export const DEFAULT_CATEGORY_ICON = "folder";
+/** Default badge color (hex) for a corpus category. */
+export const DEFAULT_CATEGORY_COLOR = "#3B82F6";
+
 // Creative Commons license options for corpus licensing.
 // SPDX identifiers: https://spdx.org/licenses/
 export const LICENSE_OPTIONS = [
