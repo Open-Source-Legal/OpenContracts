@@ -367,6 +367,10 @@ class ChunkedUploadTests(TestCase):
     def test_non_zip_bytes_rejected_for_zip_kind(self):
         self._login()
         # A PDF is not a zip; complete must surface the not-a-zip error (400).
+        # No metadata is passed at start: documents_zip has no required
+        # start-time metadata (unlike `document`, which needs `title`, or
+        # `zip_to_corpus`, which needs `corpus_id`), so the zip-magic check at
+        # complete time is the first thing that can reject this upload.
         start = self._start(
             kind="documents_zip",
             filename="bundle.zip",
@@ -422,3 +426,46 @@ class ChunkedUploadServiceUnitTests(TestCase):
         self.assertEqual(purged, 1)
         self.assertFalse(ChunkedUploadSession.objects.filter(id=session.id).exists())
         self.assertEqual(ChunkedUploadPart.objects.count(), 0)
+
+    def test_purge_removes_old_completed_but_keeps_recent(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from opencontractserver.document_imports.services import (
+            purge_stale_chunked_uploads,
+        )
+
+        def _make_completed(filename: str) -> ChunkedUploadSession:
+            return ChunkedUploadSession.objects.create(
+                creator=self.user,
+                kind="document",
+                filename=filename,
+                total_size=10,
+                chunk_size=10,
+                total_chunks=1,
+                status=ChunkedUploadStatus.COMPLETED,
+            )
+
+        old = _make_completed("old.pdf")
+        recent = _make_completed("recent.pdf")
+        # Backdate the "old" COMPLETED session beyond the retention window; the
+        # recent one stays inside it.
+        ChunkedUploadSession.objects.filter(id=old.id).update(
+            modified=timezone.now() - timedelta(days=45)
+        )
+
+        purged = purge_stale_chunked_uploads(
+            stale_hours=24, completed_retention_days=30
+        )
+        self.assertEqual(purged, 1)
+        self.assertFalse(ChunkedUploadSession.objects.filter(id=old.id).exists())
+        self.assertTrue(ChunkedUploadSession.objects.filter(id=recent.id).exists())
+
+        # retention_days=0 disables COMPLETED purging entirely.
+        ChunkedUploadSession.objects.filter(id=recent.id).update(
+            modified=timezone.now() - timedelta(days=400)
+        )
+        kept = purge_stale_chunked_uploads(stale_hours=24, completed_retention_days=0)
+        self.assertEqual(kept, 0)
+        self.assertTrue(ChunkedUploadSession.objects.filter(id=recent.id).exists())

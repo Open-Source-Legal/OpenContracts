@@ -145,7 +145,7 @@ def _resolve_pk(global_or_pk_id: Any) -> str | None:
     return pk
 
 
-def _normalise_optional(value: Any) -> str | None:
+def normalise_optional(value: Any) -> str | None:
     """
     Treat blank/whitespace-only string fields as omitted.
 
@@ -756,7 +756,7 @@ def start_chunked_upload(
         check_usage_cap(user)
         if not (metadata.get("title") or "").strip():
             raise ChunkedUploadError("title is required for a document upload")
-        corpus_ref = _normalise_optional(metadata.get("add_to_corpus_id"))
+        corpus_ref = normalise_optional(metadata.get("add_to_corpus_id"))
         if corpus_ref is not None:
             _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
             if corpus_error is not None:
@@ -764,14 +764,14 @@ def start_chunked_upload(
     else:
         _check_bulk_upload_allowed(user)
         if kind == ChunkedUploadKind.ZIP_TO_CORPUS:
-            corpus_ref = _normalise_optional(metadata.get("corpus_id"))
+            corpus_ref = normalise_optional(metadata.get("corpus_id"))
             if corpus_ref is None:
                 raise ChunkedUploadError("corpus_id is required for zip_to_corpus")
             _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
             if corpus_error is not None:
                 raise ChunkedUploadError(corpus_error, http_status=403)
         elif kind == ChunkedUploadKind.DOCUMENTS_ZIP:
-            corpus_ref = _normalise_optional(metadata.get("add_to_corpus_id"))
+            corpus_ref = normalise_optional(metadata.get("add_to_corpus_id"))
             if corpus_ref is not None:
                 _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
                 if corpus_error is not None:
@@ -842,19 +842,27 @@ def store_chunk(
     if size > session.chunk_size:
         raise ChunkedUploadError("Part exceeds the declared chunk size")
 
-    existing = session.parts.filter(index=index).first()
-    if existing is not None:
-        existing.file.delete(save=False)
-        existing.file = chunk_file
-        existing.size = size
-        existing.save(update_fields=["file", "size"])
-    else:
-        ChunkedUploadPart.objects.create(
-            session=session, index=index, file=chunk_file, size=size
-        )
+    # Lock the session row for the duration of the check-then-write so two
+    # concurrent uploads of the SAME (session, index) cannot both observe
+    # ``existing is None`` and then race ``create()`` into the
+    # ``uniq_chunk_part_per_session`` unique constraint (an unhandled
+    # IntegrityError / 500). Serialising per session is coarse but the parts
+    # of one session are rarely written in true parallel.
+    with transaction.atomic():
+        locked = ChunkedUploadSession.objects.select_for_update().get(pk=session.pk)
+        existing = locked.parts.filter(index=index).first()
+        if existing is not None:
+            existing.file.delete(save=False)
+            existing.file = chunk_file
+            existing.size = size
+            existing.save(update_fields=["file", "size"])
+        else:
+            ChunkedUploadPart.objects.create(
+                session=locked, index=index, file=chunk_file, size=size
+            )
 
-    # Bump ``modified`` so the staleness GC measures time-since-last-activity.
-    session.save(update_fields=["modified"])
+        # Bump ``modified`` so the staleness GC measures time-since-last-activity.
+        locked.save(update_fields=["modified"])
     return _session_info(session)
 
 
@@ -961,8 +969,20 @@ def complete_chunked_upload(
             "Assembled size does not match the declared total_size"
         )
 
-    session.status = ChunkedUploadStatus.ASSEMBLING
-    session.save(update_fields=["status", "modified"])
+    # Atomically claim the session: a conditional UPDATE on status=PENDING is a
+    # compare-and-swap, so only one of two simultaneous complete() calls flips
+    # PENDING -> ASSEMBLING. A 0-row result means another request already
+    # claimed it — refuse rather than assemble + import the same bytes twice
+    # (which would create duplicate documents / jobs).
+    claimed = ChunkedUploadSession.objects.filter(
+        id=session.pk, creator=user, status=ChunkedUploadStatus.PENDING
+    ).update(status=ChunkedUploadStatus.ASSEMBLING, modified=timezone.now())
+    if claimed == 0:
+        raise ChunkedUploadError(
+            "Upload session is not completable (already being completed)",
+            http_status=409,
+        )
+    session.refresh_from_db()
 
     md = session.metadata or {}
     tmp = _assemble_session_to_tempfile(session)
@@ -970,38 +990,48 @@ def complete_chunked_upload(
         kind = session.kind
         result: ImportResult | ZipImportResult | CorpusImportResult
         if kind == ChunkedUploadKind.DOCUMENT:
+            # MEMORY NOTE: unlike the three ZIP kinds below (which hand
+            # ``File(tmp)`` straight to storage and stream in
+            # CHUNK_ASSEMBLY_BLOCK_SIZE blocks), the single-document path reads
+            # the whole assembled file into RAM here because
+            # ``import_document_for_user`` / ``Corpus.import_content`` take
+            # ``bytes``, not a file-like. Peak memory for a DOCUMENT upload is
+            # therefore ~the file size, bounded by MAX_DOCUMENT_IMPORT_SIZE_BYTES
+            # (the start-time total-size cap), NOT by the per-block guarantee
+            # that holds for the ZIP kinds. Making import_content accept a
+            # file-like would lift this; tracked as follow-up.
             file_bytes = tmp.read()
             result = import_document_for_user(
                 user=user,
                 file_bytes=file_bytes,
                 filename=session.filename,
                 title=md.get("title") or session.filename,
-                description=_normalise_optional(md.get("description")) or "",
+                description=normalise_optional(md.get("description")) or "",
                 custom_meta=md.get("custom_meta") or {},
                 make_public=bool(md.get("make_public", False)),
-                add_to_corpus_id=_normalise_optional(md.get("add_to_corpus_id")),
-                add_to_folder_id=_normalise_optional(md.get("add_to_folder_id")),
-                slug=_normalise_optional(md.get("slug")),
+                add_to_corpus_id=normalise_optional(md.get("add_to_corpus_id")),
+                add_to_folder_id=normalise_optional(md.get("add_to_folder_id")),
+                slug=normalise_optional(md.get("slug")),
             )
         elif kind == ChunkedUploadKind.DOCUMENTS_ZIP:
             result = import_documents_zip_for_user(
                 user=user,
                 zip_source=File(tmp, name=session.filename),
                 zip_filename=session.filename,
-                title_prefix=_normalise_optional(md.get("title_prefix")),
-                description=_normalise_optional(md.get("description")),
+                title_prefix=normalise_optional(md.get("title_prefix")),
+                description=normalise_optional(md.get("description")),
                 custom_meta=md.get("custom_meta") or None,
                 make_public=bool(md.get("make_public", False)),
-                add_to_corpus_id=_normalise_optional(md.get("add_to_corpus_id")),
+                add_to_corpus_id=normalise_optional(md.get("add_to_corpus_id")),
             )
         elif kind == ChunkedUploadKind.ZIP_TO_CORPUS:
             result = import_zip_to_corpus_for_user(
                 user=user,
                 zip_source=File(tmp, name=session.filename),
                 corpus_id=md.get("corpus_id"),
-                target_folder_id=_normalise_optional(md.get("target_folder_id")),
-                title_prefix=_normalise_optional(md.get("title_prefix")),
-                description=_normalise_optional(md.get("description")),
+                target_folder_id=normalise_optional(md.get("target_folder_id")),
+                title_prefix=normalise_optional(md.get("title_prefix")),
+                description=normalise_optional(md.get("description")),
                 custom_meta=md.get("custom_meta") or None,
                 make_public=bool(md.get("make_public", False)),
             )
@@ -1035,23 +1065,46 @@ def complete_chunked_upload(
     return kind, result
 
 
-def purge_stale_chunked_uploads(stale_hours: int | None = None) -> int:
+def purge_stale_chunked_uploads(
+    stale_hours: int | None = None,
+    completed_retention_days: int | None = None,
+) -> int:
     """
     Delete abandoned sessions (and their stored parts) older than the
-    staleness window. ``COMPLETED`` sessions are left as a small audit
-    trail (their parts were already removed on completion).
+    staleness window, plus COMPLETED sessions older than the retention
+    window so the audit-trail rows don't accumulate unboundedly.
+
+    Non-COMPLETED (PENDING/ASSEMBLING/FAILED) sessions are purged after
+    ``stale_hours`` of inactivity. COMPLETED sessions — whose parts were
+    already removed on completion, so only a small metadata row remains —
+    are purged after ``completed_retention_days`` (0 keeps them forever).
 
     Returns the number of sessions purged.
     """
     hours = stale_hours
     if hours is None:
         hours = getattr(settings, "CHUNKED_UPLOAD_STALE_HOURS", 24)
-    cutoff = timezone.now() - timedelta(hours=hours)
-    stale = ChunkedUploadSession.objects.filter(modified__lt=cutoff).exclude(
+    retention_days = completed_retention_days
+    if retention_days is None:
+        retention_days = getattr(
+            settings, "CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS", 30
+        )
+
+    now = timezone.now()
+    stale_cutoff = now - timedelta(hours=hours)
+    stale = ChunkedUploadSession.objects.filter(modified__lt=stale_cutoff).exclude(
         status=ChunkedUploadStatus.COMPLETED
     )
+
+    completed_stale = ChunkedUploadSession.objects.none()
+    if retention_days > 0:
+        completed_cutoff = now - timedelta(days=retention_days)
+        completed_stale = ChunkedUploadSession.objects.filter(
+            status=ChunkedUploadStatus.COMPLETED, modified__lt=completed_cutoff
+        )
+
     purged = 0
-    for session in stale:
+    for session in list(stale) + list(completed_stale):
         _delete_session_parts(session)
         session.delete()
         purged += 1

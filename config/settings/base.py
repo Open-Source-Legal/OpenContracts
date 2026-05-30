@@ -842,6 +842,13 @@ CHUNKED_UPLOAD_MAX_PARTS = int(env("CHUNKED_UPLOAD_MAX_PARTS", default="100000")
 # Hours of inactivity before an unfinished session and its stored parts are
 # eligible for garbage collection by ``purge_stale_chunked_uploads``.
 CHUNKED_UPLOAD_STALE_HOURS = int(env("CHUNKED_UPLOAD_STALE_HOURS", default="24"))
+# Days a COMPLETED session row is retained as an audit trail before
+# ``purge_stale_chunked_uploads`` removes it (its parts were already deleted on
+# completion, so this only reclaims small metadata rows). Prevents the table
+# from growing unboundedly. Set to 0 to keep COMPLETED rows forever.
+CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS = int(
+    env("CHUNKED_UPLOAD_COMPLETED_RETENTION_DAYS", default="30")
+)
 
 # Maximum metadata JSON size (in bytes) accepted by the worker upload endpoint.
 # Default: 500 MB. Set to 0 to disable the limit.

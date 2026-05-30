@@ -60,13 +60,13 @@ from opencontractserver.document_imports.services import (
     DocumentImportPermissionError,
     ImportResult,
     ZipImportResult,
-    _normalise_optional,
     complete_chunked_upload,
     get_chunked_session_status,
     import_corpus_export_for_user,
     import_document_for_user,
     import_documents_zip_for_user,
     import_zip_to_corpus_for_user,
+    normalise_optional,
     start_chunked_upload,
     store_chunk,
 )
@@ -208,7 +208,7 @@ class DocumentImportView(APIView):
         # file was provided, so we fall back to a sentinel only to satisfy the
         # type checker — the service relies on it for MIME-extension hints.
         filename: str = (
-            _normalise_optional(data.get("filename")) or uploaded.name or "upload"
+            normalise_optional(data.get("filename")) or uploaded.name or "upload"
         )
         file_bytes = uploaded.read()
 
@@ -218,12 +218,12 @@ class DocumentImportView(APIView):
                 file_bytes=file_bytes,
                 filename=filename,
                 title=data["title"],
-                description=_normalise_optional(data.get("description")) or "",
+                description=normalise_optional(data.get("description")) or "",
                 custom_meta=data.get("custom_meta") or {},
                 make_public=bool(data.get("make_public", False)),
-                add_to_corpus_id=_normalise_optional(data.get("add_to_corpus_id")),
-                add_to_folder_id=_normalise_optional(data.get("add_to_folder_id")),
-                slug=_normalise_optional(data.get("slug")),
+                add_to_corpus_id=normalise_optional(data.get("add_to_corpus_id")),
+                add_to_folder_id=normalise_optional(data.get("add_to_folder_id")),
+                slug=normalise_optional(data.get("slug")),
             )
         except DocumentImportPermissionError as e:
             logger.info("Document import denied", extra={"code": e.code})
@@ -263,11 +263,11 @@ class DocumentsZipImportView(APIView):
                 user=request.user,
                 zip_source=uploaded,
                 zip_filename=uploaded.name,
-                title_prefix=_normalise_optional(data.get("title_prefix")),
-                description=_normalise_optional(data.get("description")),
+                title_prefix=normalise_optional(data.get("title_prefix")),
+                description=normalise_optional(data.get("description")),
                 custom_meta=data.get("custom_meta") or None,
                 make_public=bool(data.get("make_public", False)),
-                add_to_corpus_id=_normalise_optional(data.get("add_to_corpus_id")),
+                add_to_corpus_id=normalise_optional(data.get("add_to_corpus_id")),
             )
         except DocumentImportPermissionError as e:
             logger.info("Bulk-zip import denied", extra={"code": e.code})
@@ -308,9 +308,9 @@ class ZipToCorpusImportView(APIView):
                 user=request.user,
                 zip_source=uploaded,
                 corpus_id=data["corpus_id"],
-                target_folder_id=_normalise_optional(data.get("target_folder_id")),
-                title_prefix=_normalise_optional(data.get("title_prefix")),
-                description=_normalise_optional(data.get("description")),
+                target_folder_id=normalise_optional(data.get("target_folder_id")),
+                title_prefix=normalise_optional(data.get("title_prefix")),
+                description=normalise_optional(data.get("description")),
                 custom_meta=data.get("custom_meta") or None,
                 make_public=bool(data.get("make_public", False)),
             )
