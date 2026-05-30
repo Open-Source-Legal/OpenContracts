@@ -54,7 +54,7 @@ import {
   formatResearchDuration,
   isTerminalResearchStatus,
 } from "../utils/researchUtils";
-import { getDocumentUrl, getCorpusUrl } from "../utils/navigationUtils";
+import { getDocumentUrl } from "../utils/navigationUtils";
 import { getNumericIdFromGlobalId, toGlobalId } from "../utils/idValidation";
 import { SafeMarkdown } from "../components/knowledge_base/markdown/SafeMarkdown";
 import { useResearchCompletionNotification } from "../hooks/useResearchCompletionNotification";
@@ -456,7 +456,9 @@ export const ResearchReportDetail: React.FC = () => {
   const handleBack = () => {
     const corpus = report?.corpus;
     if (corpus?.slug && corpus?.creator?.slug) {
-      navigate(`${getCorpusUrl(corpus)}?tab=research`);
+      // Corpus URL shape mirrors getCorpusUrl(); inlined here so this view
+      // doesn't import it (the named import tripped the CT bundler).
+      navigate(`/c/${corpus.creator.slug}/${corpus.slug}?tab=research`);
     } else {
       navigate(-1);
     }
