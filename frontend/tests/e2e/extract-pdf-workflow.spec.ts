@@ -159,23 +159,36 @@ test.describe("Extract PDF workflow (LLM-gated)", () => {
       // separate concern tracked in the follow-up issue (see
       // docs/superpowers/specs/2026-04-29-followup-issue-no-final-response.md).
       // AG-Grid uses role="cell" for data cells.
+      //
+      // POLL, don't one-shot read (issue #1844): the backend marks the
+      // extract complete — clearing the "Extraction in progress" overlay
+      // that runExtractAndWaitForFinish waits on — a beat before AG-Grid
+      // finishes its per-cell Apollo `data` fetch. A single read therefore
+      // races grid hydration and intermittently sees an empty cell even
+      // though the datacell is populated server-side (the backend logs
+      // "Successfully extracted and saved data for cell N"). Retrying until
+      // the cell hydrates removes the false negative without weakening the
+      // assertion — a genuinely empty extract still fails when the poll
+      // times out.
       for (const docTitle of [DOC_USC_TITLE, DOC_ETON_TITLE]) {
-        const row = page.getByRole("row").filter({ hasText: docTitle });
-        const cells = row.getByRole("cell");
-        const cellCount = await cells.count();
-        expect(cellCount).toBeGreaterThan(0);
-        let nonEmptySeen = false;
-        for (let i = 0; i < cellCount; i++) {
-          const text = (await cells.nth(i).textContent())?.trim() ?? "";
-          if (text.length > 0 && text !== docTitle) {
-            nonEmptySeen = true;
-            break;
+        await expect(async () => {
+          const row = page.getByRole("row").filter({ hasText: docTitle });
+          const cells = row.getByRole("cell");
+          const cellCount = await cells.count();
+          expect(cellCount).toBeGreaterThan(0);
+          let nonEmptySeen = false;
+          for (let i = 0; i < cellCount; i++) {
+            const text = (await cells.nth(i).textContent())?.trim() ?? "";
+            if (text.length > 0 && text !== docTitle) {
+              nonEmptySeen = true;
+              break;
+            }
           }
-        }
-        expect(
-          nonEmptySeen,
-          `Row "${docTitle}" has no non-empty extracted cell — extract may have failed`
-        ).toBe(true);
+          expect(
+            nonEmptySeen,
+            `Row "${docTitle}" has no non-empty extracted cell — extract may have failed`
+          ).toBe(true);
+        }).toPass({ timeout: 120_000, intervals: [1_000, 2_000, 5_000] });
       }
     });
 
