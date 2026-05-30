@@ -33,7 +33,11 @@ import {
   ScrollableTableWrapper,
 } from "../../layout/SharedSegments";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
-import { MOBILE_VIEW_BREAKPOINT } from "../../../assets/configurations/constants";
+import {
+  MOBILE_VIEW_BREAKPOINT,
+  DEFAULT_CATEGORY_ICON as DEFAULT_ICON,
+  DEFAULT_CATEGORY_COLOR as DEFAULT_COLOR,
+} from "../../../assets/configurations/constants";
 import { resolveLucideIcon } from "./iconResolver";
 import {
   GET_ADMIN_CORPUS_CATEGORIES,
@@ -49,10 +53,6 @@ import {
   DeleteCorpusCategoryOutput,
   ManagedCorpusCategory,
 } from "./graphql";
-
-// Default appearance values, mirroring the backend model defaults.
-const DEFAULT_ICON = "folder";
-const DEFAULT_COLOR = "#3B82F6";
 
 const Container = styled.div`
   padding: 2rem;
@@ -182,12 +182,15 @@ export const CorpusCategoryManagement: React.FC = () => {
   const [categoryToDelete, setCategoryToDelete] =
     useState<ManagedCorpusCategory | null>(null);
 
-  const refetchAndToast = (message: string) => {
-    toast.success(message);
-    setShowFormModal(false);
-    setEditingCategory(null);
-    refetch();
-  };
+  const refetchAndToast = useCallback(
+    (message: string) => {
+      toast.success(message);
+      setShowFormModal(false);
+      setEditingCategory(null);
+      refetch();
+    },
+    [refetch]
+  );
 
   const [createCategory, { loading: creating }] = useMutation<
     CreateCorpusCategoryOutput,
@@ -550,6 +553,8 @@ export const CorpusCategoryManagement: React.FC = () => {
             : ""
         }
         yesAction={handleConfirmDelete}
+        // ConfirmModal always calls toggleModal after yes/no, which closes the
+        // dialog and clears the pending category, so noAction is a no-op here.
         noAction={() => {}}
         toggleModal={() => setCategoryToDelete(null)}
         confirmLabel="Delete"

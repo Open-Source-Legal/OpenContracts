@@ -253,7 +253,7 @@ const settingsItems: SettingItem[] = [
     description:
       "Create and manage the category tags (e.g. Case Law, Contracts) used to organize corpuses on the Discover page.",
     icon: Tag,
-    gradient: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+    gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.chartPurple} 0%, ${OS_LEGAL_COLORS.agentPurple} 100%)`,
     route: "/admin/corpus-categories",
   },
   {

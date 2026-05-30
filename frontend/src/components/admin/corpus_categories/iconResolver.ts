@@ -1,5 +1,11 @@
 import { Tag } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+// NOTE: the namespace import is intentional and must NOT be "fixed" to named
+// imports. Category icons are configured at runtime (a free-text Lucide name
+// stored on the DB row), so the component cannot be known at build time — we
+// must look it up dynamically against the full export map. This forgoes
+// tree-shaking on lucide-react, but there is no static allow-list of icons to
+// import instead when any of the 1,000+ icons may be chosen by an admin.
 import * as LucideIcons from "lucide-react";
 
 /**

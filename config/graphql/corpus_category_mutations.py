@@ -7,14 +7,16 @@ and in corpus settings. They are global, admin-provisioned data with no
 per-object guardian permissions, so every mutation here is gated to
 superusers only — mirroring the pipeline-settings mutations.
 
-These mutations let a superuser create / update / delete categories at
+These mutations are thin GraphQL wrappers: the superuser gate and Relay
+global-id parsing stay here (GraphQL-boundary concerns), while validation,
+unique-name enforcement, and all ORM access live in
+:class:`~opencontractserver.corpuses.services.CorpusCategoryService` (per
+CLAUDE.md rule 7). A superuser can create / update / delete categories at
 runtime (via the in-app admin UI or GraphiQL) instead of editing a seed
 migration or the Django admin.
 """
 
 import logging
-import re
-from typing import Optional
 
 import graphene
 from graphql_jwt.decorators import login_required
@@ -22,57 +24,33 @@ from graphql_relay import from_global_id
 
 from config.graphql.corpus_types import CorpusCategoryType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
-from opencontractserver.corpuses.models import CorpusCategory
+from opencontractserver.corpuses.services import CorpusCategoryService
 
 logger = logging.getLogger(__name__)
-
-# Validation constants. Kept in sync with the field definitions on
-# ``CorpusCategory`` (opencontractserver/corpuses/models.py).
-MAX_CATEGORY_NAME_LENGTH = 255
-MAX_CATEGORY_ICON_LENGTH = 100
-# Hex color in the form ``#RRGGBB`` — matches the ``color`` field width (7).
-HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
-
-# Default appearance values, mirroring the model field defaults so create
-# mutations that omit ``icon`` / ``color`` land on the same look as a direct
-# ORM create.
-DEFAULT_CATEGORY_ICON = "folder"
-DEFAULT_CATEGORY_COLOR = "#3B82F6"
 
 # Shared not-authorized message so callers can't distinguish "doesn't exist"
 # from "not permitted" beyond the superuser gate.
 NOT_SUPERUSER_MESSAGE = "Only superusers can manage corpus categories."
 
+# Shared not-found message — also returned for a well-formed global ID that
+# names a different type, so the global-id namespace can't be probed.
+NOT_FOUND_MESSAGE = "Category not found."
 
-def _validate_category_fields(
-    *,
-    name: Optional[str] = None,
-    icon: Optional[str] = None,
-    color: Optional[str] = None,
-) -> Optional[str]:
-    """Validate the user-supplied category fields.
 
-    Returns an error message string if any field is invalid, else ``None``.
-    Only validates the fields that are actually provided (non-``None``) so it
-    works for both create (all fields) and partial update.
+def _resolve_category_pk(global_id: str):
+    """Return the PK encoded in a ``CorpusCategoryType`` global ID, or ``None``.
+
+    Returns ``None`` for a malformed ID or a well-formed ID that names a
+    different type, so a global ID for another type can't silently resolve
+    against the category table.
     """
-    if name is not None:
-        cleaned = name.strip()
-        if not cleaned:
-            return "Category name cannot be empty."
-        if len(cleaned) > MAX_CATEGORY_NAME_LENGTH:
-            return (
-                f"Category name exceeds maximum length of "
-                f"{MAX_CATEGORY_NAME_LENGTH} characters."
-            )
-    if icon is not None and len(icon) > MAX_CATEGORY_ICON_LENGTH:
-        return (
-            f"Icon name exceeds maximum length of "
-            f"{MAX_CATEGORY_ICON_LENGTH} characters."
-        )
-    if color is not None and not HEX_COLOR_PATTERN.match(color):
-        return f"Invalid color '{color}'. Expected a hex value like '#3B82F6'."
-    return None
+    try:
+        type_name, category_pk = from_global_id(global_id)
+    except Exception:
+        return None
+    if type_name != "CorpusCategoryType":
+        return None
+    return category_pk
 
 
 class CreateCorpusCategory(graphene.Mutation):
@@ -117,35 +95,17 @@ class CreateCorpusCategory(graphene.Mutation):
                 ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None
             )
 
-        validation_error = _validate_category_fields(name=name, icon=icon, color=color)
-        if validation_error:
-            return CreateCorpusCategory(ok=False, message=validation_error, obj=None)
-
-        cleaned_name = name.strip()
-        if CorpusCategory.objects.filter(name=cleaned_name).exists():
-            return CreateCorpusCategory(
-                ok=False,
-                message=f"A category named '{cleaned_name}' already exists.",
-                obj=None,
-            )
-
-        category = CorpusCategory.objects.create(
-            name=cleaned_name,
-            description=(description or "").strip(),
-            icon=icon or DEFAULT_CATEGORY_ICON,
-            color=color or DEFAULT_CATEGORY_COLOR,
-            sort_order=sort_order if sort_order is not None else 0,
-            creator=user,
-            # Categories are globally visible structural data.
-            is_public=True,
+        result = CorpusCategoryService.create_category(
+            user,
+            name=name,
+            description=description,
+            icon=icon,
+            color=color,
+            sort_order=sort_order,
         )
-        logger.info(
-            "Superuser %s created corpus category %s (%s)",
-            user.id,
-            category.id,
-            category.name,
-        )
-        return CreateCorpusCategory(ok=True, message="Success", obj=category)
+        if not result.ok:
+            return CreateCorpusCategory(ok=False, message=result.error, obj=None)
+        return CreateCorpusCategory(ok=True, message="Success", obj=result.value)
 
 
 class UpdateCorpusCategory(graphene.Mutation):
@@ -182,63 +142,26 @@ class UpdateCorpusCategory(graphene.Mutation):
                 ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None
             )
 
-        not_found_msg = "Category not found."
-        try:
-            type_name, category_pk = from_global_id(id)
-        except Exception:
-            return UpdateCorpusCategory(ok=False, message=not_found_msg, obj=None)
-        # Reject a well-formed global ID for a different type so it can't
-        # silently resolve against the wrong table.
-        if type_name != "CorpusCategoryType":
-            return UpdateCorpusCategory(ok=False, message=not_found_msg, obj=None)
+        category_pk = _resolve_category_pk(id)
+        if category_pk is None:
+            return UpdateCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE, obj=None)
 
-        category = CorpusCategory.objects.filter(pk=category_pk).first()
+        category = CorpusCategoryService.get_category_or_none(category_pk)
         if category is None:
-            return UpdateCorpusCategory(ok=False, message=not_found_msg, obj=None)
+            return UpdateCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE, obj=None)
 
-        validation_error = _validate_category_fields(name=name, icon=icon, color=color)
-        if validation_error:
-            return UpdateCorpusCategory(ok=False, message=validation_error, obj=None)
-
-        update_fields = ["modified"]
-
-        if name is not None:
-            cleaned_name = name.strip()
-            # Enforce the unique-name constraint with a friendly message
-            # rather than letting the IntegrityError bubble up.
-            if (
-                CorpusCategory.objects.filter(name=cleaned_name)
-                .exclude(pk=category.pk)
-                .exists()
-            ):
-                return UpdateCorpusCategory(
-                    ok=False,
-                    message=f"A category named '{cleaned_name}' already exists.",
-                    obj=None,
-                )
-            category.name = cleaned_name
-            update_fields.append("name")
-        if description is not None:
-            category.description = description.strip()
-            update_fields.append("description")
-        if icon is not None:
-            category.icon = icon
-            update_fields.append("icon")
-        if color is not None:
-            category.color = color
-            update_fields.append("color")
-        if sort_order is not None:
-            category.sort_order = sort_order
-            update_fields.append("sort_order")
-
-        category.save(update_fields=update_fields)
-        logger.info(
-            "Superuser %s updated corpus category %s (%s)",
-            user.id,
-            category.id,
-            category.name,
+        result = CorpusCategoryService.update_category(
+            user,
+            category,
+            name=name,
+            description=description,
+            icon=icon,
+            color=color,
+            sort_order=sort_order,
         )
-        return UpdateCorpusCategory(ok=True, message="Success", obj=category)
+        if not result.ok:
+            return UpdateCorpusCategory(ok=False, message=result.error, obj=None)
+        return UpdateCorpusCategory(ok=True, message="Success", obj=result.value)
 
 
 class DeleteCorpusCategory(graphene.Mutation):
@@ -263,26 +186,15 @@ class DeleteCorpusCategory(graphene.Mutation):
         if not user.is_superuser:
             return DeleteCorpusCategory(ok=False, message=NOT_SUPERUSER_MESSAGE)
 
-        not_found_msg = "Category not found."
-        try:
-            type_name, category_pk = from_global_id(id)
-        except Exception:
-            return DeleteCorpusCategory(ok=False, message=not_found_msg)
-        # Reject a well-formed global ID for a different type so it can't
-        # silently resolve against the wrong table.
-        if type_name != "CorpusCategoryType":
-            return DeleteCorpusCategory(ok=False, message=not_found_msg)
+        category_pk = _resolve_category_pk(id)
+        if category_pk is None:
+            return DeleteCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE)
 
-        category = CorpusCategory.objects.filter(pk=category_pk).first()
+        category = CorpusCategoryService.get_category_or_none(category_pk)
         if category is None:
-            return DeleteCorpusCategory(ok=False, message=not_found_msg)
+            return DeleteCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE)
 
-        category_name = category.name
-        category.delete()
-        logger.info(
-            "Superuser %s deleted corpus category %s (%s)",
-            user.id,
-            category_pk,
-            category_name,
-        )
+        result = CorpusCategoryService.delete_category(user, category)
+        if not result.ok:
+            return DeleteCorpusCategory(ok=False, message=result.error)
         return DeleteCorpusCategory(ok=True, message="Success")
