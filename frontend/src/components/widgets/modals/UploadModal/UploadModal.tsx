@@ -457,6 +457,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 selectedFile={zipFile}
                 disabled={isUploading}
                 acceptedFileTypes={acceptedFileTypes}
+                maxSizeBytes={UPLOAD.MAX_IMPORT_ZIP_BYTES}
+                maxSizeDisplay={UPLOAD.MAX_IMPORT_ZIP_DISPLAY}
                 onFilesSelected={handleFilesSelected}
                 onFileRejected={handleFileRejected}
               />
