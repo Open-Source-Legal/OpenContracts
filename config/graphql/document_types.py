@@ -47,6 +47,20 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _dedupe_doc_type_labels(annotations: Any) -> list[Any]:
+    # A document can carry multiple DOC_TYPE_LABEL annotations sharing the same
+    # label; the badge UI shows each label once, so dedupe by label pk.
+    seen: set[int] = set()
+    labels: list[Any] = []
+    for ann in annotations:
+        label = ann.annotation_label
+        if label is None or label.pk in seen:
+            continue
+        seen.add(label.pk)
+        labels.append(label)
+    return labels
+
+
 # -------------------- Ingestion Source Types -------------------- #
 
 INGESTION_SOURCE_GLOBAL_ID_TYPE = "IngestionSourceType"
@@ -264,24 +278,11 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         from opencontractserver.annotations.models import DOC_TYPE_LABEL
         from opencontractserver.annotations.services import AnnotationService
 
-        # A document can carry multiple DOC_TYPE_LABEL annotations sharing the
-        # same label; the badge UI shows each label once, so dedupe by pk.
-        def _dedupe_labels(annotations: Any) -> list[Any]:
-            seen: set[int] = set()
-            labels: list[Any] = []
-            for ann in annotations:
-                label = ann.annotation_label
-                if label is None or label.pk in seen:
-                    continue
-                seen.add(label.pk)
-                labels.append(label)
-            return labels
-
         prefetched = getattr(self, "_prefetched_doc_annotations", None)
         if prefetched is not None:
             # ``_apply_document_prefetches`` already filtered to DOC_TYPE_LABEL
             # and ``select_related``-cached ``annotation_label``.
-            return _dedupe_labels(prefetched)
+            return _dedupe_doc_type_labels(prefetched)
 
         # Fallback path: ``DocumentType`` accessed outside the corpus-list
         # batch (e.g. ``node(id:)``). Push ``label_type == DOC_TYPE_LABEL``
@@ -297,7 +298,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             .filter(annotation_label__label_type=DOC_TYPE_LABEL)
             .select_related("annotation_label")
         )
-        return _dedupe_labels(fallback_qs)
+        return _dedupe_doc_type_labels(fallback_qs)
 
     all_structural_annotations = graphene.List(
         AnnotationType,
