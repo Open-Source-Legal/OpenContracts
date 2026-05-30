@@ -454,8 +454,7 @@ export function getResearchReportUrl(
   report: Pick<ResearchReportType, "slug">
 ): string {
   if (!report.slug) {
-    console.warn("Cannot generate research report URL without slug:", report);
-    return "#"; // Safe fallback that won't navigate
+    return "#"; // Safe fallback that won't navigate; "#" signals the caller
   }
 
   return `/research/${report.slug}`;

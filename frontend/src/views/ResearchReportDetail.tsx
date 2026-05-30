@@ -774,11 +774,11 @@ export const ResearchReportDetail: React.FC = () => {
                               </>
                             );
                             return href && href !== "#" ? (
-                              <RowLink key={c.footnote} to={href}>
+                              <RowLink key={i} to={href}>
                                 {inner}
                               </RowLink>
                             ) : (
-                              <Row key={c.footnote}>{inner}</Row>
+                              <Row key={i}>{inner}</Row>
                             );
                           })}
                         </List>

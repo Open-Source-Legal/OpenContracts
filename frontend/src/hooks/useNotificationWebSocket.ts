@@ -57,6 +57,7 @@ export type NotificationType =
   | "RESEARCH_REPORT_COMPLETE"
   | "RESEARCH_REPORT_FAILED"
   | "RESEARCH_REPORT_CANCELLED"
+  // TODO(v2): wire incremental progress notifications; not emitted in v1.
   | "RESEARCH_REPORT_PROGRESS";
 
 /**

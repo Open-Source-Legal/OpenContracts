@@ -716,33 +716,35 @@ export function CentralRouteManager() {
                 "[RouteManager] ❌ GraphQL error resolving research report:",
                 error
               );
+              // Clear loading before redirecting so /404 doesn't inherit it.
+              routeLoading(false);
+              navigate("/404", { replace: true });
+              return;
             }
 
             if (!data?.researchReportBySlug) {
               console.warn("[RouteManager] ⚠️  research report is null");
-            }
-
-            if (!error && data?.researchReportBySlug) {
-              const report = data.researchReportBySlug as ResearchReportType;
-
-              routingLogger.debug(
-                "[RouteManager] ✅ Resolved research report via slug:",
-                report.id
-              );
-
-              openedResearchReport(report);
-              openedCorpus(null);
-              openedDocument(null);
-              openedExtract(null);
-              openedThread(null);
-              openedLabelset(null);
-              openedUser(null);
+              // Clear loading before redirecting so /404 doesn't inherit it.
               routeLoading(false);
+              navigate("/404", { replace: true });
               return;
             }
 
-            console.warn("[RouteManager] Research report not found");
-            navigate("/404", { replace: true });
+            const report = data.researchReportBySlug as ResearchReportType;
+
+            routingLogger.debug(
+              "[RouteManager] ✅ Resolved research report via slug:",
+              report.id
+            );
+
+            openedResearchReport(report);
+            openedCorpus(null);
+            openedDocument(null);
+            openedExtract(null);
+            openedThread(null);
+            openedLabelset(null);
+            openedUser(null);
+            routeLoading(false);
             return;
           }
 

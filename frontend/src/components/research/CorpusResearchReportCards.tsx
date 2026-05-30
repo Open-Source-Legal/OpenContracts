@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { toast } from "react-toastify";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import styled from "styled-components";
@@ -97,7 +97,14 @@ export const CorpusResearchReportCards: React.FC<
     skip: !opened_corpus?.id,
   });
 
+  // Skip the initial run: useQuery already fetches on mount, so refetching
+  // here too would double-fetch. Only refetch on a subsequent auth change.
+  const didMountRef = useRef(false);
   useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     if (auth_token && opened_corpus?.id) {
       refetch();
     }
@@ -131,6 +138,21 @@ export const CorpusResearchReportCards: React.FC<
       variables: { ...variables, cursor: pageInfo.endCursor },
     });
   };
+
+  if (error && allReports.length === 0) {
+    return (
+      <Container>
+        <StateWrapper>
+          <EmptyState
+            icon={<Sparkles />}
+            title="Could not load reports"
+            description="There was a problem fetching deep-research reports for this corpus. Please try again."
+            size="lg"
+          />
+        </StateWrapper>
+      </Container>
+    );
+  }
 
   if (loading && allReports.length === 0) {
     return (

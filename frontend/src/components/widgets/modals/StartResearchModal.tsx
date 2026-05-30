@@ -19,6 +19,7 @@ import {
   StartResearchReportOutput,
 } from "../../../graphql/mutations";
 import { MAX_RESEARCH_PROMPT_CHARS } from "../../../assets/configurations/constants";
+import { getResearchReportUrl } from "../../../utils/navigationUtils";
 
 interface StartResearchModalProps {
   corpusId: string;
@@ -75,8 +76,9 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
           "Research started. We'll notify you when the report is ready."
         );
         handleClose();
-        if (payload.obj.slug) {
-          navigate(`/research/${payload.obj.slug}`);
+        const url = getResearchReportUrl(payload.obj);
+        if (url !== "#") {
+          navigate(url);
         }
       } else {
         toast.error(payload?.message || "Could not start research.");

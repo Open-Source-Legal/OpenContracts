@@ -4,11 +4,7 @@ import { MetaTags } from "../seo/MetaTags";
 import { ModernLoadingDisplay } from "../widgets/ModernLoadingDisplay";
 import { ModernErrorDisplay } from "../widgets/ModernErrorDisplay";
 import { ErrorBoundary } from "../widgets/ErrorBoundary";
-import {
-  openedResearchReport,
-  routeLoading,
-  routeError,
-} from "../../graphql/cache";
+import { openedResearchReport, routeLoading } from "../../graphql/cache";
 import { ResearchReportDetail } from "../../views/ResearchReportDetail";
 
 /**
@@ -22,7 +18,6 @@ import { ResearchReportDetail } from "../../views/ResearchReportDetail";
 export const ResearchReportRoute: React.FC = () => {
   const report = useReactiveVar(openedResearchReport);
   const loading = useReactiveVar(routeLoading);
-  const error = useReactiveVar(routeError);
 
   if (loading && !report) {
     return (
@@ -34,16 +29,8 @@ export const ResearchReportRoute: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <ModernErrorDisplay
-        type="generic"
-        title="Research report"
-        error={error.message || "Failed to load research report"}
-      />
-    );
-  }
-
+  // CentralRouteManager redirects to /404 on GraphQL error or null data, so
+  // the only state that reaches here without a report is the not-found case.
   if (!report) {
     return (
       <ModernErrorDisplay

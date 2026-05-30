@@ -52,7 +52,7 @@ const FILTER_ITEMS: FilterTabItem[] = [
 ];
 
 interface ResearchTabContentProps {
-  setActiveTab: (tab: number) => void;
+  setActiveTab: (tab: number | string) => void;
   onOpenMobileMenu?: () => void;
 }
 
