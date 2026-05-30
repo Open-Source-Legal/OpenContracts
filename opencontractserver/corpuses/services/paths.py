@@ -148,6 +148,147 @@ class CorpusPathService(BaseService):
             )
         return f"/{stripped}/"
 
+    @classmethod
+    def reconcile_paths_after_folder_change(
+        cls,
+        *,
+        corpus: Corpus,
+        root_folder: CorpusFolder,
+        old_root_path: str,
+        user: User,
+    ) -> int:
+        """Rewrite stored ``DocumentPath.path`` strings after a folder rename/move.
+
+        Folder rename (``update_folder``) and folder move (``move_folder``)
+        change a folder's position in the tree — and therefore the value of
+        ``folder.get_path()`` — but historically left the ``path`` strings of
+        the documents inside the folder (and its descendants) untouched. Because
+        document *moves* derive ``path`` from ``folder.get_path()``
+        (:meth:`_compute_moved_path`), a folder rename made the two drift out of
+        sync: a document moved into ``/Legal/x.pdf`` kept that stale path after
+        ``Legal`` was renamed to ``Contracts``.
+
+        This reconciler closes that gap. For every **folder-derived** active
+        path under ``root_folder`` and its descendants — i.e. paths that
+        currently equal ``/<old folder path>/<filename>`` — it rewrites the
+        directory prefix to the folder's new path, creating immutable MOVED
+        history nodes via the same batch machinery as
+        :meth:`FolderDocumentService.move_documents_to_folder` (deactivate +
+        ``bulk_create`` + manual ``post_save`` dispatch).
+
+        Paths that are **not** folder-derived (e.g. the ``/documents/<title>``
+        default an upload assigns regardless of folder) are intentionally left
+        untouched: they never reflected the folder location, so a rename does
+        not make them any more stale. This keeps the change minimal and
+        collision-free (source and target directories are disjoint because the
+        root path string actually changed).
+
+        **Caller contract**: must run inside the SAME ``transaction.atomic()``
+        block that performed the folder mutation, AFTER ``root_folder`` has been
+        saved with its new name/parent (so ``get_path()`` returns the new
+        value). ``old_root_path`` is ``root_folder.get_path()`` captured BEFORE
+        the mutation. No permission check — the calling service gates corpus
+        UPDATE first.
+
+        Args:
+            corpus: The corpus owning the folder and its documents.
+            root_folder: The folder that was renamed or moved (already saved).
+            old_root_path: ``root_folder.get_path()`` as it was before the change.
+            user: User performing the operation (creator of the new path nodes).
+
+        Returns:
+            Number of DocumentPath rows rewritten (0 if nothing drifted).
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        new_root_path = root_folder.get_path()
+        if old_root_path == new_root_path:
+            return 0
+
+        # Every folder in the moved/renamed subtree (includes the root itself).
+        affected_folders = list(root_folder.get_descendant_folders())
+        folder_by_id = {f.id: f for f in affected_folders}
+        new_path_by_folder = {f.id: f.get_path() for f in affected_folders}
+        # A descendant's path is ``new_root_path`` + a stable suffix (names
+        # below the root did not change), so its OLD path is the same suffix
+        # appended to ``old_root_path``.
+        old_path_by_folder = {
+            fid: old_root_path + npath[len(new_root_path) :]
+            for fid, npath in new_path_by_folder.items()
+        }
+
+        current_paths = list(
+            DocumentPath.objects.select_for_update(of=("self",))
+            .filter(
+                folder__in=affected_folders,
+                corpus=corpus,
+                is_current=True,
+                is_deleted=False,
+            )
+            .order_by("pk")
+        )
+
+        occupied_by_dir: dict[str, set[str]] = {}
+        planned: list[tuple[DocumentPath, str]] = []
+        for dp in current_paths:
+            old_prefix = f"/{old_path_by_folder[dp.folder_id]}/"
+            if not dp.path.startswith(old_prefix):
+                # Not folder-derived (e.g. "/documents/<title>") — leave as-is.
+                continue
+            new_folder_path = new_path_by_folder[dp.folder_id]
+            # Pass the already-loaded folder + its path so _compute_moved_path
+            # neither hits the DB (no folder FK fetch) nor runs an ancestor CTE.
+            new_candidate = cls._compute_moved_path(
+                dp.path,
+                folder_by_id[dp.folder_id],
+                target_folder_path=new_folder_path,
+            )
+            target_dir = cls._target_directory_string_from_path(new_folder_path)
+            if target_dir not in occupied_by_dir:
+                occupied_by_dir[target_dir] = cls._fetch_occupied_paths_in_directory(
+                    corpus, target_dir
+                )
+            occupied = occupied_by_dir[target_dir]
+            new_candidate = cls._disambiguate_path(
+                new_candidate, corpus, occupied_override=occupied
+            )
+            occupied.add(new_candidate)
+            planned.append((dp, new_candidate))
+
+        if not planned:
+            return 0
+
+        old_pks = [dp.pk for dp, _ in planned]
+        DocumentPath.objects.filter(pk__in=old_pks).update(is_current=False)
+
+        new_rows = [
+            DocumentPath(
+                document_id=dp.document_id,
+                corpus=corpus,
+                folder_id=dp.folder_id,
+                path=new_path,
+                version_number=dp.version_number,
+                parent=dp,
+                is_current=True,
+                is_deleted=False,
+                creator=user,
+            )
+            for dp, new_path in planned
+        ]
+        created = DocumentPath.objects.bulk_create(new_rows)
+        cls._dispatch_document_path_created_signals(created)
+
+        logger.info(
+            "Reconciled %d document path(s) under folder %s in corpus %s "
+            "after move/rename (%r -> %r)",
+            len(created),
+            root_folder.id,
+            corpus.id,
+            old_root_path,
+            new_root_path,
+        )
+        return len(created)
+
     @staticmethod
     def _dispatch_document_path_created_signals(
         paths: list[DocumentPath],

@@ -198,7 +198,21 @@ class DocumentLifecycleService(BaseService):
         if not document_path.is_current:
             return False, "Document path is not current"
 
+        from opencontractserver.corpuses.services.paths import CorpusPathService
+
         with transaction.atomic():
+            # The original path may have been reused by a new document while
+            # this one sat in the trash (the importer only blocks active,
+            # non-deleted rows, so uploading to a soft-deleted path is allowed).
+            # Restoring onto the original path would then violate
+            # ``unique_active_path_per_corpus`` (an uncaught IntegrityError /
+            # HTTP 500) or require clobbering the new occupant. Instead
+            # disambiguate to a fresh unique path so BOTH documents survive —
+            # the restored one comes back at e.g. ``/Report_1.pdf``.
+            restore_path = CorpusPathService._disambiguate_path(
+                document_path.path, document_path.corpus
+            )
+
             # Mark current deleted path as non-current
             document_path.is_current = False
             document_path.save()
@@ -209,17 +223,28 @@ class DocumentLifecycleService(BaseService):
                 corpus=document_path.corpus,
                 creator=user,
                 folder=document_path.folder,
-                path=document_path.path,
+                path=restore_path,
                 version_number=document_path.version_number,
                 parent=document_path,
                 is_deleted=False,
                 is_current=True,
             )
 
-            logger.info(
-                f"Restored document {document_path.document_id} in corpus "
-                f"{document_path.corpus_id} by user {user.id}"
-            )
+            if restore_path != document_path.path:
+                logger.info(
+                    "Restored document %s in corpus %s to disambiguated path %r "
+                    "(original path %r now occupied) by user %s",
+                    document_path.document_id,
+                    document_path.corpus_id,
+                    restore_path,
+                    document_path.path,
+                    user.id,
+                )
+            else:
+                logger.info(
+                    f"Restored document {document_path.document_id} in corpus "
+                    f"{document_path.corpus_id} by user {user.id}"
+                )
             return True, ""
 
     @classmethod

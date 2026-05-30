@@ -432,23 +432,32 @@ class FolderCRUDService(BaseService):
         if exists:
             return None, f"A folder named '{name}' already exists in this location"
 
-        # Create folder
-        with transaction.atomic():
-            folder = CorpusFolder.objects.create(
-                corpus=corpus,
-                parent=parent,
-                name=name,
-                description=description,
-                color=color or "",
-                icon=icon or "",
-                tags=tags or [],
-                is_public=is_public,
-                creator=user,
-            )
-            logger.info(
-                f"Created folder '{name}' (id={folder.id}) in corpus {corpus.id} by user {user.id}"
-            )
-            return folder, ""
+        # Create folder. The ``exists()`` precheck above covers the common
+        # case, but a concurrent create of the same-named folder can slip
+        # between that SELECT and this INSERT (TOCTOU). The
+        # ``unique_folder_name_per_parent`` constraint is the real guarantee;
+        # catch its violation and surface the same friendly message instead
+        # of leaking a raw IntegrityError (HTTP 500) to the caller.
+        try:
+            with transaction.atomic():
+                folder = CorpusFolder.objects.create(
+                    corpus=corpus,
+                    parent=parent,
+                    name=name,
+                    description=description,
+                    color=color or "",
+                    icon=icon or "",
+                    tags=tags or [],
+                    is_public=is_public,
+                    creator=user,
+                )
+        except IntegrityError:
+            return None, f"A folder named '{name}' already exists in this location"
+
+        logger.info(
+            f"Created folder '{name}' (id={folder.id}) in corpus {corpus.id} by user {user.id}"
+        )
+        return folder, ""
 
     @classmethod
     def update_folder(
@@ -505,22 +514,45 @@ class FolderCRUDService(BaseService):
             if exists:
                 return False, f"A folder named '{name}' already exists in this location"
 
-        # Update folder
-        with transaction.atomic():
-            if name is not None:
-                folder.name = name
-            if description is not None:
-                folder.description = description
-            if color is not None:
-                folder.color = color
-            if icon is not None:
-                folder.icon = icon
-            if tags is not None:
-                folder.tags = tags
+        # A rename changes folder.get_path(), so capture the pre-change path
+        # up front to reconcile the stored document path strings afterwards.
+        name_is_changing = name is not None and name != folder.name
+        old_folder_path = folder.get_path() if name_is_changing else None
 
-            folder.save()
-            logger.info(f"Updated folder {folder.id} by user {user.id}")
-            return True, ""
+        # Update folder
+        try:
+            with transaction.atomic():
+                if name is not None:
+                    folder.name = name
+                if description is not None:
+                    folder.description = description
+                if color is not None:
+                    folder.color = color
+                if icon is not None:
+                    folder.icon = icon
+                if tags is not None:
+                    folder.tags = tags
+
+                folder.save()
+
+                # Keep DocumentPath.path strings consistent with the new folder
+                # name for every folder-derived path in this subtree (issue:
+                # folder rename left paths stale). Runs in the same transaction
+                # so the rename and the path rewrites commit atomically.
+                if name_is_changing:
+                    CorpusPathService.reconcile_paths_after_folder_change(
+                        corpus=folder.corpus,
+                        root_folder=folder,
+                        old_root_path=old_folder_path,
+                        user=user,
+                    )
+        except IntegrityError:
+            # A concurrent rename to the same target name can lose the
+            # unique_folder_name_per_parent race despite the precheck above.
+            return False, f"A folder named '{name}' already exists in this location"
+
+        logger.info(f"Updated folder {folder.id} by user {user.id}")
+        return True, ""
 
     @classmethod
     def move_folder(
@@ -548,6 +580,8 @@ class FolderCRUDService(BaseService):
             - Cannot move folder into its descendants
             - New parent must be in same corpus
         """
+        from opencontractserver.corpuses.models import CorpusFolder
+
         # Permission check
         if not folder.corpus.user_can(user, PermissionTypes.UPDATE, request=request):
             return (
@@ -569,14 +603,56 @@ class FolderCRUDService(BaseService):
             if new_parent.corpus_id != folder.corpus_id:
                 return False, "Cannot move folder to a different corpus"
 
-        # Move folder
-        with transaction.atomic():
-            folder.parent = new_parent
-            folder.save()
-            logger.info(
-                f"Moved folder {folder.id} to parent {new_parent.id if new_parent else 'root'} by user {user.id}"
+        # Reject a move that would collide with an existing sibling name at the
+        # destination before attempting the write, so the caller gets a clear
+        # message rather than an IntegrityError. The try/except below is the
+        # authoritative guard against the TOCTOU race between this check and
+        # the save (``unique_folder_name_per_parent``).
+        sibling_exists = (
+            CorpusFolder.objects.filter(
+                corpus_id=folder.corpus_id,
+                parent=new_parent,
+                name=folder.name,
             )
-            return True, ""
+            .exclude(id=folder.id)
+            .exists()
+        )
+        if sibling_exists:
+            return (
+                False,
+                f"A folder named '{folder.name}' already exists in this location",
+            )
+
+        # A reparent changes folder.get_path() (and every descendant's), so
+        # capture the pre-move path to reconcile stored document paths after.
+        old_folder_path = folder.get_path()
+
+        # Move folder
+        try:
+            with transaction.atomic():
+                folder.parent = new_parent
+                folder.save()
+
+                # Keep DocumentPath.path strings consistent with the folder's
+                # new location for every folder-derived path in this subtree.
+                # Runs in the same transaction so the move and the path
+                # rewrites commit atomically.
+                CorpusPathService.reconcile_paths_after_folder_change(
+                    corpus=folder.corpus,
+                    root_folder=folder,
+                    old_root_path=old_folder_path,
+                    user=user,
+                )
+        except IntegrityError:
+            return (
+                False,
+                f"A folder named '{folder.name}' already exists in this location",
+            )
+
+        logger.info(
+            f"Moved folder {folder.id} to parent {new_parent.id if new_parent else 'root'} by user {user.id}"
+        )
+        return True, ""
 
     @classmethod
     def delete_folder(

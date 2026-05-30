@@ -517,10 +517,17 @@ def restore_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
 
     Implements: Rules P1, P2, P3
     """
+    from opencontractserver.corpuses.services.paths import CorpusPathService
+
     with transaction.atomic():
         deleted = DocumentPath.objects.select_for_update().get(
             corpus=corpus, path=path, is_current=True, is_deleted=True
         )
+
+        # The original path may have been reused by a new document while this
+        # one was in the trash. Restoring onto an occupied path would violate
+        # ``unique_active_path_per_corpus``; disambiguate so both survive.
+        restore_path = CorpusPathService._disambiguate_path(deleted.path, corpus)
 
         deleted.is_current = False
         deleted.save(update_fields=["is_current"])
@@ -529,7 +536,7 @@ def restore_document(corpus: Corpus, path: str, user: "User") -> DocumentPath:
             document=deleted.document,
             corpus=corpus,
             folder=deleted.folder,
-            path=deleted.path,
+            path=restore_path,
             version_number=deleted.version_number,
             parent=deleted,
             is_deleted=False,  # Not deleted
@@ -588,42 +595,55 @@ def get_path_history(document_path: DocumentPath):
     Implements: Rule P2 traversal
     """
 
-    def determine_action(current, previous):
-        """Determine what action this path record represents."""
-        if not previous:
-            return "CREATED"
-        if current.is_deleted and not previous.is_deleted:
-            return "DELETED"
-        if not current.is_deleted and previous.is_deleted:
-            return "RESTORED"
-        # MOVED takes priority over UPDATED: a document replacement that also
-        # changes the path is primarily a move (the path change is the visible
-        # user action), and callers can inspect document_id to detect the
-        # replacement separately.
-        # folder_id can differ while path stays the same if a folder was
-        # deleted and recreated with the same name — treat that as a move.
-        if current.path != previous.path or current.folder_id != previous.folder_id:
-            return "MOVED"
-        if current.document_id != previous.document_id:
-            return "UPDATED"
-        return "UNKNOWN"
+    def determine_action(node: DocumentPath, previous: DocumentPath | None) -> str:
+        """Map the canonical ``DocumentPath.infer_action`` result onto this
+        function's historical label set.
 
-    history = []
+        Action *logic* lives in ``DocumentPath.infer_action`` (the single
+        source of truth shared with the GraphQL resolvers); only the legacy
+        label vocabulary differs here and is preserved for backward
+        compatibility:
+
+        * canonical ``IMPORTED`` -> ``"CREATED"``
+        * canonical ``UPDATED`` is split back into ``"UPDATED"`` (the document
+          actually changed) vs ``"UNKNOWN"`` (a no-op record whose path,
+          folder, AND document all match the parent).
+        * ``MOVED`` / ``DELETED`` / ``RESTORED`` pass through unchanged.
+        """
+        canonical = node.infer_action(previous)
+        if canonical == DocumentPath.ACTION_IMPORTED:
+            return "CREATED"
+        if canonical == DocumentPath.ACTION_UPDATED:
+            if previous is not None and node.document_id == previous.document_id:
+                return "UNKNOWN"
+            return "UPDATED"
+        return canonical
+
+    # Walk the parent chain once, caching each node so action inference reuses
+    # the already-fetched predecessor instead of issuing a second query per
+    # node.
+    chain: list[DocumentPath] = []
     current = document_path
     while current:
+        chain.append(current)
+        current = current.parent
+
+    history = []
+    # ``chain`` is newest -> oldest; ``chain[idx + 1]`` is each node's parent.
+    for idx, node in enumerate(chain):
+        previous = chain[idx + 1] if idx + 1 < len(chain) else None
         history.append(
             {
-                "id": current.id,
-                "timestamp": current.created,
-                "path": current.path,
-                "folder_id": current.folder_id,
-                "version": current.version_number,
-                "deleted": current.is_deleted,
-                "document_id": current.document_id,
-                "action": determine_action(current, current.parent),
+                "id": node.id,
+                "timestamp": node.created,
+                "path": node.path,
+                "folder_id": node.folder_id,
+                "version": node.version_number,
+                "deleted": node.is_deleted,
+                "document_id": node.document_id,
+                "action": determine_action(node, previous),
             }
         )
-        current = current.parent
 
     return list(reversed(history))  # Oldest to newest
 
@@ -647,8 +667,13 @@ def get_filesystem_at_time(corpus: Corpus, timestamp):
         .values("id")[:1]
     )
 
+    # Scope the OUTER query to this corpus too. The correlated subquery already
+    # constrains results to corpus rows, but without ``corpus=corpus`` here the
+    # outer query evaluates the subquery against every DocumentPath row in the
+    # whole table (a full-table scan that grows with the global corpus count,
+    # not this corpus's size).
     return (
-        DocumentPath.objects.filter(id__in=Subquery(newest_before_time))
+        DocumentPath.objects.filter(corpus=corpus, id__in=Subquery(newest_before_time))
         .exclude(is_deleted=True)
         .select_related("document", "folder")
     )
@@ -673,6 +698,14 @@ def has_references_in_other_corpuses(
 
     Used to determine if Document can be deleted when permanently removing
     from a corpus (Rule Q1 extended).
+
+    NOTE: Under Phase-2 corpus isolation (Rule I1), each corpus gets its own
+    isolated Document copy with a distinct primary key, so in normal operation
+    a given ``document`` is referenced by exactly one corpus and this returns
+    ``False``. It is retained as a deliberate safety net: it guards against any
+    future or out-of-band path that shares a single Document across corpora, so
+    ``permanently_delete_document`` never hard-deletes a row another corpus
+    still points at. Do not remove without re-checking that isolation invariant.
     """
     return (
         DocumentPath.objects.filter(document=document)

@@ -928,6 +928,64 @@ class DocumentPath(TreeNode, BaseOCModel):
             ("remove_documentpath", "delete DocumentPath"),
         )
 
+    # Canonical lifecycle-action vocabulary. Mirrors
+    # ``config.graphql.base_types.PathActionEnum`` so the inferred action can be
+    # returned straight to GraphQL without translation.
+    ACTION_IMPORTED = "IMPORTED"
+    ACTION_MOVED = "MOVED"
+    ACTION_DELETED = "DELETED"
+    ACTION_RESTORED = "RESTORED"
+    ACTION_UPDATED = "UPDATED"
+
+    # Sentinel distinguishing "caller did not pass previous" (fetch from
+    # ``self.parent``) from "caller explicitly passed ``None``" (this node is a
+    # root). Module-private object identity is the cheapest unambiguous marker.
+    _PREVIOUS_UNSET: Any = object()
+
+    def infer_action(self, previous: Any = _PREVIOUS_UNSET) -> str:
+        """Infer the lifecycle action this path node represents.
+
+        Single source of truth for action inference — replaces the three
+        previously-divergent copies (``versioning.get_path_history``,
+        ``DocumentType.resolve_path_history``, ``DocumentPathType.resolve_action``)
+        which disagreed on MOVED-vs-folder-change and RESTORED handling.
+
+        Each node represents a transition from its ``parent`` (previous state)
+        to ``self``. Precedence (highest first):
+
+        1. ``IMPORTED`` — no previous state (root of the path tree).
+        2. ``DELETED`` — transitioned into the soft-deleted state.
+        3. ``RESTORED`` — transitioned out of the soft-deleted state.
+        4. ``MOVED`` — the ``path`` string OR the ``folder`` changed (a folder
+           rename/recreate can change ``folder_id`` while ``path`` is stable,
+           and a move can change ``path`` while ``folder_id`` is stable — both
+           are user-visible relocations).
+        5. ``UPDATED`` — content version changed at the same location (the
+           default for any remaining transition, e.g. ``document_id`` /
+           ``version_number`` changed).
+
+        Args:
+            previous: The predecessor node. Omit to read ``self.parent``
+                (one query if not already cached); pass it explicitly — including
+                ``None`` for a known root — to avoid the fetch in batch/N+1-
+                sensitive callers.
+
+        Returns:
+            One of the ``ACTION_*`` constants (matching ``PathActionEnum``).
+        """
+        if previous is DocumentPath._PREVIOUS_UNSET:
+            previous = self.parent
+
+        if previous is None:
+            return self.ACTION_IMPORTED
+        if self.is_deleted and not previous.is_deleted:
+            return self.ACTION_DELETED
+        if not self.is_deleted and previous.is_deleted:
+            return self.ACTION_RESTORED
+        if self.path != previous.path or self.folder_id != previous.folder_id:
+            return self.ACTION_MOVED
+        return self.ACTION_UPDATED
+
     def __str__(self) -> str:
         status = "deleted" if self.is_deleted else "active"
         current = "current" if self.is_current else "historical"

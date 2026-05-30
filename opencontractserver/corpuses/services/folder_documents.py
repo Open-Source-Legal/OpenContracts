@@ -549,13 +549,20 @@ class FolderDocumentService(BaseService):
         if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
-        try:
-            path = DocumentPath.objects.select_related("folder").get(
+        # Use ``.first()`` rather than ``.get()``: no DB constraint guarantees a
+        # single active path per ``(corpus, document)`` (the unique index is on
+        # ``(corpus, path)``), so a document with two active paths would make
+        # ``.get()`` raise an uncaught ``MultipleObjectsReturned`` (HTTP 500).
+        # ``-created`` makes the choice deterministic (newest active path wins).
+        path = (
+            DocumentPath.objects.select_related("folder")
+            .filter(
                 document=document,
                 corpus=corpus,
                 is_current=True,
                 is_deleted=False,
             )
-            return path.folder
-        except DocumentPath.DoesNotExist:
-            return None
+            .order_by("-created")
+            .first()
+        )
+        return path.folder if path else None
