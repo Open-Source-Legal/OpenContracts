@@ -146,6 +146,14 @@ def _derive_public_base_url(scope: MutableMapping[str, Any]) -> str | None:
     """
     configured = (getattr(settings, "MCP_PUBLIC_BASE_URL", "") or "").strip()
     if configured:
+        # MCP_PUBLIC_BASE_URL is operator-pinned (not attacker-influenced), but
+        # a stray double-quote or CR/LF (a typo / bad env value) would break the
+        # quoted-string it is embedded in inside the WWW-Authenticate header
+        # (RFC 7235) — or worse, inject a header newline. Strip those so the
+        # header stays well-formed regardless of how the value was configured,
+        # mirroring the Host-derived sanitization below.
+        for bad in ('"', "\r", "\n"):
+            configured = configured.replace(bad, "")
         return configured.rstrip("/")
 
     # ``Host`` carries the public hostname; ``X-Forwarded-Proto`` (set by the

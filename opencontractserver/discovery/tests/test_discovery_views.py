@@ -465,6 +465,17 @@ class WellKnownOAuthProtectedResourceTest(TestCase):
             response = self.client.get("/.well-known/oauth-protected-resource/bogus")
         self.assertEqual(response.status_code, 404)
 
+    def test_authed_path_is_advertised_as_protected_resource(self):
+        """Pin the discovery↔MCP coupling: the authenticated MCP path is a
+        hardcoded literal in ``_OAUTH_PROTECTED_RESOURCES`` (to avoid importing
+        the heavy MCP server module). If ``MCP_AUTHED_PATH`` is ever renamed
+        without updating that tuple, discovery would silently 404 the new
+        path's metadata — fail loudly here instead."""
+        from opencontractserver.discovery.views import _OAUTH_PROTECTED_RESOURCES
+        from opencontractserver.mcp.server import MCP_AUTHED_PATH
+
+        self.assertIn(MCP_AUTHED_PATH, _OAUTH_PROTECTED_RESOURCES)
+
 
 @override_settings(
     CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
