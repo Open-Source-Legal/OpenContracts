@@ -772,3 +772,107 @@ def invalidate_reranker_cache() -> None:
     """
     with _RERANKER_CACHE_LOCK:
         _RERANKER_INSTANCE_CACHE.clear()
+
+
+# --------------------------------------------------------------------------- #
+# Embedder helpers
+# --------------------------------------------------------------------------- #
+# Process-local cache of embedder *instances* keyed by (class path,
+# PipelineSettings.modified). Embedder ``__init__`` (via
+# ``PipelineComponentBase``) loads component settings from the database and,
+# whenever any secret is configured, decrypts them with a deliberately
+# expensive PBKDF2 KDF (hundreds of thousands of HMAC iterations — see
+# ``PipelineSettings._derive_key``). Re-instantiating on every embed call —
+# which is exactly what query-time endpoints did (``Corpus.embed_text`` behind
+# the public search API, the MCP ``search_corpus`` tool, global vector search)
+# — paid that KDF + DB round-trip on every single request, which made loading
+# the configured embedder "super duper slow". Caching the instance amortises
+# both costs across calls. Per-call overrides still work: the cached instance's
+# ``embed_text``/``embed_texts_batch`` accept ``**kwargs`` that override
+# settings at call time, so the instance only pins the resolved-from-DB
+# defaults, not the per-request inputs.
+#
+# Cross-worker coherence / invalidation: mirrors the reranker cache exactly.
+# The key includes ``PipelineSettings.modified`` (auto_now), so every settings
+# write through the GraphQL mutations — which all call ``save()`` — bumps the
+# timestamp and busts this cache process-wide on the next lookup. The same
+# issue #1410 caveat applies: code paths that bypass ``save()`` (``update``,
+# ``bulk_update``, raw migrations) won't bump ``modified``; call
+# :func:`invalidate_embedder_cache` explicitly in those cases.
+#
+# Failure handling: instantiation errors are NOT cached (the construction
+# happens inside ``get_embedder_instance`` and any exception propagates without
+# populating the cache), so a transient construction failure in one worker
+# never pins it to a broken state while siblings succeed.
+_EMBEDDER_INSTANCE_CACHE: dict[tuple[str, Any], BaseEmbedder] = {}
+# Guards against two concurrent retrievals paying the embedder-construction
+# (and PBKDF2 decryption) cost twice. Lookups after warm-up are read-only so
+# no lock is needed on the hot path.
+_EMBEDDER_CACHE_LOCK = threading.Lock()
+
+
+def _get_embedder_cache_key(class_path: str) -> tuple[str, Any]:
+    """Cache key that changes whenever PipelineSettings is written.
+
+    Mirrors :func:`_get_reranker_cache_key`. ``modified`` is read from the
+    Django-cached PipelineSettings singleton, so this lookup is cheap on the
+    hot path while still invalidating across all workers on any settings edit.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+
+    modified = PipelineSettings.get_instance().modified
+    return (class_path, modified)
+
+
+def get_embedder_instance(
+    embedder_class: type[BaseEmbedder],
+    embedder_path: Optional[str] = None,
+) -> BaseEmbedder:
+    """Return a process-cached instance of ``embedder_class``.
+
+    Construction is expensive (DB read + PBKDF2 secret decryption in
+    ``PipelineComponentBase.__init__``) and was previously repeated on every
+    embed call. This caches the instance keyed by ``(class_path,
+    PipelineSettings.modified)`` so the cost is paid once per configuration
+    per process. See the module-level comment for the invalidation contract.
+
+    Args:
+        embedder_class: The resolved embedder class to instantiate.
+        embedder_path: The fully-qualified class path used as the cache key.
+            Defaults to ``f"{embedder_class.__module__}.{embedder_class.__name__}"``.
+
+    Returns:
+        A cached (or freshly constructed) embedder instance.
+    """
+    class_path = (
+        embedder_path or f"{embedder_class.__module__}.{embedder_class.__name__}"
+    )
+
+    cache_key = _get_embedder_cache_key(class_path)
+    cached = _EMBEDDER_INSTANCE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    with _EMBEDDER_CACHE_LOCK:
+        # Double-check after acquiring the lock -- another thread may have
+        # populated the cache while we waited.
+        cached = _EMBEDDER_INSTANCE_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        instance = embedder_class()
+        _EMBEDDER_INSTANCE_CACHE[cache_key] = instance
+        return instance
+
+
+def invalidate_embedder_cache() -> None:
+    """Drop cached embedder instances.
+
+    In normal operation this is unnecessary — the cache key includes
+    ``PipelineSettings.modified`` so any settings write through ``save()``
+    naturally invalidates the cache on the next lookup across all workers.
+    Kept for test isolation and for callers that mutate the singleton via a
+    ``save()``-bypassing path (``update``/``bulk_update``/migrations).
+    """
+    with _EMBEDDER_CACHE_LOCK:
+        _EMBEDDER_INSTANCE_CACHE.clear()
