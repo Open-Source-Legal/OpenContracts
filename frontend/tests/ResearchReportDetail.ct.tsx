@@ -11,6 +11,7 @@ import { test, expect } from "./utils/coverage";
 import { ResearchReportDetailTestWrapper } from "./ResearchReportDetailTestWrapper";
 import { buildMockReport } from "./ResearchReportDetailTestWrapper";
 import { JobStatus } from "../src/types/graphql-api";
+import { toGlobalId } from "../src/utils/idValidation";
 import { docScreenshot } from "./utils/docScreenshot";
 
 test.describe("ResearchReportDetail", () => {
@@ -50,6 +51,21 @@ test.describe("ResearchReportDetail", () => {
     await expect(
       page.locator("text=indemnify and hold harmless").first()
     ).toBeVisible({ timeout: 10000 });
+
+    // The citation deep-link must carry the annotation's canonical global ID
+    // (ServerAnnotationType, from fullSourceAnnotationList), NOT a reconstructed
+    // "AnnotationType" id — otherwise the annotation deep-link resolves to the
+    // wrong entity. Regression guard for the typename-mismatch fix.
+    const citationLink = page
+      .locator("a", { hasText: "indemnify and hold harmless" })
+      .first();
+    const href = await citationLink.getAttribute("href");
+    expect(href).toBeTruthy();
+    const annParam = new URL(
+      href as string,
+      "http://localhost"
+    ).searchParams.get("ann");
+    expect(annParam).toBe(toGlobalId("ServerAnnotationType", 10));
   });
 
   test("renders a failed report with its error message", async ({

@@ -55,7 +55,7 @@ import {
   isTerminalResearchStatus,
 } from "../utils/researchUtils";
 import { getCorpusUrl, getDocumentUrl } from "../utils/navigationUtils";
-import { getNumericIdFromGlobalId, toGlobalId } from "../utils/idValidation";
+import { getNumericIdFromGlobalId } from "../utils/idValidation";
 import { SafeMarkdown } from "../components/knowledge_base/markdown/SafeMarkdown";
 import { useResearchCompletionNotification } from "../hooks/useResearchCompletionNotification";
 
@@ -496,6 +496,24 @@ export const ResearchReportDetail: React.FC = () => {
     return map;
   }, [report?.fullSourceDocumentList]);
 
+  // Map raw annotation PKs (in the citations JSON) → the canonical global ID
+  // the backend emitted in ``fullSourceAnnotationList``. Reconstructing the
+  // global ID via ``toGlobalId("AnnotationType", pk)`` would guess the wrong
+  // typename — annotations are emitted as ``ServerAnnotationType`` — producing
+  // a deep-link that resolves to the wrong (or no) entity. Using the server's
+  // own ``id`` keeps the link correct regardless of the GraphQL type name.
+  const annGlobalIdByPk = useMemo(() => {
+    const map = new Map<number, string>();
+    (report?.fullSourceAnnotationList ?? []).forEach((ann) => {
+      try {
+        map.set(getNumericIdFromGlobalId(ann.id), ann.id);
+      } catch {
+        // skip undecodable ids
+      }
+    });
+    return map;
+  }, [report?.fullSourceAnnotationList]);
+
   const statusProps = report ? getResearchStatus(status) : null;
   const canCancel =
     !isTerminal &&
@@ -733,13 +751,16 @@ export const ResearchReportDetail: React.FC = () => {
                               c.annotation_id != null
                                 ? Number(c.annotation_id)
                                 : null;
+                            const annGlobalId =
+                              annPk != null
+                                ? annGlobalIdByPk.get(annPk)
+                                : undefined;
                             const href =
                               doc && report.corpus
                                 ? getDocumentUrl(doc, report.corpus, {
-                                    annotationIds:
-                                      annPk != null
-                                        ? [toGlobalId("AnnotationType", annPk)]
-                                        : undefined,
+                                    annotationIds: annGlobalId
+                                      ? [annGlobalId]
+                                      : undefined,
                                   })
                                 : null;
                             const text =

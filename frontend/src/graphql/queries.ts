@@ -24,6 +24,7 @@ import {
   UserType,
   RawCorpusType,
   RawDocumentType,
+  JobStatus,
 } from "../types/graphql-api";
 import { ExportObject } from "../types/graphql-api";
 import {
@@ -6021,7 +6022,7 @@ export const RESOLVE_RESEARCH_REPORT_BY_SLUG = gql`
 
 export interface GetResearchReportsInput {
   corpusId?: string;
-  status?: string;
+  status?: JobStatus;
   cursor?: string;
   limit?: number;
 }

@@ -21,7 +21,7 @@ import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { ResearchReportListCard } from "./ResearchReportListCard";
 
 /** Filter-tab id → backend status arg (undefined = no status filter). */
-const FILTER_TO_STATUS: Record<string, string | undefined> = {
+const FILTER_TO_STATUS: Record<string, JobStatus | undefined> = {
   all: undefined,
   queued: JobStatus.Queued,
   running: JobStatus.Running,

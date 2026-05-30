@@ -24,7 +24,7 @@ const Toolbar = styled.div`
   justify-content: space-between;
   gap: 12px;
   padding: 16px 20px;
-  background: white;
+  background: ${OS_LEGAL_COLORS.surface};
   border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
   flex-shrink: 0;
   flex-wrap: wrap;
