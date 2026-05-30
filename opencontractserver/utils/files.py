@@ -42,13 +42,7 @@ def base_64_encode_bytes(doc_bytes: bytes):
 
 
 class _TextReadableFieldFile(typing.Protocol):
-    """Structural type for the slice of ``FieldFile`` this helper needs.
-
-    Django's ``FieldFile`` and the django-storages cloud backends all satisfy
-    this Protocol, but typing the parameter structurally (rather than as the
-    concrete ``FieldFile``) lets duck-typed test doubles participate without a
-    misleading ``# type: ignore`` at every call site.
-    """
+    """Structural type for the ``FieldFile.open()`` slice this helper needs."""
 
     def open(self, mode: str = ...) -> typing.ContextManager[typing.Any]: ...
 
@@ -59,30 +53,7 @@ def read_field_file_text(
     encoding: str = "utf-8",
     errors: str = "strict",
 ) -> str:
-    """Read a Django ``FieldFile`` as text, tolerant of storage backends
-    that return ``bytes`` from a text-mode ``open()``.
-
-    Local ``FileSystemStorage`` honors text mode, so
-    ``field_file.open("r").read()`` yields ``str``. Several
-    ``django-storages`` cloud backends (``S3Boto3Storage``,
-    ``GoogleCloudStorage``) ignore the mode and return ``bytes`` regardless;
-    see https://github.com/jschneier/django-storages/issues/382. Code that
-    forwarded that raw value into ``json.dumps`` (for example the MCP
-    ``get_document_text`` tool and document resource) therefore raised
-    ``TypeError: Object of type bytes is not JSON serializable`` only on
-    cloud-storage deployments. Routing text reads through this helper
-    normalizes the result to ``str`` regardless of ``STORAGE_BACKEND``.
-
-    Args:
-        field_file: A Django ``FieldFile`` such as
-            ``document.txt_extract_file``.
-        encoding: Encoding used to decode when the backend returns bytes.
-        errors: Error policy forwarded to ``bytes.decode`` (``"strict"``,
-            ``"ignore"``, ...).
-
-    Returns:
-        The file contents as ``str``.
-    """
+    """Read a Django ``FieldFile`` as text, normalizing bytes-returning storage backends to ``str``."""
     with field_file.open("r") as f:
         content = f.read()
     if isinstance(content, bytes):

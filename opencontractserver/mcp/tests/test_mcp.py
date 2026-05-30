@@ -646,7 +646,10 @@ class MCPToolsDocumentsTest(TestCase):
                 return payload.encode("utf-8")
 
         # Patch FieldFile.open so the read returns bytes, mimicking S3/GCS.
-        with mock.patch.object(FieldFile, "open", return_value=_BytesHandle()):
+        # Fresh handle per call so each open() yields an unconsumed reader.
+        with mock.patch.object(
+            FieldFile, "open", side_effect=lambda *a, **k: _BytesHandle()
+        ):
             result = get_document_text(self.corpus.slug, self.doc1.slug)
 
         # Decoded to str ...

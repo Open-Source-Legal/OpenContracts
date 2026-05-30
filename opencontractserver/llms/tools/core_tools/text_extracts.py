@@ -3,6 +3,8 @@
 import logging
 from datetime import datetime  # noqa: F401  (used in type comment below)
 
+from opencontractserver.utils.files import read_field_file_text
+
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
@@ -101,9 +103,8 @@ def load_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        # (Re)load from storage.
-        content_bytes = doc.txt_extract_file.read()
-        content_str = content_bytes.decode("utf-8")
+        # (Re)load from storage; helper normalizes bytes-returning backends.
+        content_str = read_field_file_text(doc.txt_extract_file, errors="replace")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
         logger.debug(
@@ -161,7 +162,7 @@ async def aload_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        content_str = doc.txt_extract_file.read().decode("utf-8")
+        content_str = read_field_file_text(doc.txt_extract_file, errors="replace")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
         logger.debug(
