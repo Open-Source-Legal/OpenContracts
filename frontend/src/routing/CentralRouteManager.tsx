@@ -20,6 +20,7 @@ import {
   openedCorpus,
   openedDocument,
   openedExtract,
+  openedResearchReport,
   openedThread,
   openedLabelset,
   openedUser,
@@ -54,6 +55,7 @@ import {
   RESOLVE_DOCUMENT_BY_SLUGS_FULL,
   RESOLVE_DOCUMENT_IN_CORPUS_BY_SLUGS_FULL,
   RESOLVE_EXTRACT_BY_ID,
+  RESOLVE_RESEARCH_REPORT_BY_SLUG,
   GET_CORPUS_BY_ID_FOR_REDIRECT,
   GET_DOCUMENT_BY_ID_FOR_REDIRECT,
   GET_THREAD_DETAIL,
@@ -65,6 +67,8 @@ import {
   GetDocumentByIdForRedirectOutput,
   ResolveExtractByIdInput,
   ResolveExtractByIdOutput,
+  ResolveResearchReportBySlugInput,
+  ResolveResearchReportBySlugOutput,
   GetThreadDetailInput,
   GetThreadDetailOutput,
   GetUserInput,
@@ -76,6 +80,7 @@ import {
   ExtractType,
   ConversationType,
   LabelSetType,
+  ResearchReportType,
 } from "../types/graphql-api";
 import {
   ResolveCorpusFullQuery,
@@ -199,6 +204,14 @@ export function CentralRouteManager() {
     nextFetchPolicy: "cache-and-network",
   });
 
+  const [resolveResearchReport] = useLazyQuery<
+    ResolveResearchReportBySlugOutput,
+    ResolveResearchReportBySlugInput
+  >(RESOLVE_RESEARCH_REPORT_BY_SLUG, {
+    fetchPolicy: "cache-first",
+    nextFetchPolicy: "cache-and-network",
+  });
+
   const [resolveThread] = useLazyQuery<
     GetThreadDetailOutput,
     GetThreadDetailInput
@@ -253,6 +266,7 @@ export function CentralRouteManager() {
       openedCorpus(null);
       openedDocument(null);
       openedExtract(null);
+      openedResearchReport(null);
       openedThread(null);
       openedLabelset(null);
       openedUser(null);
@@ -294,6 +308,7 @@ export function CentralRouteManager() {
       const currentDoc = openedDocument();
       const currentCorpus = openedCorpus();
       const currentExtract = openedExtract();
+      const currentResearchReport = openedResearchReport();
       const currentThread = openedThread();
       const currentLabelset = openedLabelset();
 
@@ -303,6 +318,7 @@ export function CentralRouteManager() {
           (!route.corpusIdent || currentCorpus)) ||
         (route.type === "corpus" && currentCorpus) ||
         (route.type === "extract" && currentExtract) ||
+        (route.type === "research" && currentResearchReport) ||
         (route.type === "thread" && currentThread && currentCorpus) ||
         (route.type === "labelset" && currentLabelset);
 
@@ -335,6 +351,7 @@ export function CentralRouteManager() {
           | "document"
           | "corpus"
           | "extract"
+          | "research"
           | "thread"
           | "labelset"
           | "user",
@@ -344,7 +361,8 @@ export function CentralRouteManager() {
         route.extractIdent,
         route.threadIdent,
         route.labelsetIdent,
-        route.userSlug
+        route.userSlug,
+        route.researchSlug
       );
 
       // Prevent duplicate simultaneous requests
@@ -668,6 +686,7 @@ export function CentralRouteManager() {
               openedExtract(extract);
               openedCorpus(null);
               openedDocument(null);
+              openedResearchReport(null);
               openedThread(null);
               openedLabelset(null);
               openedUser(null);
@@ -676,6 +695,53 @@ export function CentralRouteManager() {
             }
 
             console.warn("[RouteManager] Extract not found");
+            navigate("/404", { replace: true });
+            return;
+          }
+
+          // ────────────────────────────────────────────────────────
+          // RESEARCH REPORT (/research/:slug)
+          // ────────────────────────────────────────────────────────
+          if (route.type === "research" && route.researchSlug) {
+            routingLogger.debug("[RouteManager] Resolving research report");
+
+            const { data, error } = await resolveResearchReport({
+              variables: {
+                slug: route.researchSlug,
+              },
+            });
+
+            if (error) {
+              console.error(
+                "[RouteManager] ❌ GraphQL error resolving research report:",
+                error
+              );
+            }
+
+            if (!data?.researchReportBySlug) {
+              console.warn("[RouteManager] ⚠️  research report is null");
+            }
+
+            if (!error && data?.researchReportBySlug) {
+              const report = data.researchReportBySlug as ResearchReportType;
+
+              routingLogger.debug(
+                "[RouteManager] ✅ Resolved research report via slug:",
+                report.id
+              );
+
+              openedResearchReport(report);
+              openedCorpus(null);
+              openedDocument(null);
+              openedExtract(null);
+              openedThread(null);
+              openedLabelset(null);
+              openedUser(null);
+              routeLoading(false);
+              return;
+            }
+
+            console.warn("[RouteManager] Research report not found");
             navigate("/404", { replace: true });
             return;
           }
@@ -1154,6 +1220,16 @@ export function CentralRouteManager() {
     if (currentRoute.type === "labelset") {
       routingLogger.debug(
         "[RouteManager] Phase 3: Skipping redirect - labelset route uses ID-based URL"
+      );
+      return;
+    }
+    // CRITICAL: Research routes use slug-based URLs (/research/:slug) that are
+    // already canonical. buildCanonicalPath() only knows corpus/document/extract,
+    // so without this guard a stale entity left over during a transition (Phase 1
+    // hasn't cleared yet) would bounce a /research/:slug visit back to it.
+    if (currentRoute.type === "research") {
+      routingLogger.debug(
+        "[RouteManager] Phase 3: Skipping redirect - research route uses slug-based URL"
       );
       return;
     }

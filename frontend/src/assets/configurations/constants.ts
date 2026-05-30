@@ -186,6 +186,40 @@ export const EXTRACT_STATUS_COLORS = {
   [EXTRACT_STATUS.NOT_STARTED]: "default",
 } as const;
 
+// Deep-research report status constants.
+// Keys match the backend JobStatus enum values
+// (opencontractserver/types/enums.py); values are the display labels.
+export const RESEARCH_STATUS = {
+  QUEUED: "Queued",
+  RUNNING: "Researching",
+  COMPLETED: "Completed",
+  FAILED: "Failed",
+  CANCELLED: "Cancelled",
+} as const;
+
+export type ResearchStatusLabel =
+  (typeof RESEARCH_STATUS)[keyof typeof RESEARCH_STATUS];
+
+// Research chip color mapping (Chip `color` tokens from @os-legal/ui)
+export const RESEARCH_STATUS_COLORS = {
+  [RESEARCH_STATUS.QUEUED]: "default",
+  [RESEARCH_STATUS.RUNNING]: "info",
+  [RESEARCH_STATUS.COMPLETED]: "success",
+  [RESEARCH_STATUS.FAILED]: "error",
+  [RESEARCH_STATUS.CANCELLED]: "warning",
+} as const;
+
+// Poll interval (ms) the research report detail view uses while a job is
+// non-terminal. The backend emits no per-step progress events in v1, so the
+// view polls the (indexed, creator-only) single-report query for live
+// stepCount/lastProgressAt and stops on the terminal WebSocket notification.
+export const RESEARCH_REPORT_POLL_INTERVAL_MS = 5000;
+
+// Max research prompt length. Mirrors the backend cap
+// (opencontractserver/research/constants.py MAX_RESEARCH_PROMPT_CHARS) so the
+// UI rejects over-long prompts before the round-trip.
+export const MAX_RESEARCH_PROMPT_CHARS = 10000;
+
 // Tool usage UI constants (used by chat ToolUsageIndicator)
 export const TOOL_UNKNOWN_LABEL = "Unknown Tool";
 

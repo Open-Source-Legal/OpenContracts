@@ -2018,3 +2018,88 @@ export type DeleteComponentSecretsResponse = {
   message?: Maybe<Scalars["String"]>;
   componentsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
 };
+
+/* ------------------------------------------------------------------ *
+ * Deep-research reports (opencontractserver/research)
+ *
+ * Backend is GenericScalar for the JSON sidecars, so `citations` /
+ * `findings` / `toolCallLog` / `modelUsage` come through with their raw
+ * (snake_case) payload keys — NOT camelCased. Type them against the raw
+ * shape. IDs inside `citations` are raw integer PKs (use `toGlobalId`
+ * before building entity URLs). Creator-only in v1: there is no
+ * `isPublic` / `objectSharedWith` — do not build a sharing UI.
+ * ------------------------------------------------------------------ */
+
+export enum JobStatus {
+  Queued = "QUEUED",
+  Running = "RUNNING",
+  Completed = "COMPLETED",
+  Failed = "FAILED",
+  Cancelled = "CANCELLED",
+}
+
+/** One footnote row in the rendered report's Sources section. */
+export interface ResearchCitation {
+  footnote: number;
+  annotation_id?: number | string | null;
+  document_id?: number | string | null;
+  page?: number | null;
+  raw_text?: string | null;
+  similarity_score?: number | null;
+  display?: string | null;
+}
+
+/** One entry in the agent's findings scratchpad. */
+export interface ResearchFinding {
+  section?: string | null;
+  claim?: string | null;
+  citations?: number[] | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ResearchReportType extends Node {
+  status: JobStatus | string;
+  prompt: string;
+  title: string;
+  slug: string;
+  content?: Maybe<string>;
+  findings?: ResearchFinding[];
+  citations?: ResearchCitation[];
+  toolCallLog?: Array<Record<string, unknown>>;
+  modelUsage?: Record<string, unknown> | null;
+  warnings?: string[];
+  durationSeconds?: number | null;
+  stepCount?: number | null;
+  maxSteps?: number | null;
+  cancelRequested?: boolean;
+  errorMessage?: Maybe<string>;
+  created: string;
+  modified?: string;
+  startedAt?: Maybe<string>;
+  completedAt?: Maybe<string>;
+  lastProgressAt?: Maybe<string>;
+  myPermissions?: string[];
+  corpus?: CorpusType | null;
+  fullSourceAnnotationList?: Array<{
+    id: string;
+    page?: number | null;
+    rawText?: string | null;
+  }>;
+  fullSourceDocumentList?: DocumentType[];
+}
+
+/** Slim node returned by the corpus-scoped research list query. */
+export interface ResearchReportListItem {
+  id: string;
+  slug: string;
+  title: string;
+  status: JobStatus | string;
+  stepCount?: number | null;
+  maxSteps?: number | null;
+  created: string;
+  startedAt?: Maybe<string>;
+  completedAt?: Maybe<string>;
+  durationSeconds?: number | null;
+  corpus?: { id: string; title?: string } | null;
+}

@@ -6,15 +6,18 @@ import {
   BarChart3,
   Download,
   XCircle,
+  Sparkles,
+  Ban,
   LucideIcon,
 } from "lucide-react";
 import type { JobNotification } from "../../hooks/useJobNotifications";
 import type { NotificationType } from "../../hooks/useNotificationWebSocket";
 
-const ToastContainer = styled.div`
+const ToastContainer = styled.div<{ $clickable?: boolean }>`
   display: flex;
   align-items: center;
   gap: 12px;
+  cursor: ${({ $clickable }) => ($clickable ? "pointer" : "default")};
 `;
 
 const IconContainer = styled.div<{ $color: string }>`
@@ -99,10 +102,33 @@ const JOB_NOTIFICATION_CONFIG: Record<string, JobNotificationConfig> = {
         (data.exportName as string) || (data.corpusName as string) || "Export"
       }" is ready for download`,
   },
+  RESEARCH_REPORT_COMPLETE: {
+    icon: Sparkles,
+    color: "#4CAF50",
+    title: "Research Complete",
+    getMessage: (data) =>
+      `"${(data.title as string) || "Research"}" is ready to read`,
+  },
+  RESEARCH_REPORT_FAILED: {
+    icon: XCircle,
+    color: "#F44336",
+    title: "Research Failed",
+    getMessage: (data) =>
+      `"${(data.title as string) || "Research"}" could not be completed`,
+  },
+  RESEARCH_REPORT_CANCELLED: {
+    icon: Ban,
+    color: "#9CA3AF",
+    title: "Research Cancelled",
+    getMessage: (data) =>
+      `"${(data.title as string) || "Research"}" was cancelled`,
+  },
 };
 
 export interface JobNotificationToastProps {
   notification: JobNotification;
+  /** Optional click handler — e.g. deep-link a research toast to its report. */
+  onClick?: () => void;
 }
 
 /**
@@ -111,6 +137,7 @@ export interface JobNotificationToastProps {
  */
 export function JobNotificationToast({
   notification,
+  onClick,
 }: JobNotificationToastProps) {
   const config =
     JOB_NOTIFICATION_CONFIG[notification.type] ||
@@ -119,7 +146,7 @@ export function JobNotificationToast({
   const Icon = config.icon;
 
   return (
-    <ToastContainer>
+    <ToastContainer $clickable={Boolean(onClick)} onClick={onClick}>
       <IconContainer $color={config.color}>
         <Icon />
       </IconContainer>

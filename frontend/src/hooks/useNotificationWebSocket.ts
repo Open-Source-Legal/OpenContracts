@@ -52,7 +52,12 @@ export type NotificationType =
   | "EXTRACT_COMPLETE"
   | "ANALYSIS_COMPLETE"
   | "ANALYSIS_FAILED"
-  | "EXPORT_COMPLETE";
+  | "EXPORT_COMPLETE"
+  // Deep-research job lifecycle (PROGRESS is reserved; not emitted in v1)
+  | "RESEARCH_REPORT_COMPLETE"
+  | "RESEARCH_REPORT_FAILED"
+  | "RESEARCH_REPORT_CANCELLED"
+  | "RESEARCH_REPORT_PROGRESS";
 
 /**
  * Message types from the notification updates WebSocket consumer.

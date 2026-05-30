@@ -8,6 +8,7 @@ import {
   DocumentType,
   ExtractType,
   LabelSetType,
+  ResearchReportType,
   UserType,
 } from "../types/graphql-api";
 
@@ -19,6 +20,7 @@ interface ParsedRoute {
     | "corpus"
     | "document"
     | "extract"
+    | "research"
     | "thread"
     | "labelset"
     | "user"
@@ -28,6 +30,8 @@ interface ParsedRoute {
   corpusIdent?: string;
   documentIdent?: string;
   extractIdent?: string;
+  /** Slug for the /research/:slug deep-research report route. */
+  researchSlug?: string;
   threadIdent?: string;
   labelsetIdent?: string;
   /** Slug for the /users/:slug profile route. */
@@ -152,6 +156,15 @@ export function parseRoute(pathname: string): ParsedRoute {
     return {
       type: "extract",
       extractIdent: segments[1],
+    };
+  }
+
+  // Research report detail by slug: /research/:slug
+  // (Backend's deep-research completion chat message links here.)
+  if (segments[0] === "research" && segments.length === 2) {
+    return {
+      type: "research",
+      researchSlug: segments[1],
     };
   }
 
@@ -430,6 +443,25 @@ export function getLabelsetUrl(labelset: Pick<LabelSetType, "id">): string {
 }
 
 /**
+ * Generate a deep-research report URL from a report's slug.
+ *
+ * Slug-based to match the backend completion chat link (/research/{slug}).
+ *
+ * @param report - Research report with slug
+ * @returns Full research report URL, or "#" if slug missing
+ */
+export function getResearchReportUrl(
+  report: Pick<ResearchReportType, "slug">
+): string {
+  if (!report.slug) {
+    console.warn("Cannot generate research report URL without slug:", report);
+    return "#"; // Safe fallback that won't navigate
+  }
+
+  return `/research/${report.slug}`;
+}
+
+/**
  * Checks if the current path matches the canonical path
  * Prevents unnecessary redirects
  */
@@ -553,14 +585,22 @@ export const requestTracker = new RequestTracker();
  * Build a unique key for request deduplication
  */
 export function buildRequestKey(
-  type: "corpus" | "document" | "extract" | "thread" | "labelset" | "user",
+  type:
+    | "corpus"
+    | "document"
+    | "extract"
+    | "research"
+    | "thread"
+    | "labelset"
+    | "user",
   userIdent?: string,
   corpusIdent?: string,
   documentIdent?: string,
   extractIdent?: string,
   threadIdent?: string,
   labelsetIdent?: string,
-  userSlug?: string
+  userSlug?: string,
+  researchSlug?: string
 ): string {
   const parts = [
     type,
@@ -571,6 +611,7 @@ export function buildRequestKey(
     threadIdent,
     labelsetIdent,
     userSlug,
+    researchSlug,
   ].filter(Boolean);
   return parts.join("-");
 }

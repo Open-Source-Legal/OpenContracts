@@ -42,6 +42,7 @@ const RESERVED_SETTERS = [
   "openedCorpus",
   "openedDocument",
   "openedExtract",
+  "openedResearchReport",
   "openedThread",
   "openedLabelset",
   "openedUser",

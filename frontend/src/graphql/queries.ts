@@ -26,6 +26,10 @@ import {
   RawDocumentType,
 } from "../types/graphql-api";
 import { ExportObject } from "../types/graphql-api";
+import {
+  ResearchReportType,
+  ResearchReportListItem,
+} from "../types/graphql-api";
 import { WebSocketSources } from "../components/chat/types";
 
 export interface RequestDocumentsInputs {
@@ -5881,3 +5885,197 @@ export interface GetDocumentAnnotationIndexOutput {
     }>;
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Deep-research reports (opencontractserver/research)
+ *
+ * Selections are inlined (matching this file's convention — no gql
+ * fragments are used here). The detail selection is duplicated across the
+ * id- and slug-resolving queries the same way RESOLVE_EXTRACT_BY_ID /
+ * REQUEST_GET_EXTRACT duplicate theirs.
+ * ------------------------------------------------------------------ */
+
+export interface GetResearchReportInput {
+  id: string;
+}
+export interface GetResearchReportOutput {
+  researchReport: ResearchReportType | null;
+}
+export const GET_RESEARCH_REPORT = gql`
+  query GetResearchReport($id: ID!) {
+    researchReport(id: $id) {
+      id
+      status
+      prompt
+      title
+      slug
+      content
+      findings
+      citations
+      toolCallLog
+      modelUsage
+      warnings
+      durationSeconds
+      stepCount
+      maxSteps
+      cancelRequested
+      errorMessage
+      created
+      modified
+      startedAt
+      completedAt
+      lastProgressAt
+      myPermissions
+      corpus {
+        id
+        slug
+        title
+        creator {
+          id
+          slug
+        }
+      }
+      fullSourceAnnotationList {
+        id
+        page
+        rawText
+      }
+      fullSourceDocumentList {
+        id
+        slug
+        title
+        creator {
+          id
+          slug
+        }
+        corpus {
+          id
+          slug
+          creator {
+            id
+            slug
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface ResolveResearchReportBySlugInput {
+  slug: string;
+}
+export interface ResolveResearchReportBySlugOutput {
+  researchReportBySlug: ResearchReportType | null;
+}
+export const RESOLVE_RESEARCH_REPORT_BY_SLUG = gql`
+  query ResolveResearchReportBySlug($slug: String!) {
+    researchReportBySlug(slug: $slug) {
+      id
+      status
+      prompt
+      title
+      slug
+      content
+      findings
+      citations
+      toolCallLog
+      modelUsage
+      warnings
+      durationSeconds
+      stepCount
+      maxSteps
+      cancelRequested
+      errorMessage
+      created
+      modified
+      startedAt
+      completedAt
+      lastProgressAt
+      myPermissions
+      corpus {
+        id
+        slug
+        title
+        creator {
+          id
+          slug
+        }
+      }
+      fullSourceAnnotationList {
+        id
+        page
+        rawText
+      }
+      fullSourceDocumentList {
+        id
+        slug
+        title
+        creator {
+          id
+          slug
+        }
+        corpus {
+          id
+          slug
+          creator {
+            id
+            slug
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface GetResearchReportsInput {
+  corpusId?: string;
+  status?: string;
+  cursor?: string;
+  limit?: number;
+}
+export interface GetResearchReportsOutput {
+  researchReports: {
+    pageInfo: PageInfo;
+    edges: { node: ResearchReportListItem }[];
+  };
+}
+export const GET_RESEARCH_REPORTS = gql`
+  query GetResearchReports(
+    $corpusId: ID
+    $status: String
+    $cursor: String
+    $limit: Int
+  ) {
+    researchReports(
+      corpusId: $corpusId
+      status: $status
+      first: $limit
+      after: $cursor
+    ) {
+      edges {
+        node {
+          id
+          slug
+          title
+          status
+          stepCount
+          maxSteps
+          created
+          startedAt
+          completedAt
+          durationSeconds
+          corpus {
+            id
+            title
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+    }
+  }
+`;
