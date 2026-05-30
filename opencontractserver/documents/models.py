@@ -5,7 +5,7 @@ import functools
 import hashlib
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 import django
 from django.contrib.auth import get_user_model
@@ -942,7 +942,9 @@ class DocumentPath(TreeNode, BaseOCModel):
     # Sentinel distinguishing "caller did not pass previous" (fetch from
     # ``self.parent``) from "caller explicitly passed ``None``" (this node is a
     # root). Module-private object identity is the cheapest unambiguous marker.
-    _PREVIOUS_UNSET: Any = object()
+    # ``ClassVar`` so django-stubs/mypy treat it as a class-level sentinel
+    # rather than a model field.
+    _PREVIOUS_UNSET: ClassVar[object] = object()
 
     def infer_action(self, previous: Any = _PREVIOUS_UNSET) -> str:
         """Infer the lifecycle action this path node represents.

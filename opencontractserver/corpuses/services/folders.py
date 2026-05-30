@@ -469,8 +469,17 @@ class FolderCRUDService(BaseService):
                     is_public=is_public,
                     creator=user,
                 )
-        except IntegrityError:
-            return None, f"A folder named '{name}' already exists in this location"
+        except IntegrityError as exc:
+            # Discriminate the name-collision constraint from any other
+            # IntegrityError, matching update_folder / move_folder — a
+            # different constraint violation must not be mislabeled as a
+            # duplicate-name error.
+            if _is_folder_name_collision(exc):
+                return None, f"A folder named '{name}' already exists in this location"
+            logger.exception(
+                "create_folder rolled back on a non-name IntegrityError: %s", exc
+            )
+            raise
 
         logger.info(
             f"Created folder '{name}' (id={folder.id}) in corpus {corpus.id} by user {user.id}"

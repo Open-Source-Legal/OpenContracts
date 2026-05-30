@@ -231,6 +231,10 @@ class CorpusPathService(BaseService):
         occupied_by_dir: dict[str, set[str]] = {}
         planned: list[tuple[DocumentPath, str]] = []
         for dp in current_paths:
+            # ``CorpusFolder.get_path()`` joins folder names with "/" and never
+            # returns a leading slash, so wrapping it in slashes yields a clean
+            # "/<folder path>/" prefix (no "//<...>" double-slash that would
+            # silently match nothing and turn reconciliation into a no-op).
             old_prefix = f"/{old_path_by_folder[dp.folder_id]}/"
             if not dp.path.startswith(old_prefix):
                 # Not folder-derived (e.g. "/documents/<title>") — leave as-is.
