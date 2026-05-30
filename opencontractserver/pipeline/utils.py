@@ -612,13 +612,14 @@ _RERANKER_INSTANCE_CACHE: dict[tuple[str, Any], BaseReranker] = {}
 _RERANKER_CACHE_LOCK = threading.Lock()
 
 
-def _get_reranker_cache_key(class_path: str) -> tuple[str, Any]:
+def _get_pipeline_cache_key(class_path: str) -> tuple[str, Any]:
     """Cache key that changes whenever PipelineSettings is written.
 
+    Shared by the process-local reranker and embedder instance caches.
     Using ``modified`` (auto_now DateTime) means every edit — even one
-    that doesn't touch the reranker path — invalidates the local cache
-    across all workers on their next lookup. That's conservative but
-    cheap; reranker construction dominates over a cache miss.
+    that doesn't touch the relevant component path — invalidates the local
+    cache across all workers on their next lookup. That's conservative but
+    cheap; component construction dominates over a cache miss.
     """
     from opencontractserver.documents.models import PipelineSettings
 
@@ -723,7 +724,7 @@ def get_default_reranker_instance(
             )
         return None
 
-    cache_key = _get_reranker_cache_key(class_path)
+    cache_key = _get_pipeline_cache_key(class_path)
     cached = _RERANKER_INSTANCE_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -822,19 +823,6 @@ _EMBEDDER_INSTANCE_CACHE: dict[tuple[str, Any], BaseEmbedder] = {}
 _EMBEDDER_CACHE_LOCK = threading.Lock()
 
 
-def _get_embedder_cache_key(class_path: str) -> tuple[str, Any]:
-    """Cache key that changes whenever PipelineSettings is written.
-
-    Mirrors :func:`_get_reranker_cache_key`. ``modified`` is read from the
-    Django-cached PipelineSettings singleton, so this lookup is cheap on the
-    hot path while still invalidating across all workers on any settings edit.
-    """
-    from opencontractserver.documents.models import PipelineSettings
-
-    modified = PipelineSettings.get_instance().modified
-    return (class_path, modified)
-
-
 def get_embedder_instance(
     embedder_class: type[BaseEmbedder],
     embedder_path: Optional[str] = None,
@@ -867,6 +855,15 @@ def get_embedder_instance(
         embedder_path: The fully-qualified class path used as the cache key.
             Defaults to ``f"{embedder_class.__module__}.{embedder_class.__name__}"``.
 
+            Caller contract: when supplied, ``embedder_path`` MUST identify
+            the same class as ``embedder_class``. The cache is keyed on the
+            path but stores an instance of the class, so passing a mismatched
+            pair (e.g. ``get_embedder_instance(ClassA, "pkg.ClassB")``) would
+            poison the cache — a later lookup for ``"pkg.ClassB"`` would get a
+            ``ClassA`` instance. Both current call sites derive the path from
+            the same resolution that produced the class, so they are safe; do
+            not pass a synthetic / alias path.
+
     Returns:
         A cached (or freshly constructed) embedder instance.
 
@@ -878,7 +875,7 @@ def get_embedder_instance(
         embedder_path or f"{embedder_class.__module__}.{embedder_class.__name__}"
     )
 
-    cache_key = _get_embedder_cache_key(class_path)
+    cache_key = _get_pipeline_cache_key(class_path)
     cached = _EMBEDDER_INSTANCE_CACHE.get(cache_key)
     if cached is not None:
         return cached
