@@ -1,5 +1,6 @@
 import { test, expect } from "./utils/coverage";
 import { CorpusCategoryManagementTestWrapper } from "./CorpusCategoryManagementTestWrapper";
+import { docScreenshot } from "./utils/docScreenshot";
 import {
   GET_ADMIN_CORPUS_CATEGORIES,
   CREATE_CORPUS_CATEGORY,
@@ -86,6 +87,8 @@ test.describe("CorpusCategoryManagement", () => {
     await expect(
       page.getByText("Court decisions and judicial opinions")
     ).toBeVisible({ timeout: 10000 });
+
+    await docScreenshot(page, "admin--corpus-categories--list-view");
   });
 
   test("blocks non-superusers", async ({ mount, page }) => {
