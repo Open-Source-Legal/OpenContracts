@@ -16,6 +16,8 @@ Each service inherits :class:`opencontractserver.shared.services.base.BaseServic
   — document-in-corpus reads / writes and corpus membership.
 - :class:`~opencontractserver.corpuses.services.corpus_service.CorpusService`
   — Corpus-row CRUD: delete, visibility, and description versioning.
+- :class:`~opencontractserver.corpuses.services.corpus_category_service.CorpusCategoryService`
+  — CRUD for the runtime-configurable corpus category (tag) set.
 - :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`
   — soft-delete / restore / trash.
 - :class:`~opencontractserver.corpuses.services.paths.CorpusPathService`
@@ -29,6 +31,9 @@ Import the specific service you need from this package::
 from opencontractserver.corpuses.services.corpus_actions import (
     BatchRunSummary,
     CorpusActionService,
+)
+from opencontractserver.corpuses.services.corpus_category_service import (
+    CorpusCategoryService,
 )
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
@@ -45,6 +50,7 @@ from opencontractserver.corpuses.services.votes import CorpusVoteService
 __all__ = [
     "BatchRunSummary",
     "CorpusActionService",
+    "CorpusCategoryService",
     "FolderCRUDService",
     "FolderDocumentService",
     "CorpusDocumentService",

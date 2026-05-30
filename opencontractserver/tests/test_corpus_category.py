@@ -13,6 +13,7 @@ Tests cover:
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
@@ -892,3 +893,287 @@ class TestCorpusCategoryPermissions(TestCase):
         # Verify categories were cleared
         self.corpus.refresh_from_db()
         self.assertEqual(self.corpus.categories.count(), 0)
+
+
+class TestCorpusCategoryManagementMutations(TestCase):
+    """Test the superuser-only CRUD mutations for managing CorpusCategory.
+
+    Covers create / update / delete via the GraphQL API, including the
+    superuser gate, validation, and unique-name enforcement.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        # Clear seeded categories so corpus_count / list assertions are stable.
+        CorpusCategory.objects.all().delete()
+
+        cls.superuser = User.objects.create_user(
+            username="cat_admin",
+            password="testpass123",
+            is_superuser=True,
+            is_staff=True,
+        )
+        cls.regular_user = User.objects.create_user(
+            username="cat_regular",
+            password="testpass123",
+        )
+        cls.existing = CorpusCategory.objects.create(
+            name="Existing Category",
+            description="Seeded for update/delete tests",
+            icon="folder",
+            color="#3B82F6",
+            sort_order=5,
+            creator=cls.superuser,
+        )
+
+    def _client_for(self, user):
+        factory = RequestFactory()
+        request = factory.post("/graphql")
+        request.user = user
+        return Client(schema, context_value=request)
+
+    # ------------------------------------------------------------------ #
+    # Create
+    # ------------------------------------------------------------------ #
+    def test_superuser_can_create_category(self):
+        client = self._client_for(self.superuser)
+        mutation = """
+            mutation Create($name: String!, $icon: String, $color: String, $sortOrder: Int) {
+                createCorpusCategory(name: $name, icon: $icon, color: $color, sortOrder: $sortOrder) {
+                    ok
+                    message
+                    obj { id name icon color sortOrder }
+                }
+            }
+        """
+        result = client.execute(
+            mutation,
+            variables={
+                "name": "Statutes",
+                "icon": "scroll",
+                "color": "#10B981",
+                "sortOrder": 2,
+            },
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        payload = result["data"]["createCorpusCategory"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.assertEqual(payload["obj"]["name"], "Statutes")
+        self.assertEqual(payload["obj"]["icon"], "scroll")
+        self.assertEqual(payload["obj"]["color"], "#10B981")
+        self.assertEqual(payload["obj"]["sortOrder"], 2)
+        self.assertTrue(CorpusCategory.objects.filter(name="Statutes").exists())
+
+    def test_create_uses_default_icon_and_color(self):
+        client = self._client_for(self.superuser)
+        mutation = """
+            mutation Create($name: String!) {
+                createCorpusCategory(name: $name) {
+                    ok
+                    obj { icon color sortOrder }
+                }
+            }
+        """
+        result = client.execute(mutation, variables={"name": "Minimal"})
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        payload = result["data"]["createCorpusCategory"]
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["obj"]["icon"], "folder")
+        self.assertEqual(payload["obj"]["color"], "#3B82F6")
+        self.assertEqual(payload["obj"]["sortOrder"], 0)
+
+    def test_regular_user_cannot_create_category(self):
+        client = self._client_for(self.regular_user)
+        mutation = """
+            mutation Create($name: String!) {
+                createCorpusCategory(name: $name) { ok message obj { id } }
+            }
+        """
+        result = client.execute(mutation, variables={"name": "Sneaky"})
+        payload = result["data"]["createCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("superuser", payload["message"].lower())
+        self.assertFalse(CorpusCategory.objects.filter(name="Sneaky").exists())
+
+    def test_create_rejects_duplicate_name(self):
+        client = self._client_for(self.superuser)
+        mutation = """
+            mutation Create($name: String!) {
+                createCorpusCategory(name: $name) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"name": "Existing Category"})
+        payload = result["data"]["createCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("already exists", payload["message"].lower())
+
+    def test_anonymous_user_cannot_create_category(self):
+        # The @login_required decorator must reject unauthenticated callers
+        # before the superuser gate is reached, surfacing a GraphQL error
+        # rather than an ok=false payload.
+        client = self._client_for(AnonymousUser())
+        mutation = """
+            mutation Create($name: String!) {
+                createCorpusCategory(name: $name) { ok message obj { id } }
+            }
+        """
+        result = client.execute(mutation, variables={"name": "Anonymous"})
+        self.assertIsNotNone(result.get("errors"))
+        self.assertIsNone(result["data"]["createCorpusCategory"])
+        self.assertFalse(CorpusCategory.objects.filter(name="Anonymous").exists())
+
+    def test_create_rejects_blank_name(self):
+        client = self._client_for(self.superuser)
+        mutation = """
+            mutation Create($name: String!) {
+                createCorpusCategory(name: $name) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"name": "   "})
+        payload = result["data"]["createCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("empty", payload["message"].lower())
+
+    def test_create_rejects_invalid_color(self):
+        client = self._client_for(self.superuser)
+        mutation = """
+            mutation Create($name: String!, $color: String) {
+                createCorpusCategory(name: $name, color: $color) { ok message }
+            }
+        """
+        result = client.execute(
+            mutation, variables={"name": "BadColor", "color": "blue"}
+        )
+        payload = result["data"]["createCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("color", payload["message"].lower())
+        self.assertFalse(CorpusCategory.objects.filter(name="BadColor").exists())
+
+    # ------------------------------------------------------------------ #
+    # Update
+    # ------------------------------------------------------------------ #
+    def test_superuser_can_update_category(self):
+        client = self._client_for(self.superuser)
+        gid = to_global_id("CorpusCategoryType", self.existing.id)
+        mutation = """
+            mutation Update($id: ID!, $name: String, $sortOrder: Int) {
+                updateCorpusCategory(id: $id, name: $name, sortOrder: $sortOrder) {
+                    ok
+                    obj { name sortOrder }
+                }
+            }
+        """
+        result = client.execute(
+            mutation,
+            variables={"id": gid, "name": "Renamed Category", "sortOrder": 9},
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        payload = result["data"]["updateCorpusCategory"]
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["obj"]["name"], "Renamed Category")
+        self.assertEqual(payload["obj"]["sortOrder"], 9)
+        self.existing.refresh_from_db()
+        self.assertEqual(self.existing.name, "Renamed Category")
+        self.assertEqual(self.existing.sort_order, 9)
+
+    def test_update_rejects_duplicate_name(self):
+        other = CorpusCategory.objects.create(
+            name="Other Category", creator=self.superuser
+        )
+        client = self._client_for(self.superuser)
+        gid = to_global_id("CorpusCategoryType", other.id)
+        mutation = """
+            mutation Update($id: ID!, $name: String) {
+                updateCorpusCategory(id: $id, name: $name) { ok message }
+            }
+        """
+        result = client.execute(
+            mutation, variables={"id": gid, "name": "Existing Category"}
+        )
+        payload = result["data"]["updateCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("already exists", payload["message"].lower())
+        other.refresh_from_db()
+        self.assertEqual(other.name, "Other Category")
+
+    def test_regular_user_cannot_update_category(self):
+        client = self._client_for(self.regular_user)
+        gid = to_global_id("CorpusCategoryType", self.existing.id)
+        mutation = """
+            mutation Update($id: ID!, $name: String) {
+                updateCorpusCategory(id: $id, name: $name) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"id": gid, "name": "Hacked"})
+        payload = result["data"]["updateCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("superuser", payload["message"].lower())
+        self.existing.refresh_from_db()
+        self.assertNotEqual(self.existing.name, "Hacked")
+
+    def test_update_nonexistent_category(self):
+        client = self._client_for(self.superuser)
+        gid = to_global_id("CorpusCategoryType", 999999)
+        mutation = """
+            mutation Update($id: ID!, $name: String) {
+                updateCorpusCategory(id: $id, name: $name) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"id": gid, "name": "X"})
+        payload = result["data"]["updateCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+
+    # ------------------------------------------------------------------ #
+    # Delete
+    # ------------------------------------------------------------------ #
+    def test_superuser_can_delete_category(self):
+        target = CorpusCategory.objects.create(name="To Delete", creator=self.superuser)
+        # Attach to a corpus to confirm the M2M link is cleaned up but the
+        # corpus survives.
+        corpus = Corpus.objects.create(title="Has Category", creator=self.superuser)
+        corpus.categories.add(target)
+
+        client = self._client_for(self.superuser)
+        gid = to_global_id("CorpusCategoryType", target.id)
+        mutation = """
+            mutation Delete($id: ID!) {
+                deleteCorpusCategory(id: $id) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"id": gid})
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        payload = result["data"]["deleteCorpusCategory"]
+        self.assertTrue(payload["ok"])
+        self.assertFalse(CorpusCategory.objects.filter(pk=target.pk).exists())
+        # Corpus itself must survive; only the M2M link is gone.
+        self.assertTrue(Corpus.objects.filter(pk=corpus.pk).exists())
+        self.assertEqual(corpus.categories.count(), 0)
+
+    def test_regular_user_cannot_delete_category(self):
+        target = CorpusCategory.objects.create(name="Protected", creator=self.superuser)
+        client = self._client_for(self.regular_user)
+        gid = to_global_id("CorpusCategoryType", target.id)
+        mutation = """
+            mutation Delete($id: ID!) {
+                deleteCorpusCategory(id: $id) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"id": gid})
+        payload = result["data"]["deleteCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("superuser", payload["message"].lower())
+        self.assertTrue(CorpusCategory.objects.filter(pk=target.pk).exists())
+
+    def test_delete_nonexistent_category(self):
+        client = self._client_for(self.superuser)
+        gid = to_global_id("CorpusCategoryType", 888888)
+        mutation = """
+            mutation Delete($id: ID!) {
+                deleteCorpusCategory(id: $id) { ok message }
+            }
+        """
+        result = client.execute(mutation, variables={"id": gid})
+        payload = result["data"]["deleteCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())

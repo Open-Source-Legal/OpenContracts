@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Chunked (resumable) uploads for large files** — work around the 100 MB
+  per-request body ceiling that upstream proxies (Cloudflare) impose on the
+  document-import REST endpoints. The client slices a file into sub-100 MB
+  parts, uploads each independently, and the server reassembles them before
+  handing the whole file to the **existing** import services (so there is one
+  import code path per kind, chunked or not).
+  - **Backend models** (`opencontractserver/document_imports/models.py`):
+    `ChunkedUploadSession` + `ChunkedUploadPart`. Parts persist through Django
+    storage (not local disk) so any web/worker process can reassemble a
+    session. Initial migration `0001_initial`.
+  - **REST endpoints** (`opencontractserver/document_imports/views.py`,
+    `urls.py`): `POST /api/imports/chunked/start/`,
+    `PUT|POST /api/imports/chunked/<id>/parts/<index>/`,
+    `POST /api/imports/chunked/<id>/complete/`, and
+    `GET /api/imports/chunked/<id>/` (progress, for resuming). `complete`
+    returns the **same** response shape as the matching single-request
+    endpoint. Part PUTs use a looser throttle scope (`document_import_chunks`,
+    5000/hour) than the whole-file `document_imports` scope (120/hour).
+  - **Service layer** (`opencontractserver/document_imports/services.py`):
+    `start_chunked_upload` / `store_chunk` / `complete_chunked_upload` plus a
+    streaming reassembler (peak memory bounded to one 8 MB block regardless of
+    file size) and `purge_stale_chunked_uploads`. All four import kinds are
+    supported (single document + the three zip flows). Per-user session
+    isolation (IDOR-safe 404s), arithmetic + integrity validation, and
+    fast-fail permission gating at `start`.
+  - **Periodic cleanup** (`opencontractserver/document_imports/tasks.py`,
+    `config/settings/base.py` `CELERY_BEAT_SCHEDULE`): hourly
+    `purge_stale_chunked_uploads` GCs abandoned sessions and their stored parts
+    after `CHUNKED_UPLOAD_STALE_HOURS` (default 24h).
+  - **New settings** (`config/settings/base.py`):
+    `CHUNKED_UPLOAD_PART_MAX_BYTES` (default 90 MB, must stay below the proxy
+    cap), `CHUNKED_UPLOAD_MAX_PARTS`, `CHUNKED_UPLOAD_STALE_HOURS`, and the
+    `document_import_chunks` throttle rate.
+  - **Frontend** (`frontend/src/utils/importHttp.ts`): the four public import
+    helpers transparently route files above `UPLOAD.CHUNK_THRESHOLD_BYTES`
+    (50 MB) through the chunked protocol — call sites and response handling are
+    unchanged. The artificial 100 MB dropzone cap was raised
+    (`constants.ts`: `MAX_FILE_SIZE_BYTES` → 2 GB for single documents;
+    bulk-zip dropzone now uses the 500 MB `MAX_IMPORT_ZIP_BYTES` cap via new
+    `FileDropZone` `maxSizeBytes`/`maxSizeDisplay` props).
+  - **Resilient frontend transport** (`frontend/src/utils/importHttp.ts`,
+    `constants.ts`): parts now upload with bounded concurrency
+    (`UPLOAD.CHUNK_CONCURRENCY`, default 4) instead of strictly sequentially,
+    each part retries with exponential backoff on transient/5xx/network
+    failures (`CHUNK_MAX_ATTEMPTS`, `CHUNK_RETRY_BASE_DELAY_MS`) while 4xx
+    client errors fail fast, and an optional `onProgress(fraction)` callback
+    on every public import helper drives a progress bar for large uploads.
+  - **GC race hardening** (`opencontractserver/document_imports/services.py`):
+    `purge_stale_chunked_uploads` no longer purges `ASSEMBLING` sessions inside
+    the normal stale window (which could delete parts out from under a live
+    `complete` reassembly); they are reclaimed only after a longer grace window
+    (`CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS`, default 6h) so a crashed
+    mid-assembly worker is still cleaned up. The Celery task now also accepts
+    `completed_retention_days` so an operator can override retention at enqueue
+    time. The single-document reassembly's whole-file-in-RAM tradeoff is
+    tracked as a streaming follow-up (issue #1843).
+  - **Tests**: `opencontractserver/tests/test_document_imports_chunked.py`
+    (round-trip byte-exact reassembly, validation, IDOR isolation, integrity
+    checks, zip kinds, stale-session GC, ASSEMBLING grace window) and the
+    `importHttp chunked transport` suite in
+    `frontend/src/utils/__tests__/importHttp.test.ts` (concurrency cap,
+    per-part retry, 4xx fail-fast, progress reporting).
+
 ### Security
 
 - **SmartLabelListMutation IDOR fix** (`config/graphql/smart_label_mutations.py`)
@@ -88,6 +153,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   applies to the single-object helpers.
 
 ### Added
+
+- **Runtime-configurable corpus categories (tags) — superuser CRUD via GraphQL + in-app admin panel.** Corpus categories (the "Case Law", "Contracts", "Legislation", "Knowledge" tags shown on the Discover page and in corpus settings) were already stored in the `CorpusCategory` model but could only be created/edited by editing the `0035_seed_default_categories` migration or using Django admin. Superusers can now manage the full set at runtime from within the app.
+  - **Superuser-only GraphQL mutations** (`config/graphql/corpus_category_mutations.py`) — `createCorpusCategory`, `updateCorpusCategory`, `deleteCorpusCategory`. Each is gated on `info.context.user.is_superuser` (returns `ok=false`/message for non-superusers, mirroring the pipeline-settings mutations), validates name (non-empty, unique, ≤255 chars), icon length, and hex color format, and is rate-limited at `WRITE_LIGHT`. Deleting a category cleans up the `Corpus.categories` M2M links automatically but leaves the corpuses themselves intact. Registered in `config/graphql/mutations.py`. The existing `corpusCategories` query already exposes the read side. Updated the `CorpusCategoryType` docstring (`config/graphql/corpus_types.py`) which previously claimed categories were "managed via Django Admin only".
+  - **Service layer** (`opencontractserver/corpuses/services/corpus_category_service.py`) — the mutations are thin GraphQL wrappers (superuser gate + Relay global-id parsing only); validation, unique-name enforcement, and all `CorpusCategory.objects.*` access live in the new `CorpusCategoryService` (re-exported from `opencontractserver/corpuses/services/__init__.py`), per CLAUDE.md rule 7. Shared bounds/defaults (`MAX_CATEGORY_NAME_LENGTH`, `MAX_CATEGORY_ICON_LENGTH`, `DEFAULT_CATEGORY_ICON`, `DEFAULT_CATEGORY_COLOR`) moved to `opencontractserver/constants/corpus_categories.py`; the frontend defaults moved to `frontend/src/assets/configurations/constants.ts` (`DEFAULT_CATEGORY_ICON` / `DEFAULT_CATEGORY_COLOR`) so the two sides no longer drift.
+  - **In-app admin UI** (`frontend/src/components/admin/corpus_categories/`) — new `CorpusCategoryManagement` page (route `/admin/corpus-categories`, registered in `App.tsx`) listing categories in a table with create/edit/delete via a modal form (name, description, icon, color picker, sort order) and a delete confirmation. Superuser-gated via the `backendUserObj` reactive var. A "Corpus Categories" card was added to the `GlobalSettingsPanel` admin landing grid. GraphQL operations + types live in `frontend/src/components/admin/corpus_categories/graphql.ts`.
+  - **Tests** (`opencontractserver/tests/test_corpus_category.py::TestCorpusCategoryManagementMutations`) — create/update/delete happy paths, default icon/color on create, superuser gating for all three mutations, duplicate-name rejection (create + update), blank-name and invalid-color rejection, not-found handling, and confirmation that deleting a category removes only the M2M link, not the corpus.
 
 - **OC_COUNTRY / OC_STATE / OC_CITY annotation conventions + offline geocoding service (foundation — issue #1819).** Lays the platform groundwork for the map UI tracked in follow-up issues #1820 (reusable `<AnnotationMap />` + Discover integration) and #1821 (Corpus Home map view). This PR ships the backend foundation only — the React component and Corpus Home view are intentionally scoped to the follow-ups.
   - **Constants** (`opencontractserver/constants/annotations.py`, `frontend/src/assets/configurations/constants.ts`) — three new label conventions (`OC_COUNTRY`, `OC_STATE`, `OC_CITY`) with a coherent blue→teal colour ramp (country deepest at `#0E3A5F`, city lightest at `#3E92CC`) so a mixed-type map cluster reads at a glance. Backend constants carry the colour / icon / description; the frontend mirrors the label names + colour family per the existing "Keep in sync" convention used for `OC_URL`.
