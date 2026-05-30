@@ -13,6 +13,7 @@ from graphql import GraphQLError
 from graphql_relay import from_global_id
 
 from config.graphql.annotation_types import (
+    AnnotationLabelType,
     AnnotationType,
     NoteType,
     RelationshipType,
@@ -44,6 +45,20 @@ from opencontractserver.shared.services.base import BaseService
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+def _dedupe_doc_type_labels(annotations: Any) -> list[Any]:
+    # A document can carry multiple DOC_TYPE_LABEL annotations sharing the same
+    # label; the badge UI shows each label once, so dedupe by label pk.
+    seen: set[int] = set()
+    labels: list[Any] = []
+    for ann in annotations:
+        label = ann.annotation_label
+        if label is None or label.pk in seen:
+            continue
+        seen.add(label.pk)
+        labels.append(label)
+    return labels
 
 
 # -------------------- Ingestion Source Types -------------------- #
@@ -244,6 +259,46 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ):
             return user
         raise GraphQLError("Permission denied: You do not have access to this document")
+
+    # -------------------- Doc-type label badges (corpus list view) -------------------- #
+    doc_type_labels = graphene.List(
+        graphene.NonNull(AnnotationLabelType),
+        description=(
+            "Flat list of distinct ``DOC_TYPE_LABEL`` annotation labels for "
+            "this document — the corpus list view's per-card badges. Resolved "
+            "from a single batched prefetch when the parent ``documents`` "
+            "resolver opts in via ``requests_doc_type_labels``; falls back to "
+            "one targeted SELECT per document otherwise. Skipping the Relay "
+            "connection wrapper avoids the per-document COUNT + SELECT + FK "
+            "descriptor storm the old ``docAnnotations`` shape forced."
+        ),
+    )
+
+    def resolve_doc_type_labels(self, info) -> Any:
+        from opencontractserver.annotations.models import DOC_TYPE_LABEL
+        from opencontractserver.annotations.services import AnnotationService
+
+        prefetched = getattr(self, "_prefetched_doc_annotations", None)
+        if prefetched is not None:
+            # ``_apply_document_prefetches`` already filtered to DOC_TYPE_LABEL
+            # and ``select_related``-cached ``annotation_label``.
+            return _dedupe_doc_type_labels(prefetched)
+
+        # Fallback path: ``DocumentType`` accessed outside the corpus-list
+        # batch (e.g. ``node(id:)``). Push ``label_type == DOC_TYPE_LABEL``
+        # into SQL via the service queryset — ``structural=True`` is not
+        # usable because imported DOC_TYPE_LABEL annotations are created with
+        # ``Annotation.structural`` defaulting to False.
+        fallback_qs = (
+            AnnotationService.get_document_annotations(
+                document_id=self.id,
+                user=getattr(info.context, "user", None),
+                context=info.context,
+            )
+            .filter(annotation_label__label_type=DOC_TYPE_LABEL)
+            .select_related("annotation_label")
+        )
+        return _dedupe_doc_type_labels(fallback_qs)
 
     all_structural_annotations = graphene.List(
         AnnotationType,
@@ -888,15 +943,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if not has_doc_update:
             return False
 
-        # Check corpus permission.
+        # Check corpus permission via an IDOR-safe service fetch:
+        # ``get_or_none`` returns the corpus only when the user holds UPDATE
+        # on it, and ``None`` for both not-found and denied — collapsing the
+        # prior raw ``.objects.get`` fetch-then-check into one service-layer
+        # call (no behaviour change: ``corpus is not None`` ⟺ has UPDATE).
         _, corpus_pk = from_global_id(corpus_id)
-        try:
-            corpus = Corpus.objects.get(pk=corpus_pk)
-            return BaseService.user_has(
-                corpus, user, PermissionTypes.UPDATE, request=info.context
-            )
-        except Corpus.DoesNotExist:
-            return False
+        corpus = BaseService.get_or_none(
+            Corpus, corpus_pk, user, PermissionTypes.UPDATE, request=info.context
+        )
+        return corpus is not None
 
     def resolve_can_view_history(self, info) -> Any:
         """Check if user has READ permission for viewing history."""

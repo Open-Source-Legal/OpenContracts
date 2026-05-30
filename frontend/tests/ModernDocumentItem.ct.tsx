@@ -11,6 +11,7 @@ import {
 import { openedCorpus } from "../src/graphql/cache";
 import { GET_DOC_RELATIONSHIPS_FOR_DOC } from "../src/graphql/queries";
 import { ReactiveVarObserver } from "./utils/ReactiveVarObserver";
+import { docScreenshot } from "./utils/docScreenshot";
 
 /** Minimal document fixture with overridable fields. */
 function makeDocument(overrides: Partial<DocumentType> = {}): DocumentType {
@@ -145,6 +146,55 @@ test.describe("ModernDocumentItem — card view rendering", () => {
     // FileTypeBadge renders the fileType literal (CSS upper-cases it
     // visually, the DOM text is lowercase).
     await expect(page.getByText("pdf", { exact: true })).toBeVisible();
+  });
+
+  test("shows doc-type label count badge from docTypeLabels (PR #1829)", async ({
+    mount,
+    page,
+  }) => {
+    // PR #1829 switched the badge source from the Relay-connection
+    // ``docLabelAnnotations`` to the flat ``docTypeLabels`` field. Card view
+    // renders a Tag meta-item showing the label count. pageCount 42 keeps the
+    // page badge ("42p") from colliding with the exact "2" label-count match.
+    const doc = makeDocument({
+      pageCount: 42,
+      docTypeLabels: [
+        { labelType: "DOC_TYPE_LABEL", text: "Contract" },
+        { labelType: "DOC_TYPE_LABEL", text: "NDA" },
+      ],
+    } as Partial<DocumentType>);
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount
+    );
+
+    await expect(page.getByText("Test Document.pdf")).toBeVisible();
+    await expect(page.getByText("2", { exact: true })).toBeVisible();
+
+    await docScreenshot(
+      page,
+      "documents--modern-document-item--doc-type-badge"
+    );
+  });
+
+  test("hides doc-type label badge when docTypeLabels is empty", async ({
+    mount,
+    page,
+  }) => {
+    const doc = makeDocument({
+      pageCount: 42,
+      docTypeLabels: [],
+    } as Partial<DocumentType>);
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="card" />,
+      mount
+    );
+
+    await expect(page.getByText("Test Document.pdf")).toBeVisible();
+    // No label-count meta-item should render for an empty list.
+    await expect(page.getByText("2", { exact: true })).toHaveCount(0);
   });
 
   test("shows version badge when document has history", async ({

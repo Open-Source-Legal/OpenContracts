@@ -47,14 +47,20 @@ export interface RequestDocumentsOutputs {
   };
 }
 
-// NOTE: The shape of this query is matched by ``requests_doc_label_annotations``
-// in config/graphql/custom_resolvers.py (it walks the AST looking for
-// ``documents → edges → node → docAnnotations(annotationLabel_LabelType:
-// "DOC_TYPE_LABEL")``) so the resolver can opt into a focused doc-label
-// prefetch. Restructuring the connection (extra wrapping levels, renames, or
-// moving docAnnotations into a fragment at the top level) silently disables
-// that optimisation and returns the per-row N+1 — update the AST helper there
-// in lockstep with any structural change.
+// NOTE: The corpus document-card view requests ``docTypeLabels`` — a flat
+// list field on DocumentType that returns the badge labels directly without
+// the Relay connection / filterset wrapping the legacy ``docAnnotations``
+// shape forced. The backend resolver (``DocumentType.resolve_doc_type_labels``,
+// ``config/graphql/document_types.py``) consumes a focused prefetch loaded
+// in one batch by ``_apply_document_prefetches``; the prefetch is opt-in via
+// ``requests_doc_type_labels`` (``config/graphql/custom_resolvers.py``)
+// which walks the AST for either ``docTypeLabels`` or the legacy
+// ``docAnnotations(annotationLabel_LabelType: "DOC_TYPE_LABEL")``. Keep
+// the field name spelled exactly ``docTypeLabels`` here (graphql-core
+// preserves the underlying field name on ``FieldNode.name`` even through an
+// alias, but a rename would silently disable the prefetch hook-up and
+// re-introduce one ``SELECT`` per document) — and prefer adding optional
+// fields over restructuring the document-edge shape.
 export const GET_DOCUMENTS = gql`
   query (
     $inCorpusWithId: String
@@ -106,23 +112,9 @@ export const GET_DOCUMENTS = gql`
           isLatestVersion
           canViewHistory
           docRelationshipCount(corpusId: $inCorpusWithId)
-          doc_label_annotations: docAnnotations(
-            annotationLabel_LabelType: DOC_TYPE_LABEL
-          ) @include(if: $annotateDocLabels) {
-            edges {
-              node {
-                id
-                annotationLabel {
-                  labelType
-                  text
-                }
-                corpus {
-                  title
-                  icon
-                  preferredEmbedder
-                }
-              }
-            }
+          docTypeLabels @include(if: $annotateDocLabels) {
+            labelType
+            text
           }
         }
       }

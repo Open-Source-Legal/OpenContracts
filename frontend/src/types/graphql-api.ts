@@ -427,6 +427,8 @@ export type RawDocumentType = Node & {
   docRelationshipCount?: Maybe<Scalars["Int"]>;
   allStructuralAnnotations?: RawServerAnnotationType[];
   docLabelAnnotations?: Maybe<AnnotationTypeConnection>;
+  // Flat list backing the corpus document-card DOC_TYPE_LABEL badge.
+  docTypeLabels?: Maybe<AnnotationLabelType[]>;
   metadataAnnotations?: Maybe<AnnotationTypeConnection>;
   conversations?: ConversationTypeConnection;
   chatMessages?: ChatMessageTypeConnection;
