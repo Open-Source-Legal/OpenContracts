@@ -803,7 +803,18 @@ def invalidate_reranker_cache() -> None:
 # Failure handling: instantiation errors are NOT cached (the construction
 # happens inside ``get_embedder_instance`` and any exception propagates without
 # populating the cache), so a transient construction failure in one worker
-# never pins it to a broken state while siblings succeed.
+# never pins it to a broken state while siblings succeed. Unlike the reranker
+# cache, construction errors propagate rather than degrading to ``None``:
+# embedding is mandatory for vector search (a ``None`` embedder would only move
+# the failure to a ``NoneType.embed_text`` crash or, worse, silently skip the
+# query vector), whereas reranking is an optional refinement that can be skipped.
+#
+# Thread-safety requirement: because one instance is shared across all threads
+# in the worker, embedder implementations eligible for this cache MUST be
+# thread-safe for read — ``embed_text``/``embed_texts_batch`` must not mutate
+# shared instance state per call (the base merges call-time kwargs into a local
+# dict, which is safe; subclasses holding mutable model/connection state must
+# guard it themselves).
 _EMBEDDER_INSTANCE_CACHE: dict[tuple[str, Any], BaseEmbedder] = {}
 # Guards against two concurrent retrievals paying the embedder-construction
 # (and PBKDF2 decryption) cost twice. Lookups after warm-up are read-only so
