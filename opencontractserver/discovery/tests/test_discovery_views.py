@@ -384,6 +384,28 @@ class WellKnownMcpTest(TestCase):
             scoped_server["authentication"], global_server["authentication"]
         )
 
+    def test_authenticated_server_advertised_under_auth0(self):
+        """When Auth0 is enabled, mcp.json advertises the authenticated
+        /mcp/me entrypoint pointing at its path-based protected-resource
+        metadata so clients can start the sign-in flow."""
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            response = self.client.get("/.well-known/mcp.json")
+        data = json.loads(response.content)
+        self.assertIn("cite-authenticated", data["mcpServers"])
+        authed = data["mcpServers"]["cite-authenticated"]
+        self.assertIn("/mcp/me/", authed["url"])
+        self.assertEqual(
+            authed["authentication"]["metadataUrl"],
+            "http://testserver/.well-known/oauth-protected-resource/mcp/me",
+        )
+
+    def test_authenticated_server_absent_without_auth0(self):
+        """Without an interactive AS, the authed entrypoint is not advertised
+        (operators hand out bearer tokens out of band)."""
+        response = self.client.get("/.well-known/mcp.json")
+        data = json.loads(response.content)
+        self.assertNotIn("cite-authenticated", data["mcpServers"])
+
 
 @override_settings(
     CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
@@ -424,6 +446,30 @@ class WellKnownOAuthProtectedResourceTest(TestCase):
         with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
             response = self.client.post("/.well-known/oauth-protected-resource")
         self.assertEqual(response.status_code, 405)
+
+    def test_path_based_metadata_for_authed_resource(self):
+        """RFC 9728 §3.1 path-based document for /mcp/me returns a matching
+        ``resource`` so clients that derive the URL from the resource id
+        resolve it."""
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            response = self.client.get(
+                "/.well-known/oauth-protected-resource/mcp/me"
+            )
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertEqual(data["resource"], "http://testserver/mcp/me")
+        self.assertEqual(
+            data["authorization_servers"], ["https://example.auth0.com/"]
+        )
+
+    def test_unknown_resource_path_returns_404(self):
+        """Only known MCP resources get metadata; arbitrary paths 404 rather
+        than advertise an AS for something we don't serve."""
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            response = self.client.get(
+                "/.well-known/oauth-protected-resource/bogus"
+            )
+        self.assertEqual(response.status_code, 404)
 
 
 @override_settings(

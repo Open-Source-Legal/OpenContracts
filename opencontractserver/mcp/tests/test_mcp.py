@@ -5920,6 +5920,126 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         self.assertTrue(starts, "Expected a response from the ASGI app")
         self.assertNotEqual(starts[0]["status"], 401)
 
+    def test_missing_token_on_authed_endpoint_returns_401_challenge(self):
+        """/mcp/me must challenge an unauthenticated request so interactive
+        clients (Claude, ChatGPT) start the OAuth flow — unlike public /mcp,
+        which serves anonymous callers."""
+        import json
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        bodies = [m for m in messages if m.get("type") == "http.response.body"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        payload = json.loads(bodies[0]["body"])
+        self.assertIn("Authentication required", payload.get("error", ""))
+
+    def test_missing_token_on_public_endpoint_is_not_challenged(self):
+        """The public /mcp endpoint must NOT 401 an anonymous request; it
+        falls through to public-only access."""
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        # Whatever the downstream manager returns for a disconnected body, the
+        # auth layer must never have issued a 401 challenge.
+        self.assertTrue(
+            all(s["status"] != 401 for s in starts),
+            "Anonymous request to public /mcp must not be challenged",
+        )
+
+    def test_authed_endpoint_401_advertises_path_based_metadata_under_auth0(self):
+        """The /mcp/me challenge must point at the RFC 9728 path-based
+        protected-resource metadata whose ``resource`` matches the endpoint."""
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+                (b"x-forwarded-proto", b"https"),
+            ],
+        }
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(starts[0]["status"], 401)
+        www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode("ascii")
+        self.assertIn(
+            'resource_metadata="https://opencontracts.test'
+            '/.well-known/oauth-protected-resource/mcp/me"',
+            www_auth,
+        )
+
+    def test_cors_preflight_allows_listed_origin(self):
+        """An OPTIONS preflight from an allow-listed origin (e.g. Claude) gets
+        a 204 echoing the origin so the browser permits the real request."""
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/",
+            "method": "OPTIONS",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"access-control-request-method", b"POST"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(starts[0]["status"], 204)
+        headers = dict(starts[0]["headers"])
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_cors_preflight_rejects_unlisted_origin(self):
+        """A preflight from an origin that is not allow-listed gets no
+        Access-Control-Allow-Origin, so the browser blocks it."""
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/",
+            "method": "OPTIONS",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://evil.example"),
+                (b"access-control-request-method", b"POST"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        headers = dict(starts[0]["headers"])
+        self.assertNotIn(b"access-control-allow-origin", headers)
+
 
 class MCPResourceAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
     """Resource reads consume the same request user as tool calls."""

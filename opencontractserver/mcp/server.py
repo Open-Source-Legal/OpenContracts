@@ -108,6 +108,193 @@ def _extract_bearer_token(scope: MutableMapping[str, Any]) -> str | None:
     return None
 
 
+# Canonical path of the authenticated MCP entrypoint. Unlike the public
+# ``/mcp`` endpoint (which serves anonymous callers public data), this path
+# *challenges* unauthenticated requests with a 401 so interactive MCP clients
+# (Claude web/desktop, ChatGPT) begin the OAuth 2.1 sign-in flow.
+MCP_AUTHED_PATH = "/mcp/me"
+
+
+def _path_requires_auth(path: str) -> bool:
+    """Return True for MCP entrypoints that must reject anonymous callers."""
+    normalized = path.rstrip("/")
+    return normalized == MCP_AUTHED_PATH or normalized.startswith(MCP_AUTHED_PATH + "/")
+
+
+def _oauth_metadata_suffix(path: str) -> str:
+    """Map a request path to its RFC 9728 protected-resource-metadata suffix.
+
+    The public ``/mcp`` endpoint advertises the root metadata document
+    (``/.well-known/oauth-protected-resource``) for backwards compatibility;
+    the authenticated ``/mcp/me`` endpoint advertises the path-based document
+    (``/.well-known/oauth-protected-resource/mcp/me``) whose ``resource``
+    matches the URL the client actually connected to (RFC 8707).
+    """
+    if _path_requires_auth(path):
+        return MCP_AUTHED_PATH
+    return ""
+
+
+def _derive_public_base_url(scope: MutableMapping[str, Any]) -> str | None:
+    """Return a trusted ``scheme://host`` base URL for absolute MCP URLs.
+
+    Prefers the operator-pinned ``MCP_PUBLIC_BASE_URL`` (not attacker
+    influenced). Otherwise falls back to the request ``Host`` +
+    ``X-Forwarded-Proto`` — aggressively sanitized, because MCP requests
+    bypass Django and therefore ``ALLOWED_HOSTS`` validation. Returns
+    ``None`` when no safe value can be derived.
+    """
+    configured = (getattr(settings, "MCP_PUBLIC_BASE_URL", "") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+
+    # ``Host`` carries the public hostname; ``X-Forwarded-Proto`` (set by the
+    # reverse proxy in production) tells us the original scheme. Fall back to
+    # the ASGI ``scope["scheme"]`` for direct connections (local dev).
+    host = b""
+    forwarded_proto = b""
+    for name, value in scope.get("headers", []):
+        lower = name.lower()
+        if lower == b"host":
+            host = value
+        elif lower == b"x-forwarded-proto":
+            forwarded_proto = value
+    if not host:
+        return None
+    raw_scheme = forwarded_proto.decode("ascii", errors="ignore") or str(
+        scope.get("scheme", "http")
+    )
+    scheme = raw_scheme.split(",", 1)[0].strip().lower()
+    if scheme not in {"http", "https"}:
+        scheme = "http"
+    # The WWW-Authenticate value is a comma-separated list of auth-params; a
+    # crafted Host carrying ``"`` / ``,`` / ``;`` / whitespace could smuggle a
+    # sibling auth-param into the embedded URL. Strip those and require the
+    # remainder to look like a bare hostname (letters, digits, dot, dash,
+    # colon, and square brackets for IPv6 literals).
+    raw_host = host.decode("ascii", errors="ignore")
+    safe_host = raw_host
+    for bad in ('"', "\r", "\n", " ", ",", ";", "\t"):
+        safe_host = safe_host.replace(bad, "")
+    if not safe_host or not re.fullmatch(r"[A-Za-z0-9.\-:\[\]]+", safe_host):
+        return None
+    return f"{scheme}://{safe_host}"
+
+
+def _mcp_cors_allowlist() -> set[str]:
+    """Origins permitted to call the MCP endpoints from a browser.
+
+    MCP requests bypass Django, so ``django-cors-headers`` never runs on
+    ``/mcp*``; CORS is enforced here instead. The allowlist merges the
+    operator-configured ``MCP_CORS_ALLOWED_ORIGINS`` (Claude/ChatGPT/Inspector
+    by default) with the app's existing ``CORS_ALLOWED_ORIGINS`` (frontend),
+    read live so production overrides apply.
+    """
+    origins: set[str] = set()
+    for source in (
+        getattr(settings, "MCP_CORS_ALLOWED_ORIGINS", None),
+        getattr(settings, "CORS_ALLOWED_ORIGINS", None),
+    ):
+        if source:
+            origins.update(o.strip() for o in source if o and o.strip())
+    return origins
+
+
+def _request_origin(scope: MutableMapping[str, Any]) -> str | None:
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"origin":
+            return value.decode("latin-1", errors="ignore").strip() or None
+    return None
+
+
+# Request headers a browser MCP client may send on the actual request; echoed
+# on the CORS preflight so the browser permits them. ``Mcp-Session-Id`` and
+# ``Mcp-Protocol-Version`` are part of the Streamable HTTP transport.
+_MCP_CORS_ALLOW_HEADERS = (
+    b"Authorization, Content-Type, Accept, Mcp-Session-Id, "
+    b"Mcp-Protocol-Version, Last-Event-ID"
+)
+_MCP_CORS_EXPOSE_HEADERS = b"WWW-Authenticate, Mcp-Session-Id"
+
+
+def _cors_actual_headers(origin: str | None) -> list[list[bytes]]:
+    """CORS headers to attach to a real MCP response, or [] if not allowed."""
+    if not origin or origin not in _mcp_cors_allowlist():
+        return []
+    return [
+        [b"access-control-allow-origin", origin.encode("latin-1")],
+        [b"vary", b"Origin"],
+        [b"access-control-expose-headers", _MCP_CORS_EXPOSE_HEADERS],
+    ]
+
+
+def _cors_preflight_headers(origin: str) -> list[list[bytes]]:
+    return [
+        [b"access-control-allow-origin", origin.encode("latin-1")],
+        [b"vary", b"Origin"],
+        [b"access-control-allow-methods", b"GET, POST, DELETE, OPTIONS"],
+        [b"access-control-allow-headers", _MCP_CORS_ALLOW_HEADERS],
+        [b"access-control-max-age", b"86400"],
+    ]
+
+
+def _wrap_send_with_cors(send, cors_headers: list[list[bytes]]):
+    """Wrap ``send`` so every ``http.response.start`` carries CORS headers.
+
+    The MCP session manager writes responses directly via ``send``; wrapping
+    it is the only way to decorate those responses (200s, the manager's own
+    errors) without re-implementing the transport. A no-op when the origin
+    isn't allow-listed, so server-side connectors pay nothing.
+    """
+    if not cors_headers:
+        return send
+
+    async def wrapped(message):
+        if message.get("type") == "http.response.start":
+            message = dict(message)
+            existing = list(message.get("headers", []))
+            present = {
+                (h[0].lower() if isinstance(h[0], (bytes, bytearray)) else h[0])
+                for h in existing
+            }
+            for header in cors_headers:
+                if header[0] not in present:
+                    existing.append(header)
+            message["headers"] = existing
+        await send(message)
+
+    return wrapped
+
+
+async def _send_auth_challenge(
+    scope: MutableMapping[str, Any], send, *, detail: str
+) -> None:
+    """Emit a 401 carrying the RFC 9728 ``WWW-Authenticate`` challenge.
+
+    Shared by the invalid-token branch and the missing-token branch of the
+    authenticated endpoint so the challenge stays identical.
+    """
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                [b"content-type", b"application/json"],
+                # RFC 6750 §3 + MCP Authorization spec: a 401 from a
+                # Bearer-protected resource must carry WWW-Authenticate so
+                # interactive clients can discover the authorization server.
+                [b"www-authenticate", _build_www_authenticate_header(scope)],
+            ],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": json.dumps({"error": detail}).encode(),
+        }
+    )
+
+
 def _build_www_authenticate_header(scope: MutableMapping[str, Any]) -> bytes:
     """Construct the ``WWW-Authenticate`` value for a 401 MCP response.
 
@@ -128,45 +315,15 @@ def _build_www_authenticate_header(scope: MutableMapping[str, Any]) -> bytes:
     if not getattr(settings, "USE_AUTH0", False):
         return realm
 
-    # Derive the base URL from the ASGI scope. ``Host`` carries the
-    # public hostname; ``X-Forwarded-Proto`` (set by the reverse proxy
-    # in production) tells us the original scheme. Fall back to the
-    # ASGI ``scope["scheme"]`` for direct connections (local dev).
-    host = b""
-    forwarded_proto = b""
-    for name, value in scope.get("headers", []):
-        lower = name.lower()
-        if lower == b"host":
-            host = value
-        elif lower == b"x-forwarded-proto":
-            forwarded_proto = value
-    if not host:
-        # No Host header at all is unusual — punt on the resource_metadata
-        # hint rather than emitting a malformed URL.
+    base_url = _derive_public_base_url(scope)
+    if not base_url:
+        # No safe base URL ⇒ omit the resource_metadata hint rather than
+        # emit a malformed or attacker-influenced URL.
         return realm
-    raw_scheme = forwarded_proto.decode("ascii", errors="ignore") or str(
-        scope.get("scheme", "http")
-    )
-    scheme = raw_scheme.split(",", 1)[0].strip().lower()
-    if scheme not in {"http", "https"}:
-        scheme = "http"
-    # Defensive: a misconfigured reverse proxy could forward a ``Host``
-    # carrying characters that have semantic meaning inside the
-    # ``WWW-Authenticate`` value. The header is a comma-separated list of
-    # auth-params, so ``,`` and ``;`` are particularly dangerous —
-    # smuggling either into the embedded ``resource_metadata`` URL could
-    # let a crafted Host header inject a sibling auth-param. Strip a
-    # conservative set of characters and bail entirely if the result no
-    # longer matches a plain hostname (letters, digits, dot, dash, colon,
-    # square brackets for IPv6).
-    raw_host = host.decode("ascii", errors="ignore")
-    safe_host = raw_host
-    for bad in ('"', "\r", "\n", " ", ",", ";", "\t"):
-        safe_host = safe_host.replace(bad, "")
-    if not safe_host or not re.fullmatch(r"[A-Za-z0-9.\-:\[\]]+", safe_host):
-        return realm
-    base_url = f"{scheme}://{safe_host}"
-    metadata_url = f"{base_url}/.well-known/oauth-protected-resource"
+    # Path-based RFC 9728 metadata for the authed endpoint; root document for
+    # the public ``/mcp`` (kept for backwards compatibility).
+    suffix = _oauth_metadata_suffix(scope.get("path", ""))
+    metadata_url = f"{base_url}/.well-known/oauth-protected-resource{suffix}"
     return (f'Bearer realm="opencontracts", resource_metadata="{metadata_url}"').encode(
         "ascii", errors="ignore"
     )
@@ -1442,6 +1599,27 @@ def create_mcp_asgi_app() -> ASGIApp:
         if scope["type"] != "http":
             return
 
+        # CORS — MCP requests bypass Django, so django-cors-headers never runs
+        # here. Answer browser preflights and decorate every response below so
+        # browser clients (and the MCP Inspector) can read the auth challenge.
+        origin = _request_origin(scope)
+        if scope.get("method") == "OPTIONS":
+            preflight = (
+                _cors_preflight_headers(origin)
+                if (origin and origin in _mcp_cors_allowlist())
+                else []
+            )
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 204,
+                    "headers": preflight + [[b"content-length", b"0"]],
+                }
+            )
+            await send({"type": "http.response.body", "body": b""})
+            return
+        send = _wrap_send_with_cors(send, _cors_actual_headers(origin))
+
         # Store scope in ContextVar so tool handlers can access it
         # for per-tool rate limiting.  The token is saved so we can
         # reset it in the finally block, preventing stale scope data
@@ -1495,30 +1673,25 @@ def create_mcp_asgi_app() -> ASGIApp:
                     logger.warning(
                         "MCP: rejected invalid JWT (%s)", exc.__class__.__name__
                     )
-                    www_authenticate = _build_www_authenticate_header(scope)
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": 401,
-                            "headers": [
-                                [b"content-type", b"application/json"],
-                                # RFC 6750 §3 + MCP 2025-06-18 Authorization §2.4:
-                                # always include WWW-Authenticate on a 401 from a
-                                # Bearer-protected resource so interactive clients
-                                # can discover the authorization server.
-                                [b"www-authenticate", www_authenticate],
-                            ],
-                        }
-                    )
-                    await send(
-                        {
-                            "type": "http.response.body",
-                            "body": json.dumps(
-                                {"error": "Invalid or expired authentication token"}
-                            ).encode(),
-                        }
+                    await _send_auth_challenge(
+                        scope,
+                        send,
+                        detail="Invalid or expired authentication token",
                     )
                     return
+            elif _path_requires_auth(scope.get("path", "")):
+                # Authenticated entrypoint (/mcp/me) with no credential: issue
+                # the 401 challenge so interactive clients (Claude, ChatGPT)
+                # start the OAuth flow. The public /mcp endpoint, by contrast,
+                # falls through to anonymous (public-only) access below.
+                logger.info(
+                    "MCP: unauthenticated request to %s; issuing 401 challenge",
+                    scope.get("path", ""),
+                )
+                await _send_auth_challenge(
+                    scope, send, detail="Authentication required"
+                )
+                return
 
             _user_token = _mcp_user.set(user_for_request)
             try:
@@ -1614,14 +1787,20 @@ def create_mcp_asgi_app() -> ASGIApp:
                 clear_request_context()
             return
 
-        # Handle global Streamable HTTP endpoint (recommended)
-        if path == "/mcp/" or path == "/mcp":
+        # Handle global Streamable HTTP endpoint (recommended). The
+        # authenticated variant (/mcp/me) shares the same stateless server and
+        # tool set; the only difference is the 401-on-missing-token gate that
+        # ran in ``app()`` above. Auth state is carried per-request via the
+        # ``_mcp_user`` ContextVar, so one session manager serves both.
+        if path in ("/mcp/", "/mcp", "/mcp/me", "/mcp/me/"):
+            authed = _path_requires_auth(path)
+            endpoint_label = MCP_AUTHED_PATH if authed else "/mcp"
             # Set telemetry context for this request
             client_ip = get_client_ip_from_scope(scope)
             user_agent = get_user_agent_from_scope(scope)
             set_request_context(
                 client_ip=client_ip,
-                transport="streamable_http",
+                transport="streamable_http_authed" if authed else "streamable_http",
                 user_agent=user_agent,
             )
 
@@ -1633,13 +1812,13 @@ def create_mcp_asgi_app() -> ASGIApp:
                 await manager.handle_request(scope, receive, send)
                 # Record successful request telemetry
                 await arecord_mcp_request(
-                    "/mcp", method=scope.get("method", "POST"), success=True
+                    endpoint_label, method=scope.get("method", "POST"), success=True
                 )
             except Exception as e:
                 logger.error(f"MCP Streamable HTTP request error: {e}")
                 # Record error telemetry before clearing context
                 await arecord_mcp_request(
-                    "/mcp",
+                    endpoint_label,
                     method=scope.get("method", "POST"),
                     success=False,
                     error_type=type(e).__name__,
@@ -1735,6 +1914,11 @@ def create_mcp_asgi_app() -> ASGIApp:
                                         "path": "/mcp",
                                         "methods": ["POST", "GET"],
                                         "description": "MCP Streamable HTTP endpoint (recommended)",
+                                    },
+                                    "streamable_http_authenticated": {
+                                        "path": "/mcp/me",
+                                        "methods": ["POST", "GET"],
+                                        "description": "Authenticated MCP endpoint (Bearer/OAuth required; serves private + public resources)",
                                     },
                                     "corpus_scoped": {
                                         "path": "/mcp/corpus/{corpus_slug}/",
