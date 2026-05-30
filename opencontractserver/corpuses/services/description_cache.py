@@ -145,21 +145,18 @@ def backfill_caml_doc_for_corpus(
 
     Used by:
 
-    * The V2 import shim (Task 14) — passes the legacy
-      ``md_description`` body so the canonical CAML doc is synthesised
-      on import.
-    * The data migration (Task 7) — but migrations operate on the
-      historical model registry, so they call their own migration-local
-      equivalent rather than importing this function. The two
-      implementations share semantics (and the same
-      ``compute_cache_from_caml_body`` derivation) by design; this
-      module is also referenced from the migration as the per-corpus
-      logic spec.
+    * The V2 import shim — passes the legacy ``md_description`` body so
+      the canonical CAML doc is synthesised on import.
+    * The data migration — migrations operate on the historical model
+      registry so they call their own migration-local equivalent rather
+      than importing this function. The two implementations share
+      semantics (and the same ``compute_cache_from_caml_body``
+      derivation) by design; this module is the per-corpus logic spec.
 
-    The Document ``post_save`` signal (Task 3, shipped in this PR via
-    ``corpuses/signals.py``) cascade-refreshes the cache columns
-    whenever the Readme.CAML body changes. This helper still writes the
-    cache columns directly via :func:`compute_cache_from_caml_body` +
+    The Document ``post_save`` signal (``corpuses/signals.py``)
+    cascade-refreshes the cache columns whenever the Readme.CAML body
+    changes. This helper still writes the cache columns directly via
+    :func:`compute_cache_from_caml_body` +
     ``Corpus.objects.filter().update`` because the V2 import shim calls
     it before the on_commit-deferred signal can fire; the duplicate
     update is idempotent.

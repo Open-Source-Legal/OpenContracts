@@ -467,8 +467,7 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # Description revision history: each entry is a sibling Document on
     # the corpus's Readme.CAML version_tree. The resolver shape preserves
     # the legacy ``CorpusDescriptionRevision`` API so the frontend
-    # revision-history viewer renders without changes (Task 9 of the
-    # canonical-CAML refactor; spec §4.5).
+    # revision-history viewer renders without changes.
     description_revisions = graphene.List(
         lambda: CorpusDescriptionRevisionType,
         description=(
@@ -792,11 +791,9 @@ class CorpusDescriptionRevisionType(graphene.ObjectType):
 
     The legacy ``diff`` field is dropped: clients that need a unified
     diff compute it on the fly from successive ``snapshot`` values via
-    ``difflib`` rather than reading a pre-stored payload. Task 16 will
-    update the frontend query + typings to drop the field; until then a
-    query referencing ``diff`` will fail GraphQL validation, but the
-    refactor is staged so no production tag ships in an intermediate
-    state.
+    ``difflib`` rather than reading a pre-stored payload. Queries that
+    still reference ``diff`` will fail GraphQL validation — remove it
+    from the frontend query to eliminate the field entirely.
 
     Spec: ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md`` §4.5
     """
@@ -856,8 +853,8 @@ class CorpusDescriptionRevisionType(graphene.ObjectType):
         in ``txt_extract_file``; the legacy ``snapshot`` column on
         ``CorpusDescriptionRevision`` carried the same content, so this
         is a 1:1 swap for the frontend rev viewer. Reads go through the
-        shared ``read_caml_body`` helper (formerly ``_read_caml_body``
-        in ``corpuses/signals.py``, promoted in Task 9) so the I/O
+        shared ``read_caml_body`` helper (promoted from a private helper
+        in ``corpuses/signals.py`` to ``description_cache.py`` for DRY) so the I/O
         contract — text-mode then binary-fallback — matches the
         cache-refresh signal handler exactly.
 
@@ -867,8 +864,8 @@ class CorpusDescriptionRevisionType(graphene.ObjectType):
         bodies in the list resolver would not reduce that count (object
         storage has no batch read), so the effective fix is to fetch
         ``snapshot`` only on a single-revision drill-down rather than in
-        the list query — tracked as the Task 16 frontend-query change.
-        The list path is the modal-only revision viewer, so the N reads
+        the list query. The list path is the modal-only revision viewer,
+        so the N reads
         are bounded by the revision count a human is browsing.
         """
         from opencontractserver.corpuses.services.description_cache import (

@@ -122,6 +122,33 @@ def _read_md_description(corpus) -> str:
             return ""
 
 
+def _read_caml_doc_body(doc) -> str:
+    """Read the txt_extract_file body from a Readme.CAML Document instance.
+
+    Migration-local mirror of ``description_cache.read_caml_body`` so the
+    backfill can read an already-existing CAML doc on idempotent re-run
+    (when ``md_description`` is empty but the head doc already exists).
+    """
+    field = doc.txt_extract_file
+    if not (field and field.name):
+        return ""
+    try:
+        field.open("r")
+        try:
+            return field.read()
+        finally:
+            field.close()
+    except Exception:
+        try:
+            field.open("rb")
+            try:
+                return field.read().decode("utf-8", errors="ignore")
+            finally:
+                field.close()
+        except Exception:
+            return ""
+
+
 def _get_existing_caml_doc(corpus_id, Document, DocumentPath):
     """Return the current Readme.CAML doc for the corpus, or None.
 
@@ -221,7 +248,12 @@ def backfill_all(apps, schema_editor):
             head = _create_caml_doc(corpus, body, Document, DocumentPath)
             _replay_revisions(corpus, head, Document, DocumentPath, RevisionModel)
         if head is not None:
-            plain, preview = _compute_cache_from_caml_body(body or "")
+            # On an idempotent re-run the legacy ``md_description`` may be
+            # empty (already cleared), but the CAML doc already exists and
+            # is the canonical source. Read its body rather than zeroing the
+            # cache from an empty legacy field.
+            cache_body = body if body else _read_caml_doc_body(head)
+            plain, preview = _compute_cache_from_caml_body(cache_body)
             Corpus.objects.filter(pk=corpus.pk).update(
                 description=plain,
                 description_preview=preview,

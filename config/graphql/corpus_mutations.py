@@ -287,11 +287,11 @@ class UpdateCorpusDescription(graphene.Mutation):
             new_caml_doc = result.value
 
             if new_caml_doc is None:
-                # No changes were made. The legacy ``Corpus.revisions``
-                # row count is preserved here as a transitional version
-                # signal; Task 9 will reimplement ``descriptionRevisions``
-                # (and therefore this no-op version readout) against the
-                # Readme.CAML version-tree.
+                # No changes were made — return the current version count so
+                # the caller knows where the description stands. The version
+                # count reads from the legacy ``Corpus.revisions`` relation
+                # as a transitional signal; it should be replaced by the
+                # Readme.CAML version-tree count once the frontend migrates.
                 return UpdateCorpusDescription(
                     ok=True,
                     message="No changes detected. Description remains at current version.",
