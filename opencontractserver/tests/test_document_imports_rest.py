@@ -643,12 +643,12 @@ class ServiceHelperUnitTests(TestCase):
         )
 
     def test_normalise_optional_blank_string_becomes_none(self):
-        from opencontractserver.document_imports.views import _normalise_optional
+        from opencontractserver.document_imports.services import normalise_optional
 
-        self.assertIsNone(_normalise_optional(""))
-        self.assertIsNone(_normalise_optional("   "))
-        self.assertIsNone(_normalise_optional(None))
-        self.assertEqual(_normalise_optional("kept"), "kept")
+        self.assertIsNone(normalise_optional(""))
+        self.assertIsNone(normalise_optional("   "))
+        self.assertIsNone(normalise_optional(None))
+        self.assertEqual(normalise_optional("kept"), "kept")
 
     def test_resolve_pk_swallows_decode_errors(self):
         """``from_global_id`` may raise on invalid base64; the helper
