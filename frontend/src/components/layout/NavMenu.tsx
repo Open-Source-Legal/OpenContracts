@@ -307,7 +307,15 @@ const NavbarHeightSync: React.FC = () => {
     if (!navbar) return;
 
     const sync = () => {
-      const h = navbar.offsetHeight;
+      // Measure the fractional rendered height and round UP. `offsetHeight` is
+      // an integer — it rounds the real border-box height DOWN — so a 72.5px
+      // navbar reported 72px while the element still occupied 72.5px. The
+      // viewport-bounded consumers below subtract this var from 100dvh, so the
+      // missing 0.5px left a permanent body-scroll strip beneath every bounded
+      // tab (the "subtle reposition"). `getBoundingClientRect().height` keeps
+      // the sub-pixel value and `Math.ceil` guarantees the var never
+      // under-reports the navbar, so reserved space always covers space used.
+      const h = Math.ceil(navbar.getBoundingClientRect().height);
       if (h > 0) {
         document.documentElement.style.setProperty(
           "--oc-navbar-height",
