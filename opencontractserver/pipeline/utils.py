@@ -847,6 +847,21 @@ def get_embedder_instance(
     PipelineSettings.modified)`` so the cost is paid once per configuration
     per process. See the module-level comment for the invalidation contract.
 
+    .. warning::
+        The returned instance is shared across every thread in the worker.
+        Embedder implementations eligible for this cache MUST be thread-safe
+        for read — ``embed_text``/``embed_texts_batch`` must not mutate shared
+        instance state per call. The base merges call-time kwargs into a local
+        dict (safe); subclasses holding mutable model/connection state must
+        guard it themselves.
+
+    Construction failures are intentionally NOT cached: the call to
+    ``embedder_class()`` happens inside the lock and any exception propagates
+    to the caller without populating the cache, so a transient failure in one
+    worker never pins it to a broken state. This deliberately diverges from
+    the reranker cache (which degrades to ``None``) because embedding is
+    mandatory for vector search — see the module-level comment.
+
     Args:
         embedder_class: The resolved embedder class to instantiate.
         embedder_path: The fully-qualified class path used as the cache key.
@@ -854,6 +869,10 @@ def get_embedder_instance(
 
     Returns:
         A cached (or freshly constructed) embedder instance.
+
+    Raises:
+        Exception: Propagates any exception raised by ``embedder_class()``
+            construction (the failure is not cached).
     """
     class_path = (
         embedder_path or f"{embedder_class.__module__}.{embedder_class.__name__}"

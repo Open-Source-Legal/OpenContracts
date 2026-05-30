@@ -721,6 +721,28 @@ class _CacheProbeEmbedderB(BaseEmbedder):
         return [0.0] * self.vector_size
 
 
+class _FailingProbeEmbedder(BaseEmbedder):
+    """Probe embedder whose construction always fails.
+
+    Used to lock in the intentional divergence from the reranker cache:
+    ``get_embedder_instance`` must propagate construction exceptions rather
+    than swallowing them, and must NOT cache the broken state.
+    """
+
+    title = "Failing Probe Embedder"
+    description = "Probe embedder that raises on construction."
+    author = "Test Author"
+    dependencies: list[str] = []
+    vector_size = 16
+    supported_file_types = [FileTypeEnum.PDF]
+
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("simulated embedder construction failure")
+
+    def _embed_text_impl(self, text: str) -> list[float] | None:
+        return [0.0] * self.vector_size
+
+
 class TestEmbedderInstanceCache(TestCase):
     """Covers the process-local embedder instance cache.
 
@@ -790,6 +812,33 @@ class TestEmbedderInstanceCache(TestCase):
         invalidate_embedder_cache()
         second = get_embedder_instance(_CacheProbeEmbedderA, "tests.ProbeA")
         self.assertIsNot(first, second)
+
+    def test_construction_failure_propagates_and_is_not_cached(self) -> None:
+        """Unlike the reranker cache, construction errors propagate.
+
+        Embedding is mandatory for vector search, so a failed construction
+        must surface to the caller rather than degrading to ``None``. The
+        broken instance must also NOT be cached, so a subsequent lookup of a
+        working class path still succeeds.
+        """
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.pipeline.utils import (
+            _EMBEDDER_INSTANCE_CACHE,
+            get_embedder_instance,
+        )
+
+        with self.assertRaises(RuntimeError):
+            get_embedder_instance(_FailingProbeEmbedder, "tests.Failing")
+
+        # The failed construction must not have populated the cache.
+        self.assertNotIn(
+            ("tests.Failing", PipelineSettings.get_instance().modified),
+            _EMBEDDER_INSTANCE_CACHE,
+        )
+
+        # A working class path still resolves after the failure.
+        working = get_embedder_instance(_CacheProbeEmbedderA, "tests.ProbeA")
+        self.assertIsInstance(working, _CacheProbeEmbedderA)
 
 
 if __name__ == "__main__":
