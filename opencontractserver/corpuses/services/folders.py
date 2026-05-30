@@ -31,6 +31,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Name of the ``CorpusFolder`` unique constraint (see ``CorpusFolder.Meta``).
+# Used to tell a genuine folder-name collision apart from an unrelated
+# ``IntegrityError`` raised inside the same ``transaction.atomic()`` block
+# (e.g. ``reconcile_paths_after_folder_change`` losing a race to a concurrent
+# import that lands on one of the rewritten document paths).
+_FOLDER_NAME_CONSTRAINT = "unique_folder_name_per_parent"
+
+
+def _is_folder_name_collision(exc: IntegrityError) -> bool:
+    """True if ``exc`` is the folder-name uniqueness violation (not a path one).
+
+    The DB driver embeds the violated constraint name in the error text, so a
+    substring check reliably distinguishes the folder-name collision from a
+    ``DocumentPath`` collision surfaced by path reconciliation in the same
+    transaction.
+    """
+    return _FOLDER_NAME_CONSTRAINT in str(exc)
+
 
 class FolderCRUDService(BaseService):
     """Folder CRUD, the folder tree, search, and bulk structure creation.
@@ -542,17 +560,38 @@ class FolderCRUDService(BaseService):
                 if name_is_changing:
                     # ``old_folder_path`` was captured (a str) above on the same
                     # ``name_is_changing`` branch; narrow it for the typed call.
-                    assert old_folder_path is not None
+                    # Use an explicit guard rather than ``assert`` so it survives
+                    # ``python -O`` and is visible to the type checker.
+                    if old_folder_path is None:  # pragma: no cover - invariant
+                        raise AssertionError(
+                            "old_folder_path must be set when name_is_changing"
+                        )
                     CorpusPathService.reconcile_paths_after_folder_change(
                         corpus=folder.corpus,
                         root_folder=folder,
                         old_root_path=old_folder_path,
                         user=user,
                     )
-        except IntegrityError:
+        except IntegrityError as exc:
             # A concurrent rename to the same target name can lose the
             # unique_folder_name_per_parent race despite the precheck above.
-            return False, f"A folder named '{name}' already exists in this location"
+            if _is_folder_name_collision(exc):
+                return (
+                    False,
+                    f"A folder named '{name}' already exists in this location",
+                )
+            # A different IntegrityError (e.g. path reconciliation losing a
+            # race to a concurrent import) rolled the transaction back — report
+            # it as a retriable conflict rather than a folder-name collision.
+            logger.warning(
+                "update_folder %s rolled back on a non-name IntegrityError: %s",
+                folder.id,
+                exc,
+            )
+            return (
+                False,
+                "Folder update failed due to a concurrent change; please retry.",
+            )
 
         logger.info(f"Updated folder {folder.id} by user {user.id}")
         return True, ""
@@ -646,10 +685,22 @@ class FolderCRUDService(BaseService):
                     old_root_path=old_folder_path,
                     user=user,
                 )
-        except IntegrityError:
+        except IntegrityError as exc:
+            if _is_folder_name_collision(exc):
+                return (
+                    False,
+                    f"A folder named '{folder.name}' already exists in this location",
+                )
+            # Path reconciliation (or another constraint) lost a race inside the
+            # same transaction — report it as retriable, not a name collision.
+            logger.warning(
+                "move_folder %s rolled back on a non-name IntegrityError: %s",
+                folder.id,
+                exc,
+            )
             return (
                 False,
-                f"A folder named '{folder.name}' already exists in this location",
+                "Folder move failed due to a concurrent change; please retry.",
             )
 
         logger.info(
@@ -737,7 +788,7 @@ class FolderCRUDService(BaseService):
                     corpus = folder.corpus
                     # Pre-fetch all occupied paths at the corpus root with a
                     # SINGLE query, replacing the previous per-document
-                    # _disambiguate_path fetch.  Because we filter to rows
+                    # disambiguate_path fetch.  Because we filter to rows
                     # whose ``folder=folder`` (not root), none of
                     # ``affected_paths`` live in the root directory, so no
                     # per-row exclusion is needed — the shared mutable set
@@ -748,7 +799,7 @@ class FolderCRUDService(BaseService):
                     # superseded rows still being ``is_current=True`` at fetch
                     # time so they appear in ``occupied_paths``; the shared
                     # set is then treated as authoritative by
-                    # ``_disambiguate_path(occupied_override=...)``, which
+                    # ``disambiguate_path(occupied_override=...)``, which
                     # silently ignores ``exclude_pk``.  Reordering these two
                     # steps (fetch after deactivate) would cause the batch to
                     # re-claim its own source paths and produce duplicate
@@ -767,7 +818,7 @@ class FolderCRUDService(BaseService):
                         new_path = CorpusPathService._compute_moved_path(
                             current.path, None
                         )
-                        new_path = CorpusPathService._disambiguate_path(
+                        new_path = CorpusPathService.disambiguate_path(
                             new_path,
                             corpus,
                             occupied_override=occupied_paths,

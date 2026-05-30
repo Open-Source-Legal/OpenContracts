@@ -330,6 +330,32 @@ class FolderNameCollisionTests(TestCase):
         loose_c.refresh_from_db()
         self.assertIsNone(loose_c.parent_id)
 
+    def test_name_collision_discriminated_from_other_integrity_errors(self):
+        """rename/move only report a name collision for the name constraint.
+
+        ``reconcile_paths_after_folder_change`` runs inside the same
+        ``transaction.atomic()`` as the folder write; a concurrent import that
+        lands on a rewritten ``DocumentPath`` can raise an unrelated
+        ``IntegrityError``. That must NOT be reported as a folder-name
+        collision.
+        """
+        from django.db import IntegrityError
+
+        from opencontractserver.corpuses.services.folders import (
+            _is_folder_name_collision,
+        )
+
+        name_err = IntegrityError(
+            "duplicate key value violates unique constraint "
+            '"unique_folder_name_per_parent"'
+        )
+        path_err = IntegrityError(
+            "duplicate key value violates unique constraint "
+            '"unique_active_path_per_corpus"'
+        )
+        self.assertTrue(_is_folder_name_collision(name_err))
+        self.assertFalse(_is_folder_name_collision(path_err))
+
 
 class RestoreCollisionTests(TestCase):
     """M3: restoring onto a reused path disambiguates instead of crashing."""

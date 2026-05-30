@@ -249,7 +249,7 @@ class CorpusPathService(BaseService):
                     corpus, target_dir
                 )
             occupied = occupied_by_dir[target_dir]
-            new_candidate = cls._disambiguate_path(
+            new_candidate = cls.disambiguate_path(
                 new_candidate, corpus, occupied_override=occupied
             )
             occupied.add(new_candidate)
@@ -405,7 +405,7 @@ class CorpusPathService(BaseService):
         return set(qs.values_list("path", flat=True))
 
     @classmethod
-    def _disambiguate_path(
+    def disambiguate_path(
         cls,
         base_path: str,
         corpus: Corpus,
@@ -482,7 +482,7 @@ class CorpusPathService(BaseService):
         # resulting empty-directory ValueError is harder to diagnose.
         if not base_path.startswith("/"):
             raise ValueError(
-                f"_disambiguate_path: base_path must start with '/' "
+                f"disambiguate_path: base_path must start with '/' "
                 f"(got {base_path!r})"
             )
 
@@ -585,11 +585,11 @@ class CorpusPathService(BaseService):
         partial unique constraint.
 
         This is the TOCTOU race recovery layer for path uniqueness:
-        ``_disambiguate_path`` checks for occupied paths at query time, but a
+        ``disambiguate_path`` checks for occupied paths at query time, but a
         concurrent transaction can claim the same path between the SELECT and
         the INSERT.  Each retry runs:
 
-        1. ``_disambiguate_path`` to choose a free path (treating any
+        1. ``disambiguate_path`` to choose a free path (treating any
            previously-lost paths as occupied)
         2. A nested ``transaction.atomic()`` savepoint
         3. ``current.is_current = False`` save
@@ -625,7 +625,7 @@ class CorpusPathService(BaseService):
             differ from ``base_path`` after disambiguation/retries.
 
         Raises:
-            ValueError: If ``_disambiguate_path`` exhausts its suffix cap.
+            ValueError: If ``disambiguate_path`` exhausts its suffix cap.
             IntegrityError: If ``MAX_PATH_CREATE_RETRIES`` consecutive
                 INSERT attempts all lose the race.
         """
@@ -638,7 +638,7 @@ class CorpusPathService(BaseService):
         last_exc: IntegrityError | None = None
 
         for attempt in range(MAX_PATH_CREATE_RETRIES + 1):
-            new_path = cls._disambiguate_path(
+            new_path = cls.disambiguate_path(
                 base_path,
                 corpus,
                 exclude_pk=current.pk,

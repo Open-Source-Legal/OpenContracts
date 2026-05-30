@@ -209,7 +209,7 @@ class DocumentLifecycleService(BaseService):
             # HTTP 500) or require clobbering the new occupant. Instead
             # disambiguate to a fresh unique path so BOTH documents survive —
             # the restored one comes back at e.g. ``/Report_1.pdf``.
-            restore_path = CorpusPathService._disambiguate_path(
+            restore_path = CorpusPathService.disambiguate_path(
                 document_path.path, document_path.corpus
             )
 

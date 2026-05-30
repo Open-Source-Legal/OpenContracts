@@ -1136,7 +1136,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             # ``transaction.atomic()`` rolls the whole add back — safe to retry.
             from opencontractserver.corpuses.services.paths import CorpusPathService
 
-            path = CorpusPathService._disambiguate_path(path, self)
+            path = CorpusPathService.disambiguate_path(path, self)
 
             # Create DocumentPath linking corpus-isolated document. Always a
             # root of a fresh path tree (parent=None, version 1) because the

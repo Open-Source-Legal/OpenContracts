@@ -170,7 +170,15 @@ class TestCorpusDocumentMethods(TestCase):
         self.assertEqual(docs_after.count(), initial_count - 1)
 
     def test_document_count(self):
-        """Test document_count method."""
+        """Test document_count method.
+
+        Re-adding the same source document without an explicit path
+        auto-generates the same ``/documents/<title>`` path on each call.
+        Per the H1 disambiguation fix, ``add_document`` is NOT a versioning
+        entry point: a colliding path is disambiguated
+        (``Test_Document`` -> ``Test_Document_1``) and BOTH documents stay
+        active, so the count increases on every add.
+        """
         # Initial count should be 0 (we clean up in setUp)
         initial_count = self.corpus.document_count()
 
@@ -181,20 +189,23 @@ class TestCorpusDocumentMethods(TestCase):
         self.assertEqual(status, "added")
         self.assertEqual(self.corpus.document_count(), initial_count + 1)
 
-        # Add same source document again without explicit path - since no path is
-        # provided, both additions auto-generate the same path from the title,
-        # which triggers upversioning/replacement behavior. The new document
-        # replaces the old one at the same path, so count stays the same.
+        # Add same source document again without explicit path - both adds
+        # auto-generate /documents/Test_Document, so the second is
+        # disambiguated to a distinct path instead of superseding the first.
+        # Both remain active and the count increases.
         corpus_doc2, status2, path2 = self.corpus.add_document(
             document=self.document, user=self.user
         )
         self.assertEqual(status2, "added")
-        # Count stays the same because the second add replaced the first at the
-        # same auto-generated path (upversioning behavior)
+        self.assertNotEqual(path.path, path2.path)
+        self.assertEqual(self.corpus.document_count(), initial_count + 2)
+
+        # Removing the second (disambiguated) document leaves the first active
+        self.corpus.remove_document(document=corpus_doc2, user=self.user)
         self.assertEqual(self.corpus.document_count(), initial_count + 1)
 
-        # Remove the current document at that path
-        self.corpus.remove_document(document=corpus_doc2, user=self.user)
+        # Removing the first as well returns to the initial count
+        self.corpus.remove_document(document=corpus_doc, user=self.user)
         self.assertEqual(self.corpus.document_count(), initial_count)
 
     def test_add_document_with_folder(self):
@@ -305,8 +316,15 @@ class TestCorpusDocumentMethods(TestCase):
         doc_ids = {d.id for d in docs}
         self.assertEqual(doc_ids, {doc1.id, doc2.id})
 
-    def test_add_document_at_same_path_creates_new_version(self):
-        """Test adding same document at same path creates a new version."""
+    def test_add_document_at_same_path_disambiguates(self):
+        """Adding at an already-occupied explicit path disambiguates.
+
+        Per the H1 fix, ``add_document`` is not a versioning entry point. A
+        second add at the same path does NOT supersede the first or create a
+        new version of it — it disambiguates to a sibling path and both
+        documents stay active as independent root content trees.
+        (``import_content`` remains the path-versioning surface.)
+        """
         # First add - creates corpus-isolated copy
         doc1, status1, path1 = self.corpus.add_document(
             document=self.document, path="/same/path.pdf", user=self.user
@@ -315,7 +333,7 @@ class TestCorpusDocumentMethods(TestCase):
         self.assertNotEqual(doc1.id, self.document.id)  # Isolated copy
         self.assertEqual(path1.version_number, 1)
 
-        # Second add at same path - no dedup, creates new version
+        # Second add at same path - disambiguated, not versioned
         doc2, status2, path2 = self.corpus.add_document(
             document=self.document, path="/same/path.pdf", user=self.user
         )
@@ -324,18 +342,25 @@ class TestCorpusDocumentMethods(TestCase):
         # Different corpus-isolated documents
         self.assertNotEqual(doc1.id, doc2.id)
 
-        # New path version created
+        # Second path is a disambiguated independent root (not a version)
         self.assertNotEqual(path1.id, path2.id)
-        self.assertEqual(path2.version_number, 2)
-        self.assertEqual(path2.parent, path1)
+        self.assertEqual(path1.path, "/same/path.pdf")
+        self.assertEqual(path2.path, "/same/path_1.pdf")
+        self.assertEqual(path2.version_number, 1)
+        self.assertIsNone(path2.parent_id)
 
-        # Old path should no longer be current
+        # Both paths remain current/active — the first is NOT superseded
         path1.refresh_from_db()
-        self.assertFalse(path1.is_current)
+        self.assertTrue(path1.is_current)
         self.assertTrue(path2.is_current)
 
-    def test_add_document_replaces_at_occupied_path(self):
-        """Test that adding document at occupied path replaces the old one."""
+    def test_add_document_at_occupied_path_disambiguates(self):
+        """Adding a different document at an occupied path disambiguates.
+
+        Per the H1 fix, the occupant is NOT replaced/superseded; the new
+        document is placed at a disambiguated sibling path and both remain
+        active.
+        """
         doc2 = Document.objects.create(
             title="Another Document", creator=self.user, pdf_file_hash="hash2"
         )
@@ -349,26 +374,26 @@ class TestCorpusDocumentMethods(TestCase):
         self.assertEqual(path1.version_number, 1)
         self.assertNotEqual(doc1_ret.id, self.document.id)  # Isolated copy
 
-        # Add second document at same path - creates another isolated copy
+        # Add second document at same path - disambiguated to a sibling
         doc2_ret, status2, path2 = self.corpus.add_document(
             document=doc2, path="/shared/path.pdf", user=self.user
         )
         self.assertEqual(status2, "added")
-        self.assertEqual(path2.version_number, 2)
-        self.assertEqual(path2.parent, path1)
+        self.assertEqual(path2.version_number, 1)
+        self.assertIsNone(path2.parent_id)
+        self.assertEqual(path1.path, "/shared/path.pdf")
+        self.assertEqual(path2.path, "/shared/path_1.pdf")
         self.assertNotEqual(doc2_ret.id, doc2.id)  # Isolated copy
 
-        # Old path should no longer be current
+        # Both paths remain current — the occupant is NOT superseded
         path1.refresh_from_db()
-        self.assertFalse(path1.is_current)
-
-        # New path should be current
+        self.assertTrue(path1.is_current)
         self.assertTrue(path2.is_current)
 
-        # get_documents should return only doc2_ret at that path
+        # get_documents should return BOTH disambiguated documents
         docs = list(self.corpus._get_active_documents())
-        self.assertEqual(len(docs), 1)
-        self.assertEqual(docs[0].id, doc2_ret.id)  # The corpus-isolated copy
+        self.assertEqual(len(docs), 2)
+        self.assertEqual({d.id for d in docs}, {doc1_ret.id, doc2_ret.id})
 
     def test_import_content_creates_new_document(self):
         """Test import_content creates new document."""
