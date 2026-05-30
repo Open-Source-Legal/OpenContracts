@@ -284,6 +284,13 @@ class InferActionConsistencyTests(TestCase):
         self.assertNotEqual(p2.folder_id, p1.folder_id)
         self.assertEqual(p2.infer_action(p1), DocumentPath.ACTION_MOVED)
 
+    def test_delete_takes_precedence_over_move(self):
+        """A node that is both moved AND newly deleted reports DELETED."""
+        previous = DocumentPath(path="/a.pdf", folder_id=None, is_deleted=False)
+        # Path changed (would be MOVED) but also transitioned into deleted.
+        current = DocumentPath(path="/b.pdf", folder_id=None, is_deleted=True)
+        self.assertEqual(current.infer_action(previous), DocumentPath.ACTION_DELETED)
+
 
 class FolderNameCollisionTests(TestCase):
     """M2: folder name collisions surface a clean error, not an exception."""

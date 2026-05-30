@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 from opencontractserver.corpuses.services.corpus_documents import (
@@ -200,54 +200,60 @@ class DocumentLifecycleService(BaseService):
 
         from opencontractserver.corpuses.services.paths import CorpusPathService
 
-        with transaction.atomic():
-            # The original path may have been reused by a new document while
-            # this one sat in the trash (the importer only blocks active,
-            # non-deleted rows, so uploading to a soft-deleted path is allowed).
-            # Restoring onto the original path would then violate
-            # ``unique_active_path_per_corpus`` (an uncaught IntegrityError /
-            # HTTP 500) or require clobbering the new occupant. Instead
-            # disambiguate to a fresh unique path so BOTH documents survive —
-            # the restored one comes back at e.g. ``/Report_1.pdf``.
-            restore_path = CorpusPathService.disambiguate_path(
-                document_path.path, document_path.corpus
-            )
-
-            # Mark current deleted path as non-current
-            document_path.is_current = False
-            document_path.save()
-
-            # Create new restored path (immutable history node)
-            DocumentPath.objects.create(
-                document=document_path.document,
-                corpus=document_path.corpus,
-                creator=user,
-                folder=document_path.folder,
-                path=restore_path,
-                version_number=document_path.version_number,
-                parent=document_path,
-                is_deleted=False,
-                is_current=True,
-            )
-
-            if restore_path != document_path.path:
-                logger.info(
-                    "Restored document %s in corpus %s to disambiguated path %r "
-                    "(original path %r now occupied) by user %s",
-                    document_path.document_id,
-                    document_path.corpus_id,
-                    restore_path,
-                    document_path.path,
-                    user.id,
+        # disambiguate->insert is a TOCTOU: a concurrent claim on the freshly
+        # chosen path trips ``unique_active_path_per_corpus``. Catch it (the
+        # atomic block rolls back) and signal a retry instead of a raw 500.
+        try:
+            with transaction.atomic():
+                # The original path may have been reused by a new document while
+                # this one sat in the trash (the importer only blocks active,
+                # non-deleted rows, so uploading to a soft-deleted path is allowed).
+                # Restoring onto the original path would then violate
+                # ``unique_active_path_per_corpus`` (an uncaught IntegrityError /
+                # HTTP 500) or require clobbering the new occupant. Instead
+                # disambiguate to a fresh unique path so BOTH documents survive —
+                # the restored one comes back at e.g. ``/Report_1.pdf``.
+                restore_path = CorpusPathService.disambiguate_path(
+                    document_path.path, document_path.corpus
                 )
-            else:
-                logger.info(
-                    "Restored document %s in corpus %s by user %s",
-                    document_path.document_id,
-                    document_path.corpus_id,
-                    user.id,
+
+                # Mark current deleted path as non-current
+                document_path.is_current = False
+                document_path.save()
+
+                # Create new restored path (immutable history node)
+                DocumentPath.objects.create(
+                    document=document_path.document,
+                    corpus=document_path.corpus,
+                    creator=user,
+                    folder=document_path.folder,
+                    path=restore_path,
+                    version_number=document_path.version_number,
+                    parent=document_path,
+                    is_deleted=False,
+                    is_current=True,
                 )
-            return True, ""
+        except IntegrityError:
+            return False, "Path was claimed concurrently; please retry"
+
+        if restore_path != document_path.path:
+            logger.info(
+                "Restored document %s in corpus %s to disambiguated path %r "
+                "(original path %r now occupied) by user %s",
+                document_path.document_id,
+                document_path.corpus_id,
+                restore_path,
+                document_path.path,
+                user.id,
+            )
+        else:
+            logger.info(
+                "Restored document %s in corpus %s by user %s",
+                document_path.document_id,
+                document_path.corpus_id,
+                user.id,
+            )
+        return True, ""
 
     @classmethod
     def permanently_delete_document(
