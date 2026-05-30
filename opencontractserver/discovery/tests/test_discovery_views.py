@@ -452,23 +452,17 @@ class WellKnownOAuthProtectedResourceTest(TestCase):
         ``resource`` so clients that derive the URL from the resource id
         resolve it."""
         with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
-            response = self.client.get(
-                "/.well-known/oauth-protected-resource/mcp/me"
-            )
+            response = self.client.get("/.well-known/oauth-protected-resource/mcp/me")
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.content)
         self.assertEqual(data["resource"], "http://testserver/mcp/me")
-        self.assertEqual(
-            data["authorization_servers"], ["https://example.auth0.com/"]
-        )
+        self.assertEqual(data["authorization_servers"], ["https://example.auth0.com/"])
 
     def test_unknown_resource_path_returns_404(self):
         """Only known MCP resources get metadata; arbitrary paths 404 rather
         than advertise an AS for something we don't serve."""
         with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
-            response = self.client.get(
-                "/.well-known/oauth-protected-resource/bogus"
-            )
+            response = self.client.get("/.well-known/oauth-protected-resource/bogus")
         self.assertEqual(response.status_code, 404)
 
 
