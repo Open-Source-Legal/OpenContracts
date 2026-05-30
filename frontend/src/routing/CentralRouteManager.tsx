@@ -807,6 +807,7 @@ export function CentralRouteManager() {
               openedCorpus(corpus);
               openedDocument(null);
               openedExtract(null);
+              openedResearchReport(null);
               openedUser(null);
               routeLoading(false);
               return;
@@ -856,6 +857,7 @@ export function CentralRouteManager() {
               openedCorpus(null);
               openedDocument(null);
               openedExtract(null);
+              openedResearchReport(null);
               openedThread(null);
               openedUser(null);
               routeLoading(false);
@@ -903,6 +905,7 @@ export function CentralRouteManager() {
               openedCorpus(null);
               openedDocument(null);
               openedExtract(null);
+              openedResearchReport(null);
               openedThread(null);
               openedLabelset(null);
               routeLoading(false);
@@ -920,6 +923,7 @@ export function CentralRouteManager() {
             openedCorpus(null);
             openedDocument(null);
             openedExtract(null);
+            openedResearchReport(null);
             openedThread(null);
             openedLabelset(null);
             routeError(new Error(`User "${route.userSlug}" not found`));

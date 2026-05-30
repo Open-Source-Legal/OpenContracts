@@ -41,7 +41,16 @@ export const ResearchReportListCard: React.FC<ResearchReportListCardProps> = ({
 
   const handleClick = () => {
     const url = getResearchReportUrl(report);
-    if (url !== "#") navigate(url);
+    if (url !== "#") {
+      navigate(url);
+    } else {
+      // The list query always returns a slug, so a sentinel URL here means an
+      // unexpected data shape — surface it rather than silently no-op.
+      console.warn(
+        "[ResearchReportListCard] Missing slug for report; cannot navigate",
+        report?.id
+      );
+    }
   };
 
   return (

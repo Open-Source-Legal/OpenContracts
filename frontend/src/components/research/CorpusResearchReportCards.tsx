@@ -158,7 +158,9 @@ export const CorpusResearchReportCards: React.FC<
             }
             description={
               research_search_term
-                ? "No research reports match your search."
+                ? pageInfo?.hasNextPage
+                  ? "No research reports on the loaded page match your search — load more to search further."
+                  : "No research reports match your search."
                 : "Deep-research reports run from the corpus chat will appear here."
             }
             size="lg"
@@ -168,6 +170,17 @@ export const CorpusResearchReportCards: React.FC<
               Ask the corpus assistant to “research” a question — it kicks off a
               long-running job and the report shows up here when it's ready.
             </Hint>
+          )}
+          {research_search_term && pageInfo?.hasNextPage && (
+            <LoadMoreRow>
+              <Button
+                variant="secondary"
+                onClick={handleLoadMore}
+                disabled={loading}
+              >
+                Load more
+              </Button>
+            </LoadMoreRow>
           )}
         </StateWrapper>
       </Container>

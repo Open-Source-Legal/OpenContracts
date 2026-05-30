@@ -54,7 +54,7 @@ import {
   formatResearchDuration,
   isTerminalResearchStatus,
 } from "../utils/researchUtils";
-import { getDocumentUrl } from "../utils/navigationUtils";
+import { getCorpusUrl, getDocumentUrl } from "../utils/navigationUtils";
 import { getNumericIdFromGlobalId, toGlobalId } from "../utils/idValidation";
 import { SafeMarkdown } from "../components/knowledge_base/markdown/SafeMarkdown";
 import { useResearchCompletionNotification } from "../hooks/useResearchCompletionNotification";
@@ -456,13 +456,13 @@ export const ResearchReportDetail: React.FC = () => {
   >(CANCEL_RESEARCH_REPORT);
 
   const handleBack = () => {
-    const corpus = report?.corpus;
-    if (corpus?.slug && corpus?.creator?.slug) {
-      // Corpus URL shape mirrors getCorpusUrl(); inlined here so this view
-      // doesn't import it (the named import tripped the CT bundler).
-      navigate(`/c/${corpus.creator.slug}/${corpus.slug}?tab=research`);
+    const url = getCorpusUrl(report?.corpus, { tab: "research" });
+    if (url !== "#") {
+      navigate(url);
     } else {
-      navigate(-1);
+      // No corpus context (e.g. arrived via a direct link); fall back to home
+      // rather than navigate(-1), which dead-ends when there's no history.
+      navigate("/");
     }
   };
 

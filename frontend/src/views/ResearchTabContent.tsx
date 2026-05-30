@@ -76,12 +76,16 @@ export const ResearchTabContent: React.FC<ResearchTabContentProps> = ({
   const debouncedSearch = useRef(
     _.debounce((term: string) => {
       researchSearchTerm(term);
-    }, DEBOUNCE.EXTRACT_SEARCH_MS)
+    }, DEBOUNCE.LIST_SEARCH_MS)
   );
 
   useEffect(() => {
+    const debounced = debouncedSearch.current;
     return () => {
-      debouncedSearch.current.cancel();
+      // Cancel any in-flight debounced update and clear the shared search term
+      // so a stale query doesn't persist into the next visit to this tab.
+      debounced.cancel();
+      researchSearchTerm("");
     };
   }, []);
 

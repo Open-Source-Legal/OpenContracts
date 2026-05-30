@@ -128,6 +128,8 @@ export const SELECTION_MENU = {
 export const DEBOUNCE = {
   SEARCH_MS: 1000,
   EXTRACT_SEARCH_MS: 500,
+  /** Generic debounce for client-side list search boxes (extracts, research, …). */
+  LIST_SEARCH_MS: 500,
   CLICK_OUTSIDE_DELAY_MS: 100,
   CORPUS_SEARCH_MS: 400,
   CORPUS_SEARCH_MAX_WAIT_MS: 1000,
