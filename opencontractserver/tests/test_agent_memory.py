@@ -2076,11 +2076,16 @@ class TestMemoryToolInjectionSecurity(TestCase):
 
 
 class TestReadMemoryContentFallbackPaths(TestCase):
-    """Cover the binary-read fallback and double-failure paths in read_memory_content.
+    """Cover the open-failure path in read_memory_content.
 
-    These tests directly exercise the fallback logic in read_memory_content by
-    using mock objects instead of real file storage, avoiding the complexity of
-    patching Django FileField descriptors.
+    These tests use mock objects instead of real file storage, avoiding the
+    complexity of patching Django FileField descriptors.
+
+    Contract: an ``open()`` failure logs a warning and returns ``""``. The
+    bytes-vs-str normalization that the prior two-level retry covered now lives
+    in ``read_field_file_text``'s primary path (a successful ``open("r")`` whose
+    backend returns bytes is decoded there), so a raised ``open()`` no longer
+    retries with ``.read()``.
     """
 
     def _make_mock_corpus(
@@ -2107,23 +2112,23 @@ class TestReadMemoryContentFallbackPaths(TestCase):
         mock_corpus.id = 99
         return mock_corpus
 
-    def test_binary_fallback_returns_bytes_decoded(self):
-        """If open('r') fails, .read() returning bytes is decoded."""
+    def test_open_failure_returns_empty_even_with_readable_bytes(self):
+        """An open('r') failure returns "" with no .read() retry (bytes case)."""
         mock_corpus = self._make_mock_corpus(
             open_side_effect=OSError("open failed"),
             read_return=b"## Test\n\n- binary fallback",
         )
         content = async_to_sync(read_memory_content)(mock_corpus)
-        self.assertIn("binary fallback", content)
+        self.assertEqual(content, "")
 
-    def test_binary_fallback_returns_string(self):
-        """If open('r') fails but .read() returns a string, return it directly."""
+    def test_open_failure_returns_empty_even_with_readable_string(self):
+        """An open('r') failure returns "" with no .read() retry (str case)."""
         mock_corpus = self._make_mock_corpus(
             open_side_effect=OSError("open failed"),
             read_return="## Test\n\n- string fallback",
         )
         content = async_to_sync(read_memory_content)(mock_corpus)
-        self.assertIn("string fallback", content)
+        self.assertEqual(content, "")
 
     def test_both_read_paths_fail_returns_empty(self):
         """If both open('r') and .read() fail, return empty string."""
