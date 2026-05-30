@@ -244,17 +244,23 @@ def refresh_description_cache_for_corpus(corpus_id: int) -> None:
     """
     from opencontractserver.constants.document_processing import (
         CAML_ARTICLE_TITLE,
+        MARKDOWN_MIME_TYPE,
     )
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import DocumentPath
 
     try:
+        # Match the signal's ``_is_readme_caml_document`` guard (title +
+        # file_type), not the path alone — a current DocumentPath named
+        # "Readme.CAML" that points at a non-markdown document is not a
+        # canonical CAML doc and must not drive the description cache.
         head_path = (
             DocumentPath.objects.filter(
                 corpus_id=corpus_id,
                 path=CAML_ARTICLE_TITLE,
                 is_current=True,
                 is_deleted=False,
+                document__file_type=MARKDOWN_MIME_TYPE,
             )
             .select_related("document")
             .first()
