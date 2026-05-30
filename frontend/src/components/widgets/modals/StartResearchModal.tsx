@@ -47,6 +47,14 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
     StartResearchReportInput
   >(START_RESEARCH_REPORT);
 
+  // Reset inputs on close so a dismissed-then-reopened modal starts blank
+  // (otherwise the previous prompt/title would still be present and submittable).
+  const handleClose = () => {
+    setPrompt("");
+    setTitle("");
+    onClose();
+  };
+
   const trimmedPrompt = prompt.trim();
   const tooLong = prompt.length > MAX_RESEARCH_PROMPT_CHARS;
   const canSubmit = trimmedPrompt.length > 0 && !tooLong && !loading;
@@ -66,7 +74,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
         toast.success(
           "Research started. We'll notify you when the report is ready."
         );
-        onClose();
+        handleClose();
         if (payload.obj.slug) {
           navigate(`/research/${payload.obj.slug}`);
         }
@@ -79,7 +87,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
   };
 
   return (
-    <Modal open={open} onClose={onClose} size="md">
+    <Modal open={open} onClose={handleClose} size="md">
       <ModalHeader
         title={
           <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -87,7 +95,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
             Start deep research
           </span>
         }
-        onClose={onClose}
+        onClose={handleClose}
       />
       <ModalBody>
         <Input
@@ -114,7 +122,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
       <ModalFooter>
         <Button
           variant="secondary"
-          onClick={onClose}
+          onClick={handleClose}
           leftIcon={<X size={16} />}
         >
           Cancel

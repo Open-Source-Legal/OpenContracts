@@ -44,6 +44,7 @@ const SearchRow = styled.div`
 
 const FILTER_ITEMS: FilterTabItem[] = [
   { id: "all", label: "All" },
+  { id: "queued", label: "Queued" },
   { id: "running", label: "Running" },
   { id: "completed", label: "Completed" },
   { id: "failed", label: "Failed" },

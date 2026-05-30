@@ -185,7 +185,7 @@ const RunningState = styled.div`
   justify-content: center;
   text-align: center;
   padding: 56px 24px;
-  background: #ffffff;
+  background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 12px;
 `;
@@ -296,7 +296,7 @@ const Row = styled.div`
   align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
-  background: #ffffff;
+  background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 8px;
 `;
@@ -308,7 +308,7 @@ const RowLink = styled(Link)`
   align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
-  background: #ffffff;
+  background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
   border-radius: 8px;
   text-decoration: none;
@@ -386,8 +386,8 @@ const WarningChip = styled.div`
   padding: 4px 10px;
   margin: 0 8px 8px 0;
   border-radius: 999px;
-  background: #fff7ed;
-  color: #9a3412;
+  background: ${OS_LEGAL_COLORS.warningSurface};
+  color: ${OS_LEGAL_COLORS.warningText};
   font-size: 12px;
 `;
 
@@ -574,9 +574,9 @@ export const ResearchReportDetail: React.FC = () => {
                 size="sm"
                 leftIcon={<XCircle size={16} />}
                 onClick={handleCancel}
-                disabled={cancelLoading}
+                disabled={cancelLoading || report.cancelRequested}
               >
-                Cancel
+                {report.cancelRequested ? "Cancelling…" : "Cancel"}
               </Button>
             )}
             <IconButton aria-label="Refresh" onClick={() => refetch()}>
@@ -664,7 +664,7 @@ export const ResearchReportDetail: React.FC = () => {
             {warnings.length > 0 && (
               <div>
                 {warnings.map((w, i) => (
-                  <WarningChip key={i}>
+                  <WarningChip key={`${i}-${String(w)}`}>
                     <AlertTriangle size={12} />
                     {String(w)}
                   </WarningChip>
@@ -753,11 +753,11 @@ export const ResearchReportDetail: React.FC = () => {
                               </>
                             );
                             return href && href !== "#" ? (
-                              <RowLink key={i} to={href}>
+                              <RowLink key={c.footnote} to={href}>
                                 {inner}
                               </RowLink>
                             ) : (
-                              <Row key={i}>{inner}</Row>
+                              <Row key={c.footnote}>{inner}</Row>
                             );
                           })}
                         </List>
