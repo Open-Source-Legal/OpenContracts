@@ -1014,13 +1014,23 @@ export async function selectIterationsForCompare(
  *
  * Cards are matched by `data-testid="document-card"` (set in both
  * Documents.tsx and ModernDocumentItem.tsx) and the visible title
- * text. Real-world ingestion can take "up to a few minutes" per PDF;
- * the default 8-minute ceiling leaves headroom for cold workers.
+ * text. Real-world ingestion can take "up to a few minutes" per PDF.
+ *
+ * The default ceiling is 14 minutes. An 8-minute ceiling caused
+ * intermittent CI failures (issue #1844): on a cold GitHub runner the
+ * Docling parse + embedding of a large PDF (e.g. the multi-page US Code
+ * fixture) occasionally exceeds 8 minutes, after which the spec raced an
+ * unprocessed document into the extract step and failed with "row has no
+ * non-empty extracted cell". The spec uploads both PDFs before waiting,
+ * so Celery processes them concurrently — the binding constraint is the
+ * slowest single document, not the sum — which is why one generous
+ * per-document ceiling (rather than two stacked timeouts) is the right
+ * knob. Keep the caller's `test.setTimeout` >= 2x this value as headroom.
  */
 export async function waitForDocumentReady(
   page: Page,
   documentTitle: string,
-  timeoutMs: number = 8 * 60 * 1000
+  timeoutMs: number = 14 * 60 * 1000
 ): Promise<void> {
   await expect(async () => {
     // Re-navigate on every attempt to force a fresh GraphQL fetch and
