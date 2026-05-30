@@ -61,6 +61,13 @@ from config.graphql.conversation_mutations import (
     UpdateMessageMutation,
 )
 
+# Import corpus mutations
+from config.graphql.corpus_category_mutations import (
+    CreateCorpusCategory,
+    DeleteCorpusCategory,
+    UpdateCorpusCategory,
+)
+
 # Import corpus folder mutations
 from config.graphql.corpus_folder_mutations import (
     CreateCorpusFolderMutation,
@@ -69,13 +76,6 @@ from config.graphql.corpus_folder_mutations import (
     MoveDocumentsToFolderMutation,
     MoveDocumentToFolderMutation,
     UpdateCorpusFolderMutation,
-)
-
-# Import corpus mutations
-from config.graphql.corpus_category_mutations import (
-    CreateCorpusCategory,
-    DeleteCorpusCategory,
-    UpdateCorpusCategory,
 )
 from config.graphql.corpus_mutations import (
     AddDocumentsToCorpus,
