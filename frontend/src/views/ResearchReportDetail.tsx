@@ -413,7 +413,7 @@ export const ResearchReportDetail: React.FC = () => {
   const reportVar = useReactiveVar(openedResearchReport);
   const [activeTab, setActiveTab] = useState("report");
 
-  const { data, refetch, startPolling, stopPolling, loading } = useQuery<
+  const { data, refetch, startPolling, stopPolling } = useQuery<
     GetResearchReportOutput,
     GetResearchReportInput
   >(GET_RESEARCH_REPORT, {
