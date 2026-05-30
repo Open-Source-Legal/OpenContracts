@@ -29,7 +29,7 @@ from django.db import models
 from django.utils import timezone
 
 
-def _chunk_part_path(instance: "ChunkedUploadPart", filename: str) -> str:
+def _chunk_part_path(instance: ChunkedUploadPart, filename: str) -> str:
     """
     Storage path for a single part.
 

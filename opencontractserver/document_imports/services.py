@@ -190,7 +190,7 @@ def _resolve_corpus_for_edit(user, corpus_id: Any) -> tuple[Corpus | None, str |
 _ZIP_MAGIC_PREFIXES: tuple[bytes, ...] = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 
 
-def _peek_zip_magic(zip_source: UploadedFile | bytes) -> bool:
+def _peek_zip_magic(zip_source: File | bytes) -> bool:
     """
     Return True iff ``zip_source`` begins with a recognised ZIP magic
     signature. For ``UploadedFile`` the stream is rewound after peeking
@@ -299,7 +299,7 @@ def import_document_for_user(
     folder = None
     if add_to_corpus_id is not None:
         corpus, corpus_error = _resolve_corpus_for_edit(user, add_to_corpus_id)
-        if corpus_error is not None:
+        if corpus is None:
             return ImportResult(document=None, error=corpus_error)
 
         if add_to_folder_id is not None:
@@ -343,7 +343,7 @@ def import_document_for_user(
 def import_documents_zip_for_user(
     *,
     user,
-    zip_source: UploadedFile | bytes,
+    zip_source: File | bytes,
     zip_filename: str | None = None,
     title_prefix: str | None = None,
     description: str | None = None,
@@ -385,7 +385,7 @@ def import_documents_zip_for_user(
     corpus_id: int | None = None
     if add_to_corpus_id is not None:
         corpus, corpus_error = _resolve_corpus_for_edit(user, add_to_corpus_id)
-        if corpus_error is not None:
+        if corpus is None:
             return ZipImportResult(job_id=None, error=corpus_error)
         corpus_id = corpus.id
 
@@ -440,7 +440,7 @@ def import_documents_zip_for_user(
 def import_zip_to_corpus_for_user(
     *,
     user,
-    zip_source: UploadedFile | bytes,
+    zip_source: File | bytes,
     corpus_id: Any,
     target_folder_id: Any = None,
     title_prefix: str | None = None,
@@ -481,7 +481,7 @@ def import_zip_to_corpus_for_user(
         )
 
     corpus, corpus_error = _resolve_corpus_for_edit(user, corpus_id)
-    if corpus_error is not None:
+    if corpus is None:
         return ZipImportResult(job_id=None, error=corpus_error)
 
     target_folder_pk: int | None = None
@@ -552,7 +552,7 @@ def import_zip_to_corpus_for_user(
 def import_corpus_export_for_user(
     *,
     user,
-    zip_source: UploadedFile | bytes,
+    zip_source: File | bytes,
 ) -> CorpusImportResult:
     """
     Create a placeholder :class:`Corpus`, stage the OpenContracts export
