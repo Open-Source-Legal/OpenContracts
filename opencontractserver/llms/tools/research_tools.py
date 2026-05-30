@@ -23,6 +23,7 @@ from opencontractserver.research.services.research_reports import (
     ConcurrentResearchInProgress,
     ResearchReportService,
 )
+from opencontractserver.types.enums import JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,60 @@ def _load_conversation_context(conversation_id: int, user_id: int):
     return conversation, message
 
 
+async def acheck_deep_research_status(
+    *,
+    corpus_id: int,
+    user_id: int,
+) -> str:
+    """Check the status of deep-research jobs on the current corpus.
+
+    Use this when the user asks whether their research is finished, how a
+    running research job is progressing, or wants the link to a completed
+    report. Returns a short status summary (status, step progress, and the
+    report link) for the user's most recent research jobs on this corpus.
+    """
+    return await sync_to_async(_summarize_recent_reports)(user_id, corpus_id)
+
+
+def _summarize_recent_reports(user_id: int, corpus_id: int, limit: int = 5) -> str:
+    """Build a compact, LLM-friendly status summary. Runs sync."""
+    user, corpus = _load_user_and_corpus(user_id, corpus_id)
+    if user is None or corpus is None:
+        return (
+            "Error: could not check research status — the corpus or user "
+            "could not be resolved. Ask the user to retry from inside the "
+            "corpus chat."
+        )
+
+    reports = ResearchReportService.list_recent_for_corpus(
+        user=user, corpus=corpus, limit=limit
+    )
+    if not reports:
+        return (
+            "No deep-research jobs found for this corpus yet. Use the "
+            "start_deep_research tool when the user asks for a thorough "
+            "investigation or a written report."
+        )
+
+    lines = ["Deep-research jobs on this corpus (most recent first):"]
+    for idx, report in enumerate(reports, start=1):
+        status = report.status
+        if status == JobStatus.RUNNING.value:
+            detail = f" — in progress, step {report.step_count}/{report.max_steps}"
+        elif status == JobStatus.QUEUED.value:
+            detail = " — queued, waiting to start"
+        else:
+            secs = report.duration_seconds
+            detail = (
+                f" — finished in {int(secs // 60)}m {int(secs % 60)}s"
+                if secs is not None
+                else ""
+            )
+        link = f"/research/{report.slug}" if report.slug else "(report link pending)"
+        lines.append(f'{idx}. "{report.title}" [{status}]{detail}. Report: {link}')
+    return "\n".join(lines)
+
+
 # Public CoreTool entry — register or include in tool lists directly.
 start_deep_research_tool: CoreTool = CoreTool.from_function(
     astart_deep_research,
@@ -144,4 +199,20 @@ start_deep_research_tool: CoreTool = CoreTool.from_function(
     },
     requires_corpus=True,
     requires_write_permission=True,
+)
+
+
+check_deep_research_status_tool: CoreTool = CoreTool.from_function(
+    acheck_deep_research_status,
+    name="check_deep_research_status",
+    description=(
+        "Check the status of deep-research jobs on the current corpus. Use "
+        "this when the user asks whether their research is finished, how a "
+        "running job is progressing, or wants the link to a completed "
+        "report. Returns a short summary (status, step progress, and the "
+        "report link) for the user's most recent research jobs on this "
+        "corpus. Read-only — does not start anything."
+    ),
+    requires_corpus=True,
+    requires_write_permission=False,
 )

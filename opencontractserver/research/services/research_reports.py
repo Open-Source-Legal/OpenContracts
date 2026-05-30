@@ -139,6 +139,33 @@ class ResearchReportService(BaseService):
         return report
 
     # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
+    @classmethod
+    def list_recent_for_corpus(
+        cls,
+        *,
+        user: Any,
+        corpus: Any,
+        limit: int = 5,
+        request: Any = None,
+    ) -> list[ResearchReport]:
+        """Return the user's most recent reports for ``corpus`` (newest first).
+
+        Creator-only visibility is enforced by ``visible_to_user`` (via the
+        shared ``filter_visible`` helper), so this is safe to expose to chat
+        tools and other user-context callers. ``limit`` is clamped to a small
+        ceiling so a caller cannot pull an unbounded list.
+        """
+        bounded = max(1, min(int(limit), 25))
+        qs = (
+            cls.filter_visible(ResearchReport, user, request=request)
+            .filter(corpus=corpus)
+            .order_by("-created")
+        )
+        return list(qs[:bounded])
+
+    # ------------------------------------------------------------------
     # Lifecycle transitions
     # ------------------------------------------------------------------
     @classmethod
