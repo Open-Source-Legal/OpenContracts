@@ -18,9 +18,12 @@
  *      to load the cell-level diff and asserts the heatmap renders with
  *      ONLY_IN_A counts equal to the parent's cell count.
  *
- * Gated on `E2E_RUN_LLM_TESTS=true` because step 6 makes a real OpenAI
- * call. CI does not set the gate, so this spec is skipped there until
- * we have a way to mock LLM responses over the wire.
+ * Gated on `E2E_RUN_LLM_TESTS=true` because step 6 exercises the extract
+ * LLM call. Locally that hits a real provider; in CI the
+ * `frontend-e2e-extract.yml` workflow sets the gate and runs the backend
+ * with `OC_LLM_VCR_MODE=replay`, so the LLM call is served from a recorded
+ * cassette (no external traffic). PDF parsing always runs against the
+ * in-stack Docling microservice.
  *
  * INTENTIONAL ASSERTION SCOPE: this spec validates the *pipeline*
  * (upload → parse → embed → extract → export), not LLM commit behavior.
@@ -77,11 +80,15 @@ const COLUMN_QUERY = "What is the title of this document?";
 test.describe("Extract PDF workflow (LLM-gated)", () => {
   test.skip(
     process.env.E2E_RUN_LLM_TESTS !== "true",
-    "Requires E2E_RUN_LLM_TESTS=true and a backend OPENAI_API_KEY. " +
-      "Local-only until LLM responses are mocked in CI."
+    "Requires E2E_RUN_LLM_TESTS=true. CI sets it and replays the LLM call " +
+      "from a VCR cassette; locally it uses a real backend provider key."
   );
 
-  test.setTimeout(20 * 60 * 1000);
+  // 30 min: each document-ready wait now allows up to 14 min for cold-runner
+  // Docling parse + embed (issue #1844); the two waits can serialize in the
+  // worst case, so the overall budget must clear 2x14 min plus the extract +
+  // CSV + fork/diff steps.
+  test.setTimeout(30 * 60 * 1000);
 
   test("uploads two PDFs, runs an extract, exports CSV", async ({ page }) => {
     await test.step("login", async () => {
@@ -152,23 +159,36 @@ test.describe("Extract PDF workflow (LLM-gated)", () => {
       // separate concern tracked in the follow-up issue (see
       // docs/superpowers/specs/2026-04-29-followup-issue-no-final-response.md).
       // AG-Grid uses role="cell" for data cells.
+      //
+      // POLL, don't one-shot read (issue #1844): the backend marks the
+      // extract complete — clearing the "Extraction in progress" overlay
+      // that runExtractAndWaitForFinish waits on — a beat before AG-Grid
+      // finishes its per-cell Apollo `data` fetch. A single read therefore
+      // races grid hydration and intermittently sees an empty cell even
+      // though the datacell is populated server-side (the backend logs
+      // "Successfully extracted and saved data for cell N"). Retrying until
+      // the cell hydrates removes the false negative without weakening the
+      // assertion — a genuinely empty extract still fails when the poll
+      // times out.
       for (const docTitle of [DOC_USC_TITLE, DOC_ETON_TITLE]) {
-        const row = page.getByRole("row").filter({ hasText: docTitle });
-        const cells = row.getByRole("cell");
-        const cellCount = await cells.count();
-        expect(cellCount).toBeGreaterThan(0);
-        let nonEmptySeen = false;
-        for (let i = 0; i < cellCount; i++) {
-          const text = (await cells.nth(i).textContent())?.trim() ?? "";
-          if (text.length > 0 && text !== docTitle) {
-            nonEmptySeen = true;
-            break;
+        await expect(async () => {
+          const row = page.getByRole("row").filter({ hasText: docTitle });
+          const cells = row.getByRole("cell");
+          const cellCount = await cells.count();
+          expect(cellCount).toBeGreaterThan(0);
+          let nonEmptySeen = false;
+          for (let i = 0; i < cellCount; i++) {
+            const text = (await cells.nth(i).textContent())?.trim() ?? "";
+            if (text.length > 0 && text !== docTitle) {
+              nonEmptySeen = true;
+              break;
+            }
           }
-        }
-        expect(
-          nonEmptySeen,
-          `Row "${docTitle}" has no non-empty extracted cell — extract may have failed`
-        ).toBe(true);
+          expect(
+            nonEmptySeen,
+            `Row "${docTitle}" has no non-empty extracted cell — extract may have failed`
+          ).toBe(true);
+        }).toPass({ timeout: 120_000, intervals: [1_000, 2_000, 5_000] });
       }
     });
 
