@@ -221,20 +221,22 @@ class TestBaseServiceLookup(TestCase):
         result = BaseService.filter_visible_qs(prefiltered, self.other)
         self.assertNotIn(self.corpus, result)
 
-    def test_filter_visible_qs_passes_exotic_input_through(self):
-        """Inputs without ``visible_to_user`` (e.g. prefetched caches) pass through.
+    def test_filter_visible_qs_rejects_exotic_input(self):
+        """Inputs without ``visible_to_user`` now fail CLOSED (raise).
 
         Real callers always pass a QuerySet or RelatedManager — both expose
-        ``visible_to_user``. The hasattr guard exists so an exotic shape
-        (Prefetch wrapper, custom proxy) does not raise AttributeError
-        deep inside graphene's ``get_queryset`` dispatch.
+        ``visible_to_user``. An input that lacks it is a wiring bug, and a
+        permission gate must surface that loudly rather than returning the
+        rows unfiltered: the previous pass-through behaviour was fail-open
+        and could silently leak every row if a non-permissioned shape
+        (prefetched cache, custom proxy, plain list) ever reached it.
         """
 
         class _Exotic:
             pass
 
-        sentinel = _Exotic()
-        self.assertIs(BaseService.filter_visible_qs(sentinel, self.owner), sentinel)
+        with self.assertRaises(TypeError):
+            BaseService.filter_visible_qs(_Exotic(), self.owner)
 
 
 class TestBaseServiceRequirePermission(TestCase):
