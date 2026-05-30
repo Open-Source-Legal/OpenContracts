@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **MCP interactive sign-in for Claude web/desktop and ChatGPT.** Added an
+  authenticated MCP entrypoint at `/mcp/me/` (`opencontractserver/mcp/server.py`)
+  that returns `401 + WWW-Authenticate` to unauthenticated callers, triggering
+  the OAuth 2.1 + PKCE flow in interactive clients; once signed in it serves the
+  user's private + public resources. The public `/mcp/` endpoint is unchanged
+  (anonymous = public only) and a valid bearer token is still honored on either.
+  Both share the global stateless MCP server (auth is per-request via the
+  `_mcp_user` ContextVar).
+- **RFC 9728 path-based protected-resource metadata** at
+  `/.well-known/oauth-protected-resource/mcp/me` (alongside the existing root
+  document), plus a `cite-authenticated` server advertised in
+  `/.well-known/mcp.json` when `USE_AUTH0=True`
+  (`opencontractserver/discovery/views.py`, `opencontractserver/discovery/urls.py`).
+- **CORS for the MCP endpoints.** `/mcp*` bypasses Django middleware, so CORS is
+  now enforced inside the MCP ASGI app: `OPTIONS` preflight, an allow-list via
+  the new `MCP_CORS_ALLOWED_ORIGINS` setting (defaults to Claude, ChatGPT, and
+  the MCP Inspector; merges in `CORS_ALLOWED_ORIGINS`), and exposing
+  `WWW-Authenticate` / `Mcp-Session-Id` (`config/settings/base.py`).
+
+### Fixed
+
+- **MCP `WWW-Authenticate` base-URL hardening** (`opencontractserver/mcp/server.py`)
+  — the 401 challenge now prefers the trusted `MCP_PUBLIC_BASE_URL` over the
+  request `Host` header (MCP bypasses `ALLOWED_HOSTS`), falling back to the
+  previous sanitized-Host derivation. Refreshed `docs/mcp/README.md`, which
+  previously stated "no authentication."
+
 ### Security
 
 - **SmartLabelListMutation IDOR fix** (`config/graphql/smart_label_mutations.py`)
