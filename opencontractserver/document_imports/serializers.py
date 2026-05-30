@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from opencontractserver.document_imports.models import ChunkedUploadKind
+
 
 class DocumentImportSerializer(serializers.Serializer):
     """
@@ -84,5 +86,29 @@ class CorpusExportImportSerializer(serializers.Serializer):
     produced by ``StartCorpusExport`` is the only supported input —
     permission gating + corpus creation happens in the service layer.
     """
+
+    file = serializers.FileField(required=True)
+
+
+class ChunkedUploadStartSerializer(serializers.Serializer):
+    """
+    Validates the ``start`` step of a chunked upload.
+
+    ``metadata`` carries the same parameters the non-chunked endpoints
+    take as form fields (title, description, target corpus id, ...); its
+    required shape depends on ``kind`` and is validated in the service
+    layer so the per-kind rules live next to the import logic.
+    """
+
+    kind = serializers.ChoiceField(choices=ChunkedUploadKind.choices)
+    filename = serializers.CharField(max_length=512)
+    total_size = serializers.IntegerField(min_value=1)
+    chunk_size = serializers.IntegerField(min_value=1)
+    total_chunks = serializers.IntegerField(min_value=1)
+    metadata = serializers.JSONField(required=False, default=dict)
+
+
+class ChunkedUploadPartSerializer(serializers.Serializer):
+    """Validates a single uploaded part (the part index comes from the URL)."""
 
     file = serializers.FileField(required=True)

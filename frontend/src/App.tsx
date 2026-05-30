@@ -70,6 +70,7 @@ import {
   GlobalAgentManagement,
   SystemSettings,
   WorkerAccountManagement,
+  CorpusCategoryManagement,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
@@ -413,6 +414,10 @@ export const App = () => {
           <Route
             path="/admin/worker-accounts"
             element={<WorkerAccountManagement />}
+          />
+          <Route
+            path="/admin/corpus-categories"
+            element={<CorpusCategoryManagement />}
           />
           <Route path="/system_settings" element={<SystemSettings />} />
 

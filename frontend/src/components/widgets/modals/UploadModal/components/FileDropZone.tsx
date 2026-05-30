@@ -23,6 +23,15 @@ interface FileDropZoneProps {
   hasFiles?: boolean;
   /** Accepted file types for single mode (from backend). Falls back to PDF-only. */
   acceptedFileTypes?: AcceptedFileType[];
+  /**
+   * Maximum accepted file size in bytes. Defaults to the single-document
+   * cap; callers pass the ZIP cap for bulk mode. Files above the cap are
+   * still chunked on upload, but the dropzone bounds what a user can pick
+   * so the backend's per-flow ceiling isn't exceeded.
+   */
+  maxSizeBytes?: number;
+  /** Human-readable form of ``maxSizeBytes`` (e.g. "2GB"). */
+  maxSizeDisplay?: string;
   onFilesSelected: (files: File[]) => void;
   onFileRejected?: (rejections: FileRejection[]) => void;
 }
@@ -39,6 +48,8 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
   selectedFile,
   hasFiles = false,
   acceptedFileTypes,
+  maxSizeBytes = UPLOAD.MAX_FILE_SIZE_BYTES,
+  maxSizeDisplay = UPLOAD.MAX_FILE_SIZE_DISPLAY,
   onFilesSelected,
   onFileRejected,
 }) => {
@@ -93,7 +104,7 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
     accept: acceptConfig,
     multiple: mode === "single",
     disabled: disabled || (mode === "single" && hasFiles),
-    maxSize: UPLOAD.MAX_FILE_SIZE_BYTES,
+    maxSize: maxSizeBytes,
   });
 
   const handleBrowseClick = useCallback(
@@ -115,13 +126,13 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
         const oversizedFiles: FileRejection[] = [];
 
         for (const file of files) {
-          if (file.size > UPLOAD.MAX_FILE_SIZE_BYTES) {
+          if (file.size > maxSizeBytes) {
             oversizedFiles.push({
               file,
               errors: [
                 {
                   code: "file-too-large",
-                  message: `File exceeds ${UPLOAD.MAX_FILE_SIZE_DISPLAY} limit`,
+                  message: `File exceeds ${maxSizeDisplay} limit`,
                 },
               ],
             });
@@ -223,8 +234,8 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
         </div>
         <div className="secondary-text">
           {mode === "bulk"
-            ? `ZIP should contain documents (max ${UPLOAD.MAX_FILE_SIZE_DISPLAY})`
-            : `Supported: ${acceptedLabels} · Max ${UPLOAD.MAX_FILE_SIZE_DISPLAY} per file`}
+            ? `ZIP should contain documents (max ${maxSizeDisplay})`
+            : `Supported: ${acceptedLabels} · Max ${maxSizeDisplay} per file`}
         </div>
       </DropZoneText>
       <Button
