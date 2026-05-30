@@ -129,6 +129,15 @@ const ColorInputRow = styled.div`
   gap: 0.5rem;
 `;
 
+const ColorPickerInput = styled.input`
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+`;
+
 const Centered = styled.div`
   display: flex;
   flex-direction: column;
@@ -487,21 +496,13 @@ export const CorpusCategoryManagement: React.FC = () => {
           <FormField>
             <FormLabel htmlFor="category-color">Color</FormLabel>
             <ColorInputRow>
-              <input
+              <ColorPickerInput
                 type="color"
                 aria-label="Color picker"
                 value={
                   HEX_COLOR_RE.test(form.color) ? form.color : DEFAULT_COLOR
                 }
                 onChange={(e) => setForm({ ...form, color: e.target.value })}
-                style={{
-                  width: 40,
-                  height: 36,
-                  padding: 0,
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                }}
               />
               <Input
                 id="category-color"

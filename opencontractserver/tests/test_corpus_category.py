@@ -13,6 +13,7 @@ Tests cover:
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
@@ -1005,6 +1006,21 @@ class TestCorpusCategoryManagementMutations(TestCase):
         payload = result["data"]["createCorpusCategory"]
         self.assertFalse(payload["ok"])
         self.assertIn("already exists", payload["message"].lower())
+
+    def test_anonymous_user_cannot_create_category(self):
+        # The @login_required decorator must reject unauthenticated callers
+        # before the superuser gate is reached, surfacing a GraphQL error
+        # rather than an ok=false payload.
+        client = self._client_for(AnonymousUser())
+        mutation = """
+            mutation Create($name: String!) {
+                createCorpusCategory(name: $name) { ok message obj { id } }
+            }
+        """
+        result = client.execute(mutation, variables={"name": "Anonymous"})
+        self.assertIsNotNone(result.get("errors"))
+        self.assertIsNone(result["data"]["createCorpusCategory"])
+        self.assertFalse(CorpusCategory.objects.filter(name="Anonymous").exists())
 
     def test_create_rejects_blank_name(self):
         client = self._client_for(self.superuser)

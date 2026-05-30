@@ -70,7 +70,36 @@ const createMock = {
   },
 };
 
+const emptyCategoriesMock = {
+  request: { query: GET_ADMIN_CORPUS_CATEGORIES },
+  result: {
+    data: {
+      corpusCategories: {
+        edges: [],
+      },
+    },
+  },
+};
+
 test.describe("CorpusCategoryManagement", () => {
+  test("renders the empty state when there are no categories", async ({
+    mount,
+    page,
+  }) => {
+    await mount(
+      <CorpusCategoryManagementTestWrapper mocks={[emptyCategoriesMock]} />
+    );
+
+    await expect(page.getByText("No categories yet")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(
+      page.getByText("Create your first corpus category to start tagging")
+    ).toBeVisible({ timeout: 10000 });
+
+    await docScreenshot(page, "admin--corpus-categories--empty-state");
+  });
+
   test("renders the category list for a superuser", async ({ mount, page }) => {
     await mount(
       <CorpusCategoryManagementTestWrapper
