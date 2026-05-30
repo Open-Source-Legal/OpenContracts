@@ -6038,6 +6038,145 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         headers = dict(starts[0]["headers"])
         self.assertNotIn(b"access-control-allow-origin", headers)
 
+    def test_authed_endpoint_401_carries_cors_origin_for_allowlisted_origin(self):
+        """A cross-origin request from an allow-listed browser client (Claude)
+        to /mcp/me WITHOUT a token must 401 AND carry Access-Control-Allow-Origin
+        so the browser can read the WWW-Authenticate challenge and start OAuth.
+        """
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_valid_bearer_token_on_authed_endpoint_does_not_401(self):
+        """A valid JWT on /mcp/me must reach downstream, not the 401 branch."""
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.server import create_mcp_asgi_app
+
+        user = User.objects.create_user(
+            username="mcp_me_owner",
+            email="mcpme@test.com",
+            password="testpass123",
+        )
+
+        received: list = []
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b"{}"}
+
+        async def mock_send(message):
+            received.append(message)
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer valid-token"),
+                (b"content-type", b"application/json"),
+            ],
+            "client": ("127.0.0.1", 12345),
+        }
+
+        call_count = {"n": 0}
+
+        def fake_verifier(token):
+            call_count["n"] += 1
+            assert token == "valid-token"
+            return user
+
+        async def run_test():
+            with patch(
+                "opencontractserver.mcp.server.get_user_from_jwt_token",
+                side_effect=fake_verifier,
+            ):
+                app = create_mcp_asgi_app()
+                await app(scope, mock_receive, mock_send)
+
+        self._run(run_test())
+
+        self.assertEqual(call_count["n"], 1)
+        starts = [m for m in received if m.get("type") == "http.response.start"]
+        self.assertTrue(starts, "Expected a response from the ASGI app")
+        self.assertNotEqual(starts[0]["status"], 401)
+
+    def test_trailing_slash_authed_endpoint_without_token_returns_401(self):
+        """/mcp/me/ (trailing slash) must also challenge, confirming the
+        rstrip normalization in _path_requires_auth."""
+        scope = {
+            "type": "http",
+            "path": "/mcp/me/",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        self.assertIn(b"www-authenticate", dict(starts[0]["headers"]))
+
+    def test_configured_base_url_preferred_and_sanitized_in_challenge(self):
+        """MCP_PUBLIC_BASE_URL is preferred over the Host header in the 401
+        challenge, and a misconfigured value's quote/CR/LF chars are stripped
+        so the WWW-Authenticate header stays well-formed (review item 1)."""
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"attacker.example"),
+            ],
+        }
+        with override_settings(
+            USE_AUTH0=True,
+            AUTH0_DOMAIN="example.auth0.com",
+            MCP_PUBLIC_BASE_URL='https://configured.test"\r\nx-injected: y',
+        ):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(starts[0]["status"], 401)
+        www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode("ascii")
+        # Configured base URL wins over the Host header.
+        self.assertIn("https://configured.test", www_auth)
+        self.assertNotIn("attacker.example", www_auth)
+        # Path-based metadata for the authed endpoint.
+        self.assertIn("/.well-known/oauth-protected-resource/mcp/me", www_auth)
+        # Sanitization stripped the chars that could break the header structure
+        # or inject a new header line: no CR/LF, and the resource_metadata
+        # value is a single well-formed quoted-string (no stray inner quote).
+        self.assertNotIn("\r", www_auth)
+        self.assertNotIn("\n", www_auth)
+        self.assertRegex(www_auth, r'resource_metadata="[^"]+"$')
+
 
 class MCPResourceAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
     """Resource reads consume the same request user as tool calls."""

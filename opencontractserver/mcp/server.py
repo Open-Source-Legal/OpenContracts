@@ -118,6 +118,7 @@ MCP_AUTHED_PATH = "/mcp/me"
 def _path_requires_auth(path: str) -> bool:
     """Return True for MCP entrypoints that must reject anonymous callers."""
     normalized = path.rstrip("/")
+    # The startswith branch intentionally auth-gates any future /mcp/me/* sub-paths.
     return normalized == MCP_AUTHED_PATH or normalized.startswith(MCP_AUTHED_PATH + "/")
 
 
