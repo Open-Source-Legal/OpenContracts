@@ -39,7 +39,7 @@ class _FakeFieldFile:
 class ReadFieldFileTextTests(SimpleTestCase):
     def test_decodes_bytes_from_cloud_backend(self):
         """S3Boto3Storage / GoogleCloudStorage return bytes even in 'r' mode."""
-        result = read_field_file_text(_FakeFieldFile("héllo ✓".encode("utf-8")))
+        result = read_field_file_text(_FakeFieldFile("héllo ✓".encode()))
         self.assertIsInstance(result, str)
         self.assertEqual(result, "héllo ✓")
 

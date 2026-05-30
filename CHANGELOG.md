@@ -44,6 +44,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test_get_document_text_handles_bytes_from_cloud_storage`
   (`opencontractserver/mcp/tests/test_mcp.py`); helper unit tests:
   `opencontractserver/tests/test_files_utils.py`.
+- **Routed the remaining seven production `txt_extract_file.open("r")` call
+  sites through `read_field_file_text()`** so they no longer break on cloud
+  storage the same way: `pipeline/base/thumbnailer.py`, `utils/export_v2.py`,
+  `utils/extraction_grounding.py`, and the four LLM core tools
+  (`llms/tools/core_tools/{pii,document_indexing,search,annotations}.py`). The
+  LLM tools are the highest-impact because they feed `doc_text` directly into
+  agent context, where a raw `bytes` value would crash the downstream call or
+  produce garbage. The two MCP read sites now pass `errors="replace"` so a few
+  undecodable bytes substitute `U+FFFD` instead of raising
+  `UnicodeDecodeError` (caught by the surrounding `except`) and silently
+  returning an empty document. `read_field_file_text()`'s parameter is typed
+  as a structural `Protocol` rather than the concrete `FieldFile`, so
+  duck-typed test doubles type-check without `# type: ignore`.
 
 ### Changed
 

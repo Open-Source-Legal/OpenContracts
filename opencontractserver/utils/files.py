@@ -10,7 +10,6 @@ from io import BytesIO
 from typing import Union
 
 from django.conf import settings
-from django.db.models.fields.files import FieldFile
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader
 from pypdf.generic import (
@@ -42,8 +41,20 @@ def base_64_encode_bytes(doc_bytes: bytes):
     return base64_encoded_message
 
 
+class _TextReadableFieldFile(typing.Protocol):
+    """Structural type for the slice of ``FieldFile`` this helper needs.
+
+    Django's ``FieldFile`` and the django-storages cloud backends all satisfy
+    this Protocol, but typing the parameter structurally (rather than as the
+    concrete ``FieldFile``) lets duck-typed test doubles participate without a
+    misleading ``# type: ignore`` at every call site.
+    """
+
+    def open(self, mode: str = ...) -> typing.ContextManager[typing.Any]: ...
+
+
 def read_field_file_text(
-    field_file: FieldFile,
+    field_file: _TextReadableFieldFile,
     *,
     encoding: str = "utf-8",
     errors: str = "strict",

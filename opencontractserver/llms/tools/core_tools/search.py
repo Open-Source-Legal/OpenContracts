@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from opencontractserver.documents.models import Document
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.files import read_field_file_text
 
 from ._helpers import _db_sync_to_async
 
@@ -137,8 +138,7 @@ def search_exact_text_as_sources(
                 f"Text document id={document_id} lacks txt_extract_file; cannot search."
             )
 
-        with doc.txt_extract_file.open("r") as f:
-            doc_text = f.read()
+        doc_text = read_field_file_text(doc.txt_extract_file)
 
         # Find all matches for each search string
         for search_str in search_strings:

@@ -89,7 +89,12 @@ def get_document_resource(
     full_text = ""
     if document.txt_extract_file:
         try:
-            full_text = read_field_file_text(document.txt_extract_file)
+            # errors="replace" so a few undecodable bytes substitute U+FFFD
+            # rather than raising UnicodeDecodeError and silently yielding an
+            # empty document to the client.
+            full_text = read_field_file_text(
+                document.txt_extract_file, errors="replace"
+            )
         except Exception:
             full_text = ""
 
