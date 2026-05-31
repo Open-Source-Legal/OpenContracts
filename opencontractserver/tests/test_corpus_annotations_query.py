@@ -6,7 +6,6 @@ both document-attached annotations and structural annotations when querying
 by corpus_id without a document_id.
 """
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.annotations.models import (
@@ -18,13 +17,24 @@ from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import LabelType, PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 class TestCorpusAnnotationsQuery(TestCase):
     """Test the AnnotationService.get_corpus_annotations method."""
+
+    owner: User
+    viewer: User
+    superuser: User
+    corpus: Corpus
+    structural_set: StructuralAnnotationSet
+    doc_with_structural: Document
+    doc_without_structural: Document
+    structural_label: AnnotationLabel
+    user_label: AnnotationLabel
+    structural_annotation: Annotation
+    user_annotation: Annotation
 
     @classmethod
     def setUpTestData(cls):
@@ -242,6 +252,12 @@ class TestCorpusAnnotationsQuery(TestCase):
 class TestAnnotationQuerySetVisibleToUser(TestCase):
     """Test the AnnotationQuerySet.visible_to_user method with structural annotations."""
 
+    owner: User
+    structural_set: StructuralAnnotationSet
+    document: Document
+    label: AnnotationLabel
+    structural_annotation: Annotation
+
     @classmethod
     def setUpTestData(cls):
         """Set up test data."""
@@ -283,6 +299,15 @@ class TestAnnotationQuerySetVisibleToUser(TestCase):
 
 class TestCorpusAnnotationsQueryEdgeCases(TestCase):
     """Test edge cases for AnnotationService.get_corpus_annotations."""
+
+    owner: User
+    superuser: User
+    private_corpus: Corpus
+    structural_set: StructuralAnnotationSet
+    document: Document
+    label: AnnotationLabel
+    structural_annotation: Annotation
+    user_annotation: Annotation
 
     @classmethod
     def setUpTestData(cls):

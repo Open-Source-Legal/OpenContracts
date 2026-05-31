@@ -19,7 +19,6 @@ methods that live on ``DocumentService`` rather than the corpus services.
 
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.test import TestCase, TransactionTestCase
@@ -43,9 +42,8 @@ from opencontractserver.corpuses.services import (
 from opencontractserver.documents.document_service import DocumentService
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 def _make_constraint_error(
@@ -59,7 +57,9 @@ def _make_constraint_error(
     before retrying, so test mocks must chain the cause correctly.
     """
     cause = Exception()
-    cause.pgcode = "23505"  # PostgreSQL UniqueViolation
+    # psycopg2 exceptions carry a ``pgcode`` attribute that bare Exceptions lack;
+    # we set it dynamically here to mimic a real UniqueViolation for the mock.
+    cause.pgcode = "23505"  # type: ignore[attr-defined]  # PostgreSQL UniqueViolation
     exc = IntegrityError(message)
     exc.__cause__ = cause
     return exc
@@ -77,6 +77,10 @@ class _CorpusObjsServiceFolderTestBase(TestCase):
     Note: Signal management is handled globally by conftest.py fixture
     `disable_document_processing_signals` - no need to disconnect/reconnect here.
     """
+
+    # Set by subclasses in setUp/setUpTestData.
+    document: Document
+    corpus: Corpus
 
     def _get_current_path(self, document=None):
         """Helper to get the current active DocumentPath for a document."""
@@ -358,6 +362,7 @@ class TestFolderCreate_BasicOperations(TestCase):
         )
 
         self.assertIsNotNone(folder)
+        assert folder is not None
         self.assertEqual(error, "")
         self.assertEqual(folder.name, "Contracts")
         self.assertEqual(folder.description, "Legal contracts")
@@ -378,6 +383,7 @@ class TestFolderCreate_BasicOperations(TestCase):
         )
 
         self.assertIsNotNone(folder)
+        assert folder is not None
         self.assertEqual(folder.icon, "star")
         self.assertEqual(folder.tags, ["important", "legal", "2024"])
 
@@ -417,6 +423,10 @@ class TestFolderUpdate_BasicOperations(TestCase):
     Name changes must not conflict with siblings.
     """
 
+    owner: User
+    corpus: Corpus
+    folder: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -424,13 +434,15 @@ class TestFolderUpdate_BasicOperations(TestCase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = FolderCRUDService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner,
             corpus=self.corpus,
             name="Original Name",
             description="Original description",
             color="#000000",
         )
+        assert folder is not None
+        self.folder = folder
 
     def test_update_folder_name(self):
         """Owner can rename a folder."""
@@ -513,6 +525,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="To Delete"
         )
+        assert folder is not None
         folder_id = folder.id
 
         success, error = FolderCRUDService.delete_folder(user=self.owner, folder=folder)
@@ -526,12 +539,15 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
         )
+        assert parent is not None
         child, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child", parent=parent
         )
+        assert child is not None
         grandchild, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Grandchild", parent=child
         )
+        assert grandchild is not None
 
         # Delete the middle folder (Child)
         success, error = FolderCRUDService.delete_folder(
@@ -547,6 +563,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder With Docs"
         )
+        assert folder is not None
 
         # Create document and put it in folder
         document = Document.objects.create(
@@ -592,6 +609,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="MyFolder"
         )
+        assert folder is not None
 
         # Two documents whose paths differ (satisfying the DB unique
         # constraint) but share the same leaf filename.  Both belong
@@ -663,6 +681,7 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Protected"
         )
+        assert folder is not None
 
         success, error = FolderCRUDService.delete_folder(user=reader, folder=folder)
 
@@ -696,15 +715,19 @@ class TestFolderHierarchy_NestedFolders(TestCase):
         level1, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 1"
         )
+        assert level1 is not None
         level2, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 2", parent=level1
         )
+        assert level2 is not None
         level3, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 3", parent=level2
         )
+        assert level3 is not None
         level4, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Level 4", parent=level3
         )
+        assert level4 is not None
 
         self.assertEqual(level4.parent, level3)
         self.assertEqual(level3.parent, level2)
@@ -729,6 +752,8 @@ class TestFolderHierarchy_NestedFolders(TestCase):
 
         self.assertIsNotNone(child_in_a)
         self.assertIsNotNone(child_in_b)
+        assert child_in_a is not None
+        assert child_in_b is not None
         self.assertEqual(child_in_a.name, child_in_b.name)
         self.assertNotEqual(child_in_a.parent, child_in_b.parent)
 
@@ -759,6 +784,12 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
     This would create an infinite loop in the folder tree.
     """
 
+    owner: User
+    corpus: Corpus
+    parent: CorpusFolder
+    child: CorpusFolder
+    grandchild: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -767,15 +798,21 @@ class TestFolderHierarchy_MovePreventsCircularReferences(TestCase):
             title="Test Corpus", creator=self.owner, is_public=False
         )
         # Create hierarchy: Parent -> Child -> Grandchild
-        self.parent, _ = FolderCRUDService.create_folder(
+        parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
         )
-        self.child, _ = FolderCRUDService.create_folder(
+        assert parent is not None
+        self.parent = parent
+        child, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child", parent=self.parent
         )
-        self.grandchild, _ = FolderCRUDService.create_folder(
+        assert child is not None
+        self.child = child
+        grandchild, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Grandchild", parent=self.child
         )
+        assert grandchild is not None
+        self.grandchild = grandchild
 
     def test_cannot_move_folder_into_itself(self):
         """Moving folder into itself should fail."""
@@ -836,6 +873,12 @@ class TestFolderHierarchy_CrossCorpusMovePrevented(TestCase):
     BUSINESS RULE: Folder hierarchy is contained within a single corpus.
     """
 
+    owner: User
+    corpus_a: Corpus
+    corpus_b: Corpus
+    folder_in_a: CorpusFolder
+    folder_in_b: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -846,12 +889,16 @@ class TestFolderHierarchy_CrossCorpusMovePrevented(TestCase):
         self.corpus_b = Corpus.objects.create(
             title="Corpus B", creator=self.owner, is_public=False
         )
-        self.folder_in_a, _ = FolderCRUDService.create_folder(
+        folder_in_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus_a, name="Folder in A"
         )
-        self.folder_in_b, _ = FolderCRUDService.create_folder(
+        assert folder_in_a is not None
+        self.folder_in_a = folder_in_a
+        folder_in_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus_b, name="Folder in B"
         )
+        assert folder_in_b is not None
+        self.folder_in_b = folder_in_b
 
     def test_cannot_move_folder_to_different_corpus(self):
         """Moving folder to parent in different corpus should fail."""
@@ -1414,6 +1461,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
         )
 
         self.assertIsNotNone(corpus_doc)
+        assert corpus_doc is not None
         self.assertNotEqual(corpus_doc.id, self.source_document.id)
         self.assertEqual(status, "added")
 
@@ -1422,6 +1470,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
         corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
+        assert corpus_doc is not None
 
         self.assertEqual(corpus_doc.source_document, self.source_document)
 
@@ -1430,6 +1479,7 @@ class TestCorpusIsolation_AddDocumentCreatesIsolatedCopy(
         corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
+        assert corpus_doc is not None
 
         self.assertIsNotNone(corpus_doc.version_tree_id)
         self.assertNotEqual(
@@ -1497,6 +1547,8 @@ class TestCorpusIsolation_Deduplication(_CorpusObjsServiceFolderTestBase):
         corpus_doc2, status2, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.document_with_hash, corpus=self.corpus
         )
+        assert corpus_doc1 is not None
+        assert corpus_doc2 is not None
 
         # Both should be "added" - no content-based deduplication
         self.assertEqual(status1, "added")
@@ -1512,6 +1564,8 @@ class TestCorpusIsolation_Deduplication(_CorpusObjsServiceFolderTestBase):
         corpus_doc2, status2, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.document_without_hash, corpus=self.corpus
         )
+        assert corpus_doc1 is not None
+        assert corpus_doc2 is not None
 
         # Both should be "added" - each call creates a new document
         self.assertEqual(status1, "added")
@@ -1607,6 +1661,11 @@ class TestEdgeCases_IDORProtection(TestCase):
     to prevent information disclosure.
     """
 
+    owner: User
+    attacker: User
+    corpus: Corpus
+    folder: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -1617,9 +1676,11 @@ class TestEdgeCases_IDORProtection(TestCase):
         self.corpus = Corpus.objects.create(
             title="Private Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = FolderCRUDService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Secret Folder"
         )
+        assert folder is not None
+        self.folder = folder
 
     def test_get_folder_by_id_returns_none_for_unauthorized_user(self):
         """Attacker cannot discover folder existence through get_folder_by_id."""
@@ -1828,6 +1889,10 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
     BUSINESS RULE: Remove creates soft-delete, maintains history.
     """
 
+    owner: User
+    source_document: Document
+    corpus_doc: Document
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -1838,9 +1903,11 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
         self.source_document = Document.objects.create(
             title="Source Document", creator=self.owner, pdf_file="source.pdf"
         )
-        self.corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
+        corpus_doc, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=self.source_document, corpus=self.corpus
         )
+        assert corpus_doc is not None
+        self.corpus_doc = corpus_doc
 
     def test_remove_document_from_corpus(self):
         """Can remove document from corpus."""
@@ -1884,6 +1951,7 @@ class TestRemoveDocument_BasicOperations(_CorpusObjsServiceFolderTestBase):
         corpus_doc2, _, _ = CorpusDocumentService.add_document_to_corpus(
             user=self.owner, document=doc2, corpus=self.corpus
         )
+        assert corpus_doc2 is not None
 
         removed_count, error = CorpusDocumentService.remove_documents_from_corpus(
             user=self.owner,
@@ -1952,14 +2020,21 @@ class TestDocumentPathHistory_MoveTracking(_DocumentPathHistoryTestBase):
     to the previous one, enabling full lifecycle traversal.
     """
 
+    folder_a: CorpusFolder
+    folder_b: CorpusFolder
+
     def setUp(self):
         super().setUp()
-        self.folder_a, _ = FolderCRUDService.create_folder(
+        folder_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder A"
         )
-        self.folder_b, _ = FolderCRUDService.create_folder(
+        assert folder_a is not None
+        self.folder_a = folder_a
+        folder_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Folder B"
         )
+        assert folder_b is not None
+        self.folder_b = folder_b
         self.document = Document.objects.create(
             title="Test Document", creator=self.owner, pdf_file="test.pdf"
         )
@@ -2129,6 +2204,7 @@ class TestDocumentPathHistory_ComputeMovedPath(_DocumentPathHistoryTestBase):
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Cached"
         )
+        assert folder is not None
         current_path = "/old/dir/report.pdf"
 
         on_demand = CorpusPathService._compute_moved_path(current_path, folder)
@@ -2432,6 +2508,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Doomed"
         )
+        assert folder is not None
         docs = []
         for i in range(3):
             doc = Document.objects.create(
@@ -2473,6 +2550,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="TempFolder"
         )
+        assert folder is not None
         doc = Document.objects.create(
             title="Test Doc", creator=self.owner, pdf_file="doc.pdf"
         )
@@ -2499,6 +2577,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Reports"
         )
+        assert folder is not None
         doc = Document.objects.create(
             title="Test Doc", creator=self.owner, pdf_file="summary.pdf"
         )
@@ -2528,6 +2607,7 @@ class TestDocumentPathHistory_DeleteFolderTracking(_DocumentPathHistoryTestBase)
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ToDelete"
         )
+        assert folder is not None
         docs = []
         for i in range(3):
             doc = Document.objects.create(
@@ -2720,14 +2800,21 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
     or the versioning module.
     """
 
+    folder_a: CorpusFolder
+    folder_b: CorpusFolder
+
     def setUp(self):
         super().setUp()
-        self.folder_a, _ = FolderCRUDService.create_folder(
+        folder_a, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Active"
         )
-        self.folder_b, _ = FolderCRUDService.create_folder(
+        assert folder_a is not None
+        self.folder_a = folder_a
+        folder_b, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Archive"
         )
+        assert folder_b is not None
+        self.folder_b = folder_b
 
     def test_move_then_soft_delete_then_restore_history(self):
         """Complete lifecycle: create -> move -> delete -> restore."""
@@ -2899,6 +2986,7 @@ class TestDocumentPathHistory_FullLifecycleIntegration(_DocumentPathHistoryTestB
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Temporary"
         )
+        assert folder is not None
         doc = Document.objects.create(
             title="Displaced Doc", creator=self.owner, pdf_file="displaced.pdf"
         )
@@ -3137,6 +3225,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Doomed"
         )
+        assert folder is not None
         doc = Document.objects.create(
             title="Stuck Doc", creator=self.owner, pdf_file="stuck.pdf"
         )
@@ -3178,6 +3267,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Mixed"
         )
+        assert folder is not None
 
         # Create two documents in the folder
         doc1 = Document.objects.create(
@@ -3254,6 +3344,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Retryable"
         )
+        assert folder is not None
         doc = Document.objects.create(
             title="Retry Doc", creator=self.owner, pdf_file="retry.pdf"
         )
@@ -3302,9 +3393,11 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         parent_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
         )
+        assert parent_folder is not None
         child_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Child", parent=parent_folder
         )
+        assert child_folder is not None
 
         doc = Document.objects.create(
             title="Blocking Doc", creator=self.owner, pdf_file="blocking.pdf"
@@ -3447,6 +3540,9 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
     retry after a failure.
     """
 
+    owner: User
+    folder: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -3454,9 +3550,11 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = FolderCRUDService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
+        assert folder is not None
+        self.folder = folder
 
     def test_bulk_move_rolls_back_all_on_failure(self):
         """When one document fails during path computation, the entire batch
@@ -3897,6 +3995,9 @@ class TestCoverageGapBulkMoveToRootRollback(_CorpusObjsServiceFolderTestBase):
     branch is exercised when folder is None.
     """
 
+    owner: User
+    source_folder: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -3904,9 +4005,11 @@ class TestCoverageGapBulkMoveToRootRollback(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.source_folder, _ = FolderCRUDService.create_folder(
+        source_folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Source"
         )
+        assert source_folder is not None
+        self.source_folder = source_folder
 
     def test_bulk_move_to_root_integrity_error_rolls_back(self):
         """IntegrityError when moving to root (folder=None) rolls back."""
@@ -3960,6 +4063,9 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
     or ``MAX_PATH_CREATE_RETRIES`` is exhausted.
     """
 
+    owner: User
+    folder: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -3967,9 +4073,11 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = FolderCRUDService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
+        assert folder is not None
+        self.folder = folder
         self.document = Document.objects.create(
             title="Race Doc", creator=self.owner, pdf_file="race.pdf"
         )
@@ -4142,6 +4250,7 @@ class TestCoverageGapDeleteFolderMultiDocHistory(_CorpusObjsServiceFolderTestBas
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ToDelete"
         )
+        assert folder is not None
 
         docs_and_paths = []
         for i in range(3):
@@ -4193,6 +4302,9 @@ class TestCoverageGapBulkMoveVersionPreservation(_CorpusObjsServiceFolderTestBas
     DocumentPath links back to its predecessor.
     """
 
+    owner: User
+    folder: CorpusFolder
+
     def setUp(self):
         self.owner = User.objects.create_user(
             username="owner", email="owner@test.com", password="test"
@@ -4200,9 +4312,11 @@ class TestCoverageGapBulkMoveVersionPreservation(_CorpusObjsServiceFolderTestBas
         self.corpus = Corpus.objects.create(
             title="Test Corpus", creator=self.owner, is_public=False
         )
-        self.folder, _ = FolderCRUDService.create_folder(
+        folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Target"
         )
+        assert folder is not None
+        self.folder = folder
 
     def test_bulk_move_preserves_version_and_parent_chain(self):
         """Bulk move preserves version_number and sets parent correctly."""
@@ -4288,6 +4402,7 @@ class TestCoverageGapDeleteFolderIntegrityErrorRollback(
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="ToDelete"
         )
+        assert folder is not None
         doc = Document.objects.create(
             title="Doc 1", creator=self.owner, pdf_file="doc1.pdf"
         )

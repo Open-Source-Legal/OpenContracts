@@ -11,7 +11,6 @@ Tests cover:
 
 from datetime import timedelta
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
@@ -26,8 +25,7 @@ from opencontractserver.corpuses.models import (
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.types.enums import PermissionTypes
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class CorpusActionExecutionModelTestCase(TestCase):
@@ -367,6 +365,7 @@ class CorpusActionExecutionQuerySetTestCase(TestCase):
             if CorpusAction.objects.filter(corpus=corpus).exists()
             else self.action1
         )
+        assert action is not None
         if action_type is None:
             action_type = CorpusActionExecution.ActionType.FIELDSET
         exec_obj = CorpusActionExecution.objects.create(
@@ -489,8 +488,16 @@ class CorpusActionExecutionQuerySetTestCase(TestCase):
         exec_obj.completed_at = exec_obj.started_at + timedelta(seconds=30)
         exec_obj.save()
 
+        # ``with_stats`` is a custom ``CorpusActionExecutionQuerySet`` method;
+        # ``Manager.filter`` is typed by django-stubs as returning a plain
+        # ``QuerySet`` so the custom method is invisible to mypy. The chain is
+        # valid at runtime (the manager's ``get_queryset`` returns the custom
+        # queryset). ``result`` is therefore ``Any``, which also covers the
+        # dynamic ``duration`` annotation added by ``with_stats``.
         result = (
-            CorpusActionExecution.objects.filter(id=exec_obj.id).with_stats().first()
+            CorpusActionExecution.objects.filter(id=exec_obj.id)
+            .with_stats()  # type: ignore[attr-defined]
+            .first()
         )
 
         self.assertIsNotNone(result.duration)
@@ -502,8 +509,14 @@ class CorpusActionExecutionQuerySetTestCase(TestCase):
         exec_obj.started_at = exec_obj.queued_at + timedelta(seconds=5)
         exec_obj.save()
 
+        # See ``test_with_stats_annotates_duration`` — ``with_stats`` is a
+        # custom queryset method invisible through ``Manager.filter`` typing;
+        # the chain is valid at runtime and ``result`` stays ``Any`` (covering
+        # the dynamic ``wait_time`` annotation).
         result = (
-            CorpusActionExecution.objects.filter(id=exec_obj.id).with_stats().first()
+            CorpusActionExecution.objects.filter(id=exec_obj.id)
+            .with_stats()  # type: ignore[attr-defined]
+            .first()
         )
 
         self.assertIsNotNone(result.wait_time)
