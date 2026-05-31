@@ -62,7 +62,13 @@ class LocationTaggerAgentRegistrationTests(TestCase):
         self.assertEqual(agent.badge_config.get("icon"), "globe")
         self.assertEqual(agent.badge_config.get("label"), "Location Tagger")
         self.assertEqual(agent.slug, "location-tagger")
-        self.assertTrue(agent.system_instructions.strip())
+        # Pin the migration→settings wiring: the seeded prompt is exactly the
+        # configured production instructions, not the concise fallback.
+        from django.conf import settings
+
+        self.assertEqual(
+            agent.system_instructions, settings.DEFAULT_LOCATION_TAGGER_INSTRUCTIONS
+        )
 
     def test_migration_is_idempotent(self):
         User.objects.create_superuser("loc-super2", "loc2@example.com", "pw")
@@ -179,6 +185,52 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         ids = self._annotate([{"label_text": "ContractTerm", "exact_string": "branch"}])
         ann = Annotation.objects.get(pk=ids[0])
         self.assertIsNone(ann.data)
+
+    def test_geocoding_resolved_once_and_reused_for_each_occurrence(self):
+        """When a place name appears twice, both annotations carry the geocoded
+        data, and the disk-reading resolver runs once per *item* — not once per
+        *occurrence* (the resolve-before-transaction optimisation; review #2)."""
+        from unittest.mock import patch
+
+        import opencontractserver.annotations.services.geographic_service as geo_svc
+
+        # A document where "Paris" occurs twice.
+        doc = Document.objects.create(
+            creator=self.user,
+            title="Twice-Paris Doc",
+            file_type="text/plain",
+            processing_started=timezone.now(),
+        )
+        doc.txt_extract_file.save(
+            "twice.txt", ContentFile(b"Paris is lovely. We also adore Paris.")
+        )
+        corpus_doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
+
+        real_builder = geo_svc.build_geocoded_annotation_data
+        # ``add_annotations_from_exact_strings`` imports the builder lazily from
+        # this module at call time, so patching the source attribute is seen.
+        with patch.object(
+            geo_svc,
+            "build_geocoded_annotation_data",
+            side_effect=real_builder,
+        ) as spy:
+            ids = add_annotations_from_exact_strings(
+                [{"label_text": OC_CITY_LABEL, "exact_string": "Paris"}],
+                document_id=corpus_doc.id,
+                corpus_id=self.corpus.id,
+                creator_id=self.user.id,
+            )
+
+        # Two occurrences ⇒ two annotations, both carrying identical geocoded data.
+        self.assertEqual(len(ids), 2)
+        anns = list(Annotation.objects.filter(pk__in=ids))
+        self.assertEqual(len(anns), 2)
+        for ann in anns:
+            self.assertIsNotNone(ann.data)
+            self.assertTrue(ann.data["geocoded"])
+            self.assertEqual(ann.data["admin_codes"]["iso_alpha2"], "FR")
+        # Resolver invoked exactly once for the single item, not per occurrence.
+        self.assertEqual(spy.call_count, 1)
         self.assertEqual(ann.annotation_type, SPAN_LABEL)
 
     def test_hints_ignored_for_non_geographic_label(self):

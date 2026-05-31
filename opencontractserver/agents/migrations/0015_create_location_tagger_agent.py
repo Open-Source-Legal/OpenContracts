@@ -1,4 +1,4 @@
-# Generated manually for data migration
+# Data migration: seed the default global "Location Tagger" agent.
 
 import logging
 
@@ -60,6 +60,20 @@ def create_location_tagger_agent(apps, schema_editor):
     if AgentConfiguration.objects.filter(slug=LOCATION_TAGGER_SLUG).exists():
         return
 
+    instructions = getattr(
+        settings, "DEFAULT_LOCATION_TAGGER_INSTRUCTIONS", _FALLBACK_INSTRUCTIONS
+    )
+    if instructions is _FALLBACK_INSTRUCTIONS:
+        # The rich production prompt lives in settings; if it is absent (e.g. a
+        # stripped-down CI image) we still create a working agent, but with the
+        # concise fallback. Surface it so operators can patch the prompt rather
+        # than silently shipping the degraded instructions.
+        logger.warning(
+            "DEFAULT_LOCATION_TAGGER_INSTRUCTIONS is not configured; creating "
+            "the Location Tagger agent with the concise fallback prompt. Update "
+            "the agent's system_instructions once the setting is available."
+        )
+
     AgentConfiguration.objects.create(
         name=LOCATION_TAGGER_NAME,
         slug=LOCATION_TAGGER_SLUG,
@@ -67,11 +81,7 @@ def create_location_tagger_agent(apps, schema_editor):
             "Automatically geocodes place names in documents, creating "
             "OC_COUNTRY / OC_STATE / OC_CITY annotations with coordinates."
         ),
-        system_instructions=getattr(
-            settings,
-            "DEFAULT_LOCATION_TAGGER_INSTRUCTIONS",
-            _FALLBACK_INSTRUCTIONS,
-        ),
+        system_instructions=instructions,
         available_tools=["add_annotations_from_exact_strings"],
         permission_required_tools=[],
         badge_config={

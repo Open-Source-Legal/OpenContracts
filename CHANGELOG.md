@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `opencontractserver/tests/test_location_tagger_agent.py` (agent registration,
     geocoding + hint disambiguation, ungeocodable-miss sentinel, non-geographic
     backward-compatibility).
+  - **Review follow-ups (#1822)**: tightened the `parsed_items` hint tuple type
+    to `dict[str, str] | None`; the `0015` migration now logs a warning when it
+    falls back to the concise built-in prompt (settings prompt absent) so the
+    degraded state is visible; added tests pinning the migration→settings
+    `system_instructions` wiring and proving geocoding is resolved once per item
+    and reused for every occurrence (not re-resolved per match).
 
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the

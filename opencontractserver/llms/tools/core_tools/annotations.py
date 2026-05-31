@@ -218,7 +218,9 @@ def add_annotations_from_exact_strings(
 
     # Collect (label_text, exact_string, hints) tuples for the single
     # doc/corpus. ``hints`` is only consulted for OC_* geographic labels.
-    parsed_items: list[tuple[str, str, dict | None]] = []
+    # The third element is the item's ``hints`` (AnnotationItem.hints is typed
+    # ``dict[str, str]``), narrowed to None by the isinstance guard below.
+    parsed_items: list[tuple[str, str, dict[str, str] | None]] = []
     for item in items:
         # ``item`` is an AnnotationItem TypedDict (always a dict at runtime);
         # the inner isinstance still guards against the LLM sending a non-dict
