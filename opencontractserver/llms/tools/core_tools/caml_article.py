@@ -522,7 +522,13 @@ def _apply_caml_article_edit(
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.versioning import import_document
 
-        corpus = Corpus.objects.get(pk=corpus_id)
+        # Lock order inside this atomic block: Document (locked above via
+        # ``select_for_update``) -> Corpus -> DocumentPath (locked inside
+        # ``import_document``).  Lock the Corpus row too so a concurrent corpus
+        # delete, or a ``readme_caml_document_id`` cache refresh, cannot race
+        # between the Document lock and ``import_document`` and leave this edit
+        # operating on a stale Corpus.
+        corpus = Corpus.objects.select_for_update().get(pk=corpus_id)
         new_doc, _status, _path = import_document(
             corpus=corpus,
             path=CAML_ARTICLE_TITLE,
