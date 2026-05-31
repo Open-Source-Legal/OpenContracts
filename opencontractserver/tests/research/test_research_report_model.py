@@ -86,8 +86,20 @@ class ResearchReportModelTestCase(TestCase):
 
     def test_visible_to_user_superuser_sees_all(self):
         admin = User.objects.create_superuser(username="admin", password="x")
-        ResearchReport.objects.create(creator=self.user, corpus=self.corpus, prompt="x")
-        ResearchReport.objects.create(
+        # Two reports authored by *other* users — a superuser must see both
+        # regardless of authorship.
+        mine = ResearchReport.objects.create(
+            creator=self.user, corpus=self.corpus, prompt="x"
+        )
+        theirs = ResearchReport.objects.create(
             creator=self.other, corpus=self.corpus, prompt="y"
         )
-        self.assertEqual(ResearchReport.objects.visible_to_user(admin).count(), 2)
+        # Scope the assertion to this test's own rows rather than a global
+        # ``.count() == 2``. The superuser branch of ``visible_to_user``
+        # returns ``.all()``, so a global count is polluted by rows a sibling
+        # ``TransactionTestCase`` (``AstartDeepResearchTestCase``) commits when
+        # the whole ``research/`` directory runs sequentially on one database
+        # (issue #1845).
+        visible = ResearchReport.objects.visible_to_user(admin)
+        self.assertIn(mine, visible)
+        self.assertIn(theirs, visible)
