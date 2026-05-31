@@ -97,6 +97,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     now passes `File(tmp)` instead of `tmp.read()`. Peak memory for a chunked
     single-document import is now O(block) — matching the three ZIP kinds —
     instead of ~the whole file size.
+  - **Review hardening**: `import_document` now raises `ValueError` when a
+    caller passes both `content_file` and the matching explicit
+    `pdf_file`/`txt_file` (previously `content_file` was silently dropped),
+    mirroring `import_content`'s mutual-exclusion; the MIME-sniff narrowing in
+    `import_document_for_user` no longer uses an `assert` (stripped under
+    `python -O`) and the streamed-hash call site documents its intentional
+    double read. New test:
+    `StreamingImportTestCase::test_import_document_rejects_content_file_and_explicit_file`.
   - **Tests**: streaming-hash and file-routing unit tests in
     `test_document_versioning.py` (`StreamingImportTestCase`) and chunked
     HTTP tests in `test_document_imports_chunked.py` (streamed-not-buffered

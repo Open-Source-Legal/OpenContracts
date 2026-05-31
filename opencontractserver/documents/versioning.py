@@ -246,10 +246,21 @@ def import_document(
     # create/update branches below store it directly instead of materialising a
     # ContentFile from in-memory bytes.
     if content_file is not None:
+        # Reject — rather than silently drop — a caller that supplies both the
+        # type-agnostic ``content_file`` and the matching explicit file object.
+        # ``import_content`` enforces the same ``content``/``content_file``
+        # mutual-exclusion; do the equivalent here so the two surfaces behave
+        # consistently and a future caller can't lose ``content_file`` to a
+        # stray ``pdf_file``/``txt_file``.
+        if (is_text and txt_file is not None) or (not is_text and pdf_file is not None):
+            raise ValueError(
+                "import_document accepts either ``content_file`` or the explicit "
+                "``pdf_file``/``txt_file`` for the file type, not both"
+            )
         if is_text:
-            txt_file = txt_file or content_file
+            txt_file = content_file
         else:
-            pdf_file = pdf_file or content_file
+            pdf_file = content_file
 
     # Compute the content hash. Prefer the in-memory bytes when present;
     # otherwise stream the stored file so peak memory stays O(block) rather
@@ -264,6 +275,10 @@ def import_document(
                 "file object (``content_file``, or ``pdf_file`` / ``txt_file`` "
                 "for the file type)"
             )
+        # NOTE: this streams the file end-to-end once for the hash; the storage
+        # write below reads it again (see the double-pass NOTE in
+        # ``compute_sha256_for_file``). For a multi-GB file on S3/GCS that is
+        # two full reads — intentional, to keep peak memory O(block).
         content_hash = compute_sha256_for_file(hash_source)
 
     with transaction.atomic():

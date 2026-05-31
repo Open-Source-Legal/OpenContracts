@@ -1817,6 +1817,22 @@ class StreamingImportTestCase(TestCase):
                 title="No content",
             )
 
+    def test_import_document_rejects_content_file_and_explicit_file(self):
+        """Passing both ``content_file`` and the matching explicit file object
+        is a hard error, not a silent drop of ``content_file`` (review #2)."""
+        payload = b"%PDF-1.5 conflicting inputs " + (b"R" * 2048)
+        with self.assertRaises(ValueError):
+            import_document(
+                corpus=self.corpus,
+                path="/conflict.pdf",
+                content=None,
+                user=self.user,
+                content_file=ContentFile(payload, name="content_file.pdf"),
+                pdf_file=ContentFile(payload, name="explicit.pdf"),
+                file_type="application/pdf",
+                title="Conflicting inputs",
+            )
+
 
 class TextFileVersioningTestCase(TestCase):
     """

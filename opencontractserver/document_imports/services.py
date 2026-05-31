@@ -333,11 +333,13 @@ def import_document_for_user(
     # isn't pulled into memory just to read its magic bytes.
     if file_bytes is not None:
         sniff_bytes = file_bytes
-    else:
-        # The exactly-one-of guard above guarantees file_obj is not None in
-        # this branch; assert it so the type narrows for _read_stream_header.
-        assert file_obj is not None
+    elif file_obj is not None:
+        # Narrows file_obj for _read_stream_header without an ``assert`` (which
+        # ``python -O`` strips). The exactly-one-of guard above guarantees this
+        # branch runs whenever file_bytes is None.
         sniff_bytes = _read_stream_header(file_obj, DOCUMENT_MIME_SNIFF_BYTES)
+    else:  # pragma: no cover - unreachable given the exactly-one-of guard above
+        raise AssertionError("exactly one of file_bytes or file_obj must be set")
     kind = detect_mime_type(sniff_bytes, filename)
     if kind is None:
         return ImportResult(document=None, error="Unable to determine file type")
