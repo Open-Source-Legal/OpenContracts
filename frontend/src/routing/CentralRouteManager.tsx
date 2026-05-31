@@ -301,6 +301,19 @@ export function CentralRouteManager() {
 
     lastProcessedPath.current = pathKey;
 
+    // Single source of truth: the opened research report must be cleared the
+    // moment the current route stops being a research route. The per-branch
+    // clears below (extract/thread/labelset/user) cover their own cases, but
+    // the corpus/document branches intentionally do NOT clear sibling vars, so
+    // a transition like /research/:slug → /c/:user/:corpus (which changes
+    // neither corpusId nor documentId in a way that would re-clear it) would
+    // otherwise leave openedResearchReport stale. Driving the clear off the
+    // route type — not off corpus/document deps — keeps this correct for every
+    // non-research entity route, including browser back/forward.
+    if (route.type !== "research" && openedResearchReport() !== null) {
+      openedResearchReport(null);
+    }
+
     // Entity routes - async resolution required
     const resolveEntity = async () => {
       // Check if we already have entities loaded that match this route type

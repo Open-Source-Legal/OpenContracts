@@ -359,23 +359,35 @@ class ResearchReportService(BaseService):
             # ``append_finding`` / ``append_tool_call`` survive.
             report.warnings = list(report.warnings or []) + list(warnings)
             update_fields.append("warnings")
-        report.save(update_fields=update_fields)
 
-        # Populate M2M provenance links. Restrict to annotation IDs that
-        # exist (defensive: agent could in principle cite a deleted row).
-        if citations:
-            annotation_ids = [c["annotation_id"] for c in citations]
-            existing_annotations = Annotation.objects.filter(
-                pk__in=annotation_ids
-            ).select_related("document")
-            report.source_annotations.set(existing_annotations)
-            doc_ids = {
-                ann.document_id for ann in existing_annotations if ann.document_id
-            }
-            if doc_ids:
-                from opencontractserver.documents.models import Document
+        # Single atomic block so the terminal content write and the M2M
+        # provenance links commit together. Without this, a worker that
+        # dies (or a soft-time-limit) between ``save()`` and the M2M
+        # ``set()`` calls would leave a COMPLETED report whose content
+        # cites footnotes that have no ``source_annotations`` /
+        # ``source_documents`` rows behind them — content with empty
+        # provenance. The block wraps only the writes; the content/citation
+        # rendering above is pure computation and stays outside.
+        with transaction.atomic():
+            report.save(update_fields=update_fields)
 
-                report.source_documents.set(Document.objects.filter(pk__in=doc_ids))
+            # Populate M2M provenance links. Restrict to annotation IDs that
+            # exist (defensive: agent could in principle cite a deleted row).
+            if citations:
+                annotation_ids = [c["annotation_id"] for c in citations]
+                existing_annotations = Annotation.objects.filter(
+                    pk__in=annotation_ids
+                ).select_related("document")
+                report.source_annotations.set(existing_annotations)
+                doc_ids = {
+                    ann.document_id for ann in existing_annotations if ann.document_id
+                }
+                if doc_ids:
+                    from opencontractserver.documents.models import Document
+
+                    report.source_documents.set(
+                        Document.objects.filter(pk__in=doc_ids)
+                    )
 
     # ------------------------------------------------------------------
     # Cancel
