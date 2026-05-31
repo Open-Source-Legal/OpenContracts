@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
 from django.utils import timezone
@@ -13,19 +12,27 @@ from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL, Annot
 from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
-from opencontractserver.llms.tools.core_tools import create_document_index
+from opencontractserver.llms.tools.core_tools import (
+    IndexEntryItem,
+    create_document_index,
+)
 from opencontractserver.tests.fixtures import (
     SAMPLE_PAWLS_FILE_ONE_PATH,
     SAMPLE_TXT_FILE_ONE_PATH,
 )
+from opencontractserver.types.dicts import OpenContractsAnnotationPythonType
+from opencontractserver.users.models import User
 from opencontractserver.utils.importing import import_annotations
 
-User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
 class TestCreateDocumentIndexPDF(TestCase):
     """Tests for create_document_index with PDF documents."""
+
+    user: User
+    corpus: Corpus
+    doc: Document
 
     @classmethod
     def setUpClass(cls):
@@ -52,15 +59,17 @@ class TestCreateDocumentIndexPDF(TestCase):
     def setUp(self):
         self.doc.refresh_from_db()
         storage = self.doc.pawls_parse_file.storage
-        if not storage.exists(self.doc.pawls_parse_file.name):
+        name = self.doc.pawls_parse_file.name
+        assert name is not None
+        if not storage.exists(name):
             self.doc.pawls_parse_file.save(
-                self.doc.pawls_parse_file.name,
+                name,
                 ContentFile(SAMPLE_PAWLS_FILE_ONE_PATH.read_bytes()),
             )
 
     def test_create_flat_index(self):
         """Root-level entries produce TOKEN_LABEL annotations with OC_SECTION label."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "License Agreement",
                 "exact_string": "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT",
@@ -102,7 +111,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_create_hierarchical_index(self):
         """Parent wiring produces correct parent FK relationships."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Agreement",
                 "exact_string": "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT",
@@ -129,7 +138,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_string_not_found_raises(self):
         """ValueError raised when exact_string is not in document text."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Ghost Section",
                 "exact_string": "THIS_STRING_DEFINITELY_DOES_NOT_EXIST_IN_THE_DOC_xyz789",
@@ -146,7 +155,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_parent_index_out_of_range_raises(self):
         """ValueError raised when parent_index exceeds entries length."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Section A",
                 "exact_string": "Agreement",
@@ -163,7 +172,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_self_referential_parent_raises(self):
         """ValueError raised when entry references itself as parent."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Self Parent",
                 "exact_string": "Agreement",
@@ -180,7 +189,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_multi_node_cycle_raises(self):
         """ValueError raised when entries form a cycle (A->B, B->A)."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Section A",
                 "exact_string": "Agreement",
@@ -257,7 +266,7 @@ class TestCreateDocumentIndexPDF(TestCase):
 
     def test_transaction_rollback_on_failure(self):
         """All annotations rolled back if one entry fails."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Good Entry",
                 "exact_string": "Agreement",
@@ -284,6 +293,10 @@ class TestCreateDocumentIndexPDF(TestCase):
 class TestCreateDocumentIndexText(TestCase):
     """Tests for create_document_index with text documents."""
 
+    user: User
+    corpus: Corpus
+    doc: Document
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -306,15 +319,17 @@ class TestCreateDocumentIndexText(TestCase):
     def setUp(self):
         self.doc.refresh_from_db()
         storage = self.doc.txt_extract_file.storage
-        if not storage.exists(self.doc.txt_extract_file.name):
+        name = self.doc.txt_extract_file.name
+        assert name is not None
+        if not storage.exists(name):
             self.doc.txt_extract_file.save(
-                self.doc.txt_extract_file.name,
+                name,
                 ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
             )
 
     def test_create_text_index(self):
         """Text document index creates SPAN_LABEL annotations."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "License Section",
                 "exact_string": "EXCLUSIVE LICENSE AND PRODUCT DEVELOPMENT AGREEMENT",
@@ -345,7 +360,7 @@ class TestCreateDocumentIndexText(TestCase):
 
     def test_text_hierarchy(self):
         """Text document hierarchy uses parent FK correctly."""
-        entries = [
+        entries: list[IndexEntryItem] = [
             {
                 "title": "Root",
                 "exact_string": "EXCLUSIVE LICENSE",
@@ -369,6 +384,10 @@ class TestCreateDocumentIndexText(TestCase):
 
 class TestUpdateAnnotationLongDescription(TestCase):
     """Test that long_description can be updated via AnnotationSerializer (UpdateAnnotation path)."""
+
+    user: User
+    corpus: Corpus
+    doc: Document
 
     @classmethod
     def setUpClass(cls):
@@ -394,9 +413,11 @@ class TestUpdateAnnotationLongDescription(TestCase):
     def setUp(self):
         self.doc.refresh_from_db()
         storage = self.doc.pawls_parse_file.storage
-        if not storage.exists(self.doc.pawls_parse_file.name):
+        name = self.doc.pawls_parse_file.name
+        assert name is not None
+        if not storage.exists(name):
             self.doc.pawls_parse_file.save(
-                self.doc.pawls_parse_file.name,
+                name,
                 ContentFile(SAMPLE_PAWLS_FILE_ONE_PATH.read_bytes()),
             )
 
@@ -457,6 +478,10 @@ class TestUpdateAnnotationLongDescription(TestCase):
 class TestLongDescriptionExportImportRoundTrip(TestCase):
     """Test that long_description survives an export→import cycle."""
 
+    user: User
+    corpus: Corpus
+    doc: Document
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -479,9 +504,11 @@ class TestLongDescriptionExportImportRoundTrip(TestCase):
     def setUp(self):
         self.doc.refresh_from_db()
         storage = self.doc.txt_extract_file.storage
-        if not storage.exists(self.doc.txt_extract_file.name):
+        name = self.doc.txt_extract_file.name
+        assert name is not None
+        if not storage.exists(name):
             self.doc.txt_extract_file.save(
-                self.doc.txt_extract_file.name,
+                name,
                 ContentFile(SAMPLE_TXT_FILE_ONE_PATH.read_bytes()),
             )
 
@@ -505,7 +532,7 @@ class TestLongDescriptionExportImportRoundTrip(TestCase):
         original = Annotation.objects.get(pk=pks[0])
 
         # Simulate export format (mirrors export_v2.py)
-        exported = {
+        exported: OpenContractsAnnotationPythonType = {
             "id": str(original.id),
             "annotationLabel": original.annotation_label.text,
             "rawText": original.raw_text or "",
@@ -565,7 +592,7 @@ class TestLongDescriptionExportImportRoundTrip(TestCase):
         self.assertIsNone(original.long_description)
 
         # Export without long_description key (old format)
-        exported = {
+        exported: OpenContractsAnnotationPythonType = {
             "id": str(original.id),
             "annotationLabel": original.annotation_label.text,
             "rawText": original.raw_text or "",
