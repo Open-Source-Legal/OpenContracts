@@ -3163,13 +3163,28 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         async def update_corpus_description_tool(
             new_content: str,
         ) -> dict[str, int | None]:
-            """Update the corpus description and return new version number (if changed)."""
-            rev = await aupdate_corpus_description(
+            """Update the corpus description and return new version number (if changed).
+
+            After the canonical-CAML refactor the underlying tool returns
+            the new head ``Document`` (or None when the content was a
+            no-op). Derive the integer version from the Readme.CAML
+            content-tree depth via ``calculate_content_version`` — same
+            value the GraphQL mutation exposes (Task 8).
+            """
+            from asgiref.sync import sync_to_async
+
+            from opencontractserver.documents.versioning import (
+                calculate_content_version,
+            )
+
+            doc = await aupdate_corpus_description(
                 corpus_id=context.corpus.id,
                 new_content=new_content,
                 author_id=config.user_id,
             )
-            version = rev.version if rev else None
+            if doc is None:
+                return {"version": None}
+            version = await sync_to_async(calculate_content_version)(doc)
             return {"version": version}
 
         update_corpus_desc_tool_wrapped = PydanticAIToolFactory.from_function(

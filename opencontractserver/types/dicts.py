@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -549,20 +549,6 @@ class AgentConfigExport(TypedDict):
     document_agent_instructions: Optional[str]
 
 
-class DescriptionRevisionExport(TypedDict):
-    """
-    Export format for CorpusDescriptionRevision.
-    """
-
-    version: int
-    diff: str
-    snapshot: Optional[str]
-    checksum_base: str
-    checksum_full: str
-    created: str  # ISO format timestamp
-    author_email: str
-
-
 class ConversationExport(TypedDict):
     """
     Export format for Conversation (discussion threads).
@@ -760,9 +746,13 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
     # Agent configuration
     agent_config: AgentConfigExport
 
-    # Markdown description and revision history
+    # Markdown description and revision history (V2 legacy fields).
+    # The revision dict shape is intentionally loose — V2 import only
+    # reads ``version``, ``snapshot``, ``created``, ``author_email`` via
+    # ``.get()`` in ``utils/import_v2.py::import_md_description_revisions``,
+    # and V3 archives omit both fields entirely.
     md_description: Optional[str]
-    md_description_revisions: list[DescriptionRevisionExport]
+    md_description_revisions: list[dict[str, Any]]
 
     # Post-processors configuration
     post_processors: list[str]
@@ -783,6 +773,54 @@ class OpenContractsExportDataJsonV2Type(TypedDict):
     message_votes: NotRequired[list[MessageVoteExport]]
 
     # Action trail (only if include_action_trail=True)
+    action_trail: NotRequired[ActionTrailExport]
+
+
+class OpenContractsExportDataJsonPythonTypeV3(TypedDict):
+    """
+    Export format V3.0 — canonical-CAML corpus export.
+
+    Identical to V2 minus the two top-level fields ``md_description`` and
+    ``md_description_revisions``. Under V3 the corpus description is the
+    Readme.CAML Document, which ships in ``annotated_docs`` like every
+    other Document; description revisions are version-tree siblings on
+    the Readme.CAML DocumentPath chain. See the Canonical-CAML
+    Description Refactor design doc §4.8.
+
+    The V2 TypedDict (``OpenContractsExportDataJsonV2Type``) is preserved
+    so the V2 import shim can still type-check legacy archives.
+    """
+
+    # Version marker for format detection — always "3.0".
+    version: str
+
+    # ===== V1-compatible top-level fields =====
+    annotated_docs: dict[str, OpenContractDocExport]
+    doc_labels: dict[str, AnnotationLabelPythonType]
+    text_labels: dict[str, AnnotationLabelPythonType]
+    corpus: OpenContractCorpusV2Type
+    label_set: OpenContractsLabelSetType
+
+    # ===== V2 fields (carried forward in V3) =====
+    structural_annotation_sets: dict[str, StructuralAnnotationSetExport]
+    folders: list[CorpusFolderExport]
+    document_paths: list[DocumentPathExport]
+    relationships: list[OpenContractsRelationshipPythonType]
+    agent_config: AgentConfigExport
+    post_processors: list[str]
+
+    # Lineage tracking; omitted entirely when the corpus has no ingestion
+    # sources to record.
+    ingestion_sources: NotRequired[list[IngestionSourceExport]]
+
+    # Manual metadata schema (Fieldset + manual Columns + non-extract
+    # Datacells). Omitted when the corpus has no attached Fieldset.
+    metadata_schema: NotRequired[MetadataSchemaExport]
+
+    # ===== Optional V2/V3 fields (driven by export flags) =====
+    conversations: NotRequired[list[ConversationExport]]
+    messages: NotRequired[list[ChatMessageExport]]
+    message_votes: NotRequired[list[MessageVoteExport]]
     action_trail: NotRequired[ActionTrailExport]
 
 

@@ -33,6 +33,7 @@ from opencontractserver.corpuses.services import (
     CorpusService,
 )
 from opencontractserver.documents.models import Document
+from opencontractserver.documents.versioning import calculate_content_version
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.tasks import fork_corpus
@@ -283,10 +284,14 @@ class UpdateCorpusDescription(graphene.Mutation):
                 return UpdateCorpusDescription(
                     ok=False, message=result.error, obj=None, version=None
                 )
-            revision = result.value
+            new_caml_doc = result.value
 
-            if revision is None:
-                # No changes were made
+            if new_caml_doc is None:
+                # No changes were made — return the current version count so
+                # the caller knows where the description stands. The version
+                # count reads from the legacy ``Corpus.revisions`` relation
+                # as a transitional signal; it should be replaced by the
+                # Readme.CAML version-tree count once the frontend migrates.
                 return UpdateCorpusDescription(
                     ok=True,
                     message="No changes detected. Description remains at current version.",
@@ -294,14 +299,22 @@ class UpdateCorpusDescription(graphene.Mutation):
                     version=corpus.revisions.count(),
                 )
 
-            # Refresh the corpus to get the updated state
+            # Refresh the corpus to get the updated state (the signal
+            # cascaded the cache columns onto the row).
             corpus.refresh_from_db()
+
+            # Derive the version from the Readme.CAML content-tree —
+            # ``import_document`` returns the new head and the version is
+            # the count of ancestors up the version_tree (Rule C2). This
+            # matches what the GraphQL schema previously surfaced (the
+            # 1-indexed ``CorpusDescriptionRevision.version`` counter).
+            new_version = calculate_content_version(new_caml_doc)
 
             return UpdateCorpusDescription(
                 ok=True,
-                message=f"Corpus description updated successfully. Now at version {revision.version}.",
+                message=f"Corpus description updated successfully. Now at version {new_version}.",
                 obj=corpus,
-                version=revision.version,
+                version=new_version,
             )
 
         except Exception as e:

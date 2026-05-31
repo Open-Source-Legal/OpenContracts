@@ -347,8 +347,15 @@ def _import_corpus(
         chain.  Callers that don't (the standalone Celery import task)
         accept partial state on failure.
     """
-    is_v2 = version == "2.0"
-    logger.info("Using %s import format", "V2" if is_v2 else "V1")
+    # V3 archives share the V2 import shape minus the legacy top-level
+    # ``md_description`` / ``md_description_revisions`` keys; the
+    # corresponding V2 back-compat shim that synthesises a Readme.CAML
+    # Document from those keys is a no-op on V3 archives.
+    is_v2 = version in {"2.0", "3.0"}
+    logger.info(
+        "Using %s import format",
+        "V3" if version == "3.0" else "V2" if version == "2.0" else "V1",
+    )
 
     try:
         # ===== Shared: Setup corpus, labelset, and labels =====
@@ -465,11 +472,16 @@ def _import_corpus(
             if agent_config:
                 import_agent_config(agent_config, corpus_obj)
 
-            # Import markdown description.
+            # V2 back-compat: synthesize a Readme.CAML Document from the
+            # legacy ``md_description`` + ``md_description_revisions`` top-level
+            # keys.  V3 archives don't carry those keys (the CAML doc rides
+            # in ``annotated_docs`` like any other Document), so the call is
+            # a clean no-op on V3 — the shim early-returns on empty input.
             # Pass the doc-filename and annotation id maps so any
             # ``oc-import://`` placeholder links written in the README by
             # the zip author are rewritten to live URLs after all referenced
-            # objects have been created.  See utils/caml_rewrite.py.
+            # objects have been created.  See utils/caml_rewrite.py and
+            # spec §4.8 of the Canonical-CAML refactor.
             md_description = v2_data.get("md_description")
             md_revisions = v2_data.get("md_description_revisions", [])
             if md_description or md_revisions:
@@ -507,6 +519,27 @@ def _import_corpus(
                     user_obj,
                     doc_hash_to_doc=doc_hash_to_corpus_doc,
                 )
+
+            # Refresh description cache deterministically.
+            #
+            # V3 archives carry the Readme.CAML Document inside
+            # ``annotated_docs``, so it lands via the normal
+            # ``_import_document_with_annotations`` path. The Document
+            # ``post_save`` signal schedules a cache refresh via
+            # ``transaction.on_commit``, but the import runs inside a
+            # long outer transaction (and under TestCase test
+            # transactions on_commit may not fire), so on_commit can be
+            # delayed past the point where callers read back the corpus
+            # row. Calling the helper directly here pins
+            # ``corpus.description`` / ``.description_preview`` /
+            # ``.readme_caml_document_id`` to the imported CAML head the
+            # moment the import returns — duplicate work with the signal
+            # is harmless (idempotent update).
+            from opencontractserver.corpuses.services.description_cache import (
+                refresh_description_cache_for_corpus,
+            )
+
+            refresh_description_cache_for_corpus(corpus_obj.id)
 
         logger.info("Import completed successfully for corpus %s", corpus_obj.id)
         return corpus_obj.id

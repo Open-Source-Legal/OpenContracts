@@ -1,5 +1,5 @@
 """
-Export tasks for V2 corpus export format.
+Export tasks for V2/V3 corpus export format.
 
 Handles comprehensive export including:
 - All V1 features (documents, annotations, labels)
@@ -8,8 +8,13 @@ Handles comprehensive export including:
 - DocumentPath version trees
 - Relationships
 - Agent configurations
-- Markdown descriptions with revisions
 - Conversations and messages (optional)
+
+V3 (current emit, schema 3.0): the corpus description rides in
+``annotated_docs`` as the Readme.CAML Document, so the legacy
+``md_description`` / ``md_description_revisions`` top-level keys are
+dropped (see spec §4.8). The import side still accepts V2 archives via a
+back-compat shim that synthesises a Readme.CAML Document from those keys.
 """
 
 from __future__ import annotations
@@ -35,7 +40,7 @@ from opencontractserver.types.dicts import (
     MessageVoteExport,
     OpenContractCorpusV2Type,
     OpenContractDocExport,
-    OpenContractsExportDataJsonV2Type,
+    OpenContractsExportDataJsonPythonTypeV3,
     StructuralAnnotationSetExport,
 )
 from opencontractserver.types.enums import AnnotationFilterMode
@@ -48,7 +53,6 @@ from opencontractserver.utils.export_v2 import (
     package_corpus_folders,
     package_document_paths,
     package_ingestion_sources,
-    package_md_description_revisions,
     package_metadata_schema,
     package_relationships,
     package_structural_annotation_set,
@@ -224,10 +228,12 @@ def build_corpus_v2_zip(
     # ===== PART 7: Agent config =====
     agent_config_export = package_agent_config(corpus)
 
-    # ===== PART 8: Markdown description + revisions =====
-    md_description, md_revisions = package_md_description_revisions(corpus)
-
-    # ===== PART 9: Manual metadata schema =====
+    # ===== PART 8: Manual metadata schema =====
+    #
+    # V3 drops the legacy ``md_description`` / ``md_description_revisions``
+    # top-level fields: the Readme.CAML Document rides in ``annotated_docs``
+    # like every other Document, and revisions are version-tree siblings —
+    # see spec §4.8 of the Canonical-CAML refactor.
     metadata_schema_export = package_metadata_schema(corpus)
 
     # ===== PART 10: Conversations (optional) =====
@@ -258,8 +264,8 @@ def build_corpus_v2_zip(
         )
 
     # ===== PART 12: Assemble =====
-    export_data: OpenContractsExportDataJsonV2Type = {
-        "version": "2.0",
+    export_data: OpenContractsExportDataJsonPythonTypeV3 = {
+        "version": "3.0",
         "annotated_docs": annotated_docs,
         "doc_labels": label_lookups["doc_labels"],
         "text_labels": label_lookups["text_labels"],
@@ -270,8 +276,6 @@ def build_corpus_v2_zip(
         "document_paths": document_paths_export,
         "relationships": relationships_export,
         "agent_config": agent_config_export,
-        "md_description": md_description,
-        "md_description_revisions": md_revisions,
         "post_processors": corpus.post_processors or [],
         "ingestion_sources": ingestion_sources_export,
     }

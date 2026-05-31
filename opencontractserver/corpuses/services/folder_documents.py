@@ -423,14 +423,14 @@ class FolderDocumentService(BaseService):
                 target_folder_path = folder.get_path() if folder is not None else None
 
                 # Pre-fetch all occupied paths in the target directory with a
-                # SINGLE query, instead of letting each _disambiguate_path call
+                # SINGLE query, instead of letting each disambiguate_path call
                 # re-fetch them.  Because we filtered out paths whose folder
                 # already equals the target, none of ``paths_to_move`` lives
                 # in the target directory — so no per-row exclusion is needed.
                 #
                 # ORDERING INVARIANT: this fetch MUST run before the batch
                 # ``update(is_current=False)`` below.  Bulk callers pass the
-                # resulting set to ``_disambiguate_path(occupied_override=...)``,
+                # resulting set to ``disambiguate_path(occupied_override=...)``,
                 # which silently ignores ``exclude_pk``.  Reordering these
                 # steps (fetch after deactivate) would cause the batch to
                 # re-claim its own source paths and produce duplicate
@@ -456,7 +456,7 @@ class FolderDocumentService(BaseService):
                         folder,
                         target_folder_path=target_folder_path,
                     )
-                    new_path = CorpusPathService._disambiguate_path(
+                    new_path = CorpusPathService.disambiguate_path(
                         new_path,
                         corpus,
                         occupied_override=occupied_paths,
@@ -549,13 +549,20 @@ class FolderDocumentService(BaseService):
         if not corpus.user_can(user, PermissionTypes.READ, request=request):
             return None
 
-        try:
-            path = DocumentPath.objects.select_related("folder").get(
+        # Use ``.first()`` rather than ``.get()``: no DB constraint guarantees a
+        # single active path per ``(corpus, document)`` (the unique index is on
+        # ``(corpus, path)``), so a document with two active paths would make
+        # ``.get()`` raise an uncaught ``MultipleObjectsReturned`` (HTTP 500).
+        # ``-created`` makes the choice deterministic (newest active path wins).
+        path = (
+            DocumentPath.objects.select_related("folder")
+            .filter(
                 document=document,
                 corpus=corpus,
                 is_current=True,
                 is_deleted=False,
             )
-            return path.folder
-        except DocumentPath.DoesNotExist:
-            return None
+            .order_by("-created")
+            .first()
+        )
+        return path.folder if path else None
