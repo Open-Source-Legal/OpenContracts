@@ -2383,11 +2383,11 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
         self.assertEqual(current.path, "/Target/.gitignore_1")
 
     def test_disambiguate_path_raises_after_max_suffix(self):
-        """_disambiguate_path raises ValueError when suffix cap is exhausted."""
+        """disambiguate_path raises ValueError when suffix cap is exhausted."""
         from unittest.mock import patch
 
         # Build a set of all candidate paths the disambiguation loop will try.
-        # _disambiguate_path pre-fetches occupied paths with a single query;
+        # disambiguate_path pre-fetches occupied paths with a single query;
         # we patch that queryset's values_list to return every candidate so
         # all are "taken".
         base = "/Target/report"
@@ -2400,7 +2400,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
             DocumentPath.objects,
             "filter",
         ) as mock_filter:
-            # _disambiguate_path now chains two .filter() calls (base filters,
+            # disambiguate_path now chains two .filter() calls (base filters,
             # then directory filter), so the mock must support the extra link:
             # filter().filter().exclude().values_list() and
             # filter().filter().values_list().
@@ -2414,7 +2414,7 @@ class TestDocumentPathHistory_PathConflicts(_DocumentPathHistoryTestBase):
             mock_filter.return_value.values_list.return_value = all_candidates
 
             with self.assertRaises(ValueError) as ctx:
-                CorpusPathService._disambiguate_path("/Target/report.pdf", self.corpus)
+                CorpusPathService.disambiguate_path("/Target/report.pdf", self.corpus)
 
             self.assertIn(str(MAX_PATH_DISAMBIGUATION_SUFFIX), str(ctx.exception))
 
@@ -3000,7 +3000,7 @@ class TestErrorPaths_ComputeMovedPathEdgeCases(TestCase):
 
 class TestErrorPaths_DisambiguateExtensionless(_CorpusObjsServiceFolderTestBase):
     """
-    SCENARIO: _disambiguate_path handles files without extensions.
+    SCENARIO: disambiguate_path handles files without extensions.
 
     BUSINESS RULE: Files like 'Makefile' or 'LICENSE' that lack a dot
     extension get suffixed as 'Makefile_1', 'LICENSE_1', etc.
@@ -3030,13 +3030,13 @@ class TestErrorPaths_DisambiguateExtensionless(_CorpusObjsServiceFolderTestBase)
             is_deleted=False,
         )
 
-        result = CorpusPathService._disambiguate_path("/Makefile", self.corpus)
+        result = CorpusPathService.disambiguate_path("/Makefile", self.corpus)
         self.assertEqual(result, "/Makefile_1")
 
 
 class TestErrorPaths_DisambiguateRootLevel(_CorpusObjsServiceFolderTestBase):
     """
-    SCENARIO: _disambiguate_path for root-level paths only considers
+    SCENARIO: disambiguate_path for root-level paths only considers
     top-level paths, not every path in the corpus.
 
     BUSINESS RULE: When disambiguating "/report.pdf", the method should
@@ -3073,7 +3073,7 @@ class TestErrorPaths_DisambiguateRootLevel(_CorpusObjsServiceFolderTestBase):
 
         # Disambiguating "/report.pdf" should return it unchanged because the
         # only existing "report.pdf" is inside "/folder/", not at root.
-        result = CorpusPathService._disambiguate_path("/report.pdf", self.corpus)
+        result = CorpusPathService.disambiguate_path("/report.pdf", self.corpus)
         self.assertEqual(result, "/report.pdf")
 
     def test_root_disambiguation_detects_root_conflict(self):
@@ -3108,7 +3108,7 @@ class TestErrorPaths_DisambiguateRootLevel(_CorpusObjsServiceFolderTestBase):
         )
 
         # Should get "_1" suffix because root "/report.pdf" is taken.
-        result = CorpusPathService._disambiguate_path("/report.pdf", self.corpus)
+        result = CorpusPathService.disambiguate_path("/report.pdf", self.corpus)
         self.assertEqual(result, "/report_1.pdf")
 
 
@@ -3132,7 +3132,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         )
 
     def test_delete_folder_rolls_back_all_on_failure(self):
-        """When _disambiguate_path raises, the entire transaction is rolled
+        """When disambiguate_path raises, the entire transaction is rolled
         back: no documents are relocated and the folder still exists."""
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Doomed"
@@ -3153,7 +3153,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
 
         with patch.object(
             CorpusPathService,
-            "_disambiguate_path",
+            "disambiguate_path",
             side_effect=ValueError("all suffixes exhausted"),
         ):
             success, error = FolderCRUDService.delete_folder(
@@ -3207,7 +3207,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
             is_deleted=False,
         )
 
-        original_disambiguate = CorpusPathService._disambiguate_path
+        original_disambiguate = CorpusPathService.disambiguate_path
         call_count = 0
 
         def fail_on_second(base_path, corpus, **kwargs):
@@ -3219,7 +3219,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
 
         with patch.object(
             CorpusPathService,
-            "_disambiguate_path",
+            "disambiguate_path",
             staticmethod(fail_on_second),
         ):
             success, error = FolderCRUDService.delete_folder(
@@ -3271,7 +3271,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
         # First attempt: fails
         with patch.object(
             CorpusPathService,
-            "_disambiguate_path",
+            "disambiguate_path",
             side_effect=ValueError("temporary failure"),
         ):
             success, error = FolderCRUDService.delete_folder(
@@ -3322,7 +3322,7 @@ class TestErrorPaths_DeleteFolderAtomicRollback(_CorpusObjsServiceFolderTestBase
 
         with patch.object(
             CorpusPathService,
-            "_disambiguate_path",
+            "disambiguate_path",
             side_effect=ValueError("blocked"),
         ):
             success, _ = FolderCRUDService.delete_folder(
@@ -3420,10 +3420,10 @@ class TestErrorPaths_MoveDocumentIntegrityError(_CorpusObjsServiceFolderTestBase
         )
 
     def test_disambiguate_exhaustion_returns_error(self):
-        """ValueError from _disambiguate_path is surfaced as a user-facing error."""
+        """ValueError from disambiguate_path is surfaced as a user-facing error."""
         with patch.object(
             CorpusPathService,
-            "_disambiguate_path",
+            "disambiguate_path",
             side_effect=ValueError("all suffixes exhausted"),
         ):
             success, error = FolderDocumentService.move_document_to_folder(
@@ -3480,7 +3480,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             docs.append(doc)
             paths.append(p)
 
-        original_disambiguate = CorpusPathService._disambiguate_path
+        original_disambiguate = CorpusPathService.disambiguate_path
         call_count = 0
 
         def selective_fail(base_path, corpus, **kwargs):
@@ -3492,7 +3492,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
             return original_disambiguate(base_path, corpus, **kwargs)
 
         with patch.object(
-            CorpusPathService, "_disambiguate_path", staticmethod(selective_fail)
+            CorpusPathService, "disambiguate_path", staticmethod(selective_fail)
         ):
             moved_count, error = FolderDocumentService.move_documents_to_folder(
                 user=self.owner,
@@ -3540,7 +3540,7 @@ class TestErrorPaths_BulkMoveAtomicRollback(_CorpusObjsServiceFolderTestBase):
         # First attempt: fails
         with patch.object(
             CorpusPathService,
-            "_disambiguate_path",
+            "disambiguate_path",
             side_effect=ValueError("temporary failure"),
         ):
             moved_count, error = FolderDocumentService.move_documents_to_folder(
@@ -3766,7 +3766,7 @@ class TestCoverageGapComputeMovedPathWhitespace(TestCase):
 
 class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
     """
-    SCENARIO: _disambiguate_path is called with a path that has no slash
+    SCENARIO: disambiguate_path is called with a path that has no slash
     (e.g. "report.pdf" instead of "/report.pdf").
 
     BUSINESS RULE: All stored paths start with "/".  A bare filename with
@@ -3786,7 +3786,7 @@ class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
     def test_no_slash_path_raises_value_error(self):
         """A no-slash path raises ValueError (structurally invalid)."""
         with self.assertRaises(ValueError):
-            CorpusPathService._disambiguate_path("report.pdf", self.corpus)
+            CorpusPathService.disambiguate_path("report.pdf", self.corpus)
 
     def test_no_slash_path_with_conflict_raises_value_error(self):
         """A no-slash path raises ValueError even when a conflict exists."""
@@ -3805,7 +3805,7 @@ class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
         )
 
         with self.assertRaises(ValueError):
-            CorpusPathService._disambiguate_path("report.pdf", self.corpus)
+            CorpusPathService.disambiguate_path("report.pdf", self.corpus)
 
     def test_no_slash_extensionless_path_raises_value_error(self):
         """A no-slash, extensionless path raises ValueError."""
@@ -3824,7 +3824,7 @@ class TestCoverageGapDisambiguateNoSlashPath(_CorpusObjsServiceFolderTestBase):
         )
 
         with self.assertRaises(ValueError):
-            CorpusPathService._disambiguate_path("Makefile", self.corpus)
+            CorpusPathService.disambiguate_path("Makefile", self.corpus)
 
 
 class TestCoverageGapBulkMoveIntegrityErrorRollback(_CorpusObjsServiceFolderTestBase):
@@ -3866,7 +3866,7 @@ class TestCoverageGapBulkMoveIntegrityErrorRollback(_CorpusObjsServiceFolderTest
 
         # Simulate the ``unique_active_path_per_corpus`` partial unique
         # constraint violating on the batched INSERT (the DB-level guard
-        # that catches TOCTOU races — see _disambiguate_path docstring).
+        # that catches TOCTOU races — see disambiguate_path docstring).
         def failing_bulk_create(*args, **kwargs):
             raise IntegrityError("unique_active_path_per_corpus")
 
@@ -3950,7 +3950,7 @@ class TestMoveDocumentIntegrityRecovery(_CorpusObjsServiceFolderTestBase):
     SCENARIO: A transient IntegrityError on the
     ``unique_active_path_per_corpus`` partial unique index — caused by a
     concurrent transaction claiming the same target path between
-    ``_disambiguate_path``'s SELECT and ``DocumentPath.objects.create``'s
+    ``disambiguate_path``'s SELECT and ``DocumentPath.objects.create``'s
     INSERT — is automatically recovered via retry inside
     ``_create_successor_path_with_retry``.
 

@@ -924,36 +924,36 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                     )
                 )
 
-            # Check if path is occupied — use select_for_update to prevent
-            # TOCTOU race conditions under concurrent requests.
-            occupied_path = (
-                DocumentPath.objects.select_for_update()
-                .filter(corpus=self, path=path, is_current=True, is_deleted=False)
-                .first()
-            )
+            # ``add_document`` always introduces a NEW, independent document
+            # (its own content tree). It is NOT a versioning entry point —
+            # uploading a new version of an existing path is ``import_content``'s
+            # job. So when the auto-/caller-supplied path collides with an
+            # existing active document, we DISAMBIGUATE to a fresh unique path
+            # (e.g. ``/documents/Report`` -> ``/documents/Report_1``) rather
+            # than superseding the occupant. The previous supersede behaviour
+            # silently hid the colliding document (it became a non-current
+            # "version" of an unrelated content tree), which surprised users
+            # who added two same-titled documents and saw the first vanish.
+            #
+            # Disambiguation is best-effort (TOCTOU): the
+            # ``unique_active_path_per_corpus`` partial unique index is the
+            # authoritative guarantee. On the rare concurrent-claim race the
+            # INSERT raises ``IntegrityError`` and the surrounding
+            # ``transaction.atomic()`` rolls the whole add back — safe to retry.
+            from opencontractserver.corpuses.services.paths import CorpusPathService
 
-            if occupied_path:
-                # Path exists with different document - mark as not current
-                occupied_path.is_current = False
-                occupied_path.save(update_fields=["is_current"])
-                parent = occupied_path
-                version_number = occupied_path.version_number + 1
-                logger.info(
-                    f"Replacing doc {occupied_path.document_id} with {corpus_copy.pk} "
-                    f"at {path} in corpus {self.pk}"
-                )
-            else:
-                parent = None
-                version_number = 1
+            path = CorpusPathService.disambiguate_path(path, self)
 
-            # Create DocumentPath linking corpus-isolated document
+            # Create DocumentPath linking corpus-isolated document. Always a
+            # root of a fresh path tree (parent=None, version 1) because the
+            # document itself is new.
             new_path = DocumentPath.objects.create(
                 document=corpus_copy,
                 corpus=self,
                 folder=folder,
                 path=path,
-                version_number=version_number,
-                parent=parent,
+                version_number=1,
+                parent=None,
                 is_current=True,
                 is_deleted=False,
                 creator=user,  # type: ignore[misc]
