@@ -1496,6 +1496,7 @@ class PerformanceTestCase(TestCase):
             )
 
         # Traverse history
+        assert doc is not None
         start = time.time()
         history = get_content_history(doc)
         duration = time.time() - start
@@ -1550,6 +1551,7 @@ class PdfFileCreationTestCase(TestCase):
             "pdf_file field is empty - this will cause frontend loading failures!",
         )
         # Verify the file has correct extension
+        assert doc.pdf_file.name is not None
         self.assertTrue(
             doc.pdf_file.name.endswith(".pdf"),
             f"Expected .pdf extension, got: {doc.pdf_file.name}",
@@ -1576,6 +1578,7 @@ class PdfFileCreationTestCase(TestCase):
 
         self.assertEqual(status, "created")
         self.assertTrue(doc.pdf_file, "pdf_file field is empty!")
+        assert doc.pdf_file.name is not None
         self.assertTrue(
             doc.pdf_file.name.endswith(".docx"),
             f"Expected .docx extension, got: {doc.pdf_file.name}",
@@ -1640,6 +1643,7 @@ class PdfFileCreationTestCase(TestCase):
         self.assertEqual(status, "created")
         self.assertTrue(doc.pdf_file)
         # Should use the explicit filename (may have path prefix added by storage)
+        assert doc.pdf_file.name is not None
         self.assertIn("explicit_name", doc.pdf_file.name)
 
     def test_import_document_filename_derived_from_path(self):
@@ -1657,6 +1661,7 @@ class PdfFileCreationTestCase(TestCase):
 
         self.assertTrue(doc.pdf_file)
         # Filename should be derived from path (my_important_report.pdf)
+        assert doc.pdf_file.name is not None
         self.assertIn("my_important_report", doc.pdf_file.name)
 
     def test_import_document_with_existing_content_creates_pdf_file(self):
@@ -1760,6 +1765,7 @@ class TextFileVersioningTestCase(TestCase):
             "pdf_file should be empty for text files!",
         )
         # Verify the file has correct extension
+        assert doc.txt_extract_file.name is not None
         self.assertTrue(
             doc.txt_extract_file.name.endswith(".txt"),
             f"Expected .txt extension, got: {doc.txt_extract_file.name}",
