@@ -524,7 +524,9 @@ def _apply_caml_article_edit(
 
         # Lock order inside this atomic block: Document (locked above via
         # ``select_for_update``) -> Corpus -> DocumentPath (locked inside
-        # ``import_document``).  Lock the Corpus row too so a concurrent corpus
+        # ``import_document`` via ``.select_for_update().first()`` — only when
+        # the path already exists; the new-document case has no row to lock).
+        # Lock the Corpus row too so a concurrent corpus
         # delete, or a ``readme_caml_document_id`` cache refresh, cannot race
         # between the Document lock and ``import_document`` and leave this edit
         # operating on a stale Corpus.
