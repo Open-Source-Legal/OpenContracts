@@ -26,7 +26,6 @@ from .formatters import (
 )
 
 if TYPE_CHECKING:
-    from opencontractserver.corpuses.models import Corpus
     from opencontractserver.users.types import UserOrAnonymous
 
 logger = logging.getLogger(__name__)
@@ -120,18 +119,37 @@ def list_documents(
 
 
 def get_document_text(
-    corpus_slug: str, document_slug: str, user: UserOrAnonymous | None = None
+    corpus_slug: str,
+    document_slug: str,
+    char_offset: int = 0,
+    max_chars: int | None = None,
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
-    Retrieve full extracted text from a document.
+    Retrieve extracted document text in bounded slices.
+
+    Returns a window of the flat extracted text starting at ``char_offset``.
+    Use ``next_offset`` from the response to page through a long document
+    rather than pulling the whole thing in one (token-blowing) call. For
+    page-targeted reads, use ``search_corpus`` (returns ``page``) and
+    ``list_annotations(page=N)`` instead.
 
     Args:
         corpus_slug: Corpus identifier
         document_slug: Document identifier
+        char_offset: Start offset into the extracted text (default 0)
+        max_chars: Window size in characters (default
+            ``MCP_DOCUMENT_TEXT_DEFAULT_CHARS``, hard-capped at
+            ``MCP_DOCUMENT_TEXT_MAX_CHARS``)
 
     Returns:
-        Dict with document slug, page count, and full text
+        Dict with slug, page_count, total_chars, char_offset, text,
+        next_offset (None when the window reaches the end) and truncated.
     """
+    from opencontractserver.constants.mcp import (
+        MCP_DOCUMENT_TEXT_DEFAULT_CHARS,
+        MCP_DOCUMENT_TEXT_MAX_CHARS,
+    )
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.corpuses.services import CorpusDocumentService
 
@@ -158,10 +176,22 @@ def get_document_text(
         except Exception:
             full_text = ""
 
+    total = len(full_text)
+    char_offset = max(0, int(char_offset))
+    window = MCP_DOCUMENT_TEXT_DEFAULT_CHARS if max_chars is None else int(max_chars)
+    window = max(0, min(window, MCP_DOCUMENT_TEXT_MAX_CHARS))
+    end = char_offset + window
+    text = full_text[char_offset:end]
+    next_offset = end if end < total else None
+
     return {
         "document_slug": document.slug,
         "page_count": document.page_count or 0,
-        "text": full_text,
+        "total_chars": total,
+        "char_offset": char_offset,
+        "text": text,
+        "next_offset": next_offset,
+        "truncated": next_offset is not None,
     }
 
 
@@ -170,23 +200,28 @@ def list_annotations(
     document_slug: str,
     page: int | None = None,
     label_text: str | None = None,
+    text_contains: str | None = None,
+    structural: bool | None = None,
     limit: int = 100,
     offset: int = 0,
     user: UserOrAnonymous | None = None,
 ) -> dict:
     """
-    List annotations on a document with optional filtering.
+    List / search annotations on a document with optional filtering.
 
     Args:
         corpus_slug: Corpus identifier
         document_slug: Document identifier
         page: Optional page number filter
-        label_text: Optional label text filter
+        label_text: Optional exact label-text filter
+        text_contains: Optional case-insensitive substring filter on annotation text
+        structural: Optional kind filter — None=both, True=structural only,
+            False=human/analysis only
         limit: Number of results (max 100)
         offset: Pagination offset
 
     Returns:
-        Dict with total_count and list of annotations
+        Dict with total_count and list of annotations (ordered by page)
     """
     from opencontractserver.annotations.services import AnnotationService
     from opencontractserver.corpuses.models import Corpus
@@ -212,6 +247,15 @@ def list_annotations(
     if label_text:
         qs = qs.filter(annotation_label__text=label_text)
 
+    if text_contains:
+        qs = qs.filter(raw_text__icontains=text_contains)
+
+    if structural is not None:
+        qs = qs.filter(structural=structural)
+
+    # Stable reading order so an AI can reassemble document flow.
+    qs = qs.order_by("page", "id")
+
     total_count = qs.count()
     annotations = list(qs.select_related("annotation_label")[offset : offset + limit])
 
@@ -221,94 +265,181 @@ def list_annotations(
     }
 
 
-def search_corpus(
-    corpus_slug: str, query: str, limit: int = 10, user: UserOrAnonymous | None = None
+def list_relationships(
+    corpus_slug: str,
+    document_slug: str | None = None,
+    structural: bool | None = None,
+    label_text: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: UserOrAnonymous | None = None,
 ) -> dict:
     """
-    Semantic search within a corpus using vector embeddings.
+    List labeled source->target relationships in the corpus (or one document).
 
-    Falls back to text search if embeddings are unavailable.
+    Relationships connect annotations (e.g. parent/child, cross-references,
+    human- or analysis-drawn edges) and are used to aggregate related content.
+
+    Args:
+        corpus_slug: Corpus identifier
+        document_slug: Optional document filter (corpus-wide when omitted)
+        structural: Optional kind filter — None=both, True=structural only,
+            False=human/analysis only
+        label_text: Optional exact relationship-label filter
+        limit: Number of results (max 100)
+        offset: Pagination offset
+
+    Returns:
+        Dict with total_count and list of relationships (source/target edges)
+    """
+    from opencontractserver.annotations.services.relationship_service import (
+        RelationshipService,
+    )
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.corpuses.services import CorpusDocumentService
+
+    from .formatters import format_relationship
+
+    limit = min(limit, 100)
+    user = user or AnonymousUser()
+    corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
+
+    if document_slug:
+        document = CorpusDocumentService.get_corpus_document_by_slug(
+            user=user, corpus=corpus, slug=document_slug
+        )
+        qs = RelationshipService.get_document_relationships(
+            document_id=document.id,
+            user=user,
+            corpus_id=corpus.id,
+            structural=structural,
+        )
+    else:
+        qs = RelationshipService.get_corpus_relationships(
+            corpus_id=corpus.id, user=user, structural=structural
+        )
+
+    if label_text:
+        qs = qs.filter(relationship_label__text=label_text)
+
+    qs = (
+        qs.select_related("relationship_label")
+        .prefetch_related("source_annotations", "target_annotations")
+        .order_by("id")
+    )
+
+    total_count = qs.count()
+    relationships = list(qs[offset : offset + limit])
+
+    return {
+        "total_count": total_count,
+        "relationships": [format_relationship(r) for r in relationships],
+    }
+
+
+def search_corpus(
+    corpus_slug: str,
+    query: str,
+    limit: int = 10,
+    granularity: str = "both",
+    structural: bool | None = None,
+    user: UserOrAnonymous | None = None,
+) -> dict:
+    """
+    Search a corpus and return a single ranked feed of passages and blocks.
+
+    - ``passage`` hits are annotations (semantic via embeddings, with a text
+      fallback when the vector path is empty/absent/errors).
+    - ``block`` hits are ``OC_SUBTREE_GROUP`` relationships (an ancestor plus
+      its full descendant subtree) — the embedded aggregation unit — via
+      ``CoreRelationshipVectorStore``. Blocks are vector-only (no text fallback).
 
     Args:
         corpus_slug: Corpus identifier
         query: Search query text
         limit: Number of results (max 50)
+        granularity: "passage" | "block" | "both" (default "both")
+        structural: Passage filter — None=both, True=structural only,
+            False=human/analysis only
 
     Returns:
-        Dict with query and ranked results
+        Dict with query and a ranked ``results`` list, each tagged ``type``.
     """
+    from opencontractserver.annotations.services import AnnotationService
     from opencontractserver.corpuses.models import Corpus
-    from opencontractserver.corpuses.services import CorpusDocumentService
+
+    from .formatters import format_search_block, format_search_passage
 
     limit = min(limit, 50)
     user = user or AnonymousUser()
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
-    # Try to use vector search
+    embedder_path: str | None = None
+    query_vector: list[float] | None = None
     try:
-        # embed_text() returns (embedder_path, query_vector) tuple
+        # embed_text() returns (embedder_path, query_vector) tuple.
         embedder_path, query_vector = corpus.embed_text(query)
+    except (ValueError, TypeError, AttributeError, RuntimeError):
+        embedder_path, query_vector = None, None
 
+    formatted: list[dict] = []
+
+    # --- passage half (annotations) ---
+    if granularity in ("passage", "both"):
+        ann_qs = AnnotationService.get_corpus_annotations(
+            corpus.id, user, structural=structural
+        ).select_related("document", "annotation_label")
+        passages: list = []
         if query_vector:
-            # Single canonical entry point: corpus-as-gate doc set for this user.
-            doc_results = list(
-                CorpusDocumentService.get_corpus_documents(
-                    user=user, corpus=corpus
-                ).search_by_embedding(  # type: ignore[attr-defined]
-                    query_vector, embedder_path, top_k=limit
+            try:
+                passages = list(
+                    ann_qs.search_by_embedding(  # type: ignore[attr-defined]
+                        query_vector, embedder_path, top_k=limit
+                    )
                 )
-            )
-
-            results = []
-            for doc in doc_results:
-                results.append(
-                    {
-                        "type": "document",
-                        "slug": doc.slug,
-                        "title": doc.title or "",
-                        "similarity_score": float(getattr(doc, "similarity_score", 0)),
-                    }
-                )
-
-            return {"query": query, "results": results}
-    except (ValueError, TypeError, AttributeError):
-        # Expected when embeddings are not configured or embed_text returns invalid data
-        pass
-    except RuntimeError as e:
-        # Embedding service or model loading errors
-        import logging
-
-        logging.getLogger(__name__).debug(f"Vector search unavailable: {e}")
-
-    # Fallback to text search
-    return _text_search_fallback(corpus, query, limit, user)
-
-
-def _text_search_fallback(
-    corpus: Corpus, query: str, limit: int, user: UserOrAnonymous
-) -> dict:
-    """Fallback to text search when embeddings are unavailable."""
-    from opencontractserver.corpuses.services import CorpusDocumentService
-
-    # Single canonical entry point: corpus-as-gate doc set for this user.
-    documents = list(
-        CorpusDocumentService.get_corpus_documents(user=user, corpus=corpus).filter(
-            Q(title__icontains=query) | Q(description__icontains=query)
-        )[:limit]
-    )
-
-    results = []
-    for doc in documents:
-        results.append(
-            {
-                "type": "document",
-                "slug": doc.slug,
-                "title": doc.title or "",
-                "similarity_score": None,
-            }
+            except (ValueError, TypeError, AttributeError, RuntimeError):
+                passages = []
+        if not passages:
+            # Fall through to text search whenever the vector path yields
+            # nothing — fixing the prior "return on empty vector" dead-fallback.
+            passages = list(ann_qs.filter(raw_text__icontains=query)[:limit])
+        formatted.extend(
+            format_search_passage(a, getattr(a, "similarity_score", None))
+            for a in passages
         )
 
-    return {"query": query, "results": results}
+    # --- block half (subtree-group relationships, vector-only) ---
+    if granularity in ("block", "both") and query_vector:
+        from opencontractserver.llms.vector_stores.core_relationship_vector_store import (  # noqa: E501
+            CoreRelationshipVectorStore,
+            RelationshipVectorSearchQuery,
+        )
+
+        try:
+            store = CoreRelationshipVectorStore(
+                user_id=getattr(user, "pk", None),
+                corpus_id=corpus.id,
+                embedder_path=embedder_path,
+                embed_dim=len(query_vector),
+            )
+            blocks = store.search(
+                RelationshipVectorSearchQuery(
+                    query_embedding=query_vector, similarity_top_k=limit
+                )
+            )
+            formatted.extend(format_search_block(b) for b in blocks)
+        except (ValueError, TypeError, AttributeError, RuntimeError):
+            pass
+
+    # Merge by score; text-fallback passages (score None) sort last; cap at limit.
+    formatted.sort(
+        key=lambda r: (
+            r["similarity_score"] is not None,
+            r["similarity_score"] or 0.0,
+        ),
+        reverse=True,
+    )
+    return {"query": query, "results": formatted[:limit]}
 
 
 def list_threads(
@@ -571,6 +702,7 @@ def get_corpus_info(corpus_slug: str, user: UserOrAnonymous | None = None) -> di
     Returns:
         Dict with detailed corpus information including label set
     """
+    from opencontractserver.annotations.services import AnnotationService
     from opencontractserver.corpuses.models import Corpus
 
     user = user or AnonymousUser()
@@ -583,12 +715,23 @@ def get_corpus_info(corpus_slug: str, user: UserOrAnonymous | None = None) -> di
         .get(slug=corpus_slug)
     )
 
-    # Get label set info if available
+    # Get label set info if available. Only surface labels that are ACTUALLY
+    # used on this corpus's annotations — the seeded "Default Labels" set
+    # otherwise advertises dozens of irrelevant labels and misleads an AI
+    # about what the `label_text` filter can match.
     label_set_data = None
     if corpus.label_set:
+        used_label_ids = set(
+            AnnotationService.get_corpus_annotations(corpus.id, user)
+            .exclude(annotation_label__isnull=True)
+            .values_list("annotation_label_id", flat=True)
+            .distinct()
+        )
         labels = []
         # annotation_labels is already prefetched, slicing in Python to avoid new query
-        for label in list(corpus.label_set.annotation_labels.all())[:50]:
+        for label in corpus.label_set.annotation_labels.all():
+            if label.id not in used_label_ids:
+                continue
             labels.append(
                 {
                     "text": label.text,
@@ -597,6 +740,8 @@ def get_corpus_info(corpus_slug: str, user: UserOrAnonymous | None = None) -> di
                     "description": label.description or "",
                 }
             )
+            if len(labels) >= 50:
+                break
         label_set_data = {
             "title": corpus.label_set.title or "",
             "description": corpus.label_set.description or "",
@@ -663,6 +808,9 @@ def get_scoped_tool_handlers(corpus_slug: str) -> dict[str, Callable[..., Any]]:
         "list_documents": create_scoped_tool_wrapper(list_documents, corpus_slug),
         "get_document_text": create_scoped_tool_wrapper(get_document_text, corpus_slug),
         "list_annotations": create_scoped_tool_wrapper(list_annotations, corpus_slug),
+        "list_relationships": create_scoped_tool_wrapper(
+            list_relationships, corpus_slug
+        ),
         "search_corpus": create_scoped_tool_wrapper(search_corpus, corpus_slug),
         "list_threads": create_scoped_tool_wrapper(list_threads, corpus_slug),
         "get_thread_messages": create_scoped_tool_wrapper(

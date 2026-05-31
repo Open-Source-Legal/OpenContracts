@@ -29,7 +29,11 @@ if TYPE_CHECKING:
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+    PermissionDenied,
+    ValidationError,
+)
 from graphql_jwt.exceptions import JSONWebTokenError, JSONWebTokenExpired
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -71,6 +75,7 @@ from .tools import (
     list_annotations,
     list_documents,
     list_public_corpuses,
+    list_relationships,
     list_threads,
     search_corpus,
 )
@@ -221,6 +226,7 @@ TOOL_HANDLERS: dict[str, Callable[..., Any]] = {
     "list_documents": list_documents,
     "get_document_text": get_document_text,
     "list_annotations": list_annotations,
+    "list_relationships": list_relationships,
     "search_corpus": search_corpus,
     "list_threads": list_threads,
     "get_thread_messages": get_thread_messages,
@@ -357,22 +363,37 @@ async def read_resource_handler(uri: str) -> str:
 
 
 def _format_tool_error_text(e: BaseException) -> str:
-    """Render a permission/validation error into the LLM-facing error string.
+    """Render a permission/validation/not-found error into the LLM-facing string.
 
     ``ValidationError.messages`` is preferred for structured payloads; the
-    plain ``PermissionDenied`` path falls back to ``str(e)``. Shared between
-    the non-scoped ``call_tool_handler`` and the scoped ``call_tool``
-    dispatcher so error serialisation stays in lockstep.
+    plain ``PermissionDenied`` path falls back to ``str(e)``. ``ObjectDoesNotExist``
+    is humanized into an actionable message that names the remediation tool —
+    never the raw Django ``"... matching query does not exist."`` string, which
+    tells an AI nothing. Shared between the non-scoped ``call_tool_handler`` and
+    the scoped ``call_tool`` dispatcher so error serialisation stays in lockstep.
     """
     if isinstance(e, ValidationError):
         return "; ".join(e.messages) or "Validation error"
     if isinstance(e, PermissionDenied):
         return str(e) or "Permission denied"
+    if isinstance(e, ObjectDoesNotExist):
+        # ``Document.DoesNotExist`` / ``Corpus.DoesNotExist`` subclass this.
+        cls_name = type(e).__qualname__
+        if cls_name.startswith("Document"):
+            return (
+                "No matching document was found in this corpus. Call "
+                "list_documents to see valid document_slug values."
+            )
+        if cls_name.startswith("Corpus"):
+            return (
+                "No matching corpus was found. Call list_public_corpuses to "
+                "see valid corpus_slug values."
+            )
+        return "The requested item was not found."
     # Anything else reaching this helper is an unexpected exception type
-    # (the call sites narrow to ``PermissionDenied``/``ValidationError``,
-    # but the body is shared so be defensive). Returning "Permission
-    # denied" for, say, a raw ``Exception`` would actively mislead the
-    # LLM about what went wrong.
+    # (the call sites narrow to the handled exceptions above, but the body is
+    # shared so be defensive). Returning "Permission denied" for, say, a raw
+    # ``Exception`` would actively mislead the LLM about what went wrong.
     return str(e) or "Unexpected error"
 
 
@@ -445,10 +466,11 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
             document_slug=_document_slug,
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
-    except (PermissionDenied, ValidationError) as e:
+    except (PermissionDenied, ValidationError, ObjectDoesNotExist) as e:
         # Surface permission failures (e.g., write tools called by anonymous
-        # callers) and input-validation errors (blank/oversized content, etc.)
-        # as structured error results so the LLM can reason about them and
+        # callers), input-validation errors (blank/oversized content, etc.) and
+        # not-found lookups (bad slug / cross-corpus / hidden corpus) as
+        # structured error results so the LLM can reason about them and
         # retry/correct, rather than receiving an opaque transport error.
         return await _record_and_return_tool_error(
             e,
@@ -564,7 +586,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="get_document_text",
-                description="Get full extracted text from a document",
+                description="Get extracted document text in bounded slices (char_offset/max_chars)",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -576,13 +598,25 @@ def create_mcp_server() -> Server:
                             "type": "string",
                             "description": "Document identifier",
                         },
+                        "char_offset": {
+                            "type": "integer",
+                            "default": 0,
+                            "description": "Start offset into the extracted text",
+                        },
+                        "max_chars": {
+                            "type": "integer",
+                            "description": "Window size; use next_offset to paginate",
+                        },
                     },
                     "required": ["corpus_slug", "document_slug"],
                 },
             ),
             Tool(
                 name="list_annotations",
-                description="List annotations on a document",
+                description=(
+                    "List/search a document's annotations (filter by page, "
+                    "label_text, text_contains, structural)"
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -594,7 +628,15 @@ def create_mcp_server() -> Server:
                         },
                         "label_text": {
                             "type": "string",
-                            "description": "Filter by label text",
+                            "description": "Filter by exact label text",
+                        },
+                        "text_contains": {
+                            "type": "string",
+                            "description": "Filter annotations whose text contains this substring",
+                        },
+                        "structural": {
+                            "type": "boolean",
+                            "description": "Filter: omit=all, true=structural only, false=human/analysis only",
                         },
                         "limit": {"type": "integer", "default": 100},
                         "offset": {"type": "integer", "default": 0},
@@ -603,14 +645,62 @@ def create_mcp_server() -> Server:
                 },
             ),
             Tool(
+                name="list_relationships",
+                description=(
+                    "List labeled source→target relationships in a corpus "
+                    "(or a single document) for explicit graph navigation"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "corpus_slug": {"type": "string"},
+                        "document_slug": {
+                            "type": "string",
+                            "description": "Optional document filter (corpus-wide when omitted)",
+                        },
+                        "structural": {
+                            "type": "boolean",
+                            "description": "Filter: omit=all, true=structural only, false=human/analysis only",
+                        },
+                        "label_text": {
+                            "type": "string",
+                            "description": "Filter by exact relationship label",
+                        },
+                        "limit": {"type": "integer", "default": 50},
+                        "offset": {"type": "integer", "default": 0},
+                    },
+                    "required": ["corpus_slug"],
+                },
+            ),
+            Tool(
                 name="search_corpus",
-                description="Semantic search within a corpus",
+                description=(
+                    "Search a corpus. Returns a ranked feed of passage and "
+                    "block hits (each tagged 'type'); semantic with a text fallback"
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "corpus_slug": {"type": "string"},
                         "query": {"type": "string", "description": "Search query"},
-                        "limit": {"type": "integer", "default": 10},
+                        "limit": {
+                            "type": "integer",
+                            "default": 10,
+                            "description": "Max hits (1-50)",
+                        },
+                        "granularity": {
+                            "type": "string",
+                            "enum": ["passage", "block", "both"],
+                            "default": "both",
+                            "description": (
+                                "passage = annotation hits; block = aggregated "
+                                "subtree-group hits; both = merged feed"
+                            ),
+                        },
+                        "structural": {
+                            "type": "boolean",
+                            "description": "Filter passages: omit=all, true=structural only, false=human/analysis only",
+                        },
                     },
                     "required": ["corpus_slug", "query"],
                 },
@@ -721,7 +811,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
         ),
         Tool(
             name="get_document_text",
-            description="Get full extracted text from a document",
+            description="Get extracted document text in bounded slices (char_offset/max_chars)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -729,13 +819,25 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                         "type": "string",
                         "description": "Document identifier",
                     },
+                    "char_offset": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Start offset into the extracted text",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Window size; use next_offset to paginate",
+                    },
                 },
                 "required": ["document_slug"],
             },
         ),
         Tool(
             name="list_annotations",
-            description="List annotations on a document",
+            description=(
+                "List/search a document's annotations (filter by page, "
+                "label_text, text_contains, structural)"
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -746,7 +848,15 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                     },
                     "label_text": {
                         "type": "string",
-                        "description": "Filter by label text",
+                        "description": "Filter by exact label text",
+                    },
+                    "text_contains": {
+                        "type": "string",
+                        "description": "Filter annotations whose text contains this substring",
+                    },
+                    "structural": {
+                        "type": "boolean",
+                        "description": "Filter: omit=all, true=structural only, false=human/analysis only",
                     },
                     "limit": {"type": "integer", "default": 100},
                     "offset": {"type": "integer", "default": 0},
@@ -755,13 +865,60 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
             },
         ),
         Tool(
+            name="list_relationships",
+            description=(
+                f"List labeled source→target relationships in the "
+                f"'{corpus_slug}' corpus (or a single document)"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "document_slug": {
+                        "type": "string",
+                        "description": "Optional document filter (corpus-wide when omitted)",
+                    },
+                    "structural": {
+                        "type": "boolean",
+                        "description": "Filter: omit=all, true=structural only, false=human/analysis only",
+                    },
+                    "label_text": {
+                        "type": "string",
+                        "description": "Filter by exact relationship label",
+                    },
+                    "limit": {"type": "integer", "default": 50},
+                    "offset": {"type": "integer", "default": 0},
+                },
+            },
+        ),
+        Tool(
             name="search_corpus",
-            description=f"Semantic search within the '{corpus_slug}' corpus",
+            description=(
+                f"Search the '{corpus_slug}' corpus. Returns a ranked feed of "
+                f"passage and block hits (each tagged 'type'); semantic with a "
+                f"text fallback"
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query"},
-                    "limit": {"type": "integer", "default": 10},
+                    "limit": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Max hits (1-50)",
+                    },
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["passage", "block", "both"],
+                        "default": "both",
+                        "description": (
+                            "passage = annotation hits; block = aggregated "
+                            "subtree-group hits; both = merged feed"
+                        ),
+                    },
+                    "structural": {
+                        "type": "boolean",
+                        "description": "Filter passages: omit=all, true=structural only, false=human/analysis only",
+                    },
                 },
                 "required": ["query"],
             },
@@ -1064,10 +1221,10 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
                 document_slug=_document_slug,
             )
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
-        except (PermissionDenied, ValidationError) as e:
-            # Same rationale as the non-scoped dispatcher: surface
-            # permission failures and Django input-validation errors as
-            # structured tool results so the LLM can react to them.
+        except (PermissionDenied, ValidationError, ObjectDoesNotExist) as e:
+            # Same rationale as the non-scoped dispatcher: surface permission
+            # failures, Django input-validation errors and not-found lookups
+            # as structured tool results so the LLM can react to them.
             return await _record_and_return_tool_error(
                 e,
                 name=name,
