@@ -56,7 +56,9 @@ def get_corpus_description(
     # description (a corpus-level README, not per-document data) is effectively
     # gated upstream. Threading the live caller through here for defence-in-depth
     # would require a tool-signature + injection change and is tracked as a
-    # follow-up rather than done inline.
+    # follow-up rather than done inline.  TODO(#1848): thread the invoking user
+    # through ``get_corpus_description`` once the agent framework injects it,
+    # and drop the ``corpus.creator`` fallback.
     #
     # Defensive: ``corpus.creator`` can be NULL if the creating user was hard-
     # deleted/deactivated. Without a creator there is no identity to scope the

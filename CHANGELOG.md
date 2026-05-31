@@ -63,8 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS`, default 6h) so a crashed
     mid-assembly worker is still cleaned up. The Celery task now also accepts
     `completed_retention_days` so an operator can override retention at enqueue
-    time. The single-document reassembly's whole-file-in-RAM tradeoff is
-    tracked as a streaming follow-up (issue #1843).
+    time. The single-document reassembly's whole-file-in-RAM tradeoff has since
+    been removed — it now streams (see the issue #1843 entry under **Fixed**).
   - **Tests**: `opencontractserver/tests/test_document_imports_chunked.py`
     (round-trip byte-exact reassembly, validation, IDOR isolation, integrity
     checks, zip kinds, stale-session GC, ASSEMBLING grace window) and the
@@ -93,6 +93,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `research` — a single source of truth that also covers browser back/forward.
   Regression-guarded by a new test in
   `frontend/src/routing/__tests__/centralRouteDiscipline.test.ts`.
+- **Chunked single-document import no longer buffers the whole file in RAM at
+  `complete` (issue #1843).** Reassembling a chunked single-document upload
+  previously did `file_bytes = tmp.read()` and passed the whole assembled file
+  to `import_document_for_user` → `Corpus.import_content` →
+  `documents.versioning.import_document`, which only accepted `content: bytes`.
+  Because `complete` runs synchronously in the web process and
+  `MAX_DOCUMENT_IMPORT_SIZE_BYTES` defaults to 5 GB (frontend accepts 2 GB), a
+  single `complete` call could spike a web worker by 2–5 GB and starve other
+  workers. A streaming file-like is now threaded all the way through:
+  - **`documents/versioning.py`**: `import_document` accepts `content=None`
+    plus a type-routed `content_file` (and still honours explicit
+    `pdf_file` / `txt_file`); the content hash is computed by streaming the
+    file via the new `compute_sha256_for_file` helper instead of from a `bytes`
+    blob. Existing `content=bytes` callers are unchanged.
+  - **`corpuses/models.py`**: `Corpus.import_content` accepts a `content_file`
+    file object as a streaming alternative to `content` bytes (exactly one is
+    required) and forwards it to `import_document`.
+  - **`document_imports/services.py`**: `import_document_for_user` accepts a
+    `file_obj` (sniffing only an 8 KB header for MIME detection rather than
+    reading the whole file), and `complete_chunked_upload`'s DOCUMENT branch
+    now passes `File(tmp)` instead of `tmp.read()`. Peak memory for a chunked
+    single-document import is now O(block) — matching the three ZIP kinds —
+    instead of ~the whole file size.
+  - **Review hardening**: `import_document` now raises `ValueError` when a
+    caller passes both `content_file` and the matching explicit
+    `pdf_file`/`txt_file` (previously `content_file` was silently dropped),
+    mirroring `import_content`'s mutual-exclusion; the MIME-sniff narrowing in
+    `import_document_for_user` no longer uses an `assert` (stripped under
+    `python -O`) and the streamed-hash call site documents its intentional
+    double read. New test:
+    `StreamingImportTestCase::test_import_document_rejects_content_file_and_explicit_file`.
+  - **Tests**: streaming-hash and file-routing unit tests in
+    `test_document_versioning.py` (`StreamingImportTestCase`) and chunked
+    HTTP tests in `test_document_imports_chunked.py` (streamed-not-buffered
+    contract, streamed-hash correctness, plain-text round trip).
 - **Flaky test isolation** (`opencontractserver/tests/research/test_research_report_model.py`, issue #1845): `test_visible_to_user_superuser_sees_all` asserted a global `visible_to_user(admin).count() == 2`. Because the superuser branch returns `.all()`, a sibling `TransactionTestCase` that commits `ResearchReport` rows broke the count under a sequential whole-`research/`-directory run (CI stayed green only because xdist isolates files to separate worker DBs). Scoped the assertion to the test's own rows. Test-only; no production impact.
 
 - **Corpus document versioning & path/folder audit — correctness and performance fixes.** A sweep of the dual-tree versioning (`DocumentPath`) and `CorpusFolder` path system surfaced several correctness gaps and N+1s. Regression coverage: `opencontractserver/tests/test_versioning_paths_audit.py`.

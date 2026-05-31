@@ -329,7 +329,8 @@ def _is_readme_caml_document(doc: Document) -> bool:
     trip these signals into a spurious cache refresh. The refresh is
     idempotent and corpus-scoped (it re-derives from the current CAML head via
     DocumentPath), so a false positive is wasteful but not corrupting. A
-    model-level flag would harden this; left as a follow-up.
+    model-level flag (e.g. a ``Document.is_corpus_readme`` boolean) would
+    harden this; tracked as TODO(#1848).
     """
     from opencontractserver.constants.document_processing import (
         CAML_ARTICLE_TITLE,
