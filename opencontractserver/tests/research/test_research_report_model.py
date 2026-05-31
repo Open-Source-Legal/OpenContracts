@@ -94,12 +94,8 @@ class ResearchReportModelTestCase(TestCase):
         other_report = ResearchReport.objects.create(
             creator=self.other, corpus=self.corpus, prompt="y"
         )
-        # Scope the assertion to this test's own rows rather than a global
-        # ``.count() == 2``. The superuser branch of ``visible_to_user``
-        # returns ``.all()``, so a global count is polluted by rows a sibling
-        # ``TransactionTestCase`` (``AstartDeepResearchTestCase``) commits when
-        # the whole ``research/`` directory runs sequentially on one database
-        # (issue #1845).
+        # assertIn (not count() == 2): the superuser branch returns .all(), so a
+        # global count is polluted by sibling TransactionTestCase rows (issue #1845).
         visible = ResearchReport.objects.visible_to_user(admin)
         self.assertIn(user_report, visible)
         self.assertIn(other_report, visible)
