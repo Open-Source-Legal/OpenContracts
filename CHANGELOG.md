@@ -44,10 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (v4 for React 18), `leaflet.markercluster`, `@types/leaflet`,
     `@types/leaflet.markercluster`.
   - **Tests** (`frontend/tests/AnnotationMap.ct.tsx`,
-    `frontend/tests/DiscoverMapTab.ct.tsx`) — Playwright CT coverage that pins
+    `frontend/tests/DiscoverMapPanel.ct.tsx`) — Playwright CT coverage that pins
     render at the right coordinates, a pin click opens the panel / invokes
-    `onPinClick`, the zoom→label-type band selection picks the right pins, and
-    the Discover tab renders pins from the mocked query.
+    `onPinClick` / fires the document-open callback / closes the panel, the
+    zoom→label-type band selection picks the right pins, and the Discover panel
+    renders pins from the mocked query.
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB
