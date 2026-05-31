@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is intentionally omitted (MCP is Bearer-token, not cookie, auth);
   `_OAUTH_PROTECTED_RESOURCES` is a `frozenset` to make its membership-test
   intent explicit.
+  - **Review follow-ups (#1842)**: the CORS `send`-wrapper now folds
+    `Vary: Origin` into a pre-existing `Vary` header (e.g. `Accept-Encoding`)
+    instead of dropping it on a membership check, so caches/CDNs still vary on
+    `Origin` (regression test
+    `test_cors_vary_folds_into_existing_vary_header`). The MCP Inspector
+    loopback origins (`http://localhost:6274`, `http://127.0.0.1:6274`) are now
+    only in the `MCP_CORS_ALLOWED_ORIGINS` default under `DEBUG`, so they never
+    ship in a production default; operators can still set them explicitly. Added
+    an inline note on why the `send`-wrap must precede the rate-limit/JWT
+    branches.
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB

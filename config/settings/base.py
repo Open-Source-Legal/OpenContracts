@@ -1540,16 +1540,25 @@ MCP_SERVER = {
 # (opencontractserver/mcp/server.py), which also merges in CORS_ALLOWED_ORIGINS
 # at request time. Hosted Claude/ChatGPT connectors call server-side and don't
 # need this, but browser clients and the MCP Inspector do.
-MCP_CORS_ALLOWED_ORIGINS = env.list(
-    "MCP_CORS_ALLOWED_ORIGINS",
-    default=[
-        "https://claude.ai",
-        "https://chatgpt.com",
-        "https://chat.openai.com",
-        # MCP Inspector default origin (npx @modelcontextprotocol/inspector)
+# The hosted connectors are always safe to default-allow. The MCP Inspector
+# loopback origins (npx @modelcontextprotocol/inspector, port 6274) are only
+# folded into the default under DEBUG so they never ship in a production
+# default — any other process binding :6274 on a deployed host would otherwise
+# inherit credentialed cross-origin access. Operators who need them in a
+# non-DEBUG environment can still set MCP_CORS_ALLOWED_ORIGINS explicitly.
+_MCP_CORS_DEFAULT_ORIGINS = [
+    "https://claude.ai",
+    "https://chatgpt.com",
+    "https://chat.openai.com",
+]
+if DEBUG:
+    _MCP_CORS_DEFAULT_ORIGINS += [
         "http://localhost:6274",
         "http://127.0.0.1:6274",
-    ],
+    ]
+MCP_CORS_ALLOWED_ORIGINS = env.list(
+    "MCP_CORS_ALLOWED_ORIGINS",
+    default=_MCP_CORS_DEFAULT_ORIGINS,
 )
 
 # Optional trusted public base URL (scheme://host) for absolute URLs the MCP

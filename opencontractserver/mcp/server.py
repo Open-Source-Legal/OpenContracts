@@ -293,7 +293,21 @@ def _wrap_send_with_cors(send: ASGISend, cors_headers: list[list[bytes]]) -> ASG
             # here — no need to guard for ``str``.
             present = {h[0].lower() for h in existing}
             for header in cors_headers:
-                if header[0] not in present:
+                name = header[0]
+                if name == b"vary":
+                    # Don't drop ``Vary: Origin`` when a downstream response
+                    # already carries a ``Vary`` (e.g. ``Accept-Encoding``):
+                    # fold ``Origin`` into the existing value so caches/CDNs
+                    # still vary on it. A plain membership skip would silently
+                    # strip it and risk serving a CORS-stripped cached response.
+                    for i, h in enumerate(existing):
+                        if h[0].lower() == b"vary":
+                            if b"origin" not in h[1].lower():
+                                existing[i] = [b"vary", h[1] + b", Origin"]
+                            break
+                    else:
+                        existing.append(header)
+                elif name not in present:
                     existing.append(header)
             message["headers"] = existing
         await send(message)
@@ -1653,6 +1667,10 @@ def create_mcp_asgi_app() -> ASGIApp:
             )
             await send({"type": "http.response.body", "body": b""})
             return
+        # Wrap ``send`` BEFORE the rate-limit and JWT-validation branches below
+        # so every error response (429, 401) also carries CORS headers. Do not
+        # move this past those checks or the auth challenge becomes unreadable
+        # to cross-origin browser clients.
         send = _wrap_send_with_cors(send, _cors_actual_headers(origin))
 
         # Store scope in ContextVar so tool handlers can access it

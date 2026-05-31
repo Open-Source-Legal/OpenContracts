@@ -6200,6 +6200,46 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
             headers.get(b"access-control-allow-origin"), b"https://claude.ai"
         )
 
+    def test_cors_vary_folds_into_existing_vary_header(self):
+        """When a downstream response already carries a ``Vary`` (e.g.
+        ``Accept-Encoding``), the CORS wrapper must fold ``Origin`` into it
+        rather than dropping ``Vary: Origin`` on the membership check — otherwise
+        a CDN could serve a CORS-stripped cached response cross-origin."""
+        from opencontractserver.mcp.server import (
+            _cors_actual_headers,
+            _wrap_send_with_cors,
+        )
+
+        captured: list = []
+
+        async def downstream_send(message):
+            captured.append(message)
+
+        cors_headers = _cors_actual_headers("https://claude.ai")
+        self.assertTrue(cors_headers, "fixture origin must be allow-listed")
+
+        async def run_test():
+            with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+                cors = _cors_actual_headers("https://claude.ai")
+                wrapped = _wrap_send_with_cors(downstream_send, cors)
+                await wrapped(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        # Downstream already varies on Accept-Encoding.
+                        "headers": [[b"vary", b"Accept-Encoding"]],
+                    }
+                )
+
+        self._run(run_test())
+
+        headers = captured[0]["headers"]
+        vary_values = [h[1] for h in headers if h[0].lower() == b"vary"]
+        # Exactly one Vary header, folding in Origin (not a second Vary line).
+        self.assertEqual(len(vary_values), 1)
+        self.assertIn(b"Accept-Encoding", vary_values[0])
+        self.assertIn(b"Origin", vary_values[0])
+
     def test_valid_bearer_token_on_authed_endpoint_does_not_401(self):
         """A valid JWT on /mcp/me must reach downstream, not the 401 branch."""
         from unittest.mock import patch
@@ -6288,7 +6328,8 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
     def test_configured_base_url_preferred_over_host_in_challenge(self):
         """A valid MCP_PUBLIC_BASE_URL is preferred over the (untrusted) Host
         header in the 401 challenge and yields a well-formed resource_metadata
-        URL (review item 1)."""
+        URL. MCP bypasses ALLOWED_HOSTS, so the configured value must win over
+        whatever Host an attacker can spoof."""
         with override_settings(
             USE_AUTH0=True,
             AUTH0_DOMAIN="example.auth0.com",
@@ -6311,8 +6352,7 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         stripping but is not a valid ``scheme://host`` (a header-injection
         attempt, or a stray ``;junk`` typo) is dropped entirely: the challenge
         degrades to a realm-only ``Bearer`` value rather than emitting a mangled
-        URL or — critically — falling back to the untrusted request Host
-        (review item 1)."""
+        URL or — critically — falling back to the untrusted request Host."""
         for bad_value in (
             'https://configured.test"\r\nx-injected: y',
             "https://configured.test;junk",
