@@ -22,6 +22,15 @@ interface ConfirmModalProps {
   confirmLabel?: string;
   /** Label for the cancel button. Defaults to "No". */
   cancelLabel?: string;
+  /**
+   * In-flight state for an async confirm action. When this prop is supplied
+   * (defined), the modal switches to a *caller-controlled* close: clicking
+   * "Yes" fires `yesAction` but does NOT auto-close, so the spinner stays
+   * visible until the caller closes via `toggleModal` once the work settles.
+   * While truthy, both buttons and overlay/escape dismissal are disabled.
+   * Omitting the prop preserves the original auto-close-on-Yes behavior.
+   */
+  confirmLoading?: boolean;
 }
 export function ConfirmModal({
   message,
@@ -32,10 +41,20 @@ export function ConfirmModal({
   confirmVariant = "danger",
   confirmLabel = "Yes",
   cancelLabel = "No",
+  confirmLoading,
 }: ConfirmModalProps) {
+  // Opting into the controlled-loading flow means the caller closes the modal
+  // itself after the async action settles, so "Yes" must not auto-close.
+  const controlledLoading = confirmLoading !== undefined;
+
   const onYesClick = () => {
     yesAction();
-    toggleModal();
+    // Gate on `controlledLoading` (was the prop supplied at all?), NOT
+    // `confirmLoading`'s truthiness like `onClose` below: once a caller opts
+    // in, "Yes" must hand off close to them even on the first click while
+    // `confirmLoading` is still false. ESC/overlay (`onClose`) instead gate on
+    // the truthy value so the dialog can still be dismissed when idle.
+    if (!controlledLoading) toggleModal();
   };
 
   const onNoClick = () => {
@@ -44,7 +63,13 @@ export function ConfirmModal({
   };
 
   return (
-    <Modal open={visible} onClose={() => toggleModal()} size="sm">
+    <Modal
+      open={visible}
+      onClose={() => {
+        if (!confirmLoading) toggleModal();
+      }}
+      size="sm"
+    >
       <ModalHeader
         title={
           <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -52,7 +77,9 @@ export function ConfirmModal({
             ARE YOU SURE?
           </span>
         }
-        onClose={() => toggleModal()}
+        onClose={() => {
+          if (!confirmLoading) toggleModal();
+        }}
       />
       <ModalBody>
         <p>{message}</p>
@@ -62,6 +89,7 @@ export function ConfirmModal({
           variant="secondary"
           onClick={() => onNoClick()}
           leftIcon={<X size={16} />}
+          disabled={confirmLoading}
         >
           {cancelLabel}
         </Button>
@@ -69,6 +97,8 @@ export function ConfirmModal({
           variant={confirmVariant}
           onClick={() => onYesClick()}
           leftIcon={<Check size={16} />}
+          loading={confirmLoading}
+          disabled={confirmLoading}
         >
           {confirmLabel}
         </Button>

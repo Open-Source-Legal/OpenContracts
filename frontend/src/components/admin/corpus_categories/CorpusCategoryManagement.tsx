@@ -37,6 +37,7 @@ import {
   MOBILE_VIEW_BREAKPOINT,
   DEFAULT_CATEGORY_ICON as DEFAULT_ICON,
   DEFAULT_CATEGORY_COLOR as DEFAULT_COLOR,
+  MAX_CATEGORY_DESCRIPTION_LENGTH,
 } from "../../../assets/configurations/constants";
 import { resolveLucideIcon } from "./iconResolver";
 import {
@@ -233,11 +234,15 @@ export const CorpusCategoryManagement: React.FC = () => {
     onError: (err) => toast.error(`Error updating category: ${err.message}`),
   });
 
-  const [deleteCategory] = useMutation<
+  const [deleteCategory, { loading: deleting }] = useMutation<
     DeleteCorpusCategoryOutput,
     DeleteCorpusCategoryInputs
   >(DELETE_CORPUS_CATEGORY, {
+    // The confirm modal stays open (caller-closed) while the delete is
+    // in-flight so its spinner is visible, so every outcome must clear the
+    // pending category to dismiss it.
     onCompleted: (result) => {
+      setCategoryToDelete(null);
       if (result.deleteCorpusCategory?.ok) {
         toast.success("Category deleted");
         refetch();
@@ -247,7 +252,10 @@ export const CorpusCategoryManagement: React.FC = () => {
         );
       }
     },
-    onError: (err) => toast.error(`Error deleting category: ${err.message}`),
+    onError: (err) => {
+      setCategoryToDelete(null);
+      toast.error(`Error deleting category: ${err.message}`);
+    },
   });
 
   const categories = useMemo<ManagedCorpusCategory[]>(
@@ -475,6 +483,7 @@ export const CorpusCategoryManagement: React.FC = () => {
               }
               placeholder="Short description shown in tooltips"
               rows={3}
+              maxLength={MAX_CATEGORY_DESCRIPTION_LENGTH}
             />
           </FormField>
 
@@ -554,11 +563,15 @@ export const CorpusCategoryManagement: React.FC = () => {
             : ""
         }
         yesAction={handleConfirmDelete}
-        // ConfirmModal always calls toggleModal after yes/no, which closes the
-        // dialog and clears the pending category, so noAction is a no-op here.
+        // noAction is a no-op: cancelling (or overlay/escape) closes the dialog
+        // via toggleModal, which clears the pending category.
         noAction={() => {}}
         toggleModal={() => setCategoryToDelete(null)}
         confirmLabel="Delete"
+        // Supplying this opts the modal into caller-controlled close so the
+        // spinner stays visible until the mutation settles (see the delete
+        // mutation's onCompleted/onError, which clear the pending category).
+        confirmLoading={deleting}
       />
     </Container>
   );

@@ -27,6 +27,7 @@ from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.embeddings import (
     synthesize_relationship_block_text,
 )
+from opencontractserver.utils.files import read_field_file_text
 
 User = get_user_model()
 
@@ -325,17 +326,7 @@ def calculate_embedding_for_doc_text(
         doc = Document.objects.get(id=doc_id)
 
         if doc.txt_extract_file.name:
-            with doc.txt_extract_file.open("r") as txt_file:
-                text = txt_file.read()
-                # Workaround: Some django-storages backends (e.g., S3Boto3Storage with
-                # certain configurations, or custom storage backends) may return bytes
-                # even when files are opened in text mode ("r"). This can happen when:
-                # - The storage backend doesn't properly handle the mode parameter
-                # - Binary mode is forced by the underlying implementation
-                # - File content-type metadata is missing or incorrect
-                # See: https://github.com/jschneier/django-storages/issues/382
-                if isinstance(text, bytes):
-                    text = text.decode("utf-8")
+            text = read_field_file_text(doc.txt_extract_file)
         else:
             text = ""
 

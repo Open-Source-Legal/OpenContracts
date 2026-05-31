@@ -60,13 +60,15 @@ class TestMarkdownParser(TestCase):
         """Storage backends may return bytes; parser should decode them."""
         doc = self._make_document("Unicode content: \u00e9\u00e0\u00fc")
 
-        # Mock storage to return raw bytes instead of str
+        # The parser now reads through ``read_field_file_text``, which calls
+        # ``txt_extract_file.open("r")``; cloud backends return bytes there.
+        # Patch ``open`` on the FieldFile *class* (``type(...)``): patching the
+        # instance fails because ``FieldFile.open`` is resolved on the class,
+        # not the instance ``__dict__``.
         raw_bytes = "Unicode content: \u00e9\u00e0\u00fc".encode()
-        with patch(
-            "opencontractserver.pipeline.parsers.oc_markdown_parser.default_storage"
-        ) as mock_storage:
-            mock_storage.open.return_value.__enter__ = lambda s: BytesIO(raw_bytes)
-            mock_storage.open.return_value.__exit__ = lambda s, *a: None
+        with patch.object(type(doc.txt_extract_file), "open") as mock_open:
+            mock_open.return_value.__enter__ = lambda s: BytesIO(raw_bytes)
+            mock_open.return_value.__exit__ = lambda s, *a: None
             result = self.parser._parse_document_impl(self.user.id, doc.id)
 
         self.assertIsNotNone(result)
@@ -76,13 +78,11 @@ class TestMarkdownParser(TestCase):
         """Storage backends may return str directly; parser should handle both."""
         doc = self._make_document("Plain string content")
 
-        with patch(
-            "opencontractserver.pipeline.parsers.oc_markdown_parser.default_storage"
-        ) as mock_storage:
-            mock_storage.open.return_value.__enter__ = lambda s: StringIO(
+        with patch.object(type(doc.txt_extract_file), "open") as mock_open:
+            mock_open.return_value.__enter__ = lambda s: StringIO(
                 "Plain string content"
             )
-            mock_storage.open.return_value.__exit__ = lambda s, *a: None
+            mock_open.return_value.__exit__ = lambda s, *a: None
             result = self.parser._parse_document_impl(self.user.id, doc.id)
 
         self.assertIsNotNone(result)
