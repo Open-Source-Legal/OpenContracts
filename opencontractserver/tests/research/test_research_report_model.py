@@ -88,10 +88,10 @@ class ResearchReportModelTestCase(TestCase):
         admin = User.objects.create_superuser(username="admin", password="x")
         # Two reports authored by *other* users — a superuser must see both
         # regardless of authorship.
-        mine = ResearchReport.objects.create(
+        user_report = ResearchReport.objects.create(
             creator=self.user, corpus=self.corpus, prompt="x"
         )
-        theirs = ResearchReport.objects.create(
+        other_report = ResearchReport.objects.create(
             creator=self.other, corpus=self.corpus, prompt="y"
         )
         # Scope the assertion to this test's own rows rather than a global
@@ -101,5 +101,5 @@ class ResearchReportModelTestCase(TestCase):
         # the whole ``research/`` directory runs sequentially on one database
         # (issue #1845).
         visible = ResearchReport.objects.visible_to_user(admin)
-        self.assertIn(mine, visible)
-        self.assertIn(theirs, visible)
+        self.assertIn(user_report, visible)
+        self.assertIn(other_report, visible)
