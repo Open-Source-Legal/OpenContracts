@@ -280,7 +280,14 @@ jobs:
           E2E_TEST_PASSWORD: Openc0ntracts_def@ult
         run: |
           set +e
-          yarn playwright test --grep "Extract PDF workflow" --reporter=list
+          # DIAGNOSTIC: --retries=0 so a cold-start stall fails the attempt
+          # immediately instead of triggering a retry that pushes the job past
+          # its 30-min `timeout-minutes` (a cancelled job prints no Playwright
+          # failure detail and historically skipped log capture). With retries
+          # off the run completes in-budget, Playwright prints which step/doc
+          # failed, and the always() capture below uploads worker logs + memory
+          # stats. Restore retries once the root cause is fixed.
+          yarn playwright test --grep "Extract PDF workflow" --reporter=list --retries=0
           E2E_EXIT=$?
           mkdir -p coverage/e2e/.nyc_output
           yarn nyc report --all \
@@ -307,19 +314,39 @@ jobs:
             coverage xml -o /app/coverage-backend-e2e-extract.xml || true
           ls -la coverage-backend-e2e-extract.xml || true
 
-      - name: Capture backend logs on failure
-        if: failure()
+      # `if: always()` (not `failure()`) so this also runs when the job is
+      # CANCELLED by `timeout-minutes` — the cold-start ingest stall blows the
+      # 30-min budget, and a cancelled job skips `failure()` steps, which is
+      # why earlier runs captured nothing. Containers are still up here because
+      # the `success() || failure()` stop/coverage steps above are skipped on
+      # cancellation. The celeryworker log + memory snapshot are the evidence
+      # needed to see WHAT stalls during ingest (worker first-task cost vs.
+      # OOM/thrash vs. a transient-retry loop).
+      - name: Capture backend logs + resource stats
+        if: always()
         run: |
           mkdir -p artifacts
-          docker compose -f local.yml ps > artifacts/docker-ps.txt || true
-          docker compose -f local.yml logs --no-color > artifacts/docker-compose-logs.txt || true
+          docker compose -f local.yml ps > artifacts/docker-ps.txt 2>&1 || true
+          docker compose -f local.yml logs --no-color --timestamps \
+            > artifacts/docker-compose-logs.txt 2>&1 || true
+          docker compose -f local.yml logs --no-color --timestamps celeryworker \
+            > artifacts/celeryworker.log 2>&1 || true
+          docker compose -f local.yml logs --no-color --timestamps django \
+            > artifacts/django.log 2>&1 || true
+          docker stats --no-stream > artifacts/docker-stats.txt 2>&1 || true
+          { echo "=== free -h ==="; free -h; \
+            echo "=== /proc/meminfo (head) ==="; head -5 /proc/meminfo; \
+            echo "=== OOM / killed-process (dmesg) ==="; \
+            sudo dmesg 2>/dev/null | grep -iE "oom|killed process|out of memory" | tail -40; \
+          } > artifacts/host-memory.txt 2>&1 || true
 
-      - name: Upload backend logs on failure
-        if: failure()
+      - name: Upload backend logs + stats
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: e2e-extract-backend-logs
           path: artifacts/
+          if-no-files-found: ignore
 
       - name: Upload Playwright HTML report on failure
         if: failure()
