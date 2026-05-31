@@ -98,6 +98,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bug pre-dated the Phase 6 service-layer refactor (it was not a regression).
   Regression test added: `test_smart_label_list_denies_unreadable_corpus`.
 
+### Fixed
+
+- **MCP document full-text retrieval crashed on cloud storage**
+  (`opencontractserver/mcp/tools.py::get_document_text`,
+  `opencontractserver/mcp/resources.py::get_document_resource`) — both read
+  `document.txt_extract_file` via `.open("r").read()` and placed the raw result
+  into the dict that the MCP dispatcher serializes with `json.dumps(...)`
+  (`opencontractserver/mcp/server.py:447` and `:1066`). On AWS/GCP deployments
+  django-storages backends (`S3Boto3Storage`, `GoogleCloudStorage`) return
+  `bytes` from text-mode reads (django-storages #382), so `json.dumps` raised
+  `TypeError: Object of type bytes is not JSON serializable` and downstream MCP
+  clients could not retrieve document full text. LOCAL `FileSystemStorage`
+  returns `str`, which is why dev and the test suite never reproduced it. Both
+  call sites now decode through the new `read_field_file_text()` helper
+  (`opencontractserver/utils/files.py`), which centralizes the
+  `isinstance(..., bytes)` decode workaround previously duplicated in
+  `tasks/embeddings_task.py` and `pipeline/parsers/oc_markdown_parser.py`. The
+  same routing also fixes a latent instance of this bug in the agent memory
+  reader's happy path
+  (`opencontractserver/agents/memory.py::read_memory_content`, which decoded
+  bytes only in its exception fallback, not its primary `.open("r").read()`
+  branch). Regression test:
+  `test_get_document_text_handles_bytes_from_cloud_storage`
+  (`opencontractserver/mcp/tests/test_mcp.py`); helper unit tests:
+  `opencontractserver/tests/test_files_utils.py`.
+- **Routed the remaining seven production `txt_extract_file.open("r")` call
+  sites through `read_field_file_text()`** so they no longer break on cloud
+  storage the same way: `pipeline/base/thumbnailer.py`, `utils/export_v2.py`,
+  `utils/extraction_grounding.py`, and the four LLM core tools
+  (`llms/tools/core_tools/{pii,document_indexing,search,annotations}.py`). The
+  LLM tools are the highest-impact because they feed `doc_text` directly into
+  agent context, where a raw `bytes` value would crash the downstream call or
+  produce garbage. The two MCP read sites and the four LLM core tools now pass
+  `errors="replace"` so a few undecodable bytes substitute `U+FFFD` instead of
+  raising `UnicodeDecodeError`: at the MCP sites it would otherwise be caught
+  by the surrounding `except` and silently return an empty document; in the
+  agent tools it keeps the tool fault-tolerant (per the CLAUDE.md agent
+  tool-fault-tolerance rule) and stays internally consistent because match /
+  annotation positions are computed against the same decoded string. The
+  pipeline/export sites (`thumbnailer`, `export_v2`, `extraction_grounding`)
+  retain strict decoding to fail fast on genuinely corrupt files. Regression
+  test for the resource path:
+  `test_get_document_resource_handles_bytes_from_cloud_storage`
+  (`opencontractserver/mcp/tests/test_mcp.py`). `read_field_file_text()`'s
+  parameter is typed as a structural `Protocol` rather than the concrete
+  `FieldFile`, so duck-typed test doubles type-check without `# type: ignore`.
+
 ### Changed
 
 - **`BaseService.filter_visible_qs` now fails closed** (`opencontractserver/shared/services/base.py`)

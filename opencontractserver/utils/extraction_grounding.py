@@ -24,6 +24,7 @@ from opencontractserver.constants.extraction import (
     MAX_GROUNDABLE_STRINGS,
     MIN_GROUNDABLE_LENGTH,
 )
+from opencontractserver.utils.files import read_field_file_text
 from opencontractserver.utils.text_alignment import (
     AlignmentResult,
     align_text_to_document,
@@ -150,8 +151,7 @@ def _load_document_text_and_layer(document: Document) -> tuple[str, Any, str]:
                 f"Document id={document.id} (type={file_type}) lacks "
                 "txt_extract_file; cannot ground extractions."
             )
-        with document.txt_extract_file.open("r") as f:
-            doc_text = f.read()
+        doc_text = read_field_file_text(document.txt_extract_file)
 
         return doc_text, None, SPAN_LABEL
 
