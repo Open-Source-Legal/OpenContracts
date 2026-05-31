@@ -34,7 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`opencontractserver/annotations/services/relationship_service.py`).
   - **`get_document_text` bounded slicing** (#1860): new `char_offset`/`max_chars`
     params with `next_offset`/`truncated`/`total_chars` in the response, so long
-    documents no longer blow the context window in one call.
+    documents no longer blow the context window in one call. **Behavior change:**
+    a call with no `max_chars` now returns at most the first
+    `MCP_DOCUMENT_TEXT_DEFAULT_CHARS` (50 000) characters instead of the full
+    extracted text; the response carries `truncated`/`next_offset` so callers can
+    page through the remainder. MCP clients that relied on a single call returning
+    the whole document must now follow `next_offset` (or pass an explicit
+    `max_chars`, hard-capped at `MCP_DOCUMENT_TEXT_MAX_CHARS` = 200 000).
   - **Polish** (#1861): `get_corpus_info` now surfaces only labels actually used
     on the corpus's annotations (not the full seeded label set); not-found
     errors (`Document`/`Corpus.DoesNotExist`) are humanized into actionable
