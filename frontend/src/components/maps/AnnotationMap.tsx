@@ -266,7 +266,7 @@ export const AnnotationMap: React.FC<AnnotationMapProps> = ({
   onBoundsChange,
   onPinClick,
   onSelectDocument,
-  center = [...MAP_DEFAULT_CENTER] as [number, number],
+  center = MAP_DEFAULT_CENTER as [number, number],
   zoom = MAP_DEFAULT_ZOOM,
   height = MAP_DEFAULT_HEIGHT,
   className,

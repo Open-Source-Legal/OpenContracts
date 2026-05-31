@@ -186,7 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returned its labelset's labels with **no corpus-READ gate**, so any
   authenticated user could enumerate a private corpus's label taxonomy. It now
   routes the fetch through `BaseService.get_or_none(Corpus, pk, user,
-PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
+  PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
   "Corpus not found" response for both missing and unreadable corpuses. This
   bug pre-dated the Phase 6 service-layer refactor (it was not a regression).
   Regression test added: `test_smart_label_list_denies_unreadable_corpus`.

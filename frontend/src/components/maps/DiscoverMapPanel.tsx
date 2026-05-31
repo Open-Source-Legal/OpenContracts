@@ -2,6 +2,9 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useLazyQuery, useQuery } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { useDebouncedCallback } from "use-debounce";
+import styled from "styled-components";
+import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { MAP_DEFAULT_HEIGHT } from "../../assets/configurations/constants";
 import { AnnotationMap } from "./AnnotationMap";
 import { GeographicAnnotationPin, MapBBox } from "./types";
 import {
@@ -24,6 +27,21 @@ export interface DiscoverMapView {
   center: [number, number];
   zoom: number;
 }
+
+const MapError = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: ${MAP_DEFAULT_HEIGHT};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+`;
 
 interface DiscoverMapPanelProps {
   /** Initial viewport (typically restored from the URL by the parent view). */
@@ -56,7 +74,7 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
     labelTypes: [...GEO_LABEL_TYPES],
   });
 
-  const { data, loading } = useQuery<
+  const { data, loading, error } = useQuery<
     GetGlobalGeographicAnnotationsOutput,
     GeographicAnnotationsInput
   >(GET_GLOBAL_GEOGRAPHIC_ANNOTATIONS, {
@@ -126,6 +144,17 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
     },
     MAP_BBOX_REFETCH_DEBOUNCE_MS
   );
+
+  // Surface a load failure rather than a silently blank map — but only when we
+  // have no cached pins to fall back on (cache-and-network can error while
+  // still holding a usable prior result).
+  if (error && pins.length === 0) {
+    return (
+      <MapError role="alert">
+        Could not load map data. Try panning, zooming, or reloading.
+      </MapError>
+    );
+  }
 
   return (
     <AnnotationMap

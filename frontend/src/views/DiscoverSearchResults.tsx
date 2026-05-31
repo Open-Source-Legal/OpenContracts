@@ -1,6 +1,6 @@
 // Cross-content Discover search: one page that fans out across discussions, annotations, corpuses, and notes.
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import styled from "styled-components";
 import { useQuery } from "@apollo/client";
@@ -61,11 +61,14 @@ import {
   MAP_LNG_PARAM,
   MAP_ZOOM_PARAM,
 } from "../assets/configurations/constants";
-import {
-  DiscoverMapPanel,
-  DiscoverMapView,
-} from "../components/maps/DiscoverMapPanel";
+import type { DiscoverMapView } from "../components/maps/DiscoverMapPanel";
 import { ConversationType } from "../types/graphql-api";
+
+// Lazy-load the Discover map so Leaflet + markercluster (~200KB gzipped, plus
+// their CSS) only enters the bundle when a user actually opens the Map tab.
+const DiscoverMapPanel = React.lazy(
+  () => import("../components/maps/DiscoverMapPanel")
+);
 
 // ---------------------------------------------------------------------------
 // Styled primitives
@@ -708,10 +711,12 @@ export const DiscoverSearchResults: React.FC = () => {
       </DiscoveryHeader>
 
       {activeTab === "map" ? (
-        <DiscoverMapPanel
-          initialView={initialMapView}
-          onViewChange={handleMapViewChange}
-        />
+        <Suspense fallback={<EmptyState>Loading map…</EmptyState>}>
+          <DiscoverMapPanel
+            initialView={initialMapView}
+            onViewChange={handleMapViewChange}
+          />
+        </Suspense>
       ) : showEmptyPrompt ? (
         <EmptyState>Type to search across content you can access.</EmptyState>
       ) : (
