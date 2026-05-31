@@ -53,7 +53,16 @@ def read_field_file_text(
     encoding: str = "utf-8",
     errors: str = "strict",
 ) -> str:
-    """Read a Django ``FieldFile`` as text, normalizing bytes-returning storage backends to ``str``."""
+    """Read a Django ``FieldFile`` as text, normalizing bytes-returning backends to ``str``.
+
+    Cloud storage backends (S3Boto3Storage, GoogleCloudStorage via
+    django-storages #382) return ``bytes`` from ``open("r").read()`` even in
+    text mode, while local ``FileSystemStorage`` returns ``str``. Callers that
+    then ``json.dumps`` the content crash on the bytes path. This helper
+    centralizes the decode so every call site behaves identically regardless of
+    backend. ``errors`` is forwarded to ``bytes.decode`` (default ``strict``;
+    pass ``"replace"`` for best-effort/agent-facing reads).
+    """
     with field_file.open("r") as f:
         content = f.read()
     if isinstance(content, bytes):

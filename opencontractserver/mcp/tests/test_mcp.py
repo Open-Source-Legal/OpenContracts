@@ -658,6 +658,44 @@ class MCPToolsDocumentsTest(TestCase):
         # ... and the full payload serializes cleanly (the original crash).
         json.dumps(result, indent=2)
 
+    def test_get_document_resource_handles_bytes_from_cloud_storage(self):
+        """Regression: the resource path shares the same bytes-from-cloud bug
+        class as ``get_document_text`` (django-storages #382).
+
+        ``get_document_resource`` itself returns a JSON string, so the latent
+        failure is the same ``read_field_file_text`` decode rather than the
+        dispatcher serialization. This pins the resource path independently so
+        the two surfaces can't drift.
+        """
+        from unittest import mock
+
+        from django.db.models.fields.files import FieldFile
+
+        from opencontractserver.mcp.resources import get_document_resource
+
+        payload = "Resource bytes-backed extracted text ✓"
+
+        class _BytesHandle:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return payload.encode("utf-8")
+
+        # Fresh handle per call so each open() yields an unconsumed reader.
+        with mock.patch.object(
+            FieldFile, "open", side_effect=lambda *a, **k: _BytesHandle()
+        ):
+            result = get_document_resource(self.corpus.slug, self.doc1.slug)
+
+        data = json.loads(result)
+        self.assertIsInstance(data["full_text"], str)
+        self.assertEqual(data["full_text"], payload)
+        self.assertEqual(data["text_preview"], payload[:500])
+
 
 class MCPToolsAnnotationsTest(TestCase):
     """Tests for MCP annotation-related tools."""

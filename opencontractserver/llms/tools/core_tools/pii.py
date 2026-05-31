@@ -108,7 +108,10 @@ def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
     if file_type in TEXT_MIMETYPES:
         if not doc.txt_extract_file:
             raise ValueError(f"Text document id={document_id} lacks txt_extract_file.")
-        doc_text = read_field_file_text(doc.txt_extract_file)
+        # errors="replace" keeps this agent tool fault-tolerant: a few
+        # undecodable bytes substitute U+FFFD rather than raising
+        # UnicodeDecodeError on read.
+        doc_text = read_field_file_text(doc.txt_extract_file, errors="replace")
         return _DocTextResult(doc, corpus, doc_text, file_type, None)
 
     if file_type == "application/pdf":

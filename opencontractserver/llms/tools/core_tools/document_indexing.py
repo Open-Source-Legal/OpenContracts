@@ -152,7 +152,11 @@ def create_document_index(
                 f"Text document id={document_id} lacks txt_extract_file; "
                 "cannot create index."
             )
-        doc_text = read_field_file_text(doc.txt_extract_file)
+        # errors="replace" keeps this agent tool fault-tolerant: a few
+        # undecodable bytes substitute U+FFFD rather than raising
+        # UnicodeDecodeError. Positions are computed against this same string,
+        # so the substitution stays internally consistent.
+        doc_text = read_field_file_text(doc.txt_extract_file, errors="replace")
 
         label_type_const = SPAN_LABEL
 

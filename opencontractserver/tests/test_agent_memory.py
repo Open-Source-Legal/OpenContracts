@@ -2130,8 +2130,13 @@ class TestReadMemoryContentFallbackPaths(TestCase):
         content = async_to_sync(read_memory_content)(mock_corpus)
         self.assertEqual(content, "")
 
-    def test_both_read_paths_fail_returns_empty(self):
-        """If both open('r') and .read() fail, return empty string."""
+    def test_open_failure_returns_empty_when_read_would_also_fail(self):
+        """A read failure surfaces as empty string.
+
+        There is a single read path now (the two-level open/.read() fallback
+        was removed); ``open('r')`` raises here, so ``.read()`` is never
+        reached, but the test pins that a failing read path returns "".
+        """
         mock_corpus = self._make_mock_corpus(
             open_side_effect=OSError("open failed"),
             read_error=OSError("read also failed"),

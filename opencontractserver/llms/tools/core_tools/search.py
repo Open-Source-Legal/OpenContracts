@@ -138,7 +138,11 @@ def search_exact_text_as_sources(
                 f"Text document id={document_id} lacks txt_extract_file; cannot search."
             )
 
-        doc_text = read_field_file_text(doc.txt_extract_file)
+        # errors="replace" keeps this agent tool fault-tolerant: a few
+        # undecodable bytes substitute U+FFFD rather than raising
+        # UnicodeDecodeError. Match positions are computed against this same
+        # string, so the substitution stays internally consistent.
+        doc_text = read_field_file_text(doc.txt_extract_file, errors="replace")
 
         # Find all matches for each search string
         for search_str in search_strings:

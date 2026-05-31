@@ -129,12 +129,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`llms/tools/core_tools/{pii,document_indexing,search,annotations}.py`). The
   LLM tools are the highest-impact because they feed `doc_text` directly into
   agent context, where a raw `bytes` value would crash the downstream call or
-  produce garbage. The two MCP read sites now pass `errors="replace"` so a few
-  undecodable bytes substitute `U+FFFD` instead of raising
-  `UnicodeDecodeError` (caught by the surrounding `except`) and silently
-  returning an empty document. `read_field_file_text()`'s parameter is typed
-  as a structural `Protocol` rather than the concrete `FieldFile`, so
-  duck-typed test doubles type-check without `# type: ignore`.
+  produce garbage. The two MCP read sites and the four LLM core tools now pass
+  `errors="replace"` so a few undecodable bytes substitute `U+FFFD` instead of
+  raising `UnicodeDecodeError`: at the MCP sites it would otherwise be caught
+  by the surrounding `except` and silently return an empty document; in the
+  agent tools it keeps the tool fault-tolerant (per the CLAUDE.md agent
+  tool-fault-tolerance rule) and stays internally consistent because match /
+  annotation positions are computed against the same decoded string. The
+  pipeline/export sites (`thumbnailer`, `export_v2`, `extraction_grounding`)
+  retain strict decoding to fail fast on genuinely corrupt files. Regression
+  test for the resource path:
+  `test_get_document_resource_handles_bytes_from_cloud_storage`
+  (`opencontractserver/mcp/tests/test_mcp.py`). `read_field_file_text()`'s
+  parameter is typed as a structural `Protocol` rather than the concrete
+  `FieldFile`, so duck-typed test doubles type-check without `# type: ignore`.
 
 ### Changed
 
