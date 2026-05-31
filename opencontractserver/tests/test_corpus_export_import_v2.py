@@ -40,7 +40,6 @@ from opencontractserver.conversations.models import (
 )
 from opencontractserver.corpuses.models import (
     Corpus,
-    CorpusDescriptionRevision,
     CorpusFolder,
     TemporaryFileHandle,
 )
@@ -62,7 +61,6 @@ from opencontractserver.utils.export_v2 import (
     package_conversations,
     package_corpus_folders,
     package_document_paths,
-    package_md_description_revisions,
     package_structural_annotation_set,
 )
 from opencontractserver.utils.import_v2 import (
@@ -268,32 +266,14 @@ class TestV2ExportUtilities(TestCase):
             result["document_agent_instructions"], "Test document instructions"
         )
 
-    def test_package_md_description_revisions(self):
-        """Test exporting markdown description and revisions."""
-        # Set markdown description
-        md_content = "# Test Corpus\n\nThis is a test."
-        self.corpus.md_description.save(
-            "description.md", ContentFile(md_content.encode())
-        )
-
-        # Create revisions
-        CorpusDescriptionRevision.objects.create(
-            corpus=self.corpus,
-            author=self.user,
-            version=1,
-            diff="Initial version",
-            snapshot=md_content,
-            checksum_base="",
-            checksum_full="abc123",
-        )
-
-        # Export
-        current_md, revisions = package_md_description_revisions(self.corpus)
-
-        # Verify
-        self.assertEqual(current_md, md_content)
-        self.assertEqual(len(revisions), 1)
-        self.assertEqual(revisions[0]["version"], 1)
+    # NOTE: the legacy ``test_package_md_description_revisions`` was removed
+    # alongside the ``package_md_description_revisions`` helper itself: under
+    # the canonical-CAML refactor (export schema V3) the corpus description
+    # rides in ``annotated_docs`` as the Readme.CAML Document, so there is no
+    # longer a dedicated export path for the legacy field. V2 *import*
+    # back-compat (synthesising a Readme.CAML Document from V2 archives) is
+    # still covered by ``test_import_md_description_revisions`` below and by
+    # the dedicated V2 round-trip cases.
 
     def test_package_conversations(self):
         """Test exporting conversations and messages."""
@@ -456,7 +436,13 @@ class TestV2ImportUtilities(TestCase):
         )
 
     def test_import_md_description_revisions(self):
-        """Test importing markdown description and revisions."""
+        """V2 back-compat: md_description + revisions synthesize a Readme.CAML
+        Document and version-tree siblings on import.
+
+        Post-Task 14 the shim no longer touches the legacy
+        ``corpus.md_description`` FileField / ``CorpusDescriptionRevision``
+        rows — both were dropped in favor of the canonical CAML doc.
+        """
         md_description = "# Imported Corpus\n\nImported content."
         revisions_data = [
             {
@@ -470,21 +456,34 @@ class TestV2ImportUtilities(TestCase):
             }
         ]
 
-        # Import
-        import_md_description_revisions(
-            md_description, revisions_data, self.corpus, self.user
+        # Import (wrap in captureOnCommitCallbacks so the post_save signal
+        # fires its on_commit cache refresh before we read back the cache).
+        with self.captureOnCommitCallbacks(execute=True):
+            import_md_description_revisions(
+                md_description, revisions_data, self.corpus, self.user
+            )
+
+        # Readme.CAML head exists with the imported body.
+        head_path = DocumentPath.objects.filter(
+            corpus=self.corpus,
+            path="Readme.CAML",
+            is_current=True,
+            is_deleted=False,
+        ).first()
+        self.assertIsNotNone(head_path)
+        self.assertEqual(head_path.document.title, "Readme.CAML")
+        self.assertEqual(head_path.document.file_type, "text/markdown")
+
+        # Cache columns refreshed via post_save signal.
+        self.corpus.refresh_from_db()
+        self.assertEqual(
+            self.corpus.description, "Imported Corpus\n\nImported content."
         )
 
-        # Verify
-        self.corpus.refresh_from_db()
-        self.assertTrue(self.corpus.md_description.name)
-
-        with self.corpus.md_description.open("r") as f:
-            content = f.read()
-            self.assertEqual(content, md_description)
-
-        revisions = CorpusDescriptionRevision.objects.filter(corpus=self.corpus)
-        self.assertEqual(revisions.count(), 1)
+        # Version-tree contains the head + the replayed revision sibling.
+        tree_id = head_path.document.version_tree_id
+        siblings = Document.objects.filter(version_tree_id=tree_id)
+        self.assertEqual(siblings.count(), 2)
 
     def test_import_relationships(self):
         """Test importing relationships via _import_v2_relationships."""
@@ -1669,8 +1668,9 @@ class TestV2FullRoundTrip(TestCase):
                 with zip_ref.open("data.json") as data_file:
                     data = json.load(data_file)
 
-                    # Verify version
-                    self.assertEqual(data["version"], "2.0")
+                    # Verify version — V3 is the current emit schema
+                    # (canonical-CAML refactor, Task 12).
+                    self.assertEqual(data["version"], "3.0")
 
                     # Verify V2 fields present
                     self.assertIn("structural_annotation_sets", data)

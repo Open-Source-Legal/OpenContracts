@@ -15,10 +15,7 @@ import logging
 # patch attributes such as ``opencontractserver.llms.tools.core_tools.Document``
 # directly, so these names must remain accessible on the package namespace.
 from opencontractserver.annotations.models import Note, NoteRevision  # noqa: F401
-from opencontractserver.corpuses.models import (  # noqa: F401
-    Corpus,
-    CorpusDescriptionRevision,
-)
+from opencontractserver.corpuses.models import Corpus  # noqa: F401
 from opencontractserver.documents.models import Document  # noqa: F401
 
 from ._helpers import (  # noqa: F401
@@ -134,7 +131,6 @@ __all__ = [
     "_token_count",
     # Re-exported model classes (test patch targets)
     "Corpus",
-    "CorpusDescriptionRevision",
     "Document",
     "Note",
     "NoteRevision",

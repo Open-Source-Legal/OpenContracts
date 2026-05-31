@@ -47,6 +47,37 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _current_path_for_corpus(document, info, corpus_pk):
+    """Return ``document``'s current ``DocumentPath`` in a corpus, request-cached.
+
+    ``version_number`` and ``last_modified`` both read the same current
+    ``DocumentPath`` row. Without caching, requesting both on a paginated
+    documents connection fired 2N queries. This resolves to one query per
+    ``(document, corpus)`` on first access and O(1) thereafter (cached on
+    ``info.context`` for the life of the request), collapsing the pair to a
+    single shared lookup and deduplicating repeats.
+
+    Defined at module level (not as a ``DocumentType`` method) because
+    graphene-django invokes resolvers with the Django **model instance** as
+    ``self``; a helper method on the ObjectType would not be reachable via
+    ``self`` from inside a resolver.
+    """
+    cache = getattr(info.context, "_current_doc_path_cache", None)
+    if cache is None:
+        cache = {}
+        info.context._current_doc_path_cache = cache
+    key = (document.id, str(corpus_pk))
+    if key not in cache:
+        cache[key] = (
+            DocumentPath.objects.filter(
+                document_id=document.id, corpus_id=corpus_pk, is_current=True
+            )
+            .order_by("-created")
+            .first()
+        )
+    return cache[key]
+
+
 def _dedupe_doc_type_labels(annotations: Any) -> list[Any]:
     # A document can carry multiple DOC_TYPE_LABEL annotations sharing the same
     # label; the badge UI shows each label once, so dedupe by label pk.
@@ -120,19 +151,14 @@ class DocumentPathType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_action(self, info) -> Any:
-        """Infer action type from path state."""
-        if self.is_deleted:
-            return "DELETED"
-        elif self.parent is None:
-            return "IMPORTED"
-        else:
-            # Check if this is an update vs move
-            if hasattr(self, "parent") and self.parent:
-                if self.parent.path != self.path:
-                    return "MOVED"
-                elif self.parent.version_number != self.version_number:
-                    return "UPDATED"
-            return "UPDATED"
+        """Infer action type from path state.
+
+        Delegates to ``DocumentPath.infer_action`` — the single source of
+        truth shared with ``versioning.get_path_history`` and
+        ``DocumentType.resolve_path_history`` — so all three surfaces agree
+        on MOVED/RESTORED/DELETED/UPDATED.
+        """
+        return self.infer_action()
 
     class Meta:
         model = DocumentPath
@@ -669,16 +695,19 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """Get version number from DocumentPath for this corpus."""
         _, corpus_pk = from_global_id(corpus_id)
         try:
-            path_record = DocumentPath.objects.filter(
-                document_id=self.id, corpus_id=corpus_pk, is_current=True
-            ).first()
+            path_record = _current_path_for_corpus(self, info, corpus_pk)
             return path_record.version_number if path_record else 1
         except Exception:
             return 1
 
     def resolve_has_version_history(self, info) -> Any:
-        """Check if document has parent (i.e., multiple versions exist)."""
-        return self.parent is not None
+        """Check if document has a parent (i.e., multiple versions exist).
+
+        Uses ``parent_id`` rather than ``parent`` so the check costs zero
+        queries — reading ``self.parent`` would fetch the entire parent
+        ``Document`` row per document (an N+1 on list views).
+        """
+        return self.parent_id is not None
 
     def resolve_version_count(self, info) -> Any:
         """
@@ -719,9 +748,7 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """Get last modification time from DocumentPath."""
         _, corpus_pk = from_global_id(corpus_id)
         try:
-            path_record = DocumentPath.objects.filter(
-                document_id=self.id, corpus_id=corpus_pk, is_current=True
-            ).first()
+            path_record = _current_path_for_corpus(self, info, corpus_pk)
             return path_record.created if path_record else self.modified
         except Exception:
             return self.modified
@@ -733,20 +760,34 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         """
         from graphql_relay import to_global_id
 
-        # Get all documents in the version tree, ordered by creation
-        versions = Document.objects.filter(
-            version_tree_id=self.version_tree_id
-        ).order_by("created")
+        # Get all documents in the version tree the user may see, ordered by
+        # creation. Scoped to ``visible_to_user`` so this resolver cannot leak
+        # version metadata (creator, hash, size) for documents hidden from the
+        # caller — matching the security posture of ``resolve_corpus_versions``
+        # (the two used to disagree). ``select_related("creator")`` avoids an
+        # N+1 on ``created_by`` below.
+        versions = (
+            BaseService.filter_visible(
+                Document, info.context.user, request=info.context
+            )
+            .filter(version_tree_id=self.version_tree_id)
+            .select_related("creator")
+            .order_by("created")
+        )
 
         version_list = []
         for idx, doc in enumerate(versions, start=1):
-            # Determine change type
-            if doc.parent is None:
+            # Determine change type. Use ``parent_id`` (not ``parent``) so we
+            # don't fetch the entire parent row per version (N+1).
+            if doc.parent_id is None:
                 change_type = "INITIAL"
             else:
                 # Could be enhanced to detect minor vs major changes
                 change_type = "CONTENT_UPDATE"
 
+            # NOTE: ``pdf_file.size`` issues a storage stat (a remote HEAD under
+            # S3) per version. Version trees are typically shallow so this is
+            # bounded, but it is the one remaining per-version storage call here.
             version_data = {
                 "id": to_global_id("DocumentType", doc.id),
                 "version_number": idx,
@@ -784,10 +825,16 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         _, corpus_pk = from_global_id(corpus_id)
 
-        # Get all path records for this document in this corpus
-        path_records = DocumentPath.objects.filter(
-            document__version_tree_id=self.version_tree_id, corpus_id=corpus_pk
-        ).order_by("created")
+        # Get all path records for this document in this corpus. Materialise
+        # once and index by pk so each node's predecessor (``parent_id``) is
+        # resolved from memory — avoids the per-node ``.parent`` query that
+        # produced an N+1 over the history depth.
+        path_records = list(
+            DocumentPath.objects.filter(
+                document__version_tree_id=self.version_tree_id, corpus_id=corpus_pk
+            ).order_by("created")
+        )
+        records_by_id = {pr.id: pr for pr in path_records}
 
         events = []
         original_path = None
@@ -795,26 +842,23 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         move_count = 0
 
         for path_record in path_records:
-            # Infer action type
-            if path_record.is_deleted:
-                action = "DELETED"
-            elif path_record.parent is None:
-                action = "IMPORTED"
+            # Resolve predecessor from the in-memory index (None for roots).
+            # Fall back to the ``.parent`` FK only for the rare legacy chain
+            # whose parent points at a record outside this version-tree slice
+            # (pre-isolation add_document replacements) — preserves exact action
+            # inference without reintroducing the per-node N+1 on normal data.
+            previous = None
+            if path_record.parent_id:
+                previous = records_by_id.get(path_record.parent_id)
+                if previous is None:
+                    previous = path_record.parent
+            # Single source of truth for action inference (shared with
+            # ``versioning.get_path_history`` and ``DocumentPathType``).
+            action = path_record.infer_action(previous)
+            if action == DocumentPath.ACTION_IMPORTED:
                 original_path = path_record.path
-            else:
-                # Check if path changed vs version changed
-                if hasattr(path_record, "parent") and path_record.parent:
-                    if path_record.parent.path != path_record.path:
-                        action = "MOVED"
-                        move_count += 1
-                    elif (
-                        path_record.parent.version_number != path_record.version_number
-                    ):
-                        action = "UPDATED"
-                    else:
-                        action = "RESTORED"
-                else:
-                    action = "UPDATED"
+            elif action == DocumentPath.ACTION_MOVED:
+                move_count += 1
 
             if path_record.is_current and not path_record.is_deleted:
                 current_path = path_record.path

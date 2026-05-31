@@ -26,8 +26,6 @@ import { CorpusType } from "../../../types/graphql-api";
 import { PermissionTypes } from "../../types";
 import { getPermissions } from "../../../utils/transform";
 import { getCreatorDisplay } from "../../../utils/userDisplay";
-import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
-import { SafeMarkdown } from "../../knowledge_base/markdown/SafeMarkdown";
 import { InlineChatBar } from "../CorpusHero/InlineChatBar";
 import { MCPShareButton } from "../../common/MCPShareButton";
 import { RecentDiscussions } from "./RecentDiscussions";
@@ -103,49 +101,6 @@ const CTATitle = styled.span`
 const CTASubtitle = styled.span`
   font-size: 0.6875rem;
   color: ${OS_LEGAL_COLORS.textMuted};
-`;
-
-/** Markdown article rendered below the hero when the corpus has an
- *  md_description but no Readme.CAML. Mirrors the prose styling used in
- *  the About card so users get the full rich description on the home page
- *  without having to drill into the details view. */
-const LandingMarkdownSection = styled.section`
-  margin: 1.5rem 0 0.5rem;
-  padding: 1.25rem 1.5rem;
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 12px;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-  line-height: 1.7;
-  text-align: left;
-
-  /* SafeMarkdown emits the standard block tags; tighten the first/last
-     margins so the section frame doesn't leave dead space. */
-  & > :first-child {
-    margin-top: 0;
-  }
-  & > :last-child {
-    margin-bottom: 0;
-  }
-
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    color: ${OS_LEGAL_COLORS.textPrimary};
-    margin-top: 1.25rem;
-    margin-bottom: 0.5rem;
-  }
-
-  p {
-    margin: 0.5rem 0;
-  }
-
-  a {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
 `;
 
 export interface CorpusLandingViewProps {
@@ -231,11 +186,6 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
   });
 
   const hasArticle = hasArticleProp ?? false;
-
-  // Shared hook deduplicates concurrent fetches against the same URL —
-  // CorpusDetailsView mounts the same hook so opening Details from Landing
-  // reuses the in-flight request rather than re-downloading the file.
-  const mdContent = useCorpusMdDescription(corpusData?.corpus?.mdDescription);
 
   // Use the fetched corpus data instead of the prop for description/history
   const fullCorpus = corpusData?.corpus || corpus;
@@ -402,21 +352,6 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
             </NoDescriptionContainer>
           )}
         </LandingHero>
-
-        {/* Full markdown description rendered below the hero when present.
-            Mirrors the About card so users with an md_description but no
-            Readme.CAML still see the rich content on the corpus home page
-            instead of having to drill into Details. CAML, when present,
-            short-circuits to CorpusArticleView upstream so this section
-            never competes with an article. */}
-        {mdContent && (
-          <LandingMarkdownSection
-            data-testid={`${testId}-md-description`}
-            aria-label="Corpus description"
-          >
-            <SafeMarkdown>{mdContent}</SafeMarkdown>
-          </LandingMarkdownSection>
-        )}
 
         {/* Create article CTA — shown when no Readme.CAML and user can edit */}
         {!hasArticle && canEdit && onOpenArticleEditor && (
