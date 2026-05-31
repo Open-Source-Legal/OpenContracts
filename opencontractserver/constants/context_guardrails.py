@@ -168,6 +168,12 @@ IN_RUN_KEEP_RECENT_PAIRS: int = 4
 # trim notice is appended. Chosen so a shrunk return still carries enough
 # signal for the model to recall what the tool produced without dominating
 # the budget.
+#
+# This bounds the preserved *prefix*, not the final string: the appended
+# trim notice (see ``history_processors._TRIM_NOTICE_TEMPLATE``, ~40 chars
+# plus the digits of the elided count) makes the post-shrink content
+# slightly longer than this value. Negligible at the default 4K, but
+# callers tuning this down to a tight ceiling should budget for the notice.
 IN_RUN_TOOL_RETURN_TARGET_CHARS: int = 4_000
 
 # Whether the in-run processor strips ThinkingPart instances from messages
