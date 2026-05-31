@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.constants.document_processing import (
+    CAML_ARTICLE_TITLE,
     CAML_EDIT_PREVIEW_RADIUS_CHARS,
     MARKDOWN_MIME_TYPE,
 )
@@ -76,29 +77,26 @@ print("not prose")
 def _create_caml_doc(corpus: Corpus, user, *, content: str = SAMPLE_CAML) -> Document:
     """Create a Readme.CAML Document linked to ``corpus`` with ``content``.
 
-    Uses the canonical path ``"Readme.CAML"`` (matching
-    ``CAML_ARTICLE_TITLE``) so that subsequent ``import_document`` calls
-    looking up by that path can find and version-up the existing
-    DocumentPath. Pre-refactor fixtures relied on ``corpus.add_document``
-    auto-generating ``documents/Readme.CAML`` — that prefixed path is
-    not what the canonical write paths use.
+    Mirrors the production CAML write path
+    (:func:`opencontractserver.documents.versioning.import_document` with
+    ``path=CAML_ARTICLE_TITLE``), which stores the doc at the reserved,
+    slashless ``"Readme.CAML"`` path so the CAML review/edit tools and
+    subsequent ``import_document`` version-ups look it up by that canonical
+    path. ``corpus.add_document(path="Readme.CAML")`` is the wrong API here:
+    it routes through ``CorpusPathService.disambiguate_path``, which (by
+    design, see #1838) rejects any path lacking a leading ``/``.
     """
-    doc = Document.objects.create(
-        title="Readme.CAML",
-        creator=user,
+    from opencontractserver.documents.versioning import import_document
+
+    doc, _status, _path = import_document(
+        corpus=corpus,
+        path=CAML_ARTICLE_TITLE,
+        content=content.encode("utf-8"),
+        user=user,
         file_type=MARKDOWN_MIME_TYPE,
-        # Bypass the post_save processing pipeline -- the signal handler
-        # short-circuits when processing_started is already set.
-        processing_started=timezone.now(),
-        backend_lock=False,
+        title=CAML_ARTICLE_TITLE,
     )
-    doc.txt_extract_file.save(
-        "Readme.CAML.md",
-        ContentFile(content.encode("utf-8")),
-        save=True,
-    )
-    linked_doc, _, _ = corpus.add_document(document=doc, user=user, path="Readme.CAML")
-    return linked_doc
+    return doc
 
 
 # --------------------------------------------------------------------------- #
