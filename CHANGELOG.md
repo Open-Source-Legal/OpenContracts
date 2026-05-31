@@ -26,7 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now enforced inside the MCP ASGI app: `OPTIONS` preflight, an allow-list via
   the new `MCP_CORS_ALLOWED_ORIGINS` setting (defaults to Claude, ChatGPT, and
   the MCP Inspector; merges in `CORS_ALLOWED_ORIGINS`), and exposing
-  `WWW-Authenticate` / `Mcp-Session-Id` (`config/settings/base.py`).
+  `WWW-Authenticate` / `Mcp-Session-Id` (`config/settings/base.py`). The CORS
+  `send`-wrapping runs before both the rate-limit check and JWT validation, so
+  401 (missing **and** expired-token) and 429 responses all carry
+  `Access-Control-Allow-Origin` — pinned by
+  `test_invalid_token_401_carries_cors_origin_for_allowlisted_origin` and
+  `test_rate_limited_429_carries_cors_origin_for_allowlisted_origin`
+  (`opencontractserver/mcp/tests/test_mcp.py`). `Access-Control-Allow-Credentials`
+  is intentionally omitted (MCP is Bearer-token, not cookie, auth);
+  `_OAUTH_PROTECTED_RESOURCES` is a `frozenset` to make its membership-test
+  intent explicit.
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB

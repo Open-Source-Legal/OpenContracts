@@ -6067,6 +6067,73 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
             headers.get(b"access-control-allow-origin"), b"https://claude.ai"
         )
 
+    def test_invalid_token_401_carries_cors_origin_for_allowlisted_origin(self):
+        """Token-refresh path: an allow-listed browser client (Claude) that
+        sends an EXPIRED/invalid JWT must get the 401 challenge WITH
+        Access-Control-Allow-Origin, so the browser can read WWW-Authenticate
+        and re-run OAuth. The existing CORS-on-401 test only exercised the
+        missing-token branch; this pins the invalid-token branch, which is the
+        path a client actually hits after its token expires.
+        """
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"authorization", b"Bearer not-a-real-token"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_rate_limited_429_carries_cors_origin_for_allowlisted_origin(self):
+        """A rate-limited (429) response to an allow-listed browser client must
+        still carry Access-Control-Allow-Origin. The send-wrapping happens
+        before the rate-limit check, so a browser client can read the error
+        body / Retry-After instead of being blocked by the CORS preflight check.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from django.test import override_settings
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]), patch(
+            "opencontractserver.mcp.server.check_mcp_rate_limit",
+            new=AsyncMock(return_value=(True, "rate limited", 9)),
+        ):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 429)
+        headers = dict(starts[0]["headers"])
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
     def test_valid_bearer_token_on_authed_endpoint_does_not_401(self):
         """A valid JWT on /mcp/me must reach downstream, not the 401 branch."""
         from unittest.mock import patch

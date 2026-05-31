@@ -761,7 +761,9 @@ def well_known_mcp(request: HttpRequest) -> HttpResponse:
 # never advertise an authorization server for an arbitrary path. ``/mcp/me``
 # mirrors ``opencontractserver.mcp.server.MCP_AUTHED_PATH`` (kept as a literal
 # here to avoid importing the heavy MCP server module into discovery views).
-_OAUTH_PROTECTED_RESOURCES = ("/mcp", "/mcp/me")
+# ``frozenset`` (not a tuple): this is used purely for membership tests below,
+# so set semantics make the intent explicit and signal that order is irrelevant.
+_OAUTH_PROTECTED_RESOURCES: frozenset[str] = frozenset(("/mcp", "/mcp/me"))
 
 
 @require_GET

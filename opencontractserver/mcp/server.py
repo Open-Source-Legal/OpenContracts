@@ -238,6 +238,10 @@ def _cors_actual_headers(origin: str | None) -> list[list[bytes]]:
 
 
 def _cors_preflight_headers(origin: str) -> list[list[bytes]]:
+    # ``Access-Control-Allow-Credentials`` is intentionally omitted: MCP
+    # authenticates with ``Authorization: Bearer`` tokens, not cookies, so the
+    # browser never needs to send credentials and advertising it would only
+    # widen the CORS surface. Do not add it without a cookie-auth requirement.
     return [
         [b"access-control-allow-origin", origin.encode("latin-1")],
         [b"vary", b"Origin"],
