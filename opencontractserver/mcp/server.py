@@ -378,13 +378,18 @@ def _format_tool_error_text(e: BaseException) -> str:
         return str(e) or "Permission denied"
     if isinstance(e, ObjectDoesNotExist):
         # ``Document.DoesNotExist`` / ``Corpus.DoesNotExist`` subclass this.
-        cls_name = type(e).__qualname__
-        if cls_name.startswith("Document"):
+        # Match by identity, not name prefix — a future ``DocumentVersion``
+        # or ``CorpusQuery`` model would otherwise be misclassified by a
+        # ``startswith`` check.
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
+
+        if isinstance(e, Document.DoesNotExist):
             return (
                 "No matching document was found in this corpus. Call "
                 "list_documents to see valid document_slug values."
             )
-        if cls_name.startswith("Corpus"):
+        if isinstance(e, Corpus.DoesNotExist):
             return (
                 "No matching corpus was found. Call list_public_corpuses to "
                 "see valid corpus_slug values."
@@ -888,6 +893,9 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                     "limit": {"type": "integer", "default": 50},
                     "offset": {"type": "integer", "default": 0},
                 },
+                # No "required" key: the scoped endpoint binds corpus_slug from
+                # the URL, so every remaining parameter is genuinely optional
+                # (unlike the global schema, which requires "corpus_slug").
             },
         ),
         Tool(

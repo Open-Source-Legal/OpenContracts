@@ -90,22 +90,35 @@ def format_search_passage(
     }
 
 
-def format_search_block(result: RelationshipVectorSearchResult) -> dict:
+def format_search_block(
+    result: RelationshipVectorSearchResult,
+    doc_lookup: dict[int, tuple[str | None, str]] | None = None,
+) -> dict:
     """Format a ``RelationshipVectorSearchResult`` as a block-level search hit.
 
     ``result`` already carries ``block_text``, ``label_text``, ``document_id``
     and member ids, so only a light document slug/title lookup is needed.
+
+    Callers formatting many blocks (e.g. ``search_corpus``) should pass a
+    pre-fetched ``doc_lookup`` mapping ``document_id -> (slug, title)`` to avoid
+    a per-block ``Document`` query (N+1). When omitted, the slug/title is looked
+    up lazily so single-block callers stay correct.
     """
     from opencontractserver.constants.mcp import MCP_BLOCK_SNIPPET_MAX_CHARS
     from opencontractserver.documents.models import Document
 
     doc_slug, doc_title = None, ""
     if result.document_id:
-        doc = (
-            Document.objects.filter(pk=result.document_id).only("slug", "title").first()
-        )
-        if doc:
-            doc_slug, doc_title = doc.slug, (doc.title or "")
+        if doc_lookup is not None:
+            doc_slug, doc_title = doc_lookup.get(result.document_id, (None, ""))
+        else:
+            doc = (
+                Document.objects.filter(pk=result.document_id)
+                .only("slug", "title")
+                .first()
+            )
+            if doc:
+                doc_slug, doc_title = doc.slug, (doc.title or "")
 
     member_count = (1 if result.source_annotation_id else 0) + len(
         result.target_annotation_ids

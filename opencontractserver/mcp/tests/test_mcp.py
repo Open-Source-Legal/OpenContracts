@@ -677,6 +677,49 @@ class MCPToolsDocumentsTest(TestCase):
         # ... and the full payload serializes cleanly (the original crash).
         json.dumps(result, indent=2)
 
+    def test_get_document_text_offset_beyond_end(self):
+        """char_offset past total_chars yields empty text and no next page."""
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "X" * 40
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(
+                self.corpus.slug, self.doc1.slug, char_offset=10_000
+            )
+
+        self.assertEqual(result["total_chars"], 40)
+        self.assertEqual(result["text"], "")
+        self.assertIsNone(result["next_offset"])
+        self.assertFalse(result["truncated"])
+
+    def test_get_document_text_max_chars_zero(self):
+        """max_chars=0 produces an empty window."""
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "Y" * 40
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(self.corpus.slug, self.doc1.slug, max_chars=0)
+
+        self.assertEqual(result["text"], "")
+
+    def test_get_document_text_max_chars_clamped_to_hard_cap(self):
+        """max_chars above MCP_DOCUMENT_TEXT_MAX_CHARS is clamped to the cap."""
+        from opencontractserver.constants.mcp import MCP_DOCUMENT_TEXT_MAX_CHARS
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "Z" * (MCP_DOCUMENT_TEXT_MAX_CHARS + 50)
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(
+                self.corpus.slug, self.doc1.slug, max_chars=10_000_000
+            )
+
+        # Window is clamped: only the cap's worth of text is returned, and the
+        # response pages on (next_offset at the cap) rather than honoring the
+        # oversized request.
+        self.assertEqual(len(result["text"]), MCP_DOCUMENT_TEXT_MAX_CHARS)
+        self.assertEqual(result["next_offset"], MCP_DOCUMENT_TEXT_MAX_CHARS)
+        self.assertTrue(result["truncated"])
+
     def test_get_document_resource_handles_bytes_from_cloud_storage(self):
         """Regression: the resource path shares the same bytes-from-cloud bug
         class as ``get_document_text`` (django-storages #382).
@@ -3002,6 +3045,7 @@ class MCPScopedToolsTest(TestCase):
             "list_documents",
             "get_document_text",
             "list_annotations",
+            "list_relationships",
             "search_corpus",
             "list_threads",
             "get_thread_messages",
@@ -3034,6 +3078,19 @@ class MCPScopedToolsTest(TestCase):
 
         self.assertEqual(result["document_slug"], self.doc1.slug)
         self.assertEqual(result["page_count"], 5)
+
+    def test_scoped_list_relationships(self):
+        """Scoped list_relationships dispatches without explicit corpus_slug."""
+        from opencontractserver.mcp.tools import get_scoped_tool_handlers
+
+        handlers = get_scoped_tool_handlers(self.corpus.slug)
+
+        # Corpus-slug is bound from the scope, so no positional arg is needed.
+        result = handlers["list_relationships"]()
+
+        self.assertIn("total_count", result)
+        self.assertIn("relationships", result)
+        self.assertIsInstance(result["relationships"], list)
 
 
 @pytest.mark.serial
@@ -3112,6 +3169,12 @@ class MCPScopedServerTest(TransactionTestCase):
         # search_corpus should only require query
         search_tool = next(t for t in tools if t.name == "search_corpus")
         self.assertEqual(search_tool.inputSchema.get("required", []), ["query"])
+
+        # list_relationships must be advertised by the scoped endpoint and,
+        # since corpus_slug is bound from the URL, expose no required params.
+        self.assertIn("list_relationships", tool_names)
+        rels_tool = next(t for t in tools if t.name == "list_relationships")
+        self.assertEqual(rels_tool.inputSchema.get("required", []), [])
 
         # The scoped create_thread_message variant must drop ``corpus_slug``
         # from required (auto-injected from the URL) and expose the content
@@ -6653,6 +6716,107 @@ class MCPToolsRelationshipsTest(TestCase):
         self.assertGreaterEqual(result["total_count"], 1)
         result_none = list_relationships(self.corpus.slug, label_text="nonexistent")
         self.assertEqual(result_none["total_count"], 0)
+
+
+class MCPListRelationshipsStructuralSetTest(TestCase):
+    """Corpus-wide list_relationships includes structural-set relationships (#1862).
+
+    Exercises the ``Q(structural=True, structural_set_id__in=set_ids)`` branch in
+    ``RelationshipService.get_corpus_relationships`` — a structural relationship
+    has ``document=NULL`` / ``corpus=NULL`` and is reachable only via the
+    structural set shared by the corpus's documents. Without this test the branch
+    (and the existence of ``Relationship.structural_set``) is unverified in CI.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+            Relationship,
+            StructuralAnnotationSet,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        cls.owner = User.objects.create_user(
+            username="structrelowner", email="structrel@test.com", password="pw123456"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Struct Rel Corpus", creator=cls.owner, is_public=True
+        )
+        cls.struct_set = StructuralAnnotationSet.objects.create(
+            content_hash="structrel-hash-1",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.document = Document.objects.create(
+            title="Struct Rel Doc",
+            creator=cls.owner,
+            is_public=True,
+            page_count=2,
+            structural_annotation_set=cls.struct_set,
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/structrel.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        cls.src = Annotation.objects.create(
+            page=0,
+            raw_text="Header",
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+        cls.tgt = Annotation.objects.create(
+            page=0,
+            raw_text="Body",
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+        cls.rel_label = AnnotationLabel.objects.create(
+            text="contains",
+            label_type="RELATIONSHIP_LABEL",
+            creator=cls.owner,
+            is_public=True,
+        )
+        # Structural relationship: document/corpus NULL, linked via structural_set
+        # (satisfies the document-XOR-structural_set model constraint).
+        cls.rel = Relationship.objects.create(
+            relationship_label=cls.rel_label,
+            document=None,
+            corpus=None,
+            structural_set=cls.struct_set,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+        cls.rel.source_annotations.add(cls.src)
+        cls.rel.target_annotations.add(cls.tgt)
+
+    def test_corpus_wide_includes_structural_set_relationship(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, structural=True)
+        self.assertEqual(result["total_count"], 1)
+        rel = result["relationships"][0]
+        self.assertEqual(rel["label"], "contains")
+        self.assertTrue(rel["structural"])
+
+    def test_human_only_filter_excludes_structural_set_relationship(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, structural=False)
+        self.assertEqual(result["total_count"], 0)
 
 
 class MCPGetCorpusInfoLabelsTest(TestCase):

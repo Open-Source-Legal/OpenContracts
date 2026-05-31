@@ -8,7 +8,7 @@ Supports both global mode (all public corpuses) and corpus-scoped mode
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Q
@@ -341,7 +341,7 @@ def search_corpus(
     corpus_slug: str,
     query: str,
     limit: int = 10,
-    granularity: str = "both",
+    granularity: Literal["passage", "block", "both"] = "both",
     structural: bool | None = None,
     user: UserOrAnonymous | None = None,
 ) -> dict:
@@ -367,6 +367,7 @@ def search_corpus(
     """
     from opencontractserver.annotations.services import AnnotationService
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import Document
 
     from .formatters import format_search_block, format_search_passage
 
@@ -427,7 +428,16 @@ def search_corpus(
                     query_embedding=query_vector, similarity_top_k=limit
                 )
             )
-            formatted.extend(format_search_block(b) for b in blocks)
+            # Bulk-fetch block document slugs/titles in one query to avoid a
+            # per-block Document lookup (N+1) inside the formatter.
+            block_doc_ids = {b.document_id for b in blocks if b.document_id}
+            doc_lookup = {
+                pk: (slug, title or "")
+                for pk, slug, title in Document.objects.filter(
+                    pk__in=block_doc_ids
+                ).values_list("id", "slug", "title")
+            }
+            formatted.extend(format_search_block(b, doc_lookup) for b in blocks)
         except (ValueError, TypeError, AttributeError, RuntimeError):
             pass
 
@@ -435,7 +445,7 @@ def search_corpus(
     formatted.sort(
         key=lambda r: (
             r["similarity_score"] is not None,
-            r["similarity_score"] or 0.0,
+            r["similarity_score"] if r["similarity_score"] is not None else 0.0,
         ),
         reverse=True,
     )
@@ -728,7 +738,8 @@ def get_corpus_info(corpus_slug: str, user: UserOrAnonymous | None = None) -> di
             .distinct()
         )
         labels = []
-        # annotation_labels is already prefetched, slicing in Python to avoid new query
+        # Iterate the label set's labels, keeping only those actually in use
+        # (filtered against ``used_label_ids`` above). Capped at 50.
         for label in corpus.label_set.annotation_labels.all():
             if label.id not in used_label_ids:
                 continue
