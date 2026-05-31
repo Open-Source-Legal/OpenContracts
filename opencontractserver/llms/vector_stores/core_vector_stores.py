@@ -819,14 +819,21 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         ``effective_mode`` state transition (a) explicit at a single call site
         and (b) testable in isolation rather than buried in nested ``if/else``.
         """
-        from opencontractserver.pipeline.utils import get_default_embedder
+        from opencontractserver.pipeline.utils import (
+            get_default_embedder,
+            get_embedder_instance,
+        )
 
         default_embedder_class = get_default_embedder()
         if not default_embedder_class:
             _logger.error("Could not get default embedder for global search")
             return ("fts" if mode == "hybrid" else mode, None)
 
-        query_vector = default_embedder_class().embed_text(query_text)
+        # Process-cached instance: avoid paying the per-instantiation DB read +
+        # PBKDF2 secret decryption on every global search query.
+        query_vector = get_embedder_instance(default_embedder_class).embed_text(
+            query_text
+        )
         if query_vector is None:
             _logger.warning("Failed to generate query embedding for global search")
             return ("fts" if mode == "hybrid" else mode, None)

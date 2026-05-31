@@ -241,8 +241,14 @@ def generate_embeddings_from_text(
     # If we found a valid Python embedder class with an embed_text method, use it.
     if embedder_class:
         try:
-            logger.debug(f"Initializing embedder instance of {embedder_class.__name__}")
-            embedder_instance = embedder_class()
+            # Use the process-cached instance: constructing an embedder loads
+            # settings from the DB and decrypts secrets with an expensive
+            # PBKDF2 KDF, which we must not pay on every embed call. See
+            # ``get_embedder_instance`` for the caching/invalidation contract.
+            from opencontractserver.pipeline.utils import get_embedder_instance
+
+            logger.debug(f"Resolving embedder instance of {embedder_class.__name__}")
+            embedder_instance = get_embedder_instance(embedder_class, embedder_path)
 
             logger.debug(f"Embedding text with {embedder_class.__name__}")
             vector = embedder_instance.embed_text(text)
