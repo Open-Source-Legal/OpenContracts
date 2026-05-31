@@ -58,7 +58,7 @@ MIME_TO_EXTENSION = {
 
 
 def _create_content_file(
-    content: bytes,
+    content: bytes | None,
     content_hash: str,
     path: str,
     file_type: str = "application/pdf",
@@ -77,7 +77,22 @@ def _create_content_file(
 
     Returns:
         ContentFile ready for assignment to a FileField
+
+    Raises:
+        ValueError: if ``content`` is ``None``. Callers reach this branch only
+            when no file object (``content_file`` / ``pdf_file`` / ``txt_file``)
+            was supplied, in which case the ``content`` bytes are mandatory.
+            ``import_document``'s hash-source guard rejects the all-``None`` case
+            up front; this is the explicit fail-closed backstop so a future
+            caller that slips past it gets a clear error instead of a
+            ``ContentFile(None, ...)`` ``TypeError``.
     """
+    if content is None:
+        raise ValueError(
+            "_create_content_file requires content bytes when no file object "
+            "is provided (got content=None)."
+        )
+
     # Handle None file_type - default to binary
     if not file_type:
         file_type = "application/octet-stream"
@@ -125,6 +140,11 @@ def compute_sha256_for_file(file_obj: "File") -> str:
     the full file size, which is what lets a large single-document import skip
     buffering the whole file in RAM (issue #1843). The cursor is rewound to the
     start afterward so the storage write that follows sees the entire file.
+
+    NOTE: this is two disk passes — once here for the hash, once again for the
+    storage write that follows. Peak memory is O(block), not O(file), but on a
+    network-backed storage backend (S3/GCS) a multi-GB upload is read end-to-end
+    twice; that is the deliberate trade for not holding the whole file in RAM.
     """
     hasher = hashlib.sha256()
     # Django ``File`` exposes ``chunks()`` (which seeks to 0 before iterating);
@@ -163,7 +183,7 @@ def import_document(
     folder: Optional[CorpusFolder] = None,
     pdf_file=None,
     txt_file=None,
-    content_file: "Optional[File]" = None,
+    content_file: "File | None" = None,
     **doc_kwargs,
 ) -> tuple[Document, str, DocumentPath]:
     """

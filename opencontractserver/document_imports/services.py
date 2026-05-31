@@ -331,11 +331,13 @@ def import_document_for_user(
 
     # MIME detection — sniff only a header when streaming so a multi-GB upload
     # isn't pulled into memory just to read its magic bytes.
-    sniff_bytes = (
-        file_bytes
-        if file_bytes is not None
-        else _read_stream_header(file_obj, DOCUMENT_MIME_SNIFF_BYTES)
-    )
+    if file_bytes is not None:
+        sniff_bytes = file_bytes
+    else:
+        # The exactly-one-of guard above guarantees file_obj is not None in
+        # this branch; assert it so the type narrows for _read_stream_header.
+        assert file_obj is not None
+        sniff_bytes = _read_stream_header(file_obj, DOCUMENT_MIME_SNIFF_BYTES)
     kind = detect_mime_type(sniff_bytes, filename)
     if kind is None:
         return ImportResult(document=None, error="Unable to determine file type")

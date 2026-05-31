@@ -997,13 +997,14 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
     def import_content(
         self,
+        *,
+        user: AbstractBaseUser,
         content: bytes | None = None,
-        user: AbstractBaseUser | None = None,
         path: str | None = None,
         folder: CorpusFolder | None = None,
         filename: str | None = None,
         file_type: str | None = None,
-        content_file: "File | None" = None,
+        content_file: File | None = None,
         **doc_kwargs: Any,
     ) -> tuple[Document, str, DocumentPath]:
         """

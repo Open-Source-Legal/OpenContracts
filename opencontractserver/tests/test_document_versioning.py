@@ -13,6 +13,7 @@ Architecture Rules Tested:
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
@@ -21,6 +22,7 @@ from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.documents.versioning import (
     compute_sha256,
+    compute_sha256_for_file,
     delete_document,
     get_content_history,
     get_current_filesystem,
@@ -1730,9 +1732,6 @@ class StreamingImportTestCase(TestCase):
         self.corpus = Corpus.objects.create(title="Stream Corpus", creator=self.user)
 
     def test_compute_sha256_for_file_matches_bytes_and_rewinds(self):
-        from django.core.files.base import ContentFile
-
-        from opencontractserver.documents.versioning import compute_sha256_for_file
 
         payload = b"%PDF-1.7 streaming hash payload " + (b"Z" * 5000)
         f = ContentFile(payload, name="x.pdf")
@@ -1746,7 +1745,6 @@ class StreamingImportTestCase(TestCase):
 
     def test_import_document_streams_hash_from_pdf_file_when_content_none(self):
         """content=None + a binary file -> hash is streamed from the file."""
-        from django.core.files.base import ContentFile
 
         payload = b"%PDF-1.4 " + (b"Q" * 4096)
         doc, status, _ = import_document(
@@ -1767,7 +1765,6 @@ class StreamingImportTestCase(TestCase):
 
     def test_import_document_streams_hash_from_txt_file_when_content_none(self):
         """content=None + a text file -> routed to txt_extract_file, hash streamed."""
-        from django.core.files.base import ContentFile
 
         payload = b"# Heading\n\nstreamed markdown body\n"
         doc, status, _ = import_document(
@@ -1788,7 +1785,6 @@ class StreamingImportTestCase(TestCase):
 
     def test_import_document_content_file_is_type_routed(self):
         """A generic ``content_file`` lands in the field matching ``file_type``."""
-        from django.core.files.base import ContentFile
 
         payload = b"%PDF-1.5 routed via content_file " + (b"R" * 2048)
         doc, _, _ = import_document(
