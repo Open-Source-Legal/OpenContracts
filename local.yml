@@ -34,6 +34,12 @@ services:
       # paths (the WebSocket agent) from racing a not-yet-listening service.
       vector-embedder:
         condition: service_healthy
+      # multimodal-embedder has a /health check too, but it is intentionally
+      # gated only on service_started (not service_healthy) here, and is not a
+      # direct celeryworker dependency: it serves image embeddings and is NOT
+      # on the text/PDF parse+embed ingest path the extract pipeline exercises.
+      # Gating on its health would add ~7 GB-image boot latency to every local
+      # `docker compose up` for a service this flow doesn't touch.
       multimodal-embedder:
         condition: service_started
       docling-parser:

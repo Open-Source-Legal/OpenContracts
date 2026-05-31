@@ -200,11 +200,19 @@ jobs:
       # runs and would surface a genuine regression).
       # ────────────────────────────────────────────────────────────────
       - name: Warm up Docling parser + embedder (load models off the test clock)
+        # Best-effort: the Python below swallows its own errors, but a
+        # docker-level failure (e.g. the django container crashed before this
+        # step) would otherwise fail the step and block the job. The warm-up is
+        # an optimisation, never a gate — keep going and let the timed spec run.
+        continue-on-error: true
         run: |
           docker compose -f local.yml exec -T django python - <<'PY'
           import base64, json, sys, time, urllib.request
 
-          def wait_health(url, name, budget=180):
+          # Short budget: ``depends_on: condition: service_healthy`` already
+          # verified these services are up before this job step runs, so this
+          # poll just covers a brief readiness gap rather than a cold boot.
+          def wait_health(url, name, budget=30):
               deadline = time.time() + budget
               while time.time() < deadline:
                   try:
@@ -286,7 +294,13 @@ jobs:
           # failure detail and historically skipped log capture). With retries
           # off the run completes in-budget, Playwright prints which step/doc
           # failed, and the always() capture below uploads worker logs + memory
-          # stats. Restore retries once the root cause is fixed.
+          # stats.
+          #
+          # TODO(#1844 follow-up): keep --retries=0 only until this fix has a
+          # handful of green runs proving the cold-start stall is gone; then
+          # restore Playwright's default retry so a genuinely transient network
+          # blip doesn't red-X the whole job. Tracked so this diagnostic setting
+          # doesn't quietly become permanent.
           yarn playwright test --grep "Extract PDF workflow" --reporter=list --retries=0
           E2E_EXIT=$?
           mkdir -p coverage/e2e/.nyc_output
