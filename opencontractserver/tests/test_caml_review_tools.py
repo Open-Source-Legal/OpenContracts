@@ -1148,7 +1148,7 @@ class ApplyCamlArticleEditPreviewTests(TestCase):
         self.assertEqual(result["char_offset"], 0)
 
 
-class AapplyCamlArticleEditCreatesVersionTreeSiblingTest(TransactionTestCase):
+class ApplyCamlArticleEditCreatesVersionTreeSiblingTest(TransactionTestCase):
     """Pin Task 8.5: agent CAML edits create a version-tree sibling.
 
     After the refactor, ``_apply_caml_article_edit`` routes its write through
