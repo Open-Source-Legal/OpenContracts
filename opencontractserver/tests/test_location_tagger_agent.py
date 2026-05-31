@@ -98,8 +98,9 @@ class _GeoToolFixture(TestCase):
             file_type="text/plain",
             processing_started=timezone.now(),  # skip processing signal
         )
+        # FieldFile.save() commits the instance (save=True default), so no
+        # explicit doc.save() is needed afterwards.
         doc.txt_extract_file.save("geo.txt", ContentFile(self.DOC_TEXT.encode()))
-        doc.save()
         # add_document returns the corpus-isolated copy the tool annotates.
         self.doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
 
@@ -169,6 +170,9 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         self.assertIsNotNone(ann.data)
         self.assertFalse(ann.data["geocoded"])
         self.assertIsNone(ann.data["canonical_name"])
+        # The miss sentinel preserves the original text so the map aggregation
+        # can trace unresolved annotations.
+        self.assertEqual(ann.data["raw_text"], "Zzzqqqx")
 
     def test_non_geographic_label_leaves_data_null(self):
         # Backward compatibility: a normal label must NOT get a data payload.

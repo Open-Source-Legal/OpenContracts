@@ -219,7 +219,10 @@ def add_annotations_from_exact_strings(
     # doc/corpus. ``hints`` is only consulted for OC_* geographic labels.
     parsed_items: list[tuple[str, str, dict | None]] = []
     for item in items:
-        raw_hints = item.get("hints") if isinstance(item, dict) else None
+        # ``item`` is an AnnotationItem TypedDict (always a dict at runtime);
+        # the inner isinstance still guards against the LLM sending a non-dict
+        # ``hints`` value.
+        raw_hints = item.get("hints")
         parsed_items.append(
             (
                 str(item["label_text"]),

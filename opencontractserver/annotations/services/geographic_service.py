@@ -95,15 +95,17 @@ def build_geocoded_annotation_data(
     # ``type: ignore`` alone — a bad label type is a programming error here
     # (the OC_* reverse-map / GraphQL enum should never produce anything
     # else), so fail loudly instead of letting it reach ``resolve_place``.
-    assert geocode_label_type in (
-        "country",
-        "state",
-        "city",
-    ), f"geocode_label_type must be country/state/city, got {geocode_label_type!r}"
+    # A bare ``assert`` would be stripped under ``python -O`` (common in
+    # production containers), so raise explicitly.
+    if geocode_label_type not in ("country", "state", "city"):
+        raise ValueError(
+            f"geocode_label_type must be country/state/city, "
+            f"got {geocode_label_type!r}"
+        )
 
     resolved = resolve_place(
         text,
-        geocode_label_type,  # type: ignore[arg-type]  # narrowed by the assert above
+        geocode_label_type,  # type: ignore[arg-type]  # narrowed by the guard above
         country_hint=country_hint,
         state_hint=state_hint,
     )
