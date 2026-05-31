@@ -51,7 +51,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     wasting a geocoder call, `doc_text.find("")` returns the search start so the
     occurrence loop never advanced — a blank span would have spun forever.
     Mirrors the blank-`raw_text` guard in `_create_geographic_annotation`.
-
+- **MCP interactive sign-in for Claude web/desktop and ChatGPT.** Added an
+  authenticated MCP entrypoint at `/mcp/me/` (`opencontractserver/mcp/server.py`)
+  that returns `401 + WWW-Authenticate` to unauthenticated callers, triggering
+  the OAuth 2.1 + PKCE flow in interactive clients; once signed in it serves the
+  user's private + public resources. The public `/mcp/` endpoint is unchanged
+  (anonymous = public only) and a valid bearer token is still honored on either.
+  Both share the global stateless MCP server (auth is per-request via the
+  `_mcp_user` ContextVar).
+- **RFC 9728 path-based protected-resource metadata** at
+  `/.well-known/oauth-protected-resource/mcp/me` (alongside the existing root
+  document), plus a `cite-authenticated` server advertised in
+  `/.well-known/mcp.json` when `USE_AUTH0=True`
+  (`opencontractserver/discovery/views.py`, `opencontractserver/discovery/urls.py`).
+- **CORS for the MCP endpoints.** `/mcp*` bypasses Django middleware, so CORS is
+  now enforced inside the MCP ASGI app: `OPTIONS` preflight, an allow-list via
+  the new `MCP_CORS_ALLOWED_ORIGINS` setting (defaults to Claude, ChatGPT, and
+  the MCP Inspector; merges in `CORS_ALLOWED_ORIGINS`), and exposing
+  `WWW-Authenticate` / `Mcp-Session-Id` (`config/settings/base.py`). The CORS
+  `send`-wrapping runs before both the rate-limit check and JWT validation, so
+  401 (missing **and** expired-token) and 429 responses all carry
+  `Access-Control-Allow-Origin` — pinned by
+  `test_invalid_token_401_carries_cors_origin_for_allowlisted_origin` and
+  `test_rate_limited_429_carries_cors_origin_for_allowlisted_origin`
+  (`opencontractserver/mcp/tests/test_mcp.py`). `Access-Control-Allow-Credentials`
+  is intentionally omitted (MCP is Bearer-token, not cookie, auth);
+  `_OAUTH_PROTECTED_RESOURCES` is a `frozenset` to make its membership-test
+  intent explicit.
+  - **Review follow-ups (#1842)**: the CORS `send`-wrapper now folds
+    `Vary: Origin` into a pre-existing `Vary` header (e.g. `Accept-Encoding`)
+    instead of dropping it on a membership check, so caches/CDNs still vary on
+    `Origin` (regression test
+    `test_cors_vary_folds_into_existing_vary_header`). The MCP Inspector
+    loopback origins (`http://localhost:6274`, `http://127.0.0.1:6274`) are now
+    only in the `MCP_CORS_ALLOWED_ORIGINS` default under `DEBUG`, so they never
+    ship in a production default; operators can still set them explicitly. Added
+    an inline note on why the `send`-wrap must precede the rate-limit/JWT
+    branches.
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB
@@ -117,6 +153,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **In-run history compaction follow-up (issue #1824).** Code-review fixes for
+  the pydantic-ai `shrink_old_artifacts_processor` shipped in #1817.
+  - **Structured tool returns now shrink to valid JSON**
+    (`opencontractserver/llms/history_processors.py`). `ToolReturnPart.content`
+    can be a dict/list; the shrink path stringified it with `str()` (Python
+    repr — single-quoted keys, `True`/`None`), which the model can misparse. A
+    new `_stringify_tool_content` helper serialises non-strings with
+    `json.dumps(content, default=str)` (falling back to `str()` only if JSON
+    serialisation fails) and is shared by both the token estimator and the
+    shrink, so the pre-shrink estimate matches the post-shrink payload.
+  - **Strengthened `test_thinking_only_modelresponse_is_not_emptied`**
+    (`opencontractserver/tests/test_history_processors.py`). The old fixture had
+    no shrinkable content in the older prefix, so the test passed via the no-op
+    early-return rather than the empty-parts guard it names. It now places a
+    large `ToolReturnPart` alongside the thinking-only response so the shrink
+    actually runs, and asserts (via telemetry) that the guard — not an early
+    return — is why the `ThinkingPart` survives. Added
+    `test_non_string_tool_return_serialized_as_json` to pin the JSON fix.
+- **MCP `WWW-Authenticate` base-URL hardening** (`opencontractserver/mcp/server.py`)
+  — the 401 challenge now prefers the trusted `MCP_PUBLIC_BASE_URL` over the
+  request `Host` header (MCP bypasses `ALLOWED_HOSTS`), falling back to the
+  previous sanitized-Host derivation. A configured value that survives
+  quote/CR/LF stripping but is still not a valid `scheme://host` (a typo such
+  as a trailing `;junk`, or a header-injection attempt) is now rejected via a
+  `re.fullmatch` guard and the challenge degrades to a realm-only `Bearer`
+  value rather than emitting a mangled URL or trusting the request `Host`.
+  Refreshed `docs/mcp/README.md`, which previously stated "no authentication."
 - **Chunked single-document import no longer buffers the whole file in RAM at
   `complete` (issue #1843).** Reassembling a chunked single-document upload
   previously did `file_bytes = tmp.read()` and passed the whole assembled file
@@ -153,7 +216,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     HTTP tests in `test_document_imports_chunked.py` (streamed-not-buffered
     contract, streamed-hash correctness, plain-text round trip).
 - **Flaky test isolation** (`opencontractserver/tests/research/test_research_report_model.py`, issue #1845): `test_visible_to_user_superuser_sees_all` asserted a global `visible_to_user(admin).count() == 2`. Because the superuser branch returns `.all()`, a sibling `TransactionTestCase` that commits `ResearchReport` rows broke the count under a sequential whole-`research/`-directory run (CI stayed green only because xdist isolates files to separate worker DBs). Scoped the assertion to the test's own rows. Test-only; no production impact.
-
 - **Corpus document versioning & path/folder audit — correctness and performance fixes.** A sweep of the dual-tree versioning (`DocumentPath`) and `CorpusFolder` path system surfaced several correctness gaps and N+1s. Regression coverage: `opencontractserver/tests/test_versioning_paths_audit.py`.
   - **`Corpus.add_document` no longer silently supersedes a colliding document** (`opencontractserver/corpuses/models.py`). When the auto-/caller-supplied path (e.g. `/documents/<title>`) collided with an existing active document, the occupant was marked `is_current=False` and the new doc became a "version" of an unrelated content tree — the first document silently vanished from the corpus. `add_document` now disambiguates the path (`/documents/Report` → `/documents/Report_1`) via `CorpusPathService._disambiguate_path`, always creating an independent root path (`parent=None`, `version_number=1`). `add_document` is not a versioning entry point; `import_content` remains the path-versioning surface.
   - **Folder rename / move now reconciles `DocumentPath.path` strings** (`opencontractserver/corpuses/services/folders.py`, `services/paths.py`). `update_folder` (rename) and `move_folder` changed `CorpusFolder.get_path()` but left the folder-derived `path` strings of contained documents (and descendant-folder documents) stale — drifting from the location that document *moves* derive. New `CorpusPathService.reconcile_paths_after_folder_change` rewrites every folder-derived active path under the affected subtree to the new prefix as immutable MOVED history nodes (batch deactivate + `bulk_create` + signal dispatch), inside the same transaction as the folder mutation. Non-folder-derived paths (e.g. an upload's `/documents/<title>`) are intentionally left untouched.
@@ -232,6 +294,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **DRY: single definition of the compaction kick-in point** (issue #1824)
+  (`opencontractserver/llms/context_guardrails.py`). New
+  `context_window_and_threshold(model_name, threshold_ratio)` replaces the
+  `int(get_context_window_for_model(...) * ratio)` triplication across
+  `should_compact`, `compact_message_history`, and the in-run
+  `shrink_old_artifacts_processor`, so turn-level and in-run compaction derive
+  the threshold identically from one place. Documented (finding #3) that
+  `IN_RUN_TOOL_RETURN_TARGET_CHARS` bounds the preserved prefix, not the final
+  string — the appended trim notice adds a small fixed overhead — and added a
+  comment confirming the `_on_in_run_shrink` closure's captured message IDs are
+  stable for the turn (finding #5).
 - **`BaseService.filter_visible_qs` now fails closed** (`opencontractserver/shared/services/base.py`)
   — an input lacking a `visible_to_user` method previously passed through
   **unfiltered** (fail-open, a latent row-leak); it now raises `TypeError`.

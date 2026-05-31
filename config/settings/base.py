@@ -1129,6 +1129,10 @@ CORS_ALLOW_HEADERS = [
 
 CORS_EXPOSE_HEADERS = [
     "my-custom-header",
+    # Let browser-based MCP clients read the auth challenge + transport session
+    # id on Django-served responses (e.g. the .well-known discovery endpoints).
+    "WWW-Authenticate",
+    "Mcp-Session-Id",
 ]
 
 # When allowing credentials, do not use allow-all origins. Keep explicit list above.
@@ -1564,3 +1568,37 @@ MCP_SERVER = {
     },
     "cache_ttl": env.int("MCP_CACHE_TTL", default=300),
 }
+
+# Origins permitted to call the MCP endpoints (/mcp*) from a browser. MCP
+# requests are routed to the MCP ASGI app *before* Django, so
+# django-cors-headers never runs on them; CORS is enforced inside the MCP app
+# (opencontractserver/mcp/server.py), which also merges in CORS_ALLOWED_ORIGINS
+# at request time. Hosted Claude/ChatGPT connectors call server-side and don't
+# need this, but browser clients and the MCP Inspector do.
+# The hosted connectors are always safe to default-allow. The MCP Inspector
+# loopback origins (npx @modelcontextprotocol/inspector, port 6274) are only
+# folded into the default under DEBUG so they never ship in a production
+# default — any other process binding :6274 on a deployed host would otherwise
+# inherit credentialed cross-origin access. Operators who need them in a
+# non-DEBUG environment can still set MCP_CORS_ALLOWED_ORIGINS explicitly.
+_MCP_CORS_DEFAULT_ORIGINS = [
+    "https://claude.ai",
+    "https://chatgpt.com",
+    "https://chat.openai.com",
+]
+if DEBUG:
+    _MCP_CORS_DEFAULT_ORIGINS += [
+        "http://localhost:6274",
+        "http://127.0.0.1:6274",
+    ]
+MCP_CORS_ALLOWED_ORIGINS = env.list(
+    "MCP_CORS_ALLOWED_ORIGINS",
+    default=_MCP_CORS_DEFAULT_ORIGINS,
+)
+
+# Optional trusted public base URL (scheme://host) for absolute URLs the MCP
+# server emits — notably the RFC 9728 ``resource_metadata`` pointer in 401
+# challenges. When empty the value is derived from the (sanitized) request
+# Host; because MCP bypasses ALLOWED_HOSTS, pinning this in production is
+# recommended (e.g. MCP_PUBLIC_BASE_URL=https://contracts.opensource.legal).
+MCP_PUBLIC_BASE_URL = env.str("MCP_PUBLIC_BASE_URL", default="")
