@@ -460,6 +460,10 @@ class TestDocumentPathTypeCaching(TestCase):
     def _make_info(self, user):
         """Create a mock GraphQL info object with a context that supports attr caching."""
 
+        # One class plays both roles in the GraphQL ``info.context.user`` chain:
+        # the outer ``info`` (whose ``.context`` is read) and the inner context
+        # object (whose ``.user`` is read). Hence both attributes are declared
+        # even though any given instance only populates one.
         class MockContext:
             user: User
             context: "MockContext"
