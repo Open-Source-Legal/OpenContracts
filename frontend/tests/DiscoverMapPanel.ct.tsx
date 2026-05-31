@@ -4,6 +4,10 @@ import { GET_GLOBAL_GEOGRAPHIC_ANNOTATIONS } from "../src/graphql/queries/geogra
 
 const GEO_PINS = [
   {
+    // __typename is required in the mock RESULT so Apollo's normalised cache
+    // materialises the pin (MockedProvider needs it even with
+    // addTypename={false} on the request side).
+    __typename: "GeographicAnnotationPinType",
     canonicalName: "Germany",
     labelType: "country",
     lat: 51.0,
