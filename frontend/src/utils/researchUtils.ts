@@ -26,6 +26,8 @@ export function getResearchStatus(
   status: string | null | undefined
 ): ResearchStatusInfo {
   switch (status) {
+    // CREATED is a transient pre-queue state; surface it as "Queued" (no warn).
+    case JobStatus.Created:
     case JobStatus.Queued:
       return {
         label: RESEARCH_STATUS.QUEUED,
@@ -73,7 +75,7 @@ export function getResearchStatus(
  * True for terminal states (no further progress expected).
  *
  * Only the not-yet-set case (null/undefined) and the explicitly non-terminal
- * states (Queued, Running) return false. Any *unrecognized* status — e.g. a
+ * states (Created, Queued, Running) return false. Any *unrecognized* status — e.g. a
  * new backend state shipped before the frontend catches up — is treated as
  * terminal so the detail view never polls indefinitely on a status it cannot
  * interpret. (getResearchStatus falls back to a "Queued" *label* for display,
@@ -83,7 +85,11 @@ export function isTerminalResearchStatus(
   status: string | null | undefined
 ): boolean {
   if (status == null) return false;
-  return status !== JobStatus.Queued && status !== JobStatus.Running;
+  return (
+    status !== JobStatus.Created &&
+    status !== JobStatus.Queued &&
+    status !== JobStatus.Running
+  );
 }
 
 /** Format an ISO date string to e.g. "Jan 15, 2024". */

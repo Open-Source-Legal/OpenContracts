@@ -26,6 +26,13 @@ describe("getResearchStatus()", () => {
     expect(getResearchStatus(JobStatus.Cancelled).color).toBe("warning");
   });
 
+  it("surfaces the transient CREATED state as Queued", () => {
+    expect(getResearchStatus(JobStatus.Created)).toEqual({
+      label: RESEARCH_STATUS.QUEUED,
+      color: RESEARCH_STATUS_COLORS[RESEARCH_STATUS.QUEUED],
+    });
+  });
+
   it("falls back to QUEUED for unknown/empty status", () => {
     expect(getResearchStatus(undefined).label).toBe(RESEARCH_STATUS.QUEUED);
     expect(getResearchStatus("WAT").label).toBe(RESEARCH_STATUS.QUEUED);
@@ -40,6 +47,10 @@ describe("isTerminalResearchStatus()", () => {
   });
 
   it("is false for active states", () => {
+    // CREATED is the transient pre-queue state — non-terminal, so polling
+    // must continue (regression guard: it was missing from the frontend enum
+    // and wrongly fell through to the terminal branch).
+    expect(isTerminalResearchStatus(JobStatus.Created)).toBe(false);
     expect(isTerminalResearchStatus(JobStatus.Queued)).toBe(false);
     expect(isTerminalResearchStatus(JobStatus.Running)).toBe(false);
     expect(isTerminalResearchStatus(undefined)).toBe(false);

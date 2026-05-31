@@ -87,6 +87,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
         toast.error(payload?.message || "Could not start research.");
       }
     } catch (e) {
+      console.error("Failed to start research report:", e);
       toast.error("Could not start research.");
     }
   };

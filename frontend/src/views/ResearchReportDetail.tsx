@@ -481,6 +481,7 @@ export const ResearchReportDetail: React.FC = () => {
         toast.error(payload?.message || "Could not cancel the research job.");
       }
     } catch (e) {
+      console.error("Failed to cancel research report:", e);
       toast.error("Could not cancel the research job.");
     }
   };
@@ -548,7 +549,12 @@ export const ResearchReportDetail: React.FC = () => {
     );
   }
 
-  const isRunning = status === JobStatus.Running || status === JobStatus.Queued;
+  // Non-terminal states: the report is still being produced. Named "active"
+  // (not "isRunning") because it also covers the pre-run Created/Queued states.
+  const isActive =
+    status === JobStatus.Created ||
+    status === JobStatus.Queued ||
+    status === JobStatus.Running;
   const isFailed = status === JobStatus.Failed;
   const isCompleted = status === JobStatus.Completed;
   const isCancelled = status === JobStatus.Cancelled;
@@ -606,8 +612,8 @@ export const ResearchReportDetail: React.FC = () => {
           </Actions>
         </Header>
 
-        {/* Running / queued state */}
-        {isRunning && (
+        {/* Active (created / queued / running) state */}
+        {isActive && (
           <>
             <PromptCard>
               <PromptLabel>Research task</PromptLabel>
@@ -616,9 +622,9 @@ export const ResearchReportDetail: React.FC = () => {
             <RunningState>
               <Spinner />
               <RunningTitle>
-                {status === JobStatus.Queued
-                  ? "Queued…"
-                  : "Research in progress…"}
+                {status === JobStatus.Running
+                  ? "Research in progress…"
+                  : "Queued…"}
               </RunningTitle>
               <RunningDescription>
                 This runs autonomously (typically 5–30 minutes). You can leave
@@ -684,8 +690,8 @@ export const ResearchReportDetail: React.FC = () => {
 
             {warnings.length > 0 && (
               <div>
-                {warnings.map((w, i) => (
-                  <WarningChip key={`${i}-${String(w)}`}>
+                {warnings.map((w) => (
+                  <WarningChip key={String(w)}>
                     <AlertTriangle size={12} />
                     {String(w)}
                   </WarningChip>

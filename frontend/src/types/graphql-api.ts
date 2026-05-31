@@ -2042,6 +2042,10 @@ export type DeleteComponentSecretsResponse = {
  * ------------------------------------------------------------------ */
 
 export enum JobStatus {
+  // Transient pre-queue state the backend sets on creation (see
+  // opencontractserver/types/enums.py::JobStatus). Non-terminal — must not
+  // stop status polling. Usually transitions to QUEUED quickly.
+  Created = "CREATED",
   Queued = "QUEUED",
   Running = "RUNNING",
   Completed = "COMPLETED",
