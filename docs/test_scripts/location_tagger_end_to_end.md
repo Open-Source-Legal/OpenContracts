@@ -89,10 +89,16 @@ from opencontractserver.annotations.models import Annotation
 from opencontractserver.constants.annotations import (
     OC_CITY_LABEL, OC_COUNTRY_LABEL, OC_STATE_LABEL,
 )
-Annotation.objects.filter(
-    annotation_label__text__in=[OC_COUNTRY_LABEL, OC_STATE_LABEL, OC_CITY_LABEL]
-).delete()
 from opencontractserver.corpuses.models import CorpusAction
-CorpusAction.objects.filter(name='Auto location tagger').delete()
+# Scope the cleanup to the corpus this test targeted. A global
+# annotation_label__text__in delete would wipe OC_* annotations across EVERY
+# corpus in the database — never run that against a populated staging/prod DB.
+action = CorpusAction.objects.filter(name='Auto location tagger').first()
+if action is not None:
+    Annotation.objects.filter(
+        corpus=action.corpus,
+        annotation_label__text__in=[OC_COUNTRY_LABEL, OC_STATE_LABEL, OC_CITY_LABEL],
+    ).delete()
+    action.delete()
 "
 ```

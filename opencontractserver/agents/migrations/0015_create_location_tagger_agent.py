@@ -63,6 +63,10 @@ def create_location_tagger_agent(apps, schema_editor):
     instructions = getattr(
         settings, "DEFAULT_LOCATION_TAGGER_INSTRUCTIONS", _FALLBACK_INSTRUCTIONS
     )
+    # Identity check (``is``, not ``==``) is intentional: ``getattr`` returns the
+    # exact ``_FALLBACK_INSTRUCTIONS`` object only when the setting is missing, so
+    # this distinguishes "setting absent" from "setting happens to equal the
+    # fallback text".
     if instructions is _FALLBACK_INSTRUCTIONS:
         # The rich production prompt lives in settings; if it is absent (e.g. a
         # stripped-down CI image) we still create a working agent, but with the

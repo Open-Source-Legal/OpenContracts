@@ -225,11 +225,18 @@ def add_annotations_from_exact_strings(
         # ``item`` is an AnnotationItem TypedDict (always a dict at runtime);
         # the inner isinstance still guards against the LLM sending a non-dict
         # ``hints`` value.
+        exact_str = str(item["exact_string"])
+        # Skip blank/whitespace-only spans. Besides wasting a geocoder call for
+        # OC_* labels, ``doc_text.find("")`` returns the search start so the
+        # occurrence loop below would never advance (infinite loop). Mirrors the
+        # blank-``raw_text`` guard in ``_create_geographic_annotation``.
+        if not exact_str.strip():
+            continue
         raw_hints = item.get("hints")
         parsed_items.append(
             (
                 str(item["label_text"]),
-                str(item["exact_string"]),
+                exact_str,
                 raw_hints if isinstance(raw_hints, dict) else None,
             )
         )
@@ -349,7 +356,7 @@ def add_annotations_from_exact_strings(
     # the payload for every occurrence inside the loop. Only the OC_*
     # geographic labels geocode; every other label keeps ``data`` NULL
     # (backward compatible with existing callers such as structured extraction).
-    prepared: list[tuple[str, str, dict | None]] = []
+    prepared: list[tuple[str, str, dict[str, str] | None]] = []
     for label_text, exact_str, hints in parsed_items:
         geocode_label_type = LABEL_TEXT_TO_GEOCODE_LABEL_TYPE.get(label_text)
         annotation_data = None
@@ -379,6 +386,9 @@ def add_annotations_from_exact_strings(
 
                 end_idx = pos + len(exact_str)
 
+                # ``_create_annotation`` returns an *unsaved* instance; set the
+                # pre-resolved geocode ``data`` (when present) before the single
+                # ``save()`` so each occurrence is one DB write, not two.
                 annot_obj = _create_annotation(pos, end_idx, label_obj)
                 if annotation_data is not None:
                     annot_obj.data = annotation_data

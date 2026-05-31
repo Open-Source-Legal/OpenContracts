@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     degraded state is visible; added tests pinning the migration→settings
     `system_instructions` wiring and proving geocoding is resolved once per item
     and reused for every occurrence (not re-resolved per match).
+  - **Blank-span guard (#1822 review)**: `add_annotations_from_exact_strings`
+    now skips items whose `exact_string` is blank/whitespace-only. Besides
+    wasting a geocoder call, `doc_text.find("")` returns the search start so the
+    occurrence loop never advanced — a blank span would have spun forever.
+    Mirrors the blank-`raw_text` guard in `_create_geographic_annotation`.
 
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the

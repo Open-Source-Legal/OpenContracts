@@ -7,7 +7,7 @@ resolved coordinates and administrative codes in its `data` payload, so the
 places show up as pins on the **Discover** and **Corpus Home** maps.
 
 It is wired to run through the ordinary
-[corpus-actions](../walkthrough/key-concepts/corpus-actions.md) framework — the
+[corpus-actions](../walkthrough/step-9-corpus-actions.md) framework — the
 same execution path used by the built-in Document Assistant and Corpus
 Assistant — so you configure it once on a corpus and it runs automatically.
 
@@ -41,6 +41,13 @@ them, so existing callers of the tool keep working unchanged.
    ```bash
    docker compose -f production.yml --profile migrate up migrate
    ```
+
+   > **Note — the migration is a one-time snapshot.** It copies
+   > `DEFAULT_LOCATION_TAGGER_INSTRUCTIONS` from settings into the agent's
+   > `system_instructions` column at creation time. If you later improve the
+   > prompt in `config/settings/base.py`, **existing databases keep the old
+   > prompt** — update the `Location Tagger` agent record via the Django admin
+   > (or a follow-up data migration) to pick up the revision.
 
 2. **Add a corpus action.** On the corpus you want tagged, create a
    `CorpusAction` that points at the **Location Tagger** agent and choose a

@@ -161,7 +161,11 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         self.assertLess(ann.data["lng"], 0)
 
     def test_city_without_hints_resolves_to_france(self):
-        # Population tie-break: unhinted "Paris" is the French one.
+        # Assumption: an unhinted "Paris" resolves to the highest-population
+        # match (Paris, FR over Paris, TX). This ties to the geocoder's current
+        # tie-break dataset; if that ranking changes, relax this to assert only
+        # ``ann.data["geocoded"] is True`` and leave the country to the
+        # geocoding service's own tests.
         ids = self._annotate([{"label_text": OC_CITY_LABEL, "exact_string": "Paris"}])
         ann = Annotation.objects.get(pk=ids[0])
         self.assertTrue(ann.data["geocoded"])
