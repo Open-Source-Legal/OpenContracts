@@ -22,6 +22,7 @@ Telemetry: every shrink logs an INFO line and invokes
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, replace
 from typing import Any
@@ -40,8 +41,8 @@ from opencontractserver.constants.context_guardrails import (
 )
 from opencontractserver.llms.context_guardrails import (
     CompactionConfig,
+    context_window_and_threshold,
     estimate_token_count,
-    get_context_window_for_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,18 +85,37 @@ _TRIM_NOTICE_TEMPLATE = (
 )
 
 
+def _stringify_tool_content(content: Any) -> str:
+    """Serialise (possibly non-string) tool-return content to a string.
+
+    ``ToolReturnPart.content`` is typed ``Any`` — tools may return dicts or
+    lists. We serialise those with ``json.dumps`` rather than ``str`` so the
+    model receives valid JSON (double-quoted keys, ``true``/``null`` literals)
+    instead of Python ``repr`` output it can misparse. ``default=str`` absorbs
+    stray non-JSON-serialisable values (datetimes, Decimals); if ``json.dumps``
+    still fails we fall back to ``str`` so the shrink/estimate never crashes on
+    exotic content.
+
+    Used by both the token estimator and the actual shrink, so the
+    pre-shrink estimate and the post-shrink payload are serialised
+    identically.
+    """
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, default=str)
+    except (TypeError, ValueError):
+        return str(content)
+
+
 def _estimate_total_tokens(messages: list[ModelMessage], system_prompt: str) -> int:
     """Cheap upper-bound token estimate for the messages + system prompt."""
     total = estimate_token_count(system_prompt or "")
     for msg in messages:
         for part in getattr(msg, "parts", []):
             content = getattr(part, "content", None)
-            if isinstance(content, str):
-                total += estimate_token_count(content)
-            elif content is not None:
-                # Tool returns can be non-string (lists/dicts); stringify
-                # cheaply for estimation.
-                total += estimate_token_count(str(content))
+            if content is not None:
+                total += estimate_token_count(_stringify_tool_content(content))
     return total
 
 
@@ -157,13 +177,18 @@ def _shrink_tool_return_part(
 ) -> tuple[ToolReturnPart, bool]:
     """Return ``(maybe_shrunk_part, was_shrunk)``.
 
-    For non-string contents (dict/list), stringifies first so the
-    truncation arithmetic is uniform; the shrunk copy carries the
-    stringified, truncated form so the model sees a string.
+    For non-string contents (dict/list), serialises first (see
+    :func:`_stringify_tool_content`) so the truncation arithmetic is
+    uniform; the shrunk copy carries the serialised, truncated form so the
+    model sees a string.
+
+    ``target_chars`` bounds the preserved *prefix*, not the final string:
+    the returned content is up to ``target_chars`` plus the length of the
+    appended trim notice (``_TRIM_NOTICE_TEMPLATE`` — ~40 chars plus the
+    digits of the elided count). Callers setting a tight ceiling should
+    budget for that overhead.
     """
-    content = part.content
-    if not isinstance(content, str):
-        content = str(content)
+    content = _stringify_tool_content(part.content)
 
     if len(content) <= target_chars:
         return part, False
@@ -240,15 +265,18 @@ async def shrink_old_artifacts_processor(
             return messages
 
         tokens_before = _estimate_total_tokens(messages, system_prompt)
-        context_window = get_context_window_for_model(model_name)
         # ``threshold_ratio`` is shared by design with the outer
         # turn-level compaction (in ``MessageHistoryService``). A single
         # ratio keeps the kick-in point coherent across both layers — if
         # the outer pass already wants to compact persisted history,
         # the in-loop pass should also be willing to shrink older
         # tool returns. Do not split into two ratios without rethinking
-        # both call sites together.
-        threshold = int(context_window * cfg.threshold_ratio)
+        # both call sites together. ``context_window_and_threshold`` is
+        # the single definition of that kick-in point, shared verbatim
+        # with the turn-level compaction functions.
+        context_window, threshold = context_window_and_threshold(
+            model_name, cfg.threshold_ratio
+        )
 
         if tokens_before <= threshold:
             return messages

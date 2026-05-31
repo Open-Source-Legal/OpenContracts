@@ -74,6 +74,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **In-run history compaction follow-up (issue #1824).** Code-review fixes for
+  the pydantic-ai `shrink_old_artifacts_processor` shipped in #1817.
+  - **Structured tool returns now shrink to valid JSON**
+    (`opencontractserver/llms/history_processors.py`). `ToolReturnPart.content`
+    can be a dict/list; the shrink path stringified it with `str()` (Python
+    repr — single-quoted keys, `True`/`None`), which the model can misparse. A
+    new `_stringify_tool_content` helper serialises non-strings with
+    `json.dumps(content, default=str)` (falling back to `str()` only if JSON
+    serialisation fails) and is shared by both the token estimator and the
+    shrink, so the pre-shrink estimate matches the post-shrink payload.
+  - **Strengthened `test_thinking_only_modelresponse_is_not_emptied`**
+    (`opencontractserver/tests/test_history_processors.py`). The old fixture had
+    no shrinkable content in the older prefix, so the test passed via the no-op
+    early-return rather than the empty-parts guard it names. It now places a
+    large `ToolReturnPart` alongside the thinking-only response so the shrink
+    actually runs, and asserts (via telemetry) that the guard — not an early
+    return — is why the `ThinkingPart` survives. Added
+    `test_non_string_tool_return_serialized_as_json` to pin the JSON fix.
 - **Corpus document versioning & path/folder audit — correctness and performance fixes.** A sweep of the dual-tree versioning (`DocumentPath`) and `CorpusFolder` path system surfaced several correctness gaps and N+1s. Regression coverage: `opencontractserver/tests/test_versioning_paths_audit.py`.
   - **`Corpus.add_document` no longer silently supersedes a colliding document** (`opencontractserver/corpuses/models.py`). When the auto-/caller-supplied path (e.g. `/documents/<title>`) collided with an existing active document, the occupant was marked `is_current=False` and the new doc became a "version" of an unrelated content tree — the first document silently vanished from the corpus. `add_document` now disambiguates the path (`/documents/Report` → `/documents/Report_1`) via `CorpusPathService._disambiguate_path`, always creating an independent root path (`parent=None`, `version_number=1`). `add_document` is not a versioning entry point; `import_content` remains the path-versioning surface.
   - **Folder rename / move now reconciles `DocumentPath.path` strings** (`opencontractserver/corpuses/services/folders.py`, `services/paths.py`). `update_folder` (rename) and `move_folder` changed `CorpusFolder.get_path()` but left the folder-derived `path` strings of contained documents (and descendant-folder documents) stale — drifting from the location that document *moves* derive. New `CorpusPathService.reconcile_paths_after_folder_change` rewrites every folder-derived active path under the affected subtree to the new prefix as immutable MOVED history nodes (batch deactivate + `bulk_create` + signal dispatch), inside the same transaction as the folder mutation. Non-folder-derived paths (e.g. an upload's `/documents/<title>`) are intentionally left untouched.
@@ -99,6 +117,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **DRY: single definition of the compaction kick-in point** (issue #1824)
+  (`opencontractserver/llms/context_guardrails.py`). New
+  `context_window_and_threshold(model_name, threshold_ratio)` replaces the
+  `int(get_context_window_for_model(...) * ratio)` triplication across
+  `should_compact`, `compact_message_history`, and the in-run
+  `shrink_old_artifacts_processor`, so turn-level and in-run compaction derive
+  the threshold identically from one place. Documented (finding #3) that
+  `IN_RUN_TOOL_RETURN_TARGET_CHARS` bounds the preserved prefix, not the final
+  string — the appended trim notice adds a small fixed overhead — and added a
+  comment confirming the `_on_in_run_shrink` closure's captured message IDs are
+  stable for the turn (finding #5).
 - **`BaseService.filter_visible_qs` now fails closed** (`opencontractserver/shared/services/base.py`)
   — an input lacking a `visible_to_user` method previously passed through
   **unfiltered** (fail-open, a latent row-leak); it now raises `TypeError`.
