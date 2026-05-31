@@ -15,6 +15,7 @@ import {
   updateMessageParam,
   navigateToThreadWithMessage,
   clearThreadSelection,
+  getResearchReportUrl,
 } from "../navigationUtils";
 import { CorpusType, DocumentType } from "../../types/graphql-api";
 
@@ -1055,5 +1056,35 @@ describe("clearThreadSelection()", () => {
       { search: "" },
       { replace: true }
     );
+  });
+});
+
+describe("parseRoute() - research reports", () => {
+  it("parses /research/:slug into a research route", () => {
+    const result = parseRoute("/research/antitrust-exposure-2023");
+    expect(result.type).toBe("research");
+    expect(result.researchSlug).toBe("antitrust-exposure-2023");
+  });
+
+  it("does not treat a bare /research as a research detail route", () => {
+    const result = parseRoute("/research");
+    expect(result.type).not.toBe("research");
+  });
+
+  it("ignores extra path segments after the slug", () => {
+    const result = parseRoute("/research/slug/extra");
+    expect(result.type).not.toBe("research");
+  });
+});
+
+describe("getResearchReportUrl()", () => {
+  it("builds a slug-based URL", () => {
+    expect(getResearchReportUrl({ slug: "my-report" })).toBe(
+      "/research/my-report"
+    );
+  });
+
+  it("returns '#' when slug is missing", () => {
+    expect(getResearchReportUrl({ slug: "" })).toBe("#");
   });
 });
