@@ -154,6 +154,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Canonical-CAML backfill migration `0054` crashed on cloud storage
+  (`AttributeError: 'bytes' object has no attribute 'encode'`).** Production
+  `manage.py migrate` aborted at
+  `corpuses/migrations/0054_canonical_caml_backfill.py:184`
+  (`ContentFile(body.encode("utf-8"))`). Root cause: S3Boto3Storage /
+  GoogleCloudStorage (django-storages #382) silently return `bytes` from a
+  text-mode (`"r"`) `FieldFile.read()` **without raising**, so the readers'
+  `except`-guarded binary fallbacks never fired and `bytes` flowed into the
+  `str`-only `body.encode(...)`. Invisible locally because `FileSystemStorage`
+  honors text mode and returns `str`.
+  - **Migration readers normalise to `str`** (`_read_md_description`,
+    `_read_caml_doc_body`) via a new module-local `_coerce_to_text` helper,
+    inlined to keep the historical migration self-contained. The migration is
+    atomic (rolled back cleanly on the crash) and idempotent, so a re-run after
+    this fix completes the backfill.
+  - **`description_cache.read_caml_body` had the identical latent bug** and now
+    delegates to the canonical `opencontractserver.utils.files.read_field_file_text`
+    (errors=`ignore`), removing the duplicated hand-rolled fallback. This also
+    fixes the live cache-refresh signal handler and the GraphQL
+    `descriptionRevisions` facade, which read CAML bodies on cloud deployments.
+  - Regression tests in
+    `opencontractserver/tests/test_corpus_canonical_caml_migration.py` exercise
+    both the bytes and str paths for the migration readers and `read_caml_body`.
+
 - **Research report `finalize()` now writes content and provenance atomically**
   (`opencontractserver/research/services/research_reports.py`,
   `ResearchReportService.finalize`). The terminal content/status `save()` and the

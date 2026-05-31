@@ -21,10 +21,128 @@ Spec: docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-desi
 
 from __future__ import annotations
 
+import types
+from importlib import import_module
+from io import BytesIO
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.files.base import ContentFile
+from django.test import SimpleTestCase, TestCase
 
 from opencontractserver.corpuses.models import Corpus
+
+# The backfill migration module name starts with a digit, so it cannot be a
+# normal ``import``; ``import_module`` with the dotted string works.
+_BACKFILL_MIGRATION = import_module(
+    "opencontractserver.corpuses.migrations.0054_canonical_caml_backfill"
+)
+
+
+class _BytesOrStrBackedField:
+    """Minimal stand-in for a ``FieldFile`` whose text-mode read returns the
+    configured payload.
+
+    Cloud storage backends (S3Boto3Storage / GoogleCloudStorage via
+    django-storages #382) return ``bytes`` from a ``"r"``-mode read without
+    raising; local ``FileSystemStorage`` returns ``str``. This fake lets the
+    suite exercise both on machines that only have local storage.
+    """
+
+    def __init__(self, payload, name: str = "Readme.CAML.md"):
+        self._payload = payload
+        self.name = name
+
+    def __bool__(self) -> bool:
+        return True
+
+    def open(self, mode: str = "r"):
+        return self
+
+    def read(self):
+        return self._payload
+
+    def close(self) -> None:
+        pass
+
+
+class CanonicalCamlBackfillBytesReadTest(SimpleTestCase):
+    """Regression for the production ``migrate`` crash at 0054.
+
+    On cloud storage the backfill's readers received ``bytes`` (text mode is
+    silently ignored, no exception, so the ``except``-guarded binary fallback
+    never fired). The ``bytes`` then reached ``body.encode("utf-8")`` in
+    ``_create_caml_doc`` →
+    ``AttributeError: 'bytes' object has no attribute 'encode'``. The readers
+    must normalise to ``str``.
+    """
+
+    def test_coerce_to_text_decodes_bytes(self):
+        self.assertEqual(_BACKFILL_MIGRATION._coerce_to_text(b"caf\xc3\xa9"), "café")
+
+    def test_coerce_to_text_passes_str_through(self):
+        self.assertEqual(_BACKFILL_MIGRATION._coerce_to_text("café"), "café")
+
+    def test_read_md_description_normalises_bytes_to_str(self):
+        corpus = types.SimpleNamespace(
+            md_description=_BytesOrStrBackedField("café ✓".encode())
+        )
+        body = _BACKFILL_MIGRATION._read_md_description(corpus)
+        self.assertIsInstance(body, str)
+        self.assertEqual(body, "café ✓")
+        # The exact downstream operation that crashed in production.
+        body.encode("utf-8")
+
+    def test_read_md_description_str_backend_unaffected(self):
+        corpus = types.SimpleNamespace(
+            md_description=_BytesOrStrBackedField("plain body")
+        )
+        self.assertEqual(_BACKFILL_MIGRATION._read_md_description(corpus), "plain body")
+
+    def test_read_caml_doc_body_normalises_bytes_to_str(self):
+        doc = types.SimpleNamespace(
+            txt_extract_file=_BytesOrStrBackedField(b"# Readme")
+        )
+        body = _BACKFILL_MIGRATION._read_caml_doc_body(doc)
+        self.assertIsInstance(body, str)
+        self.assertEqual(body, "# Readme")
+
+
+class ReadCamlBodyBytesTest(TestCase):
+    """``read_caml_body`` must decode bytes from cloud storage to ``str``.
+
+    Same django-storages #382 root cause as the backfill crash: the live
+    cache-refresh signal handler and GraphQL ``descriptionRevisions`` facade
+    both read CAML bodies through this helper, and a ``bytes`` leak there
+    breaks ``markdown_to_plain_text`` (``re`` on a bytes-like object).
+    """
+
+    def test_read_caml_body_decodes_bytes_from_storage(self):
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
+        from opencontractserver.documents.models import Document
+
+        User = get_user_model()
+        user = User.objects.create_user(username="caml-bytes", password="x")
+        doc = Document.objects.create(
+            title="Readme.CAML", file_type="text/markdown", creator=user
+        )
+        doc.txt_extract_file.save(
+            "Readme.CAML.md", ContentFile(b"placeholder"), save=True
+        )
+
+        payload = "# Heading café ✓"
+        raw = payload.encode()
+        # Patch ``open`` on the FieldFile *class* (resolved on the class, not
+        # the instance ``__dict__``) to mimic a cloud backend yielding bytes.
+        with patch.object(type(doc.txt_extract_file), "open") as mock_open:
+            mock_open.return_value.__enter__ = lambda s: BytesIO(raw)
+            mock_open.return_value.__exit__ = lambda s, *a: None
+            body = read_caml_body(doc)
+
+        self.assertIsInstance(body, str)
+        self.assertEqual(body, payload)
 
 
 class LegacyStorageDroppedTest(TestCase):
