@@ -111,6 +111,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **In-run history compaction follow-up (issue #1824).** Code-review fixes for
+  the pydantic-ai `shrink_old_artifacts_processor` shipped in #1817.
+  - **Structured tool returns now shrink to valid JSON**
+    (`opencontractserver/llms/history_processors.py`). `ToolReturnPart.content`
+    can be a dict/list; the shrink path stringified it with `str()` (Python
+    repr — single-quoted keys, `True`/`None`), which the model can misparse. A
+    new `_stringify_tool_content` helper serialises non-strings with
+    `json.dumps(content, default=str)` (falling back to `str()` only if JSON
+    serialisation fails) and is shared by both the token estimator and the
+    shrink, so the pre-shrink estimate matches the post-shrink payload.
+  - **Strengthened `test_thinking_only_modelresponse_is_not_emptied`**
+    (`opencontractserver/tests/test_history_processors.py`). The old fixture had
+    no shrinkable content in the older prefix, so the test passed via the no-op
+    early-return rather than the empty-parts guard it names. It now places a
+    large `ToolReturnPart` alongside the thinking-only response so the shrink
+    actually runs, and asserts (via telemetry) that the guard — not an early
+    return — is why the `ThinkingPart` survives. Added
+    `test_non_string_tool_return_serialized_as_json` to pin the JSON fix.
 - **MCP `WWW-Authenticate` base-URL hardening** (`opencontractserver/mcp/server.py`)
   — the 401 challenge now prefers the trusted `MCP_PUBLIC_BASE_URL` over the
   request `Host` header (MCP bypasses `ALLOWED_HOSTS`), falling back to the
@@ -234,6 +252,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **DRY: single definition of the compaction kick-in point** (issue #1824)
+  (`opencontractserver/llms/context_guardrails.py`). New
+  `context_window_and_threshold(model_name, threshold_ratio)` replaces the
+  `int(get_context_window_for_model(...) * ratio)` triplication across
+  `should_compact`, `compact_message_history`, and the in-run
+  `shrink_old_artifacts_processor`, so turn-level and in-run compaction derive
+  the threshold identically from one place. Documented (finding #3) that
+  `IN_RUN_TOOL_RETURN_TARGET_CHARS` bounds the preserved prefix, not the final
+  string — the appended trim notice adds a small fixed overhead — and added a
+  comment confirming the `_on_in_run_shrink` closure's captured message IDs are
+  stable for the turn (finding #5).
 - **`BaseService.filter_visible_qs` now fails closed** (`opencontractserver/shared/services/base.py`)
   — an input lacking a `visible_to_user` method previously passed through
   **unfiltered** (fail-open, a latent row-leak); it now raises `TypeError`.
