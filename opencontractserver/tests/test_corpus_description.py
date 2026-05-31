@@ -10,12 +10,10 @@ flows through :func:`CorpusService.update_description` →
 in this module cover the new contract end-to-end.
 """
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class UpdateDescriptionWritesThroughCamlTest(TestCase):
@@ -31,6 +29,8 @@ class UpdateDescriptionWritesThroughCamlTest(TestCase):
     ``Corpus.description`` / ``.description_preview`` /
     ``.readme_caml_document_id``.
     """
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):
@@ -56,7 +56,9 @@ class UpdateDescriptionWritesThroughCamlTest(TestCase):
             corpus=corpus, path="Readme.CAML", is_current=True
         )
         self.assertEqual(paths.count(), 1)
-        doc = paths.first().document
+        head_path = paths.first()
+        assert head_path is not None
+        doc = head_path.document
         self.assertEqual(doc.title, "Readme.CAML")
         self.assertEqual(doc.file_type, "text/markdown")
         corpus.refresh_from_db()
@@ -84,7 +86,9 @@ class UpdateDescriptionWritesThroughCamlTest(TestCase):
             corpus=corpus, path="Readme.CAML", is_current=True
         )
         self.assertEqual(current_paths.count(), 1)
-        new_head = current_paths.first().document
+        new_head_path = current_paths.first()
+        assert new_head_path is not None
+        new_head = new_head_path.document
         self.assertEqual(new_head.version_tree_id, tree_id)
         self.assertNotEqual(new_head.pk, first_head.pk)
         # Two versions in the version tree
@@ -116,6 +120,8 @@ class DescriptionRevisionsReadsFromVersionTreeTest(TestCase):
     ``created`` from each entry; the resolver shape preserves all five
     even though the underlying instance is now a ``Document``.
     """
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):

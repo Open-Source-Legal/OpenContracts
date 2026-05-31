@@ -19,7 +19,7 @@ Run with:
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, cast
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -113,7 +113,12 @@ class CorpusSnapshot:
             label_count=len(labels),
             folder_count=folders.count(),
             note_count=notes.count(),
-            document_titles=set(documents.values_list("title", flat=True)),
+            # Document.title is nullable on the model, but every document in
+            # these fork fixtures has a title; cast keeps the snapshot field a
+            # plain set[str] without filtering at runtime.
+            document_titles=cast(
+                "set[str]", set(documents.values_list("title", flat=True))
+            ),
             annotation_texts=set(annotations.values_list("raw_text", flat=True)),
             label_texts={label.text for label in labels},
             folder_names=set(folders.values_list("name", flat=True)),
@@ -459,6 +464,7 @@ class CorpusForkRoundTripTestCase(TestCase):
 
         forked = self._execute_fork(original)
         self.assertIsNotNone(forked, "Fork should succeed")
+        assert forked is not None
 
         forked_snapshot = CorpusSnapshot.from_corpus(forked)
 
@@ -491,6 +497,7 @@ class CorpusForkRoundTripTestCase(TestCase):
 
         forked = self._execute_fork(original)
         self.assertIsNotNone(forked, "Fork should succeed")
+        assert forked is not None
 
         forked_snapshot = CorpusSnapshot.from_corpus(forked)
 
@@ -519,6 +526,7 @@ class CorpusForkRoundTripTestCase(TestCase):
 
         forked = self._execute_fork(original)
         self.assertIsNotNone(forked, "Fork should succeed")
+        assert forked is not None
 
         forked_snapshot = CorpusSnapshot.from_corpus(forked)
 
@@ -546,6 +554,7 @@ class CorpusForkRoundTripTestCase(TestCase):
 
         forked = self._execute_fork(original)
         self.assertIsNotNone(forked, "Fork should succeed")
+        assert forked is not None
 
         self.assertEqual(
             forked.parent_id,
@@ -590,6 +599,7 @@ class CorpusForkRoundTripTestCase(TestCase):
                 forked,
                 f"Fork should succeed at generation {gen + 1}",
             )
+            assert forked is not None
 
             snapshot = CorpusSnapshot.from_corpus(forked)
             generations.append(forked)
@@ -689,6 +699,7 @@ class CorpusForkRoundTripTestCase(TestCase):
         for _ in range(num_generations):
             forked = self._execute_fork(current)
             self.assertIsNotNone(forked)
+            assert forked is not None
             generations.append(forked)
             current = forked
 
@@ -746,6 +757,7 @@ class CorpusForkRoundTripTestCase(TestCase):
         for gen in range(3):
             forked = self._execute_fork(current)
             self.assertIsNotNone(forked)
+            assert forked is not None
 
             forked_texts = set(
                 Annotation.objects.filter(
@@ -781,15 +793,18 @@ class CorpusForkRoundTripTestCase(TestCase):
         # First fork
         gen1 = self._execute_fork(original)
         self.assertIsNotNone(gen1)
+        assert gen1 is not None
         self.assertEqual(gen1.title, "[FORK] Original Title")
 
         # Get the forked document title
         gen1_doc = gen1._get_active_documents().first()
+        assert gen1_doc is not None
         self.assertEqual(gen1_doc.title, "[FORK] Document 0")
 
         # Second fork (fork of fork)
         gen2 = self._execute_fork(gen1)
         self.assertIsNotNone(gen2)
+        assert gen2 is not None
         self.assertEqual(
             gen2.title,
             "[FORK] [FORK] Original Title",
@@ -797,6 +812,7 @@ class CorpusForkRoundTripTestCase(TestCase):
         )
 
         gen2_doc = gen2._get_active_documents().first()
+        assert gen2_doc is not None
         self.assertEqual(
             gen2_doc.title,
             "[FORK] [FORK] Document 0",
@@ -806,6 +822,7 @@ class CorpusForkRoundTripTestCase(TestCase):
         # Third fork
         gen3 = self._execute_fork(gen2)
         self.assertIsNotNone(gen3)
+        assert gen3 is not None
         self.assertEqual(
             gen3.title,
             "[FORK] [FORK] [FORK] Original Title",
@@ -823,6 +840,7 @@ class CorpusForkRoundTripTestCase(TestCase):
 
         forked = self._execute_fork(empty_corpus)
         self.assertIsNotNone(forked, "Fork of empty corpus should succeed")
+        assert forked is not None
 
         forked_snapshot = CorpusSnapshot.from_corpus(forked)
 
@@ -1001,7 +1019,7 @@ class CorpusForkPreservationTest(TestCase):
         # Fork - include relationship_ids
         doc_ids = [doc.pk]
         annotation_ids = [ann1.pk, ann2.pk]
-        folder_ids = []
+        folder_ids: list[int] = []
         relationship_ids = [relationship.pk]
 
         forked = Corpus.objects.create(
@@ -1034,6 +1052,7 @@ class CorpusForkPreservationTest(TestCase):
 
         # Verify the relationship has correct annotations
         forked_rel = Relationship.objects.filter(corpus=forked).first()
+        assert forked_rel is not None
         self.assertEqual(
             forked_rel.source_annotations.count(),
             1,
@@ -1050,6 +1069,7 @@ class CorpusForkPreservationTest(TestCase):
             forked_rel.relationship_label,
             "Forked relationship should have a label",
         )
+        assert forked_rel.relationship_label is not None
         self.assertEqual(
             forked_rel.relationship_label.text,
             "Related",
@@ -1218,6 +1238,7 @@ class CorpusForkPreservationTest(TestCase):
             corpus=forked, document=forked_doc, is_current=True, is_deleted=False
         ).first()
         self.assertIsNotNone(forked_path)
+        assert forked_path is not None
         self.assertEqual(
             forked_path.folder,
             forked_folder,
@@ -1645,6 +1666,7 @@ class CorpusForkMetadataTest(TestCase):
         ).first()
 
         self.assertIsNotNone(forked_datacell, "Datacell should be copied")
+        assert forked_datacell is not None
         self.assertEqual(
             forked_datacell.data["value"],
             "Active",
@@ -1847,6 +1869,7 @@ class CorpusForkMetadataTest(TestCase):
             ).first()
 
             self.assertIsNotNone(forked_datacell, f"Gen {gen + 1} should have datacell")
+            assert forked_datacell is not None
             self.assertEqual(
                 forked_datacell.data["value"],
                 "Original Value",
@@ -1983,6 +2006,7 @@ class CorpusForkMetadataTest(TestCase):
         ).first()
 
         self.assertIsNotNone(forked_datacell)
+        assert forked_datacell is not None
         self.assertIsNone(
             forked_datacell.approved_by,
             "Forked datacell should not have approved_by",

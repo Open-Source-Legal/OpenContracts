@@ -11,7 +11,6 @@ Tests cover:
 5. Signal-based metrics creation (if implemented)
 """
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.conversations.models import (
@@ -22,12 +21,14 @@ from opencontractserver.conversations.models import (
     VoteType,
 )
 from opencontractserver.corpuses.models import Corpus, CorpusEngagementMetrics
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestCorpusEngagementMetricsModel(TestCase):
     """Test the CorpusEngagementMetrics model."""
+
+    user: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -142,6 +143,15 @@ class TestCorpusEngagementMetricsModel(TestCase):
 
 class TestCorpusEngagementMetricsCalculation(TestCase):
     """Test engagement metrics calculation logic."""
+
+    user1: User
+    user2: User
+    corpus: Corpus
+    thread1: Conversation
+    thread2: Conversation
+    msg1: ChatMessage
+    msg2: ChatMessage
+    msg3: ChatMessage
 
     @classmethod
     def setUpTestData(cls):
