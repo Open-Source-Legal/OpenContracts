@@ -151,8 +151,14 @@ def _derive_public_base_url(scope: MutableMapping[str, Any]) -> str | None:
         # a stray double-quote or CR/LF (a typo / bad env value) would break the
         # quoted-string it is embedded in inside the WWW-Authenticate header
         # (RFC 7235) — or worse, inject a header newline. Strip those so the
-        # header stays well-formed regardless of how the value was configured,
-        # mirroring the Host-derived sanitization below.
+        # header stays well-formed regardless of how the value was configured.
+        #
+        # Note the deliberate asymmetry with the Host-derived sanitization
+        # below: we do NOT strip ``,``/``;``/whitespace here. Those characters
+        # can be legitimate inside a configured URL (and stripping them would
+        # corrupt it), and unlike the request ``Host`` this value is not
+        # attacker-controlled — so the auth-param-smuggling concern that
+        # motivates stripping them from the Host does not apply.
         for bad in ('"', "\r", "\n"):
             configured = configured.replace(bad, "")
         return configured.rstrip("/")
@@ -1805,6 +1811,12 @@ def create_mcp_asgi_app() -> ASGIApp:
         # tool set; the only difference is the 401-on-missing-token gate that
         # ran in ``app()`` above. Auth state is carried per-request via the
         # ``_mcp_user`` ContextVar, so one session manager serves both.
+        # TODO: this matches the authed entrypoint by EXACT path, while
+        # ``_path_requires_auth`` (in ``app()``) gates the whole ``/mcp/me/``
+        # subtree via ``startswith``. A future corpus-scoped sub-path like
+        # ``/mcp/me/corpus/foo/`` would therefore authenticate in ``app()`` but
+        # fall through to a 404/405 here. Harmless today (sub-paths are
+        # explicitly deferred); extend this match when they land.
         if path in ("/mcp/", "/mcp", "/mcp/me", "/mcp/me/"):
             authed = _path_requires_auth(path)
             endpoint_label = MCP_AUTHED_PATH if authed else "/mcp"

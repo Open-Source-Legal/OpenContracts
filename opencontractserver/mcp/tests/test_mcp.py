@@ -5772,8 +5772,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         """In Auth0 mode the 401 must point Claude Desktop / Cursor at the
         OAuth protected-resource metadata document so they can drive the
         full Authorization-Code + PKCE flow without a preconfigured token."""
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp",
@@ -5800,8 +5798,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
 
     def test_www_authenticate_rejects_malformed_forwarded_proto(self):
         """Only http/https may appear as the advertised metadata scheme."""
-        from django.test import override_settings
-
         from opencontractserver.mcp.server import _build_www_authenticate_header
 
         scope = {
@@ -5969,8 +5965,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
     def test_authed_endpoint_401_advertises_path_based_metadata_under_auth0(self):
         """The /mcp/me challenge must point at the RFC 9728 path-based
         protected-resource metadata whose ``resource`` matches the endpoint."""
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp/me",
@@ -5996,8 +5990,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
     def test_cors_preflight_allows_listed_origin(self):
         """An OPTIONS preflight from an allow-listed origin (e.g. Claude) gets
         a 204 echoing the origin so the browser permits the real request."""
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp/",
@@ -6020,8 +6012,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
     def test_cors_preflight_rejects_unlisted_origin(self):
         """A preflight from an origin that is not allow-listed gets no
         Access-Control-Allow-Origin, so the browser blocks it."""
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp/",
@@ -6043,8 +6033,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         to /mcp/me WITHOUT a token must 401 AND carry Access-Control-Allow-Origin
         so the browser can read the WWW-Authenticate challenge and start OAuth.
         """
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp/me",
@@ -6075,8 +6063,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         missing-token branch; this pins the invalid-token branch, which is the
         path a client actually hits after its token expires.
         """
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp",
@@ -6107,8 +6093,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         body / Retry-After instead of being blocked by the CORS preflight check.
         """
         from unittest.mock import AsyncMock, patch
-
-        from django.test import override_settings
 
         scope = {
             "type": "http",
@@ -6211,8 +6195,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         """MCP_PUBLIC_BASE_URL is preferred over the Host header in the 401
         challenge, and a misconfigured value's quote/CR/LF chars are stripped
         so the WWW-Authenticate header stays well-formed (review item 1)."""
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp/me",
