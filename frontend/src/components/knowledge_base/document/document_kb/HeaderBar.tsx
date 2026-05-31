@@ -1,7 +1,10 @@
 import React from "react";
 import { ArrowLeft, Calendar, FileType, Plus, User } from "lucide-react";
 import { DocumentVersionSelector } from "../../../documents/DocumentVersionSelector";
+import { CiteMark } from "../../../brand";
 import {
+  BrandLink,
+  HeaderBrandRow,
   HeaderContainer,
   HeaderPrimaryRow,
   HeaderTitle,
@@ -52,6 +55,24 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   return (
     <HeaderContainer data-testid="document-header">
+      {/*
+       * The knowledge-base modal covers the global NavMenu, so we keep the
+       * cite / opensource.legal branding visible here while a document is open.
+       * The mark + wordmark link home, mirroring the navbar logo behaviour.
+       */}
+      <HeaderBrandRow>
+        <BrandLink
+          to="/"
+          aria-label="cite — opensource.legal home"
+          data-testid="document-header-brand"
+        >
+          <CiteMark size={22} ariaLabel="" />
+          <span className="brand-domain">
+            <span className="brand-domain__accent">cite</span>.opensource.legal
+          </span>
+        </BrandLink>
+      </HeaderBrandRow>
+
       <HeaderPrimaryRow>
         <HeaderTitleBlock>
           <HeaderTitle>
@@ -77,7 +98,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           <HeaderButton
             onClick={(e) => {
               routingLogger.debug(
-                `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`
+                `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`,
               );
               routingLogger.debug(
                 "[DocumentKnowledgeBase] Button click event:",
@@ -87,7 +108,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   currentTarget: e.currentTarget,
                   target: e.target,
                   currentUrl: window.location.pathname + window.location.search,
-                }
+                },
               );
               onClose();
             }}
