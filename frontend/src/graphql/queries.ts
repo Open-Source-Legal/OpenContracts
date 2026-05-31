@@ -573,7 +573,6 @@ export const GET_CORPUS_WITH_HISTORY = gql`
           __typename
         }
         created
-        diff
         snapshot
         __typename
       }
@@ -595,7 +594,6 @@ export interface CorpusRevision {
     __typename: string;
   };
   created: string;
-  diff: string;
   snapshot?: string;
   __typename: string;
 }

@@ -21,7 +21,6 @@ from opencontractserver.annotations.models import Annotation
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusCategory,
-    CorpusDescriptionRevision,
     CorpusEngagementMetrics,
     CorpusFolder,
     CorpusVote,
@@ -420,24 +419,103 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     def resolve_icon(self, info) -> Any:
         return "" if not self.icon else info.context.build_absolute_uri(self.icon.url)
 
-    # File link resolver for markdown description
+    # File link resolver for markdown description — reads through the
+    # canonical Readme.CAML Document body (the source of truth for the
+    # corpus's description). See spec §4.5.
     def resolve_md_description(self, info) -> Any:
-        return (
-            ""
-            if not self.md_description
-            else info.context.build_absolute_uri(self.md_description.url)
-        )
+        """Resolve to the URL of the Readme.CAML Document's body file.
 
-    # Optional list of description revisions
-    description_revisions = graphene.List(lambda: CorpusDescriptionRevisionType)
+        After the canonical-CAML refactor, the corpus's description lives
+        in the Readme.CAML Document (title='Readme.CAML',
+        file_type='text/markdown'). The denormalized
+        ``readme_caml_document`` FK + ``with_readme_caml_doc`` queryset
+        helper let us return the URL without a per-row Document fetch on
+        list queries.
+
+        Returns ``None`` when no CAML doc exists for the corpus.
+        """
+        doc = self.readme_caml_document
+        if doc is None:
+            return None
+        file_field = doc.txt_extract_file
+        if not file_field or not file_field.name:
+            return None
+        if info is None or getattr(info, "context", None) is None:
+            return file_field.url
+        return info.context.build_absolute_uri(file_field.url)
+
+    readme_caml_document = graphene.Field(
+        "config.graphql.document_types.DocumentType",
+        description=(
+            "The corpus's canonical Readme.CAML Document — the source of "
+            "truth for the rich description. Use this for revision history, "
+            "permissions, and direct content access. The mdDescription "
+            "string field exposes the same body as a file URL."
+        ),
+    )
+
+    def resolve_readme_caml_document(self, info) -> Any:
+        """Optional rich-object access to the canonical Readme.CAML doc.
+
+        Existing clients use mdDescription (URL) or descriptionPreview
+        (text). New clients that need revision history or any other
+        Document field can fetch it here. Resolves from the cached FK
+        — see spec §4.5.
+        """
+        return self.readme_caml_document
+
+    # Description revision history: each entry is a sibling Document on
+    # the corpus's Readme.CAML version_tree. The resolver shape preserves
+    # the legacy ``CorpusDescriptionRevision`` API so the frontend
+    # revision-history viewer renders without changes.
+    description_revisions = graphene.List(
+        lambda: CorpusDescriptionRevisionType,
+        description=(
+            "Revision history for the corpus description. After the "
+            "canonical-CAML refactor each entry is a sibling Document on "
+            "the corpus's Readme.CAML version_tree, newest first. The "
+            "field shape preserves the legacy CorpusDescriptionRevision "
+            "API so the frontend revision-history viewer renders without "
+            "changes."
+        ),
+    )
 
     def resolve_description_revisions(self, info) -> Any:
-        # Returns all revisions, ordered by version asc by default from model ordering
-        return (
-            self.revisions.select_related("author").all()
-            if hasattr(self, "revisions")
-            else []
+        """List Readme.CAML version-tree siblings as revisions, newest first.
+
+        Resolves via the cached ``readme_caml_document`` FK and the
+        Document ``version_tree_id``; returns ``[]`` when the corpus has
+        no canonical CAML document yet. Filtering on the canonical title
+        + markdown mime is defensive — a Readme.CAML version tree only
+        ever contains Readme.CAML siblings — and keeps the contract
+        explicit.
+
+        Annotates each sibling with ``_version_index`` (1-based, oldest
+        first) so ``CorpusDescriptionRevisionType.resolve_version`` can
+        read the position off the instance instead of re-querying the
+        full tree per row (avoids an N+1 storm on the revisions modal).
+        """
+        if self.readme_caml_document_id is None:
+            return []
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
         )
+        from opencontractserver.documents.models import Document
+
+        tree_id = self.readme_caml_document.version_tree_id
+        oldest_first = list(
+            Document.objects.filter(
+                version_tree_id=tree_id,
+                title=CAML_ARTICLE_TITLE,
+                file_type=MARKDOWN_MIME_TYPE,
+            )
+            .select_related("creator")
+            .order_by("created", "pk")
+        )
+        for index, doc in enumerate(oldest_first, start=1):
+            doc._version_index = index
+        return list(reversed(oldest_first))
 
     # Folder structure
     folders = graphene.List(
@@ -604,6 +682,13 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         request = info.context
         user = getattr(request, "user", None)
         visible_qs = BaseService.filter_visible_qs(queryset, user, request=request)
+        # Prefetch the Readme.CAML FK so mdDescription / readmeCamlDocument
+        # resolve in O(1) per row. See spec §4.5.
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
+
+        visible_qs = CorpusDocumentService.with_readme_caml_doc(visible_qs)
 
         # Annotate the viewer's vote in one Subquery per page so
         # ``resolve_my_vote`` doesn't fire N queries (one per corpus card)
@@ -693,10 +778,103 @@ class CorpusFilterCountsType(graphene.ObjectType):
 
 
 # ---------------- CorpusDescriptionRevisionType ----------------
-class CorpusDescriptionRevisionType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    """GraphQL type for corpus description revisions."""
+class CorpusDescriptionRevisionType(graphene.ObjectType):
+    """Backwards-compatible facade over a Readme.CAML version-tree sibling.
 
-    class Meta:
-        model = CorpusDescriptionRevision
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
+    The legacy ``CorpusDescriptionRevision`` model was dropped in
+    migration 0055. The GraphQL shape is preserved by mapping each
+    Document sibling's metadata onto the historical fields, so the
+    frontend revision-history viewer renders without changes. The
+    instance bound to each resolver is a
+    ``opencontractserver.documents.models.Document`` row (a Readme.CAML
+    version-tree sibling), NOT a ``CorpusDescriptionRevision``.
+
+    The legacy ``diff`` field is dropped: clients that need a unified
+    diff compute it on the fly from successive ``snapshot`` values via
+    ``difflib`` rather than reading a pre-stored payload. Queries that
+    still reference ``diff`` will fail GraphQL validation — remove it
+    from the frontend query to eliminate the field entirely.
+
+    Spec: ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md`` §4.5
+    """
+
+    id = graphene.ID(required=True)
+    version = graphene.Int()
+    author = graphene.Field("config.graphql.graphene_types.UserType")
+    snapshot = graphene.String()
+    created = graphene.DateTime()
+
+    def resolve_id(self, info) -> Any:
+        """Document primary key — used as the revision identity."""
+        return self.pk
+
+    def resolve_version(self, info) -> Any:
+        """1-indexed position within the version_tree, oldest first.
+
+        Mirrors the legacy ``CorpusDescriptionRevision.version`` counter
+        so the frontend's "Version N" header keeps lining up. Reads the
+        index pre-computed by the list resolver
+        (``CorpusType.resolve_description_revisions``); falls back to a
+        per-row query when the instance is resolved outside that list
+        path (e.g. node(id:) — uncommon for this facade type).
+        """
+        precomputed = getattr(self, "_version_index", None)
+        if precomputed is not None:
+            return precomputed
+
+        from opencontractserver.constants.document_processing import (
+            CAML_ARTICLE_TITLE,
+            MARKDOWN_MIME_TYPE,
+        )
+        from opencontractserver.documents.models import Document
+
+        ordered_ids = list(
+            Document.objects.filter(
+                version_tree_id=self.version_tree_id,
+                title=CAML_ARTICLE_TITLE,
+                file_type=MARKDOWN_MIME_TYPE,
+            )
+            .order_by("created", "pk")
+            .values_list("pk", flat=True)
+        )
+        try:
+            return ordered_ids.index(self.pk) + 1
+        except ValueError:
+            return None
+
+    def resolve_author(self, info) -> Any:
+        """Document creator — historical revisions used ``author``."""
+        return self.creator
+
+    def resolve_snapshot(self, info) -> Any:
+        """Read the Document's txt_extract_file body on demand.
+
+        Each Readme.CAML version-tree sibling stores the full markdown
+        in ``txt_extract_file``; the legacy ``snapshot`` column on
+        ``CorpusDescriptionRevision`` carried the same content, so this
+        is a 1:1 swap for the frontend rev viewer. Reads go through the
+        shared ``read_caml_body`` helper (promoted from a private helper
+        in ``corpuses/signals.py`` to ``description_cache.py`` for DRY) so the I/O
+        contract — text-mode then binary-fallback — matches the
+        cache-refresh signal handler exactly.
+
+        Performance (accepted trade-off): each call opens one
+        ``txt_extract_file`` blob, so requesting ``snapshot`` for every
+        revision in one query is N storage round-trips. Pre-reading the
+        bodies in the list resolver would not reduce that count (object
+        storage has no batch read), so the effective fix is to fetch
+        ``snapshot`` only on a single-revision drill-down rather than in
+        the list query. The list path is the modal-only revision viewer,
+        so the N reads
+        are bounded by the revision count a human is browsing.
+        """
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
+
+        return read_caml_body(self)
+
+    def resolve_created(self, info) -> Any:
+        """Document creation timestamp — historical revisions used the
+        same field name."""
+        return self.created

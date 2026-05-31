@@ -304,6 +304,15 @@ export type RawCorpusType = Node & {
   // ``description`` on every save — see ``Corpus._summarize_for_preview``.
   descriptionPreview?: Scalars["String"];
   mdDescription?: Maybe<Scalars["String"]>;
+  // Canonical Readme.CAML Document object (post canonical-CAML refactor).
+  // Optional, additive field — existing clients can keep using
+  // ``mdDescription`` (URL) or ``descriptionPreview`` (text).
+  readmeCamlDocument?: Maybe<{
+    id: string;
+    title: string;
+    txtExtractFile?: string | null;
+    versionTreeId?: string | null;
+  }>;
   icon?: Maybe<Scalars["String"]>;
   documents?: DocumentTypeConnection;
   documentCount?: Scalars["Int"];

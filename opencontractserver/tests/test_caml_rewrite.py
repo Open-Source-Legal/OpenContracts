@@ -263,6 +263,12 @@ class TestImportMdDescriptionRewriteIntegration(TestCase):
         )
 
     def test_rewrite_applied_when_maps_supplied(self):
+        """Maps supplied → ``oc-import://`` URLs rewritten before the
+        Readme.CAML Document is synthesized."""
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
+
         md = (
             "# README\n\n"
             "[doc](oc-import://document/documents/lease.pdf)\n"
@@ -278,16 +284,25 @@ class TestImportMdDescriptionRewriteIntegration(TestCase):
             annot_old_id_to_new_pk={"123": self.annot.pk},
         )
 
+        # Post-Task 14 the canonical body lives on the synthesized
+        # Readme.CAML Document, not on the legacy ``md_description``
+        # FileField.
         self.corpus.refresh_from_db()
-        with self.corpus.md_description.open("r") as f:
-            saved = f.read()
+        head = self.corpus.readme_caml_document
+        self.assertIsNotNone(head)
+        saved = read_caml_body(head)
 
         self.assertIn("/d/caml-user2/c2/lease2", saved)
         self.assertIn(f"?ann={self.annot.pk}", saved)
         self.assertNotIn("oc-import://", saved)
 
     def test_rewrite_skipped_when_maps_omitted(self):
-        # Round-trip / legacy path: no maps passed → content saved verbatim.
+        """No maps passed → content lands verbatim on the synthesized
+        Readme.CAML body (no rewrite step runs)."""
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
+
         md = "# README\n\n" "[doc](oc-import://document/documents/lease.pdf)\n"
 
         import_md_description_revisions(
@@ -298,7 +313,7 @@ class TestImportMdDescriptionRewriteIntegration(TestCase):
         )
 
         self.corpus.refresh_from_db()
-        with self.corpus.md_description.open("r") as f:
-            saved = f.read()
-
+        head = self.corpus.readme_caml_document
+        self.assertIsNotNone(head)
+        saved = read_caml_body(head)
         self.assertEqual(saved, md)

@@ -867,10 +867,14 @@ class TestVersionValidation(unittest.TestCase):
         assert any("banana" in w for w in result.warnings)
 
     def test_future_version_warns(self):
+        # 3.0 is now a known version (canonical-CAML refactor); pick a
+        # version that is genuinely beyond what the validator knows
+        # about so this test continues to exercise the unknown-version
+        # warning path.
         data = _minimal_v1_data()
-        data["version"] = "3.0"
+        data["version"] = "9.0"
         result = validate_data_json(data)
-        assert any("3.0" in w for w in result.warnings)
+        assert any("9.0" in w for w in result.warnings)
 
 
 class TestV2RequiredFields(unittest.TestCase):

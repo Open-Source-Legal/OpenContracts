@@ -453,8 +453,29 @@ def build_document_export(
         # production docs always have files; this fallback exists so
         # in-memory test fixtures with stub Documents still round-trip
         # through fork (which now wraps export+import).
+        #
+        # Non-PDF documents (e.g. ``Readme.CAML``) without a populated
+        # ``pdf_file`` ALSO get the placeholder so the zip member
+        # exists on the import side.  On a re-roundtrip a non-PDF doc
+        # that was imported from a previous round will have ``pdf_file``
+        # set to the round-N placeholder bytes; we read those bytes back
+        # so the zip carries something the next import can open without
+        # losing the doc.
         if not (doc.pdf_file and doc.pdf_file.name):
             base64_encoded_message = base64.b64encode(b"\x00").decode("utf-8")
+        elif not is_pdf:
+            try:
+                with doc.pdf_file.open("rb") as raw:
+                    raw_bytes = raw.read()
+                base64_encoded_message = base64.b64encode(raw_bytes).decode("utf-8")
+            except Exception as e:
+                logger.warning(
+                    "Could not read non-PDF pdf_file for doc %s: %s — "
+                    "falling back to placeholder byte.",
+                    doc_id,
+                    e,
+                )
+                base64_encoded_message = base64.b64encode(b"\x00").decode("utf-8")
         if is_pdf and doc.pdf_file and doc.pdf_file.name:
             logger.info(f"Processing as PDF document: {doc_id}")
 
