@@ -18,7 +18,10 @@ import {
   StartResearchReportInput,
   StartResearchReportOutput,
 } from "../../../graphql/mutations";
-import { MAX_RESEARCH_PROMPT_CHARS } from "../../../assets/configurations/constants";
+import {
+  MAX_RESEARCH_PROMPT_CHARS,
+  MAX_RESEARCH_TITLE_CHARS,
+} from "../../../assets/configurations/constants";
 import { getResearchReportUrl } from "../../../utils/navigationUtils";
 
 interface StartResearchModalProps {
@@ -105,6 +108,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
           placeholder="e.g. Indemnification exposure"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          maxLength={MAX_RESEARCH_TITLE_CHARS}
           fullWidth
         />
         <div style={{ marginTop: 16 }}>

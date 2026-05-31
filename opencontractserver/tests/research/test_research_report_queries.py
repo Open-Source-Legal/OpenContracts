@@ -7,6 +7,7 @@ resolve the ``/research/{slug}`` route the completion chat message links to.
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
 from graphene.test import Client
 
@@ -63,4 +64,14 @@ class ResearchReportBySlugTestCase(TestCase):
 
     def test_unknown_slug_gets_null(self):
         result = self._execute(self.user, "does-not-exist")
+        self.assertIsNone(result["data"]["researchReportBySlug"])
+
+    def test_anonymous_user_is_rejected(self):
+        """The resolver is ``@login_required``: an unauthenticated request must
+        be rejected (PermissionDenied → GraphQL error + null data), not silently
+        treated like a non-owner. This locks in the auth gate so it can't be
+        dropped without a failing test.
+        """
+        result = self._execute(AnonymousUser(), self.report.slug)
+        self.assertIsNotNone(result.get("errors"))
         self.assertIsNone(result["data"]["researchReportBySlug"])

@@ -117,6 +117,24 @@ class AcheckDeepResearchStatusTestCase(TransactionTestCase):
         self.assertIn("COMPLETED", result)
         self.assertIn("finished in 2m 5s", result)
 
+    def test_sub_minute_duration_omits_minutes_segment(self):
+        """Mirror the frontend formatResearchDuration() helper: a sub-minute run
+        reads "42s", not "0m 42s"."""
+        now = timezone.now()
+        report = ResearchReport.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            prompt="x",
+            title="Quick Job",
+            status=JobStatus.COMPLETED.value,
+        )
+        report.started_at = now - timedelta(seconds=42)
+        report.completed_at = now
+        report.save(update_fields=["started_at", "completed_at"])
+        result = self._run()
+        self.assertIn("finished in 42s", result)
+        self.assertNotIn("0m 42s", result)
+
     def test_creator_only_excludes_other_users(self):
         ResearchReport.objects.create(
             creator=self.other,

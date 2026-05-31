@@ -165,11 +165,15 @@ def _summarize_recent_reports(user_id: int, corpus_id: int, limit: int = 5) -> s
             detail = " — queued, waiting to start"
         else:
             secs = report.duration_seconds
-            detail = (
-                f" — finished in {int(secs // 60)}m {int(secs % 60)}s"
-                if secs is not None
-                else ""
-            )
+            if secs is not None:
+                # Mirror the frontend formatResearchDuration() helper: omit the
+                # minutes segment when it would be "0m" so a sub-minute run reads
+                # "42s", not "0m 42s". Keeps LLM-facing text aligned with the UI.
+                mins, rem = divmod(int(secs), 60)
+                human = f"{mins}m {rem}s" if mins > 0 else f"{rem}s"
+                detail = f" — finished in {human}"
+            else:
+                detail = ""
         link = f"/research/{report.slug}" if report.slug else "(report link pending)"
         lines.append(f'{idx}. "{report.title}" [{status}]{detail}. Report: {link}')
     return "\n".join(lines)

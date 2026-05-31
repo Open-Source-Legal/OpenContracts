@@ -92,8 +92,10 @@ export const CorpusResearchReportCards: React.FC<
     GetResearchReportsInput
   >(GET_RESEARCH_REPORTS, {
     variables,
-    // cache-and-network serves from cache on re-render after the first fetch
-    // (avoiding a network-only refetch storm) while still revalidating.
+    // First execution: cache-and-network paints cached cards immediately while
+    // revalidating against the server. Subsequent executions (re-renders): drop
+    // to cache-first so we don't fire a network refetch storm — fresh data
+    // arrives via the explicit refetch()/completion-notification paths instead.
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     notifyOnNetworkStatusChange: true,

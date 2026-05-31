@@ -265,6 +265,12 @@ export const RESEARCH_REPORT_POLL_INTERVAL_MS = 5000;
 // UI rejects over-long prompts before the round-trip.
 export const MAX_RESEARCH_PROMPT_CHARS = 10000;
 
+// Max research report title length. Mirrors the backend model column
+// (opencontractserver/research/models.py ResearchReport.title max_length=255)
+// so the UI caps the optional title before the round-trip rather than letting
+// the DB silently truncate / the service reject it.
+export const MAX_RESEARCH_TITLE_CHARS = 255;
+
 // Tool usage UI constants (used by chat ToolUsageIndicator)
 export const TOOL_UNKNOWN_LABEL = "Unknown Tool";
 

@@ -765,6 +765,13 @@ export const ResearchReportDetail: React.FC = () => {
                                 : null;
                             const text =
                               c.display || c.raw_text || `Source ${c.footnote}`;
+                            // Footnotes are unique per report, so they make a
+                            // stable key (index-only keys break row identity
+                            // when the conditional flips between RowLink/Row).
+                            const rowKey =
+                              c.footnote != null
+                                ? `fn-${c.footnote}`
+                                : `i-${i}`;
                             const inner = (
                               <>
                                 <FootnoteBadge>{c.footnote}</FootnoteBadge>
@@ -774,11 +781,11 @@ export const ResearchReportDetail: React.FC = () => {
                               </>
                             );
                             return href && href !== "#" ? (
-                              <RowLink key={i} to={href}>
+                              <RowLink key={rowKey} to={href}>
                                 {inner}
                               </RowLink>
                             ) : (
-                              <Row key={i}>{inner}</Row>
+                              <Row key={rowKey}>{inner}</Row>
                             );
                           })}
                         </List>

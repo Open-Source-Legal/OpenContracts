@@ -52,6 +52,16 @@ export function getResearchStatus(
         color: RESEARCH_STATUS_COLORS[RESEARCH_STATUS.CANCELLED],
       };
     default:
+      // A JobStatus value the frontend doesn't recognize (e.g. a new backend
+      // state added before the frontend catches up). Surface it in dev so the
+      // gap is visible rather than silently rendering an unrelated "Queued".
+      // null/undefined is the legitimate "not set yet" case, so don't warn on it.
+      if (status && process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `getResearchStatus: unrecognized JobStatus "${status}"; falling back to Queued.`
+        );
+      }
       return {
         label: RESEARCH_STATUS.QUEUED,
         color: RESEARCH_STATUS_COLORS[RESEARCH_STATUS.QUEUED],
