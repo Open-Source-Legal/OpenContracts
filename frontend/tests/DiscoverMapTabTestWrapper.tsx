@@ -7,8 +7,9 @@ import { DiscoverSearchResults } from "../src/views/DiscoverSearchResults";
 /**
  * Test wrapper for the Discover "Map" tab.
  *
- * Boots the DiscoverSearchResults view at `/discover?tab=map` so the Map tab is
- * active on mount. Provides Apollo mocks (for `globalGeographicAnnotations`)
+ * Boots the DiscoverSearchResults view at `/discover?type=map` so the Map tab
+ * is active on mount (the view reads the active tab from the `type` query
+ * param). Provides Apollo mocks (for `globalGeographicAnnotations`)
  * and a router (the view uses `useSearchParams` / `useNavigate`). The
  * InMemoryCache stays inside MockedProvider (CLAUDE.md pitfall #8).
  *
@@ -20,7 +21,7 @@ export const DiscoverMapTabTestWrapper: React.FC<{
 }> = ({ mocks }) => {
   return (
     <MockedProvider mocks={mocks ?? []} addTypename={false}>
-      <MemoryRouter initialEntries={["/discover?tab=map"]}>
+      <MemoryRouter initialEntries={["/discover?type=map"]}>
         <DiscoverSearchResults />
       </MemoryRouter>
     </MockedProvider>
