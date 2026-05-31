@@ -14,7 +14,7 @@ import {
   GetDocumentByIdForRedirectInput,
   GetDocumentByIdForRedirectOutput,
 } from "../../graphql/queries";
-import { buildCanonicalPath } from "../../utils/navigationUtils";
+import { getDocumentUrl } from "../../utils/navigationUtils";
 import {
   GEO_LABEL_TYPES,
   MAP_BBOX_REFETCH_DEBOUNCE_MS,
@@ -89,12 +89,12 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
       if (!document) {
         return;
       }
-      // Cast mirrors CentralRouteManager's id-redirect call: the lightweight
-      // redirect query is a structural subset of DocumentType, and
-      // buildCanonicalPath only reads slug/creator fields.
-      const path = buildCanonicalPath(document as any, document.corpus as any);
-      if (path) {
-        navigate(path);
+      // getDocumentUrl accepts the redirect query's slug/creator shape
+      // directly (a structural subset of DocumentType) and returns "#" when
+      // slugs are missing, so no cast is needed.
+      const url = getDocumentUrl(document, document.corpus);
+      if (url !== "#") {
+        navigate(url);
       }
     },
     [navigate, resolveDocumentById]
