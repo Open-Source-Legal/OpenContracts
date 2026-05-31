@@ -3,6 +3,8 @@
 import logging
 from datetime import datetime  # noqa: F401  (used in type comment below)
 
+from opencontractserver.utils.files import read_field_file_text
+
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
@@ -101,9 +103,12 @@ def load_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        # (Re)load from storage.
-        content_bytes = doc.txt_extract_file.read()
-        content_str = content_bytes.decode("utf-8")
+        # Cache miss — reload from storage; helper normalizes bytes-returning
+        # backends. ``errors="replace"`` is intentional: this is an
+        # agent-facing read, so per the CLAUDE.md fault-tolerance convention we
+        # substitute U+FFFD for undecodable bytes rather than crash the tool
+        # call (pipeline/export paths use strict mode instead).
+        content_str = read_field_file_text(doc.txt_extract_file, errors="replace")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
         logger.debug(
@@ -161,7 +166,9 @@ async def aload_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        content_str = doc.txt_extract_file.read().decode("utf-8")
+        # Agent-facing read: ``errors="replace"`` is intentional (fault-tolerant
+        # per CLAUDE.md) — see the sibling loader above for the full rationale.
+        content_str = read_field_file_text(doc.txt_extract_file, errors="replace")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
         logger.debug(

@@ -35,7 +35,7 @@ class TestVersionMetadataFields(TestCase):
 
     def setUp(self):
         """Create test data for each test."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="version_tester",
@@ -93,7 +93,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -114,7 +114,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -134,7 +134,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -154,7 +154,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -174,7 +174,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -194,7 +194,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -214,7 +214,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -236,7 +236,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -257,7 +257,7 @@ class TestVersionMetadataFields(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -271,7 +271,7 @@ class TestVersionHistoryLazyLoading(TestCase):
 
     def setUp(self):
         """Create test data with version history."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="history_tester",
@@ -337,7 +337,7 @@ class TestVersionHistoryLazyLoading(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -381,7 +381,7 @@ class TestVersionHistoryLazyLoading(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -397,7 +397,7 @@ class TestPathHistoryLazyLoading(TestCase):
 
     def setUp(self):
         """Create test data with path history."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="path_tester",
@@ -462,7 +462,7 @@ class TestPathHistoryLazyLoading(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -504,7 +504,7 @@ class TestPathHistoryLazyLoading(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -525,7 +525,7 @@ class TestVersioningPermissions(TestCase):
 
     def setUp(self):
         """Create test data with permission scenarios."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         # Document owner
         self.owner = User.objects.create_user(
@@ -612,7 +612,7 @@ class TestVersioningPermissions(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.owner})()
         )
 
@@ -632,7 +632,7 @@ class TestVersioningPermissions(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.editor})()
         )
 
@@ -652,7 +652,7 @@ class TestVersioningPermissions(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.other_user})()
         )
 
@@ -675,7 +675,7 @@ class TestVersioningPermissions(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.other_user})()
         )
 
@@ -694,7 +694,7 @@ class TestVersioningPermissions(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.other_user})()
         )
 
@@ -707,7 +707,7 @@ class TestVersionMetadataIntegration(TestCase):
 
     def setUp(self):
         """Create complex test scenario."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="integration_tester",
@@ -775,7 +775,7 @@ class TestVersionMetadataIntegration(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -817,7 +817,7 @@ class TestVersionMetadataIntegration(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -831,7 +831,7 @@ class TestRestoreDeletedDocumentMutation(TestCase):
 
     def setUp(self):
         """Create test data for each test."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="restore_tester",
@@ -888,7 +888,7 @@ class TestRestoreDeletedDocumentMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -907,7 +907,7 @@ class TestRestoreDeletedDocumentMutation(TestCase):
         current_path = DocumentPath.objects.filter(
             document=self.doc, corpus=self.corpus, is_current=True
         ).first()
-        self.assertIsNotNone(current_path)
+        assert current_path is not None
         self.assertFalse(current_path.is_deleted)
 
     def test_restore_not_deleted_document_fails(self):
@@ -934,7 +934,7 @@ class TestRestoreDeletedDocumentMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -959,7 +959,7 @@ class TestRestoreDeletedDocumentMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.other_user})()
         )
 
@@ -981,7 +981,7 @@ class TestRestoreDeletedDocumentMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -995,7 +995,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
 
     def setUp(self):
         """Create test data with version history."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="version_restore_tester",
@@ -1066,7 +1066,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -1091,7 +1091,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
         new_current = Document.objects.filter(
             version_tree_id=self.doc_v1.version_tree_id, is_current=True
         ).first()
-        self.assertIsNotNone(new_current)
+        assert new_current is not None
         self.assertEqual(new_current.title, "Document Version 1")
 
     def test_restore_to_current_version_fails(self):
@@ -1108,7 +1108,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -1132,7 +1132,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.other_user})()
         )
 
@@ -1156,7 +1156,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -1176,7 +1176,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
             corpus=self.corpus,
             is_current=True,
         ).first()
-        self.assertIsNotNone(current_path)
+        assert current_path is not None
         self.assertEqual(current_path.version_number, 4)
         self.assertIsNotNone(current_path.parent)
 
@@ -1194,7 +1194,7 @@ class TestRestoreDocumentToVersionMutation(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.user})()
         )
 
@@ -1215,7 +1215,7 @@ class TestVersionAwareSlugResolution(TestCase):
 
     def setUp(self):
         """Create test data with multiple document versions."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="slug_version_tester",
@@ -1290,7 +1290,7 @@ class TestVersionAwareSlugResolution(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
         data = result["data"]["documentInCorpusBySlugs"]
         self.assertIsNotNone(data)
@@ -1315,7 +1315,7 @@ class TestVersionAwareSlugResolution(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
         data = result["data"]["documentInCorpusBySlugs"]
         self.assertIsNotNone(data)
@@ -1338,7 +1338,7 @@ class TestVersionAwareSlugResolution(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
         data = result["data"]["documentInCorpusBySlugs"]
         self.assertIsNotNone(data)
@@ -1359,7 +1359,7 @@ class TestVersionAwareSlugResolution(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
         self.assertIsNone(result["data"]["documentInCorpusBySlugs"])
 
@@ -1399,7 +1399,7 @@ class TestVersionAwareSlugResolution(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
         # Version 1's path is deleted, so it should not be resolvable
         self.assertIsNone(result["data"]["documentInCorpusBySlugs"])
@@ -1422,7 +1422,7 @@ class TestVersionAwareSlugResolution(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
         data = result["data"]["documentInCorpusBySlugs"]
         self.assertIsNotNone(data)
@@ -1437,7 +1437,7 @@ class TestCorpusVersionsField(TestCase):
     """
 
     def setUp(self):
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.user = User.objects.create_user(
             username="corpus_versions_tester",
@@ -1502,7 +1502,7 @@ class TestCorpusVersionsField(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
 
         versions = result["data"]["document"]["corpusVersions"]
@@ -1534,7 +1534,7 @@ class TestCorpusVersionsField(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
 
         versions = result["data"]["document"]["corpusVersions"]
@@ -1575,7 +1575,7 @@ class TestCorpusVersionsField(TestCase):
         """
 
         request = type("Request", (), {"user": other_user})()
-        result = self.client.execute(query, context_value=request)
+        result = self.graphene_client.execute(query, context_value=request)
         self.assertIsNone(result.get("errors"))
 
         versions = result["data"]["document"]["corpusVersions"]
@@ -1614,7 +1614,7 @@ class TestCorpusVersionsField(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
 
         versions = result["data"]["document"]["corpusVersions"]
@@ -1649,7 +1649,7 @@ class TestCorpusVersionsField(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
 
         versions = result["data"]["document"]["corpusVersions"]
@@ -1683,7 +1683,7 @@ class TestCorpusVersionsField(TestCase):
             }}
         """
 
-        result = self.client.execute(query, context_value=self._make_request())
+        result = self.graphene_client.execute(query, context_value=self._make_request())
         self.assertIsNone(result.get("errors"))
 
         versions = result["data"]["document"]["corpusVersions"]

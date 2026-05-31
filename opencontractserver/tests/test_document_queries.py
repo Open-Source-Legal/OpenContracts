@@ -23,7 +23,7 @@ class DocumentQueryTestCase(TestCase):
     def setUp(self):
         # Create a regular user and GraphQL client
         self.user = User.objects.create_user(username="testuser", password="secret")
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create a corpus and document owned by our user
         self.corpus = Corpus.objects.create(title="Test Corpus", creator=self.user)
@@ -69,7 +69,7 @@ class DocumentQueryTestCase(TestCase):
         """
 
         variables = {"docId": self.document_gid, "corpusId": self.corpus_gid}
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
 
         # The query should execute without errors
         self.assertIsNone(result.get("errors"))
@@ -112,7 +112,7 @@ class DocumentQueryTestCase(TestCase):
         """
 
         variables = {"docId": unsummarised_doc_gid, "corpusId": self.corpus_gid}
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
 
         self.assertIsNone(result.get("errors"))
 
@@ -140,7 +140,7 @@ class DocumentFolderFilterQueryTestCase(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="folderuser", password="secret")
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         self.corpus = Corpus.objects.create(title="Folder Corpus", creator=self.user)
 
@@ -172,7 +172,7 @@ class DocumentFolderFilterQueryTestCase(TestCase):
         self.child_gid = to_global_id("CorpusFolderType", self.child_folder.id)
 
     def _titles(self, folder_id):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             self.QUERY,
             variables={"corpusId": self.corpus_gid, "folderId": folder_id},
         )
@@ -231,6 +231,6 @@ class DocumentFolderFilterQueryTestCase(TestCase):
               }
             }
         """
-        result = self.client.execute(query, variables={"folderId": "__root__"})
+        result = self.graphene_client.execute(query, variables={"folderId": "__root__"})
         self.assertIsNone(result.get("errors"))
         self.assertEqual(result["data"]["documents"]["edges"], [])

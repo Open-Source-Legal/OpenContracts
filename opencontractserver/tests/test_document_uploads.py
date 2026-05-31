@@ -29,7 +29,7 @@ class UploadDocumentMutationTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
         self.mutation = """
             mutation UploadDocument(
                 $file: String!,
@@ -105,7 +105,7 @@ class UploadDocumentMutationTestCase(TestCase):
                 file_content = self.generate_file_content(file_ext)
                 base64_content = base_64_encode_bytes(file_content)
 
-                result = self.client.execute(
+                result = self.graphene_client.execute(
                     self.mutation,
                     variables={
                         "file": base64_content,
@@ -202,7 +202,7 @@ class UploadDocumentMutationTestCase(TestCase):
         corpus_global_id = to_global_id("CorpusType", corpus.id)
 
         # Test 1: User with NO permissions on corpus should be denied
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             self.mutation,
             variables={
                 "file": base64_content,
@@ -231,7 +231,7 @@ class UploadDocumentMutationTestCase(TestCase):
         # Test 2: User with only READ permission should still be denied
         set_permissions_for_obj_to_user(self.user, corpus, [PermissionTypes.READ])
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             self.mutation,
             variables={
                 "file": base64_content,
@@ -264,7 +264,7 @@ class UploadDocumentMutationTestCase(TestCase):
             self.user, corpus, [PermissionTypes.READ, PermissionTypes.UPDATE]
         )
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             self.mutation,
             variables={
                 "file": base64_content,
