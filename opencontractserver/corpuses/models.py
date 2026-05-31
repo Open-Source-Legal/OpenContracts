@@ -42,6 +42,7 @@ from opencontractserver.utils.text import truncate
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+    from django.core.files.base import File
     from django.db.models import QuerySet
 
     from opencontractserver.annotations.models import AnnotationLabel
@@ -996,12 +997,13 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
     def import_content(
         self,
-        content: bytes,
-        user: AbstractBaseUser,
+        content: bytes | None = None,
+        user: AbstractBaseUser | None = None,
         path: str | None = None,
         folder: CorpusFolder | None = None,
         filename: str | None = None,
         file_type: str | None = None,
+        content_file: "File | None" = None,
         **doc_kwargs: Any,
     ) -> tuple[Document, str, DocumentPath]:
         """
@@ -1013,12 +1015,18 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         - Path-based version tracking for all document types
 
         Args:
-            content: File content bytes (required)
+            content: File content bytes. Required unless ``content_file`` is
+                supplied instead.
             user: The user performing the operation (required)
             path: The filesystem path within the corpus (auto-generated if not provided)
             folder: Optional CorpusFolder to place the document in
             filename: Original filename (used for path generation if path not provided)
             file_type: MIME type of the content (determines storage field)
+            content_file: A Django file object to import instead of ``content``
+                bytes. Lets callers stream a large document straight from disk
+                (e.g. a reassembled chunked upload) so its hash is computed and
+                its bytes are stored without ever buffering the whole file in
+                memory (issue #1843). Mutually exclusive with ``content``.
             **doc_kwargs: Additional arguments for document creation (title, description, etc.)
 
         Returns:
@@ -1027,13 +1035,21 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             - 'updated': New version at existing path
 
         Raises:
-            ValueError: If user or content is not provided
+            ValueError: If user is missing, or if neither/both of ``content``
+                and ``content_file`` are provided.
         """
         if not user:
             raise ValueError("User is required for document operations (audit trail)")
 
-        if content is None:
-            raise ValueError("Content is required for import_content()")
+        if content is None and content_file is None:
+            raise ValueError(
+                "Content is required for import_content(): pass either content "
+                "bytes or a content_file file object"
+            )
+        if content is not None and content_file is not None:
+            raise ValueError(
+                "Pass either content or content_file to import_content(), not both"
+            )
 
         from opencontractserver.documents.versioning import import_document
 
@@ -1053,7 +1069,8 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/doc_{uuid.uuid4().hex[:8]}"
 
         # All file types now go through the unified versioning pipeline
-        # Text files are stored in txt_extract_file, binary files in pdf_file
+        # Text files are stored in txt_extract_file, binary files in pdf_file.
+        # ``content_file`` (when given) is type-routed inside import_document.
         doc, status, doc_path = import_document(
             corpus=self,
             path=path,
@@ -1061,6 +1078,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             user=user,  # type: ignore[arg-type]
             folder=folder,
             file_type=effective_file_type,
+            content_file=content_file,
             **doc_kwargs,
         )
 

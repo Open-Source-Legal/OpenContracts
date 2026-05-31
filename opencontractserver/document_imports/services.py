@@ -215,6 +215,35 @@ def _peek_zip_magic(zip_source: File | bytes) -> bool:
     return any(head.startswith(prefix) for prefix in _ZIP_MAGIC_PREFIXES)
 
 
+# Bytes sampled from the head of a streamed single-document upload for MIME
+# detection. ``detect_mime_type`` only inspects a binary signature (filetype:
+# <=261 bytes) and a plaintext sample (``is_plaintext_content``: first 1024
+# bytes), so a header this size yields the exact same verdict as sniffing the
+# whole file — while keeping peak memory negligible for a multi-GB upload.
+DOCUMENT_MIME_SNIFF_BYTES = 8192
+
+
+def _read_stream_header(file_obj: File, num_bytes: int) -> bytes:
+    """
+    Read up to ``num_bytes`` from the start of ``file_obj`` for content
+    sniffing, then rewind so the subsequent full stream/store sees every byte.
+
+    A failure to rewind would silently truncate the import, so it is surfaced
+    loudly at WARNING rather than swallowed.
+    """
+    try:
+        return file_obj.read(num_bytes)
+    finally:
+        try:
+            file_obj.seek(0)
+        except Exception as exc:  # pragma: no cover - non-seekable stream
+            logger.warning(
+                "Failed to rewind upload stream after header peek; subsequent "
+                "import may be truncated: %s",
+                exc,
+            )
+
+
 def detect_mime_type(file_bytes: bytes, filename: str | None) -> str | None:
     """
     Detect the MIME type of ``file_bytes`` using the same logic as the
@@ -257,7 +286,8 @@ def check_usage_cap(user) -> None:
 def import_document_for_user(
     *,
     user,
-    file_bytes: bytes,
+    file_bytes: bytes | None = None,
+    file_obj: File | None = None,
     filename: str,
     title: str,
     description: str,
@@ -278,6 +308,13 @@ def import_document_for_user(
       - ``corpus.import_content()`` storage
       - object-level CRUD permission grant to ``user``
 
+    The content is provided either as ``file_bytes`` (the in-memory path used
+    by the base64 GraphQL mutation and the multipart REST view) or as a Django
+    ``file_obj`` (a seekable file-like). The ``file_obj`` path streams the
+    document straight to storage and computes its hash by streaming, so a large
+    upload never has to be buffered whole in RAM — exactly one of the two must
+    be supplied (issue #1843).
+
     Both ``add_to_corpus_id`` and ``add_to_folder_id`` accept either a Relay
     global id or a raw primary key — REST callers may use either.
 
@@ -285,10 +322,21 @@ def import_document_for_user(
     ``error`` carries a user-safe message; the caller is responsible for
     mapping that to the appropriate transport response.
     """
+    if (file_bytes is None) == (file_obj is None):
+        raise ValueError(
+            "import_document_for_user requires exactly one of file_bytes or file_obj"
+        )
+
     check_usage_cap(user)
 
-    # MIME detection
-    kind = detect_mime_type(file_bytes, filename)
+    # MIME detection — sniff only a header when streaming so a multi-GB upload
+    # isn't pulled into memory just to read its magic bytes.
+    sniff_bytes = (
+        file_bytes
+        if file_bytes is not None
+        else _read_stream_header(file_obj, DOCUMENT_MIME_SNIFF_BYTES)
+    )
+    kind = detect_mime_type(sniff_bytes, filename)
     if kind is None:
         return ImportResult(document=None, error="Unable to determine file type")
     if kind not in get_allowed_mime_types():
@@ -316,6 +364,7 @@ def import_document_for_user(
     try:
         document, status, _ = corpus.import_content(
             content=file_bytes,
+            content_file=file_obj,
             user=user,
             filename=filename,
             folder=folder,
@@ -1005,20 +1054,14 @@ def complete_chunked_upload(
         kind = session.kind
         result: ImportResult | ZipImportResult | CorpusImportResult
         if kind == ChunkedUploadKind.DOCUMENT:
-            # MEMORY NOTE: unlike the three ZIP kinds below (which hand
-            # ``File(tmp)`` straight to storage and stream in
-            # CHUNK_ASSEMBLY_BLOCK_SIZE blocks), the single-document path reads
-            # the whole assembled file into RAM here because
-            # ``import_document_for_user`` / ``Corpus.import_content`` take
-            # ``bytes``, not a file-like. Peak memory for a DOCUMENT upload is
-            # therefore ~the file size, bounded by MAX_DOCUMENT_IMPORT_SIZE_BYTES
-            # (the start-time total-size cap), NOT by the per-block guarantee
-            # that holds for the ZIP kinds. Making import_content accept a
-            # file-like would lift this; tracked as follow-up in issue #1843.
-            file_bytes = tmp.read()
+            # Hand the assembled temp file to the import service as a file-like
+            # (issue #1843). Like the three ZIP kinds below, this streams the
+            # document to storage and computes its hash by streaming, so peak
+            # memory stays O(CHUNK_ASSEMBLY_BLOCK_SIZE) regardless of file size
+            # instead of spiking to ~the whole file at ``complete`` time.
             result = import_document_for_user(
                 user=user,
-                file_bytes=file_bytes,
+                file_obj=File(tmp, name=session.filename),
                 filename=session.filename,
                 title=md.get("title") or session.filename,
                 description=normalise_optional(md.get("description")) or "",

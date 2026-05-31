@@ -1716,6 +1716,107 @@ class PdfFileCreationTestCase(TestCase):
         self.assertNotEqual(doc.id, global_doc.id)
 
 
+class StreamingImportTestCase(TestCase):
+    """
+    Test Suite: Streaming (file-like) imports
+
+    Validates the issue #1843 path where ``import_document`` is handed a file
+    object instead of ``content`` bytes and must compute the content hash by
+    streaming the file rather than reading it whole into memory.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="streamer", password="test123")
+        self.corpus = Corpus.objects.create(title="Stream Corpus", creator=self.user)
+
+    def test_compute_sha256_for_file_matches_bytes_and_rewinds(self):
+        from django.core.files.base import ContentFile
+
+        from opencontractserver.documents.versioning import compute_sha256_for_file
+
+        payload = b"%PDF-1.7 streaming hash payload " + (b"Z" * 5000)
+        f = ContentFile(payload, name="x.pdf")
+        # Advance the cursor first to prove the helper seeks to 0 before hashing.
+        f.seek(10)
+
+        digest = compute_sha256_for_file(f)
+        self.assertEqual(digest, compute_sha256(payload))
+        # Cursor must be rewound so the storage write that follows is intact.
+        self.assertEqual(f.tell(), 0)
+
+    def test_import_document_streams_hash_from_pdf_file_when_content_none(self):
+        """content=None + a binary file -> hash is streamed from the file."""
+        from django.core.files.base import ContentFile
+
+        payload = b"%PDF-1.4 " + (b"Q" * 4096)
+        doc, status, _ = import_document(
+            corpus=self.corpus,
+            path="/streamed.pdf",
+            content=None,
+            user=self.user,
+            pdf_file=ContentFile(payload, name="streamed.pdf"),
+            file_type="application/pdf",
+            title="Streamed PDF",
+        )
+
+        self.assertEqual(status, "created")
+        self.assertEqual(doc.pdf_file_hash, compute_sha256(payload))
+        doc.pdf_file.seek(0)
+        self.assertEqual(doc.pdf_file.read(), payload)
+        self.assertFalse(doc.txt_extract_file)
+
+    def test_import_document_streams_hash_from_txt_file_when_content_none(self):
+        """content=None + a text file -> routed to txt_extract_file, hash streamed."""
+        from django.core.files.base import ContentFile
+
+        payload = b"# Heading\n\nstreamed markdown body\n"
+        doc, status, _ = import_document(
+            corpus=self.corpus,
+            path="/streamed.md",
+            content=None,
+            user=self.user,
+            txt_file=ContentFile(payload, name="streamed.md"),
+            file_type="text/markdown",
+            title="Streamed MD",
+        )
+
+        self.assertEqual(status, "created")
+        self.assertEqual(doc.pdf_file_hash, compute_sha256(payload))
+        doc.txt_extract_file.seek(0)
+        self.assertEqual(doc.txt_extract_file.read(), payload)
+        self.assertFalse(doc.pdf_file)
+
+    def test_import_document_content_file_is_type_routed(self):
+        """A generic ``content_file`` lands in the field matching ``file_type``."""
+        from django.core.files.base import ContentFile
+
+        payload = b"%PDF-1.5 routed via content_file " + (b"R" * 2048)
+        doc, _, _ = import_document(
+            corpus=self.corpus,
+            path="/routed.pdf",
+            content=None,
+            user=self.user,
+            content_file=ContentFile(payload, name="routed.pdf"),
+            file_type="application/pdf",
+            title="Routed PDF",
+        )
+        self.assertTrue(doc.pdf_file)
+        self.assertFalse(doc.txt_extract_file)
+        self.assertEqual(doc.pdf_file_hash, compute_sha256(payload))
+
+    def test_import_document_requires_content_or_file(self):
+        """content=None with no file object is a hard error, not a silent crash."""
+        with self.assertRaises(ValueError):
+            import_document(
+                corpus=self.corpus,
+                path="/nope.pdf",
+                content=None,
+                user=self.user,
+                file_type="application/pdf",
+                title="No content",
+            )
+
+
 class TextFileVersioningTestCase(TestCase):
     """
     Test Suite: Text File Versioning

@@ -63,8 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`CHUNKED_UPLOAD_ASSEMBLING_GRACE_HOURS`, default 6h) so a crashed
     mid-assembly worker is still cleaned up. The Celery task now also accepts
     `completed_retention_days` so an operator can override retention at enqueue
-    time. The single-document reassembly's whole-file-in-RAM tradeoff is
-    tracked as a streaming follow-up (issue #1843).
+    time. The single-document reassembly's whole-file-in-RAM tradeoff has since
+    been removed — it now streams (see the issue #1843 entry under **Fixed**).
   - **Tests**: `opencontractserver/tests/test_document_imports_chunked.py`
     (round-trip byte-exact reassembly, validation, IDOR isolation, integrity
     checks, zip kinds, stale-session GC, ASSEMBLING grace window) and the
@@ -73,6 +73,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     per-part retry, 4xx fail-fast, progress reporting).
 
 ### Fixed
+
+- **Chunked single-document import no longer buffers the whole file in RAM at
+  `complete` (issue #1843).** Reassembling a chunked single-document upload
+  previously did `file_bytes = tmp.read()` and passed the whole assembled file
+  to `import_document_for_user` → `Corpus.import_content` →
+  `documents.versioning.import_document`, which only accepted `content: bytes`.
+  Because `complete` runs synchronously in the web process and
+  `MAX_DOCUMENT_IMPORT_SIZE_BYTES` defaults to 5 GB (frontend accepts 2 GB), a
+  single `complete` call could spike a web worker by 2–5 GB and starve other
+  workers. A streaming file-like is now threaded all the way through:
+  - **`documents/versioning.py`**: `import_document` accepts `content=None`
+    plus a type-routed `content_file` (and still honours explicit
+    `pdf_file` / `txt_file`); the content hash is computed by streaming the
+    file via the new `compute_sha256_for_file` helper instead of from a `bytes`
+    blob. Existing `content=bytes` callers are unchanged.
+  - **`corpuses/models.py`**: `Corpus.import_content` accepts a `content_file`
+    file object as a streaming alternative to `content` bytes (exactly one is
+    required) and forwards it to `import_document`.
+  - **`document_imports/services.py`**: `import_document_for_user` accepts a
+    `file_obj` (sniffing only an 8 KB header for MIME detection rather than
+    reading the whole file), and `complete_chunked_upload`'s DOCUMENT branch
+    now passes `File(tmp)` instead of `tmp.read()`. Peak memory for a chunked
+    single-document import is now O(block) — matching the three ZIP kinds —
+    instead of ~the whole file size.
+  - **Tests**: streaming-hash and file-routing unit tests in
+    `test_document_versioning.py` (`StreamingImportTestCase`) and chunked
+    HTTP tests in `test_document_imports_chunked.py` (streamed-not-buffered
+    contract, streamed-hash correctness, plain-text round trip).
 
 - **Corpus document versioning & path/folder audit — correctness and performance fixes.** A sweep of the dual-tree versioning (`DocumentPath`) and `CorpusFolder` path system surfaced several correctness gaps and N+1s. Regression coverage: `opencontractserver/tests/test_versioning_paths_audit.py`.
   - **`Corpus.add_document` no longer silently supersedes a colliding document** (`opencontractserver/corpuses/models.py`). When the auto-/caller-supplied path (e.g. `/documents/<title>`) collided with an existing active document, the occupant was marked `is_current=False` and the new doc became a "version" of an unrelated content tree — the first document silently vanished from the corpus. `add_document` now disambiguates the path (`/documents/Report` → `/documents/Report_1`) via `CorpusPathService._disambiguate_path`, always creating an independent root path (`parent=None`, `version_number=1`). `add_document` is not a versioning entry point; `import_content` remains the path-versioning surface.

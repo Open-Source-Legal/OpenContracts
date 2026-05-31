@@ -32,7 +32,7 @@ import mimetypes
 import uuid
 from typing import TYPE_CHECKING, Literal, Optional
 
-from django.core.files.base import ContentFile
+from django.core.files.base import ContentFile, File
 from django.db import transaction
 from django.db.models import Q
 
@@ -115,6 +115,31 @@ def compute_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def compute_sha256_for_file(file_obj: "File") -> str:
+    """
+    Stream a Django ``File`` (or bare file-like) and return its SHA-256 hex
+    digest.
+
+    This is the streaming counterpart to :func:`compute_sha256`: it reads the
+    file in ``File.chunks()`` blocks so peak memory stays O(block) instead of
+    the full file size, which is what lets a large single-document import skip
+    buffering the whole file in RAM (issue #1843). The cursor is rewound to the
+    start afterward so the storage write that follows sees the entire file.
+    """
+    hasher = hashlib.sha256()
+    # Django ``File`` exposes ``chunks()`` (which seeks to 0 before iterating);
+    # wrap a bare file-like so either kind of object can be passed.
+    chunked = file_obj if hasattr(file_obj, "chunks") else File(file_obj)
+    for block in chunked.chunks():
+        hasher.update(block)
+    # ``chunks()`` leaves the cursor at EOF; rewind for the subsequent read.
+    try:
+        file_obj.seek(0)
+    except (AttributeError, ValueError):  # pragma: no cover - non-seekable
+        pass
+    return hasher.hexdigest()
+
+
 def calculate_content_version(document: Document) -> int:
     """
     Calculate the version number of a document by counting
@@ -133,11 +158,12 @@ def calculate_content_version(document: Document) -> int:
 def import_document(
     corpus: Corpus,
     path: str,
-    content: bytes,
+    content: Optional[bytes],
     user: "User",
     folder: Optional[CorpusFolder] = None,
     pdf_file=None,
     txt_file=None,
+    content_file: "Optional[File]" = None,
     **doc_kwargs,
 ) -> tuple[Document, str, DocumentPath]:
     """
@@ -154,11 +180,20 @@ def import_document(
     Args:
         corpus: The corpus to import into
         path: The filesystem path within the corpus
-        content: The file content as bytes
+        content: The file content as bytes. May be ``None`` when the content
+            is supplied as a file object instead (``content_file`` or the
+            type-specific ``pdf_file`` / ``txt_file``), in which case the
+            SHA-256 hash is computed by streaming the file rather than from a
+            ``bytes`` blob — see issue #1843.
         user: The user performing the import
         folder: Optional folder to place the document in
         pdf_file: Optional Django file object for binary files
         txt_file: Optional Django file object for text files
+        content_file: Optional Django file object whose content is routed to
+            ``pdf_file`` or ``txt_file`` automatically based on the detected
+            file type. Lets streaming callers hand over a single on-disk file
+            (e.g. a reassembled chunked upload) without knowing the storage
+            field up front.
         **doc_kwargs: Additional keyword arguments for Document creation
             - file_type (str): MIME type (determines storage field)
             - ingestion_source (IngestionSource | None): Source that produced
@@ -182,10 +217,34 @@ def import_document(
         if key in doc_kwargs:
             path_kwargs[key] = doc_kwargs.pop(key)
 
-    content_hash = compute_sha256(content)
     # Handle file_type - use default if None or missing
     file_type = doc_kwargs.get("file_type") or "application/pdf"
     is_text = _is_text_file(file_type)
+
+    # ``content_file`` is a type-agnostic streaming alternative to ``content``
+    # bytes: route it to the storage field that matches the file type so the
+    # create/update branches below store it directly instead of materialising a
+    # ContentFile from in-memory bytes.
+    if content_file is not None:
+        if is_text:
+            txt_file = txt_file or content_file
+        else:
+            pdf_file = pdf_file or content_file
+
+    # Compute the content hash. Prefer the in-memory bytes when present;
+    # otherwise stream the stored file so peak memory stays O(block) rather
+    # than the full document size (issue #1843).
+    if content is not None:
+        content_hash = compute_sha256(content)
+    else:
+        hash_source = txt_file if is_text else pdf_file
+        if hash_source is None:
+            raise ValueError(
+                "import_document requires either ``content`` bytes or a matching "
+                "file object (``content_file``, or ``pdf_file`` / ``txt_file`` "
+                "for the file type)"
+            )
+        content_hash = compute_sha256_for_file(hash_source)
 
     with transaction.atomic():
         # Step 1: Check if this path already exists in THIS corpus
