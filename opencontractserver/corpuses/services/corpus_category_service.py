@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from opencontractserver.constants.corpus_categories import (
     DEFAULT_CATEGORY_COLOR,
     DEFAULT_CATEGORY_ICON,
+    MAX_CATEGORY_DESCRIPTION_LENGTH,
     MAX_CATEGORY_ICON_LENGTH,
     MAX_CATEGORY_NAME_LENGTH,
 )
@@ -47,6 +48,7 @@ class CorpusCategoryService(BaseService):
     def _validate_fields(
         *,
         name: str | None = None,
+        description: str | None = None,
         icon: str | None = None,
         color: str | None = None,
     ) -> str | None:
@@ -66,6 +68,14 @@ class CorpusCategoryService(BaseService):
                     f"Category name exceeds maximum length of "
                     f"{MAX_CATEGORY_NAME_LENGTH} characters."
                 )
+        if (
+            description is not None
+            and len(description) > MAX_CATEGORY_DESCRIPTION_LENGTH
+        ):
+            return (
+                f"Description exceeds maximum length of "
+                f"{MAX_CATEGORY_DESCRIPTION_LENGTH} characters."
+            )
         if icon is not None and len(icon) > MAX_CATEGORY_ICON_LENGTH:
             return (
                 f"Icon name exceeds maximum length of "
@@ -98,7 +108,9 @@ class CorpusCategoryService(BaseService):
         sort_order: int | None = None,
     ) -> ServiceResult[CorpusCategory]:
         """Create a new category after validation + unique-name enforcement."""
-        error = cls._validate_fields(name=name, icon=icon, color=color)
+        error = cls._validate_fields(
+            name=name, description=description, icon=icon, color=color
+        )
         if error:
             return ServiceResult.failure(error)
 
@@ -138,9 +150,13 @@ class CorpusCategoryService(BaseService):
         Only the provided (non-``None``) fields are written, via
         ``update_fields`` to avoid full-row writes. The unique-name constraint
         is enforced with a friendly message rather than letting the
-        ``IntegrityError`` bubble up.
+        ``IntegrityError`` bubble up. A call that supplies no fields is a no-op:
+        it returns successfully without issuing a DB write (which would
+        otherwise pointlessly bump ``modified``).
         """
-        error = cls._validate_fields(name=name, icon=icon, color=color)
+        error = cls._validate_fields(
+            name=name, description=description, icon=icon, color=color
+        )
         if error:
             return ServiceResult.failure(error)
 
@@ -170,6 +186,14 @@ class CorpusCategoryService(BaseService):
         if sort_order is not None:
             category.sort_order = sort_order
             update_fields.append("sort_order")
+
+        # Nothing but the seeded "modified" sentinel means no real field was
+        # supplied — skip the write so an empty update doesn't bump the
+        # timestamp (and log) for no reason. Compare the exact list (not just
+        # the length) so the guard stays correct if another sentinel is ever
+        # seeded into ``update_fields``.
+        if update_fields == ["modified"]:
+            return ServiceResult.success(category)
 
         category.save(update_fields=update_fields)
         cls.log_action("Updated", category, user, name=category.name)

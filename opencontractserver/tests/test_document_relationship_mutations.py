@@ -1125,7 +1125,7 @@ class DocumentRelationshipServiceTestCase(TestCase):
             relationship_type="RELATIONSHIP",
         )
         self.assertEqual(result.count(), 1)
-        self.assertEqual(result.first().relationship_type, "RELATIONSHIP")
+        self.assertEqual(result[0].relationship_type, "RELATIONSHIP")
 
     def test_get_relationships_for_document_nonexistent(self):
         """Test with nonexistent document returns empty queryset."""
@@ -1210,7 +1210,7 @@ class DocumentRelationshipServiceTestCase(TestCase):
             user=self.owner,
             relationship_id=self.relationship.id,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.id, self.relationship.id)
 
     def test_get_relationship_by_id_not_found(self):

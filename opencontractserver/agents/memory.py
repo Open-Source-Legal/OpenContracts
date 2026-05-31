@@ -29,6 +29,7 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
 from opencontractserver.llms.context_guardrails import estimate_token_count
+from opencontractserver.utils.files import read_field_file_text
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus
@@ -172,20 +173,13 @@ async def read_memory_content(corpus: Corpus) -> str:
         if doc is None or not doc.txt_extract_file:
             return ""
         try:
-            with doc.txt_extract_file.open("r") as f:
-                return f.read()
+            return read_field_file_text(doc.txt_extract_file, errors="ignore")
         except Exception:
-            try:
-                content = doc.txt_extract_file.read()
-                if isinstance(content, bytes):
-                    return content.decode("utf-8", errors="ignore")
-                return content
-            except Exception:
-                logger.warning(
-                    "Failed to read memory document for corpus %s",
-                    corpus.id,
-                )
-                return ""
+            logger.warning(
+                "Failed to read memory document for corpus %s",
+                corpus.id,
+            )
+            return ""
 
     return await database_sync_to_async(_read)()
 

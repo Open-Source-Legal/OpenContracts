@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -11,6 +12,42 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from opencontractserver.corpuses.models import Corpus
 
 User = get_user_model()
+
+
+class _BytesFieldFileHandle:
+    """Context-manager file handle whose ``read()`` returns ``bytes``.
+
+    Simulates cloud storage backends (S3Boto3Storage / GoogleCloudStorage via
+    django-storages #382) which return ``bytes`` from ``FieldFile.open("r")``
+    even in text mode — the path that ``read_field_file_text`` normalizes and
+    that local ``FileSystemStorage`` never exercises.
+    """
+
+    def __init__(self, payload: str):
+        self._payload = payload.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def _patch_fieldfile_open_returns_bytes(payload: str):
+    """Patch ``FieldFile.open`` so each call yields a fresh bytes-returning handle.
+
+    Patches the *class* (not an instance) because ``FieldFile.open`` is the
+    only reliable interception point; a fresh handle per call keeps each
+    ``open()`` reader unconsumed.
+    """
+    from django.db.models.fields.files import FieldFile
+
+    return mock.patch.object(
+        FieldFile, "open", side_effect=lambda *a, **k: _BytesFieldFileHandle(payload)
+    )
 
 
 class _MCPAsyncRunMixin:
@@ -615,6 +652,51 @@ class MCPToolsDocumentsTest(TestCase):
 
         with self.assertRaises(Document.DoesNotExist):
             get_document_text(self.corpus.slug, "nonexistent-doc")
+
+    def test_get_document_text_handles_bytes_from_cloud_storage(self):
+        """Regression: cloud backends (S3/GCS) return bytes from ``.open("r")``
+        even in text mode (django-storages #382).
+
+        The tool must normalize to ``str`` so the dispatcher's
+        ``json.dumps(result)`` does not raise ``TypeError: Object of type
+        bytes is not JSON serializable`` — the failure reported by downstream
+        MCP clients on cloud-storage deployments. Local FileSystemStorage
+        returns ``str``, so without this simulation the suite never exercises
+        the bytes path.
+        """
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "Bytes-backed extracted text ✓"
+
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(self.corpus.slug, self.doc1.slug)
+
+        # Decoded to str ...
+        self.assertIsInstance(result["text"], str)
+        self.assertEqual(result["text"], payload)
+        # ... and the full payload serializes cleanly (the original crash).
+        json.dumps(result, indent=2)
+
+    def test_get_document_resource_handles_bytes_from_cloud_storage(self):
+        """Regression: the resource path shares the same bytes-from-cloud bug
+        class as ``get_document_text`` (django-storages #382).
+
+        ``get_document_resource`` itself returns a JSON string, so the latent
+        failure is the same ``read_field_file_text`` decode rather than the
+        dispatcher serialization. This pins the resource path independently so
+        the two surfaces can't drift.
+        """
+        from opencontractserver.mcp.resources import get_document_resource
+
+        payload = "Resource bytes-backed extracted text ✓"
+
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_resource(self.corpus.slug, self.doc1.slug)
+
+        data = json.loads(result)
+        self.assertIsInstance(data["full_text"], str)
+        self.assertEqual(data["full_text"], payload)
+        self.assertEqual(data["text_preview"], payload[:500])
 
 
 class MCPToolsAnnotationsTest(TestCase):
