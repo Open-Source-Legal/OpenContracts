@@ -23,5 +23,12 @@ urlpatterns = [
         well_known_oauth_protected_resource,
         name="well_known_oauth_protected_resource",
     ),
+    # RFC 9728 §3.1 path-based metadata, e.g.
+    # /.well-known/oauth-protected-resource/mcp/me
+    path(
+        ".well-known/oauth-protected-resource/<path:resource_path>",
+        well_known_oauth_protected_resource,
+        name="well_known_oauth_protected_resource_path",
+    ),
     path("api/search/", search_api, name="search_api"),
 ]
