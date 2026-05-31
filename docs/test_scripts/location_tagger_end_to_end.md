@@ -39,7 +39,12 @@ Corpus Home map.
    CorpusAction.objects.create(
        name='Auto location tagger',
        corpus=corpus,
-       agent=agent,
+       agent_config=agent,
+       task_instructions=(
+           'Find every country, U.S. state, and city mentioned in the document '
+           'and tag them as OC_COUNTRY / OC_STATE / OC_CITY, supplying '
+           'country/state hints to disambiguate ambiguous names.'
+       ),
        trigger='add_document',
        creator=u,
    )
