@@ -991,6 +991,12 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         # compaction fires. Non-streaming (_chat_raw) never sets this
         # callback, so those chats get log-only telemetry from the
         # processor itself.
+        #
+        # The closure captures ``user_msg_id`` / ``llm_msg_id`` by Python
+        # late-binding, but both are resolved earlier in this function and
+        # never reassigned afterwards: ``_stream_core`` handles a single
+        # user turn, so the IDs are stable for the closure's lifetime and
+        # every in-loop shrink in this turn tags the same message pair.
         def _on_in_run_shrink(event: Any) -> None:
             try:
                 thought_evt = ThoughtEvent(

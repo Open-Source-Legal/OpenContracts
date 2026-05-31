@@ -491,12 +491,30 @@ def test_callback_exception_does_not_propagate(caplog):
 
 
 def test_thinking_only_modelresponse_is_not_emptied():
-    """A ModelResponse with only ThinkingPart is left intact (no empty parts)."""
+    """A ModelResponse whose only part is a ThinkingPart survives the
+    drop-thinking pass because of the empty-parts guard.
+
+    The fixture deliberately places a *second*, shrinkable artifact in the
+    older prefix (a large ``ToolReturnPart``). Without it the processor
+    would hit the ``tool_returns_shrunk == 0 and thinking_parts_dropped ==
+    0`` early-return and leave the whole list untouched — so the
+    thinking-only response would survive simply because *nothing* ran, not
+    because the guard fired. The big tool return forces the real shrink
+    path: the processor does modify the older prefix this pass, and the
+    guard is the reason the thinking-only ModelResponse alone is spared.
+    """
     # An old ModelResponse with only a giant ThinkingPart.
     only_thinking = ModelResponse(parts=[ThinkingPart(content="t" * 600_000)])
-    # Pair it with a ModelRequest so the structure is valid.
-    old_req = ModelRequest(
-        parts=[UserPromptPart(content="paired with thinking-only response")]
+    # A large, shrinkable tool return alongside it in the older prefix so
+    # the processor has something to actually shrink this pass.
+    big_return_req = ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name="load_document_text",
+                content="r" * 600_000,
+                tool_call_id="BIG",
+            )
+        ]
     )
     recent_pairs: list[ModelMessage] = []
     for i in range(5):
@@ -504,6 +522,83 @@ def test_thinking_only_modelresponse_is_not_emptied():
         recent_pairs.extend([r1, r2])
     messages: list[ModelMessage] = [
         only_thinking,
+        big_return_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    # (a) The thinking-only ModelResponse is left intact — the guard refused
+    #     to strip its only part even though in_run_drop_thinking is on.
+    first = result[0]
+    assert isinstance(first, ModelResponse)
+    assert len(first.parts) == 1
+    assert isinstance(first.parts[0], ThinkingPart)
+
+    # (b) The shrink genuinely ran this pass (not the no-op early return):
+    #     the large sibling tool return WAS truncated.
+    big_return = result[1]
+    assert isinstance(big_return, ModelRequest)
+    big_part = big_return.parts[0]
+    assert isinstance(big_part, ToolReturnPart)
+    assert isinstance(big_part.content, str)
+    assert len(big_part.content) < 5_000
+    assert IN_RUN_TRIM_NOTICE_MARKER in big_part.content
+    assert big_part.tool_call_id == "BIG"
+
+    # (c) Telemetry confirms the guard — not an early return — is why the
+    #     ThinkingPart survived: a shrink event fired with the tool return
+    #     counted but zero thinking parts dropped (the only droppable
+    #     ThinkingPart was the one the guard protected).
+    assert len(deps.events) == 1
+    evt = deps.events[0]
+    assert evt.tool_returns_shrunk == 1
+    assert evt.thinking_parts_dropped == 0
+
+
+def test_non_string_tool_return_serialized_as_json():
+    """A structured (dict) ToolReturnPart is serialised with ``json.dumps``,
+    not ``str()``, when shrunk.
+
+    Tools may return dicts/lists. ``str()`` on those yields Python repr
+    (single-quoted keys, ``True``/``None`` literals) the model can
+    misparse; ``json.dumps`` yields valid JSON. This pins that the shrunk
+    content is JSON-shaped.
+    """
+    # A structured return whose JSON serialisation alone exceeds the
+    # threshold, so it is both the over-threshold trigger and the thing
+    # that gets shrunk. ``True``/``None`` round-trip differently under
+    # json.dumps ("true"/"null") vs str() ("True"/"None"), giving the
+    # assertion a clean discriminator.
+    big_payload = {
+        "flag": True,
+        "missing": None,
+        "blob": "v" * 700_000,
+    }
+    old_resp = ModelResponse(
+        parts=[
+            TextPart(content="step"),
+            ToolCallPart(tool_name="search", args="{}", tool_call_id="JSON"),
+        ]
+    )
+    old_req = ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name="search",
+                content=big_payload,
+                tool_call_id="JSON",
+            )
+        ]
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
         old_req,
         *recent_pairs,
         ModelRequest(parts=[UserPromptPart(content="continue")]),
@@ -512,9 +607,27 @@ def test_thinking_only_modelresponse_is_not_emptied():
     deps = _FakeDeps()
     result = _run(messages, deps)
 
-    # The thinking-only ModelResponse is left intact (we didn't strip the
-    # only thing it contained).
-    first = result[0]
-    assert isinstance(first, ModelResponse)
-    assert len(first.parts) == 1
-    assert isinstance(first.parts[0], ThinkingPart)
+    shrunk = result[2]
+    assert isinstance(shrunk, ModelRequest)
+    part = shrunk.parts[0]
+    assert isinstance(part, ToolReturnPart)
+    # Serialised to a string and truncated with the trim notice.
+    assert isinstance(part.content, str)
+    assert IN_RUN_TRIM_NOTICE_MARKER in part.content
+    # JSON serialisation, not Python repr: object opens with ``{``, keys are
+    # double-quoted, and there are no single-quoted Python-repr keys.
+    assert part.content.startswith("{")
+    assert '"flag"' in part.content
+    assert "'flag'" not in part.content
+    # The booleans/null are JSON tokens, never Python ``True``/``None``.
+    assert "true" in part.content
+    assert "True" not in part.content
+    assert "null" in part.content  # JSON null, not Python None
+    # Safe because the only non-JSON text spliced into the payload is the trim
+    # notice (IN_RUN_TRIM_NOTICE_MARKER), whose template is fixed numeric/text
+    # and contains no literal "None"; if that template ever changes to include
+    # the word, tighten this to assert against the JSON prefix only.
+    assert "None" not in part.content
+    # tool_call_id correlation preserved across the serialise+shrink.
+    assert part.tool_call_id == "JSON"
+    assert deps.events and deps.events[0].tool_returns_shrunk == 1

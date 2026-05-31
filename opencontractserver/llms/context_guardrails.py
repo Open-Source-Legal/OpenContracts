@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "estimate_token_count",
     "get_context_window_for_model",
+    "context_window_and_threshold",
     "truncate_tool_output",
     "cap_summary_length",
     "strip_compaction_prefix",
@@ -120,6 +121,24 @@ def get_context_window_for_model(model_name: str) -> int:
         return MODEL_CONTEXT_WINDOWS[best_match]
 
     return DEFAULT_CONTEXT_WINDOW
+
+
+def context_window_and_threshold(
+    model_name: str,
+    threshold_ratio: float = COMPACTION_THRESHOLD_RATIO,
+) -> tuple[int, int]:
+    """Return ``(context_window, threshold)`` for *model_name*.
+
+    ``threshold`` is ``int(context_window * threshold_ratio)`` — the single
+    definition of "the estimated-token count at which compaction kicks in".
+    Shared verbatim by turn-level compaction (:func:`should_compact`,
+    :func:`compact_message_history`) and the in-run history processor
+    (``opencontractserver.llms.history_processors.shrink_old_artifacts_processor``)
+    so both layers derive the kick-in point identically from the same
+    ``threshold_ratio``.
+    """
+    window = get_context_window_for_model(model_name)
+    return window, int(window * threshold_ratio)
 
 
 # ---------------------------------------------------------------------------
@@ -220,13 +239,12 @@ def should_compact(
     prompt + stored summary + all messages) exceeds *threshold_ratio*
     of the model's context window.
     """
-    context_window = get_context_window_for_model(model_name)
     total_tokens = (
         system_prompt_tokens
         + stored_summary_tokens
         + sum(m.token_estimate for m in messages)
     )
-    threshold = int(context_window * threshold_ratio)
+    _, threshold = context_window_and_threshold(model_name, threshold_ratio)
     return total_tokens > threshold
 
 
@@ -276,8 +294,7 @@ def compact_message_history(
     """
     message_tokens = sum(m.token_estimate for m in messages)
     total_before = system_prompt_tokens + stored_summary_tokens + message_tokens
-    context_window = get_context_window_for_model(model_name)
-    threshold = int(context_window * threshold_ratio)
+    _, threshold = context_window_and_threshold(model_name, threshold_ratio)
 
     if total_before <= threshold:
         return CompactionResult(
