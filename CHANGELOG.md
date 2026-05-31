@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP interactive sign-in for Claude web/desktop and ChatGPT.** Added an
+  authenticated MCP entrypoint at `/mcp/me/` (`opencontractserver/mcp/server.py`)
+  that returns `401 + WWW-Authenticate` to unauthenticated callers, triggering
+  the OAuth 2.1 + PKCE flow in interactive clients; once signed in it serves the
+  user's private + public resources. The public `/mcp/` endpoint is unchanged
+  (anonymous = public only) and a valid bearer token is still honored on either.
+  Both share the global stateless MCP server (auth is per-request via the
+  `_mcp_user` ContextVar).
+- **RFC 9728 path-based protected-resource metadata** at
+  `/.well-known/oauth-protected-resource/mcp/me` (alongside the existing root
+  document), plus a `cite-authenticated` server advertised in
+  `/.well-known/mcp.json` when `USE_AUTH0=True`
+  (`opencontractserver/discovery/views.py`, `opencontractserver/discovery/urls.py`).
+- **CORS for the MCP endpoints.** `/mcp*` bypasses Django middleware, so CORS is
+  now enforced inside the MCP ASGI app: `OPTIONS` preflight, an allow-list via
+  the new `MCP_CORS_ALLOWED_ORIGINS` setting (defaults to Claude, ChatGPT, and
+  the MCP Inspector; merges in `CORS_ALLOWED_ORIGINS`), and exposing
+  `WWW-Authenticate` / `Mcp-Session-Id` (`config/settings/base.py`). The CORS
+  `send`-wrapping runs before both the rate-limit check and JWT validation, so
+  401 (missing **and** expired-token) and 429 responses all carry
+  `Access-Control-Allow-Origin` — pinned by
+  `test_invalid_token_401_carries_cors_origin_for_allowlisted_origin` and
+  `test_rate_limited_429_carries_cors_origin_for_allowlisted_origin`
+  (`opencontractserver/mcp/tests/test_mcp.py`). `Access-Control-Allow-Credentials`
+  is intentionally omitted (MCP is Bearer-token, not cookie, auth);
+  `_OAUTH_PROTECTED_RESOURCES` is a `frozenset` to make its membership-test
+  intent explicit.
+  - **Review follow-ups (#1842)**: the CORS `send`-wrapper now folds
+    `Vary: Origin` into a pre-existing `Vary` header (e.g. `Accept-Encoding`)
+    instead of dropping it on a membership check, so caches/CDNs still vary on
+    `Origin` (regression test
+    `test_cors_vary_folds_into_existing_vary_header`). The MCP Inspector
+    loopback origins (`http://localhost:6274`, `http://127.0.0.1:6274`) are now
+    only in the `MCP_CORS_ALLOWED_ORIGINS` default under `DEBUG`, so they never
+    ship in a production default; operators can still set them explicitly. Added
+    an inline note on why the `send`-wrap must precede the rate-limit/JWT
+    branches.
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB
@@ -92,6 +129,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     actually runs, and asserts (via telemetry) that the guard — not an early
     return — is why the `ThinkingPart` survives. Added
     `test_non_string_tool_return_serialized_as_json` to pin the JSON fix.
+- **MCP `WWW-Authenticate` base-URL hardening** (`opencontractserver/mcp/server.py`)
+  — the 401 challenge now prefers the trusted `MCP_PUBLIC_BASE_URL` over the
+  request `Host` header (MCP bypasses `ALLOWED_HOSTS`), falling back to the
+  previous sanitized-Host derivation. A configured value that survives
+  quote/CR/LF stripping but is still not a valid `scheme://host` (a typo such
+  as a trailing `;junk`, or a header-injection attempt) is now rejected via a
+  `re.fullmatch` guard and the challenge degrades to a realm-only `Bearer`
+  value rather than emitting a mangled URL or trusting the request `Host`.
+  Refreshed `docs/mcp/README.md`, which previously stated "no authentication."
 - **Chunked single-document import no longer buffers the whole file in RAM at
   `complete` (issue #1843).** Reassembling a chunked single-document upload
   previously did `file_bytes = tmp.read()` and passed the whole assembled file
