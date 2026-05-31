@@ -458,6 +458,15 @@ class WellKnownOAuthProtectedResourceTest(TestCase):
         self.assertEqual(data["resource"], "http://testserver/mcp/me")
         self.assertEqual(data["authorization_servers"], ["https://example.auth0.com/"])
 
+    def test_path_based_metadata_returns_404_without_auth0(self):
+        """The path-based variant must 404 when Auth0 is disabled, exactly like
+        the root document — the ``auth0_domain`` check fires before the
+        ``resource_path`` lookup, so a known resource path is no excuse to leak
+        metadata when there is no authorization server to point at."""
+        with override_settings(USE_AUTH0=False):
+            response = self.client.get("/.well-known/oauth-protected-resource/mcp/me")
+        self.assertEqual(response.status_code, 404)
+
     def test_unknown_resource_path_returns_404(self):
         """Only known MCP resources get metadata; arbitrary paths 404 rather
         than advertise an AS for something we don't serve."""

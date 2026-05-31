@@ -104,8 +104,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP `WWW-Authenticate` base-URL hardening** (`opencontractserver/mcp/server.py`)
   — the 401 challenge now prefers the trusted `MCP_PUBLIC_BASE_URL` over the
   request `Host` header (MCP bypasses `ALLOWED_HOSTS`), falling back to the
-  previous sanitized-Host derivation. Refreshed `docs/mcp/README.md`, which
-  previously stated "no authentication."
+  previous sanitized-Host derivation. A configured value that survives
+  quote/CR/LF stripping but is still not a valid `scheme://host` (a typo such
+  as a trailing `;junk`, or a header-injection attempt) is now rejected via a
+  `re.fullmatch` guard and the challenge degrades to a realm-only `Bearer`
+  value rather than emitting a mangled URL or trusting the request `Host`.
+  Refreshed `docs/mcp/README.md`, which previously stated "no authentication."
 - **Flaky test isolation** (`opencontractserver/tests/research/test_research_report_model.py`, issue #1845): `test_visible_to_user_superuser_sees_all` asserted a global `visible_to_user(admin).count() == 2`. Because the superuser branch returns `.all()`, a sibling `TransactionTestCase` that commits `ResearchReport` rows broke the count under a sequential whole-`research/`-directory run (CI stayed green only because xdist isolates files to separate worker DBs). Scoped the assertion to the test's own rows. Test-only; no production impact.
 - **Corpus document versioning & path/folder audit — correctness and performance fixes.** A sweep of the dual-tree versioning (`DocumentPath`) and `CorpusFolder` path system surfaced several correctness gaps and N+1s. Regression coverage: `opencontractserver/tests/test_versioning_paths_audit.py`.
   - **`Corpus.add_document` no longer silently supersedes a colliding document** (`opencontractserver/corpuses/models.py`). When the auto-/caller-supplied path (e.g. `/documents/<title>`) collided with an existing active document, the occupant was marked `is_current=False` and the new doc became a "version" of an unrelated content tree — the first document silently vanished from the corpus. `add_document` now disambiguates the path (`/documents/Report` → `/documents/Report_1`) via `CorpusPathService._disambiguate_path`, always creating an independent root path (`parent=None`, `version_number=1`). `add_document` is not a versioning entry point; `import_content` remains the path-versioning surface.

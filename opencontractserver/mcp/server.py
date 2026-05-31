@@ -161,7 +161,23 @@ def _derive_public_base_url(scope: MutableMapping[str, Any]) -> str | None:
         # motivates stripping them from the Host does not apply.
         for bad in ('"', "\r", "\n"):
             configured = configured.replace(bad, "")
-        return configured.rstrip("/")
+        # Validate the (stripped) value still looks like ``scheme://host`` with
+        # an optional path. A mis-typed env value (e.g.
+        # ``https://host.example.com;junk`` or one carrying a header-injection
+        # attempt) can survive the quote/CRLF strip above yet still be a
+        # malformed URL; emitting it would put a junk value in the
+        # ``WWW-Authenticate`` header. Rather than ship that — or fall back to
+        # the *untrusted* request Host, which is the whole reason this value is
+        # pinned — return ``None`` so the caller degrades to a realm-only
+        # challenge. Mirrors the ``re.fullmatch`` guard on the Host-derived path.
+        if re.fullmatch(r"https?://[A-Za-z0-9.\-:\[\]]+(/[^\s]*)?", configured):
+            return configured.rstrip("/")
+        logger.warning(
+            "MCP_PUBLIC_BASE_URL=%r is not a valid scheme://host URL; "
+            "ignoring it (the 401 challenge will omit resource_metadata).",
+            configured,
+        )
+        return None
 
     # ``Host`` carries the public hostname; ``X-Forwarded-Proto`` (set by the
     # reverse proxy in production) tells us the original scheme. Fall back to
@@ -272,10 +288,10 @@ def _wrap_send_with_cors(send: ASGISend, cors_headers: list[list[bytes]]) -> ASG
         if message.get("type") == "http.response.start":
             message = dict(message)
             existing = list(message.get("headers", []))
-            present = {
-                (h[0].lower() if isinstance(h[0], (bytes, bytearray)) else h[0])
-                for h in existing
-            }
+            # ASGI mandates response header names are ``bytes`` (spec: "Header
+            # names ... must be byte strings"), so a plain ``.lower()`` is safe
+            # here — no need to guard for ``str``.
+            present = {h[0].lower() for h in existing}
             for header in cors_headers:
                 if header[0] not in present:
                     existing.append(header)
@@ -1811,12 +1827,14 @@ def create_mcp_asgi_app() -> ASGIApp:
         # tool set; the only difference is the 401-on-missing-token gate that
         # ran in ``app()`` above. Auth state is carried per-request via the
         # ``_mcp_user`` ContextVar, so one session manager serves both.
-        # TODO: this matches the authed entrypoint by EXACT path, while
+        # NOTE: this matches the authed entrypoint by EXACT path, while
         # ``_path_requires_auth`` (in ``app()``) gates the whole ``/mcp/me/``
         # subtree via ``startswith``. A future corpus-scoped sub-path like
-        # ``/mcp/me/corpus/foo/`` would therefore authenticate in ``app()`` but
-        # fall through to a 404/405 here. Harmless today (sub-paths are
-        # explicitly deferred); extend this match when they land.
+        # ``/mcp/me/corpus/foo/`` therefore authenticates in ``app()`` and then
+        # falls through to the endpoint-catalog 404 in the ``else`` branch
+        # below — an intentional, benign outcome while ``/mcp/me`` sub-paths are
+        # deferred (the caller gets a helpful list of real endpoints, not a bare
+        # error). Extend this exact-match tuple when those sub-paths land.
         if path in ("/mcp/", "/mcp", "/mcp/me", "/mcp/me/"):
             authed = _path_requires_auth(path)
             endpoint_label = MCP_AUTHED_PATH if authed else "/mcp"

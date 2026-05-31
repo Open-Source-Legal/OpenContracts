@@ -6273,11 +6273,8 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         self.assertEqual(starts[0]["status"], 401)
         self.assertIn(b"www-authenticate", dict(starts[0]["headers"]))
 
-    def test_configured_base_url_preferred_and_sanitized_in_challenge(self):
-        """MCP_PUBLIC_BASE_URL is preferred over the Host header in the 401
-        challenge, and a misconfigured value's quote/CR/LF chars are stripped
-        so the WWW-Authenticate header stays well-formed (review item 1)."""
-        scope = {
+    def _scope_with_attacker_host(self):
+        return {
             "type": "http",
             "path": "/mcp/me",
             "method": "POST",
@@ -6287,12 +6284,17 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
                 (b"host", b"attacker.example"),
             ],
         }
+
+    def test_configured_base_url_preferred_over_host_in_challenge(self):
+        """A valid MCP_PUBLIC_BASE_URL is preferred over the (untrusted) Host
+        header in the 401 challenge and yields a well-formed resource_metadata
+        URL (review item 1)."""
         with override_settings(
             USE_AUTH0=True,
             AUTH0_DOMAIN="example.auth0.com",
-            MCP_PUBLIC_BASE_URL='https://configured.test"\r\nx-injected: y',
+            MCP_PUBLIC_BASE_URL="https://configured.test",
         ):
-            messages = self._run_app(scope)
+            messages = self._run_app(self._scope_with_attacker_host())
         starts = [m for m in messages if m.get("type") == "http.response.start"]
         self.assertEqual(starts[0]["status"], 401)
         www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode("ascii")
@@ -6301,12 +6303,38 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         self.assertNotIn("attacker.example", www_auth)
         # Path-based metadata for the authed endpoint.
         self.assertIn("/.well-known/oauth-protected-resource/mcp/me", www_auth)
-        # Sanitization stripped the chars that could break the header structure
-        # or inject a new header line: no CR/LF, and the resource_metadata
-        # value is a single well-formed quoted-string (no stray inner quote).
-        self.assertNotIn("\r", www_auth)
-        self.assertNotIn("\n", www_auth)
+        # resource_metadata value is a single well-formed quoted-string.
         self.assertRegex(www_auth, r'resource_metadata="[^"]+"$')
+
+    def test_malformed_configured_base_url_degrades_to_realm_only(self):
+        """A misconfigured MCP_PUBLIC_BASE_URL that survives quote/CR/LF
+        stripping but is not a valid ``scheme://host`` (a header-injection
+        attempt, or a stray ``;junk`` typo) is dropped entirely: the challenge
+        degrades to a realm-only ``Bearer`` value rather than emitting a mangled
+        URL or — critically — falling back to the untrusted request Host
+        (review item 1)."""
+        for bad_value in (
+            'https://configured.test"\r\nx-injected: y',
+            "https://configured.test;junk",
+        ):
+            with self.subTest(bad_value=bad_value):
+                with override_settings(
+                    USE_AUTH0=True,
+                    AUTH0_DOMAIN="example.auth0.com",
+                    MCP_PUBLIC_BASE_URL=bad_value,
+                ):
+                    messages = self._run_app(self._scope_with_attacker_host())
+                starts = [m for m in messages if m.get("type") == "http.response.start"]
+                self.assertEqual(starts[0]["status"], 401)
+                www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode(
+                    "ascii"
+                )
+                # Degraded to realm-only: no resource_metadata, no attacker Host,
+                # no header-structure-breaking characters.
+                self.assertEqual(www_auth, 'Bearer realm="opencontracts"')
+                self.assertNotIn("attacker.example", www_auth)
+                self.assertNotIn("\r", www_auth)
+                self.assertNotIn("\n", www_auth)
 
 
 class MCPResourceAuthTest(_MCPAsyncRunMixin, TransactionTestCase):
