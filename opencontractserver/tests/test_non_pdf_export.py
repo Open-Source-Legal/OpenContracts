@@ -147,9 +147,16 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=text_doc.id, corpus_id=self.corpus.id
         )
 
-        # For non-PDFs, we should get empty PDF bytes but valid JSON
+        # For non-PDFs, the base64_pdf now carries the raw file bytes
+        # (post-Task 14) so the zip member exists on the import side
+        # and the document round-trips intact. Previously this was
+        # empty, which silently dropped non-PDF docs from re-imports.
+        import base64
+
         assert doc_name is not None
-        assert base64_pdf == "", "Non-PDF should have empty base64_pdf string"
+        assert base64_pdf == base64.b64encode(b"Test content").decode("utf-8"), (
+            "Non-PDF should carry raw file bytes in base64_pdf for " "round-trip parity"
+        )
         assert doc_json is not None
         assert doc_json["title"] == "Test Document"
         assert doc_json["content"] == "Extracted text content"
@@ -176,9 +183,15 @@ class NonPDFExportTestCase(TestCase):
             label_lookups=label_lookups, doc_id=docx_doc.id, corpus_id=self.corpus.id
         )
 
-        # For non-PDFs, we should get empty PDF bytes but valid JSON
+        # For non-PDFs, the base64_pdf now carries the raw file bytes
+        # (post-Task 14) so the zip member exists on the import side
+        # and the document round-trips intact.
+        import base64
+
         assert doc_name is not None
-        assert base64_pdf == "", "Non-PDF should have empty base64_pdf string"
+        assert base64_pdf == base64.b64encode(b"Test content").decode("utf-8"), (
+            "Non-PDF should carry raw file bytes in base64_pdf for " "round-trip parity"
+        )
         assert doc_json is not None
         assert doc_json["title"] == "Test Document"
         assert len(doc_json["labelled_text"]) == 1

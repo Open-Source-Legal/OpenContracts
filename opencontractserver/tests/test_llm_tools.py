@@ -985,17 +985,26 @@ class AsyncTestUpdateCorpusDescription(TransactionTestCase):
     # ------------------------------------------------------------------
 
     async def test_aupdate_with_new_content_creates_revision(self):
-        """Supplying *new_content* should create a new revision and update the file."""
+        """Supplying *new_content* should create a new version-tree head."""
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.documents.versioning import (
+            calculate_content_version,
+        )
+
         new_content = "# Corpus\n\nUpdated description v2"
-        revision = await aupdate_corpus_description(
+        new_head = await aupdate_corpus_description(
             corpus_id=self.corpus.id,
             new_content=new_content,
             author_id=self.user.id,
         )
 
-        # A revision is returned with incremented version.
-        self.assertIsNotNone(revision)
-        self.assertEqual(revision.version, 2)
+        # After the canonical-CAML refactor (spec §4.7) the agent tool
+        # returns the new head Document; version is derived from the
+        # CAML content tree depth.
+        self.assertIsNotNone(new_head)
+        version = await sync_to_async(calculate_content_version)(new_head)
+        self.assertEqual(version, 2)
 
         # The corpus markdown content now matches *new_content*.
         latest_content = await aget_corpus_description(self.corpus.id)
@@ -1005,8 +1014,14 @@ class AsyncTestUpdateCorpusDescription(TransactionTestCase):
         """Providing *diff_text* instead of full content should also work."""
         import difflib
 
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.documents.versioning import (
+            calculate_content_version,
+        )
+
         current = await aget_corpus_description(self.corpus.id)
-        new_content = current + "\nAnother line appended."  # simple change
+        new_content = current + "\nAnother line appended.\n"  # simple change
 
         diff_text = "".join(
             difflib.ndiff(
@@ -1014,14 +1029,15 @@ class AsyncTestUpdateCorpusDescription(TransactionTestCase):
             )
         )
 
-        revision = await aupdate_corpus_description(
+        new_head = await aupdate_corpus_description(
             corpus_id=self.corpus.id,
             diff_text=diff_text,
             author_id=self.user.id,
         )
 
-        self.assertIsNotNone(revision)
-        self.assertEqual(revision.version, 2)
+        self.assertIsNotNone(new_head)
+        version = await sync_to_async(calculate_content_version)(new_head)
+        self.assertEqual(version, 2)
         latest_content = await aget_corpus_description(self.corpus.id)
         self.assertIn("Another line appended.", latest_content)
 
@@ -1084,18 +1100,32 @@ class AsyncTestUpdateCorpusDescription(TransactionTestCase):
     async def test_aupdate_with_author_object(self):
         """Passing author object directly should work."""
         new_content = "# Corpus\n\nUpdated with author object"
-        revision = await aupdate_corpus_description(
+        new_head = await aupdate_corpus_description(
             corpus_id=self.corpus.id,
             new_content=new_content,
             author=self.user,  # Pass user object instead of ID
         )
 
-        self.assertIsNotNone(revision)
-        self.assertEqual(revision.author, self.user)
+        # The new head Document's creator records the author.
+        self.assertIsNotNone(new_head)
+        self.assertEqual(new_head.creator_id, self.user.id)
 
-    async def test_aupdate_snapshot_interval(self):
-        """Test snapshot creation at interval boundaries."""
-        # Create revisions 2-9 (version 1 already exists from setUp)
+    async def test_aupdate_creates_version_tree_chain(self):
+        """Successive edits should chain into one version_tree.
+
+        Replaces the previous ``test_aupdate_snapshot_interval``: snapshots
+        (every 10th revision) were a property of the legacy
+        CorpusDescriptionRevision model; the canonical CAML version-tree
+        keeps a Document per edit with no snapshot-interval logic. The
+        invariant worth asserting is that successive edits chain into one
+        version_tree and the head reflects the latest body.
+        """
+        from asgiref.sync import sync_to_async
+
+        from opencontractserver.documents.versioning import (
+            calculate_content_version,
+        )
+
         for i in range(2, 10):
             await aupdate_corpus_description(
                 corpus_id=self.corpus.id,
@@ -1103,17 +1133,18 @@ class AsyncTestUpdateCorpusDescription(TransactionTestCase):
                 author_id=self.user.id,
             )
 
-        # Version 10 should trigger a snapshot
-        final_content = "# Corpus\n\nVersion 10 with snapshot"
-        revision = await aupdate_corpus_description(
+        final_content = "# Corpus\n\nVersion 10 head"
+        new_head = await aupdate_corpus_description(
             corpus_id=self.corpus.id,
             new_content=final_content,
             author_id=self.user.id,
         )
 
-        self.assertEqual(revision.version, 10)
-        self.assertIsNotNone(revision.snapshot)
-        self.assertEqual(revision.snapshot, final_content)
+        self.assertIsNotNone(new_head)
+        version = await sync_to_async(calculate_content_version)(new_head)
+        self.assertEqual(version, 10)
+        latest = await aget_corpus_description(self.corpus.id)
+        self.assertEqual(latest, final_content)
 
 
 class AsyncTestUpdateDocumentNote(TransactionTestCase):

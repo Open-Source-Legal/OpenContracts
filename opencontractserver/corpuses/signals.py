@@ -38,6 +38,7 @@ from django.dispatch import receiver
 if TYPE_CHECKING:
     from opencontractserver.conversations.models import ChatMessage, Conversation
     from opencontractserver.corpuses.models import Corpus, CorpusVote
+    from opencontractserver.documents.models import Document, DocumentPath
 
 logger = logging.getLogger(__name__)
 
@@ -292,3 +293,193 @@ def update_corpus_vote_counts_on_delete(
         # The parent corpus is gone — nothing to refresh.
         return
     _recalculate_corpus_vote_counts(corpus)
+
+
+# =============================================================================
+# Readme.CAML description cache refresh
+# =============================================================================
+#
+# The Readme.CAML Document body is the canonical source of truth for a
+# corpus's description (spec §4.2). ``Corpus.description``,
+# ``Corpus.description_preview``, and ``Corpus.readme_caml_document_id``
+# are auto-maintained projections refreshed by these receivers whenever
+# the underlying Readme.CAML Document (or its DocumentPath head) changes.
+#
+# Implementation notes:
+#
+# * All cache writes use ``Corpus.objects.filter(pk=...).update(...)``
+#   so this refresh does NOT re-fire ``Corpus.post_save``.  That keeps
+#   the loop-free / no-over-notify invariant from spec §4.4.
+# * The actual work is deferred via ``transaction.on_commit`` so the
+#   originating CAML write is durable before we read the file back.
+#   Tests must wrap the trigger code in ``captureOnCommitCallbacks``.
+# * Each handler iterates the corpus IDs owning the doc via a
+#   ``DocumentPath`` join — normally there's exactly one corpus, but the
+#   design handles ≥0 defensively per spec §4.4 / risk table.
+# * Errors are logged but never raised.  Cache failure must NOT block
+#   the underlying Document save (spec §6).
+
+
+def _is_readme_caml_document(doc: Document) -> bool:
+    """Return ``True`` iff ``doc`` is a corpus Readme.CAML article.
+
+    KNOWN FRAGILITY: this keys on the user-editable ``title`` + ``file_type``
+    rather than a structural marker. A user who renames their Readme.CAML doc
+    (or creates an unrelated ``text/markdown`` doc titled "Readme.CAML") would
+    trip these signals into a spurious cache refresh. The refresh is
+    idempotent and corpus-scoped (it re-derives from the current CAML head via
+    DocumentPath), so a false positive is wasteful but not corrupting. A
+    model-level flag would harden this; left as a follow-up.
+    """
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+        MARKDOWN_MIME_TYPE,
+    )
+
+    return doc.title == CAML_ARTICLE_TITLE and doc.file_type == MARKDOWN_MIME_TYPE
+
+
+# Cache-refresh + body-read helpers live in
+# ``corpuses/services/description_cache`` so non-signal callers (V2
+# import shim, GraphQL descriptionRevisions facade) can share the same
+# I/O + atomic-update contract.
+from opencontractserver.corpuses.services.description_cache import (  # noqa: E402
+    refresh_description_cache_for_corpus,
+)
+
+
+def _corpus_ids_owning_caml_doc(doc_id: int) -> list[int]:
+    """Return corpus IDs whose current Readme.CAML path points at ``doc_id``.
+
+    Only considers active (``is_current=True, is_deleted=False``)
+    ``DocumentPath`` rows — a soft-deleted or historical path no longer
+    owns the doc as the corpus's CAML head.
+    """
+    from opencontractserver.documents.models import DocumentPath
+
+    return list(
+        DocumentPath.objects.filter(
+            document_id=doc_id,
+            is_current=True,
+            is_deleted=False,
+        ).values_list("corpus_id", flat=True)
+    )
+
+
+@receiver(post_save, sender="documents.Document")
+def refresh_corpus_description_cache_on_caml_save(
+    sender: type[Document],
+    instance: Document,
+    **kwargs: Any,
+) -> None:
+    """Refresh corpus description cache whenever a Readme.CAML Document
+    is saved.
+
+    Cheap pre-check on title/file_type filters out every non-CAML
+    Document save before we look at DocumentPath. The actual refresh is
+    deferred via ``transaction.on_commit`` so the saved instance (and
+    its txt_extract_file bytes) are durable before we read them back.
+    """
+    if not _is_readme_caml_document(instance):
+        return
+    doc_id = instance.pk
+
+    def _kickoff() -> None:
+        for corpus_id in _corpus_ids_owning_caml_doc(doc_id):
+            refresh_description_cache_for_corpus(corpus_id)
+
+    transaction.on_commit(_kickoff)
+
+
+@receiver(post_delete, sender="documents.Document")
+def clear_corpus_description_cache_on_caml_delete(
+    sender: type[Document],
+    instance: Document,
+    **kwargs: Any,
+) -> None:
+    """Clear / refresh corpus description cache on Readme.CAML hard
+    delete.
+
+    Resolves the affected corpus IDs *now* (before the on_commit fires)
+    because the ``DocumentPath`` FK to Document is ``PROTECT`` — by the
+    time the Document row is gone, all of its paths must already have
+    been removed too. Capturing the IDs at signal time keeps the refresh
+    pointed at the right set of corpuses.
+    """
+    if not _is_readme_caml_document(instance):
+        return
+
+    affected = _corpus_ids_owning_caml_doc(instance.pk)
+
+    def _kickoff() -> None:
+        for corpus_id in affected:
+            refresh_description_cache_for_corpus(corpus_id)
+
+    transaction.on_commit(_kickoff)
+
+
+@receiver(post_save, sender="documents.DocumentPath")
+def refresh_corpus_description_cache_on_path_save(
+    sender: type[DocumentPath],
+    instance: DocumentPath,
+    **kwargs: Any,
+) -> None:
+    """Refresh on DocumentPath save.
+
+    Catches:
+    * version-up edits (new DocumentPath flipping ``is_current``),
+    * soft-delete edits (``is_deleted`` toggled to True),
+    * restore edits (``is_deleted`` toggled back to False).
+
+    Filtered to paths named ``Readme.CAML`` whose Document is a
+    Readme.CAML markdown doc — every other path save is a no-op for the
+    cache.
+    """
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+    )
+    from opencontractserver.documents.models import Document
+
+    if instance.path != CAML_ARTICLE_TITLE:
+        return
+    if instance.document_id is None:
+        return
+
+    doc = (
+        Document.objects.filter(pk=instance.document_id)
+        .only("title", "file_type")
+        .first()
+    )
+    if doc is None or not _is_readme_caml_document(doc):
+        return
+
+    corpus_id = instance.corpus_id
+    transaction.on_commit(lambda: refresh_description_cache_for_corpus(corpus_id))
+
+
+@receiver(post_delete, sender="documents.DocumentPath")
+def refresh_corpus_description_cache_on_path_delete(
+    sender: type[DocumentPath],
+    instance: DocumentPath,
+    **kwargs: Any,
+) -> None:
+    """Refresh on DocumentPath delete (hard delete or
+    ``permanently_delete_document`` cascade).
+
+    The ``path`` filter is cheap — only ``Readme.CAML`` rows trigger a
+    refresh. We don't try to confirm the Document is a CAML doc here
+    because the Document may be already gone (PROTECT means the path
+    row is deleted before the Document, but the
+    ``permanently_delete_document`` cleanup path can fire path deletes
+    independently). Recomputing for a non-CAML path is a no-op anyway
+    because the head-resolution query will return ``None``.
+    """
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+    )
+
+    if instance.path != CAML_ARTICLE_TITLE:
+        return
+
+    corpus_id = instance.corpus_id
+    transaction.on_commit(lambda: refresh_description_cache_for_corpus(corpus_id))

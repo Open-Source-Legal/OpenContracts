@@ -1,14 +1,18 @@
 """
-Export utilities for V2 corpus export format.
+Export utilities for V2/V3 corpus export format.
 
-Handles export of new features added since original export design:
+Handles export of features added since the original export design:
 - Structural annotation sets
 - Corpus folders hierarchy
 - DocumentPath version trees
 - Relationships
 - Agent configurations
-- Markdown descriptions with revisions
 - Conversations and messages (optional)
+
+V3 (current emit) drops the legacy top-level ``md_description`` /
+``md_description_revisions`` fields; the corpus description rides in
+``annotated_docs`` as the Readme.CAML Document. See
+``opencontractserver/tasks/export_tasks_v2.py`` for the assembled payload.
 """
 
 from __future__ import annotations
@@ -23,17 +27,13 @@ from django.db.models import Q
 
 from opencontractserver.annotations.compact_json import compact_annotation_json
 from opencontractserver.annotations.models import Relationship
-from opencontractserver.corpuses.models import (
-    Corpus,
-    CorpusDescriptionRevision,
-)
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import DocumentPath, IngestionSource
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.types.dicts import (
     AgentConfigExport,
     CompactAnnotationJsonType,
     CorpusFolderExport,
-    DescriptionRevisionExport,
     DocumentPathExport,
     IngestionSourceExport,
     ManualColumnExport,
@@ -383,65 +383,6 @@ def package_agent_config(corpus: Corpus) -> AgentConfigExport:
         "corpus_agent_instructions": corpus.corpus_agent_instructions,
         "document_agent_instructions": corpus.document_agent_instructions,
     }
-
-
-def package_md_description_revisions(
-    corpus: Corpus,
-) -> tuple[str | None, list[DescriptionRevisionExport]]:
-    """
-    Package markdown description and revision history for export.
-
-    Args:
-        corpus: Corpus instance
-
-    Returns:
-        Tuple of (current_md_description, list of revisions)
-    """
-    current_description: str | None = None
-    revisions_export: list[DescriptionRevisionExport] = []
-
-    try:
-        # Get current markdown description
-        if corpus.md_description and corpus.md_description.name:
-            with corpus.md_description.open("r") as f:
-                current_description = f.read()
-
-        # Get revision history
-        revisions = CorpusDescriptionRevision.objects.filter(corpus=corpus).order_by(
-            "version"
-        )
-
-        # TODO(PII): `author_email` leaks collaborator PII into export ZIPs.
-        # Issue #1608 (the PR follow-up where this was first surfaced) is
-        # closed; this is the inline plan in lieu of a fresh tracking issue:
-        #   1. Add `author_slug` (from the user-slug work in #1612) alongside
-        #      the email for one minor version, with a deprecation log when
-        #      the import side still consumes the email key.
-        #   2. Make the import side prefer slug over email; keep email as a
-        #      fallback so older archives still re-link authorship.
-        #   3. Drop `author_email` entirely on the next export-format version
-        #      bump (and refuse to read it on import).
-        for revision in revisions:
-            revisions_export.append(
-                {
-                    "version": revision.version,
-                    "diff": revision.diff,
-                    "snapshot": revision.snapshot,
-                    "checksum_base": revision.checksum_base,
-                    "checksum_full": revision.checksum_full,
-                    "created": revision.created.isoformat(),
-                    "author_email": revision.author.email if revision.author else "",
-                }
-            )
-
-    except Exception as e:
-        logger.error(
-            "Error packaging markdown description for corpus %s: %s",
-            corpus.id,
-            e,
-        )
-
-    return current_description, revisions_export
 
 
 def package_conversations(

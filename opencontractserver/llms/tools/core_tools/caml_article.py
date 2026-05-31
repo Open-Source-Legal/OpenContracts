@@ -37,13 +37,13 @@ import re
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
 from django.db import transaction
 
 from opencontractserver.constants.document_processing import (
     CAML_ARTICLE_TITLE,
     CAML_CITATION_MAX_CANDIDATES,
     CAML_EDIT_PREVIEW_RADIUS_CHARS,
+    MARKDOWN_MIME_TYPE,
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
@@ -461,9 +461,11 @@ def _apply_caml_article_edit(
     doc = _load_caml_document_for_user(corpus_id, user)
 
     # Wrap the read-check-write in a transaction with a row lock on the
-    # Document so two simultaneous approval-gated calls can't both observe
-    # ``occurrences == 1`` and clobber each other's edit.  ``select_for_update``
-    # blocks competing writers until this transaction commits.
+    # current head Document so two simultaneous approval-gated calls can't
+    # both observe ``occurrences == 1`` and create racing version-tree
+    # siblings off the same parent.  ``select_for_update`` blocks competing
+    # writers (including ``import_document``'s own ``select_for_update`` on
+    # the corresponding DocumentPath row) until this transaction commits.
     with transaction.atomic():
         # Atomically acquire the lock and re-load the row's current file
         # pointer — a competing writer may have rotated the blob between
@@ -500,46 +502,40 @@ def _apply_caml_article_edit(
 
         new_content = content.replace(target_text, replacement_text, 1)
 
-        # ``FieldFile.save()`` writes the blob to storage *and* (when
-        # ``save=True``, the default) bumps the DB pointer with a full
-        # ``Document.save()`` — which would also rewrite unrelated columns
-        # like ``backend_lock`` and processing flags, potentially clobbering
-        # concurrent updates.  Pass ``save=False`` and follow up with a
-        # narrowly-scoped ``update_fields`` save so the only DB columns
-        # touched are the file pointer and ``modified`` timestamp.
-        # Keeping these two writes as the last in-transaction operations
-        # ensures a rollback after the storage write never leaves the blob
-        # orphaned with a stale DB pointer.  We keep the same Document row
-        # so frontend deep-links to ``Readme.CAML`` continue to work
-        # (no new version_tree entry).
-        old_file_name = locked_doc.txt_extract_file.name or ""
-        filename = old_file_name.rsplit("/", 1)[-1] or "Readme.CAML.md"
-        locked_doc.txt_extract_file.save(
-            filename, ContentFile(new_content.encode("utf-8")), save=False
+        # Route the write through the canonical dual-tree workhorse
+        # ``import_document``.  Each edit creates a new Document at the
+        # head of the version_tree sharing ``version_tree_id`` with the
+        # locked doc; ``import_document`` atomically flips the old
+        # ``Document.is_current`` and old ``DocumentPath.is_current`` to
+        # ``False`` and creates a new ``DocumentPath`` (``is_current=True``,
+        # ``version_number += 1``).  The old Document remains in the
+        # version tree as a historical sibling — its blob is NOT orphaned,
+        # so no storage cleanup is needed here.
+        #
+        # Frontend deep-links to "the corpus's Readme.CAML" resolve to the
+        # head of the version_tree via ``corpus.readme_caml_document_id``
+        # (the cached FK refreshed by the Document ``post_save`` signal)
+        # or by joining ``DocumentPath`` with ``is_current=True`` — they
+        # are no longer pinned to a specific Document pk.  See spec
+        # ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``
+        # §4.1.1 §4.7.
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.versioning import import_document
+
+        corpus = Corpus.objects.get(pk=corpus_id)
+        new_doc, _status, _path = import_document(
+            corpus=corpus,
+            path=CAML_ARTICLE_TITLE,
+            content=new_content.encode("utf-8"),
+            user=user,
+            file_type=MARKDOWN_MIME_TYPE,
+            title=CAML_ARTICLE_TITLE,
         )
-        new_file_name = locked_doc.txt_extract_file.name or ""
-        locked_doc.save(update_fields=["txt_extract_file", "modified"])
 
-        # ``FieldFile.save`` writes a fresh storage blob each call (the
-        # default ``upload_to`` strategy mangles the name on collision),
-        # so without explicit cleanup the previous blob is orphaned.
-        # Schedule the delete on transaction commit: storage operations
-        # are non-transactional, so deleting before commit could leave a
-        # rolled-back document pointing at a missing file.  Wrap in a
-        # try/except so a transient storage failure here doesn't blow up
-        # the otherwise-successful edit; the orphan is recoverable.
-        if old_file_name and old_file_name != new_file_name:
-            old_to_delete: str = old_file_name
-
-            def _cleanup_orphan() -> None:
-                _safe_delete_storage_path(old_to_delete)
-
-            transaction.on_commit(_cleanup_orphan)
-
-    # The ``select_for_update`` lock is released at transaction commit, so
-    # rename the variable here to stop the "locked" connotation from
-    # leaking into the post-commit read/return path.
-    caml_doc = locked_doc
+    # The ``select_for_update`` lock is released at transaction commit.
+    # ``caml_doc`` is the new head — the freshly-created version-tree
+    # sibling, not the now-historical ``locked_doc``.
+    caml_doc = new_doc
 
     # ``refresh_from_db`` is a read; doing it outside the txn keeps the
     # write block free of any post-save operations that could raise.

@@ -28,6 +28,10 @@ from django.db import transaction
 
 from config import celery_app
 from opencontractserver.constants.corpus_forking import FORK_TITLE_PREFIX
+from opencontractserver.constants.document_processing import (
+    CAML_ARTICLE_TITLE,
+    MARKDOWN_MIME_TYPE,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
@@ -337,8 +341,21 @@ def fork_corpus(
                             setattr(doc, field_name, src_blob)
                             doc_updates.append(field_name)
 
-                doc.title = f"{FORK_TITLE_PREFIX}{doc.title}"
-                doc_updates.append("title")
+                # Skip the title prefix on the corpus's Readme.CAML
+                # Document — it's an implementation detail of the
+                # description (canonical-CAML refactor, Task 14) and its
+                # title is the load-bearing lookup key for
+                # ``CorpusDocumentService.get_corpus_caml_articles`` +
+                # the signal handler that refreshes
+                # ``corpus.description``. Prefixing it would silently
+                # detach the cache + the descriptionRevisions facade.
+                is_caml = (
+                    doc.title == CAML_ARTICLE_TITLE
+                    and doc.file_type == MARKDOWN_MIME_TYPE
+                )
+                if not is_caml:
+                    doc.title = f"{FORK_TITLE_PREFIX}{doc.title}"
+                    doc_updates.append("title")
 
                 if doc_updates:
                     doc.save(update_fields=doc_updates)

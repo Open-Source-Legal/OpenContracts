@@ -42,7 +42,7 @@ VALID_TEXT_LABEL_TYPES = {"TOKEN_LABEL", "SPAN_LABEL", "RELATIONSHIP_LABEL"}
 
 VALID_CONTENT_MODALITIES = {"TEXT", "IMAGE", "AUDIO", "TABLE", "VIDEO"}
 
-KNOWN_VERSIONS = {"1.0", "2.0"}
+KNOWN_VERSIONS = {"1.0", "2.0", "3.0"}
 
 # Maximum data.json size to load into memory (500 MB).
 # Note: intentionally duplicates ZIP_MAX_TOTAL_SIZE_BYTES from
@@ -60,6 +60,23 @@ V2_REQUIRED_FIELDS = {
     "md_description_revisions",
     "post_processors",
 }
+
+# V3 keeps every V2 top-level field except the two that legacy archives
+# used to carry the corpus description twice — under V3 the description
+# rides in ``annotated_docs`` as the Readme.CAML Document. The fields are
+# *forbidden* in V3, not just optional: presence indicates a malformed
+# archive (either a mislabelled V2 or an emitter that did not get the
+# memo). See the Canonical-CAML Description Refactor design doc §4.8.
+V3_REQUIRED_FIELDS = {
+    "structural_annotation_sets",
+    "folders",
+    "document_paths",
+    "relationships",
+    "agent_config",
+    "post_processors",
+}
+
+V3_FORBIDDEN_FIELDS = {"md_description", "md_description_revisions"}
 
 __all__ = ["validate_export", "validate_data_json", "ValidationResult", "main"]
 
@@ -781,6 +798,25 @@ def _check_v2_required_fields(data: dict, result: ValidationResult) -> None:
             result.error(f"V2 export missing required field '{f}'")
 
 
+def _check_v3_required_fields(data: dict, result: ValidationResult) -> None:
+    """Verify V3-required fields are present and legacy ones are absent.
+
+    V3 must omit ``md_description`` and ``md_description_revisions``
+    entirely: those keys belong to the Readme.CAML Document inside
+    ``annotated_docs``, not the top-level schema.
+    """
+    for f in V3_REQUIRED_FIELDS:
+        if f not in data:
+            result.error(f"V3 export missing required field '{f}'")
+    for f in V3_FORBIDDEN_FIELDS:
+        if f in data:
+            result.error(
+                f"V3 export contains forbidden field '{f}' "
+                "(removed in V3 — the corpus description rides in "
+                "annotated_docs as the Readme.CAML Document)"
+            )
+
+
 # ---------------------------------------------------------------------------
 # Shared validation logic (used by both validate_export and validate_data_json)
 # ---------------------------------------------------------------------------
@@ -790,6 +826,8 @@ def _validate_parsed_data(data: dict, result: ValidationResult) -> None:
     """Run all data-level validations (everything except ZIP structure)."""
     version = data.get("version", "1.0")
     is_v2 = version == "2.0"
+    is_v3 = version == "3.0"
+    is_v2_or_v3 = is_v2 or is_v3
 
     if version not in KNOWN_VERSIONS:
         result.warn(
@@ -804,6 +842,14 @@ def _validate_parsed_data(data: dict, result: ValidationResult) -> None:
 
     if is_v2:
         _check_v2_required_fields(data, result)
+    elif is_v3:
+        _check_v3_required_fields(data, result)
+
+    if is_v2_or_v3:
+        # Shape checks shared by V2 and V3 — V3 only trims the two
+        # top-level md_description fields; everything else (structural
+        # sets, folders, document paths, corpus-level relationships,
+        # agent config, action trail, conversations) is identical.
         struct_annot_ids = _check_structural_sets(data, result)
         all_annot_ids |= struct_annot_ids
         folder_paths = _check_folders(data, result)

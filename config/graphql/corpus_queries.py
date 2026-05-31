@@ -24,6 +24,9 @@ from config.graphql.graphene_types import (
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services.corpus_documents import (
+    CorpusDocumentService,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.feedback.models import UserFeedback
 from opencontractserver.shared.services.base import BaseService
@@ -94,7 +97,11 @@ class CorpusQueryMixin:
             )
 
         return (
-            BaseService.filter_visible(Corpus, info.context.user, request=info.context)
+            CorpusDocumentService.with_readme_caml_doc(
+                BaseService.filter_visible(
+                    Corpus, info.context.user, request=info.context
+                )
+            )
             .select_related("creator", "engagement_metrics", "label_set", "parent")
             .prefetch_related("categories")
             .annotate(
