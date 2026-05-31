@@ -189,8 +189,11 @@ annotations; embeddings where the vector path is exercised):
 - Components 1, 2, 4 are independent of #1841.
 - Component 3 depends on #1841's `read_field_file_text`; its commit goes last and
   rebases once #1841 merges.
-- One feature branch, one umbrella PR with 4 commits closing 4 tracking issues
-  (A=search, B=annotations, C=full-text, D=polish).
+- One feature branch, one umbrella PR with 4 commits closing 4 tracking issues:
+  - **A = search** → #1858 (Component 1)
+  - **B = annotations** → #1859 (Component 2)
+  - **C = full-text** → #1860 (Component 3, depends on #1841)
+  - **D = polish** → #1861 (Component 4)
 
 ## Risks
 
