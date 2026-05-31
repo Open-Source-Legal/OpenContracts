@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/experimental-ct-react";
-import { DiscoverMapTabTestWrapper } from "./DiscoverMapTabTestWrapper";
+import { DiscoverMapPanelTestWrapper } from "./DiscoverMapPanelTestWrapper";
 import { GET_GLOBAL_GEOGRAPHIC_ANNOTATIONS } from "../src/graphql/queries/geographicAnnotations";
 
 const GEO_PINS = [
@@ -15,6 +15,8 @@ const GEO_PINS = [
 
 // DiscoverMapPanel seeds its query with a whole-world bbox (null) at the map
 // default zoom (2) and the full label-type set. Variables must match EXACTLY.
+// cache-and-network can issue the request more than once, so the mock is
+// provided twice.
 const geoMock = {
   request: {
     query: GET_GLOBAL_GEOGRAPHIC_ANNOTATIONS,
@@ -24,20 +26,16 @@ const geoMock = {
       labelTypes: ["country", "state", "city"],
     },
   },
-  result: {
-    data: { globalGeographicAnnotations: GEO_PINS },
-  },
+  result: { data: { globalGeographicAnnotations: GEO_PINS } },
 };
 
-test("Discover Map tab renders pins from globalGeographicAnnotations", async ({
+test("DiscoverMapPanel renders pins from globalGeographicAnnotations", async ({
   mount,
   page,
 }) => {
-  // cache-and-network may issue the same request more than once; provide the
-  // mock twice so a refetch is also satisfied.
-  await mount(<DiscoverMapTabTestWrapper mocks={[geoMock, geoMock]} />);
+  await mount(<DiscoverMapPanelTestWrapper mocks={[geoMock, geoMock]} />);
 
-  // The map region renders inside the Map tab.
+  // The reusable map region renders inside the panel.
   await expect(
     page.getByRole("region", {
       name: "Map of geographic document annotations",
