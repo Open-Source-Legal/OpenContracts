@@ -58,9 +58,7 @@ class LocationTaggerAgentRegistrationTests(TestCase):
         self.assertEqual(agent.scope, "GLOBAL")
         self.assertTrue(agent.is_active)
         self.assertTrue(agent.is_public)
-        self.assertEqual(
-            agent.available_tools, ["add_annotations_from_exact_strings"]
-        )
+        self.assertEqual(agent.available_tools, ["add_annotations_from_exact_strings"])
         self.assertEqual(agent.badge_config.get("icon"), "globe")
         self.assertEqual(agent.badge_config.get("label"), "Location Tagger")
         self.assertEqual(agent.slug, "location-tagger")
@@ -86,7 +84,9 @@ class _GeoToolFixture(TestCase):
 
     # Includes a guaranteed non-place token ("Zzzqqqx") for the miss test and
     # a plain word ("branch") for the non-geographic-label test.
-    DOC_TEXT = "Headquarters in Paris and France, with a branch in Texas. Ref Zzzqqqx end."
+    DOC_TEXT = (
+        "Headquarters in Paris and France, with a branch in Texas. Ref Zzzqqqx end."
+    )
 
     def setUp(self):
         self.user = User.objects.create_user("loc_tool_user", password="pw")
@@ -129,9 +129,7 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         self.assertIsNotNone(ann.data["lng"])
 
     def test_state_label_is_geocoded(self):
-        ids = self._annotate(
-            [{"label_text": OC_STATE_LABEL, "exact_string": "Texas"}]
-        )
+        ids = self._annotate([{"label_text": OC_STATE_LABEL, "exact_string": "Texas"}])
         ann = Annotation.objects.get(pk=ids[0])
         self.assertTrue(ann.data["geocoded"])
         self.assertEqual(ann.data["canonical_name"], "Texas")
@@ -157,9 +155,7 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
 
     def test_city_without_hints_resolves_to_france(self):
         # Population tie-break: unhinted "Paris" is the French one.
-        ids = self._annotate(
-            [{"label_text": OC_CITY_LABEL, "exact_string": "Paris"}]
-        )
+        ids = self._annotate([{"label_text": OC_CITY_LABEL, "exact_string": "Paris"}])
         ann = Annotation.objects.get(pk=ids[0])
         self.assertTrue(ann.data["geocoded"])
         self.assertEqual(ann.data["admin_codes"]["iso_alpha2"], "FR")
@@ -168,9 +164,7 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         # A geo label on text that is not a known place still creates the
         # annotation (user's work survives) but with geocoded=False so the
         # map aggregation skips it.
-        ids = self._annotate(
-            [{"label_text": OC_CITY_LABEL, "exact_string": "Zzzqqqx"}]
-        )
+        ids = self._annotate([{"label_text": OC_CITY_LABEL, "exact_string": "Zzzqqqx"}])
         ann = Annotation.objects.get(pk=ids[0])
         self.assertIsNotNone(ann.data)
         self.assertFalse(ann.data["geocoded"])
@@ -178,9 +172,7 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
 
     def test_non_geographic_label_leaves_data_null(self):
         # Backward compatibility: a normal label must NOT get a data payload.
-        ids = self._annotate(
-            [{"label_text": "ContractTerm", "exact_string": "branch"}]
-        )
+        ids = self._annotate([{"label_text": "ContractTerm", "exact_string": "branch"}])
         ann = Annotation.objects.get(pk=ids[0])
         self.assertIsNone(ann.data)
         self.assertEqual(ann.annotation_type, SPAN_LABEL)

@@ -11,9 +11,7 @@ import environ
 from opencontractserver.constants.agent_memory import (
     MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
 )
-from opencontractserver.constants.celery import (
-    CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS,
-)
+from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import MAX_FILE_UPLOAD_SIZE_BYTES
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent

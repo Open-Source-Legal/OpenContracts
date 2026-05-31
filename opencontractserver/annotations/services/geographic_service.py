@@ -53,8 +53,7 @@ _ALL_GEO_LABELS = frozenset(GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.values())
 # ``add_annotations_from_exact_strings`` agent tool) reuse the same geocoding
 # path the GraphQL mutations use without re-deriving the mapping.
 LABEL_TEXT_TO_GEOCODE_LABEL_TYPE: dict[str, str] = {
-    text: label_type
-    for label_type, text in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.items()
+    text: label_type for label_type, text in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.items()
 }
 
 
