@@ -166,7 +166,7 @@ class AnnotationItem(TypedDict):
     # ``label_text`` is one of the geographic conventions (OC_COUNTRY /
     # OC_STATE / OC_CITY). Shape: ``{"country": "US", "state": "TX"}``.
     # Ignored for every other label, so existing callers are unaffected.
-    hints: NotRequired[dict]
+    hints: NotRequired[dict[str, str]]
 
 
 def add_annotations_from_exact_strings(
@@ -332,29 +332,35 @@ def add_annotations_from_exact_strings(
         build_geocoded_annotation_data,
     )
 
+    # Resolve geocoding BEFORE opening the DB transaction. ``resolve_place``
+    # reads the bundled reference dataset from disk, and doing that inside
+    # ``transaction.atomic()`` would hold the transaction (and any row locks)
+    # open across that I/O. Geocoding depends only on (label_text, exact_str,
+    # hints) — not on match position — so resolve once per item here and reuse
+    # the payload for every occurrence inside the loop. Only the OC_*
+    # geographic labels geocode; every other label keeps ``data`` NULL
+    # (backward compatible with existing callers such as structured extraction).
+    prepared: list[tuple[str, str, dict | None]] = []
+    for label_text, exact_str, hints in parsed_items:
+        geocode_label_type = LABEL_TEXT_TO_GEOCODE_LABEL_TYPE.get(label_text)
+        annotation_data = None
+        if geocode_label_type is not None:
+            annotation_data = build_geocoded_annotation_data(
+                geocode_label_type,
+                exact_str,
+                country_hint=hints.get("country") if hints else None,
+                state_hint=hints.get("state") if hints else None,
+            )
+        prepared.append((label_text, exact_str, annotation_data))
+
     # Common creation loop (works for both PDF and text).
     with transaction.atomic():
-        for label_text, exact_str, hints in parsed_items:
+        for label_text, exact_str, annotation_data in prepared:
             label_obj = corpus.ensure_label_and_labelset(
                 label_text=label_text,
                 creator_id=creator_id,
                 label_type=label_type_const,
             )
-
-            # Geocoding depends only on (label_text, exact_str, hints), not on
-            # match position, so resolve once per item and stamp the same
-            # payload onto every occurrence. Only the OC_* geographic labels
-            # geocode; every other label leaves ``data`` NULL (backward
-            # compatible with existing callers such as structured extraction).
-            geocode_label_type = LABEL_TEXT_TO_GEOCODE_LABEL_TYPE.get(label_text)
-            annotation_data = None
-            if geocode_label_type is not None:
-                annotation_data = build_geocoded_annotation_data(
-                    geocode_label_type,
-                    exact_str,
-                    country_hint=hints.get("country") if hints else None,
-                    state_hint=hints.get("state") if hints else None,
-                )
 
             start_idx = 0
             while True:

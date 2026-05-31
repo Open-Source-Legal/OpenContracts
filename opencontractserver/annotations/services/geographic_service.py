@@ -63,7 +63,7 @@ def build_geocoded_annotation_data(
     *,
     country_hint: str | None = None,
     state_hint: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Resolve ``text`` and return the ``Annotation.data`` payload.
 
     Single source of truth for the geocoded sidecar shape written onto
@@ -91,9 +91,19 @@ def build_geocoded_annotation_data(
     """
     from opencontractserver.utils.geocoding import resolve_place
 
+    # Make the caller contract explicit rather than relying on the
+    # ``type: ignore`` alone — a bad label type is a programming error here
+    # (the OC_* reverse-map / GraphQL enum should never produce anything
+    # else), so fail loudly instead of letting it reach ``resolve_place``.
+    assert geocode_label_type in (
+        "country",
+        "state",
+        "city",
+    ), f"geocode_label_type must be country/state/city, got {geocode_label_type!r}"
+
     resolved = resolve_place(
         text,
-        geocode_label_type,  # type: ignore[arg-type]  # validated by caller / resolver
+        geocode_label_type,  # type: ignore[arg-type]  # narrowed by the assert above
         country_hint=country_hint,
         state_hint=state_hint,
     )
