@@ -49,6 +49,11 @@ export function ConfirmModal({
 
   const onYesClick = () => {
     yesAction();
+    // Gate on `controlledLoading` (was the prop supplied at all?), NOT
+    // `confirmLoading`'s truthiness like `onClose` below: once a caller opts
+    // in, "Yes" must hand off close to them even on the first click while
+    // `confirmLoading` is still false. ESC/overlay (`onClose`) instead gate on
+    // the truthy value so the dialog can still be dismissed when idle.
     if (!controlledLoading) toggleModal();
   };
 

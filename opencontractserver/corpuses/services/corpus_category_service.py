@@ -189,8 +189,10 @@ class CorpusCategoryService(BaseService):
 
         # Nothing but the seeded "modified" sentinel means no real field was
         # supplied — skip the write so an empty update doesn't bump the
-        # timestamp (and log) for no reason.
-        if len(update_fields) == 1:
+        # timestamp (and log) for no reason. Compare the exact list (not just
+        # the length) so the guard stays correct if another sentinel is ever
+        # seeded into ``update_fields``.
+        if update_fields == ["modified"]:
             return ServiceResult.success(category)
 
         category.save(update_fields=update_fields)

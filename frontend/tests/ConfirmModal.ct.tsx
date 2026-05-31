@@ -143,4 +143,72 @@ test.describe("ConfirmModal", () => {
 
     await component.unmount();
   });
+
+  test("does not auto-close on Yes when confirmLoading is controlled", async ({
+    mount,
+    page,
+  }) => {
+    // Opting into the controlled-loading flow (confirmLoading defined, even
+    // when false) means the caller owns the close: Yes fires yesAction but
+    // must NOT call toggleModal.
+    let yesCalled = false;
+    let toggleCalled = false;
+
+    const component = await mount(
+      <ConfirmModal
+        message="Confirm this action?"
+        visible={true}
+        yesAction={() => {
+          yesCalled = true;
+        }}
+        noAction={() => {}}
+        toggleModal={() => {
+          toggleCalled = true;
+        }}
+        confirmLoading={false}
+      />
+    );
+
+    await expect(page.getByRole("button", { name: "Yes" })).toBeVisible({
+      timeout: 5000,
+    });
+    await page.getByRole("button", { name: "Yes" }).click();
+
+    expect(yesCalled).toBe(true);
+    // Caller-controlled close: toggleModal is intentionally NOT invoked.
+    expect(toggleCalled).toBe(false);
+
+    await component.unmount();
+  });
+
+  test("stays open with a disabled, loading Yes button while confirmLoading is true", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <ConfirmModal
+        message="Deleting category…"
+        visible={true}
+        yesAction={() => {}}
+        noAction={() => {}}
+        toggleModal={() => {}}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        confirmVariant="primary"
+        confirmLoading={true}
+      />
+    );
+
+    // Dialog remains visible (work is in flight) ...
+    await expect(page.getByText("ARE YOU SURE?")).toBeVisible({
+      timeout: 5000,
+    });
+    // ... and both buttons are disabled so the action can't be double-fired.
+    await expect(page.getByRole("button", { name: "Delete" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Cancel" })).toBeDisabled();
+
+    await docScreenshot(page, "widgets--confirm-modal--loading");
+
+    await component.unmount();
+  });
 });
