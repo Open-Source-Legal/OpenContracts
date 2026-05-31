@@ -105,9 +105,13 @@ def _stringify_tool_content(content: Any) -> str:
     try:
         return json.dumps(content, default=str)
     except (TypeError, ValueError, RecursionError):
-        # RecursionError guards against a self-referential (circular) tool
-        # return — unlikely in practice, but the fallback intent is "never
-        # crash on exotic content", so catch it alongside the usual two.
+        # All three are genuinely reachable, not defensive padding:
+        #   - TypeError: ``default=str`` only rescues non-serialisable *values*;
+        #     a dict with a non-string/number key (e.g. a tuple) still raises.
+        #   - ValueError: out-of-range floats (NaN/Infinity) with a strict
+        #     encoder, etc.
+        #   - RecursionError: a self-referential (circular) tool return.
+        # The fallback intent is "never crash on exotic content", so str() it.
         return str(content)
 
 

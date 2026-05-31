@@ -623,6 +623,10 @@ def test_non_string_tool_return_serialized_as_json():
     assert "true" in part.content
     assert "True" not in part.content
     assert "null" in part.content  # JSON null, not Python None
+    # Safe because the only non-JSON text spliced into the payload is the trim
+    # notice (IN_RUN_TRIM_NOTICE_MARKER), whose template is fixed numeric/text
+    # and contains no literal "None"; if that template ever changes to include
+    # the word, tighten this to assert against the JSON prefix only.
     assert "None" not in part.content
     # tool_call_id correlation preserved across the serialise+shrink.
     assert part.tool_call_id == "JSON"
