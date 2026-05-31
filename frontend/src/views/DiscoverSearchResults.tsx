@@ -1,6 +1,6 @@
 // Cross-content Discover search: one page that fans out across discussions, annotations, corpuses, and notes.
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import styled from "styled-components";
 import { useQuery } from "@apollo/client";
@@ -10,6 +10,7 @@ import {
   Database,
   StickyNote,
   Layers,
+  MapPin,
 } from "lucide-react";
 import { FilterTabs, SearchBox } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
@@ -54,7 +55,13 @@ import {
   DISCOVER_SEARCH_DEBOUNCE_MS,
   DISCOVER_SEARCH_ENTITY_TAB_LIMIT,
   FILTER_TAB_ICON_SIZE,
+  MAP_DEFAULT_CENTER,
+  MAP_DEFAULT_ZOOM,
 } from "../assets/configurations/constants";
+import {
+  DiscoverMapPanel,
+  DiscoverMapView,
+} from "../components/maps/DiscoverMapPanel";
 import { ConversationType } from "../types/graphql-api";
 
 // ---------------------------------------------------------------------------
@@ -217,7 +224,13 @@ const ResultRow: React.FC<ResultRowBaseProps> = ({
   </ResultCard>
 );
 
-type EntityTab = "all" | "discussions" | "annotations" | "corpuses" | "notes";
+type EntityTab =
+  | "all"
+  | "discussions"
+  | "annotations"
+  | "corpuses"
+  | "notes"
+  | "map";
 
 const VALID_TABS = new Set<EntityTab>([
   "all",
@@ -225,6 +238,7 @@ const VALID_TABS = new Set<EntityTab>([
   "annotations",
   "corpuses",
   "notes",
+  "map",
 ]);
 
 const TAB_ITEMS: FilterTabItem[] = [
@@ -253,7 +267,32 @@ const TAB_ITEMS: FilterTabItem[] = [
     label: "Notes",
     icon: <StickyNote size={FILTER_TAB_ICON_SIZE} />,
   },
+  {
+    id: "map",
+    label: "Map",
+    icon: <MapPin size={FILTER_TAB_ICON_SIZE} />,
+  },
 ];
+
+// URL query-param keys for persisting the map viewport (deep-link + refresh).
+const MAP_LAT_PARAM = "lat";
+const MAP_LNG_PARAM = "lng";
+const MAP_ZOOM_PARAM = "z";
+
+/** Read the map viewport from URL params, falling back to the map defaults. */
+const readMapViewFromParams = (params: URLSearchParams): DiscoverMapView => {
+  const lat = Number.parseFloat(params.get(MAP_LAT_PARAM) ?? "");
+  const lng = Number.parseFloat(params.get(MAP_LNG_PARAM) ?? "");
+  const zoom = Number.parseFloat(params.get(MAP_ZOOM_PARAM) ?? "");
+  const hasView =
+    Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(zoom);
+  return hasView
+    ? { center: [lat, lng], zoom }
+    : {
+        center: [...MAP_DEFAULT_CENTER] as [number, number],
+        zoom: MAP_DEFAULT_ZOOM,
+      };
+};
 
 // ---------------------------------------------------------------------------
 // Sections
@@ -593,6 +632,30 @@ export const DiscoverSearchResults: React.FC = () => {
     DISCOVER_SEARCH_DEBOUNCE_MS
   );
 
+  // Map viewport restored from the URL on first render; the map panel keeps it
+  // current via onViewChange. Read once — the map owns its viewport thereafter.
+  const initialMapView = useRef<DiscoverMapView>(
+    readMapViewFromParams(searchParams)
+  ).current;
+
+  // Persist the map viewport into the URL so deep links / refreshes restore it.
+  // Functional setSearchParams form reads the latest params without a dep.
+  const handleMapViewChange = useCallback(
+    (view: DiscoverMapView) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set(MAP_LAT_PARAM, view.center[0].toFixed(4));
+          next.set(MAP_LNG_PARAM, view.center[1].toFixed(4));
+          next.set(MAP_ZOOM_PARAM, String(view.zoom));
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
   // URL sync: keep ?q= and ?type= in step with local state (replace, not push).
   // The functional setSearchParams form lets us read the latest params without
   // adding `searchParams` to the deps array (which would cause an infinite loop).
@@ -622,14 +685,16 @@ export const DiscoverSearchResults: React.FC = () => {
           Find discussions, annotations, collections, and notes you can access.
         </SubTitle>
         <DiscoveryFilterBar>
-          <SearchContainer>
-            <SearchBox
-              placeholder="Search across legal knowledge…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              hideButton
-            />
-          </SearchContainer>
+          {activeTab !== "map" && (
+            <SearchContainer>
+              <SearchBox
+                placeholder="Search across legal knowledge…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                hideButton
+              />
+            </SearchContainer>
+          )}
           <FilterTabs
             items={TAB_ITEMS}
             value={activeTab}
@@ -642,7 +707,12 @@ export const DiscoverSearchResults: React.FC = () => {
         </DiscoveryFilterBar>
       </DiscoveryHeader>
 
-      {showEmptyPrompt ? (
+      {activeTab === "map" ? (
+        <DiscoverMapPanel
+          initialView={initialMapView}
+          onViewChange={handleMapViewChange}
+        />
+      ) : showEmptyPrompt ? (
         <EmptyState>Type to search across content you can access.</EmptyState>
       ) : (
         <>
