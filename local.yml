@@ -28,12 +28,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # Gate on the ingest-critical model services being reachable (their
+      # HTTP servers bound) before Django starts. Docling loads its parse
+      # models lazily on first use, so this prevents the in-process ingest
+      # paths (the WebSocket agent) from racing a not-yet-listening service.
       vector-embedder:
-        condition: service_started
+        condition: service_healthy
       multimodal-embedder:
         condition: service_started
       docling-parser:
-        condition: service_started
+        condition: service_healthy
       docxodus-parser:
         condition: service_started
         required: false
@@ -105,6 +109,19 @@ services:
   docling-parser:
     image: jscrudato/docsling-local
     container_name: docling-parser
+    # `/health` returns 200 once the HTTP server has bound. NOTE: Docling
+    # loads its layout/table/OCR models lazily on the first `/parse/` call,
+    # so a green healthcheck means "reachable", not "models warm" — callers
+    # that need a warm parser must trigger one parse first (the e2e extract
+    # workflow does exactly this off the test clock).
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)\""
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
 
   docxodus-parser:
     # The frontend WASM (docxodus in package.json) and this microservice
@@ -123,6 +140,14 @@ services:
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
       API_KEY: abc123  # local-only placeholder; override before deploying
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)\""
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   multimodal-embedder:
     image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest
@@ -132,6 +157,14 @@ services:
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
       API_KEY: abc123  # local-only placeholder; override before deploying
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)\""
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
 
   # API_KEYS value below is a LOCAL DEVELOPMENT ONLY placeholder; override via
   # environment / .env before exposing the service outside the local docker
@@ -166,8 +199,13 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      # The worker is where document parse + embed actually run, so gate it
+      # directly on the ingest-critical model services being reachable —
+      # don't rely solely on the transitive dependency through django.
+      vector-embedder:
+        condition: service_healthy
       docling-parser:
-        condition: service_started
+        condition: service_healthy
       docxodus-parser:
         condition: service_started
         required: false

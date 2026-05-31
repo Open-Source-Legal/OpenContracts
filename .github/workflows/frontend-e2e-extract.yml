@@ -118,6 +118,15 @@ jobs:
           # note about Docling.
           echo "PDF_PARSER=docling" >> .envs/.local/.django
 
+          # Raise Celery worker concurrency so the two PDFs uploaded
+          # back-to-back parse + embed concurrently instead of serialising
+          # behind a single child. Serial cold-start processing of both
+          # fixtures was the dominant cause of the ingest-wait timeout that
+          # blew this job's 30-minute budget. The worker start script reads
+          # this from its env_file (.envs/.local/.django); local dev keeps
+          # the default of 1.
+          echo "CELERY_WORKER_CONCURRENCY=2" >> .envs/.local/.django
+
           # Sanity dump (without secrets — there are none in the .test
           # template, but be explicit).
           echo "--- .envs/.local/.django (head) ---"
@@ -172,6 +181,79 @@ jobs:
           ps.save()
           print('preferred PDF parser:', ps.get_preferred_parser('application/pdf'))
           "
+
+      # ────────────────────────────────────────────────────────────────
+      # Warm the model services BEFORE the timed test.
+      #
+      # Root cause of the flaky ingest-wait timeout: Docling loads its
+      # layout/table/OCR models lazily on the FIRST `/parse/` call. On a
+      # cold 2-core runner already hosting the docling + multimodal +
+      # privacy-filter images, that first cold parse balloons into a
+      # multi-minute, highly-variable stall — occasionally exceeding the
+      # 14-minute per-document wait, which (with the Playwright retry) then
+      # blows the job's 30-minute `timeout-minutes` and the job is
+      # cancelled. The embedder, by contrast, is ready in seconds.
+      #
+      # Driving one real parse here loads those models off the test clock,
+      # so the spec's two ingests run warm. Steps are best-effort: a warmup
+      # failure logs a warning but does not fail the job (the spec still
+      # runs and would surface a genuine regression).
+      # ────────────────────────────────────────────────────────────────
+      - name: Warm up Docling parser + embedder (load models off the test clock)
+        run: |
+          docker compose -f local.yml exec -T django python - <<'PY'
+          import base64, json, sys, time, urllib.request
+
+          def wait_health(url, name, budget=180):
+              deadline = time.time() + budget
+              while time.time() < deadline:
+                  try:
+                      if urllib.request.urlopen(url, timeout=3).status == 200:
+                          print(f"{name}: healthy", flush=True)
+                          return True
+                  except Exception:
+                      pass
+                  time.sleep(3)
+              print(f"WARNING: {name} not healthy after {budget}s", file=sys.stderr, flush=True)
+              return False
+
+          wait_health("http://vector-embedder:8000/health", "vector-embedder")
+          wait_health("http://docling-parser:8000/health", "docling-parser")
+
+          # Force Docling to load its parse models with one real parse of the
+          # small committed fixture (mounted at /app via the repo volume).
+          pdf = "/app/frontend/tests/fixtures/usc-title-1.pdf"
+          payload = json.dumps({
+              "filename": "warmup.pdf",
+              "pdf_base64": base64.b64encode(open(pdf, "rb").read()).decode(),
+              "force_ocr": False,
+              "roll_up_groups": False,
+              "llm_enhanced_hierarchy": False,
+          }).encode()
+          req = urllib.request.Request(
+              "http://docling-parser:8000/parse/",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+          )
+          t = time.time()
+          try:
+              r = urllib.request.urlopen(req, timeout=600)
+              print(f"docling warmup parse: {r.status} in {time.time() - t:.1f}s", flush=True)
+          except Exception as e:
+              print(f"WARNING: docling warmup parse failed (non-fatal): {e}", file=sys.stderr, flush=True)
+
+          # Warm the text embedder too (cheap; ready in seconds).
+          try:
+              eb = json.dumps({"texts": ["warmup"]}).encode()
+              er = urllib.request.Request(
+                  "http://vector-embedder:8000/embeddings/batch",
+                  data=eb,
+                  headers={"Content-Type": "application/json", "X-API-Key": "abc123"},
+              )
+              print(f"embedder warmup: {urllib.request.urlopen(er, timeout=120).status}", flush=True)
+          except Exception as e:
+              print(f"WARNING: embedder warmup failed (non-fatal): {e}", file=sys.stderr, flush=True)
+          PY
 
       # ────────────────────────────────────────────────────────────────
       # Run the extract spec under coverage.

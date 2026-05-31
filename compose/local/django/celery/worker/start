@@ -4,4 +4,11 @@ set -o errexit
 set -o nounset
 
 
-watchfiles --ignore-paths frontend,node_modules,.git,__pycache__,.mypy_cache,.pytest_cache,media,staticfiles,docs,.claude,.playwright-mcp,playwright-report-e2e,test-results --target-type command "celery -A config.celery_app worker -l INFO --concurrency=1 -Q celery,worker_uploads"
+# Worker concurrency defaults to 1 (the established local-dev default) but can
+# be raised via CELERY_WORKER_CONCURRENCY. CI raises it so two documents
+# uploaded back-to-back parse + embed concurrently instead of serialising
+# behind a single child — a serial cold start was the dominant cause of
+# ingest-wait timeouts in the e2e extract workflow.
+CELERY_WORKER_CONCURRENCY="${CELERY_WORKER_CONCURRENCY:-1}"
+
+watchfiles --ignore-paths frontend,node_modules,.git,__pycache__,.mypy_cache,.pytest_cache,media,staticfiles,docs,.claude,.playwright-mcp,playwright-report-e2e,test-results --target-type command "celery -A config.celery_app worker -l INFO --concurrency=${CELERY_WORKER_CONCURRENCY} -Q celery,worker_uploads"
