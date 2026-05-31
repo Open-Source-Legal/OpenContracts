@@ -636,6 +636,12 @@ export const RECENT_THREAD_LIMIT = 3;
 export const DEFAULT_CATEGORY_ICON = "folder";
 /** Default badge color (hex) for a corpus category. */
 export const DEFAULT_CATEGORY_COLOR = "#3B82F6";
+/**
+ * Soft cap on a category description. Mirrors MAX_CATEGORY_DESCRIPTION_LENGTH
+ * in opencontractserver/constants/corpus_categories.py so the textarea stops
+ * the user before the server-side validation would reject the payload.
+ */
+export const MAX_CATEGORY_DESCRIPTION_LENGTH = 2000;
 
 // Creative Commons license options for corpus licensing.
 // SPDX identifiers: https://spdx.org/licenses/

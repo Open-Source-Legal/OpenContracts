@@ -114,6 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Flaky test isolation** (`opencontractserver/tests/research/test_research_report_model.py`, issue #1845): `test_visible_to_user_superuser_sees_all` asserted a global `visible_to_user(admin).count() == 2`. Because the superuser branch returns `.all()`, a sibling `TransactionTestCase` that commits `ResearchReport` rows broke the count under a sequential whole-`research/`-directory run (CI stayed green only because xdist isolates files to separate worker DBs). Scoped the assertion to the test's own rows. Test-only; no production impact.
+
 - **Corpus document versioning & path/folder audit — correctness and performance fixes.** A sweep of the dual-tree versioning (`DocumentPath`) and `CorpusFolder` path system surfaced several correctness gaps and N+1s. Regression coverage: `opencontractserver/tests/test_versioning_paths_audit.py`.
   - **`Corpus.add_document` no longer silently supersedes a colliding document** (`opencontractserver/corpuses/models.py`). When the auto-/caller-supplied path (e.g. `/documents/<title>`) collided with an existing active document, the occupant was marked `is_current=False` and the new doc became a "version" of an unrelated content tree — the first document silently vanished from the corpus. `add_document` now disambiguates the path (`/documents/Report` → `/documents/Report_1`) via `CorpusPathService._disambiguate_path`, always creating an independent root path (`parent=None`, `version_number=1`). `add_document` is not a versioning entry point; `import_content` remains the path-versioning surface.
   - **Folder rename / move now reconciles `DocumentPath.path` strings** (`opencontractserver/corpuses/services/folders.py`, `services/paths.py`). `update_folder` (rename) and `move_folder` changed `CorpusFolder.get_path()` but left the folder-derived `path` strings of contained documents (and descendant-folder documents) stale — drifting from the location that document _moves_ derive. New `CorpusPathService.reconcile_paths_after_folder_change` rewrites every folder-derived active path under the affected subtree to the new prefix as immutable MOVED history nodes (batch deactivate + `bulk_create` + signal dispatch), inside the same transaction as the folder mutation. Non-folder-derived paths (e.g. an upload's `/documents/<title>`) are intentionally left untouched.
@@ -124,6 +126,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`resolve_version_history` is scoped to `visible_to_user`** (`config/graphql/document_types.py`) — it no longer leaks version metadata (creator, hash, size) for documents hidden from the caller, matching `resolve_corpus_versions`.
   - **`get_document_folder` tolerates more than one active path** (`services/folder_documents.py`) — switched from `.get()` (could raise `MultipleObjectsReturned`, HTTP 500) to a deterministic `.order_by("-created").first()`.
   - **`get_filesystem_at_time` is scoped to the target corpus** (`documents/versioning.py`) — the outer query was an unscoped full-table scan relying solely on a correlated subquery; it now filters `corpus=corpus`.
+  - **CI green-up follow-up** (`opencontractserver/tests/test_caml_review_tools.py`): the new leading-`/` precondition on `CorpusPathService.disambiguate_path` exposed a test-only misuse — the `_create_caml_doc` fixture built the corpus's `Readme.CAML` article through `corpus.add_document(path="Readme.CAML")`. `add_document` is the disambiguating *new-independent-document* API and now (correctly) rejects the reserved, slashless CAML sentinel path. The fixture now mirrors the production canonical write path (`documents.versioning.import_document` with `path=CAML_ARTICLE_TITLE`, version-up semantics, no disambiguation), matching `backfill_caml_doc_for_corpus` and the CAML edit tool. Production was never affected — it never routes the CAML path through `add_document`/`disambiguate_path`.
+- **Corpus category management — PR #1837 follow-up (issue #1847).** Code-review fixes for the runtime-configurable corpus-category admin feature.
+  - **`CorpusCategoryService.update_category` no longer issues a no-op write** (`opencontractserver/corpuses/services/corpus_category_service.py`). An update with all-`None` kwargs previously still ran a `save()` that only bumped `modified`; it now short-circuits to a successful no-op. Regression: `test_update_with_no_fields_is_noop` (asserted via `assertNumQueries(0)`).
+  - **Category `description` now has a 2,000-char soft cap** — new `MAX_CATEGORY_DESCRIPTION_LENGTH`, mirrored between `opencontractserver/constants/corpus_categories.py` and `frontend/src/assets/configurations/constants.ts`. Validated in `CorpusCategoryService._validate_fields` (consistent with the name/icon checks, since the model field is an unbounded `TextField`) and enforced as a `maxLength` on the description textarea. Regression: `test_create_rejects_overly_long_description`, `test_update_rejects_overly_long_description`.
+  - **Delete now shows in-flight feedback** (`frontend/src/components/widgets/modals/ConfirmModal.tsx`, `frontend/src/components/admin/corpus_categories/CorpusCategoryManagement.tsx`). `ConfirmModal` gained an additive, backward-compatible `confirmLoading` prop that keeps the dialog open with a spinner and disabled buttons until the async action settles (the previous design auto-closed on confirm, so a spinner on the delete button could never have been seen); the delete mutation's loading state now drives it.
+  - **Test / nit cleanups**: `test_create_uses_default_icon_and_color` asserts against the shared default constants instead of hardcoded `"folder"` / `"#3B82F6"` literals; the `corpus_mutations` import in `config/graphql/mutations.py` regained its section comment (the category and folder imports kept theirs).
 
 ### Security
 
@@ -136,6 +144,53 @@ PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
   "Corpus not found" response for both missing and unreadable corpuses. This
   bug pre-dated the Phase 6 service-layer refactor (it was not a regression).
   Regression test added: `test_smart_label_list_denies_unreadable_corpus`.
+
+### Fixed
+
+- **MCP document full-text retrieval crashed on cloud storage**
+  (`opencontractserver/mcp/tools.py::get_document_text`,
+  `opencontractserver/mcp/resources.py::get_document_resource`) — both read
+  `document.txt_extract_file` via `.open("r").read()` and placed the raw result
+  into the dict that the MCP dispatcher serializes with `json.dumps(...)`
+  (`opencontractserver/mcp/server.py:447` and `:1066`). On AWS/GCP deployments
+  django-storages backends (`S3Boto3Storage`, `GoogleCloudStorage`) return
+  `bytes` from text-mode reads (django-storages #382), so `json.dumps` raised
+  `TypeError: Object of type bytes is not JSON serializable` and downstream MCP
+  clients could not retrieve document full text. LOCAL `FileSystemStorage`
+  returns `str`, which is why dev and the test suite never reproduced it. Both
+  call sites now decode through the new `read_field_file_text()` helper
+  (`opencontractserver/utils/files.py`), which centralizes the
+  `isinstance(..., bytes)` decode workaround previously duplicated in
+  `tasks/embeddings_task.py` and `pipeline/parsers/oc_markdown_parser.py`. The
+  same routing also fixes a latent instance of this bug in the agent memory
+  reader's happy path
+  (`opencontractserver/agents/memory.py::read_memory_content`, which decoded
+  bytes only in its exception fallback, not its primary `.open("r").read()`
+  branch). Regression test:
+  `test_get_document_text_handles_bytes_from_cloud_storage`
+  (`opencontractserver/mcp/tests/test_mcp.py`); helper unit tests:
+  `opencontractserver/tests/test_files_utils.py`.
+- **Routed the remaining seven production `txt_extract_file.open("r")` call
+  sites through `read_field_file_text()`** so they no longer break on cloud
+  storage the same way: `pipeline/base/thumbnailer.py`, `utils/export_v2.py`,
+  `utils/extraction_grounding.py`, and the four LLM core tools
+  (`llms/tools/core_tools/{pii,document_indexing,search,annotations}.py`). The
+  LLM tools are the highest-impact because they feed `doc_text` directly into
+  agent context, where a raw `bytes` value would crash the downstream call or
+  produce garbage. The two MCP read sites and the four LLM core tools now pass
+  `errors="replace"` so a few undecodable bytes substitute `U+FFFD` instead of
+  raising `UnicodeDecodeError`: at the MCP sites it would otherwise be caught
+  by the surrounding `except` and silently return an empty document; in the
+  agent tools it keeps the tool fault-tolerant (per the CLAUDE.md agent
+  tool-fault-tolerance rule) and stays internally consistent because match /
+  annotation positions are computed against the same decoded string. The
+  pipeline/export sites (`thumbnailer`, `export_v2`, `extraction_grounding`)
+  retain strict decoding to fail fast on genuinely corrupt files. Regression
+  test for the resource path:
+  `test_get_document_resource_handles_bytes_from_cloud_storage`
+  (`opencontractserver/mcp/tests/test_mcp.py`). `read_field_file_text()`'s
+  parameter is typed as a structural `Protocol` rather than the concrete
+  `FieldFile`, so duck-typed test doubles type-check without `# type: ignore`.
 
 ### Changed
 
@@ -507,6 +562,17 @@ PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
   - **Prod (`production.yml`)**: wires `cache_from: [type=registry,ref=ghcr.io/.../django-production-cache:main]` into both the `django` and `migrate` services (they share the same image). No-op until a follow-up PR adds the CI job that publishes the production cache (`compose/production/django/Dockerfile` is distinct from the local/test Dockerfile and needs its own scope). Wiring it now means that follow-up is a single workflow file rather than a workflow + compose-file change.
 
   _Visibility note:_ the ghcr cache packages inherit the repo's visibility on first publish (public, in this repo) — if either package is created private by mistake, change visibility in the Packages settings once.
+
+- **Typing: graduated the `tests.test_document_*` 12-module document domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `document` chunk from the issue's `tests.*` leaf-files batching plan, following the `annotation` chunk in PR #1776). Removed all 12 `[mypy-opencontractserver.tests.test_document_*]` `ignore_errors` blocks from `mypy.ini`, pruned the corresponding 331 lines from `docs/typing/mypy_baseline.txt` (5141 → 4810), and fixed the 243 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`). The current count is below the 331-line baseline snapshot because the newer stubs already resolve several historical errors (notably the `set_permissions_for_obj_to_user` `arg-type` family — see below). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1242 source files"). Per-file fixes:
+
+  - `test_document_index_tool.py` (132 baseline errors) — added class-level annotations (`user: User`, `corpus: Corpus`, `doc: Document`) on all four `TestCreateDocumentIndex{PDF,Text}` / `TestUpdateAnnotationLongDescription` / `TestLongDescriptionExportImportRoundTrip` classes covering the `cls.<attr> = ...` assignments in `setUpClass`; switched `User = get_user_model()` to a direct `from opencontractserver.users.models import User` import; annotated the nine `entries: list[IndexEntryItem]` literals and the two `exported: OpenContractsAnnotationPythonType` literals so the `create_document_index` / `import_annotations` call sites type-check against their real contracts (the inline-literal call sites already type-checked via bidirectional inference). **Latent type gap revealed by typing `self.doc`:** once `doc` was annotated `Document`, the four `setUp` methods surfaced `FieldFile.name` as `str | None` being passed to `Storage.exists()` / `FieldFile.save()` (previously masked because `self.doc` resolved to `Any` behind the `attr-defined` error) — narrowed via a local `name = self.doc.<field>.name` + `assert name is not None` (the file is always saved in `setUpClass`).
+  - `test_document_versioning_graphql.py` (69 baseline errors) — renamed the `self.client` attribute to `self.graphene_client` across all nine test classes (41 `.execute()` call sites) so the assignment of a `graphene.test.Client` no longer shadows the inherited `django.test.TestCase.client`, which has no `.execute()` (behaviour-equivalent — the tests only ever use the GraphQL client — and matches the convention from PR #1776 / `permissioning/test_permissioning.py`); replaced three `assertIsNotNone(x)` with `assert x is not None` narrowings so the subsequent `.is_deleted` / `.title` / `.version_number` / `.parent` accesses type-check.
+  - `test_document_admin.py` (34 baseline errors) — added class-level annotations on `TestDocumentAdmin` (`superuser`, `corpus`, `document`, `document2`, `embedding_384`, `embedding2_384`, `embedding2_768`) covering the `setUpTestData` assignments; same `get_user_model()` → direct import switch. The legitimate Django `self.client = Client()` in `setUp` is left untouched (that file uses the real test client, not graphene).
+  - `test_document_relationship_mutations.py` (34 baseline errors, 2 still reproduced) — replaced `result.first().relationship_type` with `result[0].relationship_type` after the pre-existing `result.count() == 1` guard, and one `assertIsNotNone(result)` with `assert result is not None`. The 32 historical `set_permissions_for_obj_to_user` `arg-type` errors no longer reproduce under the current pins.
+  - `test_document_relationship_permissions.py` (23 baseline errors) and `test_document_analysis_row.py` (8 baseline errors) — no code change needed; the historical `set_permissions_for_obj_to_user` `arg-type` errors no longer reproduce under the current pins, so only the `[mypy-…]` blocks were removed.
+  - `test_document_versioning.py` (6 baseline errors) — six `assert … is not None` narrowings before passing `import_document`'s `Document | None` result to `get_content_history` and before `FieldFile.name` (`str | None`) `.endswith(...)` / `assertIn(...)` calls.
+  - `test_document_path_migration.py` (2 baseline errors) — declared the dynamically-assigned `user` / `context` attributes on the local `MockContext` mock class so the `ctx.user = …` / `info.context = …` assignments type-check; same `get_user_model()` → direct import switch.
+  - `test_document_mutations.py`, `test_document_relationships.py`, `test_document_uploads.py`, `test_document_queries.py` (11/5/7/4 baseline errors) — the same `self.client` → `self.graphene_client` graphene-client rename (no other changes).
 
 - **Typing: graduated the `tests.test_annotation_*` 6-module annotation domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `annotation` chunk from the issue's `tests.*` leaf-files batching plan, following the `tests.permissioning.*` subpackage in PR #1768). Removed all 6 `[mypy-opencontractserver.tests.test_annotation_*]` `ignore_errors` blocks from `mypy.ini`, pruned the corresponding 138 lines from `docs/typing/mypy_baseline.txt` (5279 → 5141), and fixed the errors that surfaced under the current mypy / django-stubs pins (`mypy==2.1.0`, `django-stubs==6.0.4`). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1157 source files"). Per-file fixes:
 

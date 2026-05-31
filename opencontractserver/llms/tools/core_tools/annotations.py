@@ -6,6 +6,7 @@ from uuid import uuid4
 from typing_extensions import TypedDict
 
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
+from opencontractserver.utils.files import read_field_file_text
 
 from ._helpers import _db_sync_to_async
 
@@ -279,8 +280,11 @@ def add_annotations_from_exact_strings(
             raise ValueError(
                 f"Text document id={doc_id} lacks txt_extract_file; cannot annotate."
             )
-        with doc.txt_extract_file.open("r") as f:
-            doc_text = f.read()
+        # errors="replace" keeps this agent tool fault-tolerant: a few
+        # undecodable bytes substitute U+FFFD rather than raising
+        # UnicodeDecodeError. Positions are computed against this same string,
+        # so the substitution stays internally consistent.
+        doc_text = read_field_file_text(doc.txt_extract_file, errors="replace")
 
         label_type_const = SPAN_LABEL
 
