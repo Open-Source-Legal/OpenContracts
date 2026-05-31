@@ -31,6 +31,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.tasks.embeddings_task import (
     calculate_embedding_for_annotation_text,
 )
+from opencontractserver.utils.files import read_field_file_text
 
 from ._helpers import _db_sync_to_async
 from ._privacy_filter_client import Detection, adetect_pii
@@ -107,8 +108,10 @@ def _load_doc_text_sync(document_id: int, corpus_id: int) -> _DocTextResult:
     if file_type in TEXT_MIMETYPES:
         if not doc.txt_extract_file:
             raise ValueError(f"Text document id={document_id} lacks txt_extract_file.")
-        with doc.txt_extract_file.open("r") as f:
-            doc_text = f.read()
+        # errors="replace" keeps this agent tool fault-tolerant: a few
+        # undecodable bytes substitute U+FFFD rather than raising
+        # UnicodeDecodeError on read.
+        doc_text = read_field_file_text(doc.txt_extract_file, errors="replace")
         return _DocTextResult(doc, corpus, doc_text, file_type, None)
 
     if file_type == "application/pdf":

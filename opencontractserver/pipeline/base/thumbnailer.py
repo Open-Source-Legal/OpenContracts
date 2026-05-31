@@ -5,6 +5,7 @@ from typing import ClassVar, Optional
 from django.core.files.base import File
 
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.utils.files import read_field_file_text
 
 from .base_component import PipelineComponentBase
 
@@ -70,8 +71,7 @@ class BaseThumbnailGenerator(PipelineComponentBase, ABC):
 
             # Load the txt file content if available
             if document.txt_extract_file:
-                with document.txt_extract_file.open("r") as txt_file:
-                    txt_content = txt_file.read()
+                txt_content = read_field_file_text(document.txt_extract_file)
 
             # Load the pdf file bytes if available
             if document.pdf_file:
