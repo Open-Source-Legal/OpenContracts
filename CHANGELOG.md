@@ -19,8 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     fires `onBoundsChange(bbox, zoom)` / `onPinClick(pin)`; it holds no
     Discover- or corpus-specific logic so #1821 (Corpus Home) can reuse it.
     Clicking a pin opens a side panel with the place name, document count, and
-    deep-links to the document viewer (`/document/<relayId>`). The client shows
-    only the pins matching the current zoom band — country/state/city
+    sample-document links. The component is route-agnostic: it surfaces the
+    click via an `onSelectDocument(documentId)` callback, and the Discover
+    wiring resolves the document's Relay global id to its canonical `/d/...`
+    URL (via the existing id-redirect query) before navigating. The client
+    shows only the pins matching the current zoom band — country/state/city
     (`frontend/src/components/maps/zoomBands.ts`) — since the server returns all
     label types. Accessible: region role + aria-label, keyboard-focusable
     markers with descriptive labels, and `prefers-reduced-motion` disables

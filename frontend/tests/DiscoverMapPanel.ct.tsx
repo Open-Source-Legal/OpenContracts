@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { DiscoverMapPanelTestWrapper } from "./DiscoverMapPanelTestWrapper";
 import { GET_GLOBAL_GEOGRAPHIC_ANNOTATIONS } from "../src/graphql/queries/geographicAnnotations";
 

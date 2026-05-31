@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
-import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet.markercluster";
@@ -259,12 +258,12 @@ export const AnnotationMap: React.FC<AnnotationMapProps> = ({
   loading = false,
   onBoundsChange,
   onPinClick,
+  onSelectDocument,
   center = [...MAP_DEFAULT_CENTER] as [number, number],
   zoom = MAP_DEFAULT_ZOOM,
   height = MAP_DEFAULT_HEIGHT,
   className,
 }) => {
-  const navigate = useNavigate();
   const [currentZoom, setCurrentZoom] = useState<number>(zoom);
   const [selectedPin, setSelectedPin] =
     useState<GeographicAnnotationPin | null>(null);
@@ -327,13 +326,13 @@ export const AnnotationMap: React.FC<AnnotationMapProps> = ({
         <SidePanel aria-label={`Details for ${selectedPin.canonicalName}`}>
           <PanelTitle>{selectedPin.canonicalName}</PanelTitle>
           <PanelMeta>{pluralizeDocuments(selectedPin.documentCount)}</PanelMeta>
-          {selectedPin.sampleDocumentIds.length > 0 && (
+          {onSelectDocument && selectedPin.sampleDocumentIds.length > 0 && (
             <nav aria-label="Sample documents">
               {selectedPin.sampleDocumentIds.map((docId, index) => (
                 <DocButton
                   key={docId}
                   type="button"
-                  onClick={() => navigate(`/document/${docId}`)}
+                  onClick={() => onSelectDocument(docId)}
                 >
                   Open document {index + 1}
                 </DocButton>

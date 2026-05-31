@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
-import { useQuery } from "@apollo/client";
+import React, { useCallback, useMemo, useState } from "react";
+import { useLazyQuery, useQuery } from "@apollo/client";
+import { useNavigate } from "react-router-dom";
 import { useDebouncedCallback } from "use-debounce";
 import { AnnotationMap } from "./AnnotationMap";
 import { GeographicAnnotationPin, MapBBox } from "./types";
@@ -8,6 +9,12 @@ import {
   GetGlobalGeographicAnnotationsOutput,
   GET_GLOBAL_GEOGRAPHIC_ANNOTATIONS,
 } from "../../graphql/queries/geographicAnnotations";
+import {
+  GET_DOCUMENT_BY_ID_FOR_REDIRECT,
+  GetDocumentByIdForRedirectInput,
+  GetDocumentByIdForRedirectOutput,
+} from "../../graphql/queries";
+import { buildCanonicalPath } from "../../utils/navigationUtils";
 import {
   GEO_LABEL_TYPES,
   MAP_BBOX_REFETCH_DEBOUNCE_MS,
@@ -62,13 +69,52 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
     [data]
   );
 
+  const navigate = useNavigate();
+  // A pin carries only its sample documents' Relay global ids (the backend
+  // deliberately ships no slugs). To open one we resolve the id to its
+  // canonical slug URL the same way CentralRouteManager's id fallback does,
+  // then navigate. The lookup runs only when a document is actually opened,
+  // and ``document(id:)`` is permission-filtered server-side.
+  const [resolveDocumentById] = useLazyQuery<
+    GetDocumentByIdForRedirectOutput,
+    GetDocumentByIdForRedirectInput
+  >(GET_DOCUMENT_BY_ID_FOR_REDIRECT, { fetchPolicy: "cache-first" });
+
+  const handleSelectDocument = useCallback(
+    async (documentId: string) => {
+      const { data: docData } = await resolveDocumentById({
+        variables: { id: documentId },
+      });
+      const document = docData?.document;
+      if (!document) {
+        return;
+      }
+      // Cast mirrors CentralRouteManager's id-redirect call: the lightweight
+      // redirect query is a structural subset of DocumentType, and
+      // buildCanonicalPath only reads slug/creator fields.
+      const path = buildCanonicalPath(document as any, document.corpus as any);
+      if (path) {
+        navigate(path);
+      }
+    },
+    [navigate, resolveDocumentById]
+  );
+
   // Debounce both the network refetch and the URL-persistence callback so a
   // continuous drag fires at most one of each per settle.
   const handleBoundsChange = useDebouncedCallback(
     (bbox: MapBBox, zoom: number) => {
       setVariables({ bbox, zoom, labelTypes: [...GEO_LABEL_TYPES] });
+      // The longitude midpoint must handle antimeridian-crossing viewports
+      // (west > east, e.g. west=170/east=-170 whose true centre is 180/-180).
+      // A plain average would yield 0 (the prime meridian) and persist a wrong
+      // deep-link; the backend BBox already wraps, so the URL must agree.
+      const midLng =
+        bbox.west <= bbox.east
+          ? (bbox.west + bbox.east) / 2
+          : (((bbox.west + bbox.east + 360) / 2 + 180) % 360) - 180;
       onViewChange?.({
-        center: [(bbox.south + bbox.north) / 2, (bbox.west + bbox.east) / 2],
+        center: [(bbox.south + bbox.north) / 2, midLng],
         zoom,
       });
     },
@@ -82,6 +128,7 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
       center={initialView.center}
       zoom={initialView.zoom}
       onBoundsChange={handleBoundsChange}
+      onSelectDocument={handleSelectDocument}
     />
   );
 };

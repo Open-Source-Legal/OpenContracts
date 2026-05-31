@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect } from "./utils/coverage";
 import { AnnotationMapTestWrapper } from "./AnnotationMapTestWrapper";
 import {
   CITY_PIN,
@@ -38,6 +38,7 @@ test("AnnotationMap click on a pin opens the side panel with document links", as
   page,
 }) => {
   let clicked: string | null = null;
+  let openedDocId: string | null = null;
   const component = await mount(
     <AnnotationMapTestWrapper
       pins={[COUNTRY_PIN, CITY_PIN]}
@@ -46,6 +47,9 @@ test("AnnotationMap click on a pin opens the side panel with document links", as
       height={MAP_TEST_HEIGHT}
       onPinClick={(pin) => {
         clicked = pin.canonicalName;
+      }}
+      onSelectDocument={(docId) => {
+        openedDocId = docId;
       }}
     />
   );
@@ -62,6 +66,16 @@ test("AnnotationMap click on a pin opens the side panel with document links", as
 
   // The onPinClick callback fired with the selected pin.
   await expect.poll(() => clicked).toBe("France");
+
+  // Activating a sample-document link bubbles the document id to the caller.
+  await docButtons.first().click();
+  await expect.poll(() => openedDocId).toBe(COUNTRY_PIN.sampleDocumentIds[0]);
+
+  // The Close button dismisses the side panel (assert on the doc links, which
+  // only exist inside the panel — marker alt text contains the document count,
+  // so a text assertion would false-match the still-present marker).
+  await component.getByRole("button", { name: "Close" }).click();
+  await expect(docButtons).toHaveCount(0);
 });
 
 test("AnnotationMap zoom band selects city pins at high zoom", async ({

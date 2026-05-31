@@ -43,6 +43,14 @@ export interface AnnotationMapProps {
   onBoundsChange?: (bbox: MapBBox, zoom: number) => void;
   /** Fired when a pin is selected (click or keyboard). */
   onPinClick?: (pin: GeographicAnnotationPin) => void;
+  /**
+   * Fired when the user activates one of a pin's sample-document links,
+   * receiving the document's Relay global id. The map is route-agnostic: the
+   * caller resolves the id to a destination (e.g. the canonical document URL),
+   * so the same component serves Discover (#1820) and Corpus Home (#1821).
+   * Sample-document links render only when this handler is supplied.
+   */
+  onSelectDocument?: (documentId: string) => void;
   /** Initial map centre [lat, lng]. */
   center?: [number, number];
   /** Initial map zoom. */
