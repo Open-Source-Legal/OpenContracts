@@ -385,9 +385,7 @@ class ResearchReportService(BaseService):
                 if doc_ids:
                     from opencontractserver.documents.models import Document
 
-                    report.source_documents.set(
-                        Document.objects.filter(pk__in=doc_ids)
-                    )
+                    report.source_documents.set(Document.objects.filter(pk__in=doc_ids))
 
     # ------------------------------------------------------------------
     # Cancel
