@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP knowledge-tool UX — make a corpus usable as a low-friction tool**
+  (`opencontractserver/mcp/`, issues #1858–#1862). A hands-on evaluation of the
+  live public MCP interface found search returned nothing, full text crashed on
+  cloud storage (fixed separately in the `read_field_file_text` work), and
+  annotations were not content-searchable. This initiative addresses the
+  remaining gaps:
+  - **`search_corpus` → unified passage + block feed** (#1858, #1862): now
+    searches **annotation** embeddings (passages) instead of document-level
+    vectors, and merges in **`OC_SUBTREE_GROUP` relationship "blocks"**
+    (ancestor + full descendant subtree) from `CoreRelationshipVectorStore`.
+    Each result is tagged `type: "passage" | "block"`. New `granularity`
+    (`passage`/`block`/`both`) and `structural` (tri-state) params. Fixes the
+    prior bug where an empty vector result returned immediately and the text
+    fallback was dead code — the fallback now runs whenever the vector path is
+    empty/absent/errors (`opencontractserver/mcp/tools.py`).
+  - **`list_annotations` content search** (#1859): new `text_contains` and
+    `structural` filters, results ordered by `(page, id)`, and a leaner payload
+    (`format_annotation` drops `color`/`created`; keeps the `structural` flag).
+  - **`list_relationships` tool** (#1862): new tool returning labeled
+    `source → target` edges via `RelationshipService`, filterable by
+    `structural`/`label_text`, document- or corpus-scoped. Adds
+    `RelationshipService.get_corpus_relationships`
+    (`opencontractserver/annotations/services/relationship_service.py`).
+  - **`get_document_text` bounded slicing** (#1860): new `char_offset`/`max_chars`
+    params with `next_offset`/`truncated`/`total_chars` in the response, so long
+    documents no longer blow the context window in one call.
+  - **Polish** (#1861): `get_corpus_info` now surfaces only labels actually used
+    on the corpus's annotations (not the full seeded label set); not-found
+    errors (`Document`/`Corpus.DoesNotExist`) are humanized into actionable
+    messages that name the remediation tool instead of leaking raw Django
+    exception strings; tool descriptions sharpened. New size constants in
+    `opencontractserver/constants/mcp.py`.
+  - Tests: `opencontractserver/mcp/tests/test_mcp.py` (passage/block feed,
+    granularity, structural filter, annotation content search, relationship
+    enumeration, in-use labels, error formatting). Design + plan:
+    `docs/development/2026-05-31-mcp-knowledge-tool-ux-design.md`.
+
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB
