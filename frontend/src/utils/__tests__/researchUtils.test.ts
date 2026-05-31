@@ -43,6 +43,13 @@ describe("isTerminalResearchStatus()", () => {
     expect(isTerminalResearchStatus(JobStatus.Queued)).toBe(false);
     expect(isTerminalResearchStatus(JobStatus.Running)).toBe(false);
     expect(isTerminalResearchStatus(undefined)).toBe(false);
+    expect(isTerminalResearchStatus(null)).toBe(false);
+  });
+
+  it("treats an unrecognized status as terminal (so polling stops)", () => {
+    // A future backend state the frontend doesn't know about must not keep the
+    // detail view polling forever; only Queued/Running/not-set are non-terminal.
+    expect(isTerminalResearchStatus("SOME_FUTURE_STATE")).toBe(true);
   });
 });
 

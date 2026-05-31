@@ -47,7 +47,10 @@ import {
   CancelResearchReportInput,
   CancelResearchReportOutput,
 } from "../graphql/mutations";
-import { RESEARCH_REPORT_POLL_INTERVAL_MS } from "../assets/configurations/constants";
+import {
+  RESEARCH_REPORT_POLL_INTERVAL_MS,
+  RESEARCH_REPORT_UPDATE_PERMISSION,
+} from "../assets/configurations/constants";
 import {
   getResearchStatus,
   formatResearchDate,
@@ -517,7 +520,7 @@ export const ResearchReportDetail: React.FC = () => {
   const statusProps = report ? getResearchStatus(status) : null;
   const canCancel =
     !isTerminal &&
-    Boolean(report?.myPermissions?.includes("update_researchreport"));
+    Boolean(report?.myPermissions?.includes(RESEARCH_REPORT_UPDATE_PERMISSION));
 
   const citations = report?.citations ?? [];
   const sourceDocs = report?.fullSourceDocumentList ?? [];

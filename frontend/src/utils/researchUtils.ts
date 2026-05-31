@@ -69,15 +69,21 @@ export function getResearchStatus(
   }
 }
 
-/** True for terminal states (no further progress expected). */
+/**
+ * True for terminal states (no further progress expected).
+ *
+ * Only the not-yet-set case (null/undefined) and the explicitly non-terminal
+ * states (Queued, Running) return false. Any *unrecognized* status — e.g. a
+ * new backend state shipped before the frontend catches up — is treated as
+ * terminal so the detail view never polls indefinitely on a status it cannot
+ * interpret. (getResearchStatus falls back to a "Queued" *label* for display,
+ * but polling must key off this function, not that cosmetic fallback.)
+ */
 export function isTerminalResearchStatus(
   status: string | null | undefined
 ): boolean {
-  return (
-    status === JobStatus.Completed ||
-    status === JobStatus.Failed ||
-    status === JobStatus.Cancelled
-  );
+  if (status == null) return false;
+  return status !== JobStatus.Queued && status !== JobStatus.Running;
 }
 
 /** Format an ISO date string to e.g. "Jan 15, 2024". */

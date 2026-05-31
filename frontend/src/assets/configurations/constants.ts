@@ -260,6 +260,11 @@ export const RESEARCH_STATUS_COLORS = {
 // stepCount/lastProgressAt and stops on the terminal WebSocket notification.
 export const RESEARCH_REPORT_POLL_INTERVAL_MS = 5000;
 
+// Guardian object-permission string that gates cancelling a research report.
+// Centralised here (not inlined) so a typo can't silently disable Cancel for
+// every user and any future check on the same model stays consistent.
+export const RESEARCH_REPORT_UPDATE_PERMISSION = "update_researchreport";
+
 // Max research prompt length. Mirrors the backend cap
 // (opencontractserver/research/constants.py MAX_RESEARCH_PROMPT_CHARS) so the
 // UI rejects over-long prompts before the round-trip.
