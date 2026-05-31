@@ -102,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`resolve_version_history` is scoped to `visible_to_user`** (`config/graphql/document_types.py`) — it no longer leaks version metadata (creator, hash, size) for documents hidden from the caller, matching `resolve_corpus_versions`.
   - **`get_document_folder` tolerates more than one active path** (`services/folder_documents.py`) — switched from `.get()` (could raise `MultipleObjectsReturned`, HTTP 500) to a deterministic `.order_by("-created").first()`.
   - **`get_filesystem_at_time` is scoped to the target corpus** (`documents/versioning.py`) — the outer query was an unscoped full-table scan relying solely on a correlated subquery; it now filters `corpus=corpus`.
+  - **CI green-up follow-up** (`opencontractserver/tests/test_caml_review_tools.py`): the new leading-`/` precondition on `CorpusPathService.disambiguate_path` exposed a test-only misuse — the `_create_caml_doc` fixture built the corpus's `Readme.CAML` article through `corpus.add_document(path="Readme.CAML")`. `add_document` is the disambiguating *new-independent-document* API and now (correctly) rejects the reserved, slashless CAML sentinel path. The fixture now mirrors the production canonical write path (`documents.versioning.import_document` with `path=CAML_ARTICLE_TITLE`, version-up semantics, no disambiguation), matching `backfill_caml_doc_for_corpus` and the CAML edit tool. Production was never affected — it never routes the CAML path through `add_document`/`disambiguate_path`.
 
 ### Security
 
