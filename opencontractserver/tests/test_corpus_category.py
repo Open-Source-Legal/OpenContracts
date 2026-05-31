@@ -19,7 +19,13 @@ from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
+from opencontractserver.constants.corpus_categories import (
+    DEFAULT_CATEGORY_COLOR,
+    DEFAULT_CATEGORY_ICON,
+    MAX_CATEGORY_DESCRIPTION_LENGTH,
+)
 from opencontractserver.corpuses.models import Corpus, CorpusCategory
+from opencontractserver.corpuses.services import CorpusCategoryService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -978,8 +984,11 @@ class TestCorpusCategoryManagementMutations(TestCase):
         self.assertIsNone(result.get("errors"), result.get("errors"))
         payload = result["data"]["createCorpusCategory"]
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["obj"]["icon"], "folder")
-        self.assertEqual(payload["obj"]["color"], "#3B82F6")
+        # Pull the expected defaults from the constants the service uses, so a
+        # change to the defaults can't leave this test silently asserting a
+        # stale value.
+        self.assertEqual(payload["obj"]["icon"], DEFAULT_CATEGORY_ICON)
+        self.assertEqual(payload["obj"]["color"], DEFAULT_CATEGORY_COLOR)
         self.assertEqual(payload["obj"]["sortOrder"], 0)
 
     def test_regular_user_cannot_create_category(self):
@@ -1048,6 +1057,28 @@ class TestCorpusCategoryManagementMutations(TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("color", payload["message"].lower())
         self.assertFalse(CorpusCategory.objects.filter(name="BadColor").exists())
+
+    def test_create_rejects_overly_long_description(self):
+        client = self._client_for(self.superuser)
+        mutation = """
+            mutation Create($name: String!, $description: String) {
+                createCorpusCategory(name: $name, description: $description) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = client.execute(
+            mutation,
+            variables={
+                "name": "LongDesc",
+                "description": "x" * (MAX_CATEGORY_DESCRIPTION_LENGTH + 1),
+            },
+        )
+        payload = result["data"]["createCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("description", payload["message"].lower())
+        self.assertFalse(CorpusCategory.objects.filter(name="LongDesc").exists())
 
     # ------------------------------------------------------------------ #
     # Update
@@ -1123,6 +1154,42 @@ class TestCorpusCategoryManagementMutations(TestCase):
         payload = result["data"]["updateCorpusCategory"]
         self.assertFalse(payload["ok"])
         self.assertIn("not found", payload["message"].lower())
+
+    def test_update_with_no_fields_is_noop(self):
+        """An update supplying no fields must not issue a DB write.
+
+        All-``None`` kwargs would otherwise still fire a ``save`` that only
+        bumps ``modified``; the service short-circuits to a successful no-op
+        instead. ``assertNumQueries(0)`` proves nothing touched the DB.
+        """
+        with self.assertNumQueries(0):
+            result = CorpusCategoryService.update_category(
+                self.superuser, self.existing
+            )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.value, self.existing)
+
+    def test_update_rejects_overly_long_description(self):
+        client = self._client_for(self.superuser)
+        gid = to_global_id("CorpusCategoryType", self.existing.id)
+        mutation = """
+            mutation Update($id: ID!, $description: String) {
+                updateCorpusCategory(id: $id, description: $description) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = client.execute(
+            mutation,
+            variables={
+                "id": gid,
+                "description": "x" * (MAX_CATEGORY_DESCRIPTION_LENGTH + 1),
+            },
+        )
+        payload = result["data"]["updateCorpusCategory"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("description", payload["message"].lower())
 
     # ------------------------------------------------------------------ #
     # Delete

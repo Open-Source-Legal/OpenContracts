@@ -27,7 +27,7 @@ class DocumentRelationshipsQueryTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create test corpus
         self.corpus = Corpus.objects.create(
@@ -130,7 +130,7 @@ class DocumentRelationshipsQueryTestCase(TestCase):
             }
         """ % to_global_id("DocumentRelationshipType", self.relationship.id)
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         data = result["data"]["documentRelationship"]
 
@@ -171,7 +171,7 @@ class DocumentRelationshipsQueryTestCase(TestCase):
             }
         """ % to_global_id("DocumentRelationshipType", self.note.id)
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         data = result["data"]["documentRelationship"]
 
@@ -206,7 +206,7 @@ class DocumentRelationshipsQueryTestCase(TestCase):
             to_global_id("CorpusType", self.corpus.id),
         )
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         relationships = result["data"]["document"]["allDocRelationships"]
 
@@ -263,7 +263,7 @@ class DocumentRelationshipsQueryTestCase(TestCase):
             }
         """
         # Mixed case input — the filter uses `iexact` so "PARENT" must match.
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, variables={"corpusId": corpus_gid, "labelText": "PARENT"}
         )
         self.assertIsNone(result.get("errors"))
@@ -325,7 +325,7 @@ class DocumentRelationshipsQueryTestCase(TestCase):
                 }
             }
         """
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "corpusId": corpus_gid,

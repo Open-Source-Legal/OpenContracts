@@ -41,6 +41,35 @@ def base_64_encode_bytes(doc_bytes: bytes):
     return base64_encoded_message
 
 
+class _TextReadableFieldFile(typing.Protocol):
+    """Structural type for the ``FieldFile.open()`` slice this helper needs."""
+
+    def open(self, mode: str = ...) -> typing.ContextManager[typing.IO[typing.Any]]: ...
+
+
+def read_field_file_text(
+    field_file: _TextReadableFieldFile,
+    *,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> str:
+    """Read a Django ``FieldFile`` as text, normalizing bytes-returning backends to ``str``.
+
+    Cloud storage backends (S3Boto3Storage, GoogleCloudStorage via
+    django-storages #382) return ``bytes`` from ``open("r").read()`` even in
+    text mode, while local ``FileSystemStorage`` returns ``str``. Callers that
+    then ``json.dumps`` the content crash on the bytes path. This helper
+    centralizes the decode so every call site behaves identically regardless of
+    backend. ``errors`` is forwarded to ``bytes.decode`` (default ``strict``;
+    pass ``"replace"`` for best-effort/agent-facing reads).
+    """
+    with field_file.open("r") as f:
+        content = f.read()
+    if isinstance(content, bytes):
+        content = content.decode(encoding, errors=errors)
+    return content
+
+
 def convert_hex_to_rgb_tuple(color: str) -> tuple[int, ...]:
     color_tuple = tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
     return color_tuple
