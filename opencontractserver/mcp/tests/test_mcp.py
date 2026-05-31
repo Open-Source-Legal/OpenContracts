@@ -5854,8 +5854,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         """In Auth0 mode the 401 must point Claude Desktop / Cursor at the
         OAuth protected-resource metadata document so they can drive the
         full Authorization-Code + PKCE flow without a preconfigured token."""
-        from django.test import override_settings
-
         scope = {
             "type": "http",
             "path": "/mcp",
@@ -5882,8 +5880,6 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
 
     def test_www_authenticate_rejects_malformed_forwarded_proto(self):
         """Only http/https may appear as the advertised metadata scheme."""
-        from django.test import override_settings
-
         from opencontractserver.mcp.server import _build_www_authenticate_header
 
         scope = {
@@ -6001,6 +5997,384 @@ class MCPAsgiAppAuthTest(_MCPAsyncRunMixin, TestCase):
         # error, but the auth layer must not 401. Anything else is fine.
         self.assertTrue(starts, "Expected a response from the ASGI app")
         self.assertNotEqual(starts[0]["status"], 401)
+
+    def test_missing_token_on_authed_endpoint_returns_401_challenge(self):
+        """/mcp/me must challenge an unauthenticated request so interactive
+        clients (Claude, ChatGPT) start the OAuth flow — unlike public /mcp,
+        which serves anonymous callers."""
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        bodies = [m for m in messages if m.get("type") == "http.response.body"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        payload = json.loads(bodies[0]["body"])
+        self.assertIn("Authentication required", payload.get("error", ""))
+
+    def test_missing_token_on_public_endpoint_is_not_challenged(self):
+        """The public /mcp endpoint must NOT 401 an anonymous request; it
+        falls through to public-only access."""
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        # Whatever the downstream manager returns for a disconnected body, the
+        # auth layer must never have issued a 401 challenge.
+        self.assertTrue(
+            all(s["status"] != 401 for s in starts),
+            "Anonymous request to public /mcp must not be challenged",
+        )
+
+    def test_authed_endpoint_401_advertises_path_based_metadata_under_auth0(self):
+        """The /mcp/me challenge must point at the RFC 9728 path-based
+        protected-resource metadata whose ``resource`` matches the endpoint."""
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+                (b"x-forwarded-proto", b"https"),
+            ],
+        }
+        with override_settings(USE_AUTH0=True, AUTH0_DOMAIN="example.auth0.com"):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(starts[0]["status"], 401)
+        www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode("ascii")
+        self.assertIn(
+            'resource_metadata="https://opencontracts.test'
+            '/.well-known/oauth-protected-resource/mcp/me"',
+            www_auth,
+        )
+
+    def test_cors_preflight_allows_listed_origin(self):
+        """An OPTIONS preflight from an allow-listed origin (e.g. Claude) gets
+        a 204 echoing the origin so the browser permits the real request."""
+        scope = {
+            "type": "http",
+            "path": "/mcp/",
+            "method": "OPTIONS",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"access-control-request-method", b"POST"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(starts[0]["status"], 204)
+        headers = dict(starts[0]["headers"])
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_cors_preflight_rejects_unlisted_origin(self):
+        """A preflight from an origin that is not allow-listed gets no
+        Access-Control-Allow-Origin, so the browser blocks it."""
+        scope = {
+            "type": "http",
+            "path": "/mcp/",
+            "method": "OPTIONS",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://evil.example"),
+                (b"access-control-request-method", b"POST"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        headers = dict(starts[0]["headers"])
+        self.assertNotIn(b"access-control-allow-origin", headers)
+
+    def test_authed_endpoint_401_carries_cors_origin_for_allowlisted_origin(self):
+        """A cross-origin request from an allow-listed browser client (Claude)
+        to /mcp/me WITHOUT a token must 401 AND carry Access-Control-Allow-Origin
+        so the browser can read the WWW-Authenticate challenge and start OAuth.
+        """
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_invalid_token_401_carries_cors_origin_for_allowlisted_origin(self):
+        """Token-refresh path: an allow-listed browser client (Claude) that
+        sends an EXPIRED/invalid JWT must get the 401 challenge WITH
+        Access-Control-Allow-Origin, so the browser can read WWW-Authenticate
+        and re-run OAuth. The existing CORS-on-401 test only exercised the
+        missing-token branch; this pins the invalid-token branch, which is the
+        path a client actually hits after its token expires.
+        """
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"authorization", b"Bearer not-a-real-token"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        headers = dict(starts[0]["headers"])
+        self.assertIn(b"www-authenticate", headers)
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_rate_limited_429_carries_cors_origin_for_allowlisted_origin(self):
+        """A rate-limited (429) response to an allow-listed browser client must
+        still carry Access-Control-Allow-Origin. The send-wrapping happens
+        before the rate-limit check, so a browser client can read the error
+        body / Retry-After instead of being blocked by the CORS preflight check.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"origin", b"https://claude.ai"),
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]), patch(
+            "opencontractserver.mcp.server.check_mcp_rate_limit",
+            new=AsyncMock(return_value=(True, "rate limited", 9)),
+        ):
+            messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 429)
+        headers = dict(starts[0]["headers"])
+        self.assertEqual(
+            headers.get(b"access-control-allow-origin"), b"https://claude.ai"
+        )
+
+    def test_cors_vary_folds_into_existing_vary_header(self):
+        """When a downstream response already carries a ``Vary`` (e.g.
+        ``Accept-Encoding``), the CORS wrapper must fold ``Origin`` into it
+        rather than dropping ``Vary: Origin`` on the membership check — otherwise
+        a CDN could serve a CORS-stripped cached response cross-origin."""
+        from opencontractserver.mcp.server import (
+            _cors_actual_headers,
+            _wrap_send_with_cors,
+        )
+
+        captured: list = []
+
+        async def downstream_send(message):
+            captured.append(message)
+
+        cors_headers = _cors_actual_headers("https://claude.ai")
+        self.assertTrue(cors_headers, "fixture origin must be allow-listed")
+
+        async def run_test():
+            with override_settings(MCP_CORS_ALLOWED_ORIGINS=["https://claude.ai"]):
+                cors = _cors_actual_headers("https://claude.ai")
+                wrapped = _wrap_send_with_cors(downstream_send, cors)
+                await wrapped(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        # Downstream already varies on Accept-Encoding.
+                        "headers": [[b"vary", b"Accept-Encoding"]],
+                    }
+                )
+
+        self._run(run_test())
+
+        headers = captured[0]["headers"]
+        vary_values = [h[1] for h in headers if h[0].lower() == b"vary"]
+        # Exactly one Vary header, folding in Origin (not a second Vary line).
+        self.assertEqual(len(vary_values), 1)
+        self.assertIn(b"Accept-Encoding", vary_values[0])
+        self.assertIn(b"Origin", vary_values[0])
+
+    def test_valid_bearer_token_on_authed_endpoint_does_not_401(self):
+        """A valid JWT on /mcp/me must reach downstream, not the 401 branch."""
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.server import create_mcp_asgi_app
+
+        user = User.objects.create_user(
+            username="mcp_me_owner",
+            email="mcpme@test.com",
+            password="testpass123",
+        )
+
+        received: list = []
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b"{}"}
+
+        async def mock_send(message):
+            received.append(message)
+
+        scope = {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer valid-token"),
+                (b"content-type", b"application/json"),
+            ],
+            "client": ("127.0.0.1", 12345),
+        }
+
+        call_count = {"n": 0}
+
+        def fake_verifier(token):
+            call_count["n"] += 1
+            assert token == "valid-token"
+            return user
+
+        async def run_test():
+            with patch(
+                "opencontractserver.mcp.server.get_user_from_jwt_token",
+                side_effect=fake_verifier,
+            ):
+                app = create_mcp_asgi_app()
+                await app(scope, mock_receive, mock_send)
+
+        self._run(run_test())
+
+        self.assertEqual(call_count["n"], 1)
+        starts = [m for m in received if m.get("type") == "http.response.start"]
+        self.assertTrue(starts, "Expected a response from the ASGI app")
+        self.assertNotEqual(starts[0]["status"], 401)
+
+    def test_trailing_slash_authed_endpoint_without_token_returns_401(self):
+        """/mcp/me/ (trailing slash) must also challenge, confirming the
+        rstrip normalization in _path_requires_auth."""
+        scope = {
+            "type": "http",
+            "path": "/mcp/me/",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"opencontracts.test"),
+            ],
+        }
+        messages = self._run_app(scope)
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["status"], 401)
+        self.assertIn(b"www-authenticate", dict(starts[0]["headers"]))
+
+    def _scope_with_attacker_host(self):
+        return {
+            "type": "http",
+            "path": "/mcp/me",
+            "method": "POST",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"host", b"attacker.example"),
+            ],
+        }
+
+    def test_configured_base_url_preferred_over_host_in_challenge(self):
+        """A valid MCP_PUBLIC_BASE_URL is preferred over the (untrusted) Host
+        header in the 401 challenge and yields a well-formed resource_metadata
+        URL. MCP bypasses ALLOWED_HOSTS, so the configured value must win over
+        whatever Host an attacker can spoof."""
+        with override_settings(
+            USE_AUTH0=True,
+            AUTH0_DOMAIN="example.auth0.com",
+            MCP_PUBLIC_BASE_URL="https://configured.test",
+        ):
+            messages = self._run_app(self._scope_with_attacker_host())
+        starts = [m for m in messages if m.get("type") == "http.response.start"]
+        self.assertEqual(starts[0]["status"], 401)
+        www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode("ascii")
+        # Configured base URL wins over the Host header.
+        self.assertIn("https://configured.test", www_auth)
+        self.assertNotIn("attacker.example", www_auth)
+        # Path-based metadata for the authed endpoint.
+        self.assertIn("/.well-known/oauth-protected-resource/mcp/me", www_auth)
+        # resource_metadata value is a single well-formed quoted-string.
+        self.assertRegex(www_auth, r'resource_metadata="[^"]+"$')
+
+    def test_malformed_configured_base_url_degrades_to_realm_only(self):
+        """A misconfigured MCP_PUBLIC_BASE_URL that survives quote/CR/LF
+        stripping but is not a valid ``scheme://host`` (a header-injection
+        attempt, or a stray ``;junk`` typo) is dropped entirely: the challenge
+        degrades to a realm-only ``Bearer`` value rather than emitting a mangled
+        URL or — critically — falling back to the untrusted request Host."""
+        for bad_value in (
+            'https://configured.test"\r\nx-injected: y',
+            "https://configured.test;junk",
+        ):
+            with self.subTest(bad_value=bad_value):
+                with override_settings(
+                    USE_AUTH0=True,
+                    AUTH0_DOMAIN="example.auth0.com",
+                    MCP_PUBLIC_BASE_URL=bad_value,
+                ):
+                    messages = self._run_app(self._scope_with_attacker_host())
+                starts = [m for m in messages if m.get("type") == "http.response.start"]
+                self.assertEqual(starts[0]["status"], 401)
+                www_auth = dict(starts[0]["headers"])[b"www-authenticate"].decode(
+                    "ascii"
+                )
+                # Degraded to realm-only: no resource_metadata, no attacker Host,
+                # no header-structure-breaking characters.
+                self.assertEqual(www_auth, 'Bearer realm="opencontracts"')
+                self.assertNotIn("attacker.example", www_auth)
+                self.assertNotIn("\r", www_auth)
+                self.assertNotIn("\n", www_auth)
 
 
 class MCPResourceAuthTest(_MCPAsyncRunMixin, TransactionTestCase):

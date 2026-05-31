@@ -668,7 +668,7 @@ def sitemap_xml(request: HttpRequest) -> HttpResponse:
 # ---------------------------------------------------------------------------
 # .well-known/mcp.json
 # ---------------------------------------------------------------------------
-def _build_mcp_auth_metadata(base_url: str) -> dict | None:
+def _build_mcp_auth_metadata(base_url: str, resource_suffix: str = "") -> dict | None:
     """Return MCP-discovery ``authentication`` block, or ``None``.
 
     When ``USE_AUTH0=True`` the block points clients at the OAuth 2.1
@@ -678,12 +678,18 @@ def _build_mcp_auth_metadata(base_url: str) -> dict | None:
     there is no spec-compliant OAuth flow to advertise, so the value
     stays ``None`` — clients fall back to whatever bespoke token the
     operator hands out.
+
+    ``resource_suffix`` selects the RFC 9728 path-based metadata document
+    (e.g. ``/mcp/me``) whose ``resource`` matches the endpoint URL; the
+    default empty suffix yields the root document for the public ``/mcp``.
     """
     if not getattr(settings, "USE_AUTH0", False):
         return None
     return {
         "type": "oauth2",
-        "metadataUrl": f"{base_url}/.well-known/oauth-protected-resource",
+        "metadataUrl": (
+            f"{base_url}/.well-known/oauth-protected-resource{resource_suffix}"
+        ),
     }
 
 
@@ -710,6 +716,24 @@ def well_known_mcp(request: HttpRequest) -> HttpResponse:
         }
     }
 
+    # Authenticated entrypoint — advertised only when an interactive OAuth
+    # authorization server (Auth0) is configured. Unlike the public endpoint,
+    # /mcp/me challenges unauthenticated callers with a 401 so Claude/ChatGPT
+    # begin the sign-in flow; once signed in the caller also reaches private
+    # resources they own or are shared on.
+    if getattr(settings, "USE_AUTH0", False):
+        servers["cite-authenticated"] = {
+            "url": f"{base_url}/mcp/me/",
+            "description": (
+                "Authenticated access to the cite citation graph. Sign in to "
+                "also reach private corpuses, documents, annotations, and "
+                "threads you own or are shared on."
+            ),
+            "transport": "streamable-http",
+            "authentication": _build_mcp_auth_metadata(base_url, "/mcp/me"),
+            "rateLimit": RATE_LIMIT_DISPLAY,
+        }
+
     # Add corpus-scoped servers for each public corpus
     for c in corpuses:
         slug = c["slug"]
@@ -733,21 +757,35 @@ def well_known_mcp(request: HttpRequest) -> HttpResponse:
 # ---------------------------------------------------------------------------
 # .well-known/oauth-protected-resource  (RFC 9728)
 # ---------------------------------------------------------------------------
+# MCP resources we publish RFC 9728 metadata for. Anything else 404s so we
+# never advertise an authorization server for an arbitrary path. ``/mcp/me``
+# mirrors ``opencontractserver.mcp.server.MCP_AUTHED_PATH`` (kept as a literal
+# here to avoid importing the heavy MCP server module into discovery views).
+# ``frozenset`` (not a tuple): this is used purely for membership tests below,
+# so set semantics make the intent explicit and signal that order is irrelevant.
+_OAUTH_PROTECTED_RESOURCES: frozenset[str] = frozenset(("/mcp", "/mcp/me"))
+
+
 @require_GET
 @cache_page(DISCOVERY_CACHE_SECONDS)
 def well_known_oauth_protected_resource(
     request: HttpRequest,
+    resource_path: str = "",
 ) -> HttpResponse:
-    """OAuth 2.0 Protected Resource Metadata for the MCP server.
+    """OAuth 2.0 Protected Resource Metadata for the MCP server (RFC 9728).
 
-    Implements the discovery surface required by the MCP 2025-06-18
-    Authorization spec: when an interactive MCP client (Claude Desktop,
-    Cursor, etc.) hits ``/mcp/`` without a token, the 401 response
-    carries ``WWW-Authenticate: Bearer resource_metadata="<this URL>"``.
-    The client then fetches this document, pulls the
-    ``authorization_servers`` entry, fetches that AS's standard metadata
-    (``/.well-known/openid-configuration`` for Auth0), and drives the
-    full Authorization-Code + PKCE flow on the user's behalf.
+    Implements the discovery surface required by the MCP Authorization spec:
+    when an interactive MCP client (Claude web/desktop, ChatGPT, Cursor) hits
+    an authenticated MCP endpoint without a token, the 401 response carries
+    ``WWW-Authenticate: Bearer resource_metadata="<this URL>"``. The client
+    then fetches this document, pulls the ``authorization_servers`` entry,
+    fetches that AS's standard metadata (``/.well-known/openid-configuration``
+    for Auth0), and drives the full Authorization-Code + PKCE flow.
+
+    Served at both the root (``/.well-known/oauth-protected-resource``, the
+    canonical ``/mcp`` resource) and the RFC 9728 §3.1 path-based location
+    (``/.well-known/oauth-protected-resource/mcp/me``) so clients that derive
+    the metadata URL from the resource identifier resolve it too.
 
     Only emitted when ``USE_AUTH0=True``; non-Auth0 deployments have no
     spec-compliant authorization server to advertise and so respond 404.
@@ -766,9 +804,16 @@ def well_known_oauth_protected_resource(
         # rather than emitting metadata that points at "https:///".
         return HttpResponse(status=404)
 
+    # Map the optional RFC 9728 path suffix to a known resource. The empty
+    # (root) request describes the canonical ``/mcp`` resource.
+    stripped = resource_path.strip("/")
+    resource = f"/{stripped}" if stripped else "/mcp"
+    if resource not in _OAUTH_PROTECTED_RESOURCES:
+        return HttpResponse(status=404)
+
     base_url = _get_base_url(request)
     data = {
-        "resource": f"{base_url}/mcp",
+        "resource": f"{base_url}{resource}",
         "authorization_servers": [f"https://{auth0_domain}/"],
         "bearer_methods_supported": ["header"],
         "scopes_supported": ["openid", "profile", "email"],

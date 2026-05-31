@@ -5,12 +5,20 @@
 OpenContracts exposes a read-only [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for AI assistants to access **public** corpuses, documents, annotations, and discussion threads.
 
 **Endpoints**:
-- **Global** (all public corpuses): `POST /mcp/` or `GET /mcp/`
+- **Global** (all public corpuses, anonymous): `POST /mcp/` or `GET /mcp/`
+- **Authenticated** (public + your private resources): `POST /mcp/me/` or `GET /mcp/me/`
 - **Corpus-Scoped** (single corpus): `POST /mcp/corpus/{corpus_slug}/` or `GET /mcp/corpus/{corpus_slug}/`
 - **SSE** (deprecated): `GET /sse/`, `POST /sse/messages/`
 
-**Scope**: Public resources only (anonymous user visibility)
-**Auth**: None required (public data only)
+**Scope**: `/mcp/` and `/mcp/corpus/...` expose public resources to anonymous
+callers; `/mcp/me/` requires sign-in and additionally exposes private resources
+the authenticated user owns or is shared on. A valid `Authorization: Bearer
+<JWT>` is honored on *any* endpoint.
+
+**Auth**: Optional on `/mcp/` (anonymous = public only). Required on `/mcp/me/`,
+which returns `401 + WWW-Authenticate` to unauthenticated callers so interactive
+clients (Claude web/desktop, ChatGPT) start the OAuth 2.1 sign-in flow. See
+[Authentication](#authentication) below.
 
 ### Claude Desktop Quick Start
 
@@ -250,18 +258,63 @@ python -m opencontractserver.mcp.server
 
 ---
 
+## Authentication
+
+The server accepts an OAuth 2.1 / JWT **Bearer** token on the standard
+`Authorization` header and validates it through the same pipeline as the rest of
+the app (`config/jwt_utils.py` → Auth0 RS256/JWKS when `USE_AUTH0=True`,
+otherwise the local `graphql_jwt` HS256 token).
+
+- **`/mcp/` (and `/mcp/corpus/...`)** — auth is *optional*. No token ⇒ anonymous
+  (public resources only). A valid token ⇒ that user's private resources are
+  also visible.
+- **`/mcp/me/`** — auth is *required*. An unauthenticated request gets `401`
+  with a `WWW-Authenticate: Bearer resource_metadata="…"` header (RFC 6750 /
+  RFC 9728). Interactive MCP clients follow that pointer to
+  `/.well-known/oauth-protected-resource[/mcp/me]`, discover the authorization
+  server (Auth0), and run Authorization-Code + PKCE — no preconfigured token
+  needed. **Register `/mcp/me/` as the server URL in Claude web/desktop or
+  ChatGPT to get the "Connect / Sign in" prompt.**
+
+### Discovery endpoints
+
+| URL | Purpose |
+|-----|---------|
+| `/.well-known/mcp.json` | Lists the MCP servers (incl. `cite-authenticated` when Auth0 is on) |
+| `/.well-known/oauth-protected-resource` | RFC 9728 metadata for the canonical `/mcp` resource |
+| `/.well-known/oauth-protected-resource/mcp/me` | RFC 9728 path-based metadata for the authed resource |
+
+### Auth0 configuration notes
+
+For the interactive flow to complete end-to-end, the access token Auth0 issues
+must validate here:
+
+- The Auth0 **API Identifier (audience)** must equal `AUTH0_API_AUDIENCE` — the
+  server validates `aud` on every token. Map the advertised resource to that API
+  so the RFC 8707 `resource`/`audience` the client sends yields a JWT (not an
+  opaque token).
+- Enable **Dynamic Client Registration** on the tenant — Claude/ChatGPT register
+  themselves on the fly (RFC 7591).
+- Set `MCP_PUBLIC_BASE_URL` (e.g. `https://contracts.opensource.legal`) so the
+  challenge advertises a trusted absolute URL rather than one derived from the
+  request `Host` (MCP bypasses `ALLOWED_HOSTS`).
+- Browser clients / the MCP Inspector additionally need the calling origin in
+  `MCP_CORS_ALLOWED_ORIGINS` (defaults to Claude, ChatGPT, and the Inspector).
+
 ## Security Model
 
-- **Read-only**: No mutations, no writes
-- **Public only**: Uses `AnonymousUser` for all permission checks
+- **Read-mostly**: the only write tool (`create_thread_message`) enforces
+  authentication and per-resource permissions inside the tool body
+- **Permission-filtered**: anonymous callers resolve through `AnonymousUser`;
+  authenticated callers see only resources they own or are shared on
 - **Slug-based**: All identifiers are URL-safe slugs (no internal IDs exposed)
-- **No auth required**: Only public resources are accessible
+- **Bearer auth**: optional on `/mcp/`, required on `/mcp/me/` (see above)
 
 ---
 
 ## Limitations
 
-- No authentication (future: JWT/API key support for private resources)
-- No write operations (by design)
 - No streaming of large documents (text returned in full)
 - Semantic search requires corpus to have embeddings configured
+- Interactive OAuth sign-in requires `USE_AUTH0=True`; without it, `/mcp/me/`
+  still accepts a bearer token but cannot advertise an interactive login
