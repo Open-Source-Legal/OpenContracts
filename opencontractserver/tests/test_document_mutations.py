@@ -24,7 +24,7 @@ class DocumentMutationTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
     def test_upload_document_mutation(self):
         mutation = """
@@ -85,7 +85,7 @@ class DocumentMutationTestCase(TestCase):
             "opencontractserver.document_imports.services.set_permissions_for_obj_to_user"
         ):
             mock_import.return_value = (mock_doc, "created", mock_path)
-            result = self.client.execute(mutation, variables=variables)
+            result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["uploadDocument"]["ok"])
@@ -137,7 +137,7 @@ class DocumentMutationTestCase(TestCase):
             "customMeta": {},
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["uploadDocument"]["ok"])
@@ -185,7 +185,7 @@ class DocumentMutationTestCase(TestCase):
             "customMeta": {},
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["uploadDocument"]["ok"])
@@ -227,7 +227,7 @@ class DocumentMutationTestCase(TestCase):
             "description": "Updated Description",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         document.refresh_from_db()
 
@@ -244,7 +244,7 @@ class DocumentMutationTestCase(TestCase):
             "id": str(doc_id),
             "pdfFile": new_pdf_base64,
         }
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateDocument"]["ok"])
@@ -275,7 +275,7 @@ class DocumentMutationTestCase(TestCase):
             "id": str(doc_id),
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["deleteDocument"]["ok"])
@@ -327,7 +327,7 @@ class DocumentMutationTestCase(TestCase):
             "corpusId": corpus_gid,
             "newContent": "Initial summary content.",
         }
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         res_data = result["data"]["updateDocumentSummary"]
@@ -338,7 +338,7 @@ class DocumentMutationTestCase(TestCase):
 
         # --- Update existing summary ---
         variables["newContent"] = "Updated summary content."
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         res_data = result["data"]["updateDocumentSummary"]
@@ -348,7 +348,7 @@ class DocumentMutationTestCase(TestCase):
         self.assertEqual(res_data["obj"]["currentSummaryVersion"], 2)
 
         # --- No-change update should not create a new version ---
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
         self.assertIsNone(result.get("errors"))
         res_data = result["data"]["updateDocumentSummary"]
         self.assertTrue(res_data["ok"])

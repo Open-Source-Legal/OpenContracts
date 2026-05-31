@@ -9,7 +9,6 @@ Note: Backward compatibility layer has been removed. All corpus-document
 relationships must now use DocumentPath-based methods.
 """
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.files.base import ContentFile
 from django.db import connection
@@ -18,8 +17,7 @@ from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestCorpusDocumentMethods(TestCase):
@@ -463,7 +461,8 @@ class TestDocumentPathTypeCaching(TestCase):
         """Create a mock GraphQL info object with a context that supports attr caching."""
 
         class MockContext:
-            pass
+            user: User
+            context: "MockContext"
 
         ctx = MockContext()
         ctx.user = user
