@@ -993,7 +993,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
         # processor itself.
         #
         # The closure captures ``user_msg_id`` / ``llm_msg_id`` by Python
-        # late-binding, but both are resolved above (lines ~866-889) and
+        # late-binding, but both are resolved earlier in this function and
         # never reassigned afterwards: ``_stream_core`` handles a single
         # user turn, so the IDs are stable for the closure's lifetime and
         # every in-loop shrink in this turn tags the same message pair.

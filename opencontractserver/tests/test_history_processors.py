@@ -622,6 +622,7 @@ def test_non_string_tool_return_serialized_as_json():
     # The booleans/null are JSON tokens, never Python ``True``/``None``.
     assert "true" in part.content
     assert "True" not in part.content
+    assert "null" in part.content  # JSON null, not Python None
     assert "None" not in part.content
     # tool_call_id correlation preserved across the serialise+shrink.
     assert part.tool_call_id == "JSON"

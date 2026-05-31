@@ -104,7 +104,10 @@ def _stringify_tool_content(content: Any) -> str:
         return content
     try:
         return json.dumps(content, default=str)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
+        # RecursionError guards against a self-referential (circular) tool
+        # return — unlikely in practice, but the fallback intent is "never
+        # crash on exotic content", so catch it alongside the usual two.
         return str(content)
 
 
