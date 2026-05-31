@@ -5,6 +5,7 @@ import {
   COUNTRY_PIN,
   MAP_TEST_HEIGHT,
 } from "./annotationMapFixtures";
+import { docScreenshot } from "./utils/docScreenshot";
 
 test("AnnotationMap renders a country pin marker at the country zoom band", async ({
   mount,
@@ -63,6 +64,9 @@ test("AnnotationMap click on a pin opens the side panel with document links", as
   await expect(component).toContainText("12 documents");
   const docButtons = component.getByRole("button", { name: /Open document/ });
   await expect(docButtons).toHaveCount(2);
+
+  // Capture the map + open side panel for the docs.
+  await docScreenshot(page, "maps--annotation-map--pin-panel");
 
   // The onPinClick callback fired with the selected pin.
   await expect.poll(() => clicked).toBe("France");

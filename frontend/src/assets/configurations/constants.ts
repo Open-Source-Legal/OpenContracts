@@ -424,6 +424,10 @@ export const GEO_LABEL_TYPES = [
   GEO_LABEL_TYPE_CITY,
 ] as const;
 
+// The geographic label types as a union ("country" | "state" | "city"). Use
+// this instead of a bare ``string`` so pin/label typings stay compile-checked.
+export type GeoLabelType = (typeof GEO_LABEL_TYPES)[number];
+
 // OpenStreetMap raster tiles. No API key required.
 export const MAP_TILE_URL_TEMPLATE =
   "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -442,6 +446,13 @@ export const MAP_DEFAULT_HEIGHT = "600px";
 
 // leaflet.markercluster: max radius (px) within which markers are grouped.
 export const MAP_CLUSTER_MAX_RADIUS = 60;
+
+// URL query-param keys for persisting the map viewport (deep-link + refresh).
+// Centralised so the Discover map tab and the planned Corpus Home map (#1821)
+// share one set of names instead of diverging.
+export const MAP_LAT_PARAM = "lat";
+export const MAP_LNG_PARAM = "lng";
+export const MAP_ZOOM_PARAM = "z";
 
 // Zoom bands that select which geographic label type is shown. The server
 // returns pins for *all* label types; the client picks one band by zoom so the

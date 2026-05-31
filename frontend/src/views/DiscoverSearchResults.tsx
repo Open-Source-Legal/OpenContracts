@@ -57,6 +57,9 @@ import {
   FILTER_TAB_ICON_SIZE,
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
+  MAP_LAT_PARAM,
+  MAP_LNG_PARAM,
+  MAP_ZOOM_PARAM,
 } from "../assets/configurations/constants";
 import {
   DiscoverMapPanel,
@@ -273,11 +276,6 @@ const TAB_ITEMS: FilterTabItem[] = [
     icon: <MapPin size={FILTER_TAB_ICON_SIZE} />,
   },
 ];
-
-// URL query-param keys for persisting the map viewport (deep-link + refresh).
-const MAP_LAT_PARAM = "lat";
-const MAP_LNG_PARAM = "lng";
-const MAP_ZOOM_PARAM = "z";
 
 /** Read the map viewport from URL params, falling back to the map defaults. */
 const readMapViewFromParams = (params: URLSearchParams): DiscoverMapView => {
@@ -634,9 +632,11 @@ export const DiscoverSearchResults: React.FC = () => {
 
   // Map viewport restored from the URL on first render; the map panel keeps it
   // current via onViewChange. Read once — the map owns its viewport thereafter.
-  const initialMapView = useRef<DiscoverMapView>(
+  // useState's lazy initialiser is the idiomatic "freeze an initial value"
+  // (we never call the setter), clearer than reading `.current` off a useRef.
+  const [initialMapView] = useState<DiscoverMapView>(() =>
     readMapViewFromParams(searchParams)
-  ).current;
+  );
 
   // Persist the map viewport into the URL so deep links / refreshes restore it.
   // Functional setSearchParams form reads the latest params without a dep.

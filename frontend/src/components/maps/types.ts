@@ -6,6 +6,8 @@
  * any caller (Discover #1820, Corpus Home #1821) that fetches geographic pins.
  */
 
+import { GeoLabelType } from "../../assets/configurations/constants";
+
 /** A clustered geographic annotation pin, matching the GraphQL pin type. */
 export interface GeographicAnnotationPin {
   /** Canonical place name, e.g. "France" / "California". */
@@ -14,7 +16,7 @@ export interface GeographicAnnotationPin {
    * Place granularity as the lowercase literal "country" / "state" / "city"
    * (the value the backend returns — NOT the OC_* annotation-label text).
    */
-  labelType: string;
+  labelType: GeoLabelType;
   /** Latitude in WGS84. */
   lat: number;
   /** Longitude in WGS84. */

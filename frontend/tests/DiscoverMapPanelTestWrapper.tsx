@@ -1,6 +1,5 @@
 import React from "react";
-import { MockedResponse } from "@apollo/client/testing";
-import { MockedProvider } from "@apollo/client/testing";
+import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { DiscoverMapPanel } from "../src/components/maps/DiscoverMapPanel";
 import {

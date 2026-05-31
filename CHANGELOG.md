@@ -49,6 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `onPinClick` / fires the document-open callback / closes the panel, the
     zoom→label-type band selection picks the right pins, and the Discover panel
     renders pins from the mocked query.
+  - **Review follow-ups (#1820)**: added `keyArgs` for
+    `globalGeographicAnnotations` / `geographicAnnotationsForCorpus` in
+    `cache.ts` so panning isolates cache entries by `bbox`/`zoom`/`labelTypes`;
+    exported `GetGeographicAnnotationsForCorpus{Input,Output}` for the #1821
+    consumer; introduced the `GeoLabelType` union and typed
+    `GeographicAnnotationPin.labelType` with it; moved `pluralizeDocuments` into
+    `utils/formatters.ts` and the map URL-param keys into `constants.ts`;
+    swapped the deprecated marker `keypress` listener for `keydown`; froze the
+    initial map view with `useState` instead of `useRef().current`; and wrapped
+    the map's document-resolve navigation in a `try/catch`. Added a
+    `docScreenshot` for the pin side-panel state.
 - **Chunked (resumable) uploads for large files** — work around the 100 MB
   per-request body ceiling that upstream proxies (Cloudflare) impose on the
   document-import REST endpoints. The client slices a file into sub-100 MB

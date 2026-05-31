@@ -259,6 +259,15 @@ export const cache = new InMemoryCache({
           ContextAwareRelayStylePaginationKeyArgsFunction
         ),
         userFeedback: relayStylePagination(),
+        // Geographic-annotation pin queries are non-paginated arrays. keyArgs
+        // (field-argument names per CLAUDE.md §15) isolate cache entries by
+        // viewport so two rapid pans don't serve each other's bbox results.
+        globalGeographicAnnotations: {
+          keyArgs: ["bbox", "zoom", "labelTypes"],
+        },
+        geographicAnnotationsForCorpus: {
+          keyArgs: ["corpusId", "bbox", "zoom", "labelTypes"],
+        },
         pageAnnotations: {
           keyArgs: [
             "pdfPageInfo",

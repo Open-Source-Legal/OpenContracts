@@ -71,3 +71,12 @@ export interface GeographicAnnotationsInput {
 export interface GetGlobalGeographicAnnotationsOutput {
   globalGeographicAnnotations: GeographicAnnotationPin[];
 }
+
+export interface GetGeographicAnnotationsForCorpusInput
+  extends GeographicAnnotationsInput {
+  corpusId: string;
+}
+
+export interface GetGeographicAnnotationsForCorpusOutput {
+  geographicAnnotationsForCorpus: GeographicAnnotationPin[];
+}

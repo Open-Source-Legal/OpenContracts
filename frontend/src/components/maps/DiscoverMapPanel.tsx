@@ -82,19 +82,25 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
 
   const handleSelectDocument = useCallback(
     async (documentId: string) => {
-      const { data: docData } = await resolveDocumentById({
-        variables: { id: documentId },
-      });
-      const document = docData?.document;
-      if (!document) {
-        return;
-      }
-      // getDocumentUrl accepts the redirect query's slug/creator shape
-      // directly (a structural subset of DocumentType) and returns "#" when
-      // slugs are missing, so no cast is needed.
-      const url = getDocumentUrl(document, document.corpus);
-      if (url !== "#") {
-        navigate(url);
+      try {
+        const { data: docData } = await resolveDocumentById({
+          variables: { id: documentId },
+        });
+        const document = docData?.document;
+        if (!document) {
+          return;
+        }
+        // getDocumentUrl accepts the redirect query's slug/creator shape
+        // directly (a structural subset of DocumentType) and returns "#" when
+        // slugs are missing, so no cast is needed.
+        const url = getDocumentUrl(document, document.corpus);
+        if (url !== "#") {
+          navigate(url);
+        }
+      } catch (err) {
+        // A network/GraphQL failure here should not become an unhandled
+        // rejection — the pin click simply doesn't navigate.
+        console.error("Failed to resolve document for map navigation:", err);
       }
     },
     [navigate, resolveDocumentById]

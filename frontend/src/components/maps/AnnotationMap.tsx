@@ -27,6 +27,7 @@ import {
 } from "../../assets/configurations/constants";
 import { labelTypeForZoom } from "./zoomBands";
 import { AnnotationMapProps, GeographicAnnotationPin } from "./types";
+import { pluralizeDocuments } from "../../utils/formatters";
 
 // ---------------------------------------------------------------------------
 // Leaflet default-icon fix (runs once at module load).
@@ -41,9 +42,6 @@ const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-const pluralizeDocuments = (count: number): string =>
-  `${count} document${count === 1 ? "" : "s"}`;
 
 const samePin = (
   a: GeographicAnnotationPin,
@@ -190,7 +188,9 @@ const ClusteredMarkers: React.FC<ClusteredMarkersProps> = ({
       });
       const select = () => onPinClickRef.current(pin);
       marker.on("click", select);
-      marker.on("keypress", (event: L.LeafletKeyboardEvent) => {
+      // ``keydown`` (not the deprecated ``keypress``) so Enter/Space activation
+      // keeps working as browsers phase ``keypress`` out.
+      marker.on("keydown", (event: L.LeafletKeyboardEvent) => {
         const key = event.originalEvent.key;
         if (key === "Enter" || key === " ") {
           event.originalEvent.preventDefault();
@@ -252,6 +252,13 @@ const ViewportReporter: React.FC<ViewportReporterProps> = ({
  * query they like) and feed them in; the map filters them to the current zoom
  * band, clusters them, and reports viewport changes through `onBoundsChange`
  * so the caller can refetch for the new bbox.
+ *
+ * NOTE: `center` and `zoom` are **mount-only**. react-leaflet's `MapContainer`
+ * treats them as immutable initial props (it does not re-read them after the
+ * first render), so changing them on an already-mounted instance is silently
+ * ignored. To recentre/zoom an existing map (e.g. when reused on Corpus Home,
+ * #1821), drive it imperatively with `useMap().flyTo(center, zoom)` from an
+ * effect, or force a remount via a `key`.
  */
 export const AnnotationMap: React.FC<AnnotationMapProps> = ({
   pins,
