@@ -62,6 +62,9 @@ class TestMarkdownParser(TestCase):
 
         # The parser now reads through ``read_field_file_text``, which calls
         # ``txt_extract_file.open("r")``; cloud backends return bytes there.
+        # Patch ``open`` on the FieldFile *class* (``type(...)``): patching the
+        # instance fails because ``FieldFile.open`` is resolved on the class,
+        # not the instance ``__dict__``.
         raw_bytes = "Unicode content: \u00e9\u00e0\u00fc".encode()
         with patch.object(type(doc.txt_extract_file), "open") as mock_open:
             mock_open.return_value.__enter__ = lambda s: BytesIO(raw_bytes)

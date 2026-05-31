@@ -44,7 +44,7 @@ def base_64_encode_bytes(doc_bytes: bytes):
 class _TextReadableFieldFile(typing.Protocol):
     """Structural type for the ``FieldFile.open()`` slice this helper needs."""
 
-    def open(self, mode: str = ...) -> typing.ContextManager[typing.Any]: ...
+    def open(self, mode: str = ...) -> typing.ContextManager[typing.IO[typing.Any]]: ...
 
 
 def read_field_file_text(

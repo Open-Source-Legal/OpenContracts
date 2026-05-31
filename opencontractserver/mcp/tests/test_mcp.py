@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -11,6 +12,42 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from opencontractserver.corpuses.models import Corpus
 
 User = get_user_model()
+
+
+class _BytesFieldFileHandle:
+    """Context-manager file handle whose ``read()`` returns ``bytes``.
+
+    Simulates cloud storage backends (S3Boto3Storage / GoogleCloudStorage via
+    django-storages #382) which return ``bytes`` from ``FieldFile.open("r")``
+    even in text mode — the path that ``read_field_file_text`` normalizes and
+    that local ``FileSystemStorage`` never exercises.
+    """
+
+    def __init__(self, payload: str):
+        self._payload = payload.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def _patch_fieldfile_open_returns_bytes(payload: str):
+    """Patch ``FieldFile.open`` so each call yields a fresh bytes-returning handle.
+
+    Patches the *class* (not an instance) because ``FieldFile.open`` is the
+    only reliable interception point; a fresh handle per call keeps each
+    ``open()`` reader unconsumed.
+    """
+    from django.db.models.fields.files import FieldFile
+
+    return mock.patch.object(
+        FieldFile, "open", side_effect=lambda *a, **k: _BytesFieldFileHandle(payload)
+    )
 
 
 class _MCPAsyncRunMixin:
@@ -627,29 +664,11 @@ class MCPToolsDocumentsTest(TestCase):
         returns ``str``, so without this simulation the suite never exercises
         the bytes path.
         """
-        from unittest import mock
-
-        from django.db.models.fields.files import FieldFile
-
         from opencontractserver.mcp.tools import get_document_text
 
         payload = "Bytes-backed extracted text ✓"
 
-        class _BytesHandle:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def read(self):
-                return payload.encode("utf-8")
-
-        # Patch FieldFile.open so the read returns bytes, mimicking S3/GCS.
-        # Fresh handle per call so each open() yields an unconsumed reader.
-        with mock.patch.object(
-            FieldFile, "open", side_effect=lambda *a, **k: _BytesHandle()
-        ):
+        with _patch_fieldfile_open_returns_bytes(payload):
             result = get_document_text(self.corpus.slug, self.doc1.slug)
 
         # Decoded to str ...
@@ -667,28 +686,11 @@ class MCPToolsDocumentsTest(TestCase):
         dispatcher serialization. This pins the resource path independently so
         the two surfaces can't drift.
         """
-        from unittest import mock
-
-        from django.db.models.fields.files import FieldFile
-
         from opencontractserver.mcp.resources import get_document_resource
 
         payload = "Resource bytes-backed extracted text ✓"
 
-        class _BytesHandle:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def read(self):
-                return payload.encode("utf-8")
-
-        # Fresh handle per call so each open() yields an unconsumed reader.
-        with mock.patch.object(
-            FieldFile, "open", side_effect=lambda *a, **k: _BytesHandle()
-        ):
+        with _patch_fieldfile_open_returns_bytes(payload):
             result = get_document_resource(self.corpus.slug, self.doc1.slug)
 
         data = json.loads(result)

@@ -103,7 +103,11 @@ def load_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
-        # (Re)load from storage; helper normalizes bytes-returning backends.
+        # Cache miss — reload from storage; helper normalizes bytes-returning
+        # backends. ``errors="replace"`` is intentional: this is an
+        # agent-facing read, so per the CLAUDE.md fault-tolerance convention we
+        # substitute U+FFFD for undecodable bytes rather than crash the tool
+        # call (pipeline/export paths use strict mode instead).
         content_str = read_field_file_text(doc.txt_extract_file, errors="replace")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
@@ -162,6 +166,8 @@ async def aload_document_txt_extract(
         use_cache = cached_ts == doc.modified
 
     if not use_cache:
+        # Agent-facing read: ``errors="replace"`` is intentional (fault-tolerant
+        # per CLAUDE.md) — see the sibling loader above for the full rationale.
         content_str = read_field_file_text(doc.txt_extract_file, errors="replace")
         _DOC_TXT_CACHE[document_id] = (doc.modified, content_str)
 
