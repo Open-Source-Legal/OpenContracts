@@ -193,6 +193,75 @@ class ChunkedUploadTests(TestCase):
         _, complete = self._run_document(PDF_BYTES, chunk_size=10 * 1024 * 1024)
         self.assertEqual(complete.status_code, 201, complete.content)
 
+    def test_document_complete_streams_file_not_bytes(self):
+        """``complete`` must hand the import service a streaming ``file_obj``,
+        never the whole assembled file as a ``bytes`` blob (issue #1843)."""
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports import services
+
+        self._login()
+        start = self._start(
+            kind="document",
+            filename="big.pdf",
+            total_size=len(PDF_BYTES),
+            chunk_size=1024,
+            metadata={"title": "Big Doc"},
+        )
+        upload_id = start.json()["upload_id"]
+        self._upload_all_parts(upload_id, PDF_BYTES, 1024)
+
+        captured: dict = {}
+
+        real_import = services.import_document_for_user
+
+        def _spy(**kwargs):
+            captured.update(kwargs)
+            return real_import(**kwargs)
+
+        with patch.object(services, "import_document_for_user", side_effect=_spy):
+            complete = self.client.post(_complete_url(upload_id))
+
+        self.assertEqual(complete.status_code, 201, complete.content)
+        # Streaming contract: a file-like is threaded through, not raw bytes.
+        self.assertIsNone(captured.get("file_bytes"))
+        self.assertIsNotNone(captured.get("file_obj"))
+
+    def test_document_chunked_hash_is_computed_by_streaming(self):
+        """The stored document's content hash matches a direct SHA-256 of the
+        uploaded bytes even though the import never buffered them whole."""
+        self._login()
+        _, complete = self._run_document(PDF_BYTES, chunk_size=1024)
+        self.assertEqual(complete.status_code, 201, complete.content)
+        document = Document.objects.get(pk=complete.json()["document_id"])
+        self.assertEqual(document.pdf_file_hash, hashlib.sha256(PDF_BYTES).hexdigest())
+
+    def test_text_document_chunked_round_trip(self):
+        """A plain-text single-document upload streams into txt_extract_file."""
+        self._login()
+        txt_bytes = b"Streamed plain text\n" + (b"line of body text\n" * 400)
+        start = self._start(
+            kind="document",
+            filename="notes.txt",
+            total_size=len(txt_bytes),
+            chunk_size=1024,
+            metadata={"title": "Notes", "add_to_corpus_id": str(self.corpus.id)},
+        )
+        self.assertEqual(start.status_code, 201, start.content)
+        upload_id = start.json()["upload_id"]
+        self._upload_all_parts(upload_id, txt_bytes, 1024)
+        complete = self.client.post(_complete_url(upload_id))
+        self.assertEqual(complete.status_code, 201, complete.content)
+
+        document = Document.objects.get(pk=complete.json()["document_id"])
+        # Text content is routed to txt_extract_file (not pdf_file) and the
+        # streamed hash matches the raw bytes.
+        self.assertTrue(document.txt_extract_file)
+        self.assertFalse(document.pdf_file)
+        with document.txt_extract_file.open("rb") as fh:
+            self.assertEqual(fh.read(), txt_bytes)
+        self.assertEqual(document.pdf_file_hash, hashlib.sha256(txt_bytes).hexdigest())
+
     # ---- validation ----
 
     def test_inconsistent_total_chunks_rejected(self):
