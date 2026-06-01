@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Corpus chat duplicate-response loop on reconnect**
+  (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
+  the corpus home search bar navigated into the chat view and auto-sent the
+  `initialQuery` once the WebSocket opened. The auto-send effect had no
+  "already sent" guard, so every `wsReady` false→true transition — i.e. every
+  WebSocket reconnect (the brief "reconnecting" flash) — re-injected the user's
+  message and triggered another assistant response, repeating indefinitely. The
+  initial query is now tracked by a ref (`sentInitialQueryRef`) and sent exactly
+  once; the ref is only stamped after a successful `wsSend`, so a socket that
+  drops before the first send still delivers the query once the connection is
+  stable. Regression test added in `frontend/tests/CorpusChat.ct.tsx`
+  ("initialQuery is NOT re-sent when the WebSocket reconnects").
+
 ### Added
 
 - **MCP knowledge-tool UX — make a corpus usable as a low-friction tool**

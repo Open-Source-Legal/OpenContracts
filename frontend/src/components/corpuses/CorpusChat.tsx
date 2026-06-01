@@ -621,18 +621,29 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     }
   }, [forceNewChat]);
 
+  // Guards the auto-send of `initialQuery` so it fires exactly once per query.
+  // Without this, the effect below re-runs on every `wsReady` false→true
+  // transition — i.e. every WebSocket reconnect — re-injecting the user's
+  // message and triggering an endless duplicate-response loop. We only stamp
+  // the ref AFTER a successful `wsSend`, so a reconnect that happens before the
+  // first send still delivers the query once the socket is stable.
+  const sentInitialQueryRef = useRef<string | null>(null);
+
   // Send the initial query once the WebSocket is ready
   useEffect(() => {
+    const trimmed = initialQuery?.trim();
     if (
-      initialQuery &&
-      initialQuery.trim().length > 0 &&
+      trimmed &&
+      trimmed.length > 0 &&
       wsReady &&
-      isNewChat
+      isNewChat &&
+      sentInitialQueryRef.current !== trimmed
     ) {
       const timer = setTimeout(() => {
-        const trimmed = initialQuery.trim();
         const ok = wsSend(JSON.stringify({ query: trimmed }));
         if (ok) {
+          // Mark as sent only on success so a dropped socket re-arms the send.
+          sentInitialQueryRef.current = trimmed;
           setChat((prev) => [
             ...prev,
             {

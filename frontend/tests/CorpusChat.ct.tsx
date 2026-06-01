@@ -1646,6 +1646,71 @@ test.describe("CorpusChat", () => {
     await component.unmount();
   });
 
+  test("initialQuery is NOT re-sent when the WebSocket reconnects", async ({
+    mount,
+    page,
+  }) => {
+    // Regression guard for the corpus-chat duplication loop: the initial-query
+    // effect used to re-fire on every `wsReady` false→true transition. When the
+    // agent-chat socket dropped and reconnected, the user's message was
+    // re-injected and a second response streamed in — repeating forever. The
+    // send must now happen exactly once per query, tracked by a ref.
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+        initialQuery="auto sent question"
+      />
+    );
+
+    // First (and only) auto-send + echo.
+    await expect(
+      page.getByText("auto sent question", { exact: true })
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByText("Echo: auto sent question", { exact: true })
+    ).toBeVisible({ timeout: 10000 });
+
+    // Force the active socket closed with no close code, which routes through
+    // useWebSocketAuth's reconnect branch (not the clean-close / auth-failure
+    // branches) and schedules a fresh socket. Record the pre-reconnect instance
+    // count so we can wait for the new socket to actually open.
+    const beforeCount = await page.evaluate(() => {
+      const set = (window as any).WebSocketInstances as Set<any>;
+      const sockets = Array.from(set);
+      const sock = sockets[sockets.length - 1];
+      if (sock) {
+        sock.readyState = 3;
+        sock.onclose && sock.onclose({});
+      }
+      return set.size;
+    });
+
+    // Wait for the reconnect (default 3s backoff) to produce a new socket that
+    // opens and flips wsReady back to true — the exact condition that used to
+    // re-trigger the auto-send.
+    await page.waitForFunction(
+      (prev) => ((window as any).WebSocketInstances as Set<any>).size > prev,
+      beforeCount,
+      { timeout: 15000 }
+    );
+
+    // Give the (now-guarded) 500ms send timer and any re-render ample time to
+    // fire. If the bug regressed, a second "auto sent question" bubble and a
+    // second echo would appear here.
+    await page.waitForTimeout(2000);
+
+    await expect(
+      page.getByText("auto sent question", { exact: true })
+    ).toHaveCount(1);
+    await expect(
+      page.getByText("Echo: auto sent question", { exact: true })
+    ).toHaveCount(1);
+
+    await component.unmount();
+  });
+
   test("tool-call events render timeline entries on the assistant message", async ({
     mount,
     page,
