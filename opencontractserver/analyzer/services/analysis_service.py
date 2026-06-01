@@ -50,14 +50,7 @@ class AnalysisService(BaseService):
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.types.enums import PermissionTypes
 
-        # Superuser can see everything
-        if user.is_superuser:
-            try:
-                analysis = Analysis.objects.get(id=analysis_id)
-                return True, analysis
-            except Analysis.DoesNotExist:
-                return False, None
-
+        # scoped admin access, 2026-05: admins computed like a normal user
         try:
             analysis = Analysis.objects.get(id=analysis_id)
 
@@ -113,9 +106,8 @@ class AnalysisService(BaseService):
         )
         from opencontractserver.types.enums import PermissionTypes
 
-        if user.is_superuser:
-            qs = Analysis.objects.all()
-        elif user.is_anonymous:
+        # scoped admin access, 2026-05: admins computed like a normal user
+        if user.is_anonymous:
             # Anonymous users can only see public analyses in public corpuses
             qs = Analysis.objects.filter(
                 Q(is_public=True)
@@ -160,7 +152,8 @@ class AnalysisService(BaseService):
                 if user.is_anonymous:
                     if not corpus.is_public:
                         return Analysis.objects.none()
-                elif not user.is_superuser and not corpus.user_can(
+                # scoped admin access, 2026-05: admins computed like a normal user
+                elif not corpus.user_can(
                     user, PermissionTypes.READ, request=context
                 ):
                     return Analysis.objects.none()
@@ -197,26 +190,26 @@ class AnalysisService(BaseService):
             qs = qs.filter(document_id=document_id)
 
             # Check document permission
-            if not user.is_superuser:
-                try:
-                    doc = Document.objects.get(id=document_id)
-                    if not doc.user_can(user, PermissionTypes.READ):
-                        return Annotation.objects.none()
-                except Document.DoesNotExist:
+            # scoped admin access, 2026-05: admins computed like a normal user
+            try:
+                doc = Document.objects.get(id=document_id)
+                if not doc.user_can(user, PermissionTypes.READ):
                     return Annotation.objects.none()
+            except Document.DoesNotExist:
+                return Annotation.objects.none()
         else:
             # Filter to only documents user can read
-            if not user.is_superuser:
-                readable_doc_ids = list(
-                    Document.objects.visible_to_user(user)
-                    .filter(id__in=analysis.analyzed_documents.values("id"))
-                    .values_list("id", flat=True)
-                )
+            # scoped admin access, 2026-05: admins computed like a normal user
+            readable_doc_ids = list(
+                Document.objects.visible_to_user(user)
+                .filter(id__in=analysis.analyzed_documents.values("id"))
+                .values_list("id", flat=True)
+            )
 
-                if not readable_doc_ids:
-                    return Annotation.objects.none()
+            if not readable_doc_ids:
+                return Annotation.objects.none()
 
-                qs = qs.filter(document_id__in=readable_doc_ids)
+            qs = qs.filter(document_id__in=readable_doc_ids)
 
         # Optimize query
         qs = (

@@ -57,9 +57,7 @@ class MetadataService(BaseService):
             get_users_permissions_for_obj,
         )
 
-        # Superusers have all permissions
-        if user.is_superuser:
-            return True, True, True, True
+        # scoped admin access, 2026-05: admins computed like a normal user
 
         # Anonymous users only have read access to public documents/corpuses
         if user.is_anonymous:
@@ -218,12 +216,12 @@ class MetadataService(BaseService):
             corpus = Corpus.objects.get(pk=corpus_id)
 
             # Check corpus read permission
-            if not user.is_superuser:
-                if user.is_anonymous:
-                    if not corpus.is_public:
-                        return Column.objects.none()
-                elif not corpus.user_can(user, PermissionTypes.READ):
+            # scoped admin access, 2026-05: admins computed like a normal user
+            if user.is_anonymous:
+                if not corpus.is_public:
                     return Column.objects.none()
+            elif not corpus.user_can(user, PermissionTypes.READ):
+                return Column.objects.none()
 
             # Get metadata fieldset
             if not hasattr(corpus, "metadata_schema") or not corpus.metadata_schema:
@@ -331,15 +329,14 @@ class MetadataService(BaseService):
         except Corpus.DoesNotExist:
             return result
 
-        # Superuser check
-        if not user.is_superuser:
-            # Anonymous user corpus check
-            if user.is_anonymous:
-                if not corpus.is_public:
-                    return result
-            # Authenticated user corpus check
-            elif not corpus.user_can(user, PermissionTypes.READ, request=context):
+        # scoped admin access, 2026-05: admins computed like a normal user
+        # Anonymous user corpus check
+        if user.is_anonymous:
+            if not corpus.is_public:
                 return result
+        # Authenticated user corpus check
+        elif not corpus.user_can(user, PermissionTypes.READ, request=context):
+            return result
 
         # Check if corpus has metadata schema
         if not hasattr(corpus, "metadata_schema") or not corpus.metadata_schema:
@@ -348,9 +345,8 @@ class MetadataService(BaseService):
         # Get all documents and check permissions using bulk queries
         documents = Document.objects.filter(pk__in=document_ids)
 
-        if user.is_superuser:
-            readable_doc_ids = set(document_ids)
-        elif user.is_anonymous:
+        # scoped admin access, 2026-05: admins computed like a normal user
+        if user.is_anonymous:
             # Anonymous users can only read public documents
             readable_doc_ids = set(
                 documents.filter(is_public=True).values_list("id", flat=True)
@@ -509,9 +505,7 @@ class MetadataService(BaseService):
         if user.is_anonymous:
             return False, "Authentication required"
 
-        # Superusers can do anything
-        if user.is_superuser:
-            return True, ""
+        # scoped admin access, 2026-05: admins computed like a normal user
 
         # Check corpus exists first (needed for document visibility check)
         try:

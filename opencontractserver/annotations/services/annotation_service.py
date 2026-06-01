@@ -90,9 +90,8 @@ class AnnotationService(BaseService):
                 perms_cache[cache_key] = result
             return result
 
-        # Superusers have all permissions
-        if user.is_superuser:
-            return _store((True, True, True, True, True))
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket grant; effective perms come from doc+corpus below.
 
         document = cls._get_document_for_request(document_id, context)
         if document is None:
@@ -325,63 +324,64 @@ class AnnotationService(BaseService):
         # Build optimized query with combined document filters
         qs = Annotation.objects.filter(doc_filters)
 
-        # Apply privacy filtering for created_by_* fields
-        if not user.is_superuser:
-            # Get analyses user can access
-            from opencontractserver.analyzer.models import (
-                Analysis,
-                AnalysisUserObjectPermission,
+        # Apply privacy filtering for created_by_* fields. Applies to ALL
+        # users including superusers (scoped admin access, 2026-05): an admin
+        # only sees analysis-/extract-private annotations it can actually reach.
+        # Get analyses user can access
+        from opencontractserver.analyzer.models import (
+            Analysis,
+            AnalysisUserObjectPermission,
+        )
+        from opencontractserver.extracts.models import Extract
+
+        # Anonymous users can only see public analyses/extracts
+        if user.is_anonymous:
+            visible_analyses = Analysis.objects.filter(Q(is_public=True))
+            visible_extracts = Extract.objects.none()  # No extracts for anonymous
+        else:
+            # Base query for visible analyses
+            visible_analyses = Analysis.objects.filter(
+                Q(is_public=True) | Q(creator=user)
             )
-            from opencontractserver.extracts.models import Extract
 
-            # Anonymous users can only see public analyses/extracts
-            if user.is_anonymous:
-                visible_analyses = Analysis.objects.filter(Q(is_public=True))
-                visible_extracts = Extract.objects.none()  # No extracts for anonymous
-            else:
-                # Base query for visible analyses
-                visible_analyses = Analysis.objects.filter(
-                    Q(is_public=True) | Q(creator=user)
-                )
+            # Add analyses with explicit permissions
+            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
+                user=user
+            ).values_list("content_object_id", flat=True)
 
-                # Add analyses with explicit permissions
-                analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                    user=user
-                ).values_list("content_object_id", flat=True)
-
-                visible_analyses = visible_analyses | Analysis.objects.filter(
-                    id__in=analyses_with_permission
-                )
-
-                # Get extracts user can access
-                from opencontractserver.extracts.models import (
-                    ExtractUserObjectPermission,
-                )
-
-                visible_extracts = Extract.objects.filter(Q(creator=user))
-
-                # Add extracts with explicit permissions
-                extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                    user=user
-                ).values_list("content_object_id", flat=True)
-
-                visible_extracts = visible_extracts | Extract.objects.filter(
-                    id__in=extracts_with_permission
-                )
-
-            # Filter annotations: exclude private ones unless user has access
-            # BUT always include structural annotations (they're always visible)
-            qs = qs.exclude(
-                # Exclude non-structural analysis-created annotations user can't see
-                Q(created_by_analysis__isnull=False)
-                & Q(structural=False)  # Only apply privacy to non-structural
-                & ~Q(created_by_analysis__in=visible_analyses)
-            ).exclude(
-                # Exclude non-structural extract-created annotations user can't see
-                Q(created_by_extract__isnull=False)
-                & Q(structural=False)  # Only apply privacy to non-structural
-                & ~Q(created_by_extract__in=visible_extracts)
+            visible_analyses = visible_analyses | Analysis.objects.filter(
+                id__in=analyses_with_permission
             )
+
+            # Get extracts user can access
+            from opencontractserver.extracts.models import (
+                ExtractUserObjectPermission,
+            )
+
+            visible_extracts = Extract.objects.filter(Q(creator=user))
+
+            # Add extracts with explicit permissions
+            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
+                user=user
+            ).values_list("content_object_id", flat=True)
+
+            visible_extracts = visible_extracts | Extract.objects.filter(
+                id__in=extracts_with_permission
+            )
+
+        # Filter annotations: exclude private ones unless user has access
+        # BUT always include structural annotations (they're always visible)
+        qs = qs.exclude(
+            # Exclude non-structural analysis-created annotations user can't see
+            Q(created_by_analysis__isnull=False)
+            & Q(structural=False)  # Only apply privacy to non-structural
+            & ~Q(created_by_analysis__in=visible_analyses)
+        ).exclude(
+            # Exclude non-structural extract-created annotations user can't see
+            Q(created_by_extract__isnull=False)
+            & Q(structural=False)  # Only apply privacy to non-structural
+            & ~Q(created_by_extract__in=visible_extracts)
+        )
 
         # Add filters
         if corpus_id:
@@ -670,35 +670,8 @@ class AnnotationService(BaseService):
         )
         from opencontractserver.types.enums import PermissionTypes
 
-        # Superusers see everything
-        if user.is_superuser:
-            qs = Annotation.objects.filter(corpus_id=corpus_id)
-
-            # For structural annotations, include those linked via structural_set
-            # to documents in this corpus
-            visible_doc_ids = Document.objects.filter(
-                path_records__corpus_id=corpus_id,
-                path_records__is_current=True,
-                path_records__is_deleted=False,
-            ).values_list("id", flat=True)
-
-            structural_set_ids = Document.objects.filter(
-                id__in=visible_doc_ids,
-                structural_annotation_set_id__isnull=False,
-            ).values_list("structural_annotation_set_id", flat=True)
-
-            # Combine: corpus annotations OR structural annotations from visible docs
-            qs = Annotation.objects.filter(
-                Q(corpus_id=corpus_id)
-                | Q(structural_set_id__in=structural_set_ids, structural=True)
-            )
-
-            if structural is not None:
-                qs = qs.filter(structural=structural)
-            if analysis_isnull is not None:
-                qs = qs.filter(analysis__isnull=analysis_isnull)
-
-            return qs.distinct()
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — the corpus-permission path below applies to admins too.
 
         # Check corpus permission first
         try:

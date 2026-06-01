@@ -37,8 +37,7 @@ class ResearchReportQuerySet(models.QuerySet):
     def visible_to_user(self, user, lightweight: bool = False):
         if user is None or not getattr(user, "is_authenticated", False):
             return self.none()
-        if user.is_superuser:
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
         return self.filter(creator=user)
 
 

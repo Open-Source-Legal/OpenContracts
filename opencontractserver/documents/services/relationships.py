@@ -89,21 +89,18 @@ class DocumentRelationshipService(BaseService):
         if request is not None and hasattr(request, cache_obj_key):
             return getattr(request, cache_obj_key)
 
-        is_superuser = bool(getattr(user, "is_superuser", False))
-        if is_superuser:
-            qs = DocumentRelationship.objects.all()
-        else:
-            visible_doc_ids = cls._get_visible_document_ids(user, request=request)
-            visible_corpus_ids = cls._get_visible_corpus_ids(user, request=request)
-            # Visibility requires BOTH endpoints to be readable (matches
-            # ``get_visible_relationships``). This intentionally hides a
-            # relationship from the count when the *other* document is
-            # invisible to the user — surfacing the count would otherwise leak
-            # the existence of a hidden document via the badge number.
-            qs = DocumentRelationship.objects.filter(
-                source_document_id__in=visible_doc_ids,
-                target_document_id__in=visible_doc_ids,
-            ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
+        # Superusers are computed like any other user (scoped admin access, 2026-05).
+        visible_doc_ids = cls._get_visible_document_ids(user, request=request)
+        visible_corpus_ids = cls._get_visible_corpus_ids(user, request=request)
+        # Visibility requires BOTH endpoints to be readable (matches
+        # ``get_visible_relationships``). This intentionally hides a
+        # relationship from the count when the *other* document is
+        # invisible to the user — surfacing the count would otherwise leak
+        # the existence of a hidden document via the badge number.
+        qs = DocumentRelationship.objects.filter(
+            source_document_id__in=visible_doc_ids,
+            target_document_id__in=visible_doc_ids,
+        ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
 
         if corpus_id:
             qs = qs.filter(corpus_id=corpus_id)
@@ -231,22 +228,18 @@ class DocumentRelationshipService(BaseService):
         """
         from opencontractserver.documents.models import DocumentRelationship
 
-        # Superusers see everything
-        is_superuser = user.is_superuser
-        if is_superuser:
-            queryset = DocumentRelationship.objects.all()
-        else:
-            # Get subqueries for documents and corpuses user can see
-            # Pass request for request-level caching to prevent N+1 queries
-            visible_doc_ids = cls._get_visible_document_ids(user, request=request)
-            visible_corpus_ids = cls._get_visible_corpus_ids(user, request=request)
+        # Superusers are computed like any other user (scoped admin access, 2026-05).
+        # Get subqueries for documents and corpuses user can see
+        # Pass request for request-level caching to prevent N+1 queries
+        visible_doc_ids = cls._get_visible_document_ids(user, request=request)
+        visible_corpus_ids = cls._get_visible_corpus_ids(user, request=request)
 
-            # Filter: user can see BOTH source and target documents
-            # AND (no corpus OR user can see corpus)
-            queryset = DocumentRelationship.objects.filter(
-                source_document_id__in=visible_doc_ids,
-                target_document_id__in=visible_doc_ids,
-            ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
+        # Filter: user can see BOTH source and target documents
+        # AND (no corpus OR user can see corpus)
+        queryset = DocumentRelationship.objects.filter(
+            source_document_id__in=visible_doc_ids,
+            target_document_id__in=visible_doc_ids,
+        ).filter(Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids))
 
         # Apply additional filters
         if source_document_id:
@@ -261,39 +254,32 @@ class DocumentRelationshipService(BaseService):
         # Pre-compute permission flags so AnnotatePermissionsForReadMixin
         # can use them instead of querying non-existent guardian tables.
         # All returned results passed the visibility filter → _can_read=True.
-        # Superusers get all perms; creators get CRUD; others get read only.
-        if is_superuser:
-            queryset = queryset.annotate(
-                _can_read=Value(True, output_field=BooleanField()),
-                _can_create=Value(True, output_field=BooleanField()),
-                _can_update=Value(True, output_field=BooleanField()),
-                _can_delete=Value(True, output_field=BooleanField()),
-                _can_publish=Value(True, output_field=BooleanField()),
-            )
-        else:
-            # For anonymous users, user.id is None so this becomes
-            # Q(creator_id=None). This is safe because every relationship
-            # has a non-null creator, so the condition simply won't match.
-            is_creator = Q(creator_id=user.id)
-            queryset = queryset.annotate(
-                _can_read=Value(True, output_field=BooleanField()),
-                _can_create=Case(
-                    When(is_creator, then=Value(True)),
-                    default=Value(False),
-                    output_field=BooleanField(),
-                ),
-                _can_update=Case(
-                    When(is_creator, then=Value(True)),
-                    default=Value(False),
-                    output_field=BooleanField(),
-                ),
-                _can_delete=Case(
-                    When(is_creator, then=Value(True)),
-                    default=Value(False),
-                    output_field=BooleanField(),
-                ),
-                _can_publish=Value(False, output_field=BooleanField()),
-            )
+        # Creators get CRUD; others get read only. Superusers are treated like
+        # any other user (scoped admin access, 2026-05).
+        #
+        # For anonymous users, user.id is None so this becomes
+        # Q(creator_id=None). This is safe because every relationship
+        # has a non-null creator, so the condition simply won't match.
+        is_creator = Q(creator_id=user.id)
+        queryset = queryset.annotate(
+            _can_read=Value(True, output_field=BooleanField()),
+            _can_create=Case(
+                When(is_creator, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            _can_update=Case(
+                When(is_creator, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            _can_delete=Case(
+                When(is_creator, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            _can_publish=Value(False, output_field=BooleanField()),
+        )
 
         # Eager load related objects (including nested creator FKs to avoid N+1)
         return queryset.select_related(

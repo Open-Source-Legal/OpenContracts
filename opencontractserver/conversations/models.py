@@ -92,9 +92,7 @@ class SoftDeleteQuerySet(models.QuerySet):
         # Start with current queryset (already has soft-delete filtering)
         queryset = self
 
-        # Superusers see everything
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return queryset.order_by("created")
+        # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
 
         # Anonymous users only see public items
         if user.is_anonymous:
@@ -177,9 +175,7 @@ class ConversationQuerySet(SoftDeleteQuerySet):
         # Start with current queryset (already has soft-delete filtering)
         queryset = self
 
-        # Superusers see everything
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return queryset.distinct().order_by("-created")
+        # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
 
         # Anonymous users: can ONLY view THREADs (never CHATs)
         # Per consolidated_permissioning_guide.md line 604: "Anonymous Users: Can only view threads on public resources"
@@ -374,9 +370,7 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
         # Start with current queryset (already has soft-delete filtering)
         queryset = self.filter(deleted_at__isnull=True)
 
-        # Superusers see everything
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return queryset.order_by("created")
+        # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
 
         # Anonymous users only see messages in public conversations
         if user.is_anonymous:
