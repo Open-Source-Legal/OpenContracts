@@ -19,7 +19,10 @@ def seed_default_llm(apps, schema_editor):
     initial = getattr(django_settings, "DEFAULT_LLM", "")
     if not initial:
         return
-    instance = PipelineSettings.objects.filter(pk=1).first()
+    # PipelineSettings is a singleton, but query by lowest PK rather than a
+    # hardcoded ``pk=1`` so the seed still finds the row if the singleton was
+    # ever recreated with a different PK (matches ``get_instance()`` semantics).
+    instance = PipelineSettings.objects.order_by("pk").first()
     if instance is None:
         return
     # Only write if the operator hasn't already configured a default LLM.

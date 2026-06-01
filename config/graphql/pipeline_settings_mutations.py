@@ -531,11 +531,14 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         validate_model_spec,
                     )
 
-                    # normalise_model_spec shares validate_model_spec's error
-                    # contract (LLMProviderNotRegistered / ValueError), so it
-                    # lives inside the same try/except — an unexpected raise here
-                    # would otherwise surface as an unhandled 500 rather than the
-                    # clean ok=False response the rest of this block returns.
+                    # Both calls are required and complementary, NOT redundant:
+                    # validate_model_spec is the only one that checks the
+                    # provider is registered (raises LLMProviderNotRegistered);
+                    # normalise_model_spec only parses/formats and raises
+                    # ValueError on a malformed spec. Collapsing to a single
+                    # normalise call would silently accept an unregistered
+                    # provider. Both live in the same try/except so either error
+                    # returns a clean ok=False response instead of a 500.
                     try:
                         validate_model_spec(default_llm)
                         # Persist the canonical "{provider}:{model}" form so the
