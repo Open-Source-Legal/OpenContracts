@@ -1048,6 +1048,94 @@ class MCPToolsSearchTest(TestCase):
         self.assertEqual(out["member_count"], 2)
         self.assertEqual(out["similarity_score"], 0.77)
 
+    def test_search_passage_includes_annotation_id(self):
+        """Passage hits expose annotation_id so callers can bridge to the
+        annotation:// resource / list_annotations (eval finding: dead-end hits)."""
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.tools import search_corpus
+
+        with patch.object(
+            self.corpus.__class__, "embed_text", side_effect=RuntimeError("x")
+        ):
+            result = search_corpus(self.corpus.slug, "indemnification")
+
+        self.assertGreaterEqual(len(result["results"]), 1)
+        hit = result["results"][0]
+        self.assertEqual(hit["annotation_id"], str(self.human_ann.id))
+
+    def test_dedupe_search_hits_collapses_passages_keeps_blocks(self):
+        """_dedupe_search_hits: same annotation_id collapses to one (first wins);
+        distinct annotations and blocks are preserved."""
+        from opencontractserver.mcp.tools import _dedupe_search_hits
+
+        hits = [
+            {"type": "passage", "annotation_id": "7", "similarity_score": 0.91},
+            {"type": "passage", "annotation_id": "7", "similarity_score": 0.88},
+            {"type": "passage", "annotation_id": "9", "similarity_score": 0.80},
+            {"type": "block", "document_slug": "d", "label": "G", "text": "t"},
+            {"type": "block", "document_slug": "d", "label": "G", "text": "t"},
+        ]
+        out = _dedupe_search_hits(hits)
+        self.assertEqual(
+            [h.get("annotation_id") for h in out if h["type"] == "passage"], ["7", "9"]
+        )
+        # First (highest-scoring) instance of annotation 7 survives.
+        self.assertEqual(out[0]["similarity_score"], 0.91)
+        # Duplicate block collapses to one.
+        self.assertEqual(sum(1 for h in out if h["type"] == "block"), 1)
+
+    def test_dedupe_search_hits_null_id_not_overcollapsed(self):
+        """Passages with a missing annotation_id must not all collapse to one."""
+        from opencontractserver.mcp.tools import _dedupe_search_hits
+
+        hits = [
+            {"type": "passage", "annotation_id": None, "text": "a"},
+            {"type": "passage", "annotation_id": None, "text": "b"},
+        ]
+        self.assertEqual(len(_dedupe_search_hits(hits)), 2)
+
+    def test_search_corpus_dedupes_repeated_annotation(self):
+        """End-to-end: the annotation->embedding join can surface the same
+        annotation once per stored vector; search_corpus must collapse those to
+        a single hit while keeping the highest score (eval finding: dup hits)."""
+        from unittest.mock import patch
+
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.mcp.tools import search_corpus
+
+        # Same annotation returned three times with descending similarity, as a
+        # multi-vector embedding join would yield.
+        dup_a = Annotation.objects.get(pk=self.human_ann.pk)
+        dup_a.similarity_score = 0.91
+        dup_b = Annotation.objects.get(pk=self.human_ann.pk)
+        dup_b.similarity_score = 0.88
+        dup_c = Annotation.objects.get(pk=self.human_ann.pk)
+        dup_c.similarity_score = 0.80
+
+        def fake_embed(_query):
+            return ("fake/embedder", [0.1, 0.2, 0.3])
+
+        with patch.object(self.corpus.__class__, "embed_text", side_effect=fake_embed):
+            with patch(
+                "opencontractserver.shared.QuerySets."
+                "AnnotationQuerySet.search_by_embedding",
+                return_value=[dup_a, dup_b, dup_c],
+            ):
+                result = search_corpus(
+                    self.corpus.slug, "indemnification", granularity="passage"
+                )
+
+        passage_ids = [
+            r["annotation_id"] for r in result["results"] if r["type"] == "passage"
+        ]
+        self.assertEqual(passage_ids.count(str(self.human_ann.id)), 1)
+        winner = next(
+            r for r in result["results"] if r["annotation_id"] == str(self.human_ann.id)
+        )
+        # Highest-scoring duplicate survives.
+        self.assertEqual(winner["similarity_score"], 0.91)
+
 
 class MCPToolsThreadsTest(TestCase):
     """Tests for MCP thread-related tools."""
@@ -5338,6 +5426,108 @@ class MCPServerCallToolExceptionTest(TestCase):
             loop.run_until_complete(run_test())
         finally:
             loop.close()
+
+    def test_unknown_argument_returns_structured_error(self):
+        """A bad kwarg yields a structured {"error": ...} (caught ValidationError),
+        not a raw TypeError transport error. Validation runs before any DB
+        access, so no fixtures are required."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from opencontractserver.mcp.server import call_tool_handler
+
+        async def run_test():
+            with patch(
+                "opencontractserver.mcp.server.arecord_mcp_tool_call",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
+                result = await call_tool_handler(
+                    "get_document_text",
+                    {"corpus_slug": "c", "document_slug": "d", "page": 5},
+                )
+            payload = json.loads(result[0].text)
+            self.assertIn("error", payload)
+            self.assertIn("page", payload["error"])
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_test())
+        finally:
+            loop.close()
+
+
+class MCPSafeToolArgumentsTest(TestCase):
+    """Tests for _safe_tool_arguments: drops ``user`` and rejects unknown args.
+
+    Covers the eval finding that an invalid kwarg (e.g. ``page`` on
+    ``get_document_text``) raised a raw ``TypeError`` that leaked the function
+    signature as a transport error instead of a structured ``{"error": ...}``.
+    """
+
+    def test_drops_user_argument(self):
+        from opencontractserver.mcp.server import _safe_tool_arguments
+        from opencontractserver.mcp.tools import list_documents
+
+        safe = _safe_tool_arguments(
+            list_documents, "list_documents", {"corpus_slug": "c", "user": "evil"}
+        )
+        self.assertNotIn("user", safe)
+        self.assertEqual(safe["corpus_slug"], "c")
+
+    def test_rejects_unknown_argument(self):
+        from django.core.exceptions import ValidationError
+
+        from opencontractserver.mcp.server import _safe_tool_arguments
+        from opencontractserver.mcp.tools import get_document_text
+
+        with self.assertRaises(ValidationError) as ctx:
+            _safe_tool_arguments(
+                get_document_text,
+                "get_document_text",
+                {"corpus_slug": "c", "document_slug": "d", "page": 5},
+            )
+        message = "; ".join(ctx.exception.messages)
+        self.assertIn("page", message)
+        self.assertIn("get_document_text", message)
+        # Valid arguments are listed so an LLM client can self-correct.
+        self.assertIn("char_offset", message)
+
+    def test_accepts_known_arguments(self):
+        from opencontractserver.mcp.server import _safe_tool_arguments
+        from opencontractserver.mcp.tools import get_document_text
+
+        safe = _safe_tool_arguments(
+            get_document_text,
+            "get_document_text",
+            {"corpus_slug": "c", "document_slug": "d", "char_offset": 10},
+        )
+        self.assertEqual(
+            safe, {"corpus_slug": "c", "document_slug": "d", "char_offset": 10}
+        )
+
+    def test_scoped_wrapper_validated_against_real_signature(self):
+        """functools.wraps lets validation see the wrapped tool's real params,
+        so unknown args are rejected for scoped tools too (not silently passed
+        through the wrapper's ``**kwargs``)."""
+        from django.core.exceptions import ValidationError
+
+        from opencontractserver.mcp.server import _safe_tool_arguments
+        from opencontractserver.mcp.tools import get_scoped_tool_handlers
+
+        handlers = get_scoped_tool_handlers("some-corpus")
+        scoped_get_text = handlers["get_document_text"]
+        with self.assertRaises(ValidationError):
+            _safe_tool_arguments(
+                scoped_get_text, "get_document_text", {"document_slug": "d", "page": 5}
+            )
+        # Known scoped args pass.
+        safe = _safe_tool_arguments(
+            scoped_get_text, "get_document_text", {"document_slug": "d"}
+        )
+        self.assertEqual(safe, {"document_slug": "d"})
 
 
 class MCPScopedCallToolTelemetryTest(TransactionTestCase):

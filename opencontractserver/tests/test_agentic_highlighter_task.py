@@ -87,9 +87,14 @@ class TestAgenticHighlighterClaude(TransactionFixtureTestCase):
         # Create GraphQL client with authenticated user
         self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
-        # Create a test corpus with our existing documents
+        # Create a test corpus with our existing documents.
+        #
+        # ``corpus`` / ``docs`` are ClassVar fixtures on the shared base
+        # (opencontractserver.tests.base); this suite deliberately overrides
+        # them with its own per-instance values in setUp, so the instance
+        # assignments are intentional (mypy [misc]: assign-to-ClassVar).
         with transaction.atomic():
-            self.corpus = Corpus.objects.create(
+            self.corpus = Corpus.objects.create(  # type: ignore[misc]
                 title="Test Highlighter Corpus",
                 description="Corpus for testing agentic highlighter",
                 creator=self.user,
@@ -105,7 +110,7 @@ class TestAgenticHighlighterClaude(TransactionFixtureTestCase):
             for doc in self.docs:
                 new_doc, _, _ = self.corpus.add_document(document=doc, user=self.user)
                 updated_docs.append(new_doc)
-            self.docs = updated_docs
+            self.docs = updated_docs  # type: ignore[misc]  # see setUp note above
 
         # GraphQL IDs for our test objects
         self.corpus_gid = to_global_id("CorpusType", self.corpus.id)

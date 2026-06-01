@@ -211,6 +211,12 @@ class ResearchReport(BaseOCModel):
     # ------------------------------------------------------------------
     @property
     def duration_seconds(self) -> float | None:
+        """Wall-clock run time, always derived from the timestamps — never stored.
+
+        If this is ever converted to a stored field, any caller that sets
+        ``started_at`` / ``completed_at`` directly (bypassing ``finalize()``)
+        will need to set the stored field explicitly instead.
+        """
         if self.started_at and self.completed_at:
             return (self.completed_at - self.started_at).total_seconds()
         return None

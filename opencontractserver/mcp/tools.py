@@ -7,6 +7,7 @@ Supports both global mode (all public corpuses) and corpus-scoped mode
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
@@ -29,6 +30,56 @@ if TYPE_CHECKING:
     from opencontractserver.users.types import UserOrAnonymous
 
 logger = logging.getLogger(__name__)
+
+
+def _candidate_fetch_size(limit: int) -> int:
+    """Candidate count to fetch per search half before de-duplication.
+
+    Over-fetches ``limit * MCP_SEARCH_CANDIDATE_MULTIPLIER`` (bounded by
+    ``MCP_SEARCH_CANDIDATE_MAX``) so duplicate hits removed by
+    ``_dedupe_search_hits`` don't starve the final feed below ``limit``.
+    """
+    from opencontractserver.constants.mcp import (
+        MCP_SEARCH_CANDIDATE_MAX,
+        MCP_SEARCH_CANDIDATE_MULTIPLIER,
+    )
+
+    return min(
+        max(limit, 1) * MCP_SEARCH_CANDIDATE_MULTIPLIER, MCP_SEARCH_CANDIDATE_MAX
+    )
+
+
+def _dedupe_search_hits(hits: list[dict]) -> list[dict]:
+    """Collapse search hits that resolve to the same annotation or block.
+
+    Passages are keyed by ``annotation_id`` — the annotation->embedding join
+    can return one row per stored vector, so the same annotation otherwise
+    appears multiple times with an identical score, wasting the caller's
+    ``limit`` budget. Blocks (which carry no stable id in the formatted shape)
+    are keyed by their content tuple. The first occurrence wins, so callers
+    should de-duplicate *after* sorting by score to keep the highest-scoring
+    instance. Hits missing an identity fall back to a per-position key so a
+    ``None`` id never collapses distinct passages into one.
+    """
+    seen: set = set()
+    deduped: list[dict] = []
+    for index, hit in enumerate(hits):
+        key: tuple
+        if hit.get("type") == "passage":
+            annotation_id = hit.get("annotation_id")
+            key = ("passage", annotation_id) if annotation_id else ("passage", index)
+        else:
+            key = (
+                "block",
+                hit.get("document_slug"),
+                hit.get("label"),
+                hit.get("text"),
+            )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(hit)
+    return deduped
 
 
 def list_public_corpuses(
@@ -372,6 +423,9 @@ def search_corpus(
     from .formatters import format_search_block, format_search_passage
 
     limit = min(limit, 50)
+    # Over-fetch candidates per half so duplicates removed below don't starve
+    # the feed below ``limit`` distinct hits.
+    candidate_k = _candidate_fetch_size(limit)
     user = user or AnonymousUser()
     corpus = Corpus.objects.visible_to_user(user).get(slug=corpus_slug)
 
@@ -395,7 +449,7 @@ def search_corpus(
             try:
                 passages = list(
                     ann_qs.search_by_embedding(  # type: ignore[attr-defined]
-                        query_vector, embedder_path, top_k=limit
+                        query_vector, embedder_path, top_k=candidate_k
                     )
                 )
             except (ValueError, TypeError, AttributeError, RuntimeError):
@@ -403,7 +457,7 @@ def search_corpus(
         if not passages:
             # Fall through to text search whenever the vector path yields
             # nothing — fixing the prior "return on empty vector" dead-fallback.
-            passages = list(ann_qs.filter(raw_text__icontains=query)[:limit])
+            passages = list(ann_qs.filter(raw_text__icontains=query)[:candidate_k])
 
         # Structural passages carry document_id=NULL and reach their document
         # only through structural_set; build a corpus-scoped
@@ -455,7 +509,7 @@ def search_corpus(
             )
             blocks = store.search(
                 RelationshipVectorSearchQuery(
-                    query_embedding=query_vector, similarity_top_k=limit
+                    query_embedding=query_vector, similarity_top_k=candidate_k
                 )
             )
             # Bulk-fetch block document slugs/titles in one query to avoid a
@@ -471,7 +525,9 @@ def search_corpus(
         except (ValueError, TypeError, AttributeError, RuntimeError):
             pass
 
-    # Merge by score; text-fallback passages (score None) sort last; cap at limit.
+    # Merge by score; text-fallback passages (score None) sort last. De-dupe
+    # *after* sorting so the highest-scoring instance of each annotation/block
+    # survives, then cap at limit.
     formatted.sort(
         key=lambda r: (
             r["similarity_score"] is not None,
@@ -479,7 +535,8 @@ def search_corpus(
         ),
         reverse=True,
     )
-    return {"query": query, "results": formatted[:limit]}
+    deduped = _dedupe_search_hits(formatted)
+    return {"query": query, "results": deduped[:limit]}
 
 
 def list_threads(
@@ -821,11 +878,16 @@ def create_scoped_tool_wrapper(
         Wrapped function that auto-injects corpus_slug
     """
 
+    @functools.wraps(tool_func)
     def wrapper(**kwargs: Any) -> Any:
         # Always inject the scoped corpus_slug, ignoring any provided value
         kwargs[corpus_slug_param] = corpus_slug
         return tool_func(**kwargs)
 
+    # ``functools.wraps`` sets ``__wrapped__`` to ``tool_func`` so
+    # ``inspect.signature(wrapper)`` resolves to the real tool signature (not
+    # ``(**kwargs)``). The dispatcher's argument validation relies on this to
+    # reject unknown arguments for scoped tools as well as global ones.
     return wrapper
 
 
