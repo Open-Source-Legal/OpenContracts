@@ -20,6 +20,12 @@ test.describe("HeaderBar", () => {
       />
     );
 
+    // The cite / opensource.legal brand row is re-surfaced here because the
+    // knowledge-base modal hides the global NavMenu (see HeaderBrandRow).
+    const brand = page.getByTestId("document-header-brand");
+    await expect(brand).toBeVisible();
+    await expect(brand).toContainText("cite.opensource.legal");
+
     await expect(page.getByText("Quarterly Earnings Report")).toBeVisible();
     await expect(page.getByText("application/pdf")).toBeVisible();
     // Slug-only privacy: cross-user surfaces render the slug, never email.
@@ -114,7 +120,10 @@ test.describe("HeaderBar", () => {
     expect(addBox).not.toBeNull();
     expect(backBox).not.toBeNull();
 
-    expect(headerBox!.height).toBeLessThanOrEqual(112);
+    // Compactness bound. Raised from 112 → 140 when the cite / opensource.legal
+    // brand row was added above the title row (it contributes ~12px at this
+    // breakpoint). The bound still guards against the header growing unbounded.
+    expect(headerBox!.height).toBeLessThanOrEqual(140);
     expect(headerBox!.x + headerBox!.width).toBeLessThanOrEqual(402);
     expect(addBox!.x + addBox!.width).toBeLessThanOrEqual(
       headerBox!.x + headerBox!.width
