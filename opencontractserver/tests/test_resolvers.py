@@ -55,30 +55,55 @@ class VisibleToUserTests(TestCase):
             is_public=False,
         )
 
-    def test_superuser_sees_all_queryset(self):
-        """Superusers should see all objects; ordering is owned by the caller."""
+    def test_superuser_has_no_blanket_access(self):
+        """A superuser is computed exactly like a normal authenticated user
+        (scoped admin access, 2026-05) — no blanket "sees all" bypass.
+
+        The superuser sees only public + own (creator) + explicitly-shared
+        corpora. The private corpus and the test user's personal corpus
+        (both created by ``self.user``, no grant) stay hidden; the public
+        corpus and the superuser's OWN auto-created personal corpus are visible.
+        """
         result = Corpus.objects.visible_to_user(self.superuser)
 
-        # Filter to corpuses created by this test's users to make the assertion
-        # resilient to fixture-level personal corpuses (e.g. the one auto-created
-        # for guardian's AnonymousUser during DB setup). See issue #1394.
+        # Scope to corpuses created by this test's users to stay resilient to
+        # fixture-level personal corpuses (e.g. guardian's AnonymousUser). The
+        # only such corpora visible to a no-grant superuser are the public
+        # corpus (creator=self.user, is_public) and the superuser's own
+        # personal corpus (creator=self.superuser). See issue #1394.
         scoped = result.filter(creator__in=[self.user, self.superuser])
+        self.assertEqual(scoped.count(), 2)  # public + superuser's own personal
 
-        # Should see both test corpora + 2 personal corpuses (one per user)
-        # Each user (user, superuser) gets a personal corpus auto-created
-        self.assertEqual(scoped.count(), 4)  # public + private + 2 personal
-        # Superuser branch must not impose its own ordering — that's the
+        # The private corpus the superuser did not create and was not granted
+        # access to must NOT be visible.
+        self.assertNotIn(self.private_corpus, scoped)
+        # The public corpus IS visible (is_public).
+        self.assertIn(self.public_corpus, scoped)
+
+        # The visibility branch must not impose its own ordering — that's the
         # resolver / caller's job (issue #1668 — Fix #5 ordering asymmetry).
         self.assertEqual(result.query.order_by, ())
 
     def test_superuser_single_model_access(self):
-        """Superusers should be able to access any object."""
-        result = (
+        """A superuser is computed like a normal user for single-object access
+        (scoped admin access, 2026-05): denied on a private stranger corpus,
+        allowed once explicitly granted READ."""
+        # No grant → the private stranger corpus is not visible.
+        denied = (
             Corpus.objects.visible_to_user(self.superuser)
             .filter(id=self.private_corpus.id)
             .first()
         )
-        self.assertEqual(result, self.private_corpus)
+        self.assertIsNone(denied)
+
+        # Grant READ → now visible, exactly like any user.
+        assign_perm("corpuses.read_corpus", self.superuser, self.private_corpus)
+        allowed = (
+            Corpus.objects.visible_to_user(self.superuser)
+            .filter(id=self.private_corpus.id)
+            .first()
+        )
+        self.assertEqual(allowed, self.private_corpus)
 
     def test_anonymous_user_only_sees_public(self):
         """Anonymous users should only see public items."""

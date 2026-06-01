@@ -65,17 +65,37 @@ class BaseVisibilityManagerTestCase(TestCase):
         self.assertEqual(corpuses.count(), 1)
         self.assertIn(self.public_corpus, corpuses)
 
-    def test_visible_to_user_superuser_sees_everything(self):
-        """Test that superuser sees all objects - covers line 58-59"""
+    def test_visible_to_user_superuser_has_no_blanket_access(self):
+        """A no-grant superuser is a data "stranger": ``visible_to_user``
+        returns only public/own/explicitly-shared rows, NOT every row.
+
+        The superuser created none of these corpuses, owns none, and has no
+        guardian grant on the private/shared ones — so the only corpus it
+        can see is the public one (parity with any authenticated stranger).
+        Admins reach private data through the ordinary grant path, not a
+        blanket bypass.
+        """
         # Exclude personal corpuses to focus on explicitly-created test corpuses
         corpuses = Corpus.objects.visible_to_user(self.superuser).exclude(
             is_personal=True
         )
-        # Superuser should see all 3 corpuses
-        self.assertEqual(corpuses.count(), 3)
+        # Stranger-superuser sees only the public corpus.
+        self.assertEqual(corpuses.count(), 1)
         self.assertIn(self.public_corpus, corpuses)
+        self.assertNotIn(self.private_corpus, corpuses)
+        self.assertNotIn(self.shared_corpus, corpuses)
+
+        # Positive case: granting READ on the private corpus makes it
+        # visible — proving the admin flows through the normal grant path.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
+        )
+        corpuses = Corpus.objects.visible_to_user(self.superuser).exclude(
+            is_personal=True
+        )
         self.assertIn(self.private_corpus, corpuses)
-        self.assertIn(self.shared_corpus, corpuses)
+        self.assertIn(self.public_corpus, corpuses)
+        self.assertNotIn(self.shared_corpus, corpuses)
 
     def test_visible_to_user_anonymous_only_sees_public(self):
         """Test that anonymous user only sees public objects - covers line 62-63"""
@@ -146,15 +166,28 @@ class BaseVisibilityManagerTestCase(TestCase):
         # Ensure no duplicates (distinct was applied)
         self.assertEqual(len(corpus_ids), len(set(corpus_ids)))
 
-    def test_distinct_not_applied_for_superuser(self):
-        """Test that distinct() is not applied for superuser - covers line 182-184"""
-        # The superuser path should not apply distinct
-        # Exclude personal corpuses to focus on explicitly-created test corpuses
-        corpuses = Corpus.objects.visible_to_user(self.superuser).exclude(
-            is_personal=True
+    def test_distinct_applied_for_superuser(self):
+        """A superuser now traverses the permission JOINs like any other
+        authenticated user, so ``.distinct()`` IS applied to dedupe rows
+        that match multiple guardian grants — covers line 182-184.
+
+        Grant the superuser READ on a corpus via two paths (direct grant +
+        ownership of nothing else) so the JOINs could otherwise produce
+        duplicates; the queryset must return each corpus exactly once.
+        """
+        # Grant multiple permissions to create potential JOIN duplicates.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
         )
-        # Should still work correctly
-        self.assertEqual(corpuses.count(), 3)
+        set_permissions_for_obj_to_user(
+            self.superuser, self.shared_corpus, [PermissionTypes.READ]
+        )
+
+        corpuses = Corpus.objects.visible_to_user(self.superuser)
+        corpus_ids = list(corpuses.values_list("id", flat=True))
+
+        # No duplicates — distinct() was applied on the superuser path too.
+        self.assertEqual(len(corpus_ids), len(set(corpus_ids)))
 
     def test_distinct_not_applied_for_anonymous(self):
         """Test that distinct() is not applied for anonymous users - covers line 182-184"""
@@ -242,15 +275,25 @@ class BaseVisibilityManagerTestCase(TestCase):
         self.assertEqual(corpuses.count(), 1)
         self.assertIn(self.public_corpus, corpuses)
 
-    def test_superuser_within_legacy_logic(self):
-        """Test superuser handling within legacy logic - covers line 89-91"""
+    def test_superuser_flows_through_legacy_permission_body(self):
+        """A superuser no longer early-returns the full table — it flows
+        through the legacy permission body exactly like a normal
+        authenticated user, so it sees only public/own/shared corpuses.
+
+        Here the no-grant superuser sees just the public corpus, and the
+        result is still ordered by ``created`` like any authenticated path.
+        """
         # Exclude personal corpuses to focus on explicitly-created test corpuses
         corpuses = Corpus.objects.visible_to_user(self.superuser).exclude(
             is_personal=True
         )
-        # Should see all corpuses and be ordered by created
-        self.assertEqual(corpuses.count(), 3)
-        # Verify ordering by created
+        # No blanket bypass: only the public corpus is visible.
+        self.assertEqual(corpuses.count(), 1)
+        self.assertIn(self.public_corpus, corpuses)
+        self.assertNotIn(self.private_corpus, corpuses)
+        self.assertNotIn(self.shared_corpus, corpuses)
+
+        # Ordering by created is preserved on the authenticated path.
         corpus_list = list(corpuses)
         self.assertEqual(
             corpus_list,

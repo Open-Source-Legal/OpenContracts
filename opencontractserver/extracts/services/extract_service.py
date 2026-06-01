@@ -46,14 +46,7 @@ class ExtractService(BaseService):
         from opencontractserver.extracts.models import Extract
         from opencontractserver.types.enums import PermissionTypes
 
-        # Superuser can see everything
-        if user.is_superuser:
-            try:
-                extract = Extract.objects.get(id=extract_id)
-                return True, extract
-            except Extract.DoesNotExist:
-                return False, None
-
+        # scoped admin access, 2026-05: admins computed like a normal user
         try:
             extract = Extract.objects.get(id=extract_id)
 
@@ -107,9 +100,8 @@ class ExtractService(BaseService):
         from opencontractserver.extracts.models import Extract
         from opencontractserver.types.enums import PermissionTypes
 
-        if user.is_superuser:
-            qs = Extract.objects.all()
-        elif user.is_anonymous:
+        # scoped admin access, 2026-05: admins computed like a normal user
+        if user.is_anonymous:
             # Anonymous users can only see public extracts in public corpuses
             qs = Extract.objects.filter(
                 Q(is_public=True) & (Q(corpus__isnull=True) | Q(corpus__is_public=True))
@@ -154,9 +146,8 @@ class ExtractService(BaseService):
                 if user.is_anonymous:
                     if not corpus.is_public:
                         return Extract.objects.none()
-                elif not user.is_superuser and not corpus.user_can(
-                    user, PermissionTypes.READ, request=context
-                ):
+                # scoped admin access, 2026-05: admins computed like a normal user
+                elif not corpus.user_can(user, PermissionTypes.READ, request=context):
                     return Extract.objects.none()
             except Corpus.DoesNotExist:
                 return Extract.objects.none()
@@ -191,26 +182,26 @@ class ExtractService(BaseService):
             qs = qs.filter(document_id=document_id)
 
             # Check document permission
-            if not user.is_superuser:
-                try:
-                    doc = Document.objects.get(id=document_id)
-                    if not doc.user_can(user, PermissionTypes.READ):
-                        return Datacell.objects.none()
-                except Document.DoesNotExist:
+            # scoped admin access, 2026-05: admins computed like a normal user
+            try:
+                doc = Document.objects.get(id=document_id)
+                if not doc.user_can(user, PermissionTypes.READ):
                     return Datacell.objects.none()
+            except Document.DoesNotExist:
+                return Datacell.objects.none()
         else:
             # Filter to only documents user can read
-            if not user.is_superuser:
-                readable_doc_ids = list(
-                    Document.objects.visible_to_user(user)
-                    .filter(id__in=extract.documents.values("id"))
-                    .values_list("id", flat=True)
-                )
+            # scoped admin access, 2026-05: admins computed like a normal user
+            readable_doc_ids = list(
+                Document.objects.visible_to_user(user)
+                .filter(id__in=extract.documents.values("id"))
+                .values_list("id", flat=True)
+            )
 
-                if not readable_doc_ids:
-                    return Datacell.objects.none()
+            if not readable_doc_ids:
+                return Datacell.objects.none()
 
-                qs = qs.filter(document_id__in=readable_doc_ids)
+            qs = qs.filter(document_id__in=readable_doc_ids)
 
         # Optimize query
         qs = (
@@ -222,3 +213,21 @@ class ExtractService(BaseService):
         )
 
         return qs
+
+    @classmethod
+    def get_visible_documents(cls, extract: "Extract", user) -> QuerySet:
+        """Return the extract's documents the ``user`` can READ.
+
+        Effective permission is ``MIN(document, corpus)`` per CLAUDE.md, so a
+        single bulk ``visible_to_user`` filter replaces a per-document
+        permission loop (no N+1). Mirrors the document-filtering used by
+        :meth:`get_extract_datacells`.
+
+        scoped admin access (2026-05): superusers are computed like a normal
+        user — ``visible_to_user`` carries no all-documents bypass.
+        """
+        from opencontractserver.documents.models import Document
+
+        return Document.objects.visible_to_user(user).filter(
+            id__in=extract.documents.values("id")
+        )

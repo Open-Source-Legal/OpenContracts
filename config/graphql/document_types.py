@@ -1067,11 +1067,13 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if isinstance(user, AnonymousUser) or not user or not user.is_authenticated:
             return False
 
-        # Creator and superuser can always retry their documents
-        if self.creator == user or user.is_superuser:
+        # Creator can always retry their own documents. Superusers are computed
+        # like a normal user (scoped admin access, 2026-05) — no blanket retry;
+        # they fall through to the normal UPDATE-permission check below.
+        if self.creator == user:
             return True
 
-        # Others need UPDATE permission (boolean via service layer).
+        # Others (incl. superusers) need UPDATE permission (via service layer).
         return BaseService.user_has(
             self, user, PermissionTypes.UPDATE, request=info.context
         )

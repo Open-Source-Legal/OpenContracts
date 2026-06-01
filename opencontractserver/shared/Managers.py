@@ -76,7 +76,7 @@ def _apply_document_prefetches(
     """
     queryset = queryset.select_related("creator", "user_lock", "parent")
 
-    if user and not user.is_anonymous and not user.is_superuser:
+    if user and not user.is_anonymous:
         from opencontractserver.documents.models import (
             DocumentGroupObjectPermission,
             DocumentUserObjectPermission,
@@ -165,7 +165,8 @@ class BaseVisibilityManager(UserCanMixin, Manager):
         Returns queryset filtered to only objects visible to the user.
 
         Visibility rules:
-        - Superusers see everything
+        - Superusers are computed like any other user (no blanket bypass —
+          scoped admin access, 2026-05)
         - Anonymous users see only public objects
         - Authenticated users see: public objects, objects they created, or
           objects with an explicit guardian READ grant (user- or group-level)
@@ -186,9 +187,20 @@ class BaseVisibilityManager(UserCanMixin, Manager):
         if user is None:
             user = AnonymousUser()
 
-        # Superusers see everything (ordering owned by resolver / caller).
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return queryset
+        # NOTE (scoped admin access, 2026-05): superusers are NO LONGER given a
+        # blanket bypass here — an admin's data visibility is computed exactly
+        # like a normal user (creator / is_public / explicit guardian grant).
+        # The only retained admin data privilege is the structural-write
+        # break-glass in ``AnnotationManager``/``RelationshipManager.user_can``.
+        # Audit/repair of arbitrary data is done through the Django admin site.
+        #
+        # PERF TRADE-OFF: before this change superusers returned early here
+        # (no guardian JOINs, no ``distinct()``). Admin queries now traverse
+        # the same prefetch + ``distinct()`` path as a normal user, so bulk
+        # admin queries (moderation dashboards, admin scripts) lose the old
+        # fast path. This is intentional — correctness (no data leakage)
+        # over admin-query speed; reach for the Django admin site / raw ORM
+        # for genuine omniscient bulk operations.
 
         # Anonymous users only see public items
         if user.is_anonymous:
@@ -227,10 +239,11 @@ class BaseVisibilityManager(UserCanMixin, Manager):
             )
 
             # === TOP_LEVEL PERMISSION LOGIC ===
-            # By this point ``user`` is guaranteed to be authenticated and
-            # non-superuser — None / superuser / anonymous all returned early
-            # at the top of the method, so the only path that lands here is
-            # the authenticated-non-superuser case.
+            # By this point ``user`` is guaranteed to be authenticated — None
+            # and anonymous returned early at the top of the method. Superusers
+            # are no longer special-cased (scoped admin access, 2026-05); they
+            # flow through the same guardian / creator / is_public logic, which
+            # means an admin with no grants sees only public + own objects.
             # Initialize an empty queryset so the outer ``except`` handler
             # below has a defined fallback if the inner permission lookup
             # raises something other than ``LookupError``.
@@ -313,10 +326,11 @@ class BaseVisibilityManager(UserCanMixin, Manager):
             # Add elif blocks here for other models needing specific optimizations
 
             # Apply distinct *after* optimizations only when necessary.
-            # The permission logic with __in might introduce duplicates for authenticated users.
-            # Skip distinct for public/superuser queries where it's not needed.
-            if user and not user.is_anonymous and not user.is_superuser:
-                # Only apply distinct for authenticated non-superuser users where permission JOINs occur
+            # The permission logic with __in might introduce duplicates for
+            # authenticated users (superusers included — they now traverse the
+            # same permission JOINs, scoped admin access 2026-05).
+            if user and not user.is_anonymous:
+                # Apply distinct for authenticated users where permission JOINs occur
                 queryset = queryset.distinct()
 
             return queryset
@@ -719,18 +733,17 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         ):
             return self._read_only_via_visible_to_user(user, instance, permission)
 
-        # Superuser bypass — MUST precede structural-write-deny so that
-        # admin tooling retains write access to structural annotations.
-        if user.is_superuser:
-            return True
-
-        # Structural write deny: non-superusers can only READ structural
-        # annotations.
+        # Structural-write break-glass (scoped admin access, 2026-05): structural
+        # annotations are read-only for everyone EXCEPT superusers, who retain
+        # the one admin data privilege of repairing structural data through the
+        # app. Non-superusers can only READ structural annotations; for every
+        # other (non-structural) request a superuser is computed exactly like a
+        # normal user by falling through to the inheritance logic below.
         if (
             getattr(instance, "structural", False)
             and permission != PermissionTypes.READ
         ):
-            return False
+            return bool(getattr(user, "is_superuser", False))
 
         if not self._check_annotation_privacy_recursion(
             user, instance, permission, include_group_permissions, request=request
@@ -980,8 +993,10 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
                 return False
             return True
 
-        if user.is_superuser:
-            return True
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass. Notes have no structural concept, so
+        # there is no admin exception here; the creator short-circuit and
+        # MIN(doc, corpus) logic below apply to admins too.
 
         # Creator short-circuit (matches the QuerySet's ``Q(creator=user)``).
         if (
@@ -1061,18 +1076,13 @@ class RelationshipManager(BaseVisibilityManager):
             _exclude_soft_deleted_doc_orphans,
         )
 
-        # Normalise None → AnonymousUser up front and short-circuit on
-        # superuser before super() runs, matching AnnotationQuerySet's
-        # pattern so the two soft-delete-aware visibility paths read the
-        # same.
+        # Normalise None → AnonymousUser up front. Superusers are NO LONGER
+        # short-circuited (scoped admin access, 2026-05) — they flow through
+        # the same MIN(doc, corpus) visibility below, so an admin sees a
+        # relationship only when it can see the relationship's document and
+        # corpus like any other user.
         if user is None:
             user = AnonymousUser()
-        if user.is_superuser:
-            return super().visible_to_user(
-                user=user,
-                lightweight=lightweight,
-                with_doc_label_annotations=with_doc_label_annotations,
-            )
 
         # MIN(doc, corpus): user must be able to see both the parent doc
         # and the parent corpus. Use the manager-level ``visible_to_user``
@@ -1108,9 +1118,10 @@ class RelationshipManager(BaseVisibilityManager):
     ) -> bool:
         """Single-object authorization check for ``Relationship``.
 
-        Order: superuser bypass → structural-write-deny →
+        Order: structural-write break-glass (superuser-only) →
         (``document_id is None`` → False) → MIN(doc, corpus) via
-        ``AnnotationService``.
+        ``AnnotationService``. Superusers are otherwise computed like any
+        other user (scoped admin access, 2026-05).
 
         **NOTE: deliberately does NOT check ``created_by_analysis``/
         ``created_by_extract``**. Although these fields exist on
@@ -1145,17 +1156,17 @@ class RelationshipManager(BaseVisibilityManager):
             # both on the manager and via the QuerySet contract.
             return self.visible_to_user(user).filter(pk=instance.pk).exists()
 
-        if user.is_superuser:
-            return True
-
-        # Structural relationships are ALWAYS read-only for non-superusers.
-        # Run before the creator short-circuit so even the creator cannot
-        # write to a structural relationship.
+        # Structural-write break-glass (scoped admin access, 2026-05): structural
+        # relationships are read-only for everyone EXCEPT superusers (the one
+        # retained admin data privilege). Run before the creator short-circuit
+        # so even the creator cannot write a structural relationship; a
+        # superuser's non-structural requests fall through to the normal
+        # MIN(doc, corpus) computation below.
         if (
             getattr(instance, "structural", False)
             and permission != PermissionTypes.READ
         ):
-            return False
+            return bool(getattr(user, "is_superuser", False))
 
         # Creator short-circuit — mirrors ``Q(creator=user)`` in
         # ``visible_to_user``. Without this, granting User A CREATE on a

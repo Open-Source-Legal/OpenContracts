@@ -28,9 +28,7 @@ class AgentConfigurationQuerySet(models.QuerySet):
             # Anonymous users see only active global agents
             return self.filter(scope="GLOBAL", is_active=True)
 
-        if user.is_superuser:
-            # Superusers see all agents
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
 
         # Authenticated users see:
         # 1. All active global agents
@@ -264,8 +262,7 @@ class AgentActionResultQuerySet(models.QuerySet):
             # Anonymous users see results for public corpuses only
             return self.filter(corpus_action__corpus__is_public=True)
 
-        if user.is_superuser:
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
 
         # Users see results for corpuses they can access
         accessible_corpuses = Corpus.objects.visible_to_user(user)

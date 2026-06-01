@@ -598,13 +598,28 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
     # TEST SCENARIO 7: Superuser Access
     # =========================================================================
 
-    def test_superuser_full_access(self):
+    def test_superuser_gets_normal_inherited_access(self):
         """
-        Scenario: Superuser accessing annotations
-        Expected: Full access to everything
+        Scenario: Superuser accessing annotations on a PRIVATE stranger
+        document/corpus it has NOT been granted.
+
+        Under the scoped-admin contract (2026-05), superusers are computed like
+        any normal user for DATA authorization — there is no blanket bypass. A
+        no-grant superuser therefore gets the SAME inherited annotation
+        visibility a normal user would: it is DENIED on a private stranger
+        document/corpus (the structural annotation is only "always visible" when
+        the document itself is readable, which it is not here).
+
+        A positive case then grants the superuser READ on the document and
+        corpus and proves access flows through the NORMAL inherited path
+        (parity with a normal reader). (The fixture's structural annotation has
+        ``corpus=None`` and is not linked to the document's structural set, so
+        in this doc+corpus query mode it is filtered out for everyone — its
+        doc-only visibility is pinned by
+        ``test_document_read_no_corpus_structural_only``.)
         """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Superuser → Full Access to Everything")
+        logger.info("TEST: Superuser → Normal Inherited Access (no bypass)")
         logger.info("=" * 80)
 
         # Add document to corpus via DocumentPath (new pattern)
@@ -628,6 +643,7 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
                 edges {{
                     node {{
                         id
+                        structural
                         myPermissions
                     }}
                 }}
@@ -635,21 +651,46 @@ class AnnotationPermissionInheritanceTestCase(TestCase):
         }}
         """.format(doc_global_id, corpus_global_id)
 
+        # --- No-grant superuser is DENIED (normal inherited perms) -----------
         result = self.client_super.execute(query)
         annotations = result.get("data", {}).get("annotations", {}).get("edges", [])
+        self.assertEqual(
+            len(annotations),
+            0,
+            "No-grant superuser must NOT see annotations on a private stranger "
+            "document/corpus (no blanket bypass)",
+        )
+        logger.info("✓ No-grant superuser denied on private stranger doc/corpus")
 
-        # Superuser should see annotations
-        self.assertGreater(len(annotations), 0, "Superuser should see all annotations")
+        # --- Positive case: grant READ → access via the NORMAL path ----------
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc_private, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus_private, [PermissionTypes.READ]
+        )
 
-        # Should have all permissions (backend format)
+        result = self.client_super.execute(query)
+        annotations = result.get("data", {}).get("annotations", {}).get("edges", [])
+        self.assertGreater(
+            len(annotations),
+            0,
+            "After READ grant, superuser should see annotations via the normal path",
+        )
+
+        # Parity with a normal reader: READ is present (no synthetic full-CRUD
+        # fold-in for superusers on data objects).
         for ann in annotations:
             permissions = ann["node"]["myPermissions"]
-            self.assertIn("read_annotation", permissions)
-            self.assertIn("update_annotation", permissions)
-            self.assertIn("create_annotation", permissions)
-            self.assertIn("remove_annotation", permissions)
+            self.assertIn(
+                "read_annotation",
+                permissions,
+                "Granted superuser should have READ on visible annotations",
+            )
 
-        logger.info("✓ Superuser has full access to all annotations")
+        logger.info(
+            "✓ Superuser reaches annotations via normal inherited READ (parity)"
+        )
 
     # =========================================================================
     # TEST SCENARIO 8: Permission Format Compatibility

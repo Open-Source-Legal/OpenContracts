@@ -765,16 +765,28 @@ class AnnotationPrivacyScopingTestCase(TestCase):
     # TEST 5: Admin (superuser) sees everything
     # =========================================================================
 
-    def test_admin_sees_all_annotations(self):
+    def test_admin_sees_only_reachable_annotations(self):
         """
-        Admin (superuser) should see ALL annotations regardless of privacy settings.
+        Admin (superuser) is computed like a normal user for DATA authorization
+        (no blanket bypass, 2026-05). A no-grant admin therefore sees only the
+        annotations it can reach via the normal path:
 
-        Note: When analysis_id is not provided, allAnnotations only returns manual/user
-        annotations (analysis__isnull=True). To see analysis-created annotations,
-        the admin must query with specific analysis_id values.
+        - Public / non-private annotations on readable docs: VISIBLE
+        - Extract-/analysis-private annotations it has NOT been granted access
+          to (and did not create): HIDDEN
+
+        Annotation privacy (created_by_analysis / created_by_extract) now applies
+        to superusers too. The ``extract_ann_1`` fixture is private to
+        ``extract_team_a`` (Team A's extract), and the admin holds no grant on it,
+        so the admin must NOT see it. A positive case below proves that granting
+        the admin extract access reveals it via the normal path.
+
+        Note: When analysis_id is not provided, allAnnotations only returns
+        manual/user annotations (analysis__isnull=True). To see analysis-created
+        annotations, the admin must query with specific analysis_id values.
         """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Admin sees all manual annotations without analysis_id")
+        logger.info("TEST: Admin sees only annotations it can reach (no bypass)")
         logger.info("=" * 80)
 
         doc_id = to_global_id("DocumentType", self.doc_contract1.id)
@@ -797,33 +809,60 @@ class AnnotationPrivacyScopingTestCase(TestCase):
         annotations = result["data"]["document"]["allAnnotations"]
         annotation_texts = [ann["rawText"] for ann in annotations]
 
-        # Without analysis_id, should only see manual annotations (no analysis field)
-        expected_manual_annotations = [
+        # Public / non-private annotation is reachable by the admin.
+        self.assertIn(
             "Public annotation on Contract Alpha",
-            "Team A extract-generated annotation",  # Has created_by_extract, but no analysis
-        ]
+            annotation_texts,
+            "Admin should see the public annotation",
+        )
 
-        for expected_text in expected_manual_annotations:
-            self.assertIn(
-                expected_text, annotation_texts, f"Admin should see: {expected_text}"
-            )
+        # Extract-private annotation the admin has no grant on: HIDDEN
+        # (annotation privacy now applies to superusers too).
+        self.assertNotIn(
+            "Team A extract-generated annotation",
+            annotation_texts,
+            "No-grant admin must NOT see the Team A extract-private annotation",
+        )
 
-        # Should NOT see analysis-created annotations when no analysis_id provided
+        # Analysis-private annotations are also hidden (and are excluded anyway
+        # because no analysis_id was supplied).
         should_not_see = [
             "Team A confidential finding on Contract Alpha",
             "Team B confidential finding on Contract Alpha",
             "Reviewer's confidential note on Contract Alpha",
         ]
-
         for text in should_not_see:
             self.assertNotIn(
                 text,
                 annotation_texts,
-                f"Should not see analysis annotation without analysis_id: {text}",
+                f"No-grant admin must NOT see analysis-private annotation: {text}",
             )
 
-        total_count = len(result["data"]["document"]["allAnnotations"])
-        logger.info(f"✓ Admin sees {total_count} manual annotations (no analysis_id)")
+        logger.info(
+            f"✓ No-grant admin sees {len(annotation_texts)} reachable annotation(s)"
+        )
+
+        # ------------------------------------------------------------------
+        # Positive case: granting the admin extract access reveals the
+        # extract-private annotation via the NORMAL path (no bypass needed).
+        # ------------------------------------------------------------------
+        set_permissions_for_obj_to_user(
+            self.admin, self.extract_team_a, [PermissionTypes.READ]
+        )
+
+        result = self.client_admin.execute(query)
+        self.assertIsNone(result.get("errors"))
+        granted_texts = [
+            ann["rawText"] for ann in result["data"]["document"]["allAnnotations"]
+        ]
+        self.assertIn(
+            "Team A extract-generated annotation",
+            granted_texts,
+            "After granting extract READ, admin should see the extract annotation",
+        )
+        logger.info(
+            "✓ After extract grant, admin reaches the extract-private annotation"
+        )
 
     # =========================================================================
     # TEST 6: Granting/revoking analysis permission changes visibility

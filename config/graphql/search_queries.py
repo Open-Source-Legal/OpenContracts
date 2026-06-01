@@ -117,27 +117,25 @@ class SearchQueryMixin:
         if user.is_anonymous:
             return Corpus.objects.none()
 
-        # Superusers see all corpuses
-        if user.is_superuser:
-            qs = Corpus.objects.all()
-        else:
-            # Get corpuses user has write permission to
-            writable_corpuses = get_objects_for_user(
-                user,
-                [
-                    "corpuses.create_corpus",
-                    "corpuses.update_corpus",
-                    "corpuses.remove_corpus",  # Note: PermissionTypes.DELETE maps to "remove"
-                ],
-                klass=Corpus,
-                accept_global_perms=False,
-                any_perm=True,  # Has ANY of these permissions
-            )
+        # Scoped admin access (2026-05): superusers are computed like a normal
+        # user — same creator/writable/public mention scope as anyone else.
+        # Get corpuses user has write permission to
+        writable_corpuses = get_objects_for_user(
+            user,
+            [
+                "corpuses.create_corpus",
+                "corpuses.update_corpus",
+                "corpuses.remove_corpus",  # Note: PermissionTypes.DELETE maps to "remove"
+            ],
+            klass=Corpus,
+            accept_global_perms=False,
+            any_perm=True,  # Has ANY of these permissions
+        )
 
-            # Combine: creator OR writable OR public
-            qs = Corpus.objects.filter(
-                Q(creator=user) | Q(id__in=writable_corpuses) | Q(is_public=True)
-            ).distinct()
+        # Combine: creator OR writable OR public
+        qs = Corpus.objects.filter(
+            Q(creator=user) | Q(id__in=writable_corpuses) | Q(is_public=True)
+        ).distinct()
 
         if text_search:
             qs = qs.filter(
@@ -178,84 +176,82 @@ class SearchQueryMixin:
         if user.is_anonymous:
             return Document.objects.none()
 
-        # Superusers see all documents
-        if user.is_superuser:
-            qs = Document.objects.all()
-        else:
-            # Get documents user has write permission to
-            writable_documents = get_objects_for_user(
-                user,
-                [
-                    "documents.create_document",
-                    "documents.update_document",
-                    "documents.remove_document",  # Note: PermissionTypes.DELETE maps to "remove"
-                ],
-                klass=Document,
-                accept_global_perms=False,
-                any_perm=True,
-            )
+        # Scoped admin access (2026-05): superusers are computed like a normal
+        # user — same creator/writable/public mention scope as anyone else.
+        # Get documents user has write permission to
+        writable_documents = get_objects_for_user(
+            user,
+            [
+                "documents.create_document",
+                "documents.update_document",
+                "documents.remove_document",  # Note: PermissionTypes.DELETE maps to "remove"
+            ],
+            klass=Document,
+            accept_global_perms=False,
+            any_perm=True,
+        )
 
-            # Get corpuses user has write permission to
-            writable_corpuses = get_objects_for_user(
-                user,
-                [
-                    "corpuses.create_corpus",
-                    "corpuses.update_corpus",
-                    "corpuses.remove_corpus",  # Note: PermissionTypes.DELETE maps to "remove"
-                ],
-                klass=Corpus,
-                accept_global_perms=False,
-                any_perm=True,
-            )
+        # Get corpuses user has write permission to
+        writable_corpuses = get_objects_for_user(
+            user,
+            [
+                "corpuses.create_corpus",
+                "corpuses.update_corpus",
+                "corpuses.remove_corpus",  # Note: PermissionTypes.DELETE maps to "remove"
+            ],
+            klass=Corpus,
+            accept_global_perms=False,
+            any_perm=True,
+        )
 
-            # Get corpuses user can at least read (for public document context)
-            readable_corpuses = BaseService.filter_visible(
-                Corpus, user, request=info.context
-            )
+        # Get corpuses user can at least read (for public document context)
+        readable_corpuses = BaseService.filter_visible(
+            Corpus, user, request=info.context
+        )
 
-            # Get documents in writable corpuses via DocumentPath (corpus isolation)
-            from opencontractserver.documents.models import DocumentPath
+        # Get documents in writable corpuses via DocumentPath (corpus isolation)
+        from opencontractserver.documents.models import DocumentPath
 
-            docs_in_writable_corpuses = DocumentPath.objects.filter(
-                corpus__in=writable_corpuses, is_current=True, is_deleted=False
-            ).values_list("document_id", flat=True)
+        docs_in_writable_corpuses = DocumentPath.objects.filter(
+            corpus__in=writable_corpuses, is_current=True, is_deleted=False
+        ).values_list("document_id", flat=True)
 
-            # Get documents in readable corpuses for public document context
-            docs_in_readable_corpuses = DocumentPath.objects.filter(
-                corpus__in=readable_corpuses, is_current=True, is_deleted=False
-            ).values_list("document_id", flat=True)
+        # Get documents in readable corpuses for public document context
+        docs_in_readable_corpuses = DocumentPath.objects.filter(
+            corpus__in=readable_corpuses, is_current=True, is_deleted=False
+        ).values_list("document_id", flat=True)
 
-            # Get documents in public corpuses for public document context
-            public_corpuses = Corpus.objects.filter(is_public=True)
-            docs_in_public_corpuses = DocumentPath.objects.filter(
-                corpus__in=public_corpuses, is_current=True, is_deleted=False
-            ).values_list("document_id", flat=True)
+        # Get documents in public corpuses for public document context
+        public_corpuses = Corpus.objects.filter(is_public=True)
+        docs_in_public_corpuses = DocumentPath.objects.filter(
+            corpus__in=public_corpuses, is_current=True, is_deleted=False
+        ).values_list("document_id", flat=True)
 
-            # Get standalone documents (not in any corpus via DocumentPath)
-            docs_with_paths = (
-                DocumentPath.objects.filter(is_current=True, is_deleted=False)
-                .values_list("document_id", flat=True)
-                .distinct()
-            )
+        # Get standalone documents (not in any corpus via DocumentPath)
+        docs_with_paths = (
+            DocumentPath.objects.filter(is_current=True, is_deleted=False)
+            .values_list("document_id", flat=True)
+            .distinct()
+        )
 
-            # Build complex filter:
-            # 1. User is creator
-            # 2. User has write permission on document
-            # 3. Document is in a writable corpus (via DocumentPath)
-            # 4. Document is public AND (not in any corpus OR in public corpus OR user has corpus access)
-            qs = Document.objects.filter(
-                Q(creator=user)
-                | Q(id__in=writable_documents)
-                | Q(id__in=docs_in_writable_corpuses)  # Via DocumentPath
-                | (
-                    Q(is_public=True)
-                    & (
-                        ~Q(id__in=docs_with_paths)  # Not in any corpus (standalone)
-                        | Q(id__in=docs_in_public_corpuses)  # In a public corpus
-                        | Q(id__in=docs_in_readable_corpuses)  # In a readable corpus
-                    )
+        # Build complex filter:
+        # 1. User is creator
+        # 2. User has write permission on document
+        # 3. Document is in a writable corpus (via DocumentPath)
+        # 4. Document is public AND (not in any corpus OR in public corpus OR user has corpus access)
+        qs = Document.objects.filter(
+            Q(creator=user)
+            | Q(id__in=writable_documents)
+            | Q(id__in=docs_in_writable_corpuses)  # Via DocumentPath
+            | (
+                Q(is_public=True)
+                & (
+                    ~Q(id__in=docs_with_paths)  # Not in any corpus (standalone)
+                    | Q(id__in=docs_in_public_corpuses)  # In a public corpus
+                    | Q(id__in=docs_in_readable_corpuses)  # In a readable corpus
                 )
-            ).distinct()
+            )
+        ).distinct()
 
         if text_search:
             qs = qs.filter(

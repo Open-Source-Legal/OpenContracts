@@ -636,29 +636,59 @@ class FeedbackMutationPermissionTestCase(TestCase):
     # TEST SCENARIO 7: Superuser always has access
     # =========================================================================
 
-    def test_superuser_can_always_provide_feedback(self):
-        """Superuser can always approve/reject regardless of permissions"""
+    def test_superuser_feedback_follows_normal_visibility(self):
+        """Superuser can provide feedback only on annotations it can READ.
+
+        Under the scoped-admin contract (2026-05) a superuser is computed like
+        a normal user for DATA authorization — there is no "always" bypass.
+        Feedback follows the commented annotation's visibility for admins too:
+        a no-grant superuser on a private stranger annotation is DENIED, and is
+        only allowed once it can reach the annotation via the normal COMMENT
+        path (here, by being granted READ + COMMENT on the document/corpus).
+        """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Superuser → Always Has Feedback Access")
+        logger.info("TEST: Superuser → Feedback Follows Normal Visibility")
         logger.info("=" * 80)
 
         ann_id = to_global_id("AnnotationType", self.annotation.id)
 
-        # Test approve
+        # --- No-grant superuser is DENIED on a private stranger annotation ---
+        result_approve = self._approve_annotation(self.client_super, ann_id)
+        self.assertFalse(
+            result_approve["data"]["approveAnnotation"]["ok"],
+            "No-grant superuser must NOT approve a private stranger annotation",
+        )
+        result_reject = self._reject_annotation(self.client_super, ann_id)
+        self.assertFalse(
+            result_reject["data"]["rejectAnnotation"]["ok"],
+            "No-grant superuser must NOT reject a private stranger annotation",
+        )
+        logger.info("✓ No-grant superuser denied feedback on private annotation")
+
+        # --- Positive case: grant READ + COMMENT → allowed via normal path ---
+        set_permissions_for_obj_to_user(
+            self.superuser,
+            self.document,
+            [PermissionTypes.READ, PermissionTypes.COMMENT],
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.COMMENT],
+        )
+
         result_approve = self._approve_annotation(self.client_super, ann_id)
         self.assertTrue(
             result_approve["data"]["approveAnnotation"]["ok"],
-            "Superuser should always be able to approve",
+            "Superuser with COMMENT should be able to approve via normal path",
         )
-
-        # Test reject
         result_reject = self._reject_annotation(self.client_super, ann_id)
         self.assertTrue(
             result_reject["data"]["rejectAnnotation"]["ok"],
-            "Superuser should always be able to reject",
+            "Superuser with COMMENT should be able to reject via normal path",
         )
 
-        logger.info("✓ Superuser always has feedback access")
+        logger.info("✓ Superuser feedback granted only via normal COMMENT visibility")
 
     # =========================================================================
     # TEST SCENARIO 8: Complete outsider has no access

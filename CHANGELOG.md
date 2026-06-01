@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
+  Previously a `is_superuser` account received a blanket bypass throughout the
+  permission layer: it could READ every row of every data model and pass every
+  `user_can` check regardless of ownership, sharing, `is_public`, or corpus
+  membership. An admin's access to **user data** (corpuses, documents,
+  annotations, relationships, notes, conversations, analyses, extracts,
+  datacells, folders, feedback, user profiles, badge awards, agents, research
+  reports, ingestion sources, …) is now computed **identically to a normal
+  user**. The `if user.is_superuser: return all()/True` short-circuits were
+  removed from every visibility/authorization path:
+  - **Managers / querysets** (`opencontractserver/shared/Managers.py`,
+    `shared/QuerySets.py`): `BaseVisibilityManager`, `PermissionQuerySet`,
+    `DocumentQuerySet`, `AnnotationQuerySet`, `NoteQuerySet`,
+    `UserFeedbackQuerySet`, `PermissionedTreeQuerySet`, `RelationshipManager`
+    `visible_to_user`; `UserProfileManager.visible_to_user`
+    (`users/models.py`). Superusers now also receive the permission prefetch +
+    `distinct()` previously skipped for them.
+  - **Single-object checks**: `_default_user_can`
+    (`utils/permissioning.py`), `AnnotationManager`/`NoteManager`/
+    `RelationshipManager.user_can`. `get_users_permissions_for_obj` no longer
+    grants superusers the full permission set; `resolve_my_permissions`
+    (`config/graphql/.../mixins.py`) no longer injects a synthetic `superuser`
+    permission.
+  - **Service layer**: `AnnotationService` (`_compute_effective_permissions`,
+    privacy filtering, `get_corpus_annotations`), `RelationshipService`,
+    `Conversation`/`ChatMessage` visibility (`conversations/models.py`),
+    `ConversationService`, `UserService.get_visible_users`, `MetadataService`,
+    `ExtractService`, `AnalysisService`, `DocumentRelationship` service,
+    `AgentConfiguration`/`AgentActionResult`/`ResearchReport` managers,
+    `BadgeService.get_visible_user_badges`.
+  - **GraphQL resolvers** (`config/graphql/`): extract document count/list,
+    `ResearchReport` `myPermissions`, `@mention` corpus/document autocomplete
+    (`search_queries.py`), `Document.can_retry` (`document_types.py`), label
+    deletion (`label_mutations.py`).
+  - **Badge awarding** (`config/graphql/badge_mutations.py`): now authorizes the
+    awarder first (corpus CRUD for corpus badges, superuser for global badges)
+    and resolves the recipient with a direct, unfiltered lookup, so it no longer
+    depends on the removed `UserProfileManager` superuser bypass while preserving
+    the IDOR contract.
+  - **Retained for superusers** (deliberate): (1) the **structural-write
+    break-glass** — superusers may still write structural annotations/
+    relationships (`AnnotationManager`/`RelationshipManager.user_can`); (2)
+    **moderation** of conversations/threads (`Conversation`/`Corpus.can_moderate`
+    + moderation-action resolvers); (3) **admin-only configuration/restriction
+    gates** in mutations/services (`PipelineSettings`, `Badge`/`CorpusCategory`
+    management, "create global agents", "make analyses public", worker-upload
+    provisioning). The break-glass for inspecting/repairing arbitrary user data
+    is the **Django admin site** (`is_staff`), unaffected by these changes.
+    Permanent document deletion now requires normal DELETE permission (no
+    superuser override). Follow-up: an explicit, audited support/impersonation
+    mechanism may be added later.
+  - **Tests**: the authorization-invariant suite and ~30 permission/optimizer/
+    service test modules were updated so a no-grant superuser is asserted to be
+    a "stranger" for data (with positive grant-path cases and the retained
+    structural-write break-glass). Docs: `docs/permissioning/consolidated_permissioning_guide.md`.
+
 ### Fixed
 
 - **MCP `search_corpus` returned duplicate hits and dead-end passages; bad

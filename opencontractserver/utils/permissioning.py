@@ -405,16 +405,11 @@ def get_users_permissions_for_obj(
         # For models without guardian permissions, use creator-based permissions
         model_permissions_for_user: set[str] = set()
 
-        # Superusers have all permissions
-        if user.is_superuser:
-            model_permissions_for_user = {
-                f"create_{model_name}",
-                f"read_{model_name}",
-                f"update_{model_name}",
-                f"remove_{model_name}",
-            }
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket grant. Creator / is_public rules apply to
+        # admins too.
         # Creator has full CRUD permissions
-        elif hasattr(instance, "creator_id") and instance.creator_id == user.id:
+        if hasattr(instance, "creator_id") and instance.creator_id == user.id:
             model_permissions_for_user = {
                 f"create_{model_name}",
                 f"read_{model_name}",
@@ -430,29 +425,10 @@ def get_users_permissions_for_obj(
             instance, cache_key, model_permissions_for_user
         )
 
-    # Superusers have all permissions on guardian-enabled models.
-    # Guardian models support richer operations (comment, publish, permission)
-    # beyond the basic CRUD set used for creator-based models above.
-    # NOTE: the cache key is (user_id, include_group_permissions) — it does
-    # NOT include is_superuser. If a test promotes a user to superuser
-    # mid-run and reuses the same Python instance, this branch's cached
-    # superuser set will be returned by later calls even after promotion is
-    # reverted (and vice versa). Refresh the instance from DB or
-    # ``delattr(instance, INSTANCE_PERMS_CACHE_ATTR)`` to scrub the cache.
-    if user.is_superuser:
-        return _store_granted_on_instance(
-            instance,
-            cache_key,
-            {
-                f"create_{model_name}",
-                f"read_{model_name}",
-                f"update_{model_name}",
-                f"remove_{model_name}",
-                f"comment_{model_name}",
-                f"publish_{model_name}",
-                f"permission_{model_name}",
-            },
-        )
+    # Superusers are computed like any other user on guardian-enabled models
+    # too (scoped admin access, 2026-05) — no blanket grant of the full
+    # create/read/update/remove/comment/publish/permission set. Admins resolve
+    # their real guardian grants through the prefetch / guardian path below.
 
     # Fast path: consume per-user guardian prefetches if attached. Missing attr
     # (different user, or no prefetch) falls through to the guardian path below.
@@ -623,8 +599,10 @@ def _default_user_can(
             return True
         return False
 
-    if user.is_superuser:
-        return True
+    # Superusers are computed like any other user (scoped admin access,
+    # 2026-05) — no blanket bypass. The default standard-object check
+    # (Corpus/Document/etc.) below applies to admins too: is_public READ,
+    # creator, and explicit guardian grants.
 
     if permission == PermissionTypes.READ and getattr(instance, "is_public", False):
         return True

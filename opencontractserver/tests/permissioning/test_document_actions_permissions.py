@@ -451,22 +451,47 @@ class TestDocumentActionsSuperuser(TestCase):
             creator=self.owner,
         )
 
-    def test_superuser_can_see_all_document_actions(self):
+    def test_superuser_document_actions_computed_normally(self):
         """
-        GIVEN: A superuser
-        WHEN: Querying for document actions on private document/corpus
-        THEN: All actions should be visible
+        GIVEN: A no-grant superuser (computed like a stranger under the security
+               refactor) and, separately, a granted superuser
+        WHEN: Querying for document actions on a private document/corpus
+        THEN: The no-grant superuser sees nothing (denied like any stranger),
+              and only after being granted READ on doc + corpus + action does it
+              see the corpus action through the normal permission path.
         """
+        # No grants → no-grant superuser is a stranger → empty results.
         actions = DocumentActionsService.get_document_actions(
             user=self.superuser,
             document_id=self.document.id,
             corpus_id=self.corpus.id,
         )
+        self.assertEqual(
+            actions["corpus_actions"],
+            [],
+            "No-grant superuser must NOT see corpus actions on a private corpus",
+        )
 
+        # Grant READ on doc + corpus + the corpus action → normal path grants it.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.document, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus_action, [PermissionTypes.READ]
+        )
+
+        actions = DocumentActionsService.get_document_actions(
+            user=self.superuser,
+            document_id=self.document.id,
+            corpus_id=self.corpus.id,
+        )
         self.assertIn(
             self.corpus_action,
             actions["corpus_actions"],
-            "Superuser should see all corpus actions",
+            "Granted superuser should see the corpus action via the normal path",
         )
 
 

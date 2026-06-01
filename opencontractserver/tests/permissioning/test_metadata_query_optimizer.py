@@ -209,8 +209,29 @@ class MetadataServiceTestCase(TestCase):
     # Tests for _compute_effective_permissions
     # =========================================================================
 
-    def test_compute_permissions_superuser_has_all(self):
-        """Superuser should have all permissions."""
+    def test_compute_permissions_superuser_computed_normally(self):
+        """A no-grant superuser is computed like a normal ungranted user: on a
+        private doc/corpus it owns no grants for, every permission is denied.
+        Once granted CRUD (the normal path) it gets the same all-True result a
+        normal granted user would."""
+        # No grants → no-grant superuser is a stranger → all denied.
+        can_read, can_create, can_update, can_delete = (
+            MetadataService._compute_effective_permissions(
+                self.superuser, self.doc1.id, self.corpus.id
+            )
+        )
+        self.assertFalse(can_read)
+        self.assertFalse(can_create)
+        self.assertFalse(can_update)
+        self.assertFalse(can_delete)
+
+        # Grant CRUD on doc + corpus → normal path grants everything.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc1, [PermissionTypes.CRUD]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.CRUD]
+        )
         can_read, can_create, can_update, can_delete = (
             MetadataService._compute_effective_permissions(
                 self.superuser, self.doc1.id, self.corpus.id
@@ -315,12 +336,29 @@ class MetadataServiceTestCase(TestCase):
         )
         self.assertFalse(can_read)
 
-    def test_compute_permissions_query_count_superuser_is_zero(self):
-        """Superuser short-circuit must not touch the database (issue #1690)."""
-        with self.assertNumQueries(0):
-            MetadataService._compute_effective_permissions(
+    def test_compute_permissions_superuser_matches_normal_user(self):
+        """The superuser zero-query fast path is GONE: a no-grant superuser now
+        flows through the same permission-resolution path as a normal
+        authenticated user and produces an identical result. Parity check —
+        the no-grant superuser and the no-grant stranger compute the same
+        (denied) tuple, and the path issues real queries (not the old
+        zero-query short circuit)."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as captured:
+            superuser_perms = MetadataService._compute_effective_permissions(
                 self.superuser, self.doc1.id, self.corpus.id
             )
+        stranger_perms = MetadataService._compute_effective_permissions(
+            self.stranger, self.doc1.id, self.corpus.id
+        )
+
+        # No-grant superuser is computed exactly like the no-grant stranger.
+        self.assertEqual(superuser_perms, stranger_perms)
+        self.assertEqual(superuser_perms, (False, False, False, False))
+        # The old zero-query fast path is gone: real queries are issued.
+        self.assertGreater(len(captured.captured_queries), 0)
 
     def test_compute_permissions_query_count_collaborator_is_bounded(self):
         """
@@ -480,12 +518,29 @@ class MetadataServiceTestCase(TestCase):
         )
         self.assertEqual(len(result), 0)
 
-    def test_batch_superuser_sees_all(self):
-        """Superuser should see all documents."""
+    def test_batch_superuser_computed_normally(self):
+        """A no-grant superuser sees only the documents a normal ungranted user
+        would (none on this private corpus). Once granted doc + corpus READ it
+        sees exactly those documents through the normal path."""
+        # No grants → no-grant superuser is a stranger → no documents.
         result = MetadataService.get_documents_metadata_batch(
             self.superuser, [self.doc1.id, self.doc2.id], self.corpus.id
         )
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 0)
+
+        # Grant READ on doc1 + corpus → only doc1 becomes visible (parity with
+        # a normal user holding the same grants).
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
+        result = MetadataService.get_documents_metadata_batch(
+            self.superuser, [self.doc1.id, self.doc2.id], self.corpus.id
+        )
+        self.assertIn(self.doc1.id, result)
+        self.assertNotIn(self.doc2.id, result)
 
     def test_batch_empty_list(self):
         """Empty document list should return empty result."""
@@ -586,8 +641,24 @@ class MetadataServiceTestCase(TestCase):
     # Tests for check_metadata_mutation_permission
     # =========================================================================
 
-    def test_mutation_permission_superuser(self):
-        """Superuser should always have mutation permission."""
+    def test_mutation_permission_superuser_computed_normally(self):
+        """A no-grant superuser is denied mutation just like a normal ungranted
+        user; once granted corpus UPDATE + doc READ (the corpus-primary write
+        model) it is allowed through the normal path."""
+        # No grants → no-grant superuser is a stranger → denied.
+        has_perm, msg = MetadataService.check_metadata_mutation_permission(
+            self.superuser, self.doc1.id, self.corpus.id, "UPDATE"
+        )
+        self.assertFalse(has_perm)
+        self.assertNotEqual(msg, "")
+
+        # Grant corpus UPDATE + doc READ → normal corpus-primary path allows it.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.UPDATE]
+        )
         has_perm, msg = MetadataService.check_metadata_mutation_permission(
             self.superuser, self.doc1.id, self.corpus.id, "UPDATE"
         )

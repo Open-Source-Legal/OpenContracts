@@ -210,12 +210,9 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         # prefetch is missing.
         from opencontractserver.types.enums import PermissionTypes
 
-        if info.context.user.is_superuser:
-            cache = getattr(self, "_prefetched_objects_cache", {})
-            if "documents" in cache:
-                return len(cache["documents"])
-            return self.documents.count()
-
+        # Scoped admin access (2026-05): superusers are computed like a normal
+        # user — they count only the documents in this extract they can READ,
+        # via the same per-doc filter below (no blanket all-documents branch).
         cache = getattr(self, "_prefetched_objects_cache", {})
         documents = cache["documents"] if "documents" in cache else self.documents.all()
         return sum(
@@ -227,19 +224,12 @@ class ExtractType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         )
 
     def resolve_full_document_list(self, info) -> Any:
-        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.extracts.services import ExtractService
 
-        # Filter to only documents user can read
-        if info.context.user.is_superuser:
-            return self.documents.all()
-
-        readable_docs = []
-        for doc in self.documents.all():
-            if BaseService.user_has(
-                doc, info.context.user, PermissionTypes.READ, request=info.context
-            ):
-                readable_docs.append(doc)
-        return readable_docs
+        # Bulk visibility filter (no per-document N+1); superusers are computed
+        # like a normal user (scoped admin access, 2026-05) — no all-documents
+        # branch. Routed through the service per CLAUDE.md rule 7.
+        return list(ExtractService.get_visible_documents(self, info.context.user))
 
     def resolve_full_iteration_list(self, info) -> Any:
         # Permission filter is handled by ExtractService for the

@@ -94,9 +94,9 @@ class UserService(BaseService):
         if requesting_user is None or isinstance(requesting_user, AnonymousUser):
             return User.objects.filter(is_active=True, is_profile_public=True)
 
-        # Superusers see all active users
-        if getattr(requesting_user, "is_superuser", False):
-            return User.objects.filter(is_active=True)
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — profile visibility follows the own/public/shared-corpus
+        # rules below for admins too.
 
         # Build visibility query for authenticated users
         # Start with base query for active users
