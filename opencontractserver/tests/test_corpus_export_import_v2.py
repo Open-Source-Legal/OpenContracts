@@ -14,6 +14,7 @@ import json
 import pathlib
 import zipfile
 from tempfile import SpooledTemporaryFile
+from typing import cast
 from unittest import mock
 
 import pytest
@@ -53,7 +54,15 @@ from opencontractserver.tasks.import_tasks_v2 import (
 )
 from opencontractserver.tests._corpus_fixture import build_rich_test_corpus
 from opencontractserver.tests._corpus_snapshot import snapshot_corpus
-from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.types.dicts import (
+    AgentConfigExport,
+    CorpusFolderExport,
+    DocumentPathExport,
+    OpenContractsExportDataJsonV2Type,
+    OpenContractsRelationshipPythonType,
+    StructuralAnnotationSetExport,
+)
+from opencontractserver.types.enums import AnnotationFilterMode, PermissionTypes
 from opencontractserver.users.models import UserExport
 from opencontractserver.utils.etl import build_label_lookups
 from opencontractserver.utils.export_v2 import (
@@ -173,6 +182,7 @@ class TestV2ExportUtilities(TestCase):
 
         # Verify
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["content_hash"], "test_hash_123")
         self.assertEqual(result["parser_name"], "docling")
         self.assertEqual(result["page_count"], 1)
@@ -365,15 +375,21 @@ class TestV2ImportUtilities(TestCase):
         label_lookup = {("Test Label", TOKEN_LABEL): self.text_label}
 
         # Import
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         # Verify
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.content_hash, "import_hash_123")
         self.assertEqual(result.structural_annotations.count(), 1)
 
         # Test deduplication - importing same hash should return existing
-        result2 = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result2 = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
+        assert result2 is not None
         self.assertEqual(result.id, result2.id)
 
     def test_import_corpus_folders(self):
@@ -404,7 +420,9 @@ class TestV2ImportUtilities(TestCase):
         ]
 
         # Import
-        result = import_corpus_folders(folders_data, self.corpus, self.user)
+        result = import_corpus_folders(
+            cast(list[CorpusFolderExport], folders_data), self.corpus, self.user
+        )
 
         # Verify
         self.assertEqual(len(result), 2)
@@ -424,7 +442,7 @@ class TestV2ImportUtilities(TestCase):
         }
 
         # Import
-        import_agent_config(config_data, self.corpus)
+        import_agent_config(cast(AgentConfigExport, config_data), self.corpus)
 
         # Verify
         self.corpus.refresh_from_db()
@@ -471,6 +489,7 @@ class TestV2ImportUtilities(TestCase):
             is_deleted=False,
         ).first()
         self.assertIsNotNone(head_path)
+        assert head_path is not None
         self.assertEqual(head_path.document.title, "Readme.CAML")
         self.assertEqual(head_path.document.file_type, "text/markdown")
 
@@ -527,12 +546,15 @@ class TestV2ImportUtilities(TestCase):
         ]
 
         # Create annotation ID map and label lookup
-        annot_id_map = {str(annot1.id): annot1.id, str(annot2.id): annot2.id}
+        annot_id_map: dict[str | int, int] = {
+            str(annot1.id): annot1.id,
+            str(annot2.id): annot2.id,
+        }
         label_lookup = {("Relates To", RELATIONSHIP_LABEL): rel_label}
 
         # Import using _import_v2_relationships
         _import_v2_relationships(
-            relationships_data,
+            cast(list[OpenContractsRelationshipPythonType], relationships_data),
             self.corpus,
             annot_id_map,
             label_lookup,
@@ -544,6 +566,7 @@ class TestV2ImportUtilities(TestCase):
         self.assertEqual(relationships.count(), 1)
 
         rel = relationships.first()
+        assert rel is not None
         self.assertEqual(rel.relationship_label, rel_label)
         self.assertEqual(rel.source_annotations.count(), 1)
         self.assertEqual(rel.target_annotations.count(), 1)
@@ -597,6 +620,7 @@ class TestV2ImportUtilities(TestCase):
         self.assertEqual(conversations.count(), 1)
 
         conv = conversations.first()
+        assert conv is not None
         self.assertEqual(conv.title, "Test Conversation")
         self.assertEqual(conv.conversation_type, "chat")
 
@@ -605,6 +629,7 @@ class TestV2ImportUtilities(TestCase):
         self.assertEqual(messages.count(), 1)
 
         msg = messages.first()
+        assert msg is not None
         self.assertEqual(msg.content, "Test message")
         self.assertEqual(msg.msg_type, "HUMAN")
 
@@ -613,6 +638,7 @@ class TestV2ImportUtilities(TestCase):
         self.assertEqual(votes.count(), 1)
 
         vote = votes.first()
+        assert vote is not None
         self.assertEqual(vote.vote_type, "upvote")
 
     def test_import_structural_annotation_set_create_new(self):
@@ -638,10 +664,13 @@ class TestV2ImportUtilities(TestCase):
         label_lookup = {("Test Label", TOKEN_LABEL): self.text_label}
 
         # Import - should CREATE new since hash doesn't exist
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         # Verify new structural set was created
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.content_hash, "unique_new_hash_12345")
 
         # Verify annotation was created
@@ -687,12 +716,15 @@ class TestV2ImportUtilities(TestCase):
             }
         ]
 
-        annot_id_map = {str(annot1.id): annot1.id, str(annot2.id): annot2.id}
+        annot_id_map: dict[str | int, int] = {
+            str(annot1.id): annot1.id,
+            str(annot2.id): annot2.id,
+        }
         label_lookup = {("Structural Rel", RELATIONSHIP_LABEL): rel_label}
 
         # Import using _import_v2_relationships
         _import_v2_relationships(
-            relationships_data,
+            cast(list[OpenContractsRelationshipPythonType], relationships_data),
             self.corpus,
             annot_id_map,
             label_lookup,
@@ -750,12 +782,12 @@ class TestV2ImportUtilities(TestCase):
             },
         ]
 
-        annot_id_map = {str(annot1.id): annot1.id}
+        annot_id_map: dict[str | int, int] = {str(annot1.id): annot1.id}
         label_lookup = {("Missing Endpoint Rel", RELATIONSHIP_LABEL): rel_label}
 
         # Should not raise.
         _import_v2_relationships(
-            relationships_data,
+            cast(list[OpenContractsRelationshipPythonType], relationships_data),
             self.corpus,
             annot_id_map,
             label_lookup,
@@ -801,9 +833,12 @@ class TestV2ImportUtilities(TestCase):
         }
 
         label_lookup = {("Test Label", TOKEN_LABEL): self.text_label}
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.content_hash, "test_parent_hash_123")
 
         # Check that parent-child relationship was set
@@ -867,7 +902,9 @@ class TestV2ImportUtilities(TestCase):
             ("Test Label", TOKEN_LABEL): self.text_label,
             ("Causes", RELATIONSHIP_LABEL): rel_label,
         }
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         self.assertIsNotNone(result)
 
@@ -876,6 +913,7 @@ class TestV2ImportUtilities(TestCase):
         self.assertEqual(relationships.count(), 1)
 
         rel = relationships.first()
+        assert rel is not None
         self.assertEqual(rel.relationship_label, rel_label)
         self.assertTrue(rel.structural)
 
@@ -914,7 +952,9 @@ class TestV2ImportUtilities(TestCase):
         label_lookup = {
             ("Test Label", TOKEN_LABEL): self.text_label
         }  # Missing "NonexistentLabel"
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         self.assertIsNotNone(result)
 
@@ -951,14 +991,17 @@ class TestV2ImportUtilities(TestCase):
             }
         ]
 
-        annot_id_map = {str(annot1.id): annot1.id, str(annot2.id): annot2.id}
+        annot_id_map: dict[str | int, int] = {
+            str(annot1.id): annot1.id,
+            str(annot2.id): annot2.id,
+        }
         label_lookup = {
             ("Test Label", TOKEN_LABEL): self.text_label
         }  # Missing "NonexistentRelLabel"
 
         # Should not raise error, just log warning and skip
         _import_v2_relationships(
-            relationships_data,
+            cast(list[OpenContractsRelationshipPythonType], relationships_data),
             self.corpus,
             annot_id_map,
             label_lookup,
@@ -1007,7 +1050,9 @@ class TestV2ImportUtilities(TestCase):
         label_lookup = {
             ("Test Label", TOKEN_LABEL): self.text_label
         }  # Missing "MissingRelLabel"
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         self.assertIsNotNone(result)
 
@@ -1090,7 +1135,7 @@ class TestV2FolderPathReconstruction(TestCase):
             "fld-leaf": self.f_leaf,
         }
 
-    def _folders_data(self, exporter: str) -> list[dict]:
+    def _folders_data(self, exporter: str) -> list[CorpusFolderExport]:
         """Build a ``folders_data`` payload with the given exporter style.
 
         ``"canonical"`` reproduces what ``package_corpus_folders`` writes
@@ -1172,7 +1217,7 @@ class TestV2FolderPathReconstruction(TestCase):
             ]
         raise ValueError(f"unknown exporter style: {exporter}")
 
-    def _document_paths_data(self, folder_path: str | None) -> list[dict]:
+    def _document_paths_data(self, folder_path: str | None) -> list[DocumentPathExport]:
         return [
             {
                 "document_ref": "hash-recon-1",
@@ -1361,8 +1406,10 @@ class TestV2ImportExceptionHandling(TestCase):
             "structural_relationships": [],
         }
 
-        label_lookup = {}
-        result = import_structural_annotation_set(struct_data, label_lookup, self.user)
+        label_lookup: dict = {}
+        result = import_structural_annotation_set(
+            cast(StructuralAnnotationSetExport, struct_data), label_lookup, self.user
+        )
 
         # Should return None on exception
         self.assertIsNone(result)
@@ -1389,7 +1436,9 @@ class TestV2ImportExceptionHandling(TestCase):
             }
         ]
 
-        result = import_corpus_folders(folders_data, self.corpus, self.user)
+        result = import_corpus_folders(
+            cast(list[CorpusFolderExport], folders_data), self.corpus, self.user
+        )
 
         # Should return empty dict on exception
         self.assertEqual(result, {})
@@ -1426,13 +1475,13 @@ class TestV2ImportExceptionHandling(TestCase):
             }
         ]
 
-        annot_id_map = {str(annot.id): annot.id}
+        annot_id_map: dict[str | int, int] = {str(annot.id): annot.id}
         label_lookup = {("Test Rel Label", RELATIONSHIP_LABEL): rel_label}
 
         # Should raise the exception (function doesn't have try/except)
         with self.assertRaises(Exception):
             _import_v2_relationships(
-                relationships_data,
+                cast(list[OpenContractsRelationshipPythonType], relationships_data),
                 self.corpus,
                 annot_id_map,
                 label_lookup,
@@ -1453,7 +1502,7 @@ class TestV2ImportExceptionHandling(TestCase):
         }
 
         # Should not raise exception - handles it gracefully
-        import_agent_config(agent_config, self.corpus)
+        import_agent_config(cast(AgentConfigExport, agent_config), self.corpus)
 
     @mock.patch(
         "opencontractserver.tasks.import_tasks_v2._setup_corpus_and_labels",
@@ -1464,8 +1513,10 @@ class TestV2ImportExceptionHandling(TestCase):
         from opencontractserver.tasks.import_tasks_v2 import _import_corpus
 
         result = _import_corpus(
-            data_json={"annotated_docs": {}},
-            import_zip=None,
+            data_json=cast(OpenContractsExportDataJsonV2Type, {"annotated_docs": {}}),
+            # Test forces ``_setup_corpus_and_labels`` to raise before the
+            # ZIP is ever opened, so a real ZipFile is unnecessary here.
+            import_zip=cast(zipfile.ZipFile, None),
             user_obj=self.user,
             seed_corpus_id=None,
             version="2.0",
@@ -1656,6 +1707,7 @@ class TestV2FullRoundTrip(TestCase):
         # Verify export was created
         export.refresh_from_db()
         self.assertIsNotNone(export.file)
+        assert export.file.name is not None
         self.assertTrue(export.file.name.endswith("_EXPORT_V2.zip"))
 
         # Read and verify export content
@@ -1889,9 +1941,11 @@ class TestV2EdgeCases(TestCase):
             # ``_rolled`` is the documented internal flag SpooledTemporaryFile
             # flips when it crosses ``max_size``. Asserting on it is the
             # cleanest way to prove we actually exercised the disk path —
-            # any in-memory short-circuit would leave it False.
+            # any in-memory short-circuit would leave it False. The attribute
+            # exists at runtime but is absent from the typeshed stub, so the
+            # access is ignored narrowly.
             self.assertTrue(
-                zip_buffer._rolled,
+                zip_buffer._rolled,  # type: ignore[attr-defined]
                 "spool did not roll over even with max_size=1; the override "
                 "is being ignored (likely a stale module-level constant "
                 "capture)",
@@ -2365,6 +2419,7 @@ class TestConversationExportEnhancements(TestCase):
 
         conv = Conversation.objects.filter(chat_with_corpus=self.corpus).first()
         self.assertIsNotNone(conv)
+        assert conv is not None
 
         # Timestamps should be close to the original (within a second)
         self.assertAlmostEqual(
@@ -2375,6 +2430,7 @@ class TestConversationExportEnhancements(TestCase):
 
         msg = ChatMessage.objects.filter(conversation=conv).first()
         self.assertIsNotNone(msg)
+        assert msg is not None
         self.assertAlmostEqual(
             msg.created_at.timestamp(),
             original_time.timestamp(),
@@ -2430,6 +2486,8 @@ class TestConversationExportEnhancements(TestCase):
 
         parent = messages.filter(content="Parent").first()
         child = messages.filter(content="Reply").first()
+        assert parent is not None
+        assert child is not None
 
         self.assertIsNone(parent.parent_message)
         self.assertEqual(child.parent_message_id, parent.id)
@@ -2455,6 +2513,7 @@ class TestConversationExportEnhancements(TestCase):
         import_conversations(conversations_data, [], [], self.corpus, self.user)
 
         conv = Conversation.objects.filter(chat_with_corpus=self.corpus).first()
+        assert conv is not None
         self.assertEqual(conv.description, "Important discussion")
         self.assertTrue(conv.is_locked)
         self.assertTrue(conv.is_pinned)
@@ -2462,6 +2521,8 @@ class TestConversationExportEnhancements(TestCase):
 
 class TestReconstructDocumentPaths(TestCase):
     """Test _reconstruct_document_paths covers all branches."""
+
+    folders_data: list[CorpusFolderExport]
 
     def setUp(self):
         self.user = User.objects.create_user(username="testuser", password="testpass")
@@ -2531,7 +2592,7 @@ class TestReconstructDocumentPaths(TestCase):
         ]
 
         _reconstruct_document_paths(
-            document_paths_data,
+            cast(list[DocumentPathExport], document_paths_data),
             self.corpus,
             doc_hash_map,
             self.folders_data,
@@ -2542,6 +2603,7 @@ class TestReconstructDocumentPaths(TestCase):
         updated_path = DocumentPath.objects.filter(
             corpus=self.corpus, document=self.corpus_doc
         ).first()
+        assert updated_path is not None
         self.assertEqual(updated_path.path, "/custom/path/doc.pdf")
         self.assertEqual(updated_path.version_number, 5)
         self.assertEqual(updated_path.folder, self.folder)
@@ -2564,7 +2626,7 @@ class TestReconstructDocumentPaths(TestCase):
         ]
 
         _reconstruct_document_paths(
-            document_paths_data,
+            cast(list[DocumentPathExport], document_paths_data),
             self.corpus,
             doc_hash_map,
             self.folders_data,
@@ -2592,7 +2654,7 @@ class TestReconstructDocumentPaths(TestCase):
         ]
 
         _reconstruct_document_paths(
-            document_paths_data,
+            cast(list[DocumentPathExport], document_paths_data),
             self.corpus,
             doc_hash_map,
             self.folders_data,
@@ -2618,7 +2680,7 @@ class TestReconstructDocumentPaths(TestCase):
         ]
 
         _reconstruct_document_paths(
-            document_paths_data,
+            cast(list[DocumentPathExport], document_paths_data),
             self.corpus,
             doc_hash_map,
             self.folders_data,
@@ -2653,7 +2715,7 @@ class TestReconstructDocumentPaths(TestCase):
 
         # Should not raise
         _reconstruct_document_paths(
-            document_paths_data,
+            cast(list[DocumentPathExport], document_paths_data),
             self.corpus,
             doc_hash_map,
             self.folders_data,
@@ -2678,7 +2740,7 @@ class TestReconstructDocumentPaths(TestCase):
         ]
 
         _reconstruct_document_paths(
-            document_paths_data,
+            cast(list[DocumentPathExport], document_paths_data),
             self.corpus,
             doc_hash_map,
             self.folders_data,
@@ -2710,7 +2772,7 @@ class TestReconstructDocumentPaths(TestCase):
             "opencontractserver.tasks.import_tasks_v2", level="WARNING"
         ):
             _reconstruct_document_paths(
-                document_paths_data,
+                cast(list[DocumentPathExport], document_paths_data),
                 self.corpus,
                 doc_hash_map,
                 self.folders_data,
@@ -2720,6 +2782,7 @@ class TestReconstructDocumentPaths(TestCase):
         updated_path = DocumentPath.objects.filter(
             corpus=self.corpus, document=self.corpus_doc
         ).first()
+        assert updated_path is not None
         self.assertEqual(updated_path.path, "/new/path")
         # folder should not be set
         self.assertIsNone(updated_path.folder)
@@ -2744,7 +2807,11 @@ class TestBuildLabelLookupsEdgeCases(TestCase):
         result = build_label_lookups(
             corpus_id=self.corpus.id,
             analysis_ids=None,
-            annotation_filter_mode="ANALYSES_ONLY",
+            # ``build_label_lookups`` compares this against the raw string
+            # ("ANALYSES_ONLY") in its body, so the test deliberately passes
+            # a str; cast keeps that runtime value while satisfying the
+            # AnnotationFilterMode-typed parameter.
+            annotation_filter_mode=cast(AnnotationFilterMode, "ANALYSES_ONLY"),
         )
 
         # Should return empty lookups since no analyses specified
@@ -2773,7 +2840,11 @@ class TestBuildLabelLookupsEdgeCases(TestCase):
         result = build_label_lookups(
             corpus_id=self.corpus.id,
             analysis_ids=None,
-            annotation_filter_mode="CORPUS_LABELSET_PLUS_ANALYSES",
+            # See note above: the helper string-compares this value, so the
+            # test passes a str and casts to the declared enum type.
+            annotation_filter_mode=cast(
+                AnnotationFilterMode, "CORPUS_LABELSET_PLUS_ANALYSES"
+            ),
         )
 
         # Should include corpus labels only (no analyses to add)
@@ -2876,6 +2947,7 @@ class TestConversationImportDocHashRelinking(TestCase):
 
         conv = Conversation.objects.filter(title="Doc-level Conversation").first()
         self.assertIsNotNone(conv)
+        assert conv is not None
         self.assertEqual(conv.chat_with_document, self.doc)
         self.assertIsNone(conv.chat_with_corpus)
 

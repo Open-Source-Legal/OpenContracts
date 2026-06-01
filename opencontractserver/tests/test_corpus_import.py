@@ -20,6 +20,7 @@ from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import Document
 from opencontractserver.tasks import import_corpus
 from opencontractserver.tasks.utils import package_zip_into_base64
+from opencontractserver.types.dicts import OpenContractsRelationshipPythonType
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.importing import import_relationships
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -155,6 +156,7 @@ class TestCorpusImport(TestCase):
             .first()
         )
         self.assertIsNotNone(doc, "Should have a corpus-linked document")
+        assert doc is not None
         return doc
 
     def _create_rel_label(self, text: str, color: str = "#000000") -> AnnotationLabel:
@@ -232,6 +234,7 @@ class TestCorpusImport(TestCase):
         with self.subTest("labels_belong_to_corpus_labelset"):
             labelset = corpus.label_set
             self.assertIsNotNone(labelset)
+            assert labelset is not None
             self.assertEqual(
                 labelset.annotation_labels.count(), EXPECTED_TOTAL_LABEL_COUNT
             )
@@ -400,12 +403,12 @@ class TestCorpusImport(TestCase):
 
             rel_label = self._create_rel_label("references")
 
-            annotation_id_map = {
+            annotation_id_map: dict[str | int, int] = {
                 str(source_annot.pk): source_annot.pk,
                 str(target_annot.pk): target_annot.pk,
             }
 
-            relationships_data = [
+            relationships_data: list[OpenContractsRelationshipPythonType] = [
                 {
                     "id": "rel_1",
                     "relationshipLabel": "references",
@@ -434,8 +437,12 @@ class TestCorpusImport(TestCase):
             self.assertFalse(rel.structural)
             self.assertEqual(rel.source_annotations.count(), 1)
             self.assertEqual(rel.target_annotations.count(), 1)
-            self.assertEqual(rel.source_annotations.first().pk, source_annot.pk)
-            self.assertEqual(rel.target_annotations.first().pk, target_annot.pk)
+            rel_source = rel.source_annotations.first()
+            rel_target = rel.target_annotations.first()
+            assert rel_source is not None
+            assert rel_target is not None
+            self.assertEqual(rel_source.pk, source_annot.pk)
+            self.assertEqual(rel_target.pk, target_annot.pk)
 
         # -- Multiple sources → multiple targets --
         with self.subTest("multiple_sources_and_targets"):
@@ -463,9 +470,11 @@ class TestCorpusImport(TestCase):
             rel_label_multi = self._create_rel_label("related_to", color="#112233")
 
             all_pks = [a.pk for a in parties_annots] + [gov_law.pk, anti_assign.pk]
-            annotation_id_map_multi = {str(pk): pk for pk in all_pks}
+            annotation_id_map_multi: dict[str | int, int] = {
+                str(pk): pk for pk in all_pks
+            }
 
-            relationships_data_multi = [
+            relationships_data_multi: list[OpenContractsRelationshipPythonType] = [
                 {
                     "id": "rel_multi",
                     "relationshipLabel": "related_to",
@@ -507,9 +516,11 @@ class TestCorpusImport(TestCase):
 
             rel_label_struct = self._create_rel_label("structural_ref", color="#445566")
 
-            annotation_id_map_struct = {str(a.pk): a.pk for a in annots}
+            annotation_id_map_struct: dict[str | int, int] = {
+                str(a.pk): a.pk for a in annots
+            }
 
-            relationships_data_struct = [
+            relationships_data_struct: list[OpenContractsRelationshipPythonType] = [
                 {
                     "id": "rel_struct",
                     "relationshipLabel": "structural_ref",

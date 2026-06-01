@@ -12,7 +12,6 @@ Covers:
 - Model-level clean() validation
 """
 
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from graphene.test import Client as GrapheneClient
@@ -21,9 +20,8 @@ from graphql_relay import to_global_id
 from config.graphql.schema import schema
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 class TestContext:
@@ -76,10 +74,12 @@ class TestCorpusLicenseCreate(TestCase):
         self.user = User.objects.create_user(
             username="licensetest", password="testpass"
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
 
     def test_create_with_cc_license(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "CC Licensed Corpus",
@@ -94,7 +94,7 @@ class TestCorpusLicenseCreate(TestCase):
         self.assertEqual(corpus.license, "CC-BY-4.0")
 
     def test_create_with_custom_license_and_url(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "Custom Licensed Corpus",
@@ -111,7 +111,7 @@ class TestCorpusLicenseCreate(TestCase):
         self.assertEqual(corpus.license_link, "https://example.com/my-license")
 
     def test_create_custom_without_url_fails(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "Missing URL Corpus",
@@ -124,7 +124,7 @@ class TestCorpusLicenseCreate(TestCase):
         self.assertIn("license_link", result["data"]["createCorpus"]["message"])
 
     def test_create_with_no_license(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "No License Corpus",
@@ -155,11 +155,13 @@ class TestCorpusLicenseUpdate(TestCase):
             self.corpus,
             [PermissionTypes.CRUD, PermissionTypes.PUBLISH, PermissionTypes.PERMISSION],
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
         self.global_id = to_global_id("CorpusType", self.corpus.id)
 
     def test_update_to_cc_license(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -173,7 +175,7 @@ class TestCorpusLicenseUpdate(TestCase):
         self.assertEqual(self.corpus.license, "CC-BY-SA-4.0")
 
     def test_update_to_custom_with_url(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -189,7 +191,7 @@ class TestCorpusLicenseUpdate(TestCase):
         self.assertEqual(self.corpus.license_link, "https://example.com/custom")
 
     def test_update_to_custom_without_url_fails(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -204,7 +206,7 @@ class TestCorpusLicenseUpdate(TestCase):
         self.corpus.license = "CC-BY-4.0"
         self.corpus.save()
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -223,10 +225,12 @@ class TestCorpusLicenseLinkScheme(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="schemetest", password="testpass")
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
 
     def test_ftp_url_rejected(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "FTP License Corpus",
@@ -239,7 +243,7 @@ class TestCorpusLicenseLinkScheme(TestCase):
         self.assertFalse(result["data"]["createCorpus"]["ok"])
 
     def test_https_url_accepted(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "HTTPS License Corpus",
@@ -271,12 +275,14 @@ class TestCorpusLicenseStaleLinkClearing(TestCase):
             self.corpus,
             [PermissionTypes.CRUD, PermissionTypes.PUBLISH, PermissionTypes.PERMISSION],
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
         self.global_id = to_global_id("CorpusType", self.corpus.id)
 
     def test_switch_from_custom_to_standard_clears_link(self):
         """Switching from CUSTOM to a standard license should clear license_link."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -292,7 +298,7 @@ class TestCorpusLicenseStaleLinkClearing(TestCase):
 
     def test_clear_license_clears_link(self):
         """Clearing the license entirely should also clear license_link."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -314,11 +320,13 @@ class TestCorpusLicenseInvalidValue(TestCase):
         self.user = User.objects.create_user(
             username="invalidlicensetest", password="testpass"
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
 
     def test_create_with_invalid_license_rejected(self):
         """Creating a corpus with an invalid license value should fail."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "Invalid License Corpus",
@@ -344,7 +352,7 @@ class TestCorpusLicenseInvalidValue(TestCase):
         )
         global_id = to_global_id("CorpusType", corpus.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": global_id,
@@ -373,13 +381,15 @@ class TestCorpusLicenseOrphanedLink(TestCase):
             self.corpus,
             [PermissionTypes.CRUD, PermissionTypes.PUBLISH, PermissionTypes.PERMISSION],
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
         self.global_id = to_global_id("CorpusType", self.corpus.id)
 
     def test_license_link_without_license_when_not_custom_rejected(self):
         """Sending licenseLink without license when existing license is not CUSTOM
         should be rejected."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -414,12 +424,14 @@ class TestCorpusLicensePartialUpdate(TestCase):
             self.corpus,
             [PermissionTypes.CRUD, PermissionTypes.PUBLISH, PermissionTypes.PERMISSION],
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
         self.global_id = to_global_id("CorpusType", self.corpus.id)
 
     def test_update_only_license_link_when_custom(self):
         """Updating only licenseLink when license is already CUSTOM should work."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             UPDATE_MUTATION,
             variable_values={
                 "id": self.global_id,
@@ -441,11 +453,13 @@ class TestCorpusLicenseURLValidation(TestCase):
         self.user = User.objects.create_user(
             username="urlvalidtest", password="testpass"
         )
-        self.client = GrapheneClient(schema, context_value=TestContext(self.user))
+        self.graphene_client = GrapheneClient(
+            schema, context_value=TestContext(self.user)
+        )
 
     def test_http_url_accepted(self):
         """HTTP scheme URLs should be accepted."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "HTTP License Corpus",
@@ -459,7 +473,7 @@ class TestCorpusLicenseURLValidation(TestCase):
 
     def test_invalid_url_format_rejected(self):
         """Non-URL strings should be rejected."""
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             CREATE_MUTATION,
             variable_values={
                 "title": "Bad URL Corpus",

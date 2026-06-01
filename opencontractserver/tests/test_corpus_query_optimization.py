@@ -8,7 +8,7 @@ Tests cover:
 4. Query uses annotations rather than N+1 queries
 """
 
-from django.contrib.auth import get_user_model
+from django.http import HttpRequest
 from django.test import RequestFactory, TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
@@ -17,12 +17,21 @@ from config.graphql.schema import schema
 from opencontractserver.annotations.models import Annotation, AnnotationLabel, LabelSet
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestCorpusDocumentCountField(TestCase):
     """Test the documentCount field on CorpusType."""
+
+    user: User
+    corpus: Corpus
+    doc1: Document
+    doc2: Document
+    doc3: Document
+    empty_corpus: Corpus
+    factory: RequestFactory
+    request: HttpRequest
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -96,7 +105,7 @@ class TestCorpusDocumentCountField(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_document_count_returns_correct_count(self):
         """Test that documentCount returns the correct number of active documents."""
@@ -112,7 +121,7 @@ class TestCorpusDocumentCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query, variables={"id": corpus_gid})
+        result = self.graphene_client.execute(query, variables={"id": corpus_gid})
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -137,7 +146,7 @@ class TestCorpusDocumentCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query, variables={"id": corpus_gid})
+        result = self.graphene_client.execute(query, variables={"id": corpus_gid})
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -163,7 +172,7 @@ class TestCorpusDocumentCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -182,6 +191,17 @@ class TestCorpusDocumentCountField(TestCase):
 
 class TestCorpusAnnotationCountField(TestCase):
     """Test the annotationCount field on CorpusType."""
+
+    user: User
+    label: AnnotationLabel
+    corpus: Corpus
+    doc1: Document
+    doc2: Document
+    doc3: Document
+    empty_corpus: Corpus
+    factory: RequestFactory
+    request: HttpRequest
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -278,7 +298,7 @@ class TestCorpusAnnotationCountField(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_annotation_count_returns_correct_count(self):
         """Test that annotationCount returns the correct number for a single corpus."""
@@ -294,7 +314,7 @@ class TestCorpusAnnotationCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query, variables={"id": corpus_gid})
+        result = self.graphene_client.execute(query, variables={"id": corpus_gid})
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -319,7 +339,7 @@ class TestCorpusAnnotationCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query, variables={"id": corpus_gid})
+        result = self.graphene_client.execute(query, variables={"id": corpus_gid})
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -345,7 +365,7 @@ class TestCorpusAnnotationCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -379,7 +399,7 @@ class TestCorpusAnnotationCountField(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -395,6 +415,16 @@ class TestCorpusAnnotationCountField(TestCase):
 
 class TestLabelSetCountOptimization(TestCase):
     """Test that LabelSet counts are efficiently resolved via corpus annotations."""
+
+    user: User
+    label_set: LabelSet
+    doc_labels: list[AnnotationLabel]
+    span_labels: list[AnnotationLabel]
+    token_labels: list[AnnotationLabel]
+    corpus: Corpus
+    factory: RequestFactory
+    request: HttpRequest
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -455,7 +485,7 @@ class TestLabelSetCountOptimization(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_label_counts_in_corpus_list_query(self):
         """Test that label counts are correctly returned in corpus list query."""
@@ -479,7 +509,7 @@ class TestLabelSetCountOptimization(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
@@ -496,6 +526,7 @@ class TestLabelSetCountOptimization(TestCase):
         self.assertIsNotNone(
             labeled_corpus, "Labeled Corpus not found in query results"
         )
+        assert labeled_corpus is not None
         self.assertIsNotNone(labeled_corpus["labelSet"], "LabelSet should not be None")
 
         label_set = labeled_corpus["labelSet"]
@@ -507,6 +538,14 @@ class TestLabelSetCountOptimization(TestCase):
 
 class TestCorpusBySlugsCounts(TestCase):
     """Test that corpusBySlugs resolver annotates count subqueries."""
+
+    user: User
+    corpus: Corpus
+    doc1: Document
+    doc2: Document
+    factory: RequestFactory
+    request: HttpRequest
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -562,7 +601,7 @@ class TestCorpusBySlugsCounts(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_corpus_by_slugs_returns_document_count(self):
         """corpusBySlugs should return efficient documentCount."""
@@ -575,7 +614,7 @@ class TestCorpusBySlugsCounts(TestCase):
                 }
             }
         """
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "userSlug": self.user.slug,
@@ -599,7 +638,7 @@ class TestCorpusBySlugsCounts(TestCase):
                 }
             }
         """
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "userSlug": self.user.slug,
@@ -619,6 +658,12 @@ class TestCorpusQueryEfficiency(TestCase):
 
     Uses assertNumQueries to verify query count stays constant regardless of data size.
     """
+
+    user: User
+    corpuses: list[Corpus]
+    factory: RequestFactory
+    request: HttpRequest
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -675,7 +720,7 @@ class TestCorpusQueryEfficiency(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_corpuses_list_query_no_n_plus_1_for_counts(self):
         """
@@ -700,7 +745,7 @@ class TestCorpusQueryEfficiency(TestCase):
         """
 
         # First run to warm up any caches
-        self.client.execute(query)
+        self.graphene_client.execute(query)
 
         # Second run with query counting
         # The exact number may vary based on auth/permission checks,
@@ -714,7 +759,7 @@ class TestCorpusQueryEfficiency(TestCase):
             # NOTE: documents M2M was removed - counts now via DocumentPath subqueries
             # The counts (documentCount, annotationCount) come from subqueries
             # within the main query, not N+1 per corpus
-            result = self.client.execute(query)
+            result = self.graphene_client.execute(query)
 
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"

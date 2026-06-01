@@ -971,7 +971,10 @@ class TestFormatAnnotation(TestCase):
         self.assertEqual(result["raw_text"], "sample text")
         self.assertFalse(result["structural"])
         self.assertEqual(result["annotation_label"]["text"], "Important")
-        self.assertEqual(result["annotation_label"]["color"], "#FF0000")
+        self.assertEqual(result["annotation_label"]["label_type"], "TOKEN_LABEL")
+        # Lean AI-facing payload deliberately omits ``color`` (low signal,
+        # high token cost). See format_annotation docstring.
+        self.assertNotIn("color", result["annotation_label"])
 
     def test_without_label(self):
         annotation = MagicMock()
@@ -987,7 +990,8 @@ class TestFormatAnnotation(TestCase):
         self.assertEqual(result["raw_text"], "")
         self.assertTrue(result["structural"])
 
-    def test_label_without_color(self):
+    def test_label_omits_color(self):
+        """The lean payload exposes label text/type but never ``color``."""
         annotation = MagicMock()
         annotation.id = 1
         annotation.page = 1
@@ -999,7 +1003,9 @@ class TestFormatAnnotation(TestCase):
         annotation.annotation_label.label_type = "TOKEN_LABEL"
 
         result = format_annotation(annotation)
-        self.assertEqual(result["annotation_label"]["color"], "#000000")
+        self.assertEqual(result["annotation_label"]["text"], "Label")
+        self.assertEqual(result["annotation_label"]["label_type"], "TOKEN_LABEL")
+        self.assertNotIn("color", result["annotation_label"])
 
 
 class TestFormatThreadSummary(TestCase):

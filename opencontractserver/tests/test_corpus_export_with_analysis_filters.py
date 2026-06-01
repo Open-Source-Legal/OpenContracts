@@ -3,7 +3,6 @@ import pathlib
 import uuid
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase
@@ -12,14 +11,13 @@ from django.utils import timezone
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
-from opencontractserver.documents.models import DocumentPath
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.import_tasks import import_corpus
 from opencontractserver.tasks.utils import package_zip_into_base64
 from opencontractserver.types.enums import AnnotationFilterMode, PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.etl import build_document_export, build_label_lookups
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 @pytest.mark.django_db
@@ -33,6 +31,17 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
     """
 
     fixtures_path = pathlib.Path(__file__).parent / "fixtures"
+
+    user: User
+    original_corpus_obj: Corpus
+    document: Document
+    analyzer_a: Analyzer
+    analysis_a: Analysis
+    analyzer_b: Analyzer
+    analysis_b: Analysis
+    original_corpus_obj_label: AnnotationLabel
+    analysis_a_label: AnnotationLabel
+    analysis_b_label: AnnotationLabel
 
     def setUp(self):
         """
@@ -69,6 +78,7 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
 
         # Get document via DocumentPath since Document no longer has corpus field
         doc_path = DocumentPath.objects.filter(corpus=self.original_corpus_obj).first()
+        assert doc_path is not None
         self.document = doc_path.document
 
         # 4) Create two Analyzers & two Analyses referencing this corpus
@@ -233,10 +243,15 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
 
         # 1) Build label lookups for the entire corpus, ignoring or including analyses as needed
         #    For CORPUS_LABELSET_ONLY, we should see only "corpus_label" in the lookup
+        # NOTE: build_label_lookups is annotated to take an AnnotationFilterMode enum,
+        # but its body compares the argument against raw string literals (== "ANALYSES_ONLY"
+        # etc.), so callers must pass the string value, not the enum member. The string
+        # form is the contract this test deliberately exercises; the arg-type ignores below
+        # reflect that production annotation/runtime mismatch (see final report).
         lookups_corpus_only = build_label_lookups(
             corpus_id=self.original_corpus_obj.id,
             analysis_ids=None,
-            annotation_filter_mode="CORPUS_LABELSET_ONLY",
+            annotation_filter_mode="CORPUS_LABELSET_ONLY",  # type: ignore[arg-type]
         )
         self.assertEqual(
             len(lookups_corpus_only["text_labels"]), 4
@@ -246,7 +261,7 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
         lookups_plus_analyses = build_label_lookups(
             corpus_id=self.original_corpus_obj.id,
             analysis_ids=[self.analysis_a.id, self.analysis_b.id],
-            annotation_filter_mode="CORPUS_LABELSET_PLUS_ANALYSES",
+            annotation_filter_mode="CORPUS_LABELSET_PLUS_ANALYSES",  # type: ignore[arg-type]
         )
         # We expect 3 total labels: corpus_label + analysis_a_label + analysis_b_label
         self.assertEqual(len(lookups_plus_analyses["text_labels"]), 6)
@@ -255,7 +270,7 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
         lookups_analyses_only = build_label_lookups(
             corpus_id=self.original_corpus_obj.id,
             analysis_ids=[self.analysis_a.id, self.analysis_b.id],
-            annotation_filter_mode="ANALYSES_ONLY",
+            annotation_filter_mode="ANALYSES_ONLY",  # type: ignore[arg-type]
         )
         # We expect 2 total labels: analysis_a_label + analysis_b_label
         self.assertEqual(len(lookups_analyses_only["text_labels"]), 2)
@@ -277,6 +292,7 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
             annotation_filter_mode=AnnotationFilterMode.CORPUS_LABELSET_ONLY,
         )
 
+        assert doc_export_data is not None
         self.assertEqual(len(doc_export_data["labelled_text"]), 7)
 
         # CORPUS_LABELSET_PLUS_ANALYSES => 4 total annotations
@@ -294,6 +310,7 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
             analysis_ids=[self.analysis_a.id, self.analysis_b.id],
             annotation_filter_mode=AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES,
         )
+        assert doc_export_data is not None
         self.assertEqual(len(doc_export_data["labelled_text"]), 9)
 
         # ANALYSES_ONLY => 2 total annotations (1 from Analysis A, 1 from B)
@@ -310,4 +327,5 @@ class ExportCorpusWithAnalysesTestCase(TestCase):
             analysis_ids=[self.analysis_a.id, self.analysis_b.id],
             annotation_filter_mode=AnnotationFilterMode.ANALYSES_ONLY,
         )
+        assert doc_export_data is not None
         self.assertEqual(len(doc_export_data["labelled_text"]), 2)

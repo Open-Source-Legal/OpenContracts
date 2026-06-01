@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP knowledge-tool UX — make a corpus usable as a low-friction tool**
+  (`opencontractserver/mcp/`, issues #1858–#1862). A hands-on evaluation of the
+  live public MCP interface found search returned nothing, full text crashed on
+  cloud storage (fixed separately in the `read_field_file_text` work), and
+  annotations were not content-searchable. This initiative addresses the
+  remaining gaps:
+  - **`search_corpus` → unified passage + block feed** (#1858, #1862): now
+    searches **annotation** embeddings (passages) instead of document-level
+    vectors, and merges in **`OC_SUBTREE_GROUP` relationship "blocks"**
+    (ancestor + full descendant subtree) from `CoreRelationshipVectorStore`.
+    Each result is tagged `type: "passage" | "block"`. New `granularity`
+    (`passage`/`block`/`both`) and `structural` (tri-state) params. Fixes the
+    prior bug where an empty vector result returned immediately and the text
+    fallback was dead code — the fallback now runs whenever the vector path is
+    empty/absent/errors (`opencontractserver/mcp/tools.py`).
+  - **`list_annotations` content search** (#1859): new `text_contains` and
+    `structural` filters, results ordered by `(page, id)`, and a leaner payload
+    (`format_annotation` drops `color`/`created`; keeps the `structural` flag).
+  - **`list_relationships` tool** (#1862): new tool returning labeled
+    `source → target` edges via `RelationshipService`, filterable by
+    `structural`/`label_text`, document- or corpus-scoped. Adds
+    `RelationshipService.get_corpus_relationships`
+    (`opencontractserver/annotations/services/relationship_service.py`).
+  - **`get_document_text` bounded slicing** (#1860): new `char_offset`/`max_chars`
+    params with `next_offset`/`truncated`/`total_chars` in the response, so long
+    documents no longer blow the context window in one call. **Behavior change:**
+    a call with no `max_chars` now returns at most the first
+    `MCP_DOCUMENT_TEXT_DEFAULT_CHARS` (50 000) characters instead of the full
+    extracted text; the response carries `truncated`/`next_offset` so callers can
+    page through the remainder. MCP clients that relied on a single call returning
+    the whole document must now follow `next_offset` (or pass an explicit
+    `max_chars`, hard-capped at `MCP_DOCUMENT_TEXT_MAX_CHARS` = 200 000).
+  - **Polish** (#1861): `get_corpus_info` now surfaces only labels actually used
+    on the corpus's annotations (not the full seeded label set); not-found
+    errors (`Document`/`Corpus.DoesNotExist`) are humanized into actionable
+    messages that name the remediation tool instead of leaking raw Django
+    exception strings; tool descriptions sharpened. New size constants in
+    `opencontractserver/constants/mcp.py`.
+  - Tests: `opencontractserver/mcp/tests/test_mcp.py` (passage/block feed,
+    granularity, structural filter, annotation content search, relationship
+    enumeration, in-use labels, error formatting). Design + plan:
+    `docs/development/2026-05-31-mcp-knowledge-tool-ux-design.md`.
+
 - **MCP interactive sign-in for Claude web/desktop and ChatGPT.** Added an
   authenticated MCP entrypoint at `/mcp/me/` (`opencontractserver/mcp/server.py`)
   that returns `401 + WWW-Authenticate` to unauthenticated callers, triggering
@@ -110,6 +153,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     per-part retry, 4xx fail-fast, progress reporting).
 
 ### Fixed
+
+- **Canonical-CAML backfill migration `0054` crashed on cloud storage
+  (`AttributeError: 'bytes' object has no attribute 'encode'`).** Production
+  `manage.py migrate` aborted at
+  `corpuses/migrations/0054_canonical_caml_backfill.py:184`
+  (`ContentFile(body.encode("utf-8"))`). Root cause: S3Boto3Storage /
+  GoogleCloudStorage (django-storages #382) silently return `bytes` from a
+  text-mode (`"r"`) `FieldFile.read()` **without raising**, so the readers'
+  `except`-guarded binary fallbacks never fired and `bytes` flowed into the
+  `str`-only `body.encode(...)`. Invisible locally because `FileSystemStorage`
+  honors text mode and returns `str`.
+  - **Migration readers normalise to `str`** (`_read_md_description`,
+    `_read_caml_doc_body`) via a new module-local `_coerce_to_text` helper,
+    inlined to keep the historical migration self-contained. The migration is
+    atomic (rolled back cleanly on the crash) and idempotent, so a re-run after
+    this fix completes the backfill.
+  - **`description_cache.read_caml_body` had the identical latent bug** and now
+    delegates to the canonical `opencontractserver.utils.files.read_field_file_text`
+    (errors=`ignore`), removing the duplicated hand-rolled fallback. This also
+    fixes the live cache-refresh signal handler and the GraphQL
+    `descriptionRevisions` facade, which read CAML bodies on cloud deployments.
+  - Regression tests in
+    `opencontractserver/tests/test_corpus_canonical_caml_migration.py` exercise
+    both the bytes and str paths for the migration readers and `read_caml_body`.
 
 - **Research report `finalize()` now writes content and provenance atomically**
   (`opencontractserver/research/services/research_reports.py`,
@@ -658,6 +725,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Prod (`production.yml`)**: wires `cache_from: [type=registry,ref=ghcr.io/.../django-production-cache:main]` into both the `django` and `migrate` services (they share the same image). No-op until a follow-up PR adds the CI job that publishes the production cache (`compose/production/django/Dockerfile` is distinct from the local/test Dockerfile and needs its own scope). Wiring it now means that follow-up is a single workflow file rather than a workflow + compose-file change.
 
   _Visibility note:_ the ghcr cache packages inherit the repo's visibility on first publish (public, in this repo) — if either package is created private by mistake, change visibility in the Packages settings once.
+
+- **Typing: graduated the `tests.test_corpus_*` 23-module corpus domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `corpus` chunk from the issue's `tests.*` leaf-files batching plan, following the `document` chunk in PR #1851). Removed all 23 `[mypy-opencontractserver.tests.test_corpus_*]` `ignore_errors` blocks from `mypy.ini`, pruned the corresponding 798 lines from `docs/typing/mypy_baseline.txt` (4810 → 4012), and fixed the 898 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`; also verified clean under CI's `mypy==2.1.0`). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1245 source files"). The fixes are the established mechanical patterns from prior chunks: class-level annotations for `setUpTestData`/`setUpClass`/`setUp` attributes (the recommended fix from #1479), `User = get_user_model()` → direct `from opencontractserver.users.models import User` import, the graphene `self.client` → `self.graphene_client` rename, `assert … is not None` narrowing of Optional service/ORM returns, and `cast(...)` at call sites that pass intentionally-incomplete export TypedDict fixtures (the repo's established idiom). Grouped highlights:
+
+  - **Graphene-client rename** (a `graphene.test.Client` assigned to `self.client` shadows the inherited `django.test.TestCase.client`, which has no `.execute()`): `test_corpus_action_graphql.py`, `test_corpus_category.py`, `test_corpus_license.py`, `test_corpus_query_optimization.py`. (`test_corpus_action_execution_admin.py` was deliberately left untouched here — it uses the real `django.test.Client`, not graphene.)
+  - **Class-attribute annotations + direct `User` import** (the bulk of the 898): every `test_corpus_*` `TestCase`/`TransactionTestCase` whose `setUpTestData`/`setUpClass`/`setUp` populated `cls.`/`self.` model fixtures invisible to mypy — e.g. `test_corpus_annotations_query.py` (130), `test_corpus_category.py` (126), `test_corpus_query_optimization.py` (120), `test_corpus_objs_service.py` (98), `test_corpus_description_cache.py` (51), `test_corpus_engagement_metrics.py`, `test_corpus_collector.py`, …
+  - **Optional-return narrowing**: `assert … is not None` after `FolderCRUDService.{create,update,delete,move}_folder` / `add_document_to_corpus` (`test_corpus_objs_service.py`), `_execute_fork(...)` and `.first()`/`.get()` results (`test_corpus_fork_round_trip.py`, `test_corpus_forking.py`, `test_corpus_import.py`, `test_corpus_document_actions.py`, `test_corpus_description_cache.py`), each extracted to a local so the existing `self.assertEqual(...)` check is preserved verbatim.
+  - **TypedDict fixtures via `cast`** (`test_corpus_export_import_v2.py`, `test_corpus_fork_round_trip.py`): the v2 import helpers (`import_structural_annotation_set`, `import_corpus_folders`, `import_agent_config`, `_reconstruct_document_paths`, …) take full export TypedDicts, but the tests pass deliberately-partial literals; wrapped at the call site with `cast(...)` (matching the graduated enricher tests) rather than annotating the literal, which would raise `typeddict-item` "missing key".
+  - **Scoped, error-coded `# type: ignore`s** (no blanket ignores; `warn_unused_ignores=True` keeps them honest): `.with_stats()` on a `Manager.filter(...)` chain django-stubs can't see the custom queryset through (`test_corpus_action_execution.py`); the `corpuses` M2M reverse accessor (`related_name`) django-stubs can't resolve (`test_corpus_category.py`); `SpooledTemporaryFile._rolled` (absent from typeshed) and a deliberately-`None` `AdminSite` test arg (`test_corpus_export_import_v2.py`, `test_corpus_action_execution_admin.py`); a faked psycopg2 `pgcode` attribute on a bare `Exception` (`test_corpus_objs_service.py`).
+
+  **Latent production bug surfaced (flagged for a follow-up, intentionally NOT fixed in this test-only chunk):** `opencontractserver/utils/etl.py::build_label_lookups` declares `annotation_filter_mode: AnnotationFilterMode` (a plain, non-`str` `Enum`) but compares the parameter **inconsistently** — against raw string literals at `etl.py:79,92,110,123` (`== "ANALYSES_ONLY"`, …) yet against enum members at `etl.py:162-165` (`in (AnnotationFilterMode.CORPUS_LABELSET_ONLY, …)`). A `str` argument (what every caller and the docstring actually use) therefore satisfies the string branches but silently fails the enum-membership branch, skipping the corpus-labelset-inclusion block; an enum-member argument would fail the string branches. The corpus tests pass the runtime-correct string with a behavior-neutral `cast`/scoped ignore. Recommended fix (separate PR, needs the full test suite): normalize `build_label_lookups`/`build_document_export` to compare consistently — make `AnnotationFilterMode` a `StrEnum`, or coerce to `.value` and compare against strings throughout.
 
 - **Typing: graduated the `tests.test_document_*` 12-module document domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `document` chunk from the issue's `tests.*` leaf-files batching plan, following the `annotation` chunk in PR #1776). Removed all 12 `[mypy-opencontractserver.tests.test_document_*]` `ignore_errors` blocks from `mypy.ini`, pruned the corresponding 331 lines from `docs/typing/mypy_baseline.txt` (5141 → 4810), and fixed the 243 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`). The current count is below the 331-line baseline snapshot because the newer stubs already resolve several historical errors (notably the `set_permissions_for_obj_to_user` `arg-type` family — see below). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1242 source files"). Per-file fixes:
 

@@ -12,7 +12,6 @@ Tests cover:
 """
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
 from graphene.test import Client
@@ -27,9 +26,8 @@ from opencontractserver.constants.corpus_categories import (
 from opencontractserver.corpuses.models import Corpus, CorpusCategory
 from opencontractserver.corpuses.services import CorpusCategoryService
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 @pytest.mark.django_db
@@ -150,9 +148,11 @@ class TestCorpusCategoryModel:
         assert cat3 not in corpus.categories.all()
 
         # Verify reverse relationship
-        assert corpus in cat1.corpuses.all()
-        assert corpus in cat2.corpuses.all()
-        assert corpus not in cat3.corpuses.all()
+        # `corpuses` is the related_name of Corpus.categories (M2M); django-stubs
+        # cannot resolve dynamically-generated reverse accessors from related_name.
+        assert corpus in cat1.corpuses.all()  # type: ignore[attr-defined]
+        assert corpus in cat2.corpuses.all()  # type: ignore[attr-defined]
+        assert corpus not in cat3.corpuses.all()  # type: ignore[attr-defined]
 
     def test_corpus_multiple_categories(self):
         """Test a corpus can have multiple categories."""
@@ -182,7 +182,9 @@ class TestCorpusCategoryModel:
         for corpus in corpuses:
             corpus.categories.add(category)
 
-        assert category.corpuses.count() == 3
+        # `corpuses` is the related_name of Corpus.categories (M2M); django-stubs
+        # cannot resolve dynamically-generated reverse accessors from related_name.
+        assert category.corpuses.count() == 3  # type: ignore[attr-defined]
 
     def test_remove_category_from_corpus(self):
         """Test removing a category from a corpus."""
@@ -224,6 +226,15 @@ class TestCorpusCategoryModel:
 
 class TestCorpusCategoryGraphQLQueries(TestCase):
     """Test GraphQL queries for CorpusCategory."""
+
+    user: User
+    cat1: CorpusCategory
+    cat2: CorpusCategory
+    cat3: CorpusCategory
+    corpus1: Corpus
+    corpus2: Corpus
+    corpus3: Corpus
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -290,7 +301,7 @@ class TestCorpusCategoryGraphQLQueries(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_query_corpus_categories(self):
         """Test querying all corpus categories."""
@@ -311,7 +322,7 @@ class TestCorpusCategoryGraphQLQueries(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         # Check for errors
         self.assertIsNone(
@@ -352,7 +363,7 @@ class TestCorpusCategoryGraphQLQueries(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         # Check for errors
         self.assertIsNone(
@@ -392,7 +403,7 @@ class TestCorpusCategoryGraphQLQueries(TestCase):
             }
         """
 
-        result = self.client.execute(query, variables={"id": corpus_gid})
+        result = self.graphene_client.execute(query, variables={"id": corpus_gid})
 
         # Check for errors
         self.assertIsNone(
@@ -439,7 +450,7 @@ class TestCorpusCategoryGraphQLQueries(TestCase):
             }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
 
         edges = result["data"]["corpusCategories"]["edges"]
         categories_by_name = {edge["node"]["name"]: edge["node"] for edge in edges}
@@ -450,6 +461,12 @@ class TestCorpusCategoryGraphQLQueries(TestCase):
 
 class TestCorpusCategoryGraphQLMutations(TestCase):
     """Test GraphQL mutations involving corpus categories."""
+
+    user: User
+    cat1: CorpusCategory
+    cat2: CorpusCategory
+    cat3: CorpusCategory
+    graphene_client: Client
 
     @classmethod
     def setUpTestData(cls):
@@ -482,7 +499,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
         self.factory = RequestFactory()
         self.request = self.factory.get("/graphql")
         self.request.user = self.user
-        self.client = Client(schema, context_value=self.request)
+        self.graphene_client = Client(schema, context_value=self.request)
 
     def test_create_corpus_with_categories(self):
         """Test creating a corpus with category assignment."""
@@ -499,7 +516,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "title": "New Legal Corpus",
@@ -539,7 +556,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={"title": "Uncategorized Corpus"},
         )
@@ -583,7 +600,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "id": corpus_gid,
@@ -626,7 +643,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "id": corpus_gid,
@@ -661,7 +678,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "id": corpus_gid,
@@ -694,7 +711,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "title": "Test Invalid Category",
@@ -725,7 +742,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "title": "Test Duplicate Categories",
@@ -770,7 +787,7 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation,
             variables={
                 "id": corpus_gid,
@@ -788,6 +805,11 @@ class TestCorpusCategoryGraphQLMutations(TestCase):
 
 class TestCorpusCategoryPermissions(TestCase):
     """Test permission checks for corpus category operations."""
+
+    owner: User
+    other_user: User
+    category: CorpusCategory
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -907,6 +929,10 @@ class TestCorpusCategoryManagementMutations(TestCase):
     Covers create / update / delete via the GraphQL API, including the
     superuser gate, validation, and unique-name enforcement.
     """
+
+    superuser: User
+    regular_user: User
+    existing: CorpusCategory
 
     @classmethod
     def setUpTestData(cls):
