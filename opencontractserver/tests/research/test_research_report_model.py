@@ -84,18 +84,29 @@ class ResearchReportModelTestCase(TestCase):
         )
         self.assertEqual(ResearchReport.objects.visible_to_user(None).count(), 0)
 
-    def test_visible_to_user_superuser_sees_all(self):
-        admin = User.objects.create_superuser(username="admin", password="x")
-        # Two reports authored by *other* users — a superuser must see both
-        # regardless of authorship.
+    def test_visible_to_user_superuser_has_no_blanket_access(self):
+        """A superuser is authorized like any normal user (scoped admin
+        access, 2026-05): it does NOT see reports authored by others, only
+        its own. ``ResearchReport`` visibility is purely creator-based
+        (no is_public / guardian), so a no-grant admin's report list is
+        scoped to its own authorship.
+        """
+        # Unique username avoids colliding with the migration-seeded
+        # superuser ("admin") created by 0003_create_initial_superuser when
+        # DJANGO_SUPERUSER_USERNAME is set in the environment.
+        admin = User.objects.create_superuser(username="scoped-admin", password="x")
+        # Reports authored by *other* users must NOT be visible to the admin.
         user_report = ResearchReport.objects.create(
             creator=self.user, corpus=self.corpus, prompt="x"
         )
         other_report = ResearchReport.objects.create(
             creator=self.other, corpus=self.corpus, prompt="y"
         )
-        # assertIn (not count() == 2): the superuser branch returns .all(), so a
-        # global count is polluted by sibling TransactionTestCase rows (issue #1845).
+        # An admin-authored report, by contrast, IS visible to the admin.
+        admin_report = ResearchReport.objects.create(
+            creator=admin, corpus=self.corpus, prompt="z"
+        )
         visible = ResearchReport.objects.visible_to_user(admin)
-        self.assertIn(user_report, visible)
-        self.assertIn(other_report, visible)
+        self.assertIn(admin_report, visible)
+        self.assertNotIn(user_report, visible)
+        self.assertNotIn(other_report, visible)
