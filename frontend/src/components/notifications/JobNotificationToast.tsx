@@ -6,15 +6,27 @@ import {
   BarChart3,
   Download,
   XCircle,
+  Sparkles,
+  Ban,
   LucideIcon,
 } from "lucide-react";
 import type { JobNotification } from "../../hooks/useJobNotifications";
 import type { NotificationType } from "../../hooks/useNotificationWebSocket";
+import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
-const ToastContainer = styled.div`
+// Semantic status colors for job toasts, sourced from the design tokens so we
+// don't scatter raw hex literals (no-magic-numbers). The IconContainer appends
+// a "20" alpha suffix, so each must be a 6-digit hex.
+const STATUS_SUCCESS = OS_LEGAL_COLORS.success;
+const STATUS_FAILED = OS_LEGAL_COLORS.danger;
+const STATUS_INFO = OS_LEGAL_COLORS.primaryBlue;
+const STATUS_NEUTRAL = OS_LEGAL_COLORS.textMuted;
+
+const ToastContainer = styled.div<{ $clickable?: boolean }>`
   display: flex;
   align-items: center;
   gap: 12px;
+  cursor: ${({ $clickable }) => ($clickable ? "pointer" : "default")};
 `;
 
 const IconContainer = styled.div<{ $color: string }>`
@@ -62,14 +74,14 @@ interface JobNotificationConfig {
 const JOB_NOTIFICATION_CONFIG: Record<string, JobNotificationConfig> = {
   DOCUMENT_PROCESSED: {
     icon: FileText,
-    color: "#4CAF50",
+    color: STATUS_SUCCESS,
     title: "Document Ready",
     getMessage: (data) =>
       `"${(data.documentTitle as string) || "Document"}" finished processing`,
   },
   EXTRACT_COMPLETE: {
     icon: Table2,
-    color: "#2196F3",
+    color: STATUS_INFO,
     title: "Extract Complete",
     getMessage: (data) =>
       `"${(data.extractName as string) || "Extract"}" completed (${
@@ -78,31 +90,54 @@ const JOB_NOTIFICATION_CONFIG: Record<string, JobNotificationConfig> = {
   },
   ANALYSIS_COMPLETE: {
     icon: BarChart3,
-    color: "#4CAF50",
+    color: STATUS_SUCCESS,
     title: "Analysis Complete",
     getMessage: (data) =>
       `"${(data.analyzerName as string) || "Analysis"}" finished successfully`,
   },
   ANALYSIS_FAILED: {
     icon: XCircle,
-    color: "#F44336",
+    color: STATUS_FAILED,
     title: "Analysis Failed",
     getMessage: (data) =>
       `"${(data.analyzerName as string) || "Analysis"}" encountered an error`,
   },
   EXPORT_COMPLETE: {
     icon: Download,
-    color: "#4CAF50",
+    color: STATUS_SUCCESS,
     title: "Export Ready",
     getMessage: (data) =>
       `"${
         (data.exportName as string) || (data.corpusName as string) || "Export"
       }" is ready for download`,
   },
+  RESEARCH_REPORT_COMPLETE: {
+    icon: Sparkles,
+    color: STATUS_SUCCESS,
+    title: "Research Complete",
+    getMessage: (data) =>
+      `"${(data.title as string) || "Research"}" is ready to read`,
+  },
+  RESEARCH_REPORT_FAILED: {
+    icon: XCircle,
+    color: STATUS_FAILED,
+    title: "Research Failed",
+    getMessage: (data) =>
+      `"${(data.title as string) || "Research"}" could not be completed`,
+  },
+  RESEARCH_REPORT_CANCELLED: {
+    icon: Ban,
+    color: STATUS_NEUTRAL,
+    title: "Research Cancelled",
+    getMessage: (data) =>
+      `"${(data.title as string) || "Research"}" was cancelled`,
+  },
 };
 
 export interface JobNotificationToastProps {
   notification: JobNotification;
+  /** Optional click handler — e.g. deep-link a research toast to its report. */
+  onClick?: () => void;
 }
 
 /**
@@ -111,6 +146,7 @@ export interface JobNotificationToastProps {
  */
 export function JobNotificationToast({
   notification,
+  onClick,
 }: JobNotificationToastProps) {
   const config =
     JOB_NOTIFICATION_CONFIG[notification.type] ||
@@ -119,7 +155,7 @@ export function JobNotificationToast({
   const Icon = config.icon;
 
   return (
-    <ToastContainer>
+    <ToastContainer $clickable={Boolean(onClick)} onClick={onClick}>
       <IconContainer $color={config.color}>
         <Icon />
       </IconContainer>

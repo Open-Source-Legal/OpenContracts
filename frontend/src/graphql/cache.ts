@@ -20,6 +20,7 @@ import {
   ConversationType,
   LabelType,
   UserType,
+  ResearchReportType,
 } from "../types/graphql-api";
 import { ViewState } from "../components/types";
 import { FileUploadPackageProps } from "../components/widgets/modals/DocumentUploadModal";
@@ -317,6 +318,11 @@ export const cache = new InMemoryCache({
           "corpusAction_Isnull",
           "name_Contains",
         ]),
+        // Research reports list. keyArgs MUST be the GraphQL FIELD-ARGUMENT
+        // names (CLAUDE.md #15): the resolver declares ``corpus_id`` but
+        // graphene exposes the connection arg as ``corpusId``. Wrong names
+        // silently share one cached connection across corpora/statuses.
+        researchReports: relayStylePagination(["corpusId", "status"]),
         columns: relayStylePagination(),
         // Document relationships - cache by corpus/document context.
         // The lean TOC edges query (corpus home) also passes
@@ -338,6 +344,9 @@ export const cache = new InMemoryCache({
         },
         documentBySlugs: {
           keyArgs: ["userSlug", "documentSlug"],
+        },
+        researchReportBySlug: {
+          keyArgs: ["slug"],
         },
         documentInCorpusBySlugs: {
           keyArgs: ["userSlug", "corpusSlug", "documentSlug", "versionNumber"],
@@ -489,6 +498,20 @@ export const openedExtract = makeVar<ExtractType | null>(null);
 export const selectedExtractIds = makeVar<string[]>([]);
 export const selectedExtract = makeVar<ExtractType | null>(null); // Legacy - kept for backward compatibility
 export const extractSearchTerm = makeVar<string>("");
+
+/**
+ * Research report resolved from the /research/:slug route.
+ *
+ * ENTITY STATE:
+ *   openedResearchReport - Report resolved by CentralRouteManager Phase 1.
+ *   Set by: CentralRouteManager only (enforced by centralRouteDiscipline test).
+ *   Read by: ResearchReportRoute / ResearchReportDetail via useReactiveVar.
+ *
+ * URL EXAMPLES:
+ *   /research/antitrust-exposure-2023  → openedResearchReport(reportObj)
+ */
+export const openedResearchReport = makeVar<ResearchReportType | null>(null);
+export const researchSearchTerm = makeVar<string>("");
 
 /**
  * User profile entity resolved from /users/:slug route.

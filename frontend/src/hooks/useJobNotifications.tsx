@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useApolloClient } from "@apollo/client";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   useNotificationWebSocket,
@@ -19,6 +20,17 @@ const JOB_NOTIFICATION_TYPES: NotificationType[] = [
   "ANALYSIS_COMPLETE",
   "ANALYSIS_FAILED",
   "EXPORT_COMPLETE",
+  // Deep-research terminal states (PROGRESS is reserved; not a completion toast)
+  "RESEARCH_REPORT_COMPLETE",
+  "RESEARCH_REPORT_FAILED",
+  "RESEARCH_REPORT_CANCELLED",
+];
+
+/** Notification types whose toast deep-links to a /research/:slug report. */
+const RESEARCH_NOTIFICATION_TYPES: NotificationType[] = [
+  "RESEARCH_REPORT_COMPLETE",
+  "RESEARCH_REPORT_FAILED",
+  "RESEARCH_REPORT_CANCELLED",
 ];
 
 export interface JobNotification {
@@ -49,6 +61,7 @@ export function useJobNotifications(options: UseJobNotificationsOptions = {}) {
   const { showToast = true, toastDuration = 5000, enabled = true } = options;
 
   const client = useApolloClient();
+  const navigate = useNavigate();
   const [recentJobs, setRecentJobs] = useState<JobNotification[]>([]);
 
   // Track shown notification IDs to prevent duplicate toasts
@@ -91,16 +104,33 @@ export function useJobNotifications(options: UseJobNotificationsOptions = {}) {
 
       // Show toast notification
       if (showToast) {
-        toast(<JobNotificationToast notification={jobNotification} />, {
-          autoClose: toastDuration,
-          closeButton: true,
-          position: "top-right",
-          hideProgressBar: false,
-          pauseOnHover: true,
-        });
+        // Research toasts deep-link to the report; the slug arrives in the
+        // notification payload (research_tasks._send_completion_notification).
+        const reportSlug = jobNotification.data?.report_slug as
+          | string
+          | undefined;
+        const onClick =
+          RESEARCH_NOTIFICATION_TYPES.includes(jobNotification.type) &&
+          reportSlug
+            ? () => navigate(`/research/${reportSlug}`)
+            : undefined;
+
+        toast(
+          <JobNotificationToast
+            notification={jobNotification}
+            onClick={onClick}
+          />,
+          {
+            autoClose: toastDuration,
+            closeButton: true,
+            position: "top-right",
+            hideProgressBar: false,
+            pauseOnHover: true,
+          }
+        );
       }
     },
-    [client.cache, showToast, toastDuration]
+    [client.cache, showToast, toastDuration, navigate]
   );
 
   // Subscribe to WebSocket notifications

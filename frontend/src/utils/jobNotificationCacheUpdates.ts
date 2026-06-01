@@ -20,6 +20,9 @@ interface JobNotificationData {
   analysis_id?: number;
   // Export complete
   export_id?: number;
+  // Research report terminal (report_id arrives as a stringified PK)
+  report_id?: number | string;
+  status?: string;
 }
 
 /**
@@ -148,6 +151,37 @@ function updateExportComplete(
 }
 
 /**
+ * Update cache when a research report reaches a terminal state.
+ * Writes the terminal status (and a completedAt timestamp) so any cached
+ * list/detail flips without a manual refetch.
+ */
+function updateResearchReportTerminal(
+  cache: ApolloCache<unknown>,
+  data: JobNotificationData,
+  fallbackStatus: string
+): void {
+  if (data.report_id == null) return;
+
+  const globalId = toGlobalId("ResearchReportType", data.report_id);
+  const cacheId = cache.identify({
+    __typename: "ResearchReportType",
+    id: globalId,
+  });
+
+  if (cacheId) {
+    const nextStatus = data.status || fallbackStatus;
+    cache.modify({
+      id: cacheId,
+      fields: {
+        status: () => nextStatus,
+        completedAt: (existing) => existing ?? new Date().toISOString(),
+      },
+      broadcast: true,
+    });
+  }
+}
+
+/**
  * Main function to update cache based on notification type.
  * Returns true if cache was updated, false otherwise.
  */
@@ -178,6 +212,18 @@ export function updateCacheForJobNotification(
     case "EXPORT_COMPLETE":
       updateExportComplete(cache, jobData);
       return !!jobData.export_id;
+
+    case "RESEARCH_REPORT_COMPLETE":
+      updateResearchReportTerminal(cache, jobData, "COMPLETED");
+      return jobData.report_id != null;
+
+    case "RESEARCH_REPORT_FAILED":
+      updateResearchReportTerminal(cache, jobData, "FAILED");
+      return jobData.report_id != null;
+
+    case "RESEARCH_REPORT_CANCELLED":
+      updateResearchReportTerminal(cache, jobData, "CANCELLED");
+      return jobData.report_id != null;
 
     default:
       return false;

@@ -3412,20 +3412,26 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         if config.user_id is not None:
             effective_tools.append(update_corpus_desc_tool_wrapped)
 
-            # Deep-research kickoff: lets the chat agent spawn a
-            # long-running, autonomous research job over this corpus.
-            # Goes through the standard converter so ``corpus_id``,
-            # ``user_id``, and ``conversation_id`` get auto-injected.
+            # Deep-research tools: let the chat agent spawn a long-running,
+            # autonomous research job over this corpus (``start_deep_research``)
+            # and report on its progress (``check_deep_research_status``) so a
+            # follow-up like "is my research done?" isn't a dead end. Both go
+            # through the standard converter so ``corpus_id``, ``user_id``, and
+            # ``conversation_id`` get auto-injected. When the deep-research
+            # agent itself is built with ``restrict_tool_names`` (read-only
+            # surface), these are filtered out below — a research run can't
+            # recursively spawn or poll more research jobs.
             from opencontractserver.llms.agents.agent_factory import (
                 _convert_tools_for_framework,
             )
             from opencontractserver.llms.tools.research_tools import (
+                check_deep_research_status_tool,
                 start_deep_research_tool,
             )
             from opencontractserver.llms.types import AgentFramework
 
             converted = _convert_tools_for_framework(
-                [start_deep_research_tool],
+                [start_deep_research_tool, check_deep_research_status_tool],
                 AgentFramework.PYDANTIC_AI,
                 document_id=None,
                 corpus_id=context.corpus.id,

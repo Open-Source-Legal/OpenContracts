@@ -677,6 +677,49 @@ class MCPToolsDocumentsTest(TestCase):
         # ... and the full payload serializes cleanly (the original crash).
         json.dumps(result, indent=2)
 
+    def test_get_document_text_offset_beyond_end(self):
+        """char_offset past total_chars yields empty text and no next page."""
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "X" * 40
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(
+                self.corpus.slug, self.doc1.slug, char_offset=10_000
+            )
+
+        self.assertEqual(result["total_chars"], 40)
+        self.assertEqual(result["text"], "")
+        self.assertIsNone(result["next_offset"])
+        self.assertFalse(result["truncated"])
+
+    def test_get_document_text_max_chars_zero(self):
+        """max_chars=0 produces an empty window."""
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "Y" * 40
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(self.corpus.slug, self.doc1.slug, max_chars=0)
+
+        self.assertEqual(result["text"], "")
+
+    def test_get_document_text_max_chars_clamped_to_hard_cap(self):
+        """max_chars above MCP_DOCUMENT_TEXT_MAX_CHARS is clamped to the cap."""
+        from opencontractserver.constants.mcp import MCP_DOCUMENT_TEXT_MAX_CHARS
+        from opencontractserver.mcp.tools import get_document_text
+
+        payload = "Z" * (MCP_DOCUMENT_TEXT_MAX_CHARS + 50)
+        with _patch_fieldfile_open_returns_bytes(payload):
+            result = get_document_text(
+                self.corpus.slug, self.doc1.slug, max_chars=10_000_000
+            )
+
+        # Window is clamped: only the cap's worth of text is returned, and the
+        # response pages on (next_offset at the cap) rather than honoring the
+        # oversized request.
+        self.assertEqual(len(result["text"]), MCP_DOCUMENT_TEXT_MAX_CHARS)
+        self.assertEqual(result["next_offset"], MCP_DOCUMENT_TEXT_MAX_CHARS)
+        self.assertTrue(result["truncated"])
+
     def test_get_document_resource_handles_bytes_from_cloud_storage(self):
         """Regression: the resource path shares the same bytes-from-cloud bug
         class as ``get_document_text`` (django-storages #382).
@@ -883,14 +926,38 @@ class MCPToolsSearchTest(TestCase):
             creator=cls.owner,
         )
 
-    def test_search_corpus_text_fallback(self):
-        """Test search falls back to text search without embeddings."""
+        # Annotations: search_corpus now searches passages (annotations), not
+        # documents. Seed a human annotation whose body contains both "Contract"
+        # and a body-only term ("indemnification") absent from any title/desc,
+        # plus a structural annotation also containing "Contract".
+        from opencontractserver.annotations.models import Annotation
+
+        cls.human_ann = Annotation.objects.create(
+            page=0,
+            raw_text="This Contract contains indemnification clauses.",
+            document=cls.doc1,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=False,
+        )
+        cls.structural_ann = Annotation.objects.create(
+            page=1,
+            raw_text="Contract structural block header",
+            document=cls.doc1,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+
+    def test_search_corpus_text_fallback_returns_passages(self):
+        """Empty/absent vector falls through to passage text search (issue #1858)."""
         from unittest.mock import patch
 
         from opencontractserver.mcp.tools import search_corpus
 
-        # Mock embed_text to raise RuntimeError, forcing text search fallback
-        # (RuntimeError is explicitly caught by search_corpus to trigger fallback)
+        # Mock embed_text to raise RuntimeError -> no vector -> text fallback.
         with patch.object(
             self.corpus.__class__,
             "embed_text",
@@ -898,34 +965,88 @@ class MCPToolsSearchTest(TestCase):
         ):
             result = search_corpus(self.corpus.slug, "Contract")
 
-        self.assertIn("query", result)
-        self.assertIn("results", result)
         self.assertEqual(result["query"], "Contract")
+        self.assertGreaterEqual(len(result["results"]), 1)
+        self.assertTrue(all(r["type"] == "passage" for r in result["results"]))
+        self.assertTrue(all("structural" in r for r in result["results"]))
+        self.assertTrue(all(r["similarity_score"] is None for r in result["results"]))
 
-        # Should find the document with "Contract" in title
-        self.assertTrue(len(result["results"]) >= 1)
-        self.assertEqual(result["results"][0]["title"], "Contract Agreement")
+    def test_search_corpus_text_fallback_searches_body(self):
+        """Fallback searches annotation body, not just title/description."""
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.tools import search_corpus
+
+        with patch.object(
+            self.corpus.__class__, "embed_text", side_effect=RuntimeError("x")
+        ):
+            result = search_corpus(self.corpus.slug, "indemnification")
+
+        self.assertGreaterEqual(len(result["results"]), 1)
+        self.assertIn("indemnification", result["results"][0]["text"].lower())
+
+    def test_search_corpus_granularity_passage_only(self):
+        """granularity='passage' yields only passage hits."""
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.tools import search_corpus
+
+        with patch.object(
+            self.corpus.__class__, "embed_text", side_effect=RuntimeError("x")
+        ):
+            result = search_corpus(self.corpus.slug, "Contract", granularity="passage")
+
+        self.assertTrue(all(r["type"] == "passage" for r in result["results"]))
+
+    def test_search_corpus_structural_false_excludes_structural(self):
+        """structural=False excludes structural passages from the feed."""
+        from unittest.mock import patch
+
+        from opencontractserver.mcp.tools import search_corpus
+
+        with patch.object(
+            self.corpus.__class__, "embed_text", side_effect=RuntimeError("x")
+        ):
+            result = search_corpus(self.corpus.slug, "Contract", structural=False)
+
+        self.assertGreaterEqual(len(result["results"]), 1)
+        self.assertTrue(all(r["structural"] is False for r in result["results"]))
 
     def test_search_corpus_limit(self):
         """Test search respects limit."""
+        from unittest.mock import patch
+
         from opencontractserver.mcp.tools import search_corpus
 
-        result = search_corpus(self.corpus.slug, "test", limit=1)
+        with patch.object(
+            self.corpus.__class__, "embed_text", side_effect=RuntimeError("x")
+        ):
+            result = search_corpus(self.corpus.slug, "Contract", limit=1)
 
         self.assertLessEqual(len(result["results"]), 1)
 
-    def test_text_search_fallback_directly(self):
-        """Test the text search fallback function directly."""
-        from django.contrib.auth.models import AnonymousUser
+    def test_format_search_block_shape(self):
+        """format_search_block shapes a RelationshipVectorSearchResult."""
+        from opencontractserver.llms.vector_stores.core_relationship_vector_store import (  # noqa: E501
+            RelationshipVectorSearchResult,
+        )
+        from opencontractserver.mcp.formatters import format_search_block
 
-        from opencontractserver.mcp.tools import _text_search_fallback
-
-        anonymous = AnonymousUser()
-        result = _text_search_fallback(self.corpus, "Contract", 10, anonymous)
-
-        self.assertIn("query", result)
-        self.assertEqual(result["query"], "Contract")
-        self.assertTrue(len(result["results"]) >= 1)
+        fake = RelationshipVectorSearchResult(
+            relationship=None,
+            similarity_score=0.77,
+            source_annotation_id=self.human_ann.id,
+            target_annotation_ids=[self.structural_ann.id],
+            block_text="aggregated block text",
+            label_text="OC_SUBTREE_GROUP",
+            document_id=self.doc1.id,
+        )
+        out = format_search_block(fake)
+        self.assertEqual(out["type"], "block")
+        self.assertEqual(out["document_slug"], self.doc1.slug)
+        self.assertEqual(out["label"], "OC_SUBTREE_GROUP")
+        self.assertEqual(out["member_count"], 2)
+        self.assertEqual(out["similarity_score"], 0.77)
 
 
 class MCPToolsThreadsTest(TestCase):
@@ -1484,7 +1605,10 @@ class MCPFormattersExtendedTest(TestCase):
         self.assertEqual(result["raw_text"], "Formatter annotation text")
         self.assertTrue(result["structural"])
         self.assertEqual(result["annotation_label"]["text"], "Formatter Label")
-        self.assertEqual(result["annotation_label"]["color"], "#DDEEFF")
+        self.assertIn("label_type", result["annotation_label"])
+        # Lean payload (#1859): color/created dropped to cut AI token cost.
+        self.assertNotIn("color", result["annotation_label"])
+        self.assertNotIn("created", result)
 
     def test_format_annotation_without_label(self):
         """Test annotation formatting without label."""
@@ -2921,6 +3045,7 @@ class MCPScopedToolsTest(TestCase):
             "list_documents",
             "get_document_text",
             "list_annotations",
+            "list_relationships",
             "search_corpus",
             "list_threads",
             "get_thread_messages",
@@ -2953,6 +3078,19 @@ class MCPScopedToolsTest(TestCase):
 
         self.assertEqual(result["document_slug"], self.doc1.slug)
         self.assertEqual(result["page_count"], 5)
+
+    def test_scoped_list_relationships(self):
+        """Scoped list_relationships dispatches without explicit corpus_slug."""
+        from opencontractserver.mcp.tools import get_scoped_tool_handlers
+
+        handlers = get_scoped_tool_handlers(self.corpus.slug)
+
+        # Corpus-slug is bound from the scope, so no positional arg is needed.
+        result = handlers["list_relationships"]()
+
+        self.assertIn("total_count", result)
+        self.assertIn("relationships", result)
+        self.assertIsInstance(result["relationships"], list)
 
 
 @pytest.mark.serial
@@ -3031,6 +3169,12 @@ class MCPScopedServerTest(TransactionTestCase):
         # search_corpus should only require query
         search_tool = next(t for t in tools if t.name == "search_corpus")
         self.assertEqual(search_tool.inputSchema.get("required", []), ["query"])
+
+        # list_relationships must be advertised by the scoped endpoint and,
+        # since corpus_slug is bound from the URL, expose no required params.
+        self.assertIn("list_relationships", tool_names)
+        rels_tool = next(t for t in tools if t.name == "list_relationships")
+        self.assertEqual(rels_tool.inputSchema.get("required", []), [])
 
         # The scoped create_thread_message variant must drop ``corpus_slug``
         # from required (auto-injected from the URL) and expose the content
@@ -4553,7 +4697,12 @@ class MCPScopedToolsWithLabelSetTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         """Create test data with label set."""
-        from opencontractserver.annotations.models import AnnotationLabel, LabelSet
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+            LabelSet,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
 
         cls.owner = User.objects.create_user(
             username="scopedlabelowner",
@@ -4596,6 +4745,31 @@ class MCPScopedToolsWithLabelSetTest(TestCase):
             label_set=cls.label_set,
             allow_comments=True,
         )
+
+        # get_corpus_info now surfaces only labels actually used on the corpus's
+        # annotations (#1861), so seed one annotation per label to keep both in use.
+        cls.document = Document.objects.create(
+            title="Labelled Doc", creator=cls.owner, is_public=True, page_count=1
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/labelled.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        for lbl in (cls.label1, cls.label2):
+            Annotation.objects.create(
+                page=0,
+                raw_text=f"uses {lbl.text}",
+                annotation_label=lbl,
+                document=cls.document,
+                corpus=cls.corpus,
+                creator=cls.owner,
+                is_public=True,
+            )
 
     def test_get_corpus_info_with_label_set(self):
         """Test get_corpus_info returns label set data."""
@@ -6716,3 +6890,389 @@ class MCPExtractBearerTokenTest(TestCase):
             "headers": [(b"authorization", b"Bearer   eyJabc  ")],
         }
         self.assertEqual(_extract_bearer_token(scope), "eyJabc")
+
+
+class MCPToolsAnnotationsSearchTest(TestCase):
+    """Tests for list_annotations content search / structural filter / ordering (#1859)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.annotations.models import Annotation, AnnotationLabel
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        cls.owner = User.objects.create_user(
+            username="annsearchowner", email="annsearch@test.com", password="pw123456"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Ann Search Corpus", creator=cls.owner, is_public=True
+        )
+        cls.document = Document.objects.create(
+            title="Searchable Doc", creator=cls.owner, is_public=True, page_count=3
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/searchable.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        cls.label = AnnotationLabel.objects.create(
+            text="Body",
+            color="#123456",
+            label_type="TOKEN_LABEL",
+            creator=cls.owner,
+            is_public=True,
+        )
+        # page 2 (human), page 0 (human), page 1 (structural) — out of order on
+        # purpose so the ordering test is meaningful.
+        cls.a_p2 = Annotation.objects.create(
+            page=2,
+            raw_text="The termination clause governs indemnification.",
+            annotation_label=cls.label,
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=False,
+        )
+        cls.a_p0 = Annotation.objects.create(
+            page=0,
+            raw_text="Opening recital text.",
+            annotation_label=cls.label,
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=False,
+        )
+        cls.a_p1_struct = Annotation.objects.create(
+            page=1,
+            raw_text="Structural heading about indemnification.",
+            annotation_label=cls.label,
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+
+    def test_text_contains_filters_by_body(self):
+        from opencontractserver.mcp.tools import list_annotations
+
+        result = list_annotations(
+            self.corpus.slug, self.document.slug, text_contains="indemnification"
+        )
+        self.assertGreaterEqual(result["total_count"], 2)
+        self.assertTrue(
+            all(
+                "indemnification" in a["raw_text"].lower()
+                for a in result["annotations"]
+            )
+        )
+
+    def test_structural_filter_excludes_human(self):
+        from opencontractserver.mcp.tools import list_annotations
+
+        result = list_annotations(self.corpus.slug, self.document.slug, structural=True)
+        self.assertTrue(all(a["structural"] is True for a in result["annotations"]))
+        self.assertEqual(result["total_count"], 1)
+
+    def test_results_ordered_by_page(self):
+        from opencontractserver.mcp.tools import list_annotations
+
+        result = list_annotations(self.corpus.slug, self.document.slug, limit=100)
+        pages = [a["page"] for a in result["annotations"]]
+        self.assertEqual(pages, sorted(pages))
+
+    def test_payload_is_lean(self):
+        from opencontractserver.mcp.tools import list_annotations
+
+        result = list_annotations(self.corpus.slug, self.document.slug, limit=1)
+        ann = result["annotations"][0]
+        self.assertNotIn("color", ann)
+        self.assertNotIn("created", ann)
+        self.assertIn("structural", ann)
+
+
+class MCPToolsRelationshipsTest(TestCase):
+    """Tests for the list_relationships tool (#1862)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+            Relationship,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        cls.owner = User.objects.create_user(
+            username="relowner", email="rel@test.com", password="pw123456"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Rel Corpus", creator=cls.owner, is_public=True
+        )
+        cls.document = Document.objects.create(
+            title="Rel Doc", creator=cls.owner, is_public=True, page_count=2
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/rel.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        cls.src = Annotation.objects.create(
+            page=0,
+            raw_text="See section 2.",
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.tgt = Annotation.objects.create(
+            page=1,
+            raw_text="Section 2 body.",
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.rel_label = AnnotationLabel.objects.create(
+            text="cross-reference",
+            label_type="RELATIONSHIP_LABEL",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.rel = Relationship.objects.create(
+            relationship_label=cls.rel_label,
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=False,
+        )
+        cls.rel.source_annotations.add(cls.src)
+        cls.rel.target_annotations.add(cls.tgt)
+
+    def test_list_relationships_document_scoped(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, self.document.slug)
+        self.assertGreaterEqual(result["total_count"], 1)
+        rel = result["relationships"][0]
+        self.assertEqual(rel["label"], "cross-reference")
+        self.assertEqual(rel["structural"], False)
+        self.assertTrue(rel["source"] and rel["target"])
+        self.assertEqual(rel["source"][0]["annotation_id"], str(self.src.id))
+
+    def test_list_relationships_corpus_wide(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug)  # no document_slug
+        self.assertGreaterEqual(result["total_count"], 1)
+
+    def test_list_relationships_structural_filter_excludes_human(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, structural=True)
+        self.assertTrue(all(r["structural"] is True for r in result["relationships"]))
+        self.assertEqual(result["total_count"], 0)
+
+    def test_list_relationships_label_filter(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, label_text="cross-reference")
+        self.assertGreaterEqual(result["total_count"], 1)
+        result_none = list_relationships(self.corpus.slug, label_text="nonexistent")
+        self.assertEqual(result_none["total_count"], 0)
+
+
+class MCPListRelationshipsStructuralSetTest(TestCase):
+    """Corpus-wide list_relationships includes structural-set relationships (#1862).
+
+    Exercises the ``Q(structural=True, structural_set_id__in=set_ids)`` branch in
+    ``RelationshipService.get_corpus_relationships`` — a structural relationship
+    has ``document=NULL`` / ``corpus=NULL`` and is reachable only via the
+    structural set shared by the corpus's documents. Without this test the branch
+    (and the existence of ``Relationship.structural_set``) is unverified in CI.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+            Relationship,
+            StructuralAnnotationSet,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        cls.owner = User.objects.create_user(
+            username="structrelowner", email="structrel@test.com", password="pw123456"
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Struct Rel Corpus", creator=cls.owner, is_public=True
+        )
+        cls.struct_set = StructuralAnnotationSet.objects.create(
+            content_hash="structrel-hash-1",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.document = Document.objects.create(
+            title="Struct Rel Doc",
+            creator=cls.owner,
+            is_public=True,
+            page_count=2,
+            structural_annotation_set=cls.struct_set,
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/structrel.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        cls.src = Annotation.objects.create(
+            page=0,
+            raw_text="Header",
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+        cls.tgt = Annotation.objects.create(
+            page=0,
+            raw_text="Body",
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+        cls.rel_label = AnnotationLabel.objects.create(
+            text="contains",
+            label_type="RELATIONSHIP_LABEL",
+            creator=cls.owner,
+            is_public=True,
+        )
+        # Structural relationship: document/corpus NULL, linked via structural_set
+        # (satisfies the document-XOR-structural_set model constraint).
+        cls.rel = Relationship.objects.create(
+            relationship_label=cls.rel_label,
+            document=None,
+            corpus=None,
+            structural_set=cls.struct_set,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+        cls.rel.source_annotations.add(cls.src)
+        cls.rel.target_annotations.add(cls.tgt)
+
+    def test_corpus_wide_includes_structural_set_relationship(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, structural=True)
+        self.assertEqual(result["total_count"], 1)
+        rel = result["relationships"][0]
+        self.assertEqual(rel["label"], "contains")
+        self.assertTrue(rel["structural"])
+
+    def test_human_only_filter_excludes_structural_set_relationship(self):
+        from opencontractserver.mcp.tools import list_relationships
+
+        result = list_relationships(self.corpus.slug, structural=False)
+        self.assertEqual(result["total_count"], 0)
+
+
+class MCPGetCorpusInfoLabelsTest(TestCase):
+    """get_corpus_info surfaces only labels actually used on annotations (#1861)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            AnnotationLabel,
+            LabelSet,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        cls.owner = User.objects.create_user(
+            username="labelsowner", email="labels@test.com", password="pw123456"
+        )
+        cls.label_set = LabelSet.objects.create(title="Mixed Labels", creator=cls.owner)
+        cls.used_label = AnnotationLabel.objects.create(
+            text="UsedLabel",
+            label_type="TOKEN_LABEL",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.unused_label = AnnotationLabel.objects.create(
+            text="UnusedLabel",
+            label_type="TOKEN_LABEL",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.label_set.annotation_labels.add(cls.used_label, cls.unused_label)
+        cls.corpus = Corpus.objects.create(
+            title="Labels Corpus",
+            creator=cls.owner,
+            is_public=True,
+            label_set=cls.label_set,
+        )
+        cls.document = Document.objects.create(
+            title="Doc", creator=cls.owner, is_public=True, page_count=1
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/d.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        Annotation.objects.create(
+            page=0,
+            raw_text="x",
+            annotation_label=cls.used_label,
+            document=cls.document,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            is_public=True,
+        )
+
+    def test_only_used_labels_surface(self):
+        from opencontractserver.mcp.tools import get_corpus_info
+
+        out = get_corpus_info(self.corpus.slug)
+        self.assertIsNotNone(out["label_set"])
+        texts = {label["text"] for label in out["label_set"]["labels"]}
+        self.assertIn("UsedLabel", texts)
+        self.assertNotIn("UnusedLabel", texts)
+
+
+class MCPErrorFormattingTest(TestCase):
+    """Not-found errors are humanized with remediation hints (#1861)."""
+
+    def test_document_does_not_exist_message(self):
+        from opencontractserver.documents.models import Document
+        from opencontractserver.mcp.server import _format_tool_error_text
+
+        msg = _format_tool_error_text(Document.DoesNotExist())
+        self.assertIn("list_documents", msg)
+        self.assertNotIn("matching query", msg)
+
+    def test_corpus_does_not_exist_message(self):
+        from opencontractserver.mcp.server import _format_tool_error_text
+
+        msg = _format_tool_error_text(Corpus.DoesNotExist())
+        self.assertIn("list_public_corpuses", msg)

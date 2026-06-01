@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from opencontractserver.constants.truncation import (
     MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH,
 )
+from opencontractserver.utils.files import read_field_file_text
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
@@ -76,9 +77,16 @@ def summarize_for_preview(plain_text: str) -> str:
 def read_caml_body(doc: Document) -> str:
     """Return the Readme.CAML body as text.
 
-    Tolerant of binary-mode storage: opens the field in text mode first,
-    then falls back to binary + utf-8 decode on any error. Returns the
-    empty string when the document has no ``txt_extract_file``.
+    Delegates to :func:`opencontractserver.utils.files.read_field_file_text`,
+    which normalises cloud storage backends (S3Boto3Storage /
+    GoogleCloudStorage via django-storages #382) that silently return
+    ``bytes`` from a text-mode read. The previous hand-rolled
+    ``except``-guarded binary fallback never fired for that path because the
+    bytes read did not raise — it only caught backends that *raise* on text
+    mode — so cloud deployments leaked ``bytes`` into
+    ``markdown_to_plain_text`` (``re`` on a bytes-like object) and the
+    GraphQL revisions facade. Returns the empty string when the document has
+    no ``txt_extract_file``.
 
     Promoted from a private helper in ``corpuses/signals.py`` so the
     GraphQL ``descriptionRevisions`` facade (which reads the
@@ -88,23 +96,12 @@ def read_caml_body(doc: Document) -> str:
     if not (doc.txt_extract_file and doc.txt_extract_file.name):
         return ""
     try:
-        doc.txt_extract_file.open("r")
-        try:
-            return doc.txt_extract_file.read()
-        finally:
-            doc.txt_extract_file.close()
-    except Exception:
-        # Binary fallback for storage that rejects text-mode reads. Guarded
-        # so a corrupted blob returns the empty string rather than
+        # ``errors="ignore"`` preserves the prior best-effort decode for a
+        # corrupted blob; the outer guard keeps a hard I/O failure from
         # propagating into the signal handler / GraphQL resolver.
-        try:
-            doc.txt_extract_file.open("rb")
-            try:
-                return doc.txt_extract_file.read().decode("utf-8", errors="ignore")
-            finally:
-                doc.txt_extract_file.close()
-        except Exception:
-            return ""
+        return read_field_file_text(doc.txt_extract_file, errors="ignore")
+    except Exception:
+        return ""
 
 
 def compute_cache_from_caml_body(
