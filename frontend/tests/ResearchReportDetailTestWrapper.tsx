@@ -113,6 +113,13 @@ export const ResearchReportDetailTestWrapper: React.FC<{
   const mocks: MockedResponse[] = [
     {
       request: { query: GET_RESEARCH_REPORT, variables: { id: report.id } },
+      // maxUsageCount=Infinity lets this single mock serve every fire of the
+      // query — the detail view uses notifyOnNetworkStatusChange and may
+      // refetch (terminal-notification path) or poll (non-terminal states).
+      // Without it a second trip drains the bucket and resolves to a "No more
+      // mocked responses" error, which the view's not-found state would surface.
+      // Mirrors CorpusResearchReportCardsTestWrapper.
+      maxUsageCount: Number.POSITIVE_INFINITY,
       result: { data: { researchReport: report } },
     },
   ];

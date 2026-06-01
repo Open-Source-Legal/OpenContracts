@@ -37,6 +37,7 @@ import {
   corpusHomeView,
   tocExpandAll,
   corpusDetailView,
+  corpusMapPin,
   corpusPowerUserMode,
   routeLoading,
   routeError,
@@ -991,6 +992,8 @@ export function CentralRouteManager() {
     const tocExpandedParam = searchParams.get("tocExpanded") === "true";
     const detailViewParam = searchParams.get("view");
     const modeParam = searchParams.get("mode");
+    // Corpus map deep-link: focused place name (#1821). Empty string → null.
+    const mapPinParam = searchParams.get("pin") || null;
 
     // Text block deep link
     const textBlockParam = searchParams.get("tb");
@@ -1041,6 +1044,7 @@ export function CentralRouteManager() {
     const currentHomeView = corpusHomeView();
     const currentTocExpandAll = tocExpandAll();
     const currentDetailView = corpusDetailView();
+    const currentMapPin = corpusMapPin();
     const currentPowerUserMode = corpusPowerUserMode();
     const currentTextBlock = highlightedTextBlock();
     const currentDocVersion = selectedDocVersion();
@@ -1063,7 +1067,8 @@ export function CentralRouteManager() {
         ? homeViewParam
         : null;
 
-    // Parse detailView param (valid values: "details", "discussions", "article"; defaults to "landing")
+    // Parse detailView param (valid values: "details", "discussions", "article",
+    // "map"; defaults to "landing")
     const newDetailView: CorpusDetailViewType =
       detailViewParam === "details"
         ? "details"
@@ -1071,6 +1076,8 @@ export function CentralRouteManager() {
         ? "discussions"
         : detailViewParam === "article"
         ? "article"
+        : detailViewParam === "map"
+        ? "map"
         : "landing";
 
     // Collect all reactive var updates into a batch
@@ -1112,6 +1119,9 @@ export function CentralRouteManager() {
     }
     if (currentDetailView !== newDetailView) {
       updates.push(() => corpusDetailView(newDetailView));
+    }
+    if (currentMapPin !== mapPinParam) {
+      updates.push(() => corpusMapPin(mapPinParam));
     }
     const newPowerUserMode =
       modeParam === "power" && authStatus === "AUTHENTICATED";

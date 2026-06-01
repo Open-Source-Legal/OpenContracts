@@ -56,7 +56,7 @@ export interface QueryParams {
   relationshipId?: string | null;
   homeView?: "about" | "toc" | null; // corpus home view selection
   tocExpanded?: boolean; // true to expand all TOC nodes
-  view?: "landing" | "details" | "discussions" | "article" | null; // corpus detail view selection
+  view?: "landing" | "details" | "discussions" | "article" | "map" | null; // corpus detail view selection
   mode?: "power" | null; // corpus power user mode
   version?: number | null; // Document version number (null = current version)
   showStructural?: boolean;
@@ -859,17 +859,19 @@ export function updateTocExpandedParam(
 
 /**
  * Update corpus detail view selection in URL
- * Used for switching between landing, details, and discussions views on corpus home.
+ * Used for switching between landing, details, discussions, article, and map
+ * views on corpus home.
  * Pushes a new history entry so browser back/forward navigates between views.
  * @param location - React Router location object
  * @param navigate - React Router navigate function
- * @param view - View identifier ("landing", "details", "discussions", or "article")
- *               Pass "landing" or null to clear and use default (landing)
+ * @param view - View identifier ("landing", "details", "discussions", "article",
+ *               or "map"). Pass "landing" or null to clear and use default
+ *               (landing).
  */
 export function updateDetailViewParam(
   location: LocationLike,
   navigate: NavigateFn,
-  view: "landing" | "details" | "discussions" | "article" | null
+  view: "landing" | "details" | "discussions" | "article" | "map" | null
 ) {
   const searchParams = new URLSearchParams(location.search);
   if (view && view !== "landing") {
@@ -878,8 +880,36 @@ export function updateDetailViewParam(
   } else {
     searchParams.delete("view");
   }
+  // The 'pin' deep-link param only applies to the map view; drop it whenever we
+  // leave map mode so a stale place doesn't linger on the next visit.
+  if (view !== "map") {
+    searchParams.delete("pin");
+  }
   // Push (not replace) so browser back returns to the previous view
   navigate({ search: searchParams.toString() });
+}
+
+/**
+ * Update the focused place on the corpus map view in the URL (#1821).
+ * Selecting a place sets ?pin=<canonicalName>; passing null clears it.
+ * Uses replace (not push) so panning between places doesn't flood browser
+ * history — back from the map returns to the prior view, not the prior pin.
+ * @param location - React Router location object
+ * @param navigate - React Router navigate function
+ * @param pinName - Canonical place name to focus, or null to clear
+ */
+export function updateCorpusMapPinParam(
+  location: LocationLike,
+  navigate: NavigateFn,
+  pinName: string | null
+) {
+  const searchParams = new URLSearchParams(location.search);
+  if (pinName) {
+    searchParams.set("pin", pinName);
+  } else {
+    searchParams.delete("pin");
+  }
+  navigate({ search: searchParams.toString() }, { replace: true });
 }
 
 /**

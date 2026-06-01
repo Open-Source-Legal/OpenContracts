@@ -39,6 +39,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Corpus-level retrieval sparseness on machine-ingested imports (the SpaceX
     S-1) is tracked separately in #1883 (V2 import skips structural ingestion +
     PAWLs re-encoding) and is not addressed here.
+- **Deep-research code-review follow-ups (#1864).** Addressed the actionable
+  items from the PR #1836 review:
+  - `frontend/src/graphql/mutations.ts` — `CancelResearchReportOutput.obj.status`
+    was typed as the bare `string`; narrowed to `JobStatus | string` to match
+    `ResearchReportType.status` so callers comparing against `JobStatus` values
+    get type checking on this payload.
+  - `frontend/tests/ResearchReportDetailTestWrapper.tsx` — the single detail
+    mock now carries `maxUsageCount: Number.POSITIVE_INFINITY` (mirroring
+    `CorpusResearchReportCardsTestWrapper`). The detail view uses
+    `notifyOnNetworkStatusChange` and can refetch/poll, so a fixed-bucket mock
+    risked a "No more mocked responses" error if a future test exercised a
+    non-terminal state.
+  - `opencontractserver/research/models.py` — documented that
+    `ResearchReport.duration_seconds` is always a computed `@property` (never a
+    stored field), since the status-tool duration tests set `started_at` /
+    `completed_at` directly and depend on that invariant. Added a guard test
+    (`test_research_report_model.py::test_duration_seconds_computed_from_timestamps`).
+  - Reviewer items that needed no change, after verification: async catch blocks
+    in `ResearchReportDetail.tsx` / `StartResearchModal.tsx` already log via
+    `console.error`; the `slug` column is already indexed (`unique=True` +
+    `db_index=True`); and the snake_case reactive-var locals in
+    `CorpusResearchReportCards.tsx` (`opened_corpus`, `research_search_term`,
+    `auth_token`) intentionally match the established codebase convention used by
+    the sibling `CorpusExtractCards`/`CorpusAnalysesCards` and avoid shadowing the
+    imported camelCase reactive vars — renaming them would have been a regression.
+
+- **WebSocket 1011 reconnect churn on a 5-second beat: channels-redis 4.3.0 vs.
+  redis-py 8.0 default `socket_timeout=5` (#1886).** Every consumer's idle
+  channel-layer receive loop crashed ~every 5s, so Daphne closed the socket with
+  code **1011** and the browser reconnected, went idle, and tripped again —
+  continuous churn on `/ws/notification-updates/`, `/ws/agent-chat/`, and every
+  other consumer. Root cause: `redis` (redis-py) is unpinned in
+  `requirements/base.txt` and floated to **8.0.0**, which changed the default
+  `socket_timeout` from `None` to **5s**. channels-redis' receive loop issues a
+  5s *server-side* blocking pop (`bzpopmin`/`brpop`, `brpop_timeout=5`); with a
+  5s *client* read timeout the client's deadline fires before the server's nil
+  reply returns, so redis-py raises `redis.exceptions.TimeoutError` out of the
+  consumer (`retry_on_timeout=False`, and channels-redis doesn't catch it). The
+  client loses the race on every idle cycle, which is why the failures were
+  idle-only and landed on a clean 5s beat (a local send→receive round-trip
+  returns before 5s, so it never exercised the path). **Fix:** the
+  `CHANNEL_LAYERS` host is now a dict with an explicit `socket_timeout: None` in
+  both `config/settings/base.py` (`{"host": …, "port": …, "socket_timeout":
+  None}`) and `config/settings/test_integration.py` (`{"address": REDIS_URL,
+  "socket_timeout": None}`), restoring the historical no-client-read-deadline
+  behavior these long-lived idle WebSockets require. redis-py is **not** pinned
+  back below 8.0. Regression test:
+  `opencontractserver/tests/test_redis_integration.py::TestChannelsRedisLayer::test_idle_receive_survives_blocking_pop_window`
+  delivers a message only after the first 5s blocking-pop cycle, so a regressed
+  config (client read timeout ≤ `brpop_timeout`) raises `redis.TimeoutError` and
+  fails the test.
+
 - **`AnnotationFilterMode` export filtering silently ignored the requested mode
   (#1868).** `AnnotationFilterMode` (`opencontractserver/types/enums.py`) was a
   plain `Enum`, not a `str`-mixin enum like every sibling in the file, so a
@@ -108,7 +160,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` to a `Literal` value type; and documented
   the no-superuser migration-skip recovery path in
   `docs/agents/location_tagger.md`.
-
 - **Corpus chat duplicate-response loop on reconnect**
   (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
   the corpus home search bar navigated into the chat view and auto-sent the
@@ -123,6 +174,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ("initialQuery is NOT re-sent when the WebSocket reconnects").
 
 ### Added
+
+- **Corpus Home "Map" view — per-corpus geographic annotations (#1821).** A
+  fifth Corpus Home view mode (`landing` / `details` / `discussions` /
+  `article` / **`map`**) that plots a corpus's geographic annotations, reusing
+  the #1820 `AnnotationMap` and the #1819 `geographicAnnotationsForCorpus`
+  query.
+  - **`CorpusMapView`** (`frontend/src/components/corpuses/CorpusMapView.tsx`) —
+    wraps `AnnotationMap` with the corpus-scoped pins query, a back-to-overview
+    header badged with the place count, an empty state pointing users at the
+    Location Tagger agent, and pin-panel document links that resolve through the
+    permission-filtered `document(id:)` redirect query. Performance: corpus pin
+    sets are bounded/aggregated, so it fetches the whole corpus **once**
+    (`bbox: null`, all label types) with no per-pan refetch, selecting only the
+    lightweight pin fields.
+  - **Map toggle + count badge** (`CorpusHome/CorpusMapToggle.tsx`, rendered in
+    `CorpusLandingView`'s top bar) — "Map · N places", muted when the corpus has
+    no geo annotations but still clickable so users reach the empty-state
+    guidance. Its count query reuses `corpusGeoInitialVariables`, so it shares an
+    Apollo cache entry with `CorpusMapView` — the badge warms the map and opening
+    it costs no extra round-trip.
+  - **Routing** — `view=map` and a `pin=<place>` deep-link param are parsed by
+    `CentralRouteManager` into the `corpusDetailView` / new `corpusMapPin`
+    reactive vars (no direct URL touches in components). `?view=map&pin=Paris`
+    opens the map zoomed to Paris with its side panel open; selecting a pin
+    reflects the place into the URL (`updateCorpusMapPinParam`, replace-mode) so
+    the map is shareable and survives refresh.
+  - **`AnnotationMap` additive props** (`fitToPins`, `focusPinName`) — opt-in
+    imperative framing via an internal `MapController` (auto-fit to the coarsest
+    band on first load; fly-to + select for the deep-link place). Both default
+    off, so Discover and existing callers are unaffected. New `bandZoomRange` /
+    `coarsestBand` helpers keep the framed zoom inside the band that has pins.
+    The auto-fit now passes `MAP_FIT_PADDING_PX` to `getBoundsZoom` so framed
+    pins are not flush against the viewport edges (the constant was previously
+    imported but never applied), and a deep-link focus consumes the one-shot
+    auto-fit (`didFitRef`) so clearing `?pin=` cannot retroactively re-fit an
+    already-framed map.
+  - **Tests** — `frontend/tests/CorpusMapView.ct.tsx` (pins render + corpus-doc
+    panel, empty state, error placeholder, `?pin=Paris` deep link),
+    `frontend/tests/CorpusMapToggle.ct.tsx` (with-places / no-places /
+    loading badge states), and `zoomBands.test.ts` coverage for the new
+    helpers. Screenshots:
+    `corpus--map-view--with-pins`, `corpus--map-view--empty`,
+    `corpus--map-view--load-error`, `corpus--map-toggle--with-places`,
+    `corpus--map-toggle--no-places`.
 
 - **Reusable `AnnotationMap` (Leaflet) component + Discover "Map" tab (#1820).**
   A caller-agnostic React map that visualises geographic document annotations,
