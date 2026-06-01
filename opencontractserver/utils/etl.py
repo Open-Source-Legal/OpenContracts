@@ -48,7 +48,9 @@ User = get_user_model()
 def build_label_lookups(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
-    annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
+    annotation_filter_mode: (
+        AnnotationFilterMode | str
+    ) = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
 ) -> LabelLookupPythonType:
     """
     Build a label lookup dictionary for the specified corpus. Optionally filter
@@ -57,7 +59,9 @@ def build_label_lookups(
     Args:
         corpus_id (int): The primary key of the corpus.
         analysis_ids (list[int] | None): Optional list of Analysis PKs.
-        annotation_filter_mode (str): One of:
+        annotation_filter_mode (AnnotationFilterMode | str): An
+            ``AnnotationFilterMode`` member or its equivalent string value
+            (the two compare equal). One of:
           - "CORPUS_LABELSET_ONLY"
           - "CORPUS_LABELSET_PLUS_ANALYSES"
           - "ANALYSES_ONLY"
@@ -76,7 +80,7 @@ def build_label_lookups(
         .distinct()
     )
 
-    if annotation_filter_mode == "ANALYSES_ONLY":
+    if annotation_filter_mode == AnnotationFilterMode.ANALYSES_ONLY:
         logger.info("Using ANALYSES_ONLY mode for label filtering")
         # If analyses are specified, gather only labels used by those analyses
         if analysis_ids:
@@ -89,7 +93,7 @@ def build_label_lookups(
         else:
             # If user wants only analyses but there are none, no labels
             label_ids = []
-    elif annotation_filter_mode == "CORPUS_LABELSET_PLUS_ANALYSES":
+    elif annotation_filter_mode == AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES:
         logger.info("Using CORPUS_LABELSET_PLUS_ANALYSES mode for label filtering")
         # Combine corpus' label set with any from the analyses
         if analysis_ids:
@@ -107,7 +111,7 @@ def build_label_lookups(
 
     # Also gather labels used on Relationship objects (RELATIONSHIP_LABEL type)
     # These are not captured by Annotation queries since they live on Relationship
-    if annotation_filter_mode == "ANALYSES_ONLY":
+    if annotation_filter_mode == AnnotationFilterMode.ANALYSES_ONLY:
         if analysis_ids:
             relationship_label_ids = (
                 Relationship.objects.filter(
@@ -120,7 +124,7 @@ def build_label_lookups(
             relationship_label_ids = Relationship.objects.none().values_list(
                 "relationship_label", flat=True
             )
-    elif annotation_filter_mode == "CORPUS_LABELSET_PLUS_ANALYSES":
+    elif annotation_filter_mode == AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES:
         corpus_rel_label_ids = (
             Relationship.objects.filter(corpus_id=corpus_id, analysis__isnull=True)
             .values_list("relationship_label", flat=True)
@@ -228,7 +232,9 @@ def build_document_export(
     doc_id: int,
     corpus_id: int,
     analysis_ids: list[int] | None = None,
-    annotation_filter_mode: AnnotationFilterMode = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
+    annotation_filter_mode: (
+        AnnotationFilterMode | str
+    ) = AnnotationFilterMode.CORPUS_LABELSET_ONLY,
 ) -> tuple[
     str,
     str,

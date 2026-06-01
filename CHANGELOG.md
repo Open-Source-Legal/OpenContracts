@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`AnnotationFilterMode` export filtering silently ignored the requested mode
+  (#1868).** `AnnotationFilterMode` (`opencontractserver/types/enums.py`) was a
+  plain `Enum`, not a `str`-mixin enum like every sibling in the file, so a
+  member never compared equal to its string value. `build_label_lookups`
+  (`opencontractserver/utils/etl.py`) compounded this by mixing comparison
+  styles: bare string literals at the mode-selection branches
+  (`== "ANALYSES_ONLY"`, `== "CORPUS_LABELSET_PLUS_ANALYSES"`) but enum-member
+  membership at the corpus-labelset augmentation branch
+  (`in (AnnotationFilterMode.CORPUS_LABELSET_ONLY, …)`). As a result **no single
+  argument type was handled correctly**:
+  - A **string** argument (what the GraphQL export mutation and Celery tasks
+    deliver — `config/graphql/document_mutations.py:644,672`) satisfied the
+    selection branches but silently **skipped the corpus-labelset augmentation**,
+    so labels defined in a corpus's label set but not referenced by any
+    annotation were dropped from the export's label lookups, breaking
+    roundtrip-safety (fork ≡ export+import).
+  - An **enum-member** argument failed the string selection branches and fell
+    through to `CORPUS_LABELSET_ONLY` for `ANALYSES_ONLY` /
+    `CORPUS_LABELSET_PLUS_ANALYSES`.
+
+  Separately, `build_document_export` compared only against enum members and
+  hit its `else: raise ValueError` for a **string** argument; that exception is
+  caught by the function's own `except`, returning `("", "", None, {}, {})`, so
+  the **V2 export path** (`package_corpus_export_v2` →`build_corpus_v2_zip`,
+  which forwards the GraphQL string unchanged) silently **dropped every
+  document** from the archive — for all modes, including the default.
+
+  Fix: `AnnotationFilterMode` is now `class AnnotationFilterMode(str, enum.Enum)`,
+  and `build_label_lookups`'s string-literal comparisons are normalized to enum
+  members so both ETL functions compare consistently. Members and their string
+  values are now interchangeable, so both the in-process (enum) and
+  GraphQL/Celery (string) call paths hit the same branches. Both ETL function
+  signatures now accept `AnnotationFilterMode | str` to match runtime reality,
+  retiring the `# type: ignore[arg-type]` / `cast(AnnotationFilterMode, …)`
+  workarounds that prior callers had used. Regression coverage added in
+  `opencontractserver/tests/test_corpus_export_with_analysis_filters.py`
+  (`BuildLabelLookupsStringEnumEquivalenceTestCase`) and
+  `opencontractserver/tests/test_types.py`
+  (`TestAnnotationFilterMode.test_is_string_enum`). Observable effect: the
+  string-driven export paths now include the corpus's full label set in their
+  label lookups (matching the enum-driven fork path) instead of only the
+  referenced labels. `test_filter_modes_change_annotation_count`'s
+  `build_label_lookups` assertions were updated to verify the per-mode label
+  *membership* (which the fix corrects) rather than brittle raw counts; the
+  `build_document_export` counts are unchanged.
+
 - **Corpus chat duplicate-response loop on reconnect**
   (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
   the corpus home search bar navigated into the chat view and auto-sent the

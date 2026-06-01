@@ -144,6 +144,18 @@ class TestAnnotationFilterMode(TestCase):
     def test_member_count(self):
         self.assertEqual(len(AnnotationFilterMode), 3)
 
+    def test_is_string_enum(self):
+        # AnnotationFilterMode must be a str-mixin enum so a member and its
+        # string value compare equal — build_label_lookups / build_document_export
+        # rely on this for the string values delivered by GraphQL/Celery (#1868).
+        self.assertIsInstance(AnnotationFilterMode.CORPUS_LABELSET_ONLY, str)
+        self.assertEqual(
+            AnnotationFilterMode.CORPUS_LABELSET_ONLY, "CORPUS_LABELSET_ONLY"
+        )
+        self.assertEqual(
+            AnnotationFilterMode("ANALYSES_ONLY"), AnnotationFilterMode.ANALYSES_ONLY
+        )
+
 
 class TestContentModality(TestCase):
     """Tests for ContentModality enum and its conversion methods."""
