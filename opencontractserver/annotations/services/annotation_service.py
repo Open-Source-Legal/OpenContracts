@@ -727,7 +727,10 @@ class AnnotationService(BaseService):
 
         qs = Annotation.objects.filter(base_filter)
 
-        # Apply privacy filtering for created_by_* fields (non-superuser, non-anonymous)
+        # Apply privacy filtering for created_by_* fields. Applies to ALL
+        # authenticated users including superusers (scoped admin access,
+        # 2026-05): an admin only sees analysis-/extract-private annotations
+        # it can actually reach.
         if not user.is_anonymous:
             # Get analyses user can access
             visible_analyses = Analysis.objects.filter(

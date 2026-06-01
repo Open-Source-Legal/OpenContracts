@@ -193,6 +193,14 @@ class BaseVisibilityManager(UserCanMixin, Manager):
         # The only retained admin data privilege is the structural-write
         # break-glass in ``AnnotationManager``/``RelationshipManager.user_can``.
         # Audit/repair of arbitrary data is done through the Django admin site.
+        #
+        # PERF TRADE-OFF: before this change superusers returned early here
+        # (no guardian JOINs, no ``distinct()``). Admin queries now traverse
+        # the same prefetch + ``distinct()`` path as a normal user, so bulk
+        # admin queries (moderation dashboards, admin scripts) lose the old
+        # fast path. This is intentional — correctness (no data leakage)
+        # over admin-query speed; reach for the Django admin site / raw ORM
+        # for genuine omniscient bulk operations.
 
         # Anonymous users only see public items
         if user.is_anonymous:
