@@ -725,18 +725,17 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         ):
             return self._read_only_via_visible_to_user(user, instance, permission)
 
-        # Superuser bypass — MUST precede structural-write-deny so that
-        # admin tooling retains write access to structural annotations.
-        if user.is_superuser:
-            return True
-
-        # Structural write deny: non-superusers can only READ structural
-        # annotations.
+        # Structural-write break-glass (scoped admin access, 2026-05): structural
+        # annotations are read-only for everyone EXCEPT superusers, who retain
+        # the one admin data privilege of repairing structural data through the
+        # app. Non-superusers can only READ structural annotations; for every
+        # other (non-structural) request a superuser is computed exactly like a
+        # normal user by falling through to the inheritance logic below.
         if (
             getattr(instance, "structural", False)
             and permission != PermissionTypes.READ
         ):
-            return False
+            return bool(getattr(user, "is_superuser", False))
 
         if not self._check_annotation_privacy_recursion(
             user, instance, permission, include_group_permissions, request=request
@@ -986,8 +985,10 @@ class NoteManager(PermissionManager.from_queryset(NoteQuerySet)):  # type: ignor
                 return False
             return True
 
-        if user.is_superuser:
-            return True
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass. Notes have no structural concept, so
+        # there is no admin exception here; the creator short-circuit and
+        # MIN(doc, corpus) logic below apply to admins too.
 
         # Creator short-circuit (matches the QuerySet's ``Q(creator=user)``).
         if (
@@ -1109,9 +1110,10 @@ class RelationshipManager(BaseVisibilityManager):
     ) -> bool:
         """Single-object authorization check for ``Relationship``.
 
-        Order: superuser bypass → structural-write-deny →
+        Order: structural-write break-glass (superuser-only) →
         (``document_id is None`` → False) → MIN(doc, corpus) via
-        ``AnnotationService``.
+        ``AnnotationService``. Superusers are otherwise computed like any
+        other user (scoped admin access, 2026-05).
 
         **NOTE: deliberately does NOT check ``created_by_analysis``/
         ``created_by_extract``**. Although these fields exist on
@@ -1146,17 +1148,17 @@ class RelationshipManager(BaseVisibilityManager):
             # both on the manager and via the QuerySet contract.
             return self.visible_to_user(user).filter(pk=instance.pk).exists()
 
-        if user.is_superuser:
-            return True
-
-        # Structural relationships are ALWAYS read-only for non-superusers.
-        # Run before the creator short-circuit so even the creator cannot
-        # write to a structural relationship.
+        # Structural-write break-glass (scoped admin access, 2026-05): structural
+        # relationships are read-only for everyone EXCEPT superusers (the one
+        # retained admin data privilege). Run before the creator short-circuit
+        # so even the creator cannot write a structural relationship; a
+        # superuser's non-structural requests fall through to the normal
+        # MIN(doc, corpus) computation below.
         if (
             getattr(instance, "structural", False)
             and permission != PermissionTypes.READ
         ):
-            return False
+            return bool(getattr(user, "is_superuser", False))
 
         # Creator short-circuit — mirrors ``Q(creator=user)`` in
         # ``visible_to_user``. Without this, granting User A CREATE on a

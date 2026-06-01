@@ -255,148 +255,117 @@ class AnnotatePermissionsForReadMixin:
                     # logger.info(f"resolve_my_permissions() - _meta: {dir(self._meta)}")
                     # logger.info(f"resolve_my_permissions() - Full name: {full_name}")
 
-                    # Superuser won't have explicit rights in the permission object set YET
-                    # superusers have ALL permissions available in django. If user is making
-                    # request, annotate all permissions for user
-                    if user.is_superuser:
-                        # logger.info(
-                        #     "resolve_my_permissions() - permissions values "
-                        #     f":{permission_annotations[full_name]['this_model_permission_id_map'].values()}"
+                    # Resolve the user's actual object-level permissions.
+                    # Superusers are computed exactly like any other user for
+                    # data objects (scoped admin access, 2026-05): no synthetic
+                    # "superuser" permission and no blanket fold-in of every
+                    # model permission.
+                    if full_name not in permission_annotations:
+                        # logger.warning(
+                        #     f"resolve_my_permissions() - trying to annotate but {full_name} "
+                        #     f"not in permission map... manually query"
                         # )
-                        permissions.add("superuser")
 
-                        if (
-                            full_name in permission_annotations
-                            and "this_model_permission_id_map"
-                            in permission_annotations[full_name]
-                        ):
-                            # logger.info(f"resolve_my_permissions() - Fold in permission_annotations...")
-                            permissions = permissions.union(
-                                {
-                                    v
-                                    for v in list(
-                                        permission_annotations[full_name][
-                                            "this_model_permission_id_map"
-                                        ].values()
-                                    )
-                                }
+                        # Manual lookup here from database
+                        model_permissions = (
+                            get_permissions_for_user_on_model_in_app(
+                                app_label, model_name, info.context.user
                             )
-                        # logger.info(
-                        #     f"resolve_my_permissions() - permissions: {permissions}"
-                        # )
+                        )
 
                     else:
-
                         # logger.info(
-                        #     "resolve_my_permissions() - user is not super user."
+                        #     f"resolve_my_permissions() - {full_name} is in permission_annoations"
                         # )
+                        model_permissions = permission_annotations[full_name]
 
-                        if full_name not in permission_annotations:
-                            # logger.warning(
-                            #     f"resolve_my_permissions() - trying to annotate but {full_name} "
-                            #     f"not in permission map... manually query"
-                            # )
+                    # logger.info(
+                    #     f"resolve_my_permissions() - model_name: {model_name}"
+                    # )
+                    # logger.info(
+                    #     f"resolve_my_permissions() - model permissions: {model_permissions}"
+                    # )
 
-                            # Manual lookup here from database
-                            model_permissions = (
-                                get_permissions_for_user_on_model_in_app(
-                                    app_label, model_name, info.context.user
-                                )
+                    # GET PERMISSION IDS FOR MODEL ####
+                    this_user_group_ids = model_permissions.get(
+                        "this_user_group_ids", []
+                    )
+                    # logger.info(
+                    #     f"resolve_my_permissions() - this_user_group_ids: {this_user_group_ids}"
+                    # )
+
+                    this_model_permission_id_map = model_permissions.get(
+                        "this_model_permission_id_map", {}
+                    )
+                    # logger.info(
+                    #     f"resolve_my_permissions() - this_model_permission_id_map:"
+                    #     f"{this_model_permission_id_map}"
+                    # )
+
+                    can_publish_model_type = model_permissions.get(
+                        "can_publish_model_type", False
+                    )
+                    # logger.info(
+                    #     f"resolve_my_permissions() - can_publish_model_type:"
+                    #     f"{can_publish_model_type}"
+                    # )
+                    #####################################################################
+
+                    # Prefer per-user prefetch (set by _apply_document_prefetches);
+                    # ``.filter()`` on the related manager bypasses the cache.
+                    prefetched_user_perms_attr = user_perm_attr(user.id)
+                    if hasattr(self, prefetched_user_perms_attr):
+                        this_user_perms = getattr(self, prefetched_user_perms_attr)
+                    else:
+                        this_user_perms = getattr(
+                            self, f"{model_name}userobjectpermission_set"
+                        ).filter(user_id=user.id)
+
+                    prefetched_group_perms_attr = user_group_perm_attr(user.id)
+                    if hasattr(self, prefetched_group_perms_attr):
+                        this_users_group_perms = getattr(
+                            self, prefetched_group_perms_attr
+                        )
+                    else:
+                        this_users_group_perms = getattr(
+                            self, f"{model_name}groupobjectpermission_set"
+                        ).filter(group_id__in=this_user_group_ids)
+                    # logger.info(
+                    #     f"resolve_my_permissions() - this_users_group_perms:"
+                    #     f"{this_users_group_perms}"
+                    # )
+
+                    # logger.info(
+                    #     "resolve_my_permissions() - Analyze this_user_perms"
+                    # )
+                    for perm in this_user_perms:
+                        # logger.info(f"resolve_my_permissions() - Analyze: {perm}")
+                        try:
+                            permissions.add(
+                                this_model_permission_id_map[perm.permission_id]
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"resolve_my_permissions() - Error trying to add "
+                                f"this_user_perm to model_permission_id_map: {e}"
                             )
 
-                        else:
-                            # logger.info(
-                            #     f"resolve_my_permissions() - {full_name} is in permission_annoations"
-                            # )
-                            model_permissions = permission_annotations[full_name]
-
-                        # logger.info(
-                        #     f"resolve_my_permissions() - model_name: {model_name}"
-                        # )
-                        # logger.info(
-                        #     f"resolve_my_permissions() - model permissions: {model_permissions}"
-                        # )
-
-                        # GET PERMISSION IDS FOR MODEL ####
-                        this_user_group_ids = model_permissions.get(
-                            "this_user_group_ids", []
-                        )
-                        # logger.info(
-                        #     f"resolve_my_permissions() - this_user_group_ids: {this_user_group_ids}"
-                        # )
-
-                        this_model_permission_id_map = model_permissions.get(
-                            "this_model_permission_id_map", {}
-                        )
-                        # logger.info(
-                        #     f"resolve_my_permissions() - this_model_permission_id_map:"
-                        #     f"{this_model_permission_id_map}"
-                        # )
-
-                        can_publish_model_type = model_permissions.get(
-                            "can_publish_model_type", False
-                        )
-                        # logger.info(
-                        #     f"resolve_my_permissions() - can_publish_model_type:"
-                        #     f"{can_publish_model_type}"
-                        # )
-                        #####################################################################
-
-                        # Prefer per-user prefetch (set by _apply_document_prefetches);
-                        # ``.filter()`` on the related manager bypasses the cache.
-                        prefetched_user_perms_attr = user_perm_attr(user.id)
-                        if hasattr(self, prefetched_user_perms_attr):
-                            this_user_perms = getattr(self, prefetched_user_perms_attr)
-                        else:
-                            this_user_perms = getattr(
-                                self, f"{model_name}userobjectpermission_set"
-                            ).filter(user_id=user.id)
-
-                        prefetched_group_perms_attr = user_group_perm_attr(user.id)
-                        if hasattr(self, prefetched_group_perms_attr):
-                            this_users_group_perms = getattr(
-                                self, prefetched_group_perms_attr
+                    for perm in this_users_group_perms:
+                        try:
+                            permissions.add(
+                                this_model_permission_id_map[perm.permission_id]
                             )
-                        else:
-                            this_users_group_perms = getattr(
-                                self, f"{model_name}groupobjectpermission_set"
-                            ).filter(group_id__in=this_user_group_ids)
-                        # logger.info(
-                        #     f"resolve_my_permissions() - this_users_group_perms:"
-                        #     f"{this_users_group_perms}"
-                        # )
+                        except Exception as e:
+                            logger.warning(
+                                f"resolve_my_permissions() - Error trying to add this_users_group_perms "
+                                f"to model_permission_id_map: {e}"
+                            )
 
-                        # logger.info(
-                        #     "resolve_my_permissions() - Analyze this_user_perms"
-                        # )
-                        for perm in this_user_perms:
-                            # logger.info(f"resolve_my_permissions() - Analyze: {perm}")
-                            try:
-                                permissions.add(
-                                    this_model_permission_id_map[perm.permission_id]
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    f"resolve_my_permissions() - Error trying to add "
-                                    f"this_user_perm to model_permission_id_map: {e}"
-                                )
-
-                        for perm in this_users_group_perms:
-                            try:
-                                permissions.add(
-                                    this_model_permission_id_map[perm.permission_id]
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    f"resolve_my_permissions() - Error trying to add this_users_group_perms "
-                                    f"to model_permission_id_map: {e}"
-                                )
-
-                        if can_publish_model_type:
-                            try:
-                                permissions.add(f"publish_{model_name}")
-                            except Exception:
-                                pass
+                    if can_publish_model_type:
+                        try:
+                            permissions.add(f"publish_{model_name}")
+                        except Exception:
+                            pass
 
                     # logger.info(f"resolve_my_permissions() - final permission list: {permission_list}")
 
