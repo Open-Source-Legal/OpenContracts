@@ -20,7 +20,6 @@ from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
-from django.contrib.auth import get_user_model
 from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.agents.memory import (
@@ -52,8 +51,7 @@ from opencontractserver.conversations.models import (
     MessageTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestMemoryDocumentTemplate(TestCase):
@@ -258,6 +256,10 @@ class TestBuildCurationPrompt(TestCase):
 class TestCurationEligibility(TestCase):
     """Test conversation curation eligibility checks."""
 
+    user: User
+    corpus: Corpus
+    corpus_no_memory: Corpus
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -333,6 +335,8 @@ class TestCurationEligibility(TestCase):
 class TestCorpusMemoryFields(TestCase):
     """Test the new Corpus model fields."""
 
+    user: User
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -382,6 +386,8 @@ class TestCorpusMemoryFields(TestCase):
 class TestMemoryInjection(TestCase):
     """Test that memory content is properly injected into agent system prompts."""
 
+    user: User
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -402,6 +408,10 @@ class TestMemoryInjection(TestCase):
 
 class TestCorpusIsolation(TestCase):
     """Test that memory is isolated between corpuses."""
+
+    user: User
+    corpus_a: Corpus
+    corpus_b: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -916,9 +926,11 @@ class TestInjectCorpusMemory(TestCase):
         ):
             async_to_sync(_inject_corpus_memory)(fake_corpus, config)
 
-        self.assertIn("## Corpus Memory", config.system_prompt)
-        self.assertIn("- insight", config.system_prompt)
-        self.assertTrue(config.system_prompt.startswith("Base prompt."))
+        prompt = config.system_prompt
+        assert prompt is not None
+        self.assertIn("## Corpus Memory", prompt)
+        self.assertIn("- insight", prompt)
+        self.assertTrue(prompt.startswith("Base prompt."))
 
     def test_empty_memory_no_op(self):
         from opencontractserver.llms.agents.agent_factory import (
@@ -983,7 +995,9 @@ class TestInjectCorpusMemory(TestCase):
         ):
             async_to_sync(_inject_corpus_memory)(fake_corpus, config)
 
-        self.assertIn("## Corpus Memory", config.system_prompt)
+        prompt = config.system_prompt
+        assert prompt is not None
+        self.assertIn("## Corpus Memory", prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -2057,9 +2071,9 @@ class TestMemoryToolInjectionSecurity(TestCase):
 
         for tool_name in ("get_corpus_memory", "suggest_memory_update"):
             core_tool = registry.to_core_tool(tool_name)
-            self.assertIsNotNone(
-                core_tool, f"{tool_name} not found in ToolFunctionRegistry"
-            )
+            assert (
+                core_tool is not None
+            ), f"{tool_name} not found in ToolFunctionRegistry"
             inject = build_inject_params_for_context(
                 core_tool,
                 corpus_id=1,
