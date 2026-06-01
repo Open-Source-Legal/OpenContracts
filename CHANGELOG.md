@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
+  `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
+  memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
+  (`opencontractserver/tasks/memory_tasks.py`) were absent from
+  `opencontractserver/tasks/__init__.py`. The Celery worker registers central
+  tasks only as a side effect of that package's `__init__` running at boot
+  (the `@shared_task` decorator registers a task when its module is imported);
+  these three modules were reachable only through lazy, function-local
+  producer-side imports (`research/services/research_reports.py`) or by
+  name via `CELERY_BEAT_SCHEDULE`. A real worker would therefore reject the
+  queued message with *"Received unregistered task"*, leaving deep-research
+  reports stuck and the conversation-curation beat job non-functional. The
+  defect was masked in the unit suite because `config/settings/test.py` runs
+  Celery in `CELERY_TASK_ALWAYS_EAGER` mode, where `.delay()` executes inline
+  in the process that just lazily imported the module. Fix: import the three
+  tasks in `opencontractserver/tasks/__init__.py` (and add them to `__all__`),
+  matching the registration mechanism every other shipped task relies on.
+  Added a subprocess-based regression test
+  (`opencontractserver/tests/architecture/test_celery_task_registration.py`)
+  that boots a worker in a clean interpreter and asserts these task names are
+  present in `app.tasks`.
+
 ### Changed
 
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
