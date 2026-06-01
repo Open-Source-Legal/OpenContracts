@@ -95,9 +95,8 @@ class PermissionedTreeQuerySet(UserCanMixin, TreeQuerySet):
 
             user = AnonymousUser()
 
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return self.all().with_tree_fields()
-
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass.
         if user.is_anonymous or not hasattr(user, "is_authenticated"):
             queryset = self.filter(Q(is_public=True)).distinct()
         else:
@@ -182,8 +181,9 @@ class UserFeedbackQuerySet(models.QuerySet):
 
         from opencontractserver.annotations.models import Annotation
 
-        if user.is_superuser:
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — feedback visibility follows the commented annotation's
+        # visibility for everyone, admins included.
 
         # Both anonymous and authenticated users may READ a feedback row
         # whose commented annotation is visible to them — mirrors the
@@ -249,13 +249,8 @@ class PermissionQuerySet(models.QuerySet):
         if user is None:
             user = AnonymousUser()
 
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            # Preserve the legacy DB-default ordering — not every model
-            # that uses ``PermissionManager`` has a ``created`` column
-            # (PR #1663 review: avoid surprise ``FieldError`` on
-            # ``PermissionQuerySet`` consumers).
-            return self.all()
-
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass.
         if user.is_anonymous:
             return self.filter(is_public=True).distinct()
 
@@ -331,8 +326,8 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         if user is None:
             user = AnonymousUser()
 
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass.
 
         # Documents in public corpora have is_public=True auto-propagated
         # at creation time (see Corpus.add_document, import_document, and
@@ -423,15 +418,14 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         # Peer querysets (NoteQuerySet, PermissionQuerySet) normalise None
         # to AnonymousUser at the queryset boundary. The Manager wrapper
         # also does this conversion, but direct queryset calls would raise
-        # AttributeError on the `user.is_superuser` access below.
+        # AttributeError on the `user.is_anonymous` access below.
         if user is None:
             user = AnonymousUser()
 
-        # Superusers see everything — including trashed-doc annotations,
-        # since superuser tooling (admin, audit) intentionally bypasses
-        # visibility filtering.
-        if user.is_superuser:
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass. Admins therefore do NOT see
+        # trashed-doc annotations through the app; audit/repair of trashed
+        # data is done via the Django admin site.
 
         # Start with base queryset, then hide rows whose linked doc is
         # in trash for the relevant corpus.
@@ -611,8 +605,9 @@ class NoteQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         if user is None:
             user = AnonymousUser()
 
-        if hasattr(user, "is_superuser") and user.is_superuser:
-            return self.all()
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05) — no blanket bypass; note visibility is MIN(doc, corpus)
+        # for everyone, admins included.
 
         # Doc/corpus visibility delegated to the doc/corpus managers so the
         # full creator/public/guardian rules apply (mirroring user_can's
