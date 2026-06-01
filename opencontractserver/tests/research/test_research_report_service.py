@@ -354,6 +354,34 @@ class ResearchReportServiceTestCase(TestCase):
         body = "A claim[^1] and another[^2].\n\n[^1]: *Doc* (doc 1) annotation 5"
         self.assertEqual(_strip_fabricated_links(body), body)
 
+    def test_strip_fabricated_links_leaves_reference_style_links_unchanged(self):
+        # Known, deliberate gap: only inline ``[text](url)`` links are stripped.
+        # Reference-style links pass through (the agent's observed fabrication
+        # pattern is the inline example.com placeholder, not reference style).
+        # This pins current behaviour so the gap reads as intentional.
+        body = "See [the MSA][1] for details.\n\n[1]: https://example.com/msa"
+        self.assertEqual(_strip_fabricated_links(body), body)
+
+    def test_strip_fabricated_links_does_not_match_dotted_prose(self):
+        # The bare-domain branch requires a >=2 char trailing segment, so dotted
+        # identifiers that are not real domains are not mistaken for link targets.
+        cases = [
+            ("version [v1.0](v1.0) shipped", "version [v1.0](v1.0) shipped"),
+            ("clause [a](section_a.2) applies", "clause [a](section_a.2) applies"),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(_strip_fabricated_links(source), expected)
+
+    def test_strip_fabricated_links_handles_empty_label(self):
+        # An empty-label fabricated link ``[](url)`` strips to "" without
+        # crashing; surrounding whitespace collapses gracefully in finalize.
+        self.assertEqual(
+            _strip_fabricated_links("lead [](https://example.com) trail"),
+            "lead  trail",
+        )
+        self.assertEqual(_strip_fabricated_links("[](https://example.com)"), "")
+
     def test_finalize_strips_fabricated_links_from_content(self):
         # End-to-end: an agent that ignores the prompt and embeds an
         # example.com link in both the summary and the body must not leak

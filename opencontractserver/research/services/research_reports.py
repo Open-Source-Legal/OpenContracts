@@ -341,7 +341,9 @@ class ResearchReportService(BaseService):
         clean_summary = _strip_fabricated_links(executive_summary or "")
 
         full_content_parts: list[str] = []
-        if clean_summary:
+        # ``.strip()``: a summary that was nothing but a fabricated link reduces
+        # to whitespace after stripping — skip the empty header in that case.
+        if clean_summary.strip():
             full_content_parts.append("## Executive Summary\n\n" + clean_summary)
         full_content_parts.append(rendered_body)
         if citations:
@@ -465,7 +467,9 @@ _EXTERNAL_TARGET_RE = re.compile(
         [a-z][a-z0-9+.\-]*://       # scheme://  (http, https, ftp, …)
         | //                        # protocol-relative  //host
         | mailto: | tel:            # non-web but still externally resolvable
-        | [\w-]+(?:\.[\w-]+)+        # bare domain  example.com/…
+        | [\w-]+(?:\.[\w-]{2,})+     # bare domain  example.com/… (TLD ≥2 chars,
+                                    # so dotted prose like ``v1.0`` / ``section_a.2``
+                                    # is not mistaken for a link target)
     )""",
     re.IGNORECASE | re.VERBOSE,
 )
@@ -483,6 +487,13 @@ def _strip_fabricated_links(markdown: str) -> str:
     renderer (which would otherwise render http(s)/mailto/tel targets as
     live anchors). In-app relative links and fragment anchors are left
     untouched.
+
+    Known gap (deliberate): only *inline* links ``[text](url)`` are matched.
+    Reference-style links (``[text][1]`` with a trailing ``[1]: url``
+    definition) are left as-is, because the agent's observed fabrication
+    pattern is the inline ``example.com`` placeholder, not reference style.
+    ``test_strip_fabricated_links_leaves_reference_style_links_unchanged``
+    pins this pass-through so the gap reads as intentional, not an oversight.
     """
     if not markdown:
         return markdown
