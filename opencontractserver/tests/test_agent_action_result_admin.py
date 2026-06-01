@@ -6,7 +6,6 @@ import logging
 from datetime import timedelta
 from unittest.mock import Mock
 
-from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -15,8 +14,7 @@ from opencontractserver.agents.admin import AgentActionResultAdmin
 from opencontractserver.agents.models import AgentActionResult, AgentConfiguration
 from opencontractserver.corpuses.models import Corpus, CorpusAction, CorpusActionTrigger
 from opencontractserver.documents.models import Document
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +23,15 @@ class TestAgentActionResultAdmin(TestCase):
     """
     Tests for the AgentActionResult admin configuration.
     """
+
+    superuser: User
+    corpus: Corpus
+    document: Document
+    agent_config: AgentConfiguration
+    corpus_action: CorpusAction
+    result_pending: AgentActionResult
+    result_completed: AgentActionResult
+    result_failed: AgentActionResult
 
     @classmethod
     def setUpTestData(cls):
@@ -113,7 +120,9 @@ class TestAgentActionResultAdmin(TestCase):
     def setUp(self):
         self.client = Client()
         self.client.login(username="agent_admin_test", password="adminpass123")
-        self.admin = AgentActionResultAdmin(AgentActionResult, None)
+        # ModelAdmin only needs the AdminSite for URL reversing, which these
+        # unit tests don't exercise; ``None`` is the standard test stand-in.
+        self.admin = AgentActionResultAdmin(AgentActionResult, None)  # type: ignore[arg-type]
 
     def test_changelist_view(self):
         """Test that the changelist view loads successfully."""

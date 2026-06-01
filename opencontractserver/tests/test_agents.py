@@ -12,7 +12,6 @@ Tests cover:
 6. ChatMessage agent_configuration relationship
 """
 
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from graphene.test import Client
@@ -23,13 +22,16 @@ from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 class TestAgentConfigurationModel(TestCase):
     """Test AgentConfiguration model functionality."""
+
+    admin_user: User
+    normal_user: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -356,6 +358,9 @@ class TestAgentConfigurationModel(TestCase):
 class TestChatMessageAgentRelationship(TestCase):
     """Test ChatMessage agent_configuration relationship."""
 
+    user: User
+    agent: AgentConfiguration
+
     @classmethod
     def setUpTestData(cls):
         """Create test data."""
@@ -427,7 +432,7 @@ class TestAgentConfigurationGraphQL(TestCase):
 
     def setUp(self):
         """Set up test client and users."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.admin_user = User.objects.create_user(
             username="graphql_admin",
@@ -496,7 +501,7 @@ class TestAgentConfigurationGraphQL(TestCase):
         """
 
         # Admin should see all agents (initial + 2 new ones)
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.admin_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -540,7 +545,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.admin_user})()
         )
 
@@ -593,7 +598,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.admin_user})()
         )
 
@@ -631,7 +636,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.admin_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -673,7 +678,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.admin_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -720,7 +725,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.admin_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -757,7 +762,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.admin_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -787,7 +792,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.normal_user})()
         )
         # Should have an error or ok=False
@@ -831,7 +836,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             mutation, context_value=type("Request", (), {"user": self.normal_user})()
         )
         # Should fail with "Corpus not found" to prevent IDOR enumeration
@@ -893,7 +898,7 @@ class TestAgentConfigurationGraphQL(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.admin_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -910,7 +915,7 @@ class TestSearchAgentsForMention(TestCase):
 
     def setUp(self):
         """Set up test client and data."""
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
         self.admin_user = User.objects.create_user(
             username="mention_search_admin",
@@ -998,7 +1003,7 @@ class TestSearchAgentsForMention(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.normal_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -1030,7 +1035,7 @@ class TestSearchAgentsForMention(TestCase):
             }}
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.normal_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -1058,7 +1063,7 @@ class TestSearchAgentsForMention(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.normal_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -1081,7 +1086,7 @@ class TestSearchAgentsForMention(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.normal_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -1105,7 +1110,7 @@ class TestSearchAgentsForMention(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.normal_user})()
         )
         self.assertIsNone(result.get("errors"))
@@ -1130,7 +1135,7 @@ class TestSearchAgentsForMention(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, context_value=type("Request", (), {"user": self.normal_user})()
         )
         self.assertIsNone(result.get("errors"))

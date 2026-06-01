@@ -67,6 +67,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Location Tagger: non-string geocoding hints crashed the tool (#1871,
+  follow-up to #1822).** `add_annotations_from_exact_strings`
+  (`opencontractserver/llms/tools/core_tools/annotations.py`) forwarded the
+  LLM-supplied `hints` mapping straight to the geocoder. The values come from
+  raw model output, so a model emitting `{"country": 123}` (a non-string)
+  reached `resolve_place` → `_normalise`, where `str.strip().lower()` raised
+  `AttributeError` deep in the geocoding service instead of failing gracefully
+  at the tool boundary. Hint keys/values are now coerced to `str` and `None`
+  values dropped (so `{"country": null}` reads as "no hint", not the literal
+  `"None"`), making the declared `dict[str, str]` contract true at runtime.
+  Part of the #1822 code-review follow-up, which also: moved a per-annotation
+  assertion inside its loop in `test_location_tagger_agent.py` (the post-loop
+  check only validated the last, order-non-deterministic row); decoupled
+  `test_city_without_hints_*` from the geocoder's population tie-break (already
+  pinned by `test_geocoding_service.ResolvePlaceCityTests`); narrowed
+  `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` to a `Literal` value type; and documented
+  the no-superuser migration-skip recovery path in
+  `docs/agents/location_tagger.md`.
+
 - **Corpus chat duplicate-response loop on reconnect**
   (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
   the corpus home search bar navigated into the chat view and auto-sent the
@@ -939,6 +958,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Prod (`production.yml`)**: wires `cache_from: [type=registry,ref=ghcr.io/.../django-production-cache:main]` into both the `django` and `migrate` services (they share the same image). No-op until a follow-up PR adds the CI job that publishes the production cache (`compose/production/django/Dockerfile` is distinct from the local/test Dockerfile and needs its own scope). Wiring it now means that follow-up is a single workflow file rather than a workflow + compose-file change.
 
   _Visibility note:_ the ghcr cache packages inherit the repo's visibility on first publish (public, in this repo) — if either package is created private by mistake, change visibility in the Packages settings once.
+
+- **Typing: graduated the `tests.test_agent*` 9-module agent domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `agent` chunk from the issue's `tests.*` leaf-files batching plan, following the `corpus` chunk in PR #1866). Removed all 9 `[mypy-opencontractserver.tests.test_agent*]` `ignore_errors` blocks from `mypy.ini` (`test_agent_action_result`, `test_agent_action_result_admin`, `test_agent_api`, `test_agent_factory`, `test_agent_framework_api`, `test_agent_memory`, `test_agent_tasks`, `test_agentic_highlighter_task`, `test_agents`), pruned the corresponding 364 lines from `docs/typing/mypy_baseline.txt` (4012 → 3648), and fixed the 338 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`; also verified clean under CI's `mypy==2.1.0`). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1247 source files"). The fixes are the established mechanical patterns from prior chunks: class-level annotations for `setUpTestData`/`setUpClass` attributes (the recommended fix from #1479, the bulk of the 338), `User = get_user_model()` → direct `from opencontractserver.users.models import User` import, the graphene `self.client` → `self.graphene_client` rename, `assert … is not None` narrowing of Optional returns, and a small number of error-code-scoped `# type: ignore`s. All changes are type-level and behaviour-neutral or behaviour-equivalent. Grouped highlights:
+
+  - **Graphene-client rename** (`test_agents.py`): the `graphene.test.Client` assigned to `self.client` shadows the inherited `django.test.TestCase.client`, which has no `.execute()`. (`test_agent_action_result_admin.py` was deliberately left untouched — it uses the real `django.test.Client` for admin GET requests.)
+  - **Class-attribute annotations + direct `User` import** (most of the 338): every `test_agent*` `TestCase` whose `setUpTestData` populated `cls.` model fixtures invisible to mypy — `test_agent_framework_api.py` (one shared `TestAPISetup` base, 11 fixtures, inherited by 3 subclasses), `test_agents.py`, `test_agent_tasks.py`, `test_agent_factory.py` (5 classes), `test_agent_action_result_admin.py`, `test_agent_memory.py` (4 classes).
+  - **List-invariance annotations** (`test_agent_api.py`, `test_agent_factory.py`): `list[str]` / mixed tool literals passed to `_resolve_tools` / `create_document_agent` (both take `list[ToolType]`) annotated as `list[ToolType]` so invariance is satisfied.
+  - **`Optional` narrowing** (`test_agent_api.py`, `test_agent_memory.py`, `test_agent_action_result.py`): `assertIsNotNone(x)` → `assert x is not None` (preserves the assertion while narrowing) for `ToolRegistryEntry`/`CoreTool` registry returns, `_FakeConfig.system_prompt` (`Optional[str]`), and `AgentActionResult.duration_seconds` (`float | None`).
+  - **Scoped `# type: ignore`s** (no blanket ignores; `warn_unused_ignores=True` keeps them honest): a deliberately-`None` `AdminSite` (`test_agent_action_result_admin.py`), the deliberately-invalid `framework="invalid_framework_name"` string that exercises the `ValueError` path (`test_agent_factory.py`), a deliberately-invalid `["summarize", 123, None]` tool list that exercises the skip-and-warn path (`test_agent_api.py`), the per-instance override of the base `ClassVar` `corpus`/`docs` fixtures (`test_agentic_highlighter_task.py`), and the legacy `stream_chat` wrapper (see below).
+
+  Two test-quality findings surfaced behind the mocks (the audit the issue invites):
+
+  - **`test_agent_api.py::test_contextual_embedding_generation` passed a non-existent `embedder_path=` kwarg to `embeddings.generate`** — the public `EmbeddingAPI.generate` parameter is `embedder` (no `embedder_path`, no `**kwargs`). The call only "worked" because `generate` was mocked, so the wrong kwarg name was hidden. Corrected the call (and its `assert_called_once_with`) to `embedder=`, which keeps the test green and self-consistent while aligning it with the real public API.
+  - **`test_agent_api.py::test_vector_store_with_all_options` retains `embedder_path=`** — unlike the agent/embedding APIs, the public `VectorStoreAPI.create` parameter is genuinely named `embedder_path` (it forwards straight through to `UnifiedVectorStoreFactory.create_vector_store(embedder_path=...)`). The same blanket rename applied elsewhere had been carried into this test, but `create` has a `**kwargs` catch-all, so `embedder="custom-embedder"` was silently absorbed while `embedder_path` defaulted to `None` — making the `assert_called_once_with(embedder="custom-embedder")` mismatch the actual `create_vector_store(embedder_path=None, …, embedder="custom-embedder")` call. Kept this test on the real `embedder_path=` parameter name.
+  - **`CoreAgent.stream_chat` is a legacy compatibility wrapper that lives on the concrete `CoreAgentBase` but is deliberately absent from the modern `CoreAgent` protocol** (which exposes `stream`). It is never called in production — only `test_agent_api.py` and `test_agent_framework_api.py` exercise it, via mocks that replace it wholesale. Left the protocol as-is (the omission looks intentional) and scoped the two test calls with `# type: ignore[attr-defined]`; a follow-up could either fold it into the protocol or remove the now-effectively-dead wrapper.
 
 - **Typing: graduated the `tests.test_corpus_*` 23-module corpus domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `corpus` chunk from the issue's `tests.*` leaf-files batching plan, following the `document` chunk in PR #1851). Removed all 23 `[mypy-opencontractserver.tests.test_corpus_*]` `ignore_errors` blocks from `mypy.ini`, pruned the corresponding 798 lines from `docs/typing/mypy_baseline.txt` (4810 → 4012), and fixed the 898 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`; also verified clean under CI's `mypy==2.1.0`). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1245 source files"). The fixes are the established mechanical patterns from prior chunks: class-level annotations for `setUpTestData`/`setUpClass`/`setUp` attributes (the recommended fix from #1479), `User = get_user_model()` → direct `from opencontractserver.users.models import User` import, the graphene `self.client` → `self.graphene_client` rename, `assert … is not None` narrowing of Optional service/ORM returns, and `cast(...)` at call sites that pass intentionally-incomplete export TypedDict fixtures (the repo's established idiom). Grouped highlights:
 

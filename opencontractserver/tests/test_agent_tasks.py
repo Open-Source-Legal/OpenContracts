@@ -10,7 +10,6 @@ These tests cover:
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.agents.models import AgentConfiguration
@@ -28,9 +27,8 @@ from opencontractserver.tasks.agent_tasks import (
     trigger_agent_responses_for_message,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 class TestGetThreadChannelGroup(TestCase):
@@ -129,6 +127,11 @@ class TestAsyncBroadcastToThread(TestCase):
 
 class TestTriggerAgentResponsesForMessage(TestCase):
     """Tests for trigger_agent_responses_for_message Celery task."""
+
+    user: User
+    corpus: Corpus
+    conversation: Conversation
+    agent: AgentConfiguration
 
     @classmethod
     def setUpTestData(cls):
@@ -246,6 +249,12 @@ class TestTriggerAgentResponsesForMessage(TestCase):
 
 class TestGenerateAgentResponseErrors(TestCase):
     """Tests for error handling in generate_agent_response task."""
+
+    user: User
+    corpus: Corpus
+    conversation: Conversation
+    agent: AgentConfiguration
+    message: ChatMessage
 
     @classmethod
     def setUpTestData(cls):

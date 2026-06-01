@@ -211,7 +211,9 @@ class AgentActionResultModelTestCase(TestCase):
             completed_at=end,
             creator=self.user,
         )
-        self.assertAlmostEqual(result.duration_seconds, 30.0)
+        duration = result.duration_seconds
+        assert duration is not None
+        self.assertAlmostEqual(duration, 30.0)
 
     def test_agent_action_result_duration_seconds_none_when_incomplete(self):
         """Test duration_seconds is None when timestamps are missing."""
