@@ -9,6 +9,24 @@
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
 import { CorpusArticleViewTestWrapper } from "./CorpusArticleViewTestWrapper";
+// Keep this constant import separate from the JSX-component import above so the
+// Playwright CT babel transform still rewrites the component (see CLAUDE.md).
+import { MOCK_CORPUS } from "./CorpusArticleViewTestWrapper";
+
+// A real (loadable) cover image so the auto-rendered hero shows an actual photo
+// in screenshots rather than a broken-image placeholder.
+const COVER_IMAGE_DATA_URI =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'>" +
+      "<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>" +
+      "<stop offset='0' stop-color='%230d9488'/>" +
+      "<stop offset='1' stop-color='%23115e59'/></linearGradient></defs>" +
+      "<rect width='240' height='240' fill='url(%23g)'/>" +
+      "<circle cx='120' cy='100' r='42' fill='rgba(255,255,255,0.9)'/>" +
+      "<rect x='60' y='150' width='120' height='40' rx='10' fill='rgba(255,255,255,0.8)'/>" +
+      "</svg>"
+  );
 
 test.describe("CorpusArticleView - No Article", () => {
   test("should show empty state when no Readme.CAML exists", async ({
@@ -79,13 +97,19 @@ test.describe("CorpusArticleView - Mode toggle (mobile)", () => {
     );
 
     const component = await mount(
-      <CorpusArticleViewTestWrapper hasArticle={true} withModeToggle={true} />
+      <CorpusArticleViewTestWrapper
+        hasArticle={true}
+        withModeToggle={true}
+        corpus={{ ...MOCK_CORPUS, icon: COVER_IMAGE_DATA_URI }}
+      />
     );
 
     const toggle = page.getByTestId("test-corpus-article-mode-toggle");
     await expect(toggle).toBeVisible({ timeout: 15000 });
     await expect(toggle.getByText("Explore")).toBeVisible();
     await expect(toggle.getByText("Manage")).toBeVisible();
+
+    await docScreenshot(page, "corpus--article-toolbar--mode-toggle-mobile");
 
     await component.unmount();
   });
@@ -129,15 +153,23 @@ test.describe("CorpusArticleView - Auto corpus image", () => {
       })
     );
 
-    // The default mock corpus carries a truthy `icon`, and CAML_BODY does not
-    // reference corpus://icon, so the cover image is auto-rendered.
+    // CAML_BODY does not reference corpus://icon, so the corpus's own cover
+    // image is auto-rendered above the article body.
     const component = await mount(
-      <CorpusArticleViewTestWrapper hasArticle={true} />
+      <CorpusArticleViewTestWrapper
+        hasArticle={true}
+        corpus={{ ...MOCK_CORPUS, icon: COVER_IMAGE_DATA_URI }}
+      />
     );
 
     const hero = page.getByTestId("test-corpus-article-hero-image");
     await expect(hero).toBeVisible({ timeout: 15000 });
-    await expect(hero.locator("img")).toHaveAttribute("src", "briefcase");
+    await expect(hero.locator("img")).toHaveAttribute(
+      "src",
+      COVER_IMAGE_DATA_URI
+    );
+
+    await docScreenshot(page, "corpus--article--auto-cover-image");
 
     await component.unmount();
   });
