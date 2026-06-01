@@ -86,6 +86,7 @@ class TestAgentFactorySetup(TestCase):
 
 class TestUnifiedAgentFactory(TestAgentFactorySetup):
 
+    @patch(f"{UnifiedAgentFactory.__module__}.get_default_llm_spec", return_value="")
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIDocumentAgent")
     @patch(f"{UnifiedAgentFactory.__module__}.get_default_config")
     @patch(f"{UnifiedAgentFactory.__module__}._convert_tools_for_framework")
@@ -94,6 +95,7 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
         mock_convert_tools: MagicMock,
         mock_get_config: MagicMock,
         mock_pydantic_agent_class: MagicMock,
+        mock_llm_spec: MagicMock,
     ):
         mock_config = AgentConfig()
         mock_get_config.return_value = mock_config
@@ -147,10 +149,14 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
         mock_pydantic_agent_class.create.assert_called_once()
         self.assertIs(agent, mock_agent_instance)
 
+    @patch(f"{UnifiedAgentFactory.__module__}.get_default_llm_spec", return_value="")
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAICorpusAgent")
     @patch(f"{UnifiedAgentFactory.__module__}.get_default_config")
     async def test_create_corpus_agent_pydantic_ai(
-        self, mock_get_config: MagicMock, mock_pydantic_agent_class: MagicMock
+        self,
+        mock_get_config: MagicMock,
+        mock_pydantic_agent_class: MagicMock,
+        mock_llm_spec: MagicMock,
     ):
         mock_config = AgentConfig()
         mock_get_config.return_value = mock_config
@@ -187,7 +193,8 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
         mock_pydantic_agent_class.create.assert_called_once()
         self.assertIs(agent, mock_agent_instance)
 
-    async def test_unsupported_framework_raises_error(self):
+    @patch(f"{UnifiedAgentFactory.__module__}.get_default_llm_spec", return_value="")
+    async def test_unsupported_framework_raises_error(self, mock_llm_spec: MagicMock):
         """Test that invalid framework names raise ValueError."""
         with self.assertRaises(ValueError):
             await UnifiedAgentFactory.create_document_agent(
@@ -219,6 +226,7 @@ class TestToolFilteringDocumentAgent(TestCase):
         )
         cls.doc, _, _ = cls.corpus.add_document(document=original_doc, user=cls.owner)
 
+    @patch(f"{UnifiedAgentFactory.__module__}.get_default_llm_spec", return_value="")
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIDocumentAgent")
     @patch(f"{UnifiedAgentFactory.__module__}.get_default_config")
     @patch(f"{UnifiedAgentFactory.__module__}._convert_tools_for_framework")
@@ -227,6 +235,7 @@ class TestToolFilteringDocumentAgent(TestCase):
         mock_convert_tools: MagicMock,
         mock_get_config: MagicMock,
         mock_pydantic_agent_class: MagicMock,
+        mock_llm_spec: MagicMock,
     ):
         """Test that corpus-required tools are filtered out when no corpus is provided.
 
@@ -266,6 +275,7 @@ class TestToolFilteringDocumentAgent(TestCase):
         self.assertEqual(len(call_args), 1)
         self.assertEqual(call_args[0].name, "doc_search")
 
+    @patch(f"{UnifiedAgentFactory.__module__}.get_default_llm_spec", return_value="")
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAIDocumentAgent")
     @patch(f"{UnifiedAgentFactory.__module__}.get_default_config")
     @patch(f"{UnifiedAgentFactory.__module__}._convert_tools_for_framework")
@@ -276,6 +286,7 @@ class TestToolFilteringDocumentAgent(TestCase):
         mock_convert_tools: MagicMock,
         mock_get_config: MagicMock,
         mock_pydantic_agent_class: MagicMock,
+        mock_llm_spec: MagicMock,
     ):
         """Test that write tools are filtered when user lacks write permission.
 
@@ -338,6 +349,7 @@ class TestToolFilteringCorpusAgent(TestCase):
             title="Corpus Tool Filter Test", creator=cls.owner
         )
 
+    @patch(f"{UnifiedAgentFactory.__module__}.get_default_llm_spec", return_value="")
     @patch("opencontractserver.llms.agents.pydantic_ai_agents.PydanticAICorpusAgent")
     @patch(f"{UnifiedAgentFactory.__module__}.get_default_config")
     @patch(f"{UnifiedAgentFactory.__module__}._convert_tools_for_framework")
@@ -348,6 +360,7 @@ class TestToolFilteringCorpusAgent(TestCase):
         mock_convert_tools: MagicMock,
         mock_get_config: MagicMock,
         mock_pydantic_agent_class: MagicMock,
+        mock_llm_spec: MagicMock,
     ):
         """Test that write tools are filtered when user lacks write permission on corpus.
 
