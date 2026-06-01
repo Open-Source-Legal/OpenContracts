@@ -22,6 +22,7 @@ import {
   BarChart3,
   MoreVertical,
   Link2,
+  Sparkles,
 } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 import { motion, AnimatePresence } from "framer-motion";
@@ -135,6 +136,7 @@ import { CorpusEngagementDashboard } from "../components/analytics/CorpusEngagem
 import { CorpusDocumentRelationships } from "../components/corpuses/CorpusDocumentRelationships";
 import { CorpusQueryView } from "./CorpusQueryView";
 import { ExtractsTabContent } from "./ExtractsTabContent";
+import { ResearchTabContent } from "./ResearchTabContent";
 import {
   BackNavButton,
   BottomSheetHandle,
@@ -1015,6 +1017,7 @@ export const Corpuses = () => {
     "annotations",
     "analyses",
     "extracts",
+    "research",
     "relationships",
     "discussions",
     "chats",
@@ -1194,6 +1197,17 @@ export const Corpuses = () => {
         badge: stats.totalExtracts,
         component: (
           <ExtractsTabContent
+            setActiveTab={setActiveTab}
+            onOpenMobileMenu={() => setMobileSidebarOpen(true)}
+          />
+        ),
+      },
+      {
+        id: "research",
+        label: "Research",
+        icon: <Sparkles />,
+        component: (
+          <ResearchTabContent
             setActiveTab={setActiveTab}
             onOpenMobileMenu={() => setMobileSidebarOpen(true)}
           />
@@ -1788,6 +1802,9 @@ export const Corpuses = () => {
       SearchBar={
         opened_corpus === null ||
         currentView?.id === "home" ||
+        // Research owns its full toolbar (search + filter + start) inside
+        // ResearchTabContent, so it suppresses the outer SearchBar like chats.
+        currentView?.id === "research" ||
         // Chats own their viewport-bounded layout; rendering a search bar
         // above adds vertical overhead that pushes the chat past the
         // viewport and forces the page navbar offscreen.

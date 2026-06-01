@@ -159,6 +159,7 @@ class ExportCorpusTestCase(TestCase):
                 doc_id=doc.id,
                 corpus_id=self.original_corpus_obj.id,
             )
+            assert doc_annotation_json is not None
 
             # ----- Top-level keys -----
             required_keys = {
@@ -284,6 +285,7 @@ class ExportCorpusTestCase(TestCase):
             doc_id=docs[0].id,
             corpus_id=self.original_corpus_obj.id,
         )
+        assert exported is not None
 
         # ----- Document title -----
         self.assertEqual(

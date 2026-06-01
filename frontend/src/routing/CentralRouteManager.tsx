@@ -20,6 +20,7 @@ import {
   openedCorpus,
   openedDocument,
   openedExtract,
+  openedResearchReport,
   openedThread,
   openedLabelset,
   openedUser,
@@ -54,6 +55,7 @@ import {
   RESOLVE_DOCUMENT_BY_SLUGS_FULL,
   RESOLVE_DOCUMENT_IN_CORPUS_BY_SLUGS_FULL,
   RESOLVE_EXTRACT_BY_ID,
+  RESOLVE_RESEARCH_REPORT_BY_SLUG,
   GET_CORPUS_BY_ID_FOR_REDIRECT,
   GET_DOCUMENT_BY_ID_FOR_REDIRECT,
   GET_THREAD_DETAIL,
@@ -65,6 +67,8 @@ import {
   GetDocumentByIdForRedirectOutput,
   ResolveExtractByIdInput,
   ResolveExtractByIdOutput,
+  ResolveResearchReportBySlugInput,
+  ResolveResearchReportBySlugOutput,
   GetThreadDetailInput,
   GetThreadDetailOutput,
   GetUserInput,
@@ -76,6 +80,7 @@ import {
   ExtractType,
   ConversationType,
   LabelSetType,
+  ResearchReportType,
 } from "../types/graphql-api";
 import {
   ResolveCorpusFullQuery,
@@ -199,6 +204,14 @@ export function CentralRouteManager() {
     nextFetchPolicy: "cache-and-network",
   });
 
+  const [resolveResearchReport] = useLazyQuery<
+    ResolveResearchReportBySlugOutput,
+    ResolveResearchReportBySlugInput
+  >(RESOLVE_RESEARCH_REPORT_BY_SLUG, {
+    fetchPolicy: "cache-first",
+    nextFetchPolicy: "cache-and-network",
+  });
+
   const [resolveThread] = useLazyQuery<
     GetThreadDetailOutput,
     GetThreadDetailInput
@@ -253,6 +266,7 @@ export function CentralRouteManager() {
       openedCorpus(null);
       openedDocument(null);
       openedExtract(null);
+      openedResearchReport(null);
       openedThread(null);
       openedLabelset(null);
       openedUser(null);
@@ -287,6 +301,19 @@ export function CentralRouteManager() {
 
     lastProcessedPath.current = pathKey;
 
+    // Single source of truth: the opened research report must be cleared the
+    // moment the current route stops being a research route. The per-branch
+    // clears below (extract/thread/labelset/user) cover their own cases, but
+    // the corpus/document branches intentionally do NOT clear sibling vars, so
+    // a transition like /research/:slug → /c/:user/:corpus (which changes
+    // neither corpusId nor documentId in a way that would re-clear it) would
+    // otherwise leave openedResearchReport stale. Driving the clear off the
+    // route type — not off corpus/document deps — keeps this correct for every
+    // non-research entity route, including browser back/forward.
+    if (route.type !== "research" && openedResearchReport() !== null) {
+      openedResearchReport(null);
+    }
+
     // Entity routes - async resolution required
     const resolveEntity = async () => {
       // Check if we already have entities loaded that match this route type
@@ -294,6 +321,7 @@ export function CentralRouteManager() {
       const currentDoc = openedDocument();
       const currentCorpus = openedCorpus();
       const currentExtract = openedExtract();
+      const currentResearchReport = openedResearchReport();
       const currentThread = openedThread();
       const currentLabelset = openedLabelset();
 
@@ -303,6 +331,7 @@ export function CentralRouteManager() {
           (!route.corpusIdent || currentCorpus)) ||
         (route.type === "corpus" && currentCorpus) ||
         (route.type === "extract" && currentExtract) ||
+        (route.type === "research" && currentResearchReport) ||
         (route.type === "thread" && currentThread && currentCorpus) ||
         (route.type === "labelset" && currentLabelset);
 
@@ -335,6 +364,7 @@ export function CentralRouteManager() {
           | "document"
           | "corpus"
           | "extract"
+          | "research"
           | "thread"
           | "labelset"
           | "user",
@@ -344,7 +374,8 @@ export function CentralRouteManager() {
         route.extractIdent,
         route.threadIdent,
         route.labelsetIdent,
-        route.userSlug
+        route.userSlug,
+        route.researchSlug
       );
 
       // Prevent duplicate simultaneous requests
@@ -668,6 +699,7 @@ export function CentralRouteManager() {
               openedExtract(extract);
               openedCorpus(null);
               openedDocument(null);
+              openedResearchReport(null);
               openedThread(null);
               openedLabelset(null);
               openedUser(null);
@@ -677,6 +709,55 @@ export function CentralRouteManager() {
 
             console.warn("[RouteManager] Extract not found");
             navigate("/404", { replace: true });
+            return;
+          }
+
+          // ────────────────────────────────────────────────────────
+          // RESEARCH REPORT (/research/:slug)
+          // ────────────────────────────────────────────────────────
+          if (route.type === "research" && route.researchSlug) {
+            routingLogger.debug("[RouteManager] Resolving research report");
+
+            const { data, error } = await resolveResearchReport({
+              variables: {
+                slug: route.researchSlug,
+              },
+            });
+
+            if (error) {
+              console.error(
+                "[RouteManager] ❌ GraphQL error resolving research report:",
+                error
+              );
+              // Clear loading before redirecting so /404 doesn't inherit it.
+              routeLoading(false);
+              navigate("/404", { replace: true });
+              return;
+            }
+
+            if (!data?.researchReportBySlug) {
+              console.warn("[RouteManager] ⚠️  research report is null");
+              // Clear loading before redirecting so /404 doesn't inherit it.
+              routeLoading(false);
+              navigate("/404", { replace: true });
+              return;
+            }
+
+            const report = data.researchReportBySlug as ResearchReportType;
+
+            routingLogger.debug(
+              "[RouteManager] ✅ Resolved research report via slug:",
+              report.id
+            );
+
+            openedResearchReport(report);
+            openedCorpus(null);
+            openedDocument(null);
+            openedExtract(null);
+            openedThread(null);
+            openedLabelset(null);
+            openedUser(null);
+            routeLoading(false);
             return;
           }
 
@@ -741,6 +822,7 @@ export function CentralRouteManager() {
               openedCorpus(corpus);
               openedDocument(null);
               openedExtract(null);
+              openedResearchReport(null);
               openedUser(null);
               routeLoading(false);
               return;
@@ -790,6 +872,7 @@ export function CentralRouteManager() {
               openedCorpus(null);
               openedDocument(null);
               openedExtract(null);
+              openedResearchReport(null);
               openedThread(null);
               openedUser(null);
               routeLoading(false);
@@ -837,6 +920,7 @@ export function CentralRouteManager() {
               openedCorpus(null);
               openedDocument(null);
               openedExtract(null);
+              openedResearchReport(null);
               openedThread(null);
               openedLabelset(null);
               routeLoading(false);
@@ -854,6 +938,7 @@ export function CentralRouteManager() {
             openedCorpus(null);
             openedDocument(null);
             openedExtract(null);
+            openedResearchReport(null);
             openedThread(null);
             openedLabelset(null);
             routeError(new Error(`User "${route.userSlug}" not found`));
@@ -1154,6 +1239,16 @@ export function CentralRouteManager() {
     if (currentRoute.type === "labelset") {
       routingLogger.debug(
         "[RouteManager] Phase 3: Skipping redirect - labelset route uses ID-based URL"
+      );
+      return;
+    }
+    // CRITICAL: Research routes use slug-based URLs (/research/:slug) that are
+    // already canonical. buildCanonicalPath() only knows corpus/document/extract,
+    // so without this guard a stale entity left over during a transition (Phase 1
+    // hasn't cleared yet) would bounce a /research/:slug visit back to it.
+    if (currentRoute.type === "research") {
+      routingLogger.debug(
+        "[RouteManager] Phase 3: Skipping redirect - research route uses slug-based URL"
       );
       return;
     }

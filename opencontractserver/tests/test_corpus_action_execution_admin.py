@@ -6,7 +6,6 @@ import logging
 from datetime import timedelta
 from unittest.mock import Mock
 
-from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -20,8 +19,7 @@ from opencontractserver.corpuses.models import (
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +28,15 @@ class TestCorpusActionExecutionAdmin(TestCase):
     """
     Tests for the CorpusActionExecution admin configuration.
     """
+
+    superuser: User
+    corpus: Corpus
+    document: Document
+    fieldset: Fieldset
+    corpus_action: CorpusAction
+    execution_queued: CorpusActionExecution
+    execution_completed: CorpusActionExecution
+    execution_failed: CorpusActionExecution
 
     @classmethod
     def setUpTestData(cls):
@@ -115,10 +122,16 @@ class TestCorpusActionExecutionAdmin(TestCase):
             creator=cls.superuser,
         )
 
+    admin: CorpusActionExecutionAdmin
+
     def setUp(self):
         self.client = Client()
         self.client.login(username="admin_test", password="adminpass123")
-        self.admin = CorpusActionExecutionAdmin(CorpusActionExecution, None)
+        # admin_site is unused by the display methods under test; None is an
+        # intentional, runtime-safe test stand-in for the AdminSite argument.
+        self.admin = CorpusActionExecutionAdmin(
+            CorpusActionExecution, None  # type: ignore[arg-type]
+        )
 
     def test_changelist_view(self):
         """Test that the changelist view loads successfully."""

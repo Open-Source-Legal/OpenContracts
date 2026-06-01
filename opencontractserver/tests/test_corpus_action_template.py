@@ -1,4 +1,3 @@
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
@@ -14,6 +13,7 @@ from opencontractserver.corpuses.template_seeds import (
 from opencontractserver.corpuses.template_seeds import (
     create_default_action_templates as _create_default_action_templates,
 )
+from opencontractserver.users.models import User
 
 # Shared across test classes that verify default template seeding
 DEFAULT_TEMPLATE_NAMES = [
@@ -24,8 +24,6 @@ DEFAULT_TEMPLATE_NAMES = [
     "Document Notes Generator",
     "CAML Article Writer",
 ]
-
-User = get_user_model()
 
 
 class CorpusActionTemplateModelTest(TestCase):
@@ -196,6 +194,8 @@ class DefaultTemplatesMigrationTest(TestCase):
 
     EXPECTED_NAMES = DEFAULT_TEMPLATE_NAMES
 
+    _superuser: User
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -228,12 +228,14 @@ class DefaultTemplatesMigrationTest(TestCase):
         for template in CorpusActionTemplate.objects.filter(
             name__in=self.EXPECTED_NAMES
         ):
+            agent_config = template.agent_config
             self.assertIsNotNone(
-                template.agent_config,
+                agent_config,
                 f"Template '{template.name}' has no agent_config",
             )
+            assert agent_config is not None
             self.assertTrue(
-                template.agent_config.is_active,
+                agent_config.is_active,
                 f"Agent config for '{template.name}' is not active",
             )
 
@@ -276,8 +278,10 @@ class DefaultTemplatesMigrationTest(TestCase):
     def test_caml_article_writer_uses_custom_system_instructions(self):
         """CAML Article Writer agent config must use the dedicated CAML prompt."""
         template = CorpusActionTemplate.objects.get(name="CAML Article Writer")
+        agent_config = template.agent_config
+        assert agent_config is not None
         self.assertEqual(
-            template.agent_config.system_instructions,
+            agent_config.system_instructions,
             _CAML_ARTICLE_SYSTEM_INSTRUCTIONS,
         )
 
@@ -296,6 +300,7 @@ class DefaultTemplatesMigrationTest(TestCase):
             name__in=self.EXPECTED_NAMES
         ):
             agent_config = template.agent_config
+            assert agent_config is not None
             self.assertIsNotNone(
                 agent_config.slug,
                 f"Seeded agent for '{template.name}' has NULL slug",

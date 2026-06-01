@@ -1,4 +1,3 @@
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from graphene.test import Client
 from graphql_relay import to_global_id
@@ -9,9 +8,8 @@ from opencontractserver.analyzer.models import Analyzer
 from opencontractserver.corpuses.models import Corpus, CorpusAction
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 class TestContext:
@@ -25,7 +23,7 @@ class CorpusActionMutationTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create test corpus
         self.corpus = Corpus.objects.create(
@@ -101,7 +99,7 @@ class CorpusActionMutationTestCase(TestCase):
             "runOnAllCorpuses": False,
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createCorpusAction"]["ok"])
@@ -156,7 +154,7 @@ class CorpusActionMutationTestCase(TestCase):
             "runOnAllCorpuses": False,
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createCorpusAction"]["ok"])
@@ -195,7 +193,7 @@ class CorpusActionMutationTestCase(TestCase):
             "trigger": "add_document",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["createCorpusAction"]["ok"])
@@ -230,7 +228,7 @@ class CorpusActionMutationTestCase(TestCase):
 
         variables = {"id": action_id}
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["deleteCorpusAction"]["ok"])
@@ -277,14 +275,16 @@ class CorpusActionMutationTestCase(TestCase):
         """
 
         # Test filtering by corpus
-        variables = {"corpusId": to_global_id("CorpusType", self.corpus.id)}
-        result = self.client.execute(query, variables=variables)
+        variables: dict[str, object] = {
+            "corpusId": to_global_id("CorpusType", self.corpus.id)
+        }
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
         self.assertEqual(len(result["data"]["corpusActions"]["edges"]), 2)
 
         # Test filtering by trigger
         variables["trigger"] = "add_document"
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertEqual(len(result["data"]["corpusActions"]["edges"]), 1)
         self.assertEqual(
             result["data"]["corpusActions"]["edges"][0]["node"]["name"], "Test Action 1"
@@ -295,7 +295,7 @@ class CorpusActionMutationTestCase(TestCase):
             "corpusId": to_global_id("CorpusType", self.corpus.id),
             "disabled": True,
         }
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertEqual(len(result["data"]["corpusActions"]["edges"]), 1)
         self.assertEqual(
             result["data"]["corpusActions"]["edges"][0]["node"]["name"], "Test Action 2"
@@ -348,7 +348,7 @@ class CorpusActionMutationTestCase(TestCase):
             "disabled": False,
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createCorpusAction"]["ok"])
@@ -398,7 +398,7 @@ class CorpusActionMutationTestCase(TestCase):
             ),
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["createCorpusAction"]["ok"])
@@ -440,7 +440,7 @@ class CorpusActionMutationTestCase(TestCase):
             "fieldsetId": to_global_id("FieldsetType", self.fieldset.id),
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["createCorpusAction"]["ok"])
@@ -479,7 +479,7 @@ class CorpusActionMutationTestCase(TestCase):
             "taskInstructions": "Summarize this document concisely.",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createCorpusAction"]["ok"])
@@ -510,7 +510,7 @@ class CorpusActionMutationTestCase(TestCase):
             "trigger": "add_document",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["createCorpusAction"]["ok"])
@@ -544,7 +544,7 @@ class CorpusActionMutationTestCase(TestCase):
             "taskInstructions": "Should not be allowed",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["createCorpusAction"]["ok"])
@@ -596,7 +596,7 @@ class CorpusActionMutationTestCase(TestCase):
             "taskInstructions": "Test prompt",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["createCorpusAction"]["ok"])
@@ -656,7 +656,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
         self.other_user = User.objects.create_user(
             username="otheruser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         self.corpus = Corpus.objects.create(
             title="Test Corpus", description="Test Description", creator=self.user
@@ -723,7 +723,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "runOnAllCorpuses": True,
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateCorpusAction"]["ok"])
@@ -740,7 +740,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "taskInstructions": "New instructions for the agent",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateCorpusAction"]["ok"])
@@ -756,7 +756,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "preAuthorizedTools": ["tool_one", "tool_two"],
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateCorpusAction"]["ok"])
@@ -772,7 +772,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "analyzerId": to_global_id("AnalyzerType", self.analyzer.id),
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateCorpusAction"]["ok"])
@@ -793,7 +793,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "taskInstructions": "New agent task",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateCorpusAction"]["ok"])
@@ -809,7 +809,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "fieldsetId": to_global_id("FieldsetType", self.fieldset.id),
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateCorpusAction"]["ok"])
@@ -826,7 +826,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "taskInstructions": "Should not be allowed",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])
@@ -858,7 +858,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "taskInstructions": "Test",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])
@@ -884,7 +884,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "name": "Hijacked Name",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])
@@ -900,7 +900,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "name": "Nope",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])
@@ -916,7 +916,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "fieldsetId": to_global_id("FieldsetType", 99999),
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])
@@ -932,7 +932,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "analyzerId": to_global_id("AnalyzerType", "nonexistent-id"),
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])
@@ -949,7 +949,7 @@ class UpdateCorpusActionMutationTestCase(TestCase):
             "taskInstructions": "Test",
         }
 
-        result = self.client.execute(self.UPDATE_MUTATION, variables=variables)
+        result = self.graphene_client.execute(self.UPDATE_MUTATION, variables=variables)
 
         self.assertIsNone(result.get("errors"))
         self.assertFalse(result["data"]["updateCorpusAction"]["ok"])

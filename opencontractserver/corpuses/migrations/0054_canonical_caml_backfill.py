@@ -97,6 +97,28 @@ def _compute_cache_from_caml_body(body) -> tuple[str, str]:
     return plain, _summarize_for_preview(plain)
 
 
+def _coerce_to_text(data) -> str:
+    """Normalise a ``FieldFile.read()`` result to ``str``.
+
+    Cloud storage backends (S3Boto3Storage / GoogleCloudStorage via
+    django-storages #382) silently return ``bytes`` from a text-mode
+    (``"r"``) read *without raising*, so the ``except``-guarded binary
+    fallbacks in the readers below never fire — the ``bytes`` flow
+    downstream into ``str``-only call sites such as ``body.encode("utf-8")``
+    in :func:`_create_caml_doc`, crashing the backfill on cloud deployments
+    (``AttributeError: 'bytes' object has no attribute 'encode'``). Local
+    ``FileSystemStorage`` returns ``str``, which is why this never surfaced
+    in tests.
+
+    Inlined rather than imported from
+    ``opencontractserver.utils.files.read_field_file_text`` to keep this
+    historical migration self-contained (see module docstring).
+    """
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="ignore")
+    return data
+
+
 def _read_md_description(corpus) -> str:
     """Mirror Corpus._read_md_description_content for historical model use."""
     field = corpus.md_description
@@ -105,7 +127,7 @@ def _read_md_description(corpus) -> str:
     try:
         field.open("r")
         try:
-            return field.read()
+            return _coerce_to_text(field.read())
         finally:
             field.close()
     except Exception:
@@ -135,7 +157,7 @@ def _read_caml_doc_body(doc) -> str:
     try:
         field.open("r")
         try:
-            return field.read()
+            return _coerce_to_text(field.read())
         finally:
             field.close()
     except Exception:

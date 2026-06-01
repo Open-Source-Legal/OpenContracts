@@ -316,7 +316,9 @@ class TestCorpusDocumentActions(TestCase):
 
         analyses = Analysis.objects.all()
         self.assertEqual(1, analyses.count())
-        self.assertEqual(analyses[0].analyzed_corpus.id, self.corpus.id)
+        analyzed_corpus = analyses[0].analyzed_corpus
+        assert analyzed_corpus is not None
+        self.assertEqual(analyzed_corpus.id, self.corpus.id)
         self.assertEqual(analyses[0].analyzer.id, self.analyzer.id)
 
     def test_multiple_corpus_actions(self):
@@ -340,10 +342,14 @@ class TestCorpusDocumentActions(TestCase):
 
         analyses = Analysis.objects.all()
         self.assertEqual(1, analyses.count())
-        self.assertEqual(analyses[0].analyzed_corpus.id, self.corpus.id)
+        analyzed_corpus = analyses[0].analyzed_corpus
+        assert analyzed_corpus is not None
+        self.assertEqual(analyzed_corpus.id, self.corpus.id)
         self.assertEqual(analyses[0].analyzer.id, self.analyzer.id)
 
         extracts = Extract.objects.all()
         self.assertEqual(1, extracts.count())
-        self.assertEqual(extracts[0].corpus.id, self.corpus.id)
+        extract_corpus = extracts[0].corpus
+        assert extract_corpus is not None
+        self.assertEqual(extract_corpus.id, self.corpus.id)
         self.assertEqual(extracts[0].fieldset.id, self.fieldset.id)

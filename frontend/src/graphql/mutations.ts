@@ -15,6 +15,7 @@ import {
   Maybe,
   UserExportType,
   CorpusActionType,
+  ResearchReportType,
 } from "../types/graphql-api";
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3642,6 +3643,81 @@ export const DELETE_AGENT_CONFIGURATION = gql`
     deleteAgentConfiguration(agentId: $agentId) {
       ok
       message
+    }
+  }
+`;
+
+/* ------------------------------------------------------------------ *
+ * Deep-research reports (opencontractserver/research)
+ *
+ * Start is the explicit (non-chat) kickoff path; the primary trigger is
+ * the corpus chat agent's start_deep_research tool. Cancel is cooperative
+ * (flips cancel_requested; the agent loop polls it between tool calls).
+ * ------------------------------------------------------------------ */
+
+export interface StartResearchReportInput {
+  corpusId: string;
+  prompt: string;
+  title?: string;
+  maxSteps?: number;
+}
+export interface StartResearchReportOutput {
+  startResearchReport: {
+    ok: boolean;
+    message: string;
+    obj: ResearchReportType | null;
+  };
+}
+export const START_RESEARCH_REPORT = gql`
+  mutation StartResearchReport(
+    $corpusId: ID!
+    $prompt: String!
+    $title: String
+    $maxSteps: Int
+  ) {
+    startResearchReport(
+      corpusId: $corpusId
+      prompt: $prompt
+      title: $title
+      maxSteps: $maxSteps
+    ) {
+      ok
+      message
+      obj {
+        id
+        slug
+        title
+        status
+        created
+      }
+    }
+  }
+`;
+
+export interface CancelResearchReportInput {
+  id: string;
+}
+export interface CancelResearchReportOutput {
+  cancelResearchReport: {
+    ok: boolean;
+    message: string;
+    obj: {
+      id: string;
+      status: string;
+      cancelRequested: boolean;
+    } | null;
+  };
+}
+export const CANCEL_RESEARCH_REPORT = gql`
+  mutation CancelResearchReport($id: ID!) {
+    cancelResearchReport(id: $id) {
+      ok
+      message
+      obj {
+        id
+        status
+        cancelRequested
+      }
     }
   }
 `;
