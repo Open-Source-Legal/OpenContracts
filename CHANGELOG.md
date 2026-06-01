@@ -78,6 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `llms/agents/agent_factory.py`, `corpuses/models.py`). The resolver itself
     stays ORM-free and async-safe. Precedence is unchanged otherwise: per-call →
     per-agent → per-corpus → this default → Django settings.
+  - **Fixed** — `PipelineSettings.get_instance()` and
+    `ResetPipelineSettingsMutation` could assign `None` to the NOT NULL
+    `default_llm` column when Django's `DEFAULT_LLM` setting was explicitly set
+    to `None` (e.g. in tests exercising the legacy fallback), raising an
+    `IntegrityError`; both now coerce the setting to `""`
+    (`opencontractserver/documents/models.py` line ~1371,
+    `config/graphql/pipeline_settings_mutations.py`). The reset mutation now
+    also resets/returns `default_reranker` (previously omitted from the reset
+    path and its response). `normalise_model_spec` was moved inside the
+    `validate_model_spec` try/except in `UpdatePipelineSettingsMutation` so an
+    unexpected raise returns a clean `ok=False` response rather than a 500.
+    Added stable `data-testid`s (`edit-default-llm`, `edit-default-embedder`,
+    `library-filter-*`) to replace positional/text selectors in the component
+    tests, and dropped the untyped `settingsKey` carried into
+    `LIBRARY_STAGE_CONFIG` by the previous `STAGE_CONFIG` spread.
 
 - **Reusable `AnnotationMap` (Leaflet) component + Discover "Map" tab (#1820).**
   A caller-agnostic React map that visualises geographic document annotations,

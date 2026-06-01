@@ -5,6 +5,7 @@
 import React from "react";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { SystemSettingsWrapper } from "./AdminComponentsTestWrapper";
 import {
   GET_PIPELINE_SETTINGS,
@@ -871,7 +872,9 @@ test.describe("SystemSettings — LLM providers", () => {
     const library = page.locator('[data-testid="component-library"]');
 
     // Narrow to the LLM Providers filter so the assertions are unambiguous.
-    await library.locator('text="LLM Providers"').click();
+    await library
+      .locator('[data-testid="library-filter-llmProviders"]')
+      .click();
 
     // Provider title, an "API key" indicator, and suggested-model chips show.
     await expect(library.locator("text=Anthropic").first()).toBeVisible();
@@ -880,6 +883,9 @@ test.describe("SystemSettings — LLM providers", () => {
     await expect(
       library.locator('input[aria-label="Disable Anthropic"]')
     ).toBeChecked();
+
+    // Capture the Component Library filtered to registered LLM providers.
+    await docScreenshot(page, "settings--llm-picker--provider-library");
 
     await component.unmount();
   });
@@ -927,9 +933,9 @@ test.describe("SystemSettings — LLM providers", () => {
     );
     await waitForLoad(page);
 
-    // The Default LLM row's Edit button is the second Edit button (the first
-    // belongs to the Default Embedder row, which renders just above it).
-    await page.locator("button:has-text('Edit')").nth(1).click();
+    // Target the Default LLM row's Edit button by its data-testid so the
+    // selector stays stable if other Edit buttons are added above it.
+    await page.locator('[data-testid="edit-default-llm"]').click();
 
     await expect(page.locator("text=Edit Default LLM")).toBeVisible();
 
@@ -941,6 +947,9 @@ test.describe("SystemSettings — LLM providers", () => {
       .first()
       .click();
     await expect(page.locator("#default-llm")).toHaveValue(spec);
+
+    // Capture the Default LLM picker modal with a model spec selected.
+    await docScreenshot(page, "settings--llm-picker--model-selected");
 
     await page
       .locator('.oc-modal-footer button:has-text("Save")')

@@ -531,8 +531,17 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         validate_model_spec,
                     )
 
+                    # normalise_model_spec shares validate_model_spec's error
+                    # contract (LLMProviderNotRegistered / ValueError), so it
+                    # lives inside the same try/except — an unexpected raise here
+                    # would otherwise surface as an unhandled 500 rather than the
+                    # clean ok=False response the rest of this block returns.
                     try:
                         validate_model_spec(default_llm)
+                        # Persist the canonical "{provider}:{model}" form so the
+                        # stored value is unambiguous (bare names get the default
+                        # provider prefix applied).
+                        normalised_llm = normalise_model_spec(default_llm)
                     except LLMProviderNotRegistered as exc:
                         return UpdatePipelineSettingsMutation(
                             ok=False, message=str(exc), pipeline_settings=None
@@ -543,10 +552,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             message=f"Invalid default LLM spec: {exc}",
                             pipeline_settings=None,
                         )
-                    # Persist the canonical "{provider}:{model}" form so the
-                    # stored value is unambiguous (bare names get the default
-                    # provider prefix applied).
-                    settings_instance.default_llm = normalise_model_spec(default_llm)
+                    settings_instance.default_llm = normalised_llm
                 else:
                     settings_instance.default_llm = ""
 
@@ -742,10 +748,17 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
             settings_instance.component_settings = getattr(
                 django_settings, "PIPELINE_SETTINGS", {}
             )
-            settings_instance.default_embedder = getattr(
-                django_settings, "DEFAULT_EMBEDDER", ""
+            settings_instance.default_embedder = (
+                getattr(django_settings, "DEFAULT_EMBEDDER", "") or ""
             )
-            settings_instance.default_llm = getattr(django_settings, "DEFAULT_LLM", "")
+            settings_instance.default_reranker = (
+                getattr(django_settings, "DEFAULT_RERANKER", "") or ""
+            )
+            # ``DEFAULT_LLM`` may be explicitly None; coerce to "" so the NOT NULL
+            # default_llm column is never assigned a null value.
+            settings_instance.default_llm = (
+                getattr(django_settings, "DEFAULT_LLM", "") or ""
+            )
             settings_instance.enabled_components = []
             settings_instance.modified_by = user
             settings_instance.save()
@@ -763,6 +776,7 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
+                    default_reranker=settings_instance.default_reranker or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=[],
                     components_with_secrets=list(

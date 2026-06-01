@@ -164,6 +164,7 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
             {FILTER_OPTIONS.map((opt) => (
               <FilterChip
                 key={opt.value}
+                data-testid={`library-filter-${opt.value}`}
                 $active={filter === opt.value}
                 onClick={() => setFilter(opt.value)}
                 aria-pressed={filter === opt.value}

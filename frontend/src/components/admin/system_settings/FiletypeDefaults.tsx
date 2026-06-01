@@ -243,6 +243,7 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                 <Button
                   variant="secondary"
                   size="sm"
+                  data-testid="edit-default-embedder"
                   onClick={onEditDefaultEmbedder}
                 >
                   Edit
@@ -271,6 +272,7 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                 <Button
                   variant="secondary"
                   size="sm"
+                  data-testid="edit-default-llm"
                   onClick={onEditDefaultLlm}
                 >
                   Edit

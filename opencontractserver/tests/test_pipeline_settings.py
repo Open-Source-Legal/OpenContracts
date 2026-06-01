@@ -709,6 +709,9 @@ class PipelineSettingsGraphQLTestCase(TestCase):
         )
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+        # "openai" is the documented default provider that normalise_model_spec
+        # prepends to a bare model name (not coincidental) — see
+        # opencontractserver.llms.llm_registry.normalise_model_spec.
         self.assertEqual(
             result["data"]["updatePipelineSettings"]["pipelineSettings"]["defaultLlm"],
             "openai:gpt-4o",

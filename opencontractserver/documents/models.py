@@ -1368,7 +1368,11 @@ class PipelineSettings(django.db.models.Model):
                     "default_reranker": getattr(
                         django_settings, "DEFAULT_RERANKER", ""
                     ),
-                    "default_llm": getattr(django_settings, "DEFAULT_LLM", ""),
+                    # ``DEFAULT_LLM`` may be explicitly set to ``None`` (e.g. in
+                    # tests exercising the legacy fallback). Coerce to "" so the
+                    # NOT NULL ``default_llm`` column is never given a null value;
+                    # an empty string already means "fall back to Django default".
+                    "default_llm": getattr(django_settings, "DEFAULT_LLM", "") or "",
                 },
             )
 
