@@ -53,7 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   referenced labels. `test_filter_modes_change_annotation_count`'s
   `build_label_lookups` assertions were updated to verify the per-mode label
   *membership* (which the fix corrects) rather than brittle raw counts; the
-  `build_document_export` counts are unchanged.
+  `build_document_export` counts are unchanged. Both ETL functions also now
+  normalize their `annotation_filter_mode` argument to an
+  `AnnotationFilterMode` member at the boundary, so an invalid mode string
+  raises a clear `ValueError` instead of silently falling through to
+  `CORPUS_LABELSET_ONLY`; covered by
+  `BuildLabelLookupsStringEnumEquivalenceTestCase.test_invalid_mode_raises_valueerror`.
 
 - **Location Tagger: non-string geocoding hints crashed the tool (#1871,
   follow-up to #1822).** `add_annotations_from_exact_strings`

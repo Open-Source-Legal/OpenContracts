@@ -73,6 +73,12 @@ def build_label_lookups(
     """
     logger.info(f"build_label_lookups for corpus id #{corpus_id}")
 
+    # Normalize the boundary input to an enum member. The GraphQL/Celery
+    # callers deliver a plain string; coercing here gives an invalid mode a
+    # clear ValueError instead of a silent fallback to CORPUS_LABELSET_ONLY,
+    # and lets every comparison below stay enum-to-enum.
+    annotation_filter_mode = AnnotationFilterMode(annotation_filter_mode)
+
     # Base first: only labels within the corpus
     corpus_label_ids = (
         Annotation.objects.filter(corpus_id=corpus_id, analysis__isnull=True)
@@ -261,6 +267,13 @@ def build_document_export(
 
     logger.info(f"burn_doc_annotations - label_lookups: {label_lookups}")
 
+    # Normalize the boundary input to an enum member before the broad
+    # try/except below. The GraphQL/Celery callers deliver a plain string;
+    # coercing here surfaces an invalid mode as a clear ValueError to the
+    # caller instead of being swallowed into a silent empty-export tuple, and
+    # lets every comparison below stay enum-to-enum.
+    annotation_filter_mode = AnnotationFilterMode(annotation_filter_mode)
+
     try:
 
         text_labels = label_lookups["text_labels"]
@@ -337,9 +350,7 @@ def build_document_export(
                     annotation_label_id__in=corpus_label_ids
                 )
 
-        elif (
-            annotation_filter_mode == AnnotationFilterMode.CORPUS_LABELSET_ONLY
-        ):  # "CORPUS_LABELSET_ONLY"
+        elif annotation_filter_mode == AnnotationFilterMode.CORPUS_LABELSET_ONLY:
             corpus_label_pks = (
                 label_lookups.get("doc_labels", {}).keys()
                 | label_lookups.get("text_labels", {}).keys()
@@ -350,8 +361,12 @@ def build_document_export(
             )
 
         else:
+            # Unreachable for a valid mode (the input is coerced to an
+            # AnnotationFilterMode member above). Retained as a guard so a
+            # newly-added enum member without a branch here fails loudly
+            # rather than silently exporting an unfiltered annotation set.
             raise ValueError(
-                f"Invalid annotation_filter_mode: {annotation_filter_mode}"
+                f"Unhandled annotation_filter_mode: {annotation_filter_mode}"
             )
 
         # Initialize document annotation JSON structure (used for both PDF and non-PDF)

@@ -473,7 +473,19 @@ class BuildLabelLookupsStringEnumEquivalenceTestCase(TestCase):
             self.assertIn(str(self.analysis_label.pk), lookups["text_labels"])
 
     def test_build_document_export_accepts_string_mode(self):
-        """build_document_export must not error on the string the V2 path passes."""
+        """build_document_export must not error on the string the V2 path passes.
+
+        The fixture document deliberately has no file on disk. That is *not* a
+        confound for this assertion: build_document_export synthesizes a stable
+        ``document_<id>.placeholder`` name for fileless docs and treats the
+        missing PAWLs/text reads as non-fatal, so a correct run always returns a
+        non-empty ``doc_name`` and a populated ``doc_json``. Before the #1868
+        fix, the string mode hit ``else: raise ValueError`` (caught by the
+        function's own except), so the function returned ``("", "", None, {},
+        {})`` — a silently dropped document. Asserting the exact placeholder name
+        and the round-tripped title pins the success path rather than merely
+        ``doc_name != ""``.
+        """
         lookups = build_label_lookups(
             corpus_id=self.corpus.id,
             analysis_ids=None,
@@ -487,5 +499,23 @@ class BuildLabelLookupsStringEnumEquivalenceTestCase(TestCase):
             annotation_filter_mode="CORPUS_LABELSET_ONLY",
         )
         # Before the fix this returned ("", "", None, {}, {}) — a dropped doc.
-        self.assertNotEqual(doc_name, "")
-        self.assertIsNotNone(doc_json)
+        self.assertEqual(doc_name, f"document_{self.document.id}.placeholder")
+        assert doc_json is not None  # narrow for type-checkers + guard the next line
+        self.assertEqual(doc_json["title"], self.document.title)
+
+    def test_invalid_mode_raises_valueerror(self):
+        """A bogus mode string is rejected at the boundary, not silently defaulted."""
+        with self.assertRaises(ValueError):
+            build_label_lookups(
+                corpus_id=self.corpus.id,
+                analysis_ids=None,
+                annotation_filter_mode="BOGUS_MODE",
+            )
+        with self.assertRaises(ValueError):
+            build_document_export(
+                label_lookups={"text_labels": {}, "doc_labels": {}},
+                doc_id=self.document.id,
+                corpus_id=self.corpus.id,
+                analysis_ids=None,
+                annotation_filter_mode="BOGUS_MODE",
+            )
