@@ -217,14 +217,10 @@ def add_annotations_from_exact_strings(
     from opencontractserver.documents.models import Document
 
     # Collect (label_text, exact_string, hints) tuples for the single
-    # doc/corpus. ``hints`` is only consulted for OC_* geographic labels.
-    # The third element is the item's ``hints`` (AnnotationItem.hints is typed
-    # ``dict[str, str]``), narrowed to None by the isinstance guard below.
+    # doc/corpus. ``hints`` is only consulted for OC_* geographic labels;
+    # the third element is the item's normalised ``hints`` mapping (or None).
     parsed_items: list[tuple[str, str, dict[str, str] | None]] = []
     for item in items:
-        # ``item`` is an AnnotationItem TypedDict (always a dict at runtime);
-        # the inner isinstance still guards against the LLM sending a non-dict
-        # ``hints`` value.
         exact_str = str(item["exact_string"])
         # Skip blank/whitespace-only spans. Besides wasting a geocoder call for
         # OC_* labels, ``doc_text.find("")`` returns the search start so the
@@ -232,14 +228,21 @@ def add_annotations_from_exact_strings(
         # blank-``raw_text`` guard in ``_create_geographic_annotation``.
         if not exact_str.strip():
             continue
+        # Normalise the optional ``hints`` mapping. ``item`` is an AnnotationItem
+        # TypedDict (always a dict at runtime), but the hint *values* come from
+        # raw LLM output, so the declared ``dict[str, str]`` shape is unenforced:
+        # a model can emit ``{"country": 123}`` or ``{"country": null}``. The
+        # geocoder normalises every hint with ``str.strip().lower()``, so a
+        # non-string value would raise ``AttributeError`` deep inside
+        # ``resolve_place`` rather than at this boundary. Coerce keys/values to
+        # ``str`` and drop ``None`` values (so ``{"country": null}`` reads as
+        # "no hint", not the literal string "None"); a non-dict ``hints`` is
+        # discarded outright.
         raw_hints = item.get("hints")
-        parsed_items.append(
-            (
-                str(item["label_text"]),
-                exact_str,
-                raw_hints if isinstance(raw_hints, dict) else None,
-            )
-        )
+        hints: dict[str, str] | None = None
+        if isinstance(raw_hints, dict):
+            hints = {str(k): str(v) for k, v in raw_hints.items() if v is not None}
+        parsed_items.append((str(item["label_text"]), exact_str, hints))
 
     created_ids: list[int] = []
 
