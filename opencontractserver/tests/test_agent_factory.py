@@ -2,9 +2,9 @@
 Tests for the UnifiedAgentFactory and related tool conversion logic.
 """
 
+from collections.abc import Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
@@ -14,16 +14,20 @@ from opencontractserver.llms.agents.agent_factory import (
     _user_has_write_permission,
 )
 from opencontractserver.llms.agents.core_agents import AgentConfig, CoreAgent
+from opencontractserver.llms.api import ToolType
 from opencontractserver.llms.tools.tool_factory import (
     CoreTool,
 )
 from opencontractserver.llms.types import AgentFramework
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestUserHasWritePermission(TestCase):
     """Tests for the _user_has_write_permission helper function."""
+
+    user: User
+    corpus: Corpus
+    doc: Document
 
     @classmethod
     def setUpTestData(cls):
@@ -61,6 +65,12 @@ class TestUserHasWritePermission(TestCase):
 
 
 class TestAgentFactorySetup(TestCase):
+    user: User
+    corpus1: Corpus
+    doc1: Document
+    callable_tool: Callable[[str], str]
+    core_tool_instance: CoreTool
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -102,7 +112,7 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
         mock_agent_instance = AsyncMock(spec=CoreAgent)
         mock_pydantic_agent_class.create = AsyncMock(return_value=mock_agent_instance)
 
-        raw_tools = [self.callable_tool]
+        raw_tools: list[ToolType] = [self.callable_tool]
         converted_framework_tools = [MagicMock()]  # Mocked converted tools
         mock_convert_tools.return_value = converted_framework_tools
 
@@ -189,18 +199,26 @@ class TestUnifiedAgentFactory(TestAgentFactorySetup):
 
     async def test_unsupported_framework_raises_error(self):
         """Test that invalid framework names raise ValueError."""
+        # Deliberately pass an invalid framework *string* to exercise the
+        # ValueError path; the production signature expects AgentFramework, so
+        # the bad value is type-ignored rather than coerced.
         with self.assertRaises(ValueError):
             await UnifiedAgentFactory.create_document_agent(
-                self.doc1, self.corpus1, framework="invalid_framework_name"
+                self.doc1, self.corpus1, framework="invalid_framework_name"  # type: ignore[arg-type]
             )
         with self.assertRaises(ValueError):
             await UnifiedAgentFactory.create_corpus_agent(
-                self.corpus1, framework="invalid_framework_name"
+                self.corpus1, framework="invalid_framework_name"  # type: ignore[arg-type]
             )
 
 
 class TestToolFilteringDocumentAgent(TestCase):
     """Tests for tool filtering logic in document agent creation."""
+
+    owner: User
+    reader: User
+    corpus: Corpus
+    doc: Document
 
     @classmethod
     def setUpTestData(cls):
@@ -321,6 +339,10 @@ class TestToolFilteringDocumentAgent(TestCase):
 
 class TestToolFilteringCorpusAgent(TestCase):
     """Tests for tool filtering logic in corpus agent creation."""
+
+    owner: User
+    reader: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
