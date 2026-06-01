@@ -625,6 +625,21 @@ class CorpusForkOrphanedBlobGCTest(TransactionTestCase):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user(username="gc_user", password="12345678")
+        # Issue #1883 added a post-import hook that queues structural ingestion
+        # (ingest_doc -> set_doc_lock_state) for imported documents lacking
+        # pipeline structural layers — which the V1 ``Test_Corpus_EXPORT``
+        # fixture imported here does. These tests exercise fork blob-GC, not
+        # ingestion, and run under TransactionTestCase + eager Celery where the
+        # hook would otherwise synchronously invoke a parser service that is
+        # unavailable in unit tests. Stub the dispatch so the GC behaviour
+        # under test is exercised in isolation.
+        from unittest.mock import patch
+
+        ingestion_patcher = patch(
+            "opencontractserver.tasks.import_tasks_v2._dispatch_structural_ingestion"
+        )
+        ingestion_patcher.start()
+        self.addCleanup(ingestion_patcher.stop)
 
     def test_fork_gcs_orphaned_v2_import_blobs(self):
         """End-to-end: forking an imported corpus deletes the V2-import

@@ -401,6 +401,11 @@ def _import_corpus(
         # by CAML README rewriting where mixing in hash keys would risk a
         # filename / hash string collision silently mapping to the wrong doc.
         doc_filename_to_corpus_doc: dict[str, Document] = {}
+        # Issue #1883: every corpus-isolated document we create, in import
+        # order. After the import commits we run structural ingestion over the
+        # subset that arrived without pipeline-generated structural layers —
+        # otherwise those documents import cleanly but are unsearchable.
+        imported_corpus_docs: list[Document] = []
 
         for doc_filename, doc_data in data_json["annotated_docs"].items():
             logger.info("Importing document: %s", doc_filename)
@@ -416,6 +421,7 @@ def _import_corpus(
             )
 
             if corpus_doc:
+                imported_corpus_docs.append(corpus_doc)
                 all_annot_id_maps.update(annot_id_map)
                 # Build hash mapping for DocumentPath reconstruction
                 if corpus_doc.pdf_file_hash:
@@ -541,12 +547,111 @@ def _import_corpus(
 
             refresh_description_cache_for_corpus(corpus_obj.id)
 
+        # Issue #1883: run structural ingestion over imported documents that
+        # arrived without pipeline-generated structural layers so the corpus
+        # becomes searchable. Applies to both V1 and V2/V3 archives (the gap
+        # is identical for either). No-op for documents that already carry a
+        # StructuralAnnotationSet — those came from a correctly-produced export
+        # and ``Corpus.add_document`` has already queued their embeddings.
+        _queue_structural_ingestion_for_imported_docs(imported_corpus_docs, user_obj)
+
         logger.info("Import completed successfully for corpus %s", corpus_obj.id)
         return corpus_obj.id
 
     except Exception as e:
         logger.error("Import failed: %s", e, exc_info=True)
         return None
+
+
+def _collect_structural_ingestion_targets(
+    corpus_docs: list[Document],
+) -> list[int]:
+    """
+    Return the PKs of imported documents that still need a structural-ingestion
+    pass (issue #1883).
+
+    The export artifact carries each document's raw file, PAWLs token layer and
+    extracted text, plus whatever annotations the source corpus happened to
+    have — but it does NOT carry embeddings, and many archives (every V1 export,
+    plus third-party producers such as EDGAR scrapers) never ran structural
+    ingestion at all, so they ship only coarse section markers and no
+    paragraph-level structural annotations. Those documents import cleanly but
+    are effectively unsearchable: semantic search has nothing to match against.
+
+    A document is treated as *already ingested* — and skipped — when it carries
+    a ``StructuralAnnotationSet``. That means a prior pipeline run produced its
+    structural annotations, and ``Corpus.add_document`` has already queued
+    ``ensure_embeddings_for_corpus`` to embed them for this corpus's embedder.
+    Re-running ingestion on those would duplicate structural annotations, so we
+    skip them — this is the idempotency / "don't double-process correctly
+    produced exports" contract from the issue.
+
+    Markdown/CAML documents are rendered client-side and never parsed (the
+    pipeline skips them too), so they are never candidates.
+    """
+    from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+
+    return [
+        doc.pk
+        for doc in corpus_docs
+        if doc.structural_annotation_set_id is None
+        and doc.file_type != MARKDOWN_MIME_TYPE
+    ]
+
+
+def _dispatch_structural_ingestion(doc_ids: list[int], user_id: int) -> None:
+    """
+    Queue the standard structural-ingestion chain for each imported document.
+
+    Mirrors the upload / retry pipeline (``ingest_doc`` -> ``set_doc_lock_state``)
+    so imported documents are parsed into the pipeline's PAWLs token layers +
+    structural annotations, those annotations are embedded, and the document
+    finalizes to COMPLETED exactly like an uploaded one. Kept as a module-level
+    indirection (rather than an inline chain) so tests can patch the dispatch
+    without standing up a parser/embedder service.
+    """
+    from celery import chain
+
+    from opencontractserver.tasks.doc_tasks import ingest_doc, set_doc_lock_state
+
+    for doc_id in doc_ids:
+        chain(
+            ingest_doc.si(user_id=user_id, doc_id=doc_id),
+            set_doc_lock_state.si(locked=False, doc_id=doc_id),
+        ).apply_async()
+
+
+def _queue_structural_ingestion_for_imported_docs(
+    corpus_docs: list[Document],
+    user_obj: UserModel,
+) -> None:
+    """
+    After a corpus import, queue structural ingestion (issue #1883) for the
+    subset of imported documents that arrived without pipeline-generated
+    structural layers.
+
+    Dispatch is deferred via ``transaction.on_commit`` so the documents are
+    guaranteed to exist (and not be rolled back) when the worker picks them up.
+    This matters for the fork path, which wraps the whole import in an outer
+    ``transaction.atomic()`` that may roll back; for the standalone Celery
+    import task (no outer atomic) the callback simply runs as soon as the
+    relevant writes have committed. The callback resolves
+    ``_dispatch_structural_ingestion`` by name at call time so it stays
+    patchable in tests.
+    """
+    doc_ids = _collect_structural_ingestion_targets(corpus_docs)
+    if not doc_ids:
+        return
+
+    user_id = user_obj.id
+    logger.info(
+        "Queueing structural ingestion for %d imported document(s) that "
+        "arrived without pipeline structural layers (issue #1883).",
+        len(doc_ids),
+    )
+    transaction.on_commit(
+        lambda ids=doc_ids, uid=user_id: _dispatch_structural_ingestion(ids, uid)
+    )
 
 
 def _import_v2_relationships(

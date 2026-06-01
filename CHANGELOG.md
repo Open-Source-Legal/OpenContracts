@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Imported corpuses were unsearchable: import never ran structural ingestion
+  (#1883).** The corpus import path (`opencontractserver/tasks/import_tasks_v2.py`,
+  `_import_corpus` — shared by both the V1 `import_corpus` task and the
+  V2/V3 `import_corpus_v2` task and the fork pipeline) persisted documents,
+  annotations, structural sets and relationships from the archive but never
+  triggered the document-processing pipeline. Documents created via
+  `create_document_from_export_data` set `processing_started`, and the
+  corpus-isolated copies created by `Corpus.add_document` do too, so the
+  `process_doc_on_create_atomic` ingest signal is intentionally skipped — and
+  nothing took its place. Archives produced by third-party tools (e.g. EDGAR
+  scrapers) or any V1 export therefore landed with PAWLs + clean text but **no
+  paragraph-level structural annotations and no embeddings**, so semantic
+  `search_corpus` had nothing to match against and returned only coarse section
+  markers (the SpaceX S-1 symptom in the issue). Import now queues the standard
+  structural-ingestion chain (`ingest_doc` → `set_doc_lock_state`) for each
+  imported document **that lacks a `StructuralAnnotationSet`**, producing the
+  pipeline's PAWLs token layers + structural annotations, embedding them, and
+  finalizing the document to `COMPLETED`. New helpers
+  `_collect_structural_ingestion_targets` (the gate),
+  `_dispatch_structural_ingestion` (the chain), and
+  `_queue_structural_ingestion_for_imported_docs` (the `transaction.on_commit`
+  driver) live alongside `_import_corpus`. Idempotency / opt-out: documents that
+  already carry a `StructuralAnnotationSet` (correctly-produced OpenContracts
+  exports) are skipped — `Corpus.add_document` has already queued
+  `ensure_embeddings_for_corpus` for those — and markdown/CAML documents are
+  never candidates. Dispatch is deferred via `transaction.on_commit` so it is
+  safe under the fork pipeline's outer transaction. Tests:
+  `TestPostImportStructuralIngestion` in
+  `opencontractserver/tests/test_corpus_export_import_v2.py` (gate selection,
+  import wiring for structureless docs, idempotent skip for docs with a
+  structural set, and chain construction); `CorpusForkOrphanedBlobGCTest` stubs
+  the new hook since it exercises blob-GC, not ingestion.
+
 - **Location Tagger: non-string geocoding hints crashed the tool (#1871,
   follow-up to #1822).** `add_annotations_from_exact_strings`
   (`opencontractserver/llms/tools/core_tools/annotations.py`) forwarded the

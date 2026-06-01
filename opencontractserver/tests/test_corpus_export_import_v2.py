@@ -3055,3 +3055,223 @@ class TestV2ThreeRoundTripDataIntegrity(TestCase):
             msg="StructuralAnnotationSet duplicated across roundtrips — "
             "content_hash dedup broke",
         )
+
+
+class TestPostImportStructuralIngestion(TestCase):
+    """Issue #1883: imported documents that arrive without pipeline-generated
+    structural layers must be queued for structural ingestion so the corpus is
+    searchable, while documents that already carry a ``StructuralAnnotationSet``
+    are left alone (idempotency for correctly-produced exports)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="ingest_user", password="testpass"
+        )
+
+    # ----- minimal import-archive builders ------------------------------
+
+    @staticmethod
+    def _minimal_pdf_bytes() -> bytes:
+        return (
+            b"%PDF-1.4\n"
+            b"1 0 obj <</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj <</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
+            b"3 0 obj <</Type/Page/Parent 2 0 R/Resources<<>>"
+            b"/MediaBox[0 0 612 792]>>endobj\n"
+            b"xref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n"
+            b"0000000056 00000 n\n0000000115 00000 n\n"
+            b"trailer <</Size 4/Root 1 0 R>>\nstartxref\n204\n%%EOF\n"
+        )
+
+    def _build_import_zip(self, *, with_structural_set: bool) -> io.BytesIO:
+        """Build the smallest valid V2 import archive containing exactly one
+        PDF document, optionally carrying a StructuralAnnotationSet."""
+        pawls = [{"page": {"index": 0, "width": 612, "height": 792}, "tokens": []}]
+        doc_filename = "imported.pdf"
+        doc_data: dict = {
+            "title": "Imported S-1",
+            "content": "Risk factors include competition and launch failure.",
+            "description": "",
+            "pawls_file_content": pawls,
+            "page_count": 1,
+            "file_type": "application/pdf",
+            "doc_labels": [],
+            "labelled_text": [],
+        }
+        data: dict = {
+            "version": "2.0",
+            "corpus": {"title": "Imported Corpus"},
+            "label_set": {"title": "Imported LS"},
+            "doc_labels": {},
+            "text_labels": {},
+            "annotated_docs": {doc_filename: doc_data},
+        }
+        if with_structural_set:
+            content_hash = "ingestion_test_struct_hash"
+            doc_data["structural_set_hash"] = content_hash
+            data["structural_annotation_sets"] = {
+                content_hash: {
+                    "content_hash": content_hash,
+                    "parser_name": "docling",
+                    "parser_version": "1.0",
+                    "page_count": 1,
+                    "token_count": 0,
+                    "pawls_file_content": pawls,
+                    "txt_content": doc_data["content"],
+                    "structural_annotations": [],
+                    "structural_relationships": [],
+                }
+            }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("data.json", json.dumps(data))
+            zf.writestr(doc_filename, self._minimal_pdf_bytes())
+        buf.seek(0)
+        return buf
+
+    # ----- gate unit tests ----------------------------------------------
+
+    def test_collect_targets_selects_only_structureless_non_markdown(self):
+        """The gate targets documents lacking a StructuralAnnotationSet, and
+        skips both already-ingested docs and client-rendered markdown."""
+        from opencontractserver.constants.document_processing import (
+            MARKDOWN_MIME_TYPE,
+        )
+        from opencontractserver.tasks.import_tasks_v2 import (
+            _collect_structural_ingestion_targets,
+        )
+
+        # processing_started prevents the post_save ingest signal from firing
+        # on these fixtures (mirrors how the rest of the suite avoids it).
+        needs = Document.objects.create(
+            title="needs ingestion",
+            file_type="application/pdf",
+            creator=self.user,
+            page_count=1,
+            processing_started=timezone.now(),
+        )
+        struct_set = StructuralAnnotationSet.objects.create(
+            content_hash="gate_test_hash", creator=self.user
+        )
+        has_set = Document.objects.create(
+            title="already ingested",
+            file_type="application/pdf",
+            structural_annotation_set=struct_set,
+            creator=self.user,
+            page_count=1,
+            processing_started=timezone.now(),
+        )
+        markdown_doc = Document.objects.create(
+            title="readme",
+            file_type=MARKDOWN_MIME_TYPE,
+            creator=self.user,
+            page_count=1,
+            processing_started=timezone.now(),
+        )
+
+        targets = _collect_structural_ingestion_targets(
+            [needs, has_set, markdown_doc]
+        )
+        self.assertEqual(targets, [needs.pk])
+
+    # ----- import-wiring tests ------------------------------------------
+
+    def test_import_queues_ingestion_for_structureless_doc(self):
+        """A document imported without a structural set is queued for the
+        standard ingestion pipeline once the import commits."""
+        from unittest.mock import patch
+
+        from opencontractserver.tasks import import_tasks_v2
+
+        zip_buf = self._build_import_zip(with_structural_set=False)
+        with patch.object(
+            import_tasks_v2, "_dispatch_structural_ingestion"
+        ) as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                corpus_id = import_tasks_v2.import_corpus_v2_from_bytes(
+                    zip_source=zip_buf,
+                    user_id=self.user.id,
+                    seed_corpus_id=None,
+                )
+
+        self.assertIsNotNone(corpus_id, "import should succeed")
+        mock_dispatch.assert_called_once()
+        doc_ids, dispatched_user_id = mock_dispatch.call_args.args
+        self.assertEqual(dispatched_user_id, self.user.id)
+        self.assertEqual(len(doc_ids), 1)
+
+        # The queued id is the corpus-isolated imported document, it lacks a
+        # structural set, and it really lives in the new corpus.
+        queued_doc = Document.objects.get(pk=doc_ids[0])
+        self.assertIsNone(queued_doc.structural_annotation_set_id)
+        self.assertEqual(queued_doc.file_type, "application/pdf")
+        self.assertTrue(
+            DocumentPath.objects.filter(
+                corpus_id=corpus_id,
+                document_id=queued_doc.pk,
+                is_current=True,
+                is_deleted=False,
+            ).exists()
+        )
+
+    def test_import_skips_ingestion_for_doc_with_structural_set(self):
+        """A document imported WITH a structural set must not be re-ingested —
+        this is the idempotency contract for correctly-produced exports."""
+        from unittest.mock import patch
+
+        from opencontractserver.tasks import import_tasks_v2
+
+        zip_buf = self._build_import_zip(with_structural_set=True)
+        with patch.object(
+            import_tasks_v2, "_dispatch_structural_ingestion"
+        ) as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                corpus_id = import_tasks_v2.import_corpus_v2_from_bytes(
+                    zip_source=zip_buf,
+                    user_id=self.user.id,
+                    seed_corpus_id=None,
+                )
+
+        self.assertIsNotNone(corpus_id, "import should succeed")
+        mock_dispatch.assert_not_called()
+
+        # Sanity check: the imported doc really does carry the structural set,
+        # which is why the gate skipped it.
+        doc_ids = list(
+            DocumentPath.objects.filter(
+                corpus_id=corpus_id, is_current=True, is_deleted=False
+            ).values_list("document_id", flat=True)
+        )
+        self.assertEqual(len(doc_ids), 1)
+        self.assertIsNotNone(
+            Document.objects.get(pk=doc_ids[0]).structural_annotation_set_id
+        )
+
+    def test_dispatch_builds_ingestion_chain_per_doc(self):
+        """``_dispatch_structural_ingestion`` issues the canonical
+        ingest_doc -> set_doc_lock_state chain for each queued document.
+
+        The helper resolves ``chain`` / ``ingest_doc`` / ``set_doc_lock_state``
+        via call-time local imports, so the patches target the source modules
+        (``celery`` and ``opencontractserver.tasks.doc_tasks``) the local
+        ``from ... import ...`` statements bind against.
+        """
+        from unittest.mock import patch
+
+        from opencontractserver.tasks import import_tasks_v2
+
+        with patch("celery.chain") as mock_chain, patch(
+            "opencontractserver.tasks.doc_tasks.ingest_doc"
+        ) as mock_ingest, patch(
+            "opencontractserver.tasks.doc_tasks.set_doc_lock_state"
+        ) as mock_unlock:
+            import_tasks_v2._dispatch_structural_ingestion([11, 22], self.user.id)
+
+        # One chain per doc, each apply_async()'d.
+        self.assertEqual(mock_chain.call_count, 2)
+        self.assertEqual(mock_chain.return_value.apply_async.call_count, 2)
+        # Each doc got an ingest_doc signature and an unlock signature.
+        self.assertEqual(mock_ingest.si.call_count, 2)
+        self.assertEqual(mock_unlock.si.call_count, 2)
+        mock_ingest.si.assert_any_call(user_id=self.user.id, doc_id=11)
+        mock_unlock.si.assert_any_call(locked=False, doc_id=22)
