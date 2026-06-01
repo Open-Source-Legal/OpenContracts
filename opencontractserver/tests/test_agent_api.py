@@ -260,7 +260,7 @@ class TestVectorStoreAPI(TestCase):
                 user_id=456,
                 corpus_id=789,
                 document_id=101,
-                embedder="custom-embedder",
+                embedder_path="custom-embedder",
                 must_have_text="search text",
                 embed_dim=768,
             )
@@ -270,7 +270,7 @@ class TestVectorStoreAPI(TestCase):
                 user_id=456,
                 corpus_id=789,
                 document_id=101,
-                embedder="custom-embedder",
+                embedder_path="custom-embedder",
                 must_have_text="search text",
                 embed_dim=768,
             )
