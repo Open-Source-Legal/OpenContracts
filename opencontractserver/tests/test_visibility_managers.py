@@ -67,8 +67,20 @@ class VisibleToUserTests(TestCase):
             is_public=False,
         )
 
-    def test_superuser_sees_all_queryset(self):
-        """Superusers should see all objects; ordering is owned by the caller."""
+    def test_superuser_has_no_blanket_access_queryset(self):
+        """A no-grant superuser is computed like a normal user.
+
+        Under the scoped-admin-access contract (2026-05) there is no blanket
+        superuser bypass. The superuser here created neither test corpus and
+        has no guardian grant on them, so it sees ONLY public + own rows:
+
+          - ``public_corpus`` (creator=self.user, is_public=True) → visible
+          - ``private_corpus`` (creator=self.user, private)       → NOT visible
+          - self.user's personal corpus (private, owned by user)  → NOT visible
+          - the superuser's own personal corpus (private, own)    → visible
+
+        Scoped to the two test users that is exactly 2 rows.
+        """
         result = Corpus.objects.visible_to_user(self.superuser)
 
         # Filter to corpuses created by this test's users to make the assertion
@@ -76,15 +88,29 @@ class VisibleToUserTests(TestCase):
         # for guardian's AnonymousUser during DB setup). See issue #1394.
         scoped = result.filter(creator__in=[self.user, self.superuser])
 
-        # Should see both test corpora + 2 personal corpuses (one per user)
-        # Each user (user, superuser) gets a personal corpus auto-created
-        self.assertEqual(scoped.count(), 4)  # public + private + 2 personal
-        # Superuser branch must not impose its own ordering — that's the
+        # public_corpus (public) + the superuser's own personal corpus.
+        self.assertEqual(scoped.count(), 2)
+        # The private corpus owned by another user is NOT visible to a
+        # no-grant superuser.
+        self.assertNotIn(self.private_corpus, result)
+        self.assertIn(self.public_corpus, result)
+        # Visibility branch must not impose its own ordering — that's the
         # resolver / caller's job (issue #1668 — Fix #5 ordering asymmetry).
         self.assertEqual(result.query.order_by, ())
 
-    def test_superuser_single_model_access(self):
-        """Superusers should be able to access any object."""
+    def test_superuser_single_model_access_computed_normally(self):
+        """A no-grant superuser cannot reach a private stranger corpus, but
+        gains access through the normal path once granted READ."""
+        # No grant: the private corpus owned by self.user is invisible.
+        result = (
+            Corpus.objects.visible_to_user(self.superuser)
+            .filter(id=self.private_corpus.id)
+            .first()
+        )
+        self.assertIsNone(result)
+
+        # Positive case: grant the superuser READ via the normal guardian path.
+        assign_perm("corpuses.read_corpus", self.superuser, self.private_corpus)
         result = (
             Corpus.objects.visible_to_user(self.superuser)
             .filter(id=self.private_corpus.id)
@@ -664,12 +690,57 @@ class StructuralAnnotationOptimizerTests(TestCase):
         can_read, *_ = self._compute(self.anonymous_user, self.private_doc)
         self.assertFalse(can_read)
 
-    def test_superuser_always_passes(self):
-        """Superuser bypasses all checks."""
-        for doc in (self.public_doc, self.private_doc):
-            can_read, can_create, can_update, can_delete, can_comment = self._compute(
-                self.superuser, doc
+    def test_superuser_compute_is_normal_with_structural_write_break_glass(self):
+        """Effective-permission compute treats a no-grant superuser like a
+        normal user; the ONLY retained admin data privilege is the
+        structural-write break-glass exposed via ``Annotation.objects.user_can``.
+
+        ``_compute_effective_permissions`` has NO superuser branch (scoped
+        admin access, 2026-05), so a no-grant superuser:
+          - On the PRIVATE doc (not creator, no grant) → denied everything.
+          - On the PUBLIC doc → READ only (public), no write perms (not
+            creator / no guardian grant).
+        """
+        # Private doc: no read, no write for a stranger superuser.
+        can_read, can_create, can_update, can_delete, can_comment = self._compute(
+            self.superuser, self.private_doc
+        )
+        self.assertFalse(
+            any([can_read, can_create, can_update, can_delete, can_comment])
+        )
+
+        # Public doc: READ only (is_public), but no write perms because the
+        # superuser is neither the creator nor holds a guardian grant.
+        can_read, can_create, can_update, can_delete, can_comment = self._compute(
+            self.superuser, self.public_doc
+        )
+        self.assertTrue(can_read)
+        self.assertFalse(any([can_create, can_update, can_delete, can_comment]))
+
+        # Structural-write break-glass: a superuser CAN write a structural
+        # annotation even on a private doc it otherwise cannot read for write,
+        # via ``Annotation.objects.user_can``. A non-superuser cannot.
+        from opencontractserver.types.enums import PermissionTypes
+
+        label = AnnotationLabel.objects.create(
+            text="StructLabel", creator=self.owner
+        )
+        structural_anno = Annotation.objects.create(
+            document=self.private_doc,
+            annotation_label=label,
+            creator=self.owner,
+            structural=True,
+            is_public=False,
+        )
+        # Superuser retains structural-write break-glass.
+        self.assertTrue(
+            Annotation.objects.user_can(
+                self.superuser, structural_anno, PermissionTypes.UPDATE
             )
-            self.assertTrue(
-                all([can_read, can_create, can_update, can_delete, can_comment])
+        )
+        # A non-superuser (the outsider) cannot write a structural annotation.
+        self.assertFalse(
+            Annotation.objects.user_can(
+                self.outsider, structural_anno, PermissionTypes.UPDATE
             )
+        )

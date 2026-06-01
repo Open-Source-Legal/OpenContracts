@@ -1181,8 +1181,12 @@ class ConversationPermissionTest(TestCase):
         conversation_ids = {result.conversation.id for result in results}
         self.assertNotIn(self.shared_conv.id, conversation_ids)
 
-    def test_superuser_sees_everything(self):
-        """Test that superusers can see all conversations."""
+    def test_superuser_has_no_blanket_access(self):
+        """Scoped admin access (2026-05): a no-grant superuser is computed like
+        a normal user. The corpus is private and the superuser is neither
+        creator nor grantee, so it sees ONLY the public conversation — not the
+        private, shared-with-someone-else, or other user's private chats.
+        Granting READ on one private conversation exposes just that one."""
         store = CoreConversationVectorStore(
             user_id=self.superuser.id,
             corpus_id=self.corpus.id,
@@ -1197,11 +1201,26 @@ class ConversationPermissionTest(TestCase):
         results = store.search(query)
         conversation_ids = {result.conversation.id for result in results}
 
-        # Superuser should see ALL conversations
-        self.assertIn(self.user1_private_conv.id, conversation_ids)
+        # Public conversation is visible to everyone.
         self.assertIn(self.user1_public_conv.id, conversation_ids)
-        self.assertIn(self.shared_conv.id, conversation_ids)
-        self.assertIn(self.user2_private_conv.id, conversation_ids)
+        # No-grant superuser does NOT see private / shared-elsewhere / other
+        # user's conversations on a private corpus.
+        self.assertNotIn(self.user1_private_conv.id, conversation_ids)
+        self.assertNotIn(self.shared_conv.id, conversation_ids)
+        self.assertNotIn(self.user2_private_conv.id, conversation_ids)
+
+        # Positive path: an explicit guardian READ grant exposes exactly that
+        # one private conversation through the normal visibility computation.
+        set_permissions_for_obj_to_user(
+            user_val=self.superuser,
+            instance=self.user1_private_conv,
+            permissions=[PermissionTypes.READ],
+        )
+        results_after = store.search(query)
+        ids_after = {result.conversation.id for result in results_after}
+        self.assertIn(self.user1_private_conv.id, ids_after)
+        # Still does NOT see the conversation shared only with user2.
+        self.assertNotIn(self.shared_conv.id, ids_after)
 
     def test_anonymous_user_public_only(self):
         """Test that anonymous users only see public conversations."""
@@ -2266,14 +2285,17 @@ class ConversationModelVisibilityTest(TestCase):
         # Creator should see their own conversation
         self.assertIn(conv.id, visible_ids)
 
-    def test_visible_to_user_superuser_sees_all(self):
-        """Test that superusers see all conversations including private ones."""
-        # Create a superuser
+    def test_visible_to_user_superuser_has_no_blanket_access(self):
+        """Scoped admin access (2026-05): a no-grant superuser is computed like
+        a normal user. It sees a public conversation but NOT a private
+        conversation owned by another user on a private corpus. Granting READ
+        via the normal path makes the private one visible."""
+        # Create a superuser (stranger: not creator, no grants).
         superuser = User.objects.create_superuser(
             username="superuser_admin", password="admin", email="superuser@test.com"
         )
 
-        # Create private conversation owned by regular user
+        # Create private conversation owned by regular user (on a private corpus).
         private_conv = Conversation.objects.create(
             title="Private Conversation",
             chat_with_corpus=self.corpus,
@@ -2289,12 +2311,24 @@ class ConversationModelVisibilityTest(TestCase):
             is_public=True,
         )
 
-        # Superuser should see both
+        # No-grant superuser sees only the public conversation, not the private.
         visible = Conversation.objects.visible_to_user(superuser)
         visible_ids = set(visible.values_list("id", flat=True))
 
-        self.assertIn(private_conv.id, visible_ids)
         self.assertIn(public_conv.id, visible_ids)
+        self.assertNotIn(private_conv.id, visible_ids)
+
+        # Positive path: an explicit guardian READ grant exposes the private
+        # conversation through the normal visibility computation.
+        set_permissions_for_obj_to_user(
+            user_val=superuser,
+            instance=private_conv,
+            permissions=[PermissionTypes.READ],
+        )
+        visible_after = Conversation.objects.visible_to_user(superuser)
+        self.assertIn(
+            private_conv.id, set(visible_after.values_list("id", flat=True))
+        )
 
     def test_visible_to_user_with_shared_permissions(self):
         """Test that users see conversations explicitly shared with them."""

@@ -259,8 +259,18 @@ class AgentActionResultModelTestCase(TestCase):
         visible = AgentActionResult.objects.visible_to_user(anon)
         self.assertIn(result, visible)
 
-    def test_visible_to_user_superuser_sees_all(self):
-        """Test visible_to_user returns all results for superuser."""
+    def test_visible_to_user_superuser_has_no_blanket_access(self):
+        """Scoped admin access (2026-05): a no-grant superuser is computed like
+        a normal user. ``AgentActionResult.visible_to_user`` inherits visibility
+        from ``corpus_action__corpus`` via ``Corpus.objects.visible_to_user``,
+        so a result on a private corpus owned by another user is NOT visible to
+        a stranger superuser. Granting corpus READ exposes it via the normal
+        path."""
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
         superuser = User.objects.create_superuser(
             username="agent_result_superuser",
             password="adminpass",
@@ -274,8 +284,17 @@ class AgentActionResultModelTestCase(TestCase):
             creator=self.user,
         )
 
+        # No grant: the private corpus owned by ``self.user`` is invisible to
+        # the superuser, so the result is too.
         visible = AgentActionResult.objects.visible_to_user(superuser)
-        self.assertIn(result, visible)
+        self.assertNotIn(result, visible)
+
+        # Positive path: grant corpus READ via the normal guardian path.
+        set_permissions_for_obj_to_user(
+            superuser, self.corpus, [PermissionTypes.READ]
+        )
+        visible_after = AgentActionResult.objects.visible_to_user(superuser)
+        self.assertIn(result, visible_after)
 
     def test_visible_to_user_with_none_user(self):
         """Test visible_to_user handles None user (like anonymous)."""
