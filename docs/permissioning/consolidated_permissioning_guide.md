@@ -2,7 +2,9 @@
 
 > **🔴 CRITICAL CHANGE**: Annotations and Relationships no longer have individual permissions. Both inherit permissions from document + corpus. This eliminates N+1 queries and simplifies the security model.
 
-> **🔴 CRITICAL SECURITY**: Structural annotations and relationships are ALWAYS read-only except for superusers. Even owners with full CRUD permissions cannot modify structural items. This is enforced in `AnnotationManager.user_can` and `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`) — the structural-write-deny runs before any other permission branch.
+> **🔴 CRITICAL SECURITY**: Structural annotations and relationships are ALWAYS read-only except for superusers. Even owners with full CRUD permissions cannot modify structural items. This is enforced in `AnnotationManager.user_can` and `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`) — the structural-write branch runs before any other permission branch. This superuser write to structural items is the **single retained admin data privilege** (a deliberate break-glass for repairing system-generated structural data); see the Admin (Superuser) Access Model banner below.
+
+> **🛡️ ADMIN (SUPERUSER) ACCESS MODEL (scoped admin access, 2026-05)**: A superuser is authorized over **user data** (corpuses, documents, annotations, relationships, notes, conversations, analyses, extracts, datacells, folders, feedback, profiles, badge awards, agents, …) **exactly like a normal user** — there is **no blanket bypass**. With no grants, an admin sees only public + own + explicitly-shared rows and is denied writes on private data it does not own. The blanket `if user.is_superuser: return all()/True` short-circuits were removed from every visibility manager / queryset / `user_can` / permission-enumeration / query-optimizer path. **Three things are retained for superusers:** (1) the **structural-write break-glass** above; (2) **moderation** of conversations/threads (`Conversation.can_moderate` / `Corpus.can_moderate`); and (3) **admin-only configuration/restriction gates** enforced in mutations/services — e.g. `PipelineSettings`, `Badge` and `CorpusCategory` management, "create global agents", "make analyses public", and worker-upload provisioning. The legitimate **break-glass for inspecting/repairing arbitrary user data is the Django admin site** (`is_staff`), which uses unfiltered ORM and is unaffected by these manager changes. (Follow-up: an explicit, audited support/impersonation mechanism may be added later.)
 
 > **🟠 AUTHORIZATION API**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface). It is the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter — the two are pinned to agree by the invariant suite in `opencontractserver/tests/permissioning/test_authorization_invariants.py`. New code MUST call `user_can`.
 
@@ -408,7 +410,9 @@ The two are pinned to agree for READ by the invariant suite (`test_authorization
 
 #### Standard Objects (Corpus, Document)
 ```
-Can Access = is_superuser OR is_creator OR has_object_permission OR (is_public AND READ)
+Can Access = is_creator OR has_object_permission OR (is_public AND READ)
+# Superusers are NOT a disjunct here — they are computed exactly like a normal
+# user for data (scoped admin access, 2026-05). See the Admin Access Model banner.
 ```
 
 #### Public Corpus Document Propagation
@@ -435,9 +439,9 @@ Permission Formula:
   Effective Permission = MIN(source_doc_permission, target_doc_permission, corpus_permission)
 
 READ Check:
-  can_read = is_superuser
-             OR (can_read_source_document AND can_read_target_document
-                 AND (no_corpus OR can_read_corpus))
+  # Superusers are computed like a normal user (no is_superuser disjunct).
+  can_read = (can_read_source_document AND can_read_target_document
+              AND (no_corpus OR can_read_corpus))
 
 CREATE Check:
   can_create = has_CREATE_permission_on_source_document
@@ -515,7 +519,7 @@ DELETE Check:
 - Requires only Document READ (not UPDATE) - user just needs to see the document
 - Corpus permission determines write access - UPDATE to edit, DELETE to remove
 - Anonymous users: READ-only access if both document and corpus are public (documents in public corpora inherit `is_public=True` automatically)
-- Superusers: Full access to all metadata
+- Superusers: computed like a normal user — NO blanket access to metadata (scoped admin access, 2026-05); an admin reads/writes datacells only on documents+corpora it can access normally
 
 **Implementation**: `MetadataQueryOptimizer.check_metadata_mutation_permission()` in `opencontractserver/extracts/query_optimizer.py`
 
@@ -526,8 +530,9 @@ Conversations use a **bifurcated permission model** based on `conversation_type`
 ##### CHAT Type (Restrictive - Personal Agent Chats)
 ```
 Visibility Check:
-  can_see = is_superuser
-            OR is_creator
+  # Superusers are computed like a normal user (no is_superuser disjunct) —
+  # scoped admin access, 2026-05.
+  can_see = is_creator
             OR has_explicit_guardian_permission (read_conversation)
             OR is_public
 
@@ -553,6 +558,9 @@ Context Inheritance (AND logic when both set):
 ##### Moderation (Applies to Both Types)
 ```
 Moderation Check:
+  # Moderation is a RETAINED admin capability — superusers keep can_moderate
+  # (scoped admin access, 2026-05). This is an ops capability, distinct from
+  # data *visibility*, which is computed normally for superusers above.
   can_moderate = is_superuser
                  OR is_conversation_creator
                  OR corpus.creator == user
@@ -577,11 +585,15 @@ ChatMessages inherit visibility from their parent conversation via `Conversation
 
 ```
 Visibility Check (ChatMessage.visible_to_user):
-  can_see_message = is_superuser
-                    OR message is in VISIBLE conversation (inherits bifurcated logic)
+  # Superusers are computed like a normal user (no is_superuser disjunct) —
+  # message visibility is scoped (scoped admin access, 2026-05). NOTE the
+  # moderator conditions below are the owner-based ones (creator/owns-corpus/
+  # owns-document), NOT the broader can_moderate (which includes superuser),
+  # so a superuser does NOT see all messages via this path.
+  can_see_message = message is in VISIBLE conversation (inherits bifurcated logic)
                     OR user created the message
                     OR user has explicit permission on the message
-                    OR user can moderate the conversation
+                    OR user can moderate the conversation (owner-based, below)
 
 Moderator Conditions (for visibility):
   can_moderate = conversation.creator == user
@@ -897,9 +909,10 @@ class AnnotationQueryOptimizer:
 
         Returns: (can_read, can_create, can_update, can_delete)
         """
-        # Superusers have all permissions
-        if user.is_superuser:
-            return True, True, True, True
+        # NOTE (scoped admin access, 2026-05): there is NO superuser
+        # short-circuit here anymore — admins are computed via the same
+        # document+corpus logic below. (The structural-write break-glass lives
+        # in AnnotationManager.user_can, not in this effective-permission path.)
 
         # Anonymous users only have read access to public documents/corpuses
         if user.is_anonymous:
@@ -973,11 +986,11 @@ class AnnotationQueryOptimizer:
    - Even if user has document+corpus permissions, they cannot see these annotations without extract permission
    - Structural annotations are exempt from this privacy rule
 
-5. **Superuser Access**
-   - Superusers bypass all permission checks
-   - Get full permissions automatically
-   - Can see all annotations including private analysis/extract annotations
-   - **Only superusers can modify or delete structural annotations/relationships**
+5. **Superuser Access (scoped admin access, 2026-05)**
+   - Superusers are computed like a normal user for data — NO blanket bypass
+   - They get only the permissions a normal user would (is_public READ / creator / explicit grant); they do NOT automatically see private analysis/extract annotations
+   - **The one retained data privilege: superusers may write (modify/delete) structural annotations/relationships** — non-superusers are denied (structural-write break-glass)
+   - Inspecting/repairing arbitrary data is done via the Django admin site
 
 6. **Anonymous Users** (NEW)
    - Can access resources where `is_public=True`
@@ -999,8 +1012,8 @@ The annotation privacy model allows annotations to be marked as "created by" a s
 
 All permission checks for annotations and relationships go through the per-model `user_can` implementation, which automatically handles:
 
-1. **Superuser bypass** - Superusers always have full permissions (including structural items)
-2. **Structural protection** - Structural annotations/relationships are ALWAYS read-only for non-superusers
+1. **Superuser handling (scoped admin access, 2026-05)** - Superusers are computed like a normal user; the ONLY exception is the structural-write break-glass (they may write structural items). No blanket full-permission bypass.
+2. **Structural protection** - Structural annotations/relationships are ALWAYS read-only for non-superusers (superusers retain structural-write via the break-glass)
 3. **Privacy enforcement** - Checks source object permissions for private annotations
 4. **Permission inheritance** - Requires SAME permission level on source object as requested
 5. **Document+corpus computation** - Uses AnnotationQueryOptimizer for final permissions
@@ -1158,9 +1171,9 @@ User profiles have a `is_profile_public` boolean field that controls visibility:
 1. **Own Profile**: Always visible regardless of privacy setting
 2. **Public Profiles** (`is_profile_public=True`): Visible to all authenticated users
 3. **Private Profiles** (`is_profile_public=False`): Only visible via corpus membership with > READ permission
-4. **Inactive Users** (`is_active=False`): Never visible (except to superusers)
+4. **Inactive Users** (`is_active=False`): Never visible through the app (incl. to superusers, scoped admin access 2026-05) — reachable only via the Django admin site
 5. **Anonymous Users**: Can only see public profiles
-6. **Superusers**: See all profiles, including private ones — `UserProfileManager.visible_to_user` (`opencontractserver/users/models.py`) has a superuser bypass that mirrors `BaseVisibilityManager`. This is intentional: it lets admin / moderation surfaces (e.g. badge awarding) route recipient lookups through `get_for_user_or_none` and still reach private-profile users. Do not remove it.
+6. **Superusers (scoped admin access, 2026-05)**: computed like a normal user — they see private profiles ONLY via the same shared-corpus-membership rule as anyone else; there is **no** `UserProfileManager` superuser bypass. Admin/moderation surfaces that legitimately need to reach a private-profile user (e.g. badge awarding) **authorize the action first and then resolve the target with a direct, unfiltered lookup** (`User.objects.filter(pk=..., is_active=True)`) rather than relying on profile visibility. Auditing arbitrary profiles is done via the Django admin site.
 
 **Corpus Membership Visibility:**
 Private profiles become visible to users who share a corpus where the private user has more than READ permission (i.e., CREATE, UPDATE, or DELETE). This ensures collaborators who are actively contributing to a corpus can see each other.
@@ -1388,7 +1401,7 @@ Key test scenarios:
 - Users without document permission get empty results
 - Corpus permission filtering works correctly
 - Anonymous user handling
-- Superuser access to all documents
+- Superuser handling: computed like a normal user — sees document actions only for documents/corpora it can access (no blanket access; scoped admin access 2026-05)
 
 ---
 
@@ -2166,8 +2179,8 @@ def resolve_search_corpuses_for_mention(self, info, text_search=None, **kwargs):
     if user.is_anonymous:
         return Corpus.objects.none()
 
-    if user.is_superuser:
-        return Corpus.objects.all()
+    # Scoped admin access (2026-05): NO superuser branch — admins are computed
+    # like a normal user (creator / writable / public), same as anyone else.
 
     # Get corpuses user has write permission to
     writable_corpuses = get_objects_for_user(
@@ -2754,7 +2767,7 @@ When you add a new model whose rows must be permission-filtered, work through th
 3. **Override in lockstep.** If the model has non-standard visibility (permission inheritance, privacy recursion, structural locking, type bifurcation), override **both** `Manager.user_can` and `QuerySet.visible_to_user`. Never change one without the other — the parity invariant will fail.
 4. **Resolve the user uniformly.** Use `resolve_user_for_user_can(user)` at the top of a custom `user_can` so `int` / `str` ids, `None`, `AnonymousUser`, and invalid strings all resolve consistently (it returns `None` for anything unresolvable; deny on `None`).
 5. **Honour creator status uniformly.** Per Phase A, a creator passes `user_can` without an explicit guardian grant, matching `visible_to_user`'s `Q(creator=user)` predicate. Do not gate creators behind guardian rows.
-6. **Add an invariant test class.** In `test_authorization_invariants.py`, subclass `_UserCanInvariantsMixin` + `TransactionTestCase`, and in `setUp` populate `model_cls`, `_superuser`, `_matrix_users`, and `_matrix_instances`. The mixin's equivalence / surface-agreement / superuser tests then come for free.
+6. **Add an invariant test class.** In `test_authorization_invariants.py`, subclass `_UserCanInvariantsMixin` + `TransactionTestCase`, and in `setUp` populate `model_cls`, `_superuser`, `_matrix_users`, and `_matrix_instances`. The mixin's equivalence / surface-agreement / admin-data-parity tests then come for free (the `_superuser` is asserted to have NO blanket access — `test_superuser_has_no_blanket_data_access` — matching the scoped-admin contract).
 7. **Cover the fixture matrix.** `_matrix_users` must include: superuser, creator, a non-creator with an explicit guardian grant, an unshared stranger, a public-only viewer (stranger × a public instance), and `AnonymousUser()`.
 8. **Pin model-specific invariants.** Add a focused test for any special rule: structural locking, recursive privacy, `is_public` write asymmetry, or CHAT/THREAD-style bifurcation.
 
