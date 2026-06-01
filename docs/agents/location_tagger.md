@@ -49,6 +49,17 @@ them, so existing callers of the tool keep working unchanged.
    > prompt** — update the `Location Tagger` agent record via the Django admin
    > (or a follow-up data migration) to pick up the revision.
 
+   > **Note — a superuser must exist when the migration runs.** The agent is
+   > created with a `creator`, so the migration looks for an existing superuser.
+   > In environments where migrations run **before** any superuser is seeded
+   > (e.g. an ephemeral CI database, or a containerised first boot where
+   > migrations precede fixtures), it logs a warning and skips creation rather
+   > than failing the migration — which means **the agent is never created**. If
+   > the **Location Tagger** is absent from the agent picker after deploying,
+   > seed a superuser and then either re-run the data migration
+   > (`python manage.py migrate agents 0014 && python manage.py migrate agents 0015`)
+   > or create the agent record from the Django admin.
+
 2. **Add a corpus action.** On the corpus you want tagged, create a
    `CorpusAction` that points at the **Location Tagger** agent and choose a
    trigger:
