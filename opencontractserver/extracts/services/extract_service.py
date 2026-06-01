@@ -213,3 +213,21 @@ class ExtractService(BaseService):
         )
 
         return qs
+
+    @classmethod
+    def get_visible_documents(cls, extract: "Extract", user) -> QuerySet:
+        """Return the extract's documents the ``user`` can READ.
+
+        Effective permission is ``MIN(document, corpus)`` per CLAUDE.md, so a
+        single bulk ``visible_to_user`` filter replaces a per-document
+        permission loop (no N+1). Mirrors the document-filtering used by
+        :meth:`get_extract_datacells`.
+
+        scoped admin access (2026-05): superusers are computed like a normal
+        user — ``visible_to_user`` carries no all-documents bypass.
+        """
+        from opencontractserver.documents.models import Document
+
+        return Document.objects.visible_to_user(user).filter(
+            id__in=extract.documents.values("id")
+        )
