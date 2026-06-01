@@ -14,8 +14,8 @@ import {
  * Mounting the panel directly (rather than the whole DiscoverSearchResults
  * view) keeps the test fast and deterministic: it exercises the real query →
  * AnnotationMap data flow without dragging in the heavy `@os-legal/ui` view
- * shell. AnnotationMap needs a Router (`useNavigate`); the panel needs Apollo.
- * InMemoryCache stays inside MockedProvider (CLAUDE.md pitfall #8).
+ * shell. AnnotationMap needs a Router (`useNavigate`); the panel needs Apollo,
+ * so it mounts inside MockedProvider (which supplies its own default cache).
  *
  * Per CLAUDE.md pitfall #16, the `.ct.tsx` imports this wrapper component in
  * its own import statement.

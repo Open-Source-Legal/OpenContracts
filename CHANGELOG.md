@@ -60,6 +60,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     initial map view with `useState` instead of `useRef().current`; and wrapped
     the map's document-resolve navigation in a `try/catch`. Added a
     `docScreenshot` for the pin side-panel state.
+  - **Second review follow-ups (#1820)**: typed `GeographicAnnotationsInput.labelTypes`
+    as `GeoLabelType[]` (was `string[]`) so invalid label-type strings can't reach
+    the server; extracted the antimeridian-aware viewport-centre math into a pure,
+    exported `bboxCenter` helper (`zoomBands.ts`) and reused it in
+    `DiscoverMapPanel`; exported `readMapViewFromParams` for direct testing; added
+    unit tests covering `labelTypeForZoom` boundary bands, `bboxCenter`
+    antimeridian crossings, and `readMapViewFromParams` URL-restoration edge cases;
+    and corrected a misleading CLAUDE.md-pitfall-#8 comment in
+    `DiscoverMapPanelTestWrapper`.
 - **Location Tagger default agent (#1822)** — a new global, public default agent
   that auto-creates geocoded `OC_COUNTRY` / `OC_STATE` / `OC_CITY` annotations so
   documents populate the Discover (#1820) and Corpus Home (#1821) maps at scale.

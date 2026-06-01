@@ -281,7 +281,9 @@ const TAB_ITEMS: FilterTabItem[] = [
 ];
 
 /** Read the map viewport from URL params, falling back to the map defaults. */
-const readMapViewFromParams = (params: URLSearchParams): DiscoverMapView => {
+export const readMapViewFromParams = (
+  params: URLSearchParams
+): DiscoverMapView => {
   const lat = Number.parseFloat(params.get(MAP_LAT_PARAM) ?? "");
   const lng = Number.parseFloat(params.get(MAP_LNG_PARAM) ?? "");
   const zoom = Number.parseFloat(params.get(MAP_ZOOM_PARAM) ?? "");

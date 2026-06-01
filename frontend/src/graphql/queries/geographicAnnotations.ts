@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import { GeographicAnnotationPin, MapBBox } from "../../components/maps/types";
+import { GeoLabelType } from "../../assets/configurations/constants";
 
 /**
  * Geographic annotation map queries (issue #1820).
@@ -65,7 +66,7 @@ export const GET_GEOGRAPHIC_ANNOTATIONS_FOR_CORPUS = gql`
 export interface GeographicAnnotationsInput {
   bbox: MapBBox | null;
   zoom: number | null;
-  labelTypes: string[];
+  labelTypes: GeoLabelType[];
 }
 
 export interface GetGlobalGeographicAnnotationsOutput {

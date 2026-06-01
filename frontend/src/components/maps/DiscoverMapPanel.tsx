@@ -6,6 +6,7 @@ import styled from "styled-components";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { MAP_DEFAULT_HEIGHT } from "../../assets/configurations/constants";
 import { AnnotationMap } from "./AnnotationMap";
+import { bboxCenter } from "./zoomBands";
 import { GeographicAnnotationPin, MapBBox } from "./types";
 import {
   GeographicAnnotationsInput,
@@ -129,16 +130,10 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
   const handleBoundsChange = useDebouncedCallback(
     (bbox: MapBBox, zoom: number) => {
       setVariables({ bbox, zoom, labelTypes: [...GEO_LABEL_TYPES] });
-      // The longitude midpoint must handle antimeridian-crossing viewports
-      // (west > east, e.g. west=170/east=-170 whose true centre is 180/-180).
-      // A plain average would yield 0 (the prime meridian) and persist a wrong
-      // deep-link; the backend BBox already wraps, so the URL must agree.
-      const midLng =
-        bbox.west <= bbox.east
-          ? (bbox.west + bbox.east) / 2
-          : (((bbox.west + bbox.east + 360) / 2 + 180) % 360) - 180;
+      // bboxCenter handles antimeridian-crossing viewports so the persisted
+      // deep-link agrees with the backend BBox wrapping (see zoomBands.ts).
       onViewChange?.({
-        center: [(bbox.south + bbox.north) / 2, midLng],
+        center: bboxCenter(bbox),
         zoom,
       });
     },
