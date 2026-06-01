@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP `search_corpus` returned duplicate hits and dead-end passages; bad
+  tool arguments leaked a raw `TypeError`.** Surfaced while evaluating the
+  public MCP server (`cite.opensource.legal/mcp`). Three fixes:
+  - **Duplicate hits.** The annotation→embedding join can return one row per
+    stored vector, so a single annotation surfaced multiple times with an
+    identical score (observed: the same passage filling 3 of 4 result slots).
+    `search_corpus` (`opencontractserver/mcp/tools.py`) now over-fetches
+    candidates (`MCP_SEARCH_CANDIDATE_MULTIPLIER`/`_MAX` in
+    `opencontractserver/constants/mcp.py`) and de-duplicates the merged feed
+    (`_dedupe_search_hits`) after sorting by score — keeping the highest-scoring
+    instance — before capping at `limit`.
+  - **Dead-end passages.** Passage search hits omitted any identifier, so a hit
+    could not be bridged back to the `annotation://` resource or
+    `list_annotations`. `format_search_passage`
+    (`opencontractserver/mcp/formatters.py`) now includes `annotation_id`
+    (matching the `annotation_id` key used by relationship nodes); it is also
+    the stable key the dedup logic uses.
+  - **Raw `TypeError` on bad arguments.** An unknown tool argument (e.g. `page`
+    on `get_document_text`) raised a bare `TypeError` deep in `sync_to_async`,
+    escaping the structured-error branch as an opaque transport error that
+    leaked the Python function signature. A new `_safe_tool_arguments`
+    (`opencontractserver/mcp/server.py`), used by both the global and scoped
+    dispatchers, drops the server-injected `user` and rejects unknown arguments
+    as a `ValidationError` — surfaced as a structured `{"error": ...}` payload
+    that names the offending argument and lists the valid ones. The scoped tool
+    wrapper now carries `functools.wraps` so validation sees the wrapped tool's
+    real signature rather than the wrapper's `(**kwargs)`.
+  - Corpus-level retrieval sparseness on machine-ingested imports (the SpaceX
+    S-1) is tracked separately in #1883 (V2 import skips structural ingestion +
+    PAWLs re-encoding) and is not addressed here.
 - **Deep-research code-review follow-ups (#1864).** Addressed the actionable
   items from the PR #1836 review:
   - `frontend/src/graphql/mutations.ts` — `CancelResearchReportOutput.obj.status`
