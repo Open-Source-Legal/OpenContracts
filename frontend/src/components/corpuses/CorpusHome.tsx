@@ -21,6 +21,7 @@ import { CorpusLandingView } from "./CorpusHome/CorpusLandingView";
 import { CorpusDetailsView } from "./CorpusHome/CorpusDetailsView";
 import { CorpusDiscussionsInlineView } from "./CorpusHome/CorpusDiscussionsInlineView";
 import { CorpusArticleView } from "./CorpusHome/CorpusArticleView";
+import { CorpusMapView } from "./CorpusMapView";
 import { InlineChatBar } from "./CorpusHero/InlineChatBar";
 import { PillToggle, PillToggleLabel } from "./CorpusHome/styles";
 
@@ -153,13 +154,15 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
     updateDetailViewParam(location, navigate, "details");
   };
 
-  // Handle switching back to landing view (also clears thread param to prevent stale state).
-  // Clears both 'view' and 'thread' params in a single navigation.
-  // Cannot use updateDetailViewParam() here because it only handles one param.
+  // Handle switching back to landing view (also clears thread/pin params to
+  // prevent stale state). Clears 'view', 'thread', and the map 'pin' deep-link
+  // param in a single navigation. Cannot use updateDetailViewParam() here
+  // because it only handles the view param.
   const handleBackToLanding = () => {
     const searchParams = new URLSearchParams(location.search);
     searchParams.delete("view");
     searchParams.delete("thread");
+    searchParams.delete("pin");
     navigate({ search: searchParams.toString() });
   };
 
@@ -171,6 +174,11 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
   // Handle switching to article view
   const handleViewArticle = () => {
     updateDetailViewParam(location, navigate, "article");
+  };
+
+  // Handle switching to the geographic map view
+  const handleViewMap = () => {
+    updateDetailViewParam(location, navigate, "map");
   };
 
   // Handle clicking a specific thread from the landing page feed
@@ -197,6 +205,16 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         corpus={corpus}
         onBack={handleBackToLanding}
         testId="corpus-home-discussions"
+      />
+    );
+  }
+
+  if (currentView === "map") {
+    return (
+      <CorpusMapView
+        corpus={corpus}
+        onBack={handleBackToLanding}
+        testId="corpus-home-map"
       />
     );
   }
@@ -293,6 +311,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         onViewArticle={handleViewArticle}
         onOpenArticleEditor={onEditArticle}
         onThreadClick={handleThreadClick}
+        onViewMap={handleViewMap}
         testId="corpus-home-landing"
       />
       {onModeToggle && (

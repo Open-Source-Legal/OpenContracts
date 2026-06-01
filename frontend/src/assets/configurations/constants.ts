@@ -514,6 +514,14 @@ export const MAP_ZOOM_CITY_MIN = 6;
 // Debounce (ms) for bbox/zoom-driven refetches triggered by pan/zoom.
 export const MAP_BBOX_REFETCH_DEBOUNCE_MS = 300;
 
+// Auto-fit / deep-link focus framing for the per-corpus map (#1821). The corpus
+// map opens framed on its pins (auto-fit) and can deep-link to a single place
+// (focus); fitBounds / flyTo clamp into these so a lone pin doesn't slam to
+// street level and a deep-linked place lands at a sensible granularity. The
+// city band has no inherent upper bound, so MAP_FIT_MAX_ZOOM caps it.
+export const MAP_FIT_MAX_ZOOM = 10;
+export const MAP_FIT_PADDING_PX = 48;
+
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;
 

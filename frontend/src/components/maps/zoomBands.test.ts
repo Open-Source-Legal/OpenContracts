@@ -1,12 +1,32 @@
 import { describe, it, expect } from "vitest";
-import { labelTypeForZoom, bboxCenter } from "./zoomBands";
+import {
+  bandZoomRange,
+  bboxCenter,
+  coarsestBand,
+  labelTypeForZoom,
+} from "./zoomBands";
+import type { GeographicAnnotationPin } from "./types";
 import {
   GEO_LABEL_TYPE_CITY,
   GEO_LABEL_TYPE_COUNTRY,
   GEO_LABEL_TYPE_STATE,
+  MAP_FIT_MAX_ZOOM,
+  MAP_MIN_ZOOM,
   MAP_ZOOM_CITY_MIN,
   MAP_ZOOM_STATE_MIN,
 } from "../../assets/configurations/constants";
+
+const pin = (
+  labelType: GeographicAnnotationPin["labelType"],
+  canonicalName = labelType
+): GeographicAnnotationPin => ({
+  canonicalName,
+  labelType,
+  lat: 0,
+  lng: 0,
+  documentCount: 1,
+  sampleDocumentIds: [],
+});
 
 describe("labelTypeForZoom", () => {
   it("returns country below the state threshold", () => {
@@ -54,5 +74,51 @@ describe("bboxCenter", () => {
       east: -120,
     });
     expect(lng).toBeCloseTo(-165, 6);
+  });
+});
+
+describe("bandZoomRange", () => {
+  it("maps each band to the expected inclusive [min, max]", () => {
+    expect(bandZoomRange(GEO_LABEL_TYPE_COUNTRY)).toEqual([
+      MAP_MIN_ZOOM,
+      MAP_ZOOM_STATE_MIN - 1,
+    ]);
+    expect(bandZoomRange(GEO_LABEL_TYPE_STATE)).toEqual([
+      MAP_ZOOM_STATE_MIN,
+      MAP_ZOOM_CITY_MIN - 1,
+    ]);
+    expect(bandZoomRange(GEO_LABEL_TYPE_CITY)).toEqual([
+      MAP_ZOOM_CITY_MIN,
+      MAP_FIT_MAX_ZOOM,
+    ]);
+  });
+
+  it("stays inside its own band for every zoom in the range (focus/fit invariant)", () => {
+    for (const band of [
+      GEO_LABEL_TYPE_COUNTRY,
+      GEO_LABEL_TYPE_STATE,
+      GEO_LABEL_TYPE_CITY,
+    ] as const) {
+      const [min, max] = bandZoomRange(band);
+      for (let z = min; z <= max; z++) {
+        expect(labelTypeForZoom(z)).toBe(band);
+      }
+    }
+  });
+});
+
+describe("coarsestBand", () => {
+  it("returns null for an empty pin set", () => {
+    expect(coarsestBand([])).toBeNull();
+  });
+
+  it("prefers country, then state, then city", () => {
+    expect(coarsestBand([pin("city"), pin("state"), pin("country")])).toBe(
+      GEO_LABEL_TYPE_COUNTRY
+    );
+    expect(coarsestBand([pin("city"), pin("state")])).toBe(
+      GEO_LABEL_TYPE_STATE
+    );
+    expect(coarsestBand([pin("city")])).toBe(GEO_LABEL_TYPE_CITY);
   });
 });

@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import styled from "styled-components";
 import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -24,12 +30,13 @@ import {
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_HEIGHT,
   MAP_DEFAULT_ZOOM,
+  MAP_FIT_PADDING_PX,
   MAP_MAX_ZOOM,
   MAP_MIN_ZOOM,
   MAP_TILE_ATTRIBUTION,
   MAP_TILE_URL_TEMPLATE,
 } from "../../assets/configurations/constants";
-import { labelTypeForZoom } from "./zoomBands";
+import { bandZoomRange, coarsestBand, labelTypeForZoom } from "./zoomBands";
 import { AnnotationMapProps, GeographicAnnotationPin } from "./types";
 import { pluralizeDocuments } from "../../utils/formatters";
 
@@ -246,6 +253,102 @@ const ViewportReporter: React.FC<ViewportReporterProps> = ({
 };
 
 // ---------------------------------------------------------------------------
+// Internal child: imperatively frames the map (auto-fit / deep-link focus).
+//
+// react-leaflet treats MapContainer `center`/`zoom` as mount-only, so framing
+// an already-mounted map must go through the Leaflet instance (#1821). Both
+// behaviours run at most once: auto-fit on the first non-empty pin set, focus
+// once per distinct name (deferred until that pin actually loads).
+// ---------------------------------------------------------------------------
+interface MapControllerProps {
+  pins: GeographicAnnotationPin[];
+  fitToPins: boolean;
+  focusPinName?: string | null;
+  /** Selects a pin (opens the panel) and aligns the zoom band to it. */
+  onFocus: (pin: GeographicAnnotationPin, zoom: number) => void;
+}
+
+const MapController: React.FC<MapControllerProps> = ({
+  pins,
+  fitToPins,
+  focusPinName,
+  onFocus,
+}) => {
+  const map = useMap();
+  const didFitRef = useRef(false);
+  const focusedNameRef = useRef<string | null>(null);
+
+  // Deep-link focus: select + fly to the named pin once it appears.
+  useEffect(() => {
+    if (!focusPinName) {
+      // Reset so a later re-set of the same name re-focuses.
+      focusedNameRef.current = null;
+      return;
+    }
+    if (focusedNameRef.current === focusPinName) {
+      return;
+    }
+    const pin = pins.find((p) => p.canonicalName === focusPinName);
+    if (!pin) {
+      // Pins not loaded yet; this effect re-runs when `pins` arrive.
+      return;
+    }
+    focusedNameRef.current = focusPinName;
+    // A deep-link focus consumes the one-shot auto-fit: if the focus param is
+    // later cleared, auto-fit must not retroactively fire on this instance.
+    didFitRef.current = true;
+    // Fly to a zoom inside the pin's band so its marker stays visible; aligning
+    // the parent's band zoom first keeps the selection from being dropped.
+    const targetZoom = bandZoomRange(pin.labelType)[1];
+    onFocus(pin, targetZoom);
+    map.flyTo([pin.lat, pin.lng], targetZoom);
+  }, [pins, focusPinName, map, onFocus]);
+
+  // Auto-fit: frame the coarsest band's pins once, on first load. A deep-link
+  // focus takes precedence (skip the fit so it doesn't fight the flyTo).
+  //
+  // Ordering invariant: this effect must run AFTER the focus effect above.
+  // React runs effects in definition order, and the focus effect sets
+  // `didFitRef.current = true` when it consumes the one-shot fit — so the
+  // `didFitRef.current` guard here reflects focus priority. Keep this effect
+  // below the focus effect.
+  useEffect(() => {
+    if (!fitToPins || didFitRef.current || focusPinName || pins.length === 0) {
+      return;
+    }
+    const band = coarsestBand(pins);
+    if (!band) {
+      return;
+    }
+    const bounds = L.latLngBounds(
+      pins
+        .filter((pin) => pin.labelType === band)
+        .map((pin) => [pin.lat, pin.lng] as [number, number])
+    );
+    if (!bounds.isValid()) {
+      return;
+    }
+    didFitRef.current = true;
+    // Clamp the fitted zoom into the band's range: capping the max keeps a lone
+    // pin from slamming to street level, and raising the floor stops a wide
+    // spread from zooming out past where the band's pins disappear.
+    const [bandMin, bandMax] = bandZoomRange(band);
+    // Pad the fit so framed pins are not flush against the viewport edges.
+    const fitZoom = Math.min(
+      map.getBoundsZoom(
+        bounds,
+        false,
+        L.point(MAP_FIT_PADDING_PX, MAP_FIT_PADDING_PX)
+      ),
+      bandMax
+    );
+    map.setView(bounds.getCenter(), Math.max(fitZoom, bandMin));
+  }, [pins, fitToPins, focusPinName, map]);
+
+  return null;
+};
+
+// ---------------------------------------------------------------------------
 // Public component
 // ---------------------------------------------------------------------------
 /**
@@ -274,6 +377,8 @@ export const AnnotationMap: React.FC<AnnotationMapProps> = ({
   zoom = MAP_DEFAULT_ZOOM,
   height = MAP_DEFAULT_HEIGHT,
   className,
+  fitToPins = false,
+  focusPinName,
 }) => {
   const [currentZoom, setCurrentZoom] = useState<number>(zoom);
   const [selectedPin, setSelectedPin] =
@@ -297,6 +402,18 @@ export const AnnotationMap: React.FC<AnnotationMapProps> = ({
     setSelectedPin(pin);
     onPinClick?.(pin);
   };
+
+  // Deep-link focus selects a pin and aligns the band zoom in the same render
+  // so the "drop stale selection" effect above keeps the selection. Does NOT
+  // fire onPinClick: the focus originated from the caller (the URL), so echoing
+  // it back would be redundant.
+  const handleFocusPin = useCallback(
+    (pin: GeographicAnnotationPin, targetZoom: number) => {
+      setCurrentZoom(targetZoom);
+      setSelectedPin(pin);
+    },
+    []
+  );
 
   return (
     <MapWrapper
@@ -324,6 +441,12 @@ export const AnnotationMap: React.FC<AnnotationMapProps> = ({
         <ViewportReporter
           onBoundsChange={onBoundsChange}
           onZoom={setCurrentZoom}
+        />
+        <MapController
+          pins={pins}
+          fitToPins={fitToPins}
+          focusPinName={focusPinName}
+          onFocus={handleFocusPin}
         />
       </MapContainer>
 
