@@ -2807,11 +2807,7 @@ class TestBuildLabelLookupsEdgeCases(TestCase):
         result = build_label_lookups(
             corpus_id=self.corpus.id,
             analysis_ids=None,
-            # ``build_label_lookups`` compares this against the raw string
-            # ("ANALYSES_ONLY") in its body, so the test deliberately passes
-            # a str; cast keeps that runtime value while satisfying the
-            # AnnotationFilterMode-typed parameter.
-            annotation_filter_mode=cast(AnnotationFilterMode, "ANALYSES_ONLY"),
+            annotation_filter_mode=AnnotationFilterMode.ANALYSES_ONLY,
         )
 
         # Should return empty lookups since no analyses specified
@@ -2840,11 +2836,7 @@ class TestBuildLabelLookupsEdgeCases(TestCase):
         result = build_label_lookups(
             corpus_id=self.corpus.id,
             analysis_ids=None,
-            # See note above: the helper string-compares this value, so the
-            # test passes a str and casts to the declared enum type.
-            annotation_filter_mode=cast(
-                AnnotationFilterMode, "CORPUS_LABELSET_PLUS_ANALYSES"
-            ),
+            annotation_filter_mode=AnnotationFilterMode.CORPUS_LABELSET_PLUS_ANALYSES,
         )
 
         # Should include corpus labels only (no analyses to add)
