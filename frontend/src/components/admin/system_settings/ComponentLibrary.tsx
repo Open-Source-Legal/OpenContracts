@@ -1,11 +1,11 @@
 import React, { memo, useMemo, useState, useCallback } from "react";
 import { Input } from "@os-legal/ui";
-import { Package, Search } from "lucide-react";
+import { Package, Search, Key } from "lucide-react";
 import { PipelineComponentType } from "../../../types/graphql-api";
 import { MIME_TO_SHORT_LABEL } from "../../../assets/configurations/constants";
 import { getComponentDisplayName } from "../PipelineIcons";
-import { SettingsSchemaEntry, StageType } from "./types";
-import { STAGE_CONFIG } from "./config";
+import { SettingsSchemaEntry, LibraryStageType } from "./types";
+import { LIBRARY_STAGE_CONFIG } from "./config";
 import { AdvancedSettingsPanel } from "./AdvancedSettingsPanel";
 import {
   Section,
@@ -29,11 +29,11 @@ import {
 // Types
 // ============================================================================
 
-type FilterCategory = "all" | StageType;
+type FilterCategory = "all" | LibraryStageType;
 
 interface FlatComponent {
   component: PipelineComponentType & { className: string };
-  stage: StageType;
+  stage: LibraryStageType;
 }
 
 interface ComponentLibraryProps {
@@ -41,6 +41,7 @@ interface ComponentLibraryProps {
     parsers: (PipelineComponentType & { className: string })[];
     embedders: (PipelineComponentType & { className: string })[];
     thumbnailers: (PipelineComponentType & { className: string })[];
+    llmProviders: (PipelineComponentType & { className: string })[];
   };
   updating: boolean;
   componentsLoading: boolean;
@@ -62,6 +63,7 @@ const FILTER_OPTIONS: { value: FilterCategory; label: string }[] = [
   { value: "parsers", label: "Parsers" },
   { value: "embedders", label: "Embedders" },
   { value: "thumbnailers", label: "Thumbnailers" },
+  { value: "llmProviders", label: "LLM Providers" },
 ];
 
 // ============================================================================
@@ -90,7 +92,12 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
     // Flatten all components into a single list with stage metadata
     const allComponents = useMemo<FlatComponent[]>(() => {
       const result: FlatComponent[] = [];
-      const stages: StageType[] = ["parsers", "embedders", "thumbnailers"];
+      const stages: LibraryStageType[] = [
+        "parsers",
+        "embedders",
+        "thumbnailers",
+        "llmProviders",
+      ];
       for (const stage of stages) {
         for (const comp of components[stage]) {
           if (comp?.className) {
@@ -179,7 +186,8 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
           {filteredComponents.length > 0 ? (
             filteredComponents.map(({ component, stage }) => {
               const isEnabled = component.enabled ?? true;
-              const stageConfig = STAGE_CONFIG[stage];
+              const stageConfig = LIBRARY_STAGE_CONFIG[stage];
+              const isLlmProvider = stage === "llmProviders";
               const displayName = getComponentDisplayName(
                 component.className,
                 component.title || undefined
@@ -191,16 +199,23 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
               const hasSettings =
                 configSettings.length > 0 || secretSettings.length > 0;
 
-              // Map supported file types to short labels
-              const fileTypeBadges = (component.supportedFileTypes || []).map(
-                (ft) => {
-                  const label =
-                    MIME_TO_SHORT_LABEL[ft] ||
-                    ft.split("/").pop()?.toUpperCase() ||
-                    ft;
-                  return label;
-                }
-              );
+              // LLM providers are not file-type-scoped: surface their suggested
+              // models as chips instead of file-type badges. Other stages map
+              // their supported file types to short labels.
+              const modelBadges = isLlmProvider
+                ? (component.supportedModels || []).filter((m): m is string =>
+                    Boolean(m)
+                  )
+                : [];
+              const fileTypeBadges = isLlmProvider
+                ? []
+                : (component.supportedFileTypes || []).map((ft) => {
+                    const label =
+                      MIME_TO_SHORT_LABEL[ft] ||
+                      ft.split("/").pop()?.toUpperCase() ||
+                      ft;
+                    return label;
+                  });
 
               return (
                 <ComponentListItem
@@ -243,6 +258,22 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
                       <StageBadge $color={stageConfig.color}>
                         {stageConfig.title}
                       </StageBadge>
+                      {isLlmProvider && component.requiresApiKey && (
+                        <FileTypeBadge
+                          title="This provider needs an API credential (resolved from the process environment, e.g. ANTHROPIC_API_KEY)"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Key style={{ width: 11, height: 11 }} />
+                          API key
+                        </FileTypeBadge>
+                      )}
+                      {modelBadges.map((model) => (
+                        <FileTypeBadge key={model}>{model}</FileTypeBadge>
+                      ))}
                       {fileTypeBadges.map((label) => (
                         <FileTypeBadge key={label}>{label}</FileTypeBadge>
                       ))}

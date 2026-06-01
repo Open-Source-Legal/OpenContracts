@@ -34,6 +34,7 @@ export const GET_PIPELINE_SETTINGS = gql`
       parserKwargs
       componentSettings
       defaultEmbedder
+      defaultLlm
       componentsWithSecrets
       enabledComponents
       modified
@@ -106,6 +107,27 @@ export const GET_PIPELINE_COMPONENTS = gql`
         }
         enabled
       }
+      llmProviders {
+        name
+        title
+        description
+        className
+        providerKey
+        supportedModels
+        requiresApiKey
+        settingsSchema {
+          name
+          settingType
+          pythonType
+          required
+          description
+          default
+          envVar
+          hasValue
+          currentValue
+        }
+        enabled
+      }
     }
   }
 `;
@@ -118,6 +140,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
     $parserKwargs: GenericScalar
     $componentSettings: GenericScalar
     $defaultEmbedder: String
+    $defaultLlm: String
     $enabledComponents: [String]
   ) {
     updatePipelineSettings(
@@ -127,6 +150,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
       parserKwargs: $parserKwargs
       componentSettings: $componentSettings
       defaultEmbedder: $defaultEmbedder
+      defaultLlm: $defaultLlm
       enabledComponents: $enabledComponents
     ) {
       ok

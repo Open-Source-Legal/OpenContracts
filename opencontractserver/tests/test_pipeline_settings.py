@@ -143,6 +143,22 @@ class PipelineSettingsModelTestCase(TestCase):
         # Should use the updated database value
         self.assertEqual(instance.get_default_embedder(), "db.embedder.NewDefault")
 
+    @override_settings(DEFAULT_LLM="")
+    def test_get_default_llm_uses_db(self):
+        """get_default_llm returns the stored DB value (empty by default)."""
+        PipelineSettings.objects.all().delete()
+        PipelineSettings._invalidate_cache()
+        instance = PipelineSettings.get_instance()
+
+        # Empty by default (no DEFAULT_LLM configured in the test settings).
+        self.assertEqual(instance.get_default_llm(), "")
+
+        # Override with a new database value
+        instance.default_llm = "anthropic:claude-opus-4-6"
+        instance.save()
+
+        self.assertEqual(instance.get_default_llm(), "anthropic:claude-opus-4-6")
+
     def test_get_parser_kwargs_uses_db(self):
         """Test that get_parser_kwargs returns DB values."""
         PipelineSettings.objects.all().delete()
@@ -646,6 +662,146 @@ class PipelineSettingsGraphQLTestCase(TestCase):
                 ],
                 embedder.class_name,
             )
+
+    def test_update_default_llm(self):
+        """Setting the default LLM via GraphQL persists the normalised spec."""
+        mutation = """
+            mutation UpdatePipelineSettings($defaultLlm: String) {
+                updatePipelineSettings(defaultLlm: $defaultLlm) {
+                    ok
+                    message
+                    pipelineSettings {
+                        defaultLlm
+                    }
+                }
+            }
+        """
+        variables = {"defaultLlm": "anthropic:claude-opus-4-6"}
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(
+            result["data"]["updatePipelineSettings"]["ok"],
+            msg=result["data"]["updatePipelineSettings"]["message"],
+        )
+        self.assertEqual(
+            result["data"]["updatePipelineSettings"]["pipelineSettings"]["defaultLlm"],
+            "anthropic:claude-opus-4-6",
+        )
+        # Persisted to the singleton.
+        PipelineSettings._invalidate_cache()
+        self.assertEqual(
+            PipelineSettings.get_instance().get_default_llm(),
+            "anthropic:claude-opus-4-6",
+        )
+
+    def test_update_default_llm_normalises_bare_spec(self):
+        """A bare model name is stored with the default (openai) provider prefix."""
+        mutation = """
+            mutation UpdatePipelineSettings($defaultLlm: String) {
+                updatePipelineSettings(defaultLlm: $defaultLlm) {
+                    ok
+                    pipelineSettings { defaultLlm }
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            mutation, variables={"defaultLlm": "gpt-4o"}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+        self.assertEqual(
+            result["data"]["updatePipelineSettings"]["pipelineSettings"]["defaultLlm"],
+            "openai:gpt-4o",
+        )
+
+    def test_update_default_llm_unknown_provider_fails(self):
+        """An unregistered provider prefix is rejected with a clear message."""
+        mutation = """
+            mutation UpdatePipelineSettings($defaultLlm: String) {
+                updatePipelineSettings(defaultLlm: $defaultLlm) {
+                    ok
+                    message
+                    pipelineSettings { defaultLlm }
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            mutation, variables={"defaultLlm": "bogus-provider:some-model"}
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        self.assertIn(
+            "not registered",
+            result["data"]["updatePipelineSettings"]["message"].lower(),
+        )
+
+    def test_update_default_llm_clear_with_empty_string(self):
+        """Empty string clears the override (falls back to the settings default)."""
+        instance = PipelineSettings.get_instance()
+        instance.default_llm = "anthropic:claude-opus-4-6"
+        instance.save()
+        PipelineSettings._invalidate_cache()
+
+        mutation = """
+            mutation UpdatePipelineSettings($defaultLlm: String) {
+                updatePipelineSettings(defaultLlm: $defaultLlm) {
+                    ok
+                    pipelineSettings { defaultLlm }
+                }
+            }
+        """
+        result = self.superuser_client.execute(mutation, variables={"defaultLlm": ""})
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+        self.assertEqual(
+            result["data"]["updatePipelineSettings"]["pipelineSettings"]["defaultLlm"],
+            "",
+        )
+        PipelineSettings._invalidate_cache()
+        self.assertEqual(PipelineSettings.get_instance().get_default_llm(), "")
+
+    def test_update_default_llm_as_regular_user_fails(self):
+        """Non-superusers cannot change the default LLM."""
+        mutation = """
+            mutation UpdatePipelineSettings($defaultLlm: String) {
+                updatePipelineSettings(defaultLlm: $defaultLlm) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.regular_client.execute(
+            mutation, variables={"defaultLlm": "anthropic:claude-opus-4-6"}
+        )
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        self.assertIn(
+            "superuser",
+            result["data"]["updatePipelineSettings"]["message"].lower(),
+        )
+
+    @override_settings(DEFAULT_LLM="")
+    def test_reset_pipeline_settings_clears_default_llm(self):
+        """Reset restores default_llm to the Django settings default (empty)."""
+        instance = PipelineSettings.get_instance()
+        instance.default_llm = "anthropic:claude-opus-4-6"
+        instance.save()
+        PipelineSettings._invalidate_cache()
+
+        mutation = """
+            mutation {
+                resetPipelineSettings {
+                    ok
+                    pipelineSettings { defaultLlm }
+                }
+            }
+        """
+        result = self.superuser_client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["resetPipelineSettings"]["ok"])
+        self.assertEqual(
+            result["data"]["resetPipelineSettings"]["pipelineSettings"]["defaultLlm"],
+            "",
+        )
 
     def _make_fake_secret_registry(self):
         """Build a mock registry containing a parser-class fake with a SECRET field.

@@ -146,6 +146,8 @@ export const SystemSettings: React.FC = () => {
   const [showDefaultEmbedderModal, setShowDefaultEmbedderModal] =
     useState(false);
   const [defaultEmbedderValue, setDefaultEmbedderValue] = useState("");
+  const [showDefaultLlmModal, setShowDefaultLlmModal] = useState(false);
+  const [defaultLlmValue, setDefaultLlmValue] = useState("");
   const [showDeleteSecretsConfirm, setShowDeleteSecretsConfirm] =
     useState(false);
   const [deleteSecretsPath, setDeleteSecretsPath] = useState("");
@@ -285,8 +287,12 @@ export const SystemSettings: React.FC = () => {
       (comp): comp is PipelineComponentType & { className: string } =>
         Boolean(comp?.className)
     );
+    const llmProviders = (components?.llmProviders || []).filter(
+      (comp): comp is PipelineComponentType & { className: string } =>
+        Boolean(comp?.className)
+    );
 
-    return { parsers, embedders, thumbnailers };
+    return { parsers, embedders, thumbnailers, llmProviders };
   }, [components]);
 
   const componentByClassName = useMemo(() => {
@@ -298,6 +304,7 @@ export const SystemSettings: React.FC = () => {
       ...componentsByStage.parsers,
       ...componentsByStage.embedders,
       ...componentsByStage.thumbnailers,
+      ...componentsByStage.llmProviders,
     ]) {
       map.set(comp.className, comp);
     }
@@ -364,10 +371,14 @@ export const SystemSettings: React.FC = () => {
       if (currentEnabled.length === 0 && !enabled) {
         // Transitioning from "all enabled" to explicit list: build full list
         // from loaded components, then remove the one being disabled.
+        // LLM providers MUST be included here — omitting them would drop every
+        // provider from the freshly-built explicit list, silently disabling
+        // them as a side effect of toggling an unrelated component.
         const allPaths = [
           ...componentsByStage.parsers,
           ...componentsByStage.embedders,
           ...componentsByStage.thumbnailers,
+          ...componentsByStage.llmProviders,
         ].map((c) => c.className);
 
         if (allPaths.length === 0) {
@@ -580,6 +591,24 @@ export const SystemSettings: React.FC = () => {
     setShowDefaultEmbedderModal(false);
   }, [defaultEmbedderValue, updateSettings]);
 
+  // Handle default LLM. The value is a pydantic-ai model spec
+  // ("{provider}:{model}"), not a component class path. An empty string
+  // clears the override so resolution falls back to the Django settings
+  // default — so we send "" (not null) on save.
+  const handleEditDefaultLlm = useCallback(() => {
+    setDefaultLlmValue(settings?.defaultLlm || "");
+    setShowDefaultLlmModal(true);
+  }, [settings]);
+
+  const handleSaveDefaultLlm = useCallback(() => {
+    updateSettings({
+      variables: {
+        defaultLlm: defaultLlmValue.trim(),
+      },
+    });
+    setShowDefaultLlmModal(false);
+  }, [defaultLlmValue, updateSettings]);
+
   // Format date
   const formatDate = useCallback((dateStr: string | null | undefined) => {
     if (!dateStr) return "Never";
@@ -635,9 +664,11 @@ export const SystemSettings: React.FC = () => {
       preferredThumbnailers:
         (settings?.preferredThumbnailers as Record<string, string>) || {},
       defaultEmbedder: settings?.defaultEmbedder || "",
+      defaultLlm: settings?.defaultLlm || "",
       updating,
       onAssign: handleAssign,
       onEditDefaultEmbedder: handleEditDefaultEmbedder,
+      onEditDefaultLlm: handleEditDefaultLlm,
     }),
     [
       componentsByStage,
@@ -648,9 +679,11 @@ export const SystemSettings: React.FC = () => {
       settings?.preferredEmbedders,
       settings?.preferredThumbnailers,
       settings?.defaultEmbedder,
+      settings?.defaultLlm,
       updating,
       handleAssign,
       handleEditDefaultEmbedder,
+      handleEditDefaultLlm,
     ]
   );
 
@@ -1021,6 +1054,140 @@ export const SystemSettings: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleSaveDefaultEmbedder}
+            loading={updating}
+          >
+            <Save style={{ width: 16, height: 16, marginRight: 8 }} />
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Default LLM Modal */}
+      <Modal
+        open={showDefaultLlmModal}
+        onClose={() => setShowDefaultLlmModal(false)}
+        size="md"
+      >
+        <ModalHeader
+          title="Edit Default LLM"
+          onClose={() => setShowDefaultLlmModal(false)}
+        />
+        <ModalBody>
+          <FormField>
+            <FormLabel>Default LLM Model Spec</FormLabel>
+            <Input
+              id="default-llm"
+              value={defaultLlmValue}
+              onChange={(e) => setDefaultLlmValue(e.target.value)}
+              placeholder="e.g., anthropic:claude-opus-4-6"
+              fullWidth
+            />
+            <FormHelperText>
+              pydantic-ai model spec in "provider:model" form. Leave empty to
+              fall back to the server default. Per-corpus and per-agent settings
+              still take precedence over this value.
+            </FormHelperText>
+          </FormField>
+          {componentsByStage.llmProviders.length > 0 && (
+            <div style={{ marginTop: "1rem" }}>
+              <FormLabel>
+                Registered Providers &amp; Suggested Models:
+              </FormLabel>
+              {componentsByStage.llmProviders.map((provider) => {
+                const providerKey = provider.providerKey || "";
+                const models = (provider.supportedModels || []).filter(
+                  (m): m is string => Boolean(m)
+                );
+                return (
+                  <div
+                    key={provider.className}
+                    style={{ marginTop: "0.75rem" }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.8125rem",
+                        fontWeight: 600,
+                        marginBottom: "0.375rem",
+                      }}
+                    >
+                      {provider.title || provider.name}
+                      {provider.requiresApiKey && (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            fontSize: "0.75rem",
+                            fontWeight: 400,
+                            color: OS_LEGAL_COLORS.textSecondary,
+                          }}
+                        >
+                          (API key required)
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "0.375rem",
+                      }}
+                    >
+                      {models.length > 0 ? (
+                        models.map((model) => {
+                          const spec = providerKey
+                            ? `${providerKey}:${model}`
+                            : model;
+                          const selected = defaultLlmValue === spec;
+                          return (
+                            <button
+                              key={spec}
+                              type="button"
+                              onClick={() => setDefaultLlmValue(spec)}
+                              style={{
+                                padding: "0.25rem 0.625rem",
+                                fontSize: "0.75rem",
+                                cursor: "pointer",
+                                borderRadius: "9999px",
+                                background: selected
+                                  ? "#e0e7ff"
+                                  : OS_LEGAL_COLORS.surfaceHover,
+                                border: `1px solid ${
+                                  selected ? "#6366f1" : OS_LEGAL_COLORS.border
+                                }`,
+                                color: OS_LEGAL_COLORS.textPrimary,
+                              }}
+                            >
+                              {model}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            color: OS_LEGAL_COLORS.textSecondary,
+                          }}
+                        >
+                          No suggested models — enter a spec manually
+                          {providerKey ? ` (prefix: ${providerKey}:)` : ""}.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setShowDefaultLlmModal(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSaveDefaultLlm}
             loading={updating}
           >
             <Save style={{ width: 16, height: 16, marginRight: 8 }} />

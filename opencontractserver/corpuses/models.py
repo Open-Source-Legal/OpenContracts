@@ -439,10 +439,16 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             # Freeze the LLM that was active at creation time.  Unlike
             # the embedder, ``preferred_llm`` itself stays mutable —
             # only ``created_with_llm`` is locked.  We always record
-            # the *resolved* default (settings.DEFAULT_LLM /
-            # settings.OPENAI_MODEL fallback) so the audit trail is
-            # never blank.
-            self.created_with_llm = resolve_model_spec(explicit=self.preferred_llm)
+            # the *resolved* default (PipelineSettings.default_llm →
+            # settings.DEFAULT_LLM → settings.OPENAI_MODEL fallback) so
+            # the audit trail is never blank and matches what the agent
+            # factory would resolve for this corpus.
+            from opencontractserver.pipeline.utils import get_default_llm_spec
+
+            self.created_with_llm = resolve_model_spec(
+                explicit=self.preferred_llm,
+                settings_default=get_default_llm_spec(),
+            )
 
         self.modified = timezone.now()
 
