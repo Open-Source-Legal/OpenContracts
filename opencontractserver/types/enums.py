@@ -1,5 +1,4 @@
 import enum
-from enum import Enum
 
 
 class OpenContractsEnum(str, enum.Enum):
@@ -48,7 +47,11 @@ class PermissionTypes(str, enum.Enum):
     ALL = "ALL"
 
 
-class AnnotationFilterMode(Enum):
+# str-mixin (like every sibling enum here) so a member and its string value
+# compare equal: the GraphQL/Celery boundaries deliver the value as a plain
+# string while in-process callers pass the member, and both must hit the same
+# branches in build_label_lookups / build_document_export (issue #1868).
+class AnnotationFilterMode(str, enum.Enum):
     CORPUS_LABELSET_ONLY = "CORPUS_LABELSET_ONLY"
     CORPUS_LABELSET_PLUS_ANALYSES = "CORPUS_LABELSET_PLUS_ANALYSES"
     ANALYSES_ONLY = "ANALYSES_ONLY"
