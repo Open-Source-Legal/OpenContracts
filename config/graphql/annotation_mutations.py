@@ -508,8 +508,6 @@ def _create_geographic_annotation(
     ``data['geocoded']`` flag distinguishes resolved from un-resolved rows
     so the aggregation service excludes the latter.
     """
-    from opencontractserver.utils.geocoding import resolve_place
-
     # Guard empty / whitespace-only ``raw_text`` up front — an empty span
     # produces a no-op annotation (``geocoded=False``, no canonical_name)
     # that pollutes the user's annotation set without contributing to the
@@ -526,6 +524,7 @@ def _create_geographic_annotation(
 
     from opencontractserver.annotations.services.geographic_service import (
         GEOCODE_LABEL_TYPE_TO_LABEL_TEXT,
+        build_geocoded_annotation_data,
     )
 
     label_text = GEOCODE_LABEL_TYPE_TO_LABEL_TEXT[geocode_label_type]
@@ -533,30 +532,15 @@ def _create_geographic_annotation(
         geocode_label_type
     ]
 
-    resolved = resolve_place(
-        raw_text,
+    annotation_data = build_geocoded_annotation_data(
         geocode_label_type,
+        raw_text,
         country_hint=country_hint,
         state_hint=state_hint,
     )
-    if resolved is not None:
-        annotation_data = {
-            "canonical_name": resolved.canonical_name,
-            "lat": resolved.lat,
-            "lng": resolved.lng,
-            "admin_codes": resolved.admin_codes,
-            "geocoded": True,
-        }
-        message = f"Resolved '{raw_text}' to '{resolved.canonical_name}'"
+    if annotation_data["geocoded"]:
+        message = f"Resolved '{raw_text}' to '{annotation_data['canonical_name']}'"
     else:
-        annotation_data = {
-            "canonical_name": None,
-            "lat": None,
-            "lng": None,
-            "admin_codes": {},
-            "geocoded": False,
-            "raw_text": raw_text,
-        }
         message = (
             f"Annotation created but '{raw_text}' did not resolve to a "
             f"known {geocode_label_type}; pin omitted from map "

@@ -47,6 +47,85 @@ GEOCODE_LABEL_TYPE_TO_LABEL_TEXT: dict[str, str] = {
 
 _ALL_GEO_LABELS = frozenset(GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.values())
 
+# Inverse of ``GEOCODE_LABEL_TYPE_TO_LABEL_TEXT`` — maps an OC_* label text
+# back to the ``resolve_place`` label-type literal. Lets annotation-creation
+# callers that work in terms of label *text* (e.g. the
+# ``add_annotations_from_exact_strings`` agent tool) reuse the same geocoding
+# path the GraphQL mutations use without re-deriving the mapping.
+LABEL_TEXT_TO_GEOCODE_LABEL_TYPE: dict[str, str] = {
+    text: label_type for label_type, text in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.items()
+}
+
+
+def build_geocoded_annotation_data(
+    geocode_label_type: str,
+    text: str,
+    *,
+    country_hint: str | None = None,
+    state_hint: str | None = None,
+) -> dict[str, Any]:
+    """Resolve ``text`` and return the ``Annotation.data`` payload.
+
+    Single source of truth for the geocoded sidecar shape written onto
+    ``OC_COUNTRY`` / ``OC_STATE`` / ``OC_CITY`` annotations. Both the GraphQL
+    geographic mutations (``config/graphql/annotation_mutations.py``) and the
+    ``add_annotations_from_exact_strings`` agent tool call this so the map
+    aggregation service (which keys off ``data['geocoded']`` /
+    ``canonical_name`` / ``lat`` / ``lng``) sees an identical shape regardless
+    of which surface created the row.
+
+    On a resolver hit the dict carries ``geocoded=True`` plus the canonical
+    name, coordinates, and admin codes. On a miss the annotation is still
+    worth creating (the caller keeps the user's labelling work) so a
+    ``geocoded=False`` sentinel is returned instead — the aggregation service
+    filters those out of map pins.
+
+    Args:
+        geocode_label_type: ``"country"`` / ``"state"`` / ``"city"`` — the
+            ``resolve_place`` label type, NOT the OC_* label text. Callers
+            holding a label text should map it via
+            :data:`LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` first.
+        text: The span text to geocode.
+        country_hint / state_hint: Optional disambiguation hints forwarded to
+            ``resolve_place``.
+    """
+    from opencontractserver.utils.geocoding import resolve_place
+
+    # Make the caller contract explicit rather than relying on the
+    # ``type: ignore`` alone — a bad label type is a programming error here
+    # (the OC_* reverse-map / GraphQL enum should never produce anything
+    # else), so fail loudly instead of letting it reach ``resolve_place``.
+    # A bare ``assert`` would be stripped under ``python -O`` (common in
+    # production containers), so raise explicitly.
+    if geocode_label_type not in ("country", "state", "city"):
+        raise ValueError(
+            f"geocode_label_type must be country/state/city, "
+            f"got {geocode_label_type!r}"
+        )
+
+    resolved = resolve_place(
+        text,
+        geocode_label_type,  # type: ignore[arg-type]  # narrowed by the guard above
+        country_hint=country_hint,
+        state_hint=state_hint,
+    )
+    if resolved is not None:
+        return {
+            "canonical_name": resolved.canonical_name,
+            "lat": resolved.lat,
+            "lng": resolved.lng,
+            "admin_codes": resolved.admin_codes,
+            "geocoded": True,
+        }
+    return {
+        "canonical_name": None,
+        "lat": None,
+        "lng": None,
+        "admin_codes": {},
+        "geocoded": False,
+        "raw_text": text,
+    }
+
 
 def _validate_label_types(label_types: list[str] | None) -> None:
     """Validate caller-supplied ``label_types`` against the known set.
@@ -361,4 +440,6 @@ __all__ = [
     "BBox",
     "GeographicAnnotationService",
     "GeographicPin",
+    "LABEL_TEXT_TO_GEOCODE_LABEL_TYPE",
+    "build_geocoded_annotation_data",
 ]

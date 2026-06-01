@@ -60,6 +60,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     initial map view with `useState` instead of `useRef().current`; and wrapped
     the map's document-resolve navigation in a `try/catch`. Added a
     `docScreenshot` for the pin side-panel state.
+- **Location Tagger default agent (#1822)** — a new global, public default agent
+  that auto-creates geocoded `OC_COUNTRY` / `OC_STATE` / `OC_CITY` annotations so
+  documents populate the Discover (#1820) and Corpus Home (#1821) maps at scale.
+  Built on the existing corpus-actions framework (configure with an `ADD_DOCUMENT`
+  trigger to auto-tag uploads, or `MANUAL_BATCH` to backfill a corpus).
+  - **Default agent registration**
+    (`opencontractserver/agents/migrations/0015_create_location_tagger_agent.py`,
+    `DEFAULT_LOCATION_TAGGER_INSTRUCTIONS` in `config/settings/base.py`): a
+    globe-badged `Location Tagger` agent wired to the
+    `add_annotations_from_exact_strings` tool. Idempotent and slug-safe (mirrors
+    `0002`/`0004`).
+  - **Geocoding integrated into `add_annotations_from_exact_strings`**
+    (`opencontractserver/llms/tools/core_tools/annotations.py`): each item gained
+    an optional `hints` field (`{"country": "US", "state": "TX"}`). When
+    `label_text` is one of the OC_* geographic labels the span is resolved via the
+    offline geocoder (#1819) and `{canonical_name, lat, lng, admin_codes,
+    geocoded}` is written to `Annotation.data`. Non-geographic labels are
+    untouched — fully backward-compatible.
+  - **Shared geocoding-data builder** (`build_geocoded_annotation_data` +
+    `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` in
+    `opencontractserver/annotations/services/geographic_service.py`): single source
+    of truth for the `Annotation.data` payload, now reused by both the GraphQL
+    geographic mutations (`config/graphql/annotation_mutations.py`) and the agent
+    tool so map aggregation sees one identical shape (DRY — removes the duplicated
+    inline dict from the mutation).
+  - **Docs & tests**: `docs/agents/location_tagger.md` (configuration + worked
+    example + limitations), `docs/test_scripts/location_tagger_end_to_end.md`
+    (manual upload → corpus action → map pins), and
+    `opencontractserver/tests/test_location_tagger_agent.py` (agent registration,
+    geocoding + hint disambiguation, ungeocodable-miss sentinel, non-geographic
+    backward-compatibility).
+  - **Review follow-ups (#1822)**: tightened the `parsed_items` hint tuple type
+    to `dict[str, str] | None`; the `0015` migration now logs a warning when it
+    falls back to the concise built-in prompt (settings prompt absent) so the
+    degraded state is visible; added tests pinning the migration→settings
+    `system_instructions` wiring and proving geocoding is resolved once per item
+    and reused for every occurrence (not re-resolved per match).
+  - **Blank-span guard (#1822 review)**: `add_annotations_from_exact_strings`
+    now skips items whose `exact_string` is blank/whitespace-only. Besides
+    wasting a geocoder call, `doc_text.find("")` returns the search start so the
+    occurrence loop never advanced — a blank span would have spun forever.
+    Mirrors the blank-`raw_text` guard in `_create_geographic_annotation`.
 - **MCP knowledge-tool UX — make a corpus usable as a low-friction tool**
   (`opencontractserver/mcp/`, issues #1858–#1862). A hands-on evaluation of the
   live public MCP interface found search returned nothing, full text crashed on
