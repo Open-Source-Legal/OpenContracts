@@ -206,6 +206,10 @@ export const CorpusMapView: React.FC<CorpusMapViewProps> = ({
     loading && pins.length === 0 ? "Loading…" : pluralizePlaces(pins.length);
 
   const renderBody = () => {
+    // Stale-but-present pins win over the error state by design: with
+    // `cache-and-network`, a background refresh failure should keep the last
+    // good map on screen rather than blanking it to an error placeholder. The
+    // explicit `error` branch below only fires when there is nothing to show.
     if (pins.length > 0) {
       return (
         <AnnotationMap

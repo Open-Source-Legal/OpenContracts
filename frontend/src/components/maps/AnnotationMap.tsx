@@ -294,6 +294,9 @@ const MapController: React.FC<MapControllerProps> = ({
       return;
     }
     focusedNameRef.current = focusPinName;
+    // A deep-link focus consumes the one-shot auto-fit: if the focus param is
+    // later cleared, auto-fit must not retroactively fire on this instance.
+    didFitRef.current = true;
     // Fly to a zoom inside the pin's band so its marker stays visible; aligning
     // the parent's band zoom first keeps the selection from being dropped.
     const targetZoom = bandZoomRange(pin.labelType)[1];
@@ -324,7 +327,15 @@ const MapController: React.FC<MapControllerProps> = ({
     // pin from slamming to street level, and raising the floor stops a wide
     // spread from zooming out past where the band's pins disappear.
     const [bandMin, bandMax] = bandZoomRange(band);
-    const fitZoom = Math.min(map.getBoundsZoom(bounds), bandMax);
+    // Pad the fit so framed pins are not flush against the viewport edges.
+    const fitZoom = Math.min(
+      map.getBoundsZoom(
+        bounds,
+        false,
+        L.point(MAP_FIT_PADDING_PX, MAP_FIT_PADDING_PX)
+      ),
+      bandMax
+    );
     map.setView(bounds.getCenter(), Math.max(fitZoom, bandMin));
   }, [pins, fitToPins, focusPinName, map]);
 

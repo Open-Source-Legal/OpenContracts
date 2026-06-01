@@ -40,6 +40,16 @@ const geoMock = (pins: Array<Record<string, unknown>>) => ({
   result: { data: { geographicAnnotationsForCorpus: pins } },
 });
 
+// Error variant of the same request. With no pins ever materialised, the query
+// failure surfaces the `role="alert"` placeholder rather than a stale map.
+const geoErrorMock = () => ({
+  request: {
+    query: GET_GEOGRAPHIC_ANNOTATIONS_FOR_CORPUS,
+    variables: corpusGeoInitialVariables(CORPUS_MAP_TEST_CORPUS_ID),
+  },
+  error: new Error("Network failure"),
+});
+
 test("CorpusMapView renders corpus pins and reveals corpus documents on click", async ({
   mount,
   page,
@@ -99,6 +109,29 @@ test("CorpusMapView shows the empty state pointing at the Location Tagger agent"
   ).toHaveCount(0);
 
   await docScreenshot(page, "corpus--map-view--empty");
+});
+
+test("CorpusMapView shows the error placeholder when the geo query fails", async ({
+  mount,
+  page,
+}) => {
+  // cache-and-network can issue the request more than once; fail both.
+  const mocks = [geoErrorMock(), geoErrorMock()];
+  await mount(<CorpusMapViewTestWrapper mocks={mocks} />);
+
+  const errorPlaceholder = page.getByTestId("corpus-map-error");
+  await expect(errorPlaceholder).toBeVisible({ timeout: 20000 });
+  await expect(errorPlaceholder).toHaveAttribute("role", "alert");
+  await expect(errorPlaceholder).toContainText("Could not load the map");
+
+  // No map and no stale pins are shown when the load fails with nothing cached.
+  await expect(
+    page.getByRole("region", {
+      name: "Map of geographic document annotations",
+    })
+  ).toHaveCount(0);
+
+  await docScreenshot(page, "corpus--map-view--load-error");
 });
 
 test("CorpusMapView deep-link ?pin=Paris opens zoomed to Paris with the side panel", async ({

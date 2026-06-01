@@ -73,10 +73,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     band on first load; fly-to + select for the deep-link place). Both default
     off, so Discover and existing callers are unaffected. New `bandZoomRange` /
     `coarsestBand` helpers keep the framed zoom inside the band that has pins.
+    The auto-fit now passes `MAP_FIT_PADDING_PX` to `getBoundsZoom` so framed
+    pins are not flush against the viewport edges (the constant was previously
+    imported but never applied), and a deep-link focus consumes the one-shot
+    auto-fit (`didFitRef`) so clearing `?pin=` cannot retroactively re-fit an
+    already-framed map.
   - **Tests** — `frontend/tests/CorpusMapView.ct.tsx` (pins render + corpus-doc
-    panel, empty state, `?pin=Paris` deep link) and `zoomBands.test.ts`
-    coverage for the new helpers. Screenshot:
-    `docs/assets/images/screenshots/auto/corpus--map-view--with-pins.png`.
+    panel, empty state, error placeholder, `?pin=Paris` deep link),
+    `frontend/tests/CorpusMapToggle.ct.tsx` (with-places / no-places /
+    loading badge states), and `zoomBands.test.ts` coverage for the new
+    helpers. Screenshots:
+    `corpus--map-view--with-pins`, `corpus--map-view--empty`,
+    `corpus--map-view--load-error`, `corpus--map-toggle--with-places`,
+    `corpus--map-toggle--no-places`.
 
 - **Reusable `AnnotationMap` (Leaflet) component + Discover "Map" tab (#1820).**
   A caller-agnostic React map that visualises geographic document annotations,
