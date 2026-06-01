@@ -584,7 +584,10 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         name="add_annotations_from_exact_strings",
         description=(
             "Create annotations for exact string matches in documents. "
-            "For PDFs: creates token-level annotations. For text: creates span annotations."
+            "For PDFs: creates token-level annotations. For text: creates span annotations. "
+            "When label_text is OC_COUNTRY / OC_STATE / OC_CITY the span is geocoded "
+            "offline and the coordinates are stored on the annotation; pass optional "
+            "per-item hints to disambiguate (e.g. which 'Paris')."
         ),
         category=ToolCategory.ANNOTATIONS,
         requires_corpus=True,
@@ -593,7 +596,10 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         parameters=(
             (
                 "items",
-                "List of objects with keys: label_text (str), exact_string (str)",
+                "List of objects with keys: label_text (str), exact_string (str), "
+                'and optional hints (object, e.g. {"country": "US", "state": "TX"}) '
+                "used only when label_text is OC_COUNTRY / OC_STATE / OC_CITY to "
+                "geocode and disambiguate the place.",
                 True,
             ),
         ),

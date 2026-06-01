@@ -3,7 +3,7 @@
 import logging
 from uuid import uuid4
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.files import read_field_file_text
@@ -163,6 +163,11 @@ class AnnotationItem(TypedDict):
 
     label_text: str
     exact_string: str
+    # Optional geocoding disambiguation hints, consulted ONLY when
+    # ``label_text`` is one of the geographic conventions (OC_COUNTRY /
+    # OC_STATE / OC_CITY). Shape: ``{"country": "US", "state": "TX"}``.
+    # Ignored for every other label, so existing callers are unaffected.
+    hints: NotRequired[dict[str, str]]
 
 
 def add_annotations_from_exact_strings(
@@ -178,6 +183,12 @@ def add_annotations_from_exact_strings(
     Each *item* is a dict with keys:
     - ``label_text`` (str): The label to apply.
     - ``exact_string`` (str): The exact text to find in the document.
+    - ``hints`` (dict, optional): Geocoding disambiguation hints
+      (``{"country": ..., "state": ...}``) used only when ``label_text`` is
+      ``OC_COUNTRY`` / ``OC_STATE`` / ``OC_CITY``. For those labels the span
+      is resolved through the offline geocoder and the result
+      (``canonical_name``/``lat``/``lng``/``admin_codes``) is stored on
+      ``Annotation.data``. Ignored for all other labels.
 
     Args:
         document_id: The document to annotate (injected from context).
@@ -205,10 +216,30 @@ def add_annotations_from_exact_strings(
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
 
-    # Collect (label_text, exact_string) pairs for the single doc/corpus.
-    tuples: list[tuple[str, str]] = []
+    # Collect (label_text, exact_string, hints) tuples for the single
+    # doc/corpus. ``hints`` is only consulted for OC_* geographic labels.
+    # The third element is the item's ``hints`` (AnnotationItem.hints is typed
+    # ``dict[str, str]``), narrowed to None by the isinstance guard below.
+    parsed_items: list[tuple[str, str, dict[str, str] | None]] = []
     for item in items:
-        tuples.append((str(item["label_text"]), str(item["exact_string"])))
+        # ``item`` is an AnnotationItem TypedDict (always a dict at runtime);
+        # the inner isinstance still guards against the LLM sending a non-dict
+        # ``hints`` value.
+        exact_str = str(item["exact_string"])
+        # Skip blank/whitespace-only spans. Besides wasting a geocoder call for
+        # OC_* labels, ``doc_text.find("")`` returns the search start so the
+        # occurrence loop below would never advance (infinite loop). Mirrors the
+        # blank-``raw_text`` guard in ``_create_geographic_annotation``.
+        if not exact_str.strip():
+            continue
+        raw_hints = item.get("hints")
+        parsed_items.append(
+            (
+                str(item["label_text"]),
+                exact_str,
+                raw_hints if isinstance(raw_hints, dict) else None,
+            )
+        )
 
     created_ids: list[int] = []
 
@@ -307,9 +338,40 @@ def add_annotations_from_exact_strings(
             f"Unsupported file_type {doc.file_type} for document id={doc_id}"
         )
 
+    # Reverse-map OC_* label text -> geocode label type and reuse the shared
+    # data-builder so tool-created geographic annotations carry the exact same
+    # ``data`` shape the GraphQL mutations write (the map aggregation service
+    # keys off it). Imported lazily to avoid import-time coupling between the
+    # tools package and the annotations service layer.
+    from opencontractserver.annotations.services.geographic_service import (
+        LABEL_TEXT_TO_GEOCODE_LABEL_TYPE,
+        build_geocoded_annotation_data,
+    )
+
+    # Resolve geocoding BEFORE opening the DB transaction. ``resolve_place``
+    # reads the bundled reference dataset from disk, and doing that inside
+    # ``transaction.atomic()`` would hold the transaction (and any row locks)
+    # open across that I/O. Geocoding depends only on (label_text, exact_str,
+    # hints) — not on match position — so resolve once per item here and reuse
+    # the payload for every occurrence inside the loop. Only the OC_*
+    # geographic labels geocode; every other label keeps ``data`` NULL
+    # (backward compatible with existing callers such as structured extraction).
+    prepared: list[tuple[str, str, dict[str, str] | None]] = []
+    for label_text, exact_str, hints in parsed_items:
+        geocode_label_type = LABEL_TEXT_TO_GEOCODE_LABEL_TYPE.get(label_text)
+        annotation_data = None
+        if geocode_label_type is not None:
+            annotation_data = build_geocoded_annotation_data(
+                geocode_label_type,
+                exact_str,
+                country_hint=hints.get("country") if hints else None,
+                state_hint=hints.get("state") if hints else None,
+            )
+        prepared.append((label_text, exact_str, annotation_data))
+
     # Common creation loop (works for both PDF and text).
     with transaction.atomic():
-        for label_text, exact_str in tuples:
+        for label_text, exact_str, annotation_data in prepared:
             label_obj = corpus.ensure_label_and_labelset(
                 label_text=label_text,
                 creator_id=creator_id,
@@ -324,7 +386,12 @@ def add_annotations_from_exact_strings(
 
                 end_idx = pos + len(exact_str)
 
+                # ``_create_annotation`` returns an *unsaved* instance; set the
+                # pre-resolved geocode ``data`` (when present) before the single
+                # ``save()`` so each occurrence is one DB write, not two.
                 annot_obj = _create_annotation(pos, end_idx, label_obj)
+                if annotation_data is not None:
+                    annot_obj.data = annotation_data
                 annot_obj.save()
 
                 created_ids.append(annot_obj.pk)
