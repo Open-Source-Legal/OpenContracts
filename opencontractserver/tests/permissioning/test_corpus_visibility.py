@@ -4,7 +4,7 @@ Tests for SetCorpusVisibility mutation.
 These tests verify that:
 1. Corpus owners (creators) can change visibility
 2. Users with PERMISSION permission can change visibility
-3. Superusers can change visibility on any corpus
+3. Superusers can change visibility only via a normal grant (no blanket bypass)
 4. Users with only UPDATE permission CANNOT change visibility (security)
 5. Anonymous users cannot change visibility
 6. Random users cannot change visibility
@@ -172,14 +172,40 @@ class TestSetCorpusVisibilityMutation(TestCase):
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["setCorpusVisibility"]["ok"])
 
-    def test_superuser_can_change_any_corpus_visibility(self):
-        """Superuser can change visibility on any corpus."""
+    def test_superuser_changes_visibility_only_via_normal_grant(self):
+        """Under the new admin-data contract a superuser has no blanket
+        bypass: it can only change the visibility of a corpus it could
+        change as a normal user (READ + PERMISSION grant or creator).
+
+        Negative case: with no grant on a private stranger-owned corpus the
+        superuser gets the IDOR-safe ``ok=False`` response — identical to a
+        random user. Positive case: once granted READ + PERMISSION it can
+        change visibility, proving admins flow through the ordinary path.
+        """
         variables = {
             "corpusId": to_global_id("CorpusType", self.corpus.id),
             "isPublic": True,
         }
 
         client = Client(schema, context_value=TestContext(self.superuser))
+
+        # Negative: no grant → denied like any stranger.
+        result = client.execute(self.MUTATION, variable_values=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["setCorpusVisibility"]["ok"])
+        self.assertIn(
+            "not found or you don't have permission",
+            result["data"]["setCorpusVisibility"]["message"],
+        )
+        self.corpus.refresh_from_db()
+        self.assertFalse(self.corpus.is_public)
+
+        # Positive: grant READ + PERMISSION, then the change succeeds.
+        set_permissions_for_obj_to_user(
+            self.superuser,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.PERMISSION],
+        )
 
         with patch(
             "opencontractserver.tasks.permissioning_tasks.make_corpus_public_task"
