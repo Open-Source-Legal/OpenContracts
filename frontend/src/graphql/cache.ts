@@ -717,13 +717,28 @@ export const tocExpandAll = makeVar<boolean>(false);
  *   /c/user/corpus?view=details       → corpusDetailView("details")
  *   /c/user/corpus?view=discussions   → corpusDetailView("discussions")
  *   /c/user/corpus?view=article       → corpusDetailView("article")
+ *   /c/user/corpus?view=map           → corpusDetailView("map")
  */
 export type CorpusDetailViewType =
   | "landing"
   | "details"
   | "discussions"
-  | "article";
+  | "article"
+  | "map";
 export const corpusDetailView = makeVar<CorpusDetailViewType>("landing");
+
+/**
+ * Corpus map selected place (URL-driven state - set by CentralRouteManager Phase 2)
+ *
+ * Holds the canonical name of the place focused on the corpus map view (#1821),
+ * enabling deep links that open the map zoomed to a place with its side panel
+ * open. Null when no place is deep-linked. Only consumed by CorpusMapView.
+ *
+ * URL Examples:
+ *   /c/user/corpus?view=map             → corpusMapPin(null)
+ *   /c/user/corpus?view=map&pin=Paris   → corpusMapPin("Paris")
+ */
+export const corpusMapPin = makeVar<string | null>(null);
 
 /**
  * Corpus power user mode (URL-driven state - set by CentralRouteManager Phase 2)

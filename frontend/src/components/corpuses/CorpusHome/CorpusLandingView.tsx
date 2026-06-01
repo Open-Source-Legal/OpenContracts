@@ -29,6 +29,7 @@ import { getCreatorDisplay } from "../../../utils/userDisplay";
 import { InlineChatBar } from "../CorpusHero/InlineChatBar";
 import { MCPShareButton } from "../../common/MCPShareButton";
 import { RecentDiscussions } from "./RecentDiscussions";
+import { CorpusMapToggle } from "./CorpusMapToggle";
 
 import {
   LandingContainer,
@@ -131,6 +132,8 @@ export interface CorpusLandingViewProps {
   onOpenArticleEditor?: () => void;
   /** Callback when a specific thread is clicked from the feed */
   onThreadClick?: (threadId: string) => void;
+  /** Callback when the map toggle is clicked (enters the map view) */
+  onViewMap?: () => void;
   /** @deprecated Mode toggle is now rendered as a floating element by CorpusHome */
   onModeToggle?: () => void;
   /**
@@ -171,6 +174,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
   onViewArticle,
   onOpenArticleEditor,
   onThreadClick,
+  onViewMap,
   isPowerUserMode = false,
   testId = "corpus-landing",
 }) => {
@@ -298,6 +302,18 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
                     {docCount} {docCount === 1 ? "document" : "documents"}
                   </span>
                 </MetadataItem>
+              </>
+            )}
+
+            {/* Map entry — badged with the geo-annotation place count (#1821) */}
+            {onViewMap && (
+              <>
+                <MetadataSeparator />
+                <CorpusMapToggle
+                  corpusId={corpus.id}
+                  onClick={onViewMap}
+                  testId={`${testId}-map-toggle`}
+                />
               </>
             )}
           </CenteredMetadataRow>

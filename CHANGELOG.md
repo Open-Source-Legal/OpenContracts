@@ -24,6 +24,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Corpus Home "Map" view — per-corpus geographic annotations (#1821).** A
+  fifth Corpus Home view mode (`landing` / `details` / `discussions` /
+  `article` / **`map`**) that plots a corpus's geographic annotations, reusing
+  the #1820 `AnnotationMap` and the #1819 `geographicAnnotationsForCorpus`
+  query.
+  - **`CorpusMapView`** (`frontend/src/components/corpuses/CorpusMapView.tsx`) —
+    wraps `AnnotationMap` with the corpus-scoped pins query, a back-to-overview
+    header badged with the place count, an empty state pointing users at the
+    Location Tagger agent, and pin-panel document links that resolve through the
+    permission-filtered `document(id:)` redirect query. Performance: corpus pin
+    sets are bounded/aggregated, so it fetches the whole corpus **once**
+    (`bbox: null`, all label types) with no per-pan refetch, selecting only the
+    lightweight pin fields.
+  - **Map toggle + count badge** (`CorpusHome/CorpusMapToggle.tsx`, rendered in
+    `CorpusLandingView`'s top bar) — "Map · N places", muted when the corpus has
+    no geo annotations but still clickable so users reach the empty-state
+    guidance. Its count query reuses `corpusGeoInitialVariables`, so it shares an
+    Apollo cache entry with `CorpusMapView` — the badge warms the map and opening
+    it costs no extra round-trip.
+  - **Routing** — `view=map` and a `pin=<place>` deep-link param are parsed by
+    `CentralRouteManager` into the `corpusDetailView` / new `corpusMapPin`
+    reactive vars (no direct URL touches in components). `?view=map&pin=Paris`
+    opens the map zoomed to Paris with its side panel open; selecting a pin
+    reflects the place into the URL (`updateCorpusMapPinParam`, replace-mode) so
+    the map is shareable and survives refresh.
+  - **`AnnotationMap` additive props** (`fitToPins`, `focusPinName`) — opt-in
+    imperative framing via an internal `MapController` (auto-fit to the coarsest
+    band on first load; fly-to + select for the deep-link place). Both default
+    off, so Discover and existing callers are unaffected. New `bandZoomRange` /
+    `coarsestBand` helpers keep the framed zoom inside the band that has pins.
+  - **Tests** — `frontend/tests/CorpusMapView.ct.tsx` (pins render + corpus-doc
+    panel, empty state, `?pin=Paris` deep link) and `zoomBands.test.ts`
+    coverage for the new helpers. Screenshot:
+    `docs/assets/images/screenshots/auto/corpus--map-view--with-pins.png`.
+
 - **Reusable `AnnotationMap` (Leaflet) component + Discover "Map" tab (#1820).**
   A caller-agnostic React map that visualises geographic document annotations,
   plus its first integration on the Discover page. Builds on the #1819 backend

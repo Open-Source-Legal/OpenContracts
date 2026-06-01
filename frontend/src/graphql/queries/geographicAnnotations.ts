@@ -1,6 +1,9 @@
 import { gql } from "@apollo/client";
 import { GeographicAnnotationPin, MapBBox } from "../../components/maps/types";
-import { GeoLabelType } from "../../assets/configurations/constants";
+import {
+  GeoLabelType,
+  GEO_LABEL_TYPES,
+} from "../../assets/configurations/constants";
 
 /**
  * Geographic annotation map queries (issue #1820).
@@ -81,3 +84,23 @@ export interface GetGeographicAnnotationsForCorpusInput
 export interface GetGeographicAnnotationsForCorpusOutput {
   geographicAnnotationsForCorpus: GeographicAnnotationPin[];
 }
+
+/**
+ * Canonical initial variables for the per-corpus pins query (#1821).
+ *
+ * Both the Corpus Home map-toggle count badge and the map view itself issue
+ * this exact variable set (whole-corpus: no bbox, all label types, zoom
+ * unset). Sharing one helper guarantees the variables match byte-for-byte so
+ * the two callers share a single Apollo cache entry — the badge's fetch warms
+ * the map, and opening the map costs no extra round-trip. Corpus pin sets are
+ * bounded/aggregated, so unlike the global Discover map this query is issued
+ * once and not refetched per pan/zoom.
+ */
+export const corpusGeoInitialVariables = (
+  corpusId: string
+): GetGeographicAnnotationsForCorpusInput => ({
+  corpusId,
+  bbox: null,
+  zoom: null,
+  labelTypes: [...GEO_LABEL_TYPES],
+});
