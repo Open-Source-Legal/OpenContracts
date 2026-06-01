@@ -3,6 +3,8 @@ import { ArrowLeft, Calendar, FileType, Plus, User } from "lucide-react";
 import { DocumentVersionSelector } from "../../../documents/DocumentVersionSelector";
 import { CiteMark } from "../../../brand";
 import {
+  BrandAccent,
+  BrandDomain,
   BrandLink,
   HeaderBrandRow,
   HeaderContainer,
@@ -55,11 +57,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   return (
     <HeaderContainer data-testid="document-header">
-      {/*
-       * The knowledge-base modal covers the global NavMenu, so we keep the
-       * cite / opensource.legal branding visible here while a document is open.
-       * The mark + wordmark link home, mirroring the navbar logo behaviour.
-       */}
       <HeaderBrandRow>
         <BrandLink
           to="/"
@@ -67,9 +64,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           data-testid="document-header-brand"
         >
           <CiteMark size={22} ariaLabel="" />
-          <span className="brand-domain">
-            <span className="brand-domain__accent">cite</span>.opensource.legal
-          </span>
+          <BrandDomain>
+            <BrandAccent>cite</BrandAccent>.opensource.legal
+          </BrandDomain>
         </BrandLink>
       </HeaderBrandRow>
 
@@ -98,7 +95,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           <HeaderButton
             onClick={(e) => {
               routingLogger.debug(
-                `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`,
+                `🖱️  [DocumentKnowledgeBase] ════════ BACK BUTTON CLICKED ════════`
               );
               routingLogger.debug(
                 "[DocumentKnowledgeBase] Button click event:",
@@ -108,7 +105,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   currentTarget: e.currentTarget,
                   target: e.target,
                   currentUrl: window.location.pathname + window.location.search,
-                },
+                }
               );
               onClose();
             }}

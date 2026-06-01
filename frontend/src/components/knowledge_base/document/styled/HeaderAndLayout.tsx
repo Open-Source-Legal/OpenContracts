@@ -53,14 +53,14 @@ export const BrandLink = styled(Link)`
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  /* Pull the mark flush with the container's left padding so it optically
+     aligns with the title row below it. */
   margin-left: -0.3rem;
   padding: 0.15rem 0.35rem;
   border-radius: 8px;
   text-decoration: none;
   color: ${OS_LEGAL_COLORS.textSecondary};
-  transition:
-    color 0.18s ease,
-    background 0.18s ease;
+  transition: color 0.18s ease, background 0.18s ease;
 
   &:hover {
     color: ${OS_LEGAL_COLORS.textPrimary};
@@ -70,24 +70,22 @@ export const BrandLink = styled(Link)`
   svg {
     flex-shrink: 0;
   }
+`;
 
-  .brand-domain {
-    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
-    font-size: 0.95rem;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-  }
-
-  .brand-domain .brand-domain__accent {
-    color: ${OS_LEGAL_COLORS.accent};
-  }
+export const BrandDomain = styled.span`
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 
   @media (max-width: 480px) {
-    .brand-domain {
-      font-size: 0.85rem;
-    }
+    font-size: 0.85rem;
   }
+`;
+
+export const BrandAccent = styled.span`
+  color: ${OS_LEGAL_COLORS.accent};
 `;
 
 export const HeaderPrimaryRow = styled.div`
@@ -160,10 +158,7 @@ export const MetadataRow = styled.div`
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition:
-      background 0.18s ease,
-      color 0.18s ease,
-      box-shadow 0.18s ease;
+    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 
     &:hover {
       background: ${OS_LEGAL_COLORS.surfaceLight};
