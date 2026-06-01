@@ -3236,9 +3236,16 @@ class TestPostImportStructuralIngestion(TestCase):
         from opencontractserver.tasks import import_tasks_v2
 
         zip_buf = self._build_import_zip(with_structural_set=True)
+        # ``Corpus.add_document`` queues ``ensure_embeddings_for_corpus`` for
+        # docs that carry a structural set; that on_commit callback also fires
+        # under ``captureOnCommitCallbacks`` here. Stub it so this test stays
+        # focused on the ingestion gate (the embedding path is exercised
+        # elsewhere).
         with patch.object(
             import_tasks_v2, "_dispatch_structural_ingestion"
-        ) as mock_dispatch:
+        ) as mock_dispatch, patch(
+            "opencontractserver.tasks.corpus_tasks.ensure_embeddings_for_corpus"
+        ):
             with self.captureOnCommitCallbacks(execute=True):
                 corpus_id = import_tasks_v2.import_corpus_v2_from_bytes(
                     zip_source=zip_buf,
