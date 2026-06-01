@@ -7265,6 +7265,16 @@ class MCPSearchCorpusStructuralSlugTest(TestCase):
         self.assertEqual(hit["document_slug"], self.document.slug)
         self.assertEqual(hit["document_title"], self.document.title)
 
+    def test_structural_passage_without_lookup_returns_none_slug(self):
+        """Without a lookup the formatter preserves the old null-slug behaviour."""
+        from opencontractserver.mcp.formatters import format_search_passage
+
+        result = format_search_passage(
+            self.struct_ann, similarity_score=None, struct_doc_lookup=None
+        )
+        self.assertIsNone(result["document_slug"])
+        self.assertEqual(result["document_title"], "")
+
 
 class MCPGetCorpusInfoLabelsTest(TestCase):
     """get_corpus_info surfaces only labels actually used on annotations (#1861)."""

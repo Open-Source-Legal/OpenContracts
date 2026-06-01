@@ -427,6 +427,9 @@ def search_corpus(
                 .order_by("structural_annotation_set_id", "slug")
                 .distinct()
             ):
+                # If a structural set maps to multiple corpus documents, pick
+                # the first alphabetically by slug — deterministic (guaranteed
+                # by the order_by above); the edge case is rare in practice.
                 struct_doc_lookup.setdefault(set_id, (slug, title or ""))
 
         formatted.extend(
