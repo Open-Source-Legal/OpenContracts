@@ -19,6 +19,15 @@ export function formatFileSize(bytes?: number | null): string {
 }
 
 /**
+ * Formats a document count with a correctly pluralised noun.
+ * @param count - The number of documents
+ * @returns e.g. "1 document" or "3 documents"
+ */
+export function pluralizeDocuments(count: number): string {
+  return `${count} document${count === 1 ? "" : "s"}`;
+}
+
+/**
  * Formats a date string into a relative time description.
  * @param dateString - ISO date string to format
  * @returns Relative time string like "Just now", "5 hours ago", "3 days ago", or empty string if invalid

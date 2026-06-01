@@ -24,6 +24,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Reusable `AnnotationMap` (Leaflet) component + Discover "Map" tab (#1820).**
+  A caller-agnostic React map that visualises geographic document annotations,
+  plus its first integration on the Discover page. Builds on the #1819 backend
+  (`globalGeographicAnnotations` / `geographicAnnotationsForCorpus`).
+  - **Reusable component** (`frontend/src/components/maps/AnnotationMap.tsx`) —
+    Leaflet `MapContainer` + OpenStreetMap `TileLayer` (no API key, required
+    attribution) with `leaflet.markercluster` clustering. It takes `pins` and
+    fires `onBoundsChange(bbox, zoom)` / `onPinClick(pin)`; it holds no
+    Discover- or corpus-specific logic so #1821 (Corpus Home) can reuse it.
+    Clicking a pin opens a side panel with the place name, document count, and
+    sample-document links. The component is route-agnostic: it surfaces the
+    click via an `onSelectDocument(documentId)` callback, and the Discover
+    wiring resolves the document's Relay global id to its canonical `/d/...`
+    URL (via the existing id-redirect query) before navigating. The client
+    shows only the pins matching the current zoom band — country/state/city
+    (`frontend/src/components/maps/zoomBands.ts`) — since the server returns all
+    label types. Accessible: region role + aria-label, keyboard-focusable
+    markers with descriptive labels, and `prefers-reduced-motion` disables
+    zoom/pan and marker animations. Fixes the Leaflet default-marker-icon
+    bundler problem by importing the icon assets and setting `L.Icon.Default`.
+  - **Discover "Map" tab** (`frontend/src/views/DiscoverSearchResults.tsx`,
+    `frontend/src/components/maps/DiscoverMapPanel.tsx`) — a new tab that feeds
+    `AnnotationMap` from `globalGeographicAnnotations`
+    (`frontend/src/graphql/queries/geographicAnnotations.ts`, selecting only the
+    six pin fields). Bbox/zoom-driven refetches are debounced 300 ms and only
+    fire on pan/zoom; the map viewport is persisted to the URL (`?lat&lng&z`)
+    via `useSearchParams` for deep-linking and refresh persistence.
+  - **Constants** (`frontend/src/assets/configurations/constants.ts`) — tile
+    URL/attribution, default center/zoom, min/max zoom, cluster radius, map
+    height, zoom-band thresholds, debounce ms, and the lowercase
+    `country`/`state`/`city` label-type literals the GraphQL API expects.
+  - **Dependencies** (`frontend/package.json`) — `leaflet`, `react-leaflet`
+    (v4 for React 18), `leaflet.markercluster`, `@types/leaflet`,
+    `@types/leaflet.markercluster`.
+  - **Tests** (`frontend/tests/AnnotationMap.ct.tsx`,
+    `frontend/tests/DiscoverMapPanel.ct.tsx`) — Playwright CT coverage that pins
+    render at the right coordinates, a pin click opens the panel / invokes
+    `onPinClick` / fires the document-open callback / closes the panel, the
+    zoom→label-type band selection picks the right pins, and the Discover panel
+    renders pins from the mocked query.
+  - **Review follow-ups (#1820)**: added `keyArgs` for
+    `globalGeographicAnnotations` / `geographicAnnotationsForCorpus` in
+    `cache.ts` so panning isolates cache entries by `bbox`/`zoom`/`labelTypes`;
+    exported `GetGeographicAnnotationsForCorpus{Input,Output}` for the #1821
+    consumer; introduced the `GeoLabelType` union and typed
+    `GeographicAnnotationPin.labelType` with it; moved `pluralizeDocuments` into
+    `utils/formatters.ts` and the map URL-param keys into `constants.ts`;
+    swapped the deprecated marker `keypress` listener for `keydown`; froze the
+    initial map view with `useState` instead of `useRef().current`; and wrapped
+    the map's document-resolve navigation in a `try/catch`. Added a
+    `docScreenshot` for the pin side-panel state.
+  - **Second review follow-ups (#1820)**: typed `GeographicAnnotationsInput.labelTypes`
+    as `GeoLabelType[]` (was `string[]`) so invalid label-type strings can't reach
+    the server; extracted the antimeridian-aware viewport-centre math into a pure,
+    exported `bboxCenter` helper (`zoomBands.ts`) and reused it in
+    `DiscoverMapPanel`; exported `readMapViewFromParams` for direct testing; added
+    unit tests covering `labelTypeForZoom` boundary bands, `bboxCenter`
+    antimeridian crossings, and `readMapViewFromParams` URL-restoration edge cases;
+    and corrected a misleading CLAUDE.md-pitfall-#8 comment in
+    `DiscoverMapPanelTestWrapper`.
 - **Location Tagger default agent (#1822)** — a new global, public default agent
   that auto-creates geocoded `OC_COUNTRY` / `OC_STATE` / `OC_CITY` annotations so
   documents populate the Discover (#1820) and Corpus Home (#1821) maps at scale.

@@ -450,6 +450,70 @@ export const OC_COUNTRY_LABEL_COLOR = "#0E3A5F";
 export const OC_STATE_LABEL_COLOR = "#1E6091";
 export const OC_CITY_LABEL_COLOR = "#3E92CC";
 
+// ---------------------------------------------------------------------------
+// Geographic annotation map (Leaflet) — issue #1820
+// ---------------------------------------------------------------------------
+// The geographic GraphQL queries (globalGeographicAnnotations /
+// geographicAnnotationsForCorpus) accept and return label types as the
+// LOWERCASE literals below — NOT the OC_*_LABEL annotation-label text. The
+// backend reverse-maps OC_COUNTRY -> "country" etc. (see
+// GEOCODE_LABEL_TYPE_TO_LABEL_TEXT in
+// opencontractserver/annotations/services/geographic_service.py).
+export const GEO_LABEL_TYPE_COUNTRY = "country";
+export const GEO_LABEL_TYPE_STATE = "state";
+export const GEO_LABEL_TYPE_CITY = "city";
+
+// Ordered coarse -> fine. Passed as the ``labelTypes`` query argument and used
+// for the client-side zoom-band clustering selection.
+export const GEO_LABEL_TYPES = [
+  GEO_LABEL_TYPE_COUNTRY,
+  GEO_LABEL_TYPE_STATE,
+  GEO_LABEL_TYPE_CITY,
+] as const;
+
+// The geographic label types as a union ("country" | "state" | "city"). Use
+// this instead of a bare ``string`` so pin/label typings stay compile-checked.
+export type GeoLabelType = (typeof GEO_LABEL_TYPES)[number];
+
+// OpenStreetMap raster tiles. No API key required.
+export const MAP_TILE_URL_TEMPLATE =
+  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+export const MAP_TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+// Default viewport for a world-spanning map (roughly centred, fully zoomed out).
+export const MAP_DEFAULT_CENTER: readonly [number, number] = [20, 0];
+export const MAP_DEFAULT_ZOOM = 2;
+export const MAP_MIN_ZOOM = 1;
+export const MAP_MAX_ZOOM = 18;
+
+// Default rendered height for the map container. Leaflet needs an explicit
+// height or the tiles never paint.
+export const MAP_DEFAULT_HEIGHT = "600px";
+
+// leaflet.markercluster: max radius (px) within which markers are grouped.
+export const MAP_CLUSTER_MAX_RADIUS = 60;
+
+// URL query-param keys for persisting the map viewport (deep-link + refresh).
+// Centralised so the Discover map tab and the planned Corpus Home map (#1821)
+// share one set of names instead of diverging.
+export const MAP_LAT_PARAM = "lat";
+export const MAP_LNG_PARAM = "lng";
+export const MAP_ZOOM_PARAM = "z";
+
+// Zoom bands that select which geographic label type is shown. The server
+// returns pins for *all* label types; the client picks one band by zoom so the
+// map stays readable (coarse places when zoomed out, fine places when zoomed
+// in). Lower bound is inclusive.
+//   country: zoom <  MAP_ZOOM_STATE_MIN
+//   state:   MAP_ZOOM_STATE_MIN <= zoom < MAP_ZOOM_CITY_MIN
+//   city:    zoom >= MAP_ZOOM_CITY_MIN
+export const MAP_ZOOM_STATE_MIN = 4;
+export const MAP_ZOOM_CITY_MIN = 6;
+
+// Debounce (ms) for bbox/zoom-driven refetches triggered by pan/zoom.
+export const MAP_BBOX_REFETCH_DEBOUNCE_MS = 300;
+
 // Document search/picker limits
 export const DOCUMENT_PICKER_SEARCH_LIMIT = 20;
 
