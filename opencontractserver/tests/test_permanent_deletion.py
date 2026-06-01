@@ -749,12 +749,47 @@ class TestPermanentDeletionPermissions(TestCase):
         )
         self.assertTrue(success)
 
-    def test_permanent_delete_allowed_for_superuser(self):
-        """Test that superuser can permanently delete any document."""
+    def test_permanent_delete_requires_delete_permission_computed_like_normal_user(
+        self,
+    ):
+        """Permanent deletion requires DELETE permission, computed like a normal user.
+
+        Post-refactor a superuser has no blanket data bypass:
+        ``permanently_delete_document`` gates on
+        ``corpus.user_can(user, PermissionTypes.DELETE)`` computed normally.
+        The corpus here is private and owned by ``self.owner``, so a no-grant
+        superuser is DENIED (success is False). Once granted DELETE on the
+        corpus (the same grant pattern as
+        ``test_user_with_delete_permission_can_permanently_delete``), the
+        superuser CAN permanently delete via the ordinary permission path.
+        """
+        # No-grant superuser is denied, just like any other stranger.
         success, message = DocumentLifecycleService.permanently_delete_document(
             self.superuser, self.doc, self.corpus
         )
-        self.assertTrue(success)
+        self.assertFalse(success)
+        self.assertIn("permission denied", message.lower())
+
+        # Grant DELETE on the corpus; a fresh soft-deleted doc is then
+        # permanently deletable by the superuser through the normal gate.
+        set_permissions_for_obj_to_user(
+            self.superuser,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.DELETE],
+        )
+        doc2, _, _ = import_document(
+            corpus=self.corpus,
+            path="/perm_test_doc_super.pdf",
+            content=b"Permission test content super",
+            user=self.owner,
+            title="Permission Test Document Super",
+        )
+        delete_document(self.corpus, "/perm_test_doc_super.pdf", self.owner)
+
+        success, message = DocumentLifecycleService.permanently_delete_document(
+            self.superuser, doc2, self.corpus
+        )
+        self.assertTrue(success, f"Expected success but got: {message}")
 
     def test_empty_trash_requires_delete_permission(self):
         """Test that DELETE permission is required for empty trash."""

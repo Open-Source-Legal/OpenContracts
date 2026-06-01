@@ -119,16 +119,38 @@ class GetVersionCountsByTreeTestCase(TestCase):
         # Tree B is invisible entirely.
         self.assertEqual(counts.get(self.tree_b, 0), 0)
 
-    def test_superuser_sees_all_versions(self):
-        """Superusers bypass visibility filtering."""
+    def test_superuser_counts_computed_like_normal_user(self):
+        """A superuser's version counts are computed like a normal user.
+
+        Post-refactor the superuser has no blanket data bypass: the
+        aggregation is still scoped to ``visible_to_user``, which now computes
+        a superuser exactly like a normal authenticated user. The fixture
+        documents are private (``is_public=False``) and owned by ``self.owner``
+        — a no-grant superuser owns none of them and holds no grants, so it
+        must see no counts (and cannot leak the existence of hidden versions).
+
+        Granting READ on one version of tree A then makes exactly that one
+        version visible, mirroring the partial-visibility parity case.
+        """
         superuser = User.objects.create_superuser(
             username="versions_super", password="x", email="s@example.com"
         )
+
+        # No-grant superuser: sees nothing, just like a stranger.
         counts = DocumentVersionService.get_version_counts_by_tree(
             user=superuser,
         )
-        self.assertEqual(counts.get(self.tree_a), 3)
-        self.assertEqual(counts.get(self.tree_b), 2)
+        self.assertEqual(counts.get(self.tree_a, 0), 0)
+        self.assertEqual(counts.get(self.tree_b, 0), 0)
+
+        # Grant READ on a single version of tree A; the superuser now counts
+        # only that visible version — no hidden-version leak.
+        set_permissions_for_obj_to_user(superuser, self.a_v3, [PermissionTypes.READ])
+        counts_after_grant = DocumentVersionService.get_version_counts_by_tree(
+            user=superuser,
+        )
+        self.assertEqual(counts_after_grant.get(self.tree_a, 0), 1)
+        self.assertEqual(counts_after_grant.get(self.tree_b, 0), 0)
 
     def test_request_level_cache_returns_same_result(self):
         """A second call with the same request should return the cached dict."""
