@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deep research reports rendered fabricated `example.com` hyperlinks.** The
+  deep-research agent is given only corpus-internal retrieval tools (no web
+  access — see `opencontractserver/research/constants.py`
+  `DEEP_RESEARCH_READ_ONLY_TOOLS`), yet it was asked to write a polished
+  markdown report. With no real URLs to hand, the model fabricated markdown
+  hyperlinks — overwhelmingly the canonical `https://example.com` placeholder —
+  and nothing stripped them, so the frontend `SafeMarkdown` renderer
+  (`frontend/src/components/knowledge_base/markdown/SafeMarkdown.tsx`, which
+  allows `https:`) turned them into live, misleading anchors. The agent's only
+  sanctioned attribution channel is the `<cite ids="…">` tag, which the system
+  renders to footnotes. Fixed in two layers: (1) `build_deep_research_system_prompt`
+  (`opencontractserver/research/constants.py`) now explicitly forbids hyperlinks
+  / URLs and names `example.com` as a placeholder to avoid; (2) a new
+  `_strip_fabricated_links` helper in
+  `opencontractserver/research/services/research_reports.py` downgrades any
+  externally-resolvable markdown link (`scheme://`, `//host`, `mailto:`/`tel:`,
+  or a bare domain) to its plain label inside `ResearchReportService.finalize`,
+  applied to both the executive summary and the rendered body so no fabricated
+  link survives into stored content (covers the normal and salvage paths).
+  In-app relative links (`/d/…`), fragment anchors (`#…`), `<cite>` tags, and
+  `[^n]` footnote markers are left untouched. Tests in
+  `opencontractserver/tests/research/test_research_report_service.py`.
+
 - **Location Tagger: non-string geocoding hints crashed the tool (#1871,
   follow-up to #1822).** `add_annotations_from_exact_strings`
   (`opencontractserver/llms/tools/core_tools/annotations.py`) forwarded the

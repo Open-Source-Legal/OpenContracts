@@ -331,9 +331,18 @@ class ResearchReportService(BaseService):
         # Build the citation table, ordered by first appearance in the body.
         rendered_body, citations = _render_citations(markdown_body, cited_ids)
 
+        # Strip any hyperlinks the agent fabricated. It has no web tools, so
+        # every URL it emits is invented (canonically ``https://example.com``);
+        # the ``<cite>`` footnotes rendered above are the only sanctioned
+        # attribution channel. Applied to both the body and the summary so no
+        # fabricated link survives into the stored content (or the salvage
+        # path, which also flows through here). See ``_strip_fabricated_links``.
+        rendered_body = _strip_fabricated_links(rendered_body)
+        clean_summary = _strip_fabricated_links(executive_summary or "")
+
         full_content_parts: list[str] = []
-        if executive_summary:
-            full_content_parts.append("## Executive Summary\n\n" + executive_summary)
+        if clean_summary:
+            full_content_parts.append("## Executive Summary\n\n" + clean_summary)
         full_content_parts.append(rendered_body)
         if citations:
             sources_section = ["## Sources", ""]
@@ -435,6 +444,59 @@ def _derive_title_from_prompt(prompt: str, limit: int = 80) -> str:
     if len(first_line) <= limit:
         return first_line
     return first_line[: limit - 1].rstrip() + "…"
+
+
+# Inline markdown link (optionally an image: ``![alt](src)``), capturing the
+# label/alt text and the target. The target group stops at the first space,
+# ``)`` or ``>`` so a trailing ``"title"`` and angle-bracket wrappers
+# (``<https://…>``) are tolerated. Footnote markers/definitions (``[^1]`` /
+# ``[^1]: …``) have no ``(target)`` and never match.
+_MARKDOWN_LINK_RE = re.compile(
+    r"!?\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)"
+)
+
+# A link target that resolves *outside* the SPA: an explicit ``scheme://``,
+# a protocol-relative ``//host``, a ``mailto:``/``tel:``, or a bare domain
+# (``example.com/…``). These are exactly the targets ``SafeMarkdown`` would
+# turn into a live anchor. In-app relative paths (``/d/…``) and bare
+# fragments (``#section``) are deliberately NOT matched.
+_EXTERNAL_TARGET_RE = re.compile(
+    r"""^(?:
+        [a-z][a-z0-9+.\-]*://       # scheme://  (http, https, ftp, …)
+        | //                        # protocol-relative  //host
+        | mailto: | tel:            # non-web but still externally resolvable
+        | [\w-]+(?:\.[\w-]+)+        # bare domain  example.com/…
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_fabricated_links(markdown: str) -> str:
+    """Neutralise hyperlinks the deep-research agent invented.
+
+    The agent has no web tools, so every URL it emits is fabricated —
+    overwhelmingly the canonical ``https://example.com`` placeholder. The
+    only sanctioned attribution channel is the ``<cite ids="…">`` tag
+    (rendered to footnotes by :func:`_render_citations`), so any
+    externally-resolvable markdown link is downgraded to its plain label
+    before the body is stored and handed to the frontend ``SafeMarkdown``
+    renderer (which would otherwise render http(s)/mailto/tel targets as
+    live anchors). In-app relative links and fragment anchors are left
+    untouched.
+    """
+    if not markdown:
+        return markdown
+
+    def _replace(match: re.Match[str]) -> str:
+        label = match.group(1)
+        target = match.group(2).strip()
+        if _EXTERNAL_TARGET_RE.match(target):
+            # Drop the fabricated URL (and any leading ``!`` image marker),
+            # keep the human-readable label so the prose still reads cleanly.
+            return label
+        return match.group(0)
+
+    return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
 def _render_citations(
