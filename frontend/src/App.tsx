@@ -74,6 +74,7 @@ import {
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
+import { ResearchReportRoute } from "./components/routes/ResearchReportRoute";
 import { FileUploadPackageProps } from "./components/widgets/modals/DocumentUploadModal";
 import { DocumentLandingRoute } from "./components/routes/DocumentLandingRoute";
 import { LabelSetLandingRoute } from "./components/routes/LabelSetLandingRoute";
@@ -406,6 +407,7 @@ export const App = () => {
           <Route path="/about" element={<About />} />
           <Route path="/extracts/:extractId" element={<ExtractDetailRoute />} />
           <Route path="/extracts" element={<Extracts />} />
+          <Route path="/research/:slug" element={<ResearchReportRoute />} />
           <Route path="/admin/badges" element={<BadgeManagement />} />
           <Route path="/admin/settings" element={<GlobalSettingsPanel />} />
           <Route path="/admin/agents" element={<GlobalAgentManagement />} />

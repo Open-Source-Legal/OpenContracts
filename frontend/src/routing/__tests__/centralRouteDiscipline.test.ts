@@ -33,15 +33,18 @@
 
 import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const SRC_DIR = path.join(REPO_ROOT, "src");
+const MANAGER_PATH = path.join(SRC_DIR, "routing/CentralRouteManager.tsx");
 
 const RESERVED_SETTERS = [
   "openedCorpus",
   "openedDocument",
   "openedExtract",
+  "openedResearchReport",
   "openedThread",
   "openedLabelset",
   "openedUser",
@@ -152,5 +155,50 @@ describe("Central Routing write discipline", () => {
       );
     }
     expect(violations).toEqual([]);
+  });
+});
+
+/**
+ * Regression guard for the openedResearchReport state-hygiene gap.
+ *
+ * CentralRouteManager's Phase 1 corpus and document branches set only
+ * openedCorpus / openedDocument; they intentionally do NOT clear sibling
+ * entity vars. So a transition that changes neither corpusId nor documentId
+ * in a way that re-clears it — e.g. /research/:slug → /c/:user/:corpus, a
+ * top-level/landing route, or browser back/forward into a corpus/document
+ * route — would leave openedResearchReport stale unless Phase 1 clears it up
+ * front based on the route type. This asserts that single-source-of-truth
+ * early clear exists and runs BEFORE the per-branch resolveEntity() logic
+ * (so it covers the corpus/document branches that never clear it themselves).
+ */
+describe("openedResearchReport route-transition clearing", () => {
+  const SOURCE = readFileSync(MANAGER_PATH, "utf8");
+
+  it("clears openedResearchReport for any non-research route before resolution", () => {
+    const earlyClear =
+      'if (route.type !== "research" && openedResearchReport() !== null) {';
+    const earlyClearIdx = SOURCE.indexOf(earlyClear);
+    expect(
+      earlyClearIdx,
+      "Phase 1 must contain the route-type-driven openedResearchReport clear"
+    ).toBeGreaterThan(-1);
+
+    // The actual clearing call must live inside that guard block.
+    const guardWindow = SOURCE.slice(earlyClearIdx, earlyClearIdx + 200);
+    expect(
+      guardWindow.includes("openedResearchReport(null)"),
+      "the route-type guard must call openedResearchReport(null)"
+    ).toBe(true);
+
+    // It must run before the async resolveEntity definition, so it covers the
+    // corpus/document branches (which do not clear openedResearchReport).
+    const resolveEntityIdx = SOURCE.indexOf(
+      "const resolveEntity = async () => {"
+    );
+    expect(resolveEntityIdx).toBeGreaterThan(-1);
+    expect(
+      earlyClearIdx,
+      "early research-report clear must run before resolveEntity()"
+    ).toBeLessThan(resolveEntityIdx);
   });
 });

@@ -128,6 +128,8 @@ export const SELECTION_MENU = {
 export const DEBOUNCE = {
   SEARCH_MS: 1000,
   EXTRACT_SEARCH_MS: 500,
+  /** Generic debounce for client-side list search boxes (extracts, research, …). */
+  LIST_SEARCH_MS: 500,
   CLICK_OUTSIDE_DELAY_MS: 100,
   CORPUS_SEARCH_MS: 400,
   CORPUS_SEARCH_MAX_WAIT_MS: 1000,
@@ -228,6 +230,51 @@ export const EXTRACT_STATUS_COLORS = {
   [EXTRACT_STATUS.FAILED]: "error",
   [EXTRACT_STATUS.NOT_STARTED]: "default",
 } as const;
+
+// Deep-research report status constants.
+// Keys match the backend JobStatus enum values
+// (opencontractserver/types/enums.py); values are the display labels.
+export const RESEARCH_STATUS = {
+  QUEUED: "Queued",
+  RUNNING: "Researching",
+  COMPLETED: "Completed",
+  FAILED: "Failed",
+  CANCELLED: "Cancelled",
+} as const;
+
+export type ResearchStatusLabel =
+  (typeof RESEARCH_STATUS)[keyof typeof RESEARCH_STATUS];
+
+// Research chip color mapping (Chip `color` tokens from @os-legal/ui)
+export const RESEARCH_STATUS_COLORS = {
+  [RESEARCH_STATUS.QUEUED]: "default",
+  [RESEARCH_STATUS.RUNNING]: "info",
+  [RESEARCH_STATUS.COMPLETED]: "success",
+  [RESEARCH_STATUS.FAILED]: "error",
+  [RESEARCH_STATUS.CANCELLED]: "warning",
+} as const;
+
+// Poll interval (ms) the research report detail view uses while a job is
+// non-terminal. The backend emits no per-step progress events in v1, so the
+// view polls the (indexed, creator-only) single-report query for live
+// stepCount/lastProgressAt and stops on the terminal WebSocket notification.
+export const RESEARCH_REPORT_POLL_INTERVAL_MS = 5000;
+
+// Guardian object-permission string that gates cancelling a research report.
+// Centralised here (not inlined) so a typo can't silently disable Cancel for
+// every user and any future check on the same model stays consistent.
+export const RESEARCH_REPORT_UPDATE_PERMISSION = "update_researchreport";
+
+// Max research prompt length. Mirrors the backend cap
+// (opencontractserver/research/constants.py MAX_RESEARCH_PROMPT_CHARS) so the
+// UI rejects over-long prompts before the round-trip.
+export const MAX_RESEARCH_PROMPT_CHARS = 10000;
+
+// Max research report title length. Mirrors the backend model column
+// (opencontractserver/research/models.py ResearchReport.title max_length=255)
+// so the UI caps the optional title before the round-trip rather than letting
+// the DB silently truncate / the service reject it.
+export const MAX_RESEARCH_TITLE_CHARS = 255;
 
 // Tool usage UI constants (used by chat ToolUsageIndicator)
 export const TOOL_UNKNOWN_LABEL = "Unknown Tool";

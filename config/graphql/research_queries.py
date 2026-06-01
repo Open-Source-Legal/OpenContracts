@@ -68,3 +68,25 @@ class ResearchQueryMixin:
                 return qs.none()
             qs = qs.filter(status=status)
         return qs.order_by("-created")
+
+    research_report_by_slug = graphene.Field(
+        ResearchReportType,
+        slug=graphene.String(required=True),
+        description=(
+            "Fetch a single research report by its unique slug. The "
+            "deep-research completion chat message links to /research/{slug}, "
+            "so the frontend resolves that route through this field. "
+            "Creator-only visibility (returns null for non-owners or unknown "
+            "slugs — IDOR-safe)."
+        ),
+    )
+
+    @login_required
+    def resolve_research_report_by_slug(self, info, slug) -> Any:
+        return (
+            BaseService.filter_visible(
+                ResearchReport, info.context.user, request=info.context
+            )
+            .filter(slug=slug)
+            .first()
+        )

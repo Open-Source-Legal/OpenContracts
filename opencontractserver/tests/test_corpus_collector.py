@@ -1,4 +1,3 @@
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
@@ -6,16 +5,17 @@ from opencontractserver.annotations.models import Annotation, LabelSet, Relation
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.extracts.models import Column, Datacell, Fieldset
+from opencontractserver.users.models import User
 from opencontractserver.utils.corpus_collector import (
     CorpusObjectCollection,
     collect_corpus_objects,
 )
 
-User = get_user_model()
-
 
 class TestCollectCorpusObjects(TestCase):
     """Tests for the shared collect_corpus_objects utility."""
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):

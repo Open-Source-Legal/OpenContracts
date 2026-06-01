@@ -9,6 +9,7 @@ from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.annotations.models import Annotation, Relationship
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
+from opencontractserver.documents.models import Document
 from opencontractserver.tasks import import_corpus
 from opencontractserver.tasks.utils import package_zip_into_base64
 from opencontractserver.types.enums import PermissionTypes
@@ -225,7 +226,7 @@ class CorpusForkTestCase(TestCase):
         self.assertEqual(len(forked_docs), len(original_docs))
 
         # Join forked documents by source_document_id for robust matching
-        forked_by_source = {}
+        forked_by_source: dict[int, Document] = {}
         for d in forked_docs:
             self.assertNotIn(
                 d.source_document_id,
@@ -240,6 +241,7 @@ class CorpusForkTestCase(TestCase):
                 forked_doc,
                 f"No forked document found with source_document_id={orig_doc.id}",
             )
+            assert forked_doc is not None
 
             # Title should have [FORK] prefix
             self.assertEqual(forked_doc.title, f"[FORK] {orig_doc.title}")
@@ -299,7 +301,7 @@ class CorpusForkTestCase(TestCase):
         self.assertEqual(len(forked_annots), len(original_annots))
 
         # Guard: ensure original annotations have unambiguous (raw_text, page) keys
-        original_by_key = {}
+        original_by_key: dict[tuple[str, int], Annotation] = {}
         for annot in original_annots:
             key = (annot.raw_text, annot.page)
             self.assertNotIn(
@@ -310,7 +312,7 @@ class CorpusForkTestCase(TestCase):
             original_by_key[key] = annot
 
         # Build dict-based lookup for forked annotations by (raw_text, page)
-        forked_by_key = {}
+        forked_by_key: dict[tuple[str, int], Annotation] = {}
         for annot in forked_annots:
             key = (annot.raw_text, annot.page)
             self.assertNotIn(
@@ -329,6 +331,7 @@ class CorpusForkTestCase(TestCase):
                 f"No forked annotation found for (raw_text={orig.raw_text!r}, "
                 f"page={orig.page})",
             )
+            assert forked is not None
 
             # Must be different DB rows
             self.assertNotEqual(forked.id, orig.id)
@@ -443,7 +446,7 @@ class CorpusForkTestCase(TestCase):
         # Index forked relationships by (label_text, source_keys, target_keys)
         # for O(1) lookup.  Including the label text in the key prevents
         # collisions when two relationships have empty M2M sets.
-        forked_rel_by_key = {}
+        forked_rel_by_key: dict[tuple, Relationship] = {}
         for rel in forked_rels:
             src_ids, tgt_ids = forked_rel_annot_ids[rel.id]
             src_keys = frozenset(
@@ -492,6 +495,7 @@ class CorpusForkTestCase(TestCase):
                 matched_forked,
                 f"No matching forked relationship found for original {orig_rel.id}",
             )
+            assert matched_forked is not None
 
             # Verify the relationship points to the forked corpus
             self.assertEqual(matched_forked.corpus_id, forked_corpus.id)

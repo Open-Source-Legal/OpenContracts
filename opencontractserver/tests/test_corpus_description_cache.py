@@ -6,7 +6,6 @@ single derivation point for the auto-maintained ``Corpus.description`` and
 ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``.
 """
 
-from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -20,6 +19,7 @@ from opencontractserver.corpuses.services.description_cache import (
     markdown_to_plain_text,
     summarize_for_preview,
 )
+from opencontractserver.users.models import User
 
 
 class MarkdownToPlainTextTest(SimpleTestCase):
@@ -84,9 +84,10 @@ class ComputeCacheFromCamlBodyTest(SimpleTestCase):
 
 
 class CorpusReadmeCamlFKTest(TestCase):
+    user: User
+
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
         cls.user = User.objects.create_user(username="caml-fk-user", password="x")
 
     def test_fk_field_exists_and_defaults_null(self):
@@ -96,9 +97,10 @@ class CorpusReadmeCamlFKTest(TestCase):
 
 
 class BackfillCamlDocForCorpusTest(TestCase):
+    user: User
+
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
         cls.user = User.objects.create_user(username="backfill-user", password="x")
 
     def test_creates_caml_doc_with_documentpath_when_missing(self):
@@ -112,14 +114,17 @@ class BackfillCamlDocForCorpusTest(TestCase):
 
         docs = Document.objects.filter(title="Readme.CAML", file_type="text/markdown")
         self.assertEqual(docs.count(), 1)
+        first_doc = docs.first()
+        assert first_doc is not None
         path = DocumentPath.objects.filter(
-            corpus=corpus, document=docs.first(), is_current=True
+            corpus=corpus, document=first_doc, is_current=True
         ).first()
         self.assertIsNotNone(path)
+        assert path is not None
         self.assertFalse(path.is_deleted)
         corpus.refresh_from_db()
         self.assertEqual(corpus.description, "Backfill body.")
-        self.assertEqual(corpus.readme_caml_document_id, docs.first().pk)
+        self.assertEqual(corpus.readme_caml_document_id, first_doc.pk)
 
     def test_idempotent_does_not_duplicate_doc_or_path(self):
         from opencontractserver.corpuses.services.description_cache import (
@@ -190,9 +195,10 @@ class ReadmeCamlSignalTest(TestCase):
     capturing the callbacks the cache refresh would never run.
     """
 
+    user: User
+
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
         cls.user = User.objects.create_user(username="caml-signal-user", password="x")
 
     def _create_caml(self, corpus, body):
@@ -280,6 +286,7 @@ class ReadmeCamlSignalTest(TestCase):
             corpus=corpus, document=doc, is_current=True
         ).first()
         self.assertIsNotNone(path)
+        assert path is not None
         with self.captureOnCommitCallbacks(execute=True):
             path.is_deleted = True
             path.save(update_fields=["is_deleted"])
@@ -339,9 +346,10 @@ class ReadmeCamlSignalTest(TestCase):
 
 
 class WithReadmeCamlDocQuerysetTest(TestCase):
+    user: User
+
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
         cls.user = User.objects.create_user(username="qcount-user", password="x")
         from opencontractserver.documents.versioning import import_document
 
@@ -381,9 +389,11 @@ class WithReadmeCamlDocQuerysetTest(TestCase):
 
 
 class MdDescriptionResolverTest(TestCase):
+    user: User
+    corpus: Corpus
+
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
         cls.user = User.objects.create_user(username="resolver-user", password="x")
         cls.corpus = Corpus.objects.create(title="C", creator=cls.user)
         from opencontractserver.documents.versioning import import_document
@@ -413,6 +423,7 @@ class MdDescriptionResolverTest(TestCase):
                 .select_related("document")
                 .first()
             )
+            assert head is not None
             cls.corpus.readme_caml_document_id = head.document_id
             cls.corpus.save(update_fields=["readme_caml_document"])
             cls.corpus.refresh_from_db()
@@ -442,9 +453,11 @@ class MdDescriptionResolverTest(TestCase):
 
 
 class ReadmeCamlDocumentFieldTest(TestCase):
+    user: User
+    corpus: Corpus
+
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
         cls.user = User.objects.create_user(username="rcdf-user", password="x")
         cls.corpus = Corpus.objects.create(title="C", creator=cls.user)
         from opencontractserver.documents.versioning import import_document
@@ -470,6 +483,7 @@ class ReadmeCamlDocumentFieldTest(TestCase):
                 .select_related("document")
                 .first()
             )
+            assert head is not None
             cls.corpus.readme_caml_document_id = head.document_id
             cls.corpus.save(update_fields=["readme_caml_document"])
             cls.corpus.refresh_from_db()

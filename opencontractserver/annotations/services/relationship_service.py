@@ -280,3 +280,48 @@ class RelationshipService(BaseService):
         }
 
         return result
+
+    @classmethod
+    def get_corpus_relationships(
+        cls,
+        corpus_id: int,
+        user,
+        structural: Optional[bool] = None,
+    ) -> QuerySet:
+        """Corpus-wide relationships visible to ``user``.
+
+        Mirrors ``AnnotationService.get_corpus_annotations`` scoping: includes
+        corpus-FK relationships, relationships on visible corpus documents, and
+        structural relationships linked via those documents' structural sets.
+
+        Corpus READ is the gate (via ``CorpusDocumentService.get_corpus_documents``);
+        returns ``Relationship.objects.none()`` if the corpus is not visible.
+        """
+        from opencontractserver.annotations.models import (
+            Relationship,
+            StructuralAnnotationSet,
+        )
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.corpuses.services import CorpusDocumentService
+
+        try:
+            corpus = Corpus.objects.visible_to_user(user).get(id=corpus_id)
+        except Corpus.DoesNotExist:
+            return Relationship.objects.none()
+
+        doc_ids = CorpusDocumentService.get_corpus_documents(
+            user=user, corpus=corpus, include_deleted=False
+        ).values_list("id", flat=True)
+
+        set_ids = StructuralAnnotationSet.objects.filter(
+            documents__in=doc_ids
+        ).values_list("id", flat=True)
+
+        qs = Relationship.objects.filter(
+            Q(corpus_id=corpus_id)
+            | Q(document_id__in=doc_ids)
+            | Q(structural=True, structural_set_id__in=set_ids)
+        )
+        if structural is not None:
+            qs = qs.filter(structural=structural)
+        return qs.distinct()

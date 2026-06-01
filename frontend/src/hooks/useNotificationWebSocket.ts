@@ -52,7 +52,14 @@ export type NotificationType =
   | "EXTRACT_COMPLETE"
   | "ANALYSIS_COMPLETE"
   | "ANALYSIS_FAILED"
-  | "EXPORT_COMPLETE";
+  | "EXPORT_COMPLETE"
+  // Deep-research job lifecycle. An incremental RESEARCH_REPORT_PROGRESS event
+  // is planned for v2 but is intentionally absent here: the backend does not
+  // emit it yet and there is no handler, so adding it to the union now would
+  // mask the gap rather than catch it. Add the member when the handler is wired.
+  | "RESEARCH_REPORT_COMPLETE"
+  | "RESEARCH_REPORT_FAILED"
+  | "RESEARCH_REPORT_CANCELLED";
 
 /**
  * Message types from the notification updates WebSocket consumer.
