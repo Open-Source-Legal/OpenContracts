@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
 from django.db.models import Q, QuerySet
 
@@ -35,6 +35,11 @@ from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
 
+
+# The closed set of ``resolve_place`` label-type literals. Naming it once lets
+# the inverse map (and any downstream caller) advertise the exact three values
+# instead of a bare ``str``, so call sites get exhaustiveness checking.
+GeocodeLabelType = Literal["country", "state", "city"]
 
 # Map a frontend ``labelType`` filter value to the backend label text used
 # to mark the annotation. Single source of truth so callers don't sprinkle
@@ -51,9 +56,13 @@ _ALL_GEO_LABELS = frozenset(GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.values())
 # back to the ``resolve_place`` label-type literal. Lets annotation-creation
 # callers that work in terms of label *text* (e.g. the
 # ``add_annotations_from_exact_strings`` agent tool) reuse the same geocoding
-# path the GraphQL mutations use without re-deriving the mapping.
-LABEL_TEXT_TO_GEOCODE_LABEL_TYPE: dict[str, str] = {
-    text: label_type for label_type, text in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.items()
+# path the GraphQL mutations use without re-deriving the mapping. The ``cast``
+# narrows each value from ``str`` (the forward map's value type) to the
+# ``GeocodeLabelType`` literal — exhaustively true here, but not provable to the
+# type checker through the comprehension.
+LABEL_TEXT_TO_GEOCODE_LABEL_TYPE: dict[str, GeocodeLabelType] = {
+    text: cast(GeocodeLabelType, label_type)
+    for label_type, text in GEOCODE_LABEL_TYPE_TO_LABEL_TEXT.items()
 }
 
 
@@ -86,8 +95,10 @@ def build_geocoded_annotation_data(
             holding a label text should map it via
             :data:`LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` first.
         text: The span text to geocode.
-        country_hint / state_hint: Optional disambiguation hints forwarded to
-            ``resolve_place``.
+        country_hint: Optional disambiguation hint forwarded to ``resolve_place``
+            — narrows ``state`` / ``city`` candidates to the given country.
+        state_hint: Optional disambiguation hint forwarded to ``resolve_place``
+            — narrows ``city`` candidates to the given (US) state.
     """
     from opencontractserver.utils.geocoding import resolve_place
 

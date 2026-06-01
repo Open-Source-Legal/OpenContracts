@@ -160,16 +160,18 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         # Paris, TX sits at a negative (western) longitude, unlike Paris, FR.
         self.assertLess(ann.data["lng"], 0)
 
-    def test_city_without_hints_resolves_to_france(self):
-        # Assumption: an unhinted "Paris" resolves to the highest-population
-        # match (Paris, FR over Paris, TX). This ties to the geocoder's current
-        # tie-break dataset; if that ranking changes, relax this to assert only
-        # ``ann.data["geocoded"] is True`` and leave the country to the
-        # geocoding service's own tests.
+    def test_city_without_hints_still_geocodes(self):
+        # An unhinted geographic span still flows through the tool and gets a
+        # geocoded payload. Which *specific* place an ambiguous name resolves to
+        # (unhinted "Paris" → Paris, FR by population) is the geocoder's
+        # responsibility and is pinned in
+        # ``test_geocoding_service.test_ambiguous_picks_largest_by_population``;
+        # re-asserting the country here would couple this tool-integration test
+        # to the geocoder's dataset internals.
         ids = self._annotate([{"label_text": OC_CITY_LABEL, "exact_string": "Paris"}])
         ann = Annotation.objects.get(pk=ids[0])
+        self.assertIsNotNone(ann.data)
         self.assertTrue(ann.data["geocoded"])
-        self.assertEqual(ann.data["admin_codes"]["iso_alpha2"], "FR")
 
     def test_ungeocodable_geo_span_marks_not_geocoded(self):
         # A geo label on text that is not a known place still creates the
@@ -233,9 +235,12 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
             self.assertIsNotNone(ann.data)
             self.assertTrue(ann.data["geocoded"])
             self.assertEqual(ann.data["admin_codes"]["iso_alpha2"], "FR")
+            # Assert per-annotation inside the loop: queryset order is
+            # non-deterministic without an ``order_by``, so a check after the
+            # loop would only validate whichever row happened to come last.
+            self.assertEqual(ann.annotation_type, SPAN_LABEL)
         # Resolver invoked exactly once for the single item, not per occurrence.
         self.assertEqual(spy.call_count, 1)
-        self.assertEqual(ann.annotation_type, SPAN_LABEL)
 
     def test_hints_ignored_for_non_geographic_label(self):
         # Hints on a non-geo label are silently ignored (no crash, no data).
@@ -250,3 +255,22 @@ class LocationTaggerGeocodingTests(_GeoToolFixture):
         )
         ann = Annotation.objects.get(pk=ids[0])
         self.assertIsNone(ann.data)
+
+    def test_non_string_hint_values_are_coerced_not_crashed(self):
+        # LLM output can violate the declared ``dict[str, str]`` hint shape —
+        # e.g. an int country code or a null state. Such values must be coerced
+        # (and ``None`` dropped) at the tool boundary; before the fix they
+        # reached the geocoder's ``str.strip().lower()`` and raised
+        # ``AttributeError``. The span is still created and geocoded.
+        ids = self._annotate(
+            [
+                {
+                    "label_text": OC_CITY_LABEL,
+                    "exact_string": "Paris",
+                    "hints": {"country": 123, "state": None},
+                }
+            ]
+        )
+        ann = Annotation.objects.get(pk=ids[0])
+        self.assertIsNotNone(ann.data)
+        self.assertTrue(ann.data["geocoded"])
