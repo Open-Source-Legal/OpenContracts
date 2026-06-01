@@ -196,6 +196,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP `search_corpus` dropped the document pointer on structural passage
+  hits.** Structural annotations carry `document_id=NULL` and reach their
+  document only through `structural_set` (mirrored by the document's
+  `structural_annotation_set`), but `format_search_passage`
+  (`opencontractserver/mcp/formatters.py`) read only `annotation.document` and
+  therefore returned `document_slug=null` / `document_title=""` for every
+  structural hit — handing an AI agent a search result it could not navigate
+  back to a document (observed live on the DGCL corpus at
+  `cite.opensource.legal/mcp`). `search_corpus`
+  (`opencontractserver/mcp/tools.py`) now builds a corpus-scoped
+  `structural_set_id -> (slug, title)` lookup for structural passages and
+  threads it into the formatter, so structural hits resolve their document the
+  same way block hits already do. The lookup is corpus-scoped (not a lazy
+  per-annotation query) because a structural set can be shared across
+  documents/corpuses, so the slug must be chosen within the caller's corpus.
+  Regression guard:
+  `MCPSearchCorpusStructuralSlugTest` in `opencontractserver/mcp/tests/test_mcp.py`.
+
 - **Canonical-CAML backfill migration `0054` crashed on cloud storage
   (`AttributeError: 'bytes' object has no attribute 'encode'`).** Production
   `manage.py migrate` aborted at
