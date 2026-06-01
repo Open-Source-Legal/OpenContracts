@@ -10,6 +10,7 @@ from django.test import TestCase
 
 from opencontractserver.llms import agents, embeddings, tools, vector_stores
 from opencontractserver.llms.agents.core_agents import CoreAgent
+from opencontractserver.llms.api import ToolType
 from opencontractserver.llms.tools.tool_factory import CoreTool
 from opencontractserver.llms.types import AgentFramework
 
@@ -126,9 +127,8 @@ class TestAgentAPI(TestCase):
                 # Custom CoreTool
                 core_tool = CoreTool.from_function(my_tool)
 
-                await agents.for_document(
-                    123, 456, tools=["summarize", my_tool, core_tool]
-                )
+                doc_tools: list[ToolType] = ["summarize", my_tool, core_tool]
+                await agents.for_document(123, 456, tools=doc_tools)
 
                 # Verify tools were resolved
                 mock_create.assert_called_once()
@@ -171,14 +171,14 @@ class TestEmbeddingAPI(TestCase):
                 "Legal text",
                 corpus_id=123,
                 mimetype="application/pdf",
-                embedder_path="custom-embedder",
+                embedder="custom-embedder",
             )
 
             mock_module_generate.assert_called_once_with(
                 "Legal text",
                 corpus_id=123,
                 mimetype="application/pdf",
-                embedder_path="custom-embedder",
+                embedder="custom-embedder",
             )
             self.assertEqual(embedder_path, "legal-embedder")
             self.assertEqual(vector, [0.4, 0.5, 0.6])
@@ -284,7 +284,7 @@ class TestToolResolution(TestCase):
         """Test that built-in tools are resolved by name."""
         from opencontractserver.llms.api import _resolve_tools
 
-        tools_list = ["summarize", "notes", "md_summary_length"]
+        tools_list: list[ToolType] = ["summarize", "notes", "md_summary_length"]
         resolved = _resolve_tools(tools_list)
 
         self.assertEqual(len(resolved), 3)
@@ -299,7 +299,7 @@ class TestToolResolution(TestCase):
 
         custom_tool = CoreTool.from_function(custom_func)
 
-        tools_list = [
+        tools_list: list[ToolType] = [
             "summarize",  # Built-in by name
             custom_func,  # Function
             custom_tool,  # CoreTool
@@ -315,7 +315,7 @@ class TestToolResolution(TestCase):
         from opencontractserver.llms.api import _resolve_tools
 
         with patch("opencontractserver.llms.api.logger") as mock_logger:
-            tools_list = ["unknown_tool", "summarize"]
+            tools_list: list[ToolType] = ["unknown_tool", "summarize"]
             resolved = _resolve_tools(tools_list)
 
             # Should resolve only the known tool
@@ -332,7 +332,9 @@ class TestToolResolution(TestCase):
 
         with patch("opencontractserver.llms.api.logger") as mock_logger:
             tools_list = ["summarize", 123, None]  # Invalid types
-            resolved = _resolve_tools(tools_list)
+            # Deliberately pass non-tool items (int, None) to exercise the
+            # defensive skip-and-warn path; the bad element types are ignored.
+            resolved = _resolve_tools(tools_list)  # type: ignore[arg-type]
 
             # Should resolve only the valid tool
             self.assertEqual(len(resolved), 1)
@@ -344,7 +346,7 @@ class TestToolResolution(TestCase):
         """Test that moderation tools are resolved correctly."""
         from opencontractserver.llms.api import _resolve_tools
 
-        moderation_tools = [
+        moderation_tools: list[ToolType] = [
             "get_thread_context",
             "get_thread_messages",
             "get_message_content",
@@ -370,7 +372,7 @@ class TestToolResolution(TestCase):
         """Test resolving a subset of moderation tools."""
         from opencontractserver.llms.api import _resolve_tools
 
-        tools_list = ["get_thread_context", "lock_thread"]
+        tools_list: list[ToolType] = ["get_thread_context", "lock_thread"]
         resolved = _resolve_tools(tools_list)
 
         self.assertEqual(len(resolved), 2)
@@ -380,7 +382,7 @@ class TestToolResolution(TestCase):
         """Test that core document/corpus tools are resolved correctly."""
         from opencontractserver.llms.api import _resolve_tools
 
-        core_tools = [
+        core_tools: list[ToolType] = [
             "update_corpus_description",
             "get_corpus_description",
             "load_document_txt_extract",  # alias -> load_document_text
@@ -406,7 +408,7 @@ class TestToolResolution(TestCase):
         from opencontractserver.llms.api import _resolve_tools
 
         # load_document_text is an alias for load_document_txt_extract
-        tools_list = ["load_document_text"]
+        tools_list: list[ToolType] = ["load_document_text"]
         resolved = _resolve_tools(tools_list)
 
         self.assertEqual(len(resolved), 1)
@@ -419,7 +421,7 @@ class TestToolResolution(TestCase):
         """Test resolving a subset of core tools."""
         from opencontractserver.llms.api import _resolve_tools
 
-        tools_list = ["get_corpus_description", "get_document_summary"]
+        tools_list: list[ToolType] = ["get_corpus_description", "get_document_summary"]
         resolved = _resolve_tools(tools_list)
 
         self.assertEqual(len(resolved), 2)
@@ -429,7 +431,7 @@ class TestToolResolution(TestCase):
         """Test resolving a mix of moderation and core tools."""
         from opencontractserver.llms.api import _resolve_tools
 
-        tools_list = [
+        tools_list: list[ToolType] = [
             "get_thread_context",  # moderation
             "get_corpus_description",  # core
             "lock_thread",  # moderation
@@ -495,9 +497,15 @@ class TestAPIIntegration(TestCase):
                 # Create agent
                 agent = await agents.for_corpus(456)
 
-                # Stream response
+                # Stream response.
+                #
+                # ``stream_chat`` is a legacy compatibility wrapper present on
+                # the concrete agent base (CoreAgentBase) but deliberately absent
+                # from the modern CoreAgent protocol, which exposes ``stream``.
+                # Calling it on the protocol-typed factory return needs a scoped
+                # ignore (the mock above replaces it wholesale).
                 chunks = []
-                async for chunk in agent.stream_chat("Summarize"):
+                async for chunk in agent.stream_chat("Summarize"):  # type: ignore[attr-defined]
                     chunks.append(chunk)
 
                 # Verify streaming worked
@@ -642,7 +650,7 @@ class TestToolFunctionRegistry(TestCase):
                     f"Tool '{name}' async_func is not a coroutine function",
                 )
                 core = registry.to_core_tool(name)
-                self.assertIsNotNone(core, f"to_core_tool({name!r}) returned None")
+                assert core is not None, f"to_core_tool({name!r}) returned None"
                 self.assertTrue(
                     asyncio.iscoroutinefunction(core.function),
                     f"Tool '{name}' should resolve to async func but got {core.function}",
@@ -656,20 +664,20 @@ class TestToolFunctionRegistry(TestCase):
 
         # Entry-level aliases
         entry = registry.resolve("load_document_txt_extract")
-        self.assertIsNotNone(entry)
+        assert entry is not None
         self.assertEqual(entry.definition.name, "load_document_text")
 
         entry = registry.resolve("search_exact_text_as_sources")
-        self.assertIsNotNone(entry)
+        assert entry is not None
         self.assertEqual(entry.definition.name, "search_exact_text")
 
         # Legacy aliases
         entry = registry.resolve("summarize")
-        self.assertIsNotNone(entry)
+        assert entry is not None
         self.assertEqual(entry.definition.name, "load_document_summary")
 
         entry = registry.resolve("notes")
-        self.assertIsNotNone(entry)
+        assert entry is not None
         self.assertEqual(entry.definition.name, "get_document_notes")
 
     def test_unknown_name_returns_none(self):
@@ -686,13 +694,13 @@ class TestToolFunctionRegistry(TestCase):
 
         registry = ToolFunctionRegistry.get()
         core = registry.to_core_tool("update_document_summary")
-        self.assertIsNotNone(core)
+        assert core is not None
         self.assertTrue(core.requires_approval)
         self.assertTrue(core.requires_corpus)
         self.assertTrue(core.requires_write_permission)
 
         core_read = registry.to_core_tool("get_document_description")
-        self.assertIsNotNone(core_read)
+        assert core_read is not None
         self.assertFalse(core_read.requires_approval)
         self.assertFalse(core_read.requires_write_permission)
 

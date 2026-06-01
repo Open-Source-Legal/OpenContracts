@@ -3,9 +3,9 @@ Tests for the core OpenContracts Agent API surface.
 (agents, tools, vector_stores as imported from opencontractserver.llms)
 """
 
+from collections.abc import Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
@@ -20,11 +20,22 @@ from opencontractserver.llms.types import AgentFramework
 from opencontractserver.llms.vector_stores.vector_store_factory import (
     UnifiedVectorStoreFactory,
 )
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestAPISetup(TestCase):
+    user: User
+    corpus1: Corpus
+    doc1: Document
+    doc2: Document
+    label1: AnnotationLabel
+    anno1_doc1: Annotation
+    conversation1: Conversation
+    chat_message1: ChatMessage
+    chat_message2: ChatMessage
+    dummy_tool_func: Callable[[str], str]
+    core_tool_instance: CoreTool
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -224,7 +235,10 @@ class TestAgentAPIHypermodern(TestAPISetup):
         agent = await agents.for_document(self.doc1.id, self.corpus1.id)
 
         chunks = []
-        async for chunk in agent.stream_chat("stream hello"):
+        # ``stream_chat`` is the legacy wrapper on the concrete agent base, not
+        # part of the modern CoreAgent protocol (which exposes ``stream``); the
+        # mock above replaces it wholesale, so the protocol-typed call is ignored.
+        async for chunk in agent.stream_chat("stream hello"):  # type: ignore[attr-defined]
             chunks.append(chunk)
 
         self.assertEqual(chunks, ["chunk1", "chunk2"])
