@@ -14,7 +14,11 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
-import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_SHADOWS,
+  whiteAlpha,
+} from "../../assets/configurations/osLegalStyles";
 import {
   MAP_CLUSTER_MAX_RADIUS,
   MAP_DEFAULT_CENTER,
@@ -79,8 +83,8 @@ const LoadingOverlay = styled.div`
   z-index: 1000;
   padding: 0.35rem 0.85rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  background: ${whiteAlpha(0.92)};
+  box-shadow: ${OS_LEGAL_SHADOWS.floatingBadge};
   font-size: 0.8125rem;
   color: ${OS_LEGAL_COLORS.textSecondary};
 `;
