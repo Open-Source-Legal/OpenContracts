@@ -381,20 +381,38 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     lastCombinedMessage.isComplete !== true;
   const showWarmupTicker = isProcessing && !inFlightAssistantPresent;
 
-  // Scroll to bottom helper
-  const scrollToBottom = useCallback(() => {
+  // Scroll to bottom helper. Defaults to an instant jump; callers opt into a
+  // smooth scroll for incremental appends only.
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     if (messagesContainerRef.current) {
       const container = messagesContainerRef.current;
       container.scrollTo({
         top: container.scrollHeight,
-        behavior: "smooth",
+        behavior,
       });
     }
   }, []);
 
+  // Distinguish a bulk (re)load — opening an existing conversation or switching
+  // threads, where many messages arrive at once — from a single incremental
+  // append. Bulk loads jump instantly to the bottom; a new appended message (or
+  // streamed tokens) scrolls smoothly. This removes the long, janky smooth
+  // animation that previously played every time a populated conversation opened.
+  const prevConversationKeyRef = useRef<string | undefined>(undefined);
+  const prevMessageCountRef = useRef<number>(0);
   useEffect(() => {
-    scrollToBottom();
-  }, [combinedMessages, scrollToBottom]);
+    const conversationKey =
+      selectedConversationId ?? (isNewChat ? "__new__" : undefined);
+    const switchedConversation =
+      conversationKey !== prevConversationKeyRef.current;
+    const appendedSingleMessage =
+      combinedMessages.length === prevMessageCountRef.current + 1;
+    prevConversationKeyRef.current = conversationKey;
+    prevMessageCountRef.current = combinedMessages.length;
+    scrollToBottom(
+      switchedConversation || !appendedSingleMessage ? "auto" : "smooth"
+    );
+  }, [combinedMessages, selectedConversationId, isNewChat, scrollToBottom]);
 
   /**
    * Handle incoming WebSocket messages. Wrapped in useCallback so the

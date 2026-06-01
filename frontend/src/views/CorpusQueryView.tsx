@@ -282,11 +282,13 @@ export const CorpusQueryView = ({
         return null;
       }
 
-      // When the chat-expanded CorpusChat is showing a conversation, its inner
-      // header already provides Back + Home, so suppress the outer one to keep
-      // a single back button on screen at any time. The outer header re-appears
-      // automatically once the user returns to the conversation list view.
-      if (chatExpanded && chatExpandedInConversation) {
+      // When CorpusChat is showing a conversation (in either the search-expanded
+      // ASK flow or the "Conversation History" VIEW flow), its inner header
+      // already provides Back + Home, so suppress the outer one to keep a single
+      // back button — and a single header row — on screen at any time. The outer
+      // header re-appears automatically once the user returns to the conversation
+      // list view (CorpusChat reports list/conversation mode via onViewModeChange).
+      if (chatExpandedInConversation) {
         return null;
       }
 
@@ -477,9 +479,14 @@ export const CorpusQueryView = ({
               resetToSearch();
               showQueryViewState("ASK");
             }}
-            // VIEW state always renders the outer "Back to Dashboard /
-            // Conversation History" header on desktop; suppress the inner
-            // filter-bar Back there to avoid duplicate-back-button UX.
+            // Mirror CorpusChat's list/conversation mode into the parent so the
+            // outer "Conversation History" header is suppressed while a single
+            // conversation is open (its inner header owns Back + Home there) and
+            // restored when the user returns to the conversation list.
+            onViewModeChange={setChatExpandedInConversation}
+            // In the conversation-list view the outer header renders on desktop
+            // and owns "Back to Dashboard"; suppress the inner filter-bar Back
+            // there to avoid duplicate-back-button UX.
             hideListBackButton={isDesktop}
           />
         </div>

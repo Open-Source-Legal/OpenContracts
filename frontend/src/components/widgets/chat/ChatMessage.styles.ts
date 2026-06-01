@@ -28,6 +28,14 @@ export const MessageContainer = styled(motion.div)<{
   display: flex;
   gap: 1rem;
   padding: 0.75rem 1.5rem;
+  /* Cap the reading column so messages don't span the full width of a wide
+     corpus-chat viewport (which produces hard-to-scan, very long line lengths).
+     A no-op in narrow surfaces like the document-chat sidebar, where the row is
+     already < max-width. */
+  width: 100%;
+  max-width: 60rem;
+  margin-left: auto;
+  margin-right: auto;
   transition: all 0.2s ease-in-out;
   position: relative;
   cursor: ${(props) =>
@@ -119,8 +127,12 @@ export const ContentContainer = styled.div`
 `;
 
 export const MessageContent = styled.div<{ $isAssistant: boolean }>`
+  /* User bubble uses a solid, clearly-visible neutral so it reads as a distinct
+     card against the near-white messages background (the previous
+     rgba(247,248,249,0.5) was almost invisible). Blue stays reserved for the
+     assistant's identity (avatar + accent) to avoid speaker ambiguity. */
   background: ${(props) =>
-    props.$isAssistant ? whiteAlpha(0.7) : "rgba(247, 248, 249, 0.5)"};
+    props.$isAssistant ? whiteAlpha(0.7) : "rgba(237, 240, 244, 0.92)"};
   backdrop-filter: blur(12px);
   border-radius: 1.25rem;
   padding: 1.25rem 1.5rem;
@@ -138,7 +150,7 @@ export const MessageContent = styled.div<{ $isAssistant: boolean }>`
       : "0 1px 4px rgba(23, 25, 35, 0.03)"};
   border: 1px solid
     ${(props) =>
-      props.$isAssistant ? whiteAlpha(0.5) : "rgba(247, 248, 249, 0.3)"};
+      props.$isAssistant ? whiteAlpha(0.5) : "rgba(203, 210, 219, 0.9)"};
   overflow-wrap: break-word;
   word-break: break-word;
 

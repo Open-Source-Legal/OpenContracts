@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Corpus Chat — "Invalid Date" on every server-loaded message.** `CorpusChat`
+  rendered `new Date(msg.createdAt).toLocaleString()`
+  (`frontend/src/components/corpuses/CorpusChat.tsx:348`) but `GET_CHAT_MESSAGES`
+  (`frontend/src/graphql/queries.ts`) never selected `createdAt`, so every
+  message loaded from the server showed "Invalid Date" (the conversation-list
+  timestamps were unaffected). Added the `createdAt` field to the query; the
+  `ChatMessageType` TS type already declared it, so no type changes were needed.
+- **Corpus Chat — stacked double header on desktop/tablet.** Opening a
+  conversation from the "Conversation History" (VIEW) flow rendered both the
+  outer "Conversation History" header and `CorpusChat`'s inner "Conversation"
+  header (two stacked rows, two redundant Home buttons), shrinking the message
+  scroll area to ~38% of viewport height on a 1366×680 laptop (~1 message
+  visible). `CorpusQueryView` now mirrors CorpusChat's list/conversation mode in
+  the VIEW flow via `onViewModeChange` and suppresses the outer header whenever a
+  single conversation is open — recovering ~71px and leaving one header (the
+  ASK/search-expanded flow already did this). Regression test added in
+  `frontend/src/views/__tests__/CorpusQueryView.handlers.test.tsx`.
+
 ### Changed
+
+- **Corpus/document chat — message readability.** Capped the message column at
+  60rem and centered it (`frontend/src/components/widgets/chat/ChatMessage.styles.ts`,
+  `MessageContainer`) so messages no longer span the full width of a wide
+  corpus-chat viewport (which produced very long, hard-to-scan line lengths), and
+  gave the user ("You") bubble a solid, clearly-visible neutral background +
+  border in place of the near-invisible `rgba(247, 248, 249, 0.5)`. Both changes
+  apply to the corpus chat and the document knowledge-base chat (shared
+  component); blue remains reserved for the assistant's identity.
+- **Corpus Chat — scroll-to-bottom behavior.** Opening or switching conversations
+  now jumps instantly to the latest message instead of playing a long smooth
+  scroll animation across the whole history; smooth scrolling is reserved for
+  single incremental appends / streamed tokens
+  (`frontend/src/components/corpuses/CorpusChat.tsx`).
 
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the

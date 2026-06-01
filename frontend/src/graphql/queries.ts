@@ -3902,6 +3902,7 @@ export const GET_CHAT_MESSAGES = gql`
       content
       state
       data
+      createdAt
       creator {
         id
         slug
