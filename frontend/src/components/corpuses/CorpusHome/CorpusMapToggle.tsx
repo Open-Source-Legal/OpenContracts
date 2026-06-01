@@ -12,6 +12,7 @@ import {
 import { pluralizePlaces } from "../../../utils/formatters";
 import {
   CORPUS_COLORS,
+  CORPUS_FONT_SIZES,
   CORPUS_RADII,
   CORPUS_TRANSITIONS,
 } from "../styles/corpusDesignTokens";
@@ -36,8 +37,8 @@ const ToggleButton = styled.button<{ $hasPlaces: boolean }>`
     background ${CORPUS_TRANSITIONS.fast}, color ${CORPUS_TRANSITIONS.fast};
 
   svg {
-    width: 13px;
-    height: 13px;
+    width: ${CORPUS_FONT_SIZES.sm};
+    height: ${CORPUS_FONT_SIZES.sm};
   }
 
   &:hover {

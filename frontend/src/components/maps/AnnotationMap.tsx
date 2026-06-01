@@ -306,6 +306,12 @@ const MapController: React.FC<MapControllerProps> = ({
 
   // Auto-fit: frame the coarsest band's pins once, on first load. A deep-link
   // focus takes precedence (skip the fit so it doesn't fight the flyTo).
+  //
+  // Ordering invariant: this effect must run AFTER the focus effect above.
+  // React runs effects in definition order, and the focus effect sets
+  // `didFitRef.current = true` when it consumes the one-shot fit — so the
+  // `didFitRef.current` guard here reflects focus priority. Keep this effect
+  // below the focus effect.
   useEffect(() => {
     if (!fitToPins || didFitRef.current || focusPinName || pins.length === 0) {
       return;

@@ -25,6 +25,7 @@ import {
   GetDocumentByIdForRedirectOutput,
 } from "../../graphql/queries";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { CORPUS_BREAKPOINTS, CORPUS_RADII } from "./styles/corpusDesignTokens";
 import {
   BackButton,
   DetailsContainer,
@@ -45,7 +46,7 @@ const MapBody = styled.div`
   display: flex;
   padding: 1.5rem 2.5rem 2rem;
 
-  @media (max-width: 768px) {
+  @media (max-width: ${CORPUS_BREAKPOINTS.tablet}px) {
     padding: 0.75rem;
   }
 `;
@@ -60,7 +61,7 @@ const Placeholder = styled.div`
   text-align: center;
   padding: 2rem;
   border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 12px;
+  border-radius: ${CORPUS_RADII.lg};
   background: ${OS_LEGAL_COLORS.surfaceHover};
 `;
 
@@ -70,7 +71,7 @@ const PlaceholderIcon = styled.div`
   justify-content: center;
   width: 48px;
   height: 48px;
-  border-radius: 999px;
+  border-radius: ${CORPUS_RADII.full};
   background: ${OS_LEGAL_COLORS.surface};
   color: ${OS_LEGAL_COLORS.textSecondary};
   box-shadow: inset 0 0 0 1px ${OS_LEGAL_COLORS.border};
@@ -176,11 +177,11 @@ export const CorpusMapView: React.FC<CorpusMapViewProps> = ({
         const { data: docData } = await resolveDocumentById({
           variables: { id: documentId },
         });
-        const document = docData?.document;
-        if (!document) {
+        const resolvedDoc = docData?.document;
+        if (!resolvedDoc) {
           return;
         }
-        const url = getDocumentUrl(document, document.corpus);
+        const url = getDocumentUrl(resolvedDoc, resolvedDoc.corpus);
         if (url !== "#") {
           navigate(url);
         }
