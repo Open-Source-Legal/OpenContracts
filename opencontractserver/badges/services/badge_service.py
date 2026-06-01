@@ -60,35 +60,34 @@ class BadgeService(BaseService):
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.users.services import UserService
 
-        # Superuser sees all badges
-        if hasattr(requesting_user, "is_superuser") and requesting_user.is_superuser:
-            qs = UserBadge.objects.all()
-        else:
-            # Get visible users based on profile privacy
-            visible_users = UserService.get_visible_users(
-                requesting_user, corpus_id=corpus_id, request=request
+        # Superusers are computed like any other user (scoped admin access,
+        # 2026-05): badge awards (UserBadge) are user data and follow normal
+        # profile-privacy + corpus visibility for admins too.
+        # Get visible users based on profile privacy
+        visible_users = UserService.get_visible_users(
+            requesting_user, corpus_id=corpus_id, request=request
+        )
+
+        # Filter to badges of visible users
+        qs = UserBadge.objects.filter(user__in=visible_users)
+
+        # For corpus-specific badges, also check corpus permission
+        if requesting_user is not None and not isinstance(
+            requesting_user, AnonymousUser
+        ):
+            # Include badges from corpuses user can access
+            visible_corpuses = Corpus.objects.visible_to_user(requesting_user)
+
+            qs = qs.filter(
+                Q(corpus__isnull=True)  # Global badges
+                | Q(corpus__in=visible_corpuses)  # Corpus badges user can see
             )
-
-            # Filter to badges of visible users
-            qs = UserBadge.objects.filter(user__in=visible_users)
-
-            # For corpus-specific badges, also check corpus permission
-            if requesting_user is not None and not isinstance(
-                requesting_user, AnonymousUser
-            ):
-                # Include badges from corpuses user can access
-                visible_corpuses = Corpus.objects.visible_to_user(requesting_user)
-
-                qs = qs.filter(
-                    Q(corpus__isnull=True)  # Global badges
-                    | Q(corpus__in=visible_corpuses)  # Corpus badges user can see
-                )
-            else:
-                # Anonymous users can only see global badges or public corpus badges
-                qs = qs.filter(
-                    Q(corpus__isnull=True)  # Global badges
-                    | Q(corpus__is_public=True)  # Public corpus badges
-                )
+        else:
+            # Anonymous users can only see global badges or public corpus badges
+            qs = qs.filter(
+                Q(corpus__isnull=True)  # Global badges
+                | Q(corpus__is_public=True)  # Public corpus badges
+            )
 
         # Filter to specific user if requested
         if user_id:
