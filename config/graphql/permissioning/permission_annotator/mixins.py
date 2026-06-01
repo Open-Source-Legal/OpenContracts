@@ -267,10 +267,8 @@ class AnnotatePermissionsForReadMixin:
                         # )
 
                         # Manual lookup here from database
-                        model_permissions = (
-                            get_permissions_for_user_on_model_in_app(
-                                app_label, model_name, info.context.user
-                            )
+                        model_permissions = get_permissions_for_user_on_model_in_app(
+                            app_label, model_name, info.context.user
                         )
 
                     else:

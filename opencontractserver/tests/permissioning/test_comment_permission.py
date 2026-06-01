@@ -255,8 +255,7 @@ class CommentPermissionTestCase(TestCase):
         )
         self.assertFalse(
             can_comment,
-            "No-grant superuser should NOT have COMMENT (computed like a "
-            "stranger)",
+            "No-grant superuser should NOT have COMMENT (computed like a " "stranger)",
         )
 
         # Grant READ + COMMENT on both document and corpus → COMMENT follows.

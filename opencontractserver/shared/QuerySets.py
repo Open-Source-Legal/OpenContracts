@@ -184,7 +184,6 @@ class UserFeedbackQuerySet(models.QuerySet):
         # Superusers are computed like any other user (scoped admin access,
         # 2026-05) — feedback visibility follows the commented annotation's
         # visibility for everyone, admins included.
-
         # Both anonymous and authenticated users may READ a feedback row
         # whose commented annotation is visible to them — mirrors the
         # ``Annotation.objects.visible_to_user(user)``-based gate in

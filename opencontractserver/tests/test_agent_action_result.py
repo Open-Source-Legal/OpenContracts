@@ -290,9 +290,7 @@ class AgentActionResultModelTestCase(TestCase):
         self.assertNotIn(result, visible)
 
         # Positive path: grant corpus READ via the normal guardian path.
-        set_permissions_for_obj_to_user(
-            superuser, self.corpus, [PermissionTypes.READ]
-        )
+        set_permissions_for_obj_to_user(superuser, self.corpus, [PermissionTypes.READ])
         visible_after = AgentActionResult.objects.visible_to_user(superuser)
         self.assertIn(result, visible_after)
 

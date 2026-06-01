@@ -823,7 +823,9 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         self.caml_doc.is_public = True
         self.caml_doc.save(update_fields=["is_public"])
         set_permissions_for_obj_to_user(
-            self.superuser, self.caml_doc, [PermissionTypes.READ, PermissionTypes.UPDATE]
+            self.superuser,
+            self.caml_doc,
+            [PermissionTypes.READ, PermissionTypes.UPDATE],
         )
 
         _apply_caml_article_edit(

@@ -722,9 +722,7 @@ class StructuralAnnotationOptimizerTests(TestCase):
         # via ``Annotation.objects.user_can``. A non-superuser cannot.
         from opencontractserver.types.enums import PermissionTypes
 
-        label = AnnotationLabel.objects.create(
-            text="StructLabel", creator=self.owner
-        )
+        label = AnnotationLabel.objects.create(text="StructLabel", creator=self.owner)
         structural_anno = Annotation.objects.create(
             document=self.private_doc,
             annotation_label=label,

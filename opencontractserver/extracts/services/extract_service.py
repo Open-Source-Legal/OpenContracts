@@ -147,9 +147,7 @@ class ExtractService(BaseService):
                     if not corpus.is_public:
                         return Extract.objects.none()
                 # scoped admin access, 2026-05: admins computed like a normal user
-                elif not corpus.user_can(
-                    user, PermissionTypes.READ, request=context
-                ):
+                elif not corpus.user_can(user, PermissionTypes.READ, request=context):
                     return Extract.objects.none()
             except Corpus.DoesNotExist:
                 return Extract.objects.none()

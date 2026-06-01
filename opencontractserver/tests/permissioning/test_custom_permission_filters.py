@@ -37,9 +37,7 @@ class PermissionFilteringTestCase(TestCase):
         # Create GraphQL clients
         self.client1 = Client(schema, context_value=TestContext(self.user1))
         self.client2 = Client(schema, context_value=TestContext(self.user2))
-        self.client_super = Client(
-            schema, context_value=TestContext(self.superuser)
-        )
+        self.client_super = Client(schema, context_value=TestContext(self.superuser))
 
         # Create test data
         self.corpus1 = Corpus.objects.create(title="Corpus 1", creator=self.user1)

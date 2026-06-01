@@ -830,9 +830,7 @@ class DefaultUserCanCoverageTestCase(TestCase):
         self.assertFalse(_default_user_can(admin, public, PermissionTypes.UPDATE))
 
         # Corpus the superuser created → full creator surface, via normal path.
-        own = Corpus.objects.create(
-            title="admin_own", creator=admin, is_public=False
-        )
+        own = Corpus.objects.create(title="admin_own", creator=admin, is_public=False)
         for perm in (
             PermissionTypes.READ,
             PermissionTypes.UPDATE,

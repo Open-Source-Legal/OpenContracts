@@ -58,7 +58,6 @@ class MetadataService(BaseService):
         )
 
         # scoped admin access, 2026-05: admins computed like a normal user
-
         # Anonymous users only have read access to public documents/corpuses
         if user.is_anonymous:
             try:

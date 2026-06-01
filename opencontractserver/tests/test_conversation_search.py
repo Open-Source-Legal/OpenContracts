@@ -2326,9 +2326,7 @@ class ConversationModelVisibilityTest(TestCase):
             permissions=[PermissionTypes.READ],
         )
         visible_after = Conversation.objects.visible_to_user(superuser)
-        self.assertIn(
-            private_conv.id, set(visible_after.values_list("id", flat=True))
-        )
+        self.assertIn(private_conv.id, set(visible_after.values_list("id", flat=True)))
 
     def test_visible_to_user_with_shared_permissions(self):
         """Test that users see conversations explicitly shared with them."""

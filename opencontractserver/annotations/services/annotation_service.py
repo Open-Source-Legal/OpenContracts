@@ -672,7 +672,6 @@ class AnnotationService(BaseService):
 
         # Superusers are computed like any other user (scoped admin access,
         # 2026-05) — the corpus-permission path below applies to admins too.
-
         # Check corpus permission first
         try:
             corpus = Corpus.objects.get(id=corpus_id)
