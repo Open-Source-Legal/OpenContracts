@@ -34,6 +34,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `auth_token`) intentionally match the established codebase convention used by
     the sibling `CorpusExtractCards`/`CorpusAnalysesCards` and avoid shadowing the
     imported camelCase reactive vars — renaming them would have been a regression.
+- **Location Tagger: non-string geocoding hints crashed the tool (#1871,
+  follow-up to #1822).** `add_annotations_from_exact_strings`
+  (`opencontractserver/llms/tools/core_tools/annotations.py`) forwarded the
+  LLM-supplied `hints` mapping straight to the geocoder. The values come from
+  raw model output, so a model emitting `{"country": 123}` (a non-string)
+  reached `resolve_place` → `_normalise`, where `str.strip().lower()` raised
+  `AttributeError` deep in the geocoding service instead of failing gracefully
+  at the tool boundary. Hint keys/values are now coerced to `str` and `None`
+  values dropped (so `{"country": null}` reads as "no hint", not the literal
+  `"None"`), making the declared `dict[str, str]` contract true at runtime.
+  Part of the #1822 code-review follow-up, which also: moved a per-annotation
+  assertion inside its loop in `test_location_tagger_agent.py` (the post-loop
+  check only validated the last, order-non-deterministic row); decoupled
+  `test_city_without_hints_*` from the geocoder's population tie-break (already
+  pinned by `test_geocoding_service.ResolvePlaceCityTests`); narrowed
+  `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` to a `Literal` value type; and documented
+  the no-superuser migration-skip recovery path in
+  `docs/agents/location_tagger.md`.
 - **Corpus chat duplicate-response loop on reconnect**
   (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
   the corpus home search bar navigated into the chat view and auto-sent the

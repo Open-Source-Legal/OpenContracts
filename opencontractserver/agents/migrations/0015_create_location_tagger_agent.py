@@ -87,6 +87,10 @@ def create_location_tagger_agent(apps, schema_editor):
         ),
         system_instructions=instructions,
         available_tools=["add_annotations_from_exact_strings"],
+        # Intentionally empty: this agent runs unattended as a corpus action and
+        # its only tool writes annotations the user can review/delete afterwards
+        # — there is no destructive or irreversible call to gate behind an
+        # approval prompt.
         permission_required_tools=[],
         badge_config={
             "icon": "globe",
