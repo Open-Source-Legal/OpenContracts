@@ -7193,6 +7193,89 @@ class MCPListRelationshipsStructuralSetTest(TestCase):
         self.assertEqual(result["total_count"], 0)
 
 
+class MCPSearchCorpusStructuralSlugTest(TestCase):
+    """search_corpus resolves document slug/title for structural passage hits.
+
+    Structural annotations carry ``document_id=NULL`` and reach their document
+    only through ``structural_set`` (mirrored by the document's
+    ``structural_annotation_set``). ``format_search_passage`` historically read
+    only ``annotation.document`` and therefore emitted ``document_slug=None``
+    for every structural hit — handing an AI agent a search result it cannot
+    navigate back to a document. Regression guard for that fix.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from opencontractserver.annotations.models import (
+            Annotation,
+            StructuralAnnotationSet,
+        )
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        cls.owner = User.objects.create_user(
+            username="structslugowner",
+            email="structslug@test.com",
+            password="pw123456",
+        )
+        cls.corpus = Corpus.objects.create(
+            title="Struct Slug Corpus", creator=cls.owner, is_public=True
+        )
+        cls.struct_set = StructuralAnnotationSet.objects.create(
+            content_hash="structslug-hash-1",
+            creator=cls.owner,
+            is_public=True,
+        )
+        cls.document = Document.objects.create(
+            title="Struct Slug Doc",
+            creator=cls.owner,
+            is_public=True,
+            page_count=44,
+            structural_annotation_set=cls.struct_set,
+        )
+        DocumentPath.objects.create(
+            document=cls.document,
+            corpus=cls.corpus,
+            path="/structslug.pdf",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=cls.owner,
+        )
+        # Structural passage: document NULL, linked only via structural_set
+        # (satisfies the document-XOR-structural_set model constraint).
+        cls.struct_ann = Annotation.objects.create(
+            page=44,
+            raw_text="§ 217 Voting rights of fiduciaries and pledgors",
+            document=None,
+            structural_set=cls.struct_set,
+            creator=cls.owner,
+            is_public=True,
+            structural=True,
+        )
+
+    def test_structural_passage_resolves_document_slug(self):
+        from opencontractserver.mcp.tools import search_corpus
+
+        result = search_corpus(self.corpus.slug, "Voting rights", granularity="passage")
+        passages = [r for r in result["results"] if "217" in r["text"]]
+        self.assertTrue(
+            passages, "expected the structural passage to be returned by search"
+        )
+        hit = passages[0]
+        self.assertEqual(hit["document_slug"], self.document.slug)
+        self.assertEqual(hit["document_title"], self.document.title)
+
+    def test_structural_passage_without_lookup_returns_none_slug(self):
+        """Without a lookup the formatter preserves the old null-slug behaviour."""
+        from opencontractserver.mcp.formatters import format_search_passage
+
+        result = format_search_passage(
+            self.struct_ann, similarity_score=None, struct_doc_lookup=None
+        )
+        self.assertIsNone(result["document_slug"])
+        self.assertEqual(result["document_title"], "")
+
+
 class MCPGetCorpusInfoLabelsTest(TestCase):
     """get_corpus_info surfaces only labels actually used on annotations (#1861)."""
 

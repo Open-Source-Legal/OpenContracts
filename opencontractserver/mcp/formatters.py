@@ -71,16 +71,39 @@ def format_annotation(annotation: Annotation) -> dict:
 
 
 def format_search_passage(
-    annotation: Annotation, similarity_score: float | None = None
+    annotation: Annotation,
+    similarity_score: float | None = None,
+    struct_doc_lookup: dict[int, tuple[str | None, str]] | None = None,
 ) -> dict:
-    """Format an annotation as a passage-level search hit."""
+    """Format an annotation as a passage-level search hit.
+
+    Document-attached annotations resolve their document via the ``document``
+    FK. Structural annotations carry ``document_id=NULL`` and reach their
+    document only through ``structural_set`` (mirrored by the document's
+    ``structural_annotation_set``); for those, callers must pass a
+    ``struct_doc_lookup`` mapping ``structural_set_id -> (slug, title)``.
+    The lookup is supplied (rather than resolved lazily) because a structural
+    set can be shared across documents/corpuses, so the slug must be picked
+    within the caller's corpus scope — an unscoped lookup could mislabel the
+    hit with a document from another corpus. Without the lookup a structural
+    hit reports ``document_slug=None`` (prior behaviour, preserved).
+    """
     from opencontractserver.constants.mcp import MCP_SEARCH_SNIPPET_MAX_CHARS
 
-    doc = annotation.document if annotation.document_id else None
+    structural_set_id: int | None = getattr(annotation, "structural_set_id", None)
+    if annotation.document_id:
+        doc = annotation.document
+        doc_slug = doc.slug if doc else None
+        doc_title = (doc.title or "") if doc else ""
+    elif struct_doc_lookup and structural_set_id is not None:
+        doc_slug, doc_title = struct_doc_lookup.get(structural_set_id, (None, ""))
+    else:
+        doc_slug, doc_title = None, ""
+
     return {
         "type": "passage",
-        "document_slug": doc.slug if doc else None,
-        "document_title": (doc.title or "") if doc else "",
+        "document_slug": doc_slug,
+        "document_title": doc_title,
         "page": annotation.page,
         "text": _truncate(annotation.raw_text or "", MCP_SEARCH_SNIPPET_MAX_CHARS),
         "structural": annotation.structural,

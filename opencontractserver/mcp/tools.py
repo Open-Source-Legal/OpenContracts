@@ -404,8 +404,38 @@ def search_corpus(
             # Fall through to text search whenever the vector path yields
             # nothing — fixing the prior "return on empty vector" dead-fallback.
             passages = list(ann_qs.filter(raw_text__icontains=query)[:limit])
+
+        # Structural passages carry document_id=NULL and reach their document
+        # only through structural_set; build a corpus-scoped
+        # structural_set_id -> (slug, title) lookup so those hits still resolve
+        # a navigable document instead of emitting document_slug=None.
+        struct_set_ids = {
+            a.structural_set_id
+            for a in passages
+            if a.document_id is None and a.structural_set_id
+        }
+        struct_doc_lookup: dict[int, tuple[str | None, str]] = {}
+        if struct_set_ids:
+            for set_id, slug, title in (
+                Document.objects.filter(
+                    structural_annotation_set_id__in=struct_set_ids,
+                    path_records__corpus_id=corpus.id,
+                    path_records__is_current=True,
+                    path_records__is_deleted=False,
+                )
+                .values_list("structural_annotation_set_id", "slug", "title")
+                .order_by("structural_annotation_set_id", "slug")
+                .distinct()
+            ):
+                # If a structural set maps to multiple corpus documents, pick
+                # the first alphabetically by slug — deterministic (guaranteed
+                # by the order_by above); the edge case is rare in practice.
+                struct_doc_lookup.setdefault(set_id, (slug, title or ""))
+
         formatted.extend(
-            format_search_passage(a, getattr(a, "similarity_score", None))
+            format_search_passage(
+                a, getattr(a, "similarity_score", None), struct_doc_lookup
+            )
             for a in passages
         )
 
