@@ -154,6 +154,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Canonical-CAML corpus home regressions: missing tab toggle on mobile +
+  dropped corpus cover image** (`frontend/src/components/corpuses/CorpusHome.tsx`,
+  `frontend/src/components/corpuses/CorpusHome/CorpusArticleView.tsx`). After the
+  canonical-CAML refactor made a `Readme.CAML` article the corpus home page,
+  `CorpusArticleView` replaced `CorpusLandingView` and lost two affordances the
+  landing view provided automatically:
+  - The Explore/Manage **mode toggle** (the control that reveals the corpus
+    sidebar tabs) was rendered only as a bottom `position: fixed`
+    `FloatingModeToggle` inside the article's `overflowY: auto` scroll
+    container. Fixed-position-in-scroll-container is unreliable on mobile
+    (notably iOS), so the toggle disappeared there. It now renders inline in the
+    article's **sticky toolbar** (`data-testid="…-mode-toggle"`), which stays
+    visible on every viewport. The redundant floating toggle was removed from
+    the article path (the landing path keeps its floating toggle), and the now
+    dead `$stackAboveChat` prop was dropped.
+  - The **corpus cover image** (`corpus.icon`) only appeared if the CAML body
+    explicitly referenced `corpus://icon` / `corpus://current`. Backfilled
+    articles never do, so corpuses silently lost their cover image on the home
+    page. `CorpusArticleView` now auto-renders the corpus icon above the article
+    body when the CAML does not already reference it — matching the auto-hero
+    behavior of `CorpusLandingView`.
 - **Canonical-CAML backfill migration `0054` crashed on cloud storage
   (`AttributeError: 'bytes' object has no attribute 'encode'`).** Production
   `manage.py migrate` aborted at

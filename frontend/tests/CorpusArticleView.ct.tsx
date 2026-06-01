@@ -56,6 +56,93 @@ test.describe("CorpusArticleView - With Article", () => {
   });
 });
 
+// Minimal valid CAML body with NO `corpus://icon` reference, so the view
+// auto-renders the corpus cover image and (in toolbar) the mode toggle.
+const CAML_BODY =
+  "---\nversion: '1.0'\nhero:\n  title:\n    - Test Article\n---\n\n::: chapter {#intro}\n## Hello World\n:::\n";
+
+test.describe("CorpusArticleView - Mode toggle (mobile)", () => {
+  // iPhone-class viewport: the old bottom-floating toggle was unreliable here,
+  // so the toggle now lives in the sticky toolbar and must stay visible.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("renders the Explore/Manage toggle in the toolbar on mobile", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/media/test/readme.caml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: CAML_BODY,
+      })
+    );
+
+    const component = await mount(
+      <CorpusArticleViewTestWrapper hasArticle={true} withModeToggle={true} />
+    );
+
+    const toggle = page.getByTestId("test-corpus-article-mode-toggle");
+    await expect(toggle).toBeVisible({ timeout: 15000 });
+    await expect(toggle.getByText("Explore")).toBeVisible();
+    await expect(toggle.getByText("Manage")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("omits the toggle when no onModeToggle is provided", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/media/test/readme.caml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: CAML_BODY,
+      })
+    );
+
+    const component = await mount(
+      <CorpusArticleViewTestWrapper hasArticle={true} withModeToggle={false} />
+    );
+
+    // Toolbar renders (Back is present) but the toggle is absent.
+    await expect(page.getByText("Back")).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByTestId("test-corpus-article-mode-toggle")
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
+});
+
+test.describe("CorpusArticleView - Auto corpus image", () => {
+  test("renders the corpus cover image when CAML omits corpus://icon", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/media/test/readme.caml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: CAML_BODY,
+      })
+    );
+
+    // The default mock corpus carries a truthy `icon`, and CAML_BODY does not
+    // reference corpus://icon, so the cover image is auto-rendered.
+    const component = await mount(
+      <CorpusArticleViewTestWrapper hasArticle={true} />
+    );
+
+    const hero = page.getByTestId("test-corpus-article-hero-image");
+    await expect(hero).toBeVisible({ timeout: 15000 });
+    await expect(hero.locator("img")).toHaveAttribute("src", "briefcase");
+
+    await component.unmount();
+  });
+});
+
 test.describe("CorpusArticleView - Documents Drawer", () => {
   test("should show Documents button and open drawer on click", async ({
     mount,

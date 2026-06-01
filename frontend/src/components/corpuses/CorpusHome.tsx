@@ -50,8 +50,9 @@ const FloatingChatBar = styled.div`
   }
 `;
 
-/** Floating mode toggle — anchored bottom-right */
-const FloatingModeToggle = styled.div<{ $stackAboveChat?: boolean }>`
+/** Floating mode toggle — anchored bottom-right (landing view only; the
+ *  article view renders the toggle inline in its sticky toolbar instead). */
+const FloatingModeToggle = styled.div`
   position: fixed;
   bottom: calc(1.75rem + env(safe-area-inset-bottom, 0px));
   right: 1.5rem;
@@ -59,10 +60,7 @@ const FloatingModeToggle = styled.div<{ $stackAboveChat?: boolean }>`
 
   @media (max-width: 768px) {
     right: 1rem;
-    bottom: ${(props) =>
-      props.$stackAboveChat
-        ? "calc(5.75rem + env(safe-area-inset-bottom, 0px))"
-        : "calc(1rem + env(safe-area-inset-bottom, 0px))"};
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 `;
 
@@ -210,6 +208,8 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         onBack={handleBackToLanding}
         onEditArticle={isPowerUserMode ? onEditArticle : undefined}
         showDocumentsButton={!isPowerUserMode}
+        onModeToggle={onModeToggle}
+        isPowerUserMode={isPowerUserMode}
         stats={{
           documents: stats.totalDocs,
           annotations: stats.totalAnnotations,
@@ -249,6 +249,8 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
           onBack={onNavigateToCorpuses || handleBackToLanding}
           onEditArticle={isPowerUserMode ? onEditArticle : undefined}
           showDocumentsButton={!isPowerUserMode}
+          onModeToggle={onModeToggle}
+          isPowerUserMode={isPowerUserMode}
           stats={{
             documents: stats.totalDocs,
             annotations: stats.totalAnnotations,
@@ -268,28 +270,6 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
             corpusId={corpus.id}
           />
         </FloatingChatBar>
-        {onModeToggle && (
-          <FloatingModeToggle $stackAboveChat>
-            <PillToggle
-              onClick={onModeToggle}
-              title={
-                isPowerUserMode
-                  ? "Switch to explore view"
-                  : "Switch to corpus management view"
-              }
-              data-testid="article-power-user-toggle"
-            >
-              <PillToggleLabel $active={!isPowerUserMode}>
-                <Compass size={12} />
-                Explore
-              </PillToggleLabel>
-              <PillToggleLabel $active={!!isPowerUserMode}>
-                <LayoutDashboard size={12} />
-                Manage
-              </PillToggleLabel>
-            </PillToggle>
-          </FloatingModeToggle>
-        )}
       </div>
     );
   }

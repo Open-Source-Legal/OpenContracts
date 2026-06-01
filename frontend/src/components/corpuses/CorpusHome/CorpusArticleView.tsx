@@ -7,10 +7,17 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@apollo/client";
-import { ArrowLeft, FileText, Edit } from "lucide-react";
+import {
+  ArrowLeft,
+  FileText,
+  Edit,
+  Compass,
+  LayoutDashboard,
+} from "lucide-react";
 import styled from "styled-components";
 
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
+import { HeroImageBand, PillToggle, PillToggleLabel } from "./styles";
 
 import {
   GET_CORPUS_ARTICLE,
@@ -103,13 +110,36 @@ const ToolbarTitle = styled.span`
   color: ${OS_LEGAL_COLORS.textMuted};
   font-weight: 400;
   letter-spacing: 0.01em;
+  /* Allow the title to shrink so the nav controls (incl. the mode toggle)
+     never get pushed off-screen on narrow viewports. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  /* The corpus title is redundant with the article hero on small screens —
+     hide it on mobile to make room for the back button + nav controls. */
+  @media (max-width: 768px) {
+    display: none;
+  }
 `;
 
 const ToolbarNav = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.5rem;
   margin-left: auto;
+  flex-shrink: 0;
+`;
+
+/** Centered corpus avatar shown above the article body when the CAML does not
+ *  already reference the corpus icon. Restores the hero image that the corpus
+ *  landing view shows automatically, so a Readme.CAML article doesn't silently
+ *  drop the corpus's cover image. */
+const HeroAvatarRow = styled.div`
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem 1rem 0;
 `;
 
 const LoadingContainer = styled.div`
@@ -154,6 +184,15 @@ export interface CorpusArticleViewProps {
   onBack: () => void;
   onEditArticle?: () => void;
   showDocumentsButton?: boolean;
+  /**
+   * Toggles power-user ("Manage") mode. When provided, an Explore/Manage pill
+   * is rendered in the sticky toolbar. This lives in the toolbar (not as a
+   * bottom-floating control) so it stays reachable on mobile, where a
+   * position:fixed element inside the article's scroll container is unreliable.
+   */
+  onModeToggle?: () => void;
+  /** Whether power-user ("Manage") mode is currently active. */
+  isPowerUserMode?: boolean;
   stats?: {
     annotations?: number;
     documents?: number;
@@ -168,6 +207,8 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
   onBack,
   onEditArticle,
   showDocumentsButton,
+  onModeToggle,
+  isPowerUserMode = false,
   stats,
   testId = "corpus-article",
 }) => {
@@ -254,6 +295,21 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
     [corpus.icon]
   );
 
+  // Whether the article body already surfaces the corpus icon (via a hero or
+  // inline `corpus://icon` / `corpus://current` reference). When it does NOT,
+  // we render the icon ourselves above the article so the corpus cover image
+  // isn't lost just because the CAML author didn't embed it explicitly —
+  // matching the auto-hero behavior of CorpusLandingView.
+  const camlReferencesCorpusIcon = useMemo(
+    () =>
+      !!camlContent &&
+      (camlContent.includes("corpus://icon") ||
+        camlContent.includes("corpus://current")),
+    [camlContent]
+  );
+
+  const showCorpusImage = Boolean(corpus.icon) && !camlReferencesCorpusIcon;
+
   if (loading) {
     return (
       <ArticleViewContainer data-testid={testId}>
@@ -331,6 +387,29 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
               Edit
             </EditButtonStyled>
           )}
+          {/* Explore/Manage toggle — surfaces the corpus sidebar tabs. Lives in
+              the sticky toolbar so it stays reachable on mobile (a bottom
+              position:fixed control inside the scroll container is not). */}
+          {onModeToggle && (
+            <PillToggle
+              onClick={onModeToggle}
+              title={
+                isPowerUserMode
+                  ? "Switch to explore view"
+                  : "Switch to corpus management view"
+              }
+              data-testid={`${testId}-mode-toggle`}
+            >
+              <PillToggleLabel $active={!isPowerUserMode}>
+                <Compass size={12} />
+                Explore
+              </PillToggleLabel>
+              <PillToggleLabel $active={isPowerUserMode}>
+                <LayoutDashboard size={12} />
+                Manage
+              </PillToggleLabel>
+            </PillToggle>
+          )}
         </ToolbarNav>
       </ArticleToolbar>
       {showDocumentsButton && (
@@ -339,6 +418,18 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
           open={docsDrawerOpen}
           onClose={() => setDocsDrawerOpen(false)}
         />
+      )}
+
+      {showCorpusImage && (
+        <HeroAvatarRow data-testid={`${testId}-hero-image`}>
+          <HeroImageBand>
+            <img
+              src={corpus.icon as string}
+              alt={`${corpus.title || "Corpus"} cover image`}
+              loading="lazy"
+            />
+          </HeroImageBand>
+        </HeroAvatarRow>
       )}
 
       <CamlDirectiveRenderer
