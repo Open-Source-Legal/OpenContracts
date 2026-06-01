@@ -3098,10 +3098,24 @@ class TestPostImportStructuralIngestion(TestCase):
             "doc_labels": [],
             "labelled_text": [],
         }
+        # ``unpack_corpus_from_export`` / ``unpack_label_set_from_export`` read
+        # title/description/icon_name/icon_data as required keys; an icon-less
+        # corpus exports with empty icon strings (see package_*_for_export), so
+        # mirror that minimal shape here.
         data: dict = {
             "version": "2.0",
-            "corpus": {"title": "Imported Corpus"},
-            "label_set": {"title": "Imported LS"},
+            "corpus": {
+                "title": "Imported Corpus",
+                "description": "",
+                "icon_name": "",
+                "icon_data": "",
+            },
+            "label_set": {
+                "title": "Imported LS",
+                "description": "",
+                "icon_name": "",
+                "icon_data": "",
+            },
             "doc_labels": {},
             "text_labels": {},
             "annotated_docs": {doc_filename: doc_data},
