@@ -100,11 +100,19 @@ export interface CorpusArticleViewTestWrapperProps {
   hasArticle?: boolean;
   corpus?: CorpusType;
   showDocumentsButton?: boolean;
+  withModeToggle?: boolean;
+  isPowerUserMode?: boolean;
 }
 
 export const CorpusArticleViewTestWrapper: React.FC<
   CorpusArticleViewTestWrapperProps
-> = ({ hasArticle = true, corpus = MOCK_CORPUS, showDocumentsButton }) => {
+> = ({
+  hasArticle = true,
+  corpus = MOCK_CORPUS,
+  showDocumentsButton,
+  withModeToggle = false,
+  isPowerUserMode = false,
+}) => {
   const mock = hasArticle ? articleExistsMock : noArticleMock;
 
   return (
@@ -120,6 +128,8 @@ export const CorpusArticleViewTestWrapper: React.FC<
             onBack={() => {}}
             onEditArticle={() => {}}
             showDocumentsButton={showDocumentsButton}
+            onModeToggle={withModeToggle ? () => {} : undefined}
+            isPowerUserMode={isPowerUserMode}
             testId="test-corpus-article"
           />
         </MockedProvider>
