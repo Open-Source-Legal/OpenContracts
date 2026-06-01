@@ -102,6 +102,13 @@ def format_search_passage(
 
     return {
         "type": "passage",
+        # ``annotation_id`` bridges a search hit back to the underlying
+        # annotation: callers can read it via the ``annotation://`` resource or
+        # cross-reference ``list_annotations``. It is also the stable identity
+        # ``search_corpus`` dedupes on (the annotation→embedding join can
+        # surface the same annotation once per stored vector). Matches the
+        # ``annotation_id`` key used by ``format_relationship`` nodes.
+        "annotation_id": str(annotation.id),
         "document_slug": doc_slug,
         "document_title": doc_title,
         "page": annotation.page,

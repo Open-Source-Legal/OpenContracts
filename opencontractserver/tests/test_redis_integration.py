@@ -222,6 +222,59 @@ class TestChannelsRedisLayer(TestCase):
         result = self._timed_receive_or_none(channel_name)
         assert result is None
 
+    def test_idle_receive_survives_blocking_pop_window(self):
+        """An idle receive() must outlast channels-redis' blocking-pop window.
+
+        Regression test for #1886. redis-py 8.0 changed the default
+        ``socket_timeout`` from ``None`` to ``5s`` -- exactly equal to
+        channels-redis' ``brpop_timeout`` (the *server-side* blocking-pop
+        timeout used by the idle receive loop). When the CHANNEL_LAYERS host
+        config omits ``socket_timeout``, the *client* read deadline fires
+        before the server's nil reply returns and redis-py raises
+        ``redis.exceptions.TimeoutError`` out of the consumer's receive loop ->
+        Daphne closes the WebSocket with code 1011 -> the browser reconnects,
+        goes idle, and trips again ~5s later (the reconnect churn in #1886).
+
+        The fix sets ``socket_timeout=None`` on the host dict
+        (``config/settings/base.py`` and ``config/settings/test_integration.py``).
+        This test delivers a message only AFTER the first blocking-pop cycle
+        elapses, so a correct (non-timing-out) client must survive the idle
+        window to ever observe it; a regressed config raises
+        ``redis.TimeoutError`` at ~5s and this test fails with it.
+        """
+        # brpop_timeout is a RedisChannelLayer class attribute (5s); read it
+        # off the live layer so the test tracks the library rather than a magic
+        # number.
+        brpop_timeout = getattr(self.channel_layer, "brpop_timeout", 5)
+        deliver_after = brpop_timeout + 1.5  # land in the SECOND pop cycle
+        receive_timeout = brpop_timeout * 2 + 3.0
+
+        channel_name = async_to_sync(self.channel_layer.new_channel)()
+        message = {"type": "idle.message", "text": "after idle window"}
+
+        async def _idle_then_receive():
+            async def _deliver_later():
+                await asyncio.sleep(deliver_after)
+                await self.channel_layer.send(channel_name, message)
+
+            deliver_task = asyncio.ensure_future(_deliver_later())
+            try:
+                # A regressed socket_timeout raises redis.TimeoutError here at
+                # ~brpop_timeout seconds (before the message is delivered),
+                # which propagates and fails this test -- exactly the #1886
+                # failure mode.
+                return await asyncio.wait_for(
+                    self.channel_layer.receive(channel_name),
+                    timeout=receive_timeout,
+                )
+            finally:
+                if not deliver_task.done():
+                    deliver_task.cancel()
+
+        received = async_to_sync(_idle_then_receive)()
+        assert received["type"] == "idle.message"
+        assert received["text"] == "after idle window"
+
 
 class TestCeleryRedisBackend(TestCase):
     """Test Celery broker connection and result backend against real Redis.

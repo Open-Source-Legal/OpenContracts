@@ -28,6 +28,15 @@ export function pluralizeDocuments(count: number): string {
 }
 
 /**
+ * Formats a place count with a correctly pluralised noun (corpus map, #1821).
+ * @param count - The number of geographic places
+ * @returns e.g. "1 place" or "12 places"
+ */
+export function pluralizePlaces(count: number): string {
+  return `${count} place${count === 1 ? "" : "s"}`;
+}
+
+/**
  * Formats a date string into a relative time description.
  * @param dateString - ISO date string to format
  * @returns Relative time string like "Just now", "5 hours ago", "3 days ago", or empty string if invalid

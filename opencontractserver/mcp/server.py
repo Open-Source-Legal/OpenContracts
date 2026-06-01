@@ -14,6 +14,7 @@ initialization race conditions that plagued the older SSE transport.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import re
@@ -608,6 +609,54 @@ def _format_tool_error_text(e: BaseException) -> str:
     return str(e) or "Unexpected error"
 
 
+def _safe_tool_arguments(
+    handler: Callable[..., Any], name: str, arguments: dict
+) -> dict:
+    """Drop the server-injected ``user`` arg and reject unknown arguments.
+
+    The dispatcher calls ``handler(user=user, **safe_arguments)``. A
+    client-supplied argument the handler does not accept would otherwise raise
+    a bare ``TypeError`` deep inside ``sync_to_async`` — which escapes the
+    structured-error branch as an opaque transport error *and* leaks the
+    Python function signature to the caller. Validating up front converts that
+    into a ``ValidationError`` (caught by both dispatchers and surfaced as a
+    structured ``{"error": ...}`` payload) whose message names the offending
+    argument and lists the valid ones, so an LLM client can self-correct.
+
+    ``inspect.signature`` follows ``__wrapped__``, so scoped tools (wrapped by
+    ``create_scoped_tool_wrapper`` with ``functools.wraps``) are validated
+    against their real signature rather than the wrapper's ``(**kwargs)``.
+    Handlers that genuinely accept ``**kwargs`` skip the unknown-arg check.
+    """
+    # ``user`` is injected by the dispatcher; never let a client supply it.
+    safe = {k: v for k, v in arguments.items() if k != "user"}
+
+    try:
+        params = inspect.signature(handler).parameters
+    except (TypeError, ValueError):
+        # Unintrospectable callable — fall back to the prior permissive
+        # behaviour rather than blocking the call.
+        return safe
+
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return safe
+
+    allowed = {
+        param_name
+        for param_name, param in params.items()
+        if param.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and param_name != "user"
+    }
+    unknown = sorted(k for k in safe if k not in allowed)
+    if unknown:
+        raise ValidationError(
+            f"Unknown argument(s) for tool '{name}': {', '.join(unknown)}. "
+            f"Valid arguments: {', '.join(sorted(allowed)) or '(none)'}."
+        )
+    return safe
+
+
 async def _record_and_return_tool_error(
     e: BaseException,
     *,
@@ -664,11 +713,12 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
     try:
         # Run synchronous Django ORM handlers in thread pool.
         # All TOOL_HANDLERS accept an optional `user`; passing None preserves
-        # anonymous semantics. Drop any client-supplied ``user`` argument so
-        # it can't collide with the kwarg below (TypeError would otherwise
-        # escape the structured error branch as a raw transport error).
+        # anonymous semantics. ``_safe_tool_arguments`` drops any client-supplied
+        # ``user`` argument and rejects unknown arguments up front so a bad
+        # kwarg becomes a structured ValidationError rather than a raw
+        # ``TypeError`` transport error leaking the function signature.
         user = _mcp_user.get()
-        safe_arguments = {k: v for k, v in arguments.items() if k != "user"}
+        safe_arguments = _safe_tool_arguments(handler, name, arguments)
         result = await sync_to_async(handler)(user=user, **safe_arguments)
         await arecord_mcp_tool_call(
             name,
@@ -1423,10 +1473,11 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
 
             # Run synchronous Django ORM handlers in thread pool. All scoped
             # handlers accept an optional `user`; passing None preserves
-            # anonymous semantics for unauthenticated callers. Drop any
-            # client-supplied ``user`` argument so it can't collide with the
-            # kwarg below.
-            safe_arguments = {k: v for k, v in arguments.items() if k != "user"}
+            # anonymous semantics for unauthenticated callers.
+            # ``_safe_tool_arguments`` drops any client-supplied ``user`` and
+            # rejects unknown arguments (validated against the wrapped tool's
+            # real signature) so bad kwargs surface as structured errors.
+            safe_arguments = _safe_tool_arguments(handler, name, arguments)
             result = await sync_to_async(handler)(user=user, **safe_arguments)
             await arecord_mcp_tool_call(
                 name,
