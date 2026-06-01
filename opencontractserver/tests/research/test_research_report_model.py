@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.research.models import ResearchReport
@@ -68,6 +71,29 @@ class ResearchReportModelTestCase(TestCase):
         report.status = JobStatus.RUNNING.value
         report.save(update_fields=["status"])
         self.assertFalse(report.is_terminal)
+
+    def test_duration_seconds_computed_from_timestamps(self):
+        """duration_seconds is derived from started_at/completed_at, not stored.
+
+        Guards the invariant relied on by the status-tool duration tests, which
+        set the timestamps directly (bypassing finalize()) and expect the
+        property to compute the elapsed wall-clock time.
+        """
+        report = ResearchReport.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            prompt="x",
+        )
+        # No timestamps yet → None (not 0).
+        self.assertIsNone(report.duration_seconds)
+
+        # Set timestamps directly, bypassing finalize(): the property must still
+        # compute correctly, proving it reads from the fields at access time.
+        now = timezone.now()
+        report.started_at = now - timedelta(seconds=125)
+        report.completed_at = now
+        report.save(update_fields=["started_at", "completed_at"])
+        self.assertAlmostEqual(report.duration_seconds, 125.0)
 
     def test_visible_to_user_creator_only(self):
         report = ResearchReport.objects.create(

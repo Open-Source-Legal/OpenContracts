@@ -211,6 +211,15 @@ class ResearchReport(BaseOCModel):
     # ------------------------------------------------------------------
     @property
     def duration_seconds(self) -> float | None:
+        """Wall-clock run time, always derived from the timestamps — never stored.
+
+        Tests set ``started_at`` / ``completed_at`` directly and rely on this
+        being a pure computed property (e.g. ``test_completed_report_shows_duration``
+        in test_research_status_tool.py, and the guard in
+        ``test_research_report_model.py``). If this is ever converted to a stored
+        field, those tests must be updated to call ``finalize()`` or set the
+        field explicitly.
+        """
         if self.started_at and self.completed_at:
             return (self.completed_at - self.started_at).total_seconds()
         return None
