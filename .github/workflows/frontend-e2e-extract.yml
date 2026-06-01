@@ -125,6 +125,11 @@ jobs:
           # blew this job's 30-minute budget. The worker start script reads
           # this from its env_file (.envs/.local/.django); local dev keeps
           # the default of 1.
+          #
+          # The value 2 is deliberately tied to the spec uploading exactly
+          # two PDF fixtures (see frontend/tests/e2e/extract-pdf-workflow.spec.ts).
+          # If the spec grows to upload more documents, bump this to match so
+          # they keep ingesting concurrently rather than queueing.
           echo "CELERY_WORKER_CONCURRENCY=2" >> .envs/.local/.django
 
           # Sanity dump (without secrets — there are none in the .test
@@ -231,9 +236,11 @@ jobs:
           # Force Docling to load its parse models with one real parse of the
           # small committed fixture (mounted at /app via the repo volume).
           pdf = "/app/frontend/tests/fixtures/usc-title-1.pdf"
+          with open(pdf, "rb") as f:
+              pdf_b64 = base64.b64encode(f.read()).decode()
           payload = json.dumps({
               "filename": "warmup.pdf",
-              "pdf_base64": base64.b64encode(open(pdf, "rb").read()).decode(),
+              "pdf_base64": pdf_b64,
               "force_ocr": False,
               "roll_up_groups": False,
               "llm_enhanced_hierarchy": False,
@@ -245,7 +252,12 @@ jobs:
           )
           t = time.time()
           try:
-              r = urllib.request.urlopen(req, timeout=600)
+              # Cap at 300s: the warm run does the WHOLE flow (2 uploads, both
+              # ingests, extract, CSV) in ~3.6 min, so a single warm-up parse
+              # hanging past ~5 min is almost certainly an OOM on the cold
+              # runner, not slow model loading — fail fast rather than burn a
+              # third of the 30-min job budget before the timed spec starts.
+              r = urllib.request.urlopen(req, timeout=300)
               print(f"docling warmup parse: {r.status} in {time.time() - t:.1f}s", flush=True)
           except Exception as e:
               print(f"WARNING: docling warmup parse failed (non-fatal): {e}", file=sys.stderr, flush=True)
@@ -328,16 +340,18 @@ jobs:
             coverage xml -o /app/coverage-backend-e2e-extract.xml || true
           ls -la coverage-backend-e2e-extract.xml || true
 
-      # `if: always()` (not `failure()`) so this also runs when the job is
-      # CANCELLED by `timeout-minutes` — the cold-start ingest stall blows the
-      # 30-min budget, and a cancelled job skips `failure()` steps, which is
-      # why earlier runs captured nothing. Containers are still up here because
-      # the `success() || failure()` stop/coverage steps above are skipped on
-      # cancellation. The celeryworker log + memory snapshot are the evidence
-      # needed to see WHAT stalls during ingest (worker first-task cost vs.
-      # OOM/thrash vs. a transient-retry loop).
+      # `if: failure() || cancelled()` (not plain `failure()`) so this also runs
+      # when the job is CANCELLED by `timeout-minutes` — the cold-start ingest
+      # stall blows the 30-min budget, and a cancelled job skips `failure()`
+      # steps, which is why earlier runs captured nothing. `cancelled()` covers
+      # that gap explicitly while skipping the capture+upload on green runs (no
+      # artifact churn when there's nothing to diagnose). Containers are still up
+      # here because the `success() || failure()` stop/coverage steps above are
+      # skipped on cancellation. The celeryworker log + memory snapshot are the
+      # evidence needed to see WHAT stalls during ingest (worker first-task cost
+      # vs. OOM/thrash vs. a transient-retry loop).
       - name: Capture backend logs + resource stats
-        if: always()
+        if: failure() || cancelled()
         run: |
           mkdir -p artifacts
           docker compose -f local.yml ps > artifacts/docker-ps.txt 2>&1 || true
@@ -355,7 +369,7 @@ jobs:
           } > artifacts/host-memory.txt 2>&1 || true
 
       - name: Upload backend logs + stats
-        if: always()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v7
         with:
           name: e2e-extract-backend-logs
