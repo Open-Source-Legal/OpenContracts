@@ -1,7 +1,11 @@
+import { Link } from "react-router-dom";
 import styled from "styled-components";
 import { Z_INDEX } from "../../../../assets/configurations/constants";
 import { SHADOW } from "../../../../assets/configurations/designTokens";
-import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import {
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../../../../assets/configurations/osLegalStyles";
 
 export const HeaderContainer = styled.div`
   margin: 0;
@@ -29,6 +33,59 @@ export const HeaderContainer = styled.div`
   @media (max-width: 480px) {
     padding: 0.75rem 0.85rem 0.7rem;
   }
+`;
+
+/**
+ * Brand row pinned to the very top of the document header.
+ *
+ * The DocumentKnowledgeBase opens as a full-screen modal that sits above — and
+ * therefore hides — the global NavMenu where the cite / opensource.legal
+ * branding normally lives. We re-surface that branding here so the product
+ * identity stays visible while a document is open.
+ */
+export const HeaderBrandRow = styled.div`
+  display: flex;
+  align-items: center;
+  min-width: 0;
+`;
+
+export const BrandLink = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Pull the mark flush with the container's left padding so it optically
+     aligns with the title row below it. */
+  margin-left: -0.3rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  transition: color 0.18s ease, background 0.18s ease;
+
+  &:hover {
+    color: ${OS_LEGAL_COLORS.textPrimary};
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+  }
+
+  svg {
+    flex-shrink: 0;
+  }
+`;
+
+export const BrandDomain = styled.span`
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+
+  @media (max-width: 480px) {
+    font-size: 0.85rem;
+  }
+`;
+
+export const BrandAccent = styled.span`
+  color: ${OS_LEGAL_COLORS.accent};
 `;
 
 export const HeaderPrimaryRow = styled.div`

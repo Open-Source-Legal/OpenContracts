@@ -1,7 +1,12 @@
 import React from "react";
 import { ArrowLeft, Calendar, FileType, Plus, User } from "lucide-react";
 import { DocumentVersionSelector } from "../../../documents/DocumentVersionSelector";
+import { CiteMark } from "../../../brand";
 import {
+  BrandAccent,
+  BrandDomain,
+  BrandLink,
+  HeaderBrandRow,
   HeaderContainer,
   HeaderPrimaryRow,
   HeaderTitle,
@@ -52,6 +57,19 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   return (
     <HeaderContainer data-testid="document-header">
+      <HeaderBrandRow>
+        <BrandLink
+          to="/"
+          aria-label="cite — opensource.legal home"
+          data-testid="document-header-brand"
+        >
+          <CiteMark size={22} ariaLabel="" />
+          <BrandDomain>
+            <BrandAccent>cite</BrandAccent>.opensource.legal
+          </BrandDomain>
+        </BrandLink>
+      </HeaderBrandRow>
+
       <HeaderPrimaryRow>
         <HeaderTitleBlock>
           <HeaderTitle>
