@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deep-research code-review follow-ups (#1864).** Addressed the actionable
+  items from the PR #1836 review:
+  - `frontend/src/graphql/mutations.ts` — `CancelResearchReportOutput.obj.status`
+    was typed as the bare `string`; narrowed to `JobStatus | string` to match
+    `ResearchReportType.status` so callers comparing against `JobStatus` values
+    get type checking on this payload.
+  - `frontend/tests/ResearchReportDetailTestWrapper.tsx` — the single detail
+    mock now carries `maxUsageCount: Number.POSITIVE_INFINITY` (mirroring
+    `CorpusResearchReportCardsTestWrapper`). The detail view uses
+    `notifyOnNetworkStatusChange` and can refetch/poll, so a fixed-bucket mock
+    risked a "No more mocked responses" error if a future test exercised a
+    non-terminal state.
+  - `opencontractserver/research/models.py` — documented that
+    `ResearchReport.duration_seconds` is always a computed `@property` (never a
+    stored field), since the status-tool duration tests set `started_at` /
+    `completed_at` directly and depend on that invariant. Added a guard test
+    (`test_research_report_model.py::test_duration_seconds_computed_from_timestamps`).
+  - Reviewer items that needed no change, after verification: async catch blocks
+    in `ResearchReportDetail.tsx` / `StartResearchModal.tsx` already log via
+    `console.error`; the `slug` column is already indexed (`unique=True` +
+    `db_index=True`); and the snake_case reactive-var locals in
+    `CorpusResearchReportCards.tsx` (`opened_corpus`, `research_search_term`,
+    `auth_token`) intentionally match the established codebase convention used by
+    the sibling `CorpusExtractCards`/`CorpusAnalysesCards` and avoid shadowing the
+    imported camelCase reactive vars — renaming them would have been a regression.
+
 - **WebSocket 1011 reconnect churn on a 5-second beat: channels-redis 4.3.0 vs.
   redis-py 8.0 default `socket_timeout=5` (#1886).** Every consumer's idle
   channel-layer receive loop crashed ~every 5s, so Daphne closed the socket with
@@ -104,7 +130,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` to a `Literal` value type; and documented
   the no-superuser migration-skip recovery path in
   `docs/agents/location_tagger.md`.
-
 - **Corpus chat duplicate-response loop on reconnect**
   (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
   the corpus home search bar navigated into the chat view and auto-sent the

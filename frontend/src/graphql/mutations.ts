@@ -16,6 +16,7 @@ import {
   UserExportType,
   CorpusActionType,
   ResearchReportType,
+  JobStatus,
 } from "../types/graphql-api";
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3703,7 +3704,9 @@ export interface CancelResearchReportOutput {
     message: string;
     obj: {
       id: string;
-      status: string;
+      // Mirror ResearchReportType.status (JobStatus | string) so callers
+      // comparing against JobStatus values get type checking on this payload.
+      status: JobStatus | string;
       cancelRequested: boolean;
     } | null;
   };
