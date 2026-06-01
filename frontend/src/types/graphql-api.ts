@@ -1878,12 +1878,18 @@ export type PipelineComponentType = {
   moduleName?: string;
   /** List of supported file types. */
   supportedFileTypes?: FileTypeEnum[];
-  /** Type of the component (parser, embedder, or thumbnailer). */
+  /** Type of the component (parser, embedder, thumbnailer, or llm_provider). */
   componentType?: string;
   /** JSONSchema schema for inputs supported from user (experimental - not fully implemented). */
   inputSchema?: Record<any, any>;
   /** Schema for component configuration settings stored in PipelineSettings. */
   settingsSchema?: Maybe<Array<Maybe<ComponentSettingSchemaType>>>;
+  /** LLM providers: pydantic-ai prefix (e.g. 'anthropic'). Null for other component types. */
+  providerKey?: Maybe<Scalars["String"]>;
+  /** LLM providers: suggested bare model names exposed to the UI. Empty for other component types. */
+  supportedModels?: Maybe<Array<Maybe<Scalars["String"]>>>;
+  /** LLM providers: whether the provider needs an API credential. */
+  requiresApiKey?: Maybe<Scalars["Boolean"]>;
   /** Whether this component is enabled in the current pipeline settings. */
   enabled?: boolean;
 };
@@ -1924,6 +1930,8 @@ export type PipelineComponentsType = {
   embedders?: Maybe<Array<Maybe<PipelineComponentType>>>;
   /** List of available thumbnail generators. */
   thumbnailers?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available LLM providers (pydantic-ai model families). */
+  llmProviders?: Maybe<Array<Maybe<PipelineComponentType>>>;
 };
 
 /** Enum for file types. */
@@ -1980,6 +1988,8 @@ export type PipelineSettingsType = {
   componentSettings?: Maybe<Scalars["GenericScalar"]>;
   /** Default embedder class path. */
   defaultEmbedder?: Maybe<Scalars["String"]>;
+  /** Install-wide default LLM model spec for agents (e.g. 'anthropic:claude-opus-4-6'). Empty falls back to the Django settings default. */
+  defaultLlm?: Maybe<Scalars["String"]>;
   /** List of components with encrypted secrets configured (actual secrets never exposed). */
   componentsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
   /** List of enabled component class paths. */

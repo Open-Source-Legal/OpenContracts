@@ -5,6 +5,7 @@
 import React from "react";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { SystemSettingsWrapper } from "./AdminComponentsTestWrapper";
 import {
   GET_PIPELINE_SETTINGS,
@@ -25,6 +26,7 @@ const mockSettingsBase = {
   parserKwargs: {},
   componentSettings: {},
   defaultEmbedder: null,
+  defaultLlm: null,
   componentsWithSecrets: [],
   enabledComponents: [
     "opencontractserver.pipeline.parsers.docling.DoclingParser",
@@ -110,6 +112,20 @@ const mockComponents = {
       description: "Generate thumbnails for PDF documents",
       className: "opencontractserver.pipeline.thumbnailers.pdf.PDFThumbnailer",
       supportedFileTypes: ["PDF"],
+      enabled: true,
+      settingsSchema: [],
+    },
+  ],
+  llmProviders: [
+    {
+      name: "anthropic",
+      title: "Anthropic",
+      description: "Anthropic's Claude family (Opus, Sonnet, Haiku)",
+      className:
+        "opencontractserver.pipeline.llm_providers.anthropic_provider.AnthropicProvider",
+      providerKey: "anthropic",
+      supportedModels: ["claude-opus-4-6", "claude-haiku-4-5"],
+      requiresApiKey: true,
       enabled: true,
       settingsSchema: [],
     },
@@ -755,12 +771,20 @@ test.describe("SystemSettings — enable/disable transitions", () => {
     };
 
     // The toggle should flip the UI into explicit-list mode where every other
-    // className is still enabled and the chosen one is removed.
+    // className is still enabled and the chosen one is removed. The order
+    // mirrors how SystemSettings builds the list: parsers, embedders,
+    // thumbnailers, then llmProviders.
+    //
+    // The Anthropic LLM provider MUST appear here: LLM providers are part of
+    // the Component Library, so rebuilding the enabled list from "all enabled"
+    // has to include them — otherwise toggling an unrelated component would
+    // silently disable every provider. This asserts that regression guard.
     const allPaths = [
       "opencontractserver.pipeline.parsers.docling.DoclingParser",
       "opencontractserver.pipeline.parsers.llamaparse.LlamaParser",
       "opencontractserver.pipeline.embedders.openai.OpenAIEmbedder",
       "opencontractserver.pipeline.thumbnailers.pdf.PDFThumbnailer",
+      "opencontractserver.pipeline.llm_providers.anthropic_provider.AnthropicProvider",
     ];
     const expectedEnabled = allPaths.filter(
       (p) => p !== "opencontractserver.pipeline.parsers.docling.DoclingParser"
@@ -824,6 +848,113 @@ test.describe("SystemSettings — enable/disable transitions", () => {
       .locator('input[aria-label="Disable Docling Parser"]');
     await expect(disableDocling).toBeChecked();
     await disableDocling.click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+});
+
+test.describe("SystemSettings — LLM providers", () => {
+  test("registered LLM providers render in the Component Library", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[standardSettingsMock, standardComponentsMock, mimeTypesMock]}
+      />
+    );
+    await waitForLoad(page);
+
+    const library = page.locator('[data-testid="component-library"]');
+
+    // Narrow to the LLM Providers filter so the assertions are unambiguous.
+    await library
+      .locator('[data-testid="library-filter-llmProviders"]')
+      .click();
+
+    // Provider title, an "API key" indicator, and suggested-model chips show.
+    await expect(library.locator("text=Anthropic").first()).toBeVisible();
+    await expect(library.locator("text=API key").first()).toBeVisible();
+    await expect(library.locator("text=claude-opus-4-6").first()).toBeVisible();
+    await expect(
+      library.locator('input[aria-label="Disable Anthropic"]')
+    ).toBeChecked();
+
+    // Capture the Component Library filtered to registered LLM providers.
+    await docScreenshot(page, "settings--llm-picker--provider-library");
+
+    await component.unmount();
+  });
+
+  test("Default LLM picker saves the selected model spec", async ({
+    mount,
+    page,
+  }) => {
+    const spec = "anthropic:claude-opus-4-6";
+    const saveMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { defaultLlm: spec },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: { ...mockSettingsBase, defaultLlm: spec },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: { ...mockSettingsBase, defaultLlm: spec },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          standardSettingsMock,
+          standardComponentsMock,
+          mimeTypesMock,
+          saveMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    // Target the Default LLM row's Edit button by its data-testid so the
+    // selector stays stable if other Edit buttons are added above it.
+    await page.locator('[data-testid="edit-default-llm"]').click();
+
+    await expect(page.locator("text=Edit Default LLM")).toBeVisible();
+
+    // Clicking a suggested-model chip fills the spec input with
+    // "{providerKey}:{model}".
+    await page
+      .locator(".oc-modal-body")
+      .locator("button:has-text('claude-opus-4-6')")
+      .first()
+      .click();
+    await expect(page.locator("#default-llm")).toHaveValue(spec);
+
+    // Capture the Default LLM picker modal with a model spec selected.
+    await docScreenshot(page, "settings--llm-picker--model-selected");
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save")')
+      .first()
+      .click();
 
     await expect(
       page.locator("text=Settings updated successfully")

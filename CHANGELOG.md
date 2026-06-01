@@ -175,6 +175,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Admin management of registered LLMs in System Settings.** Superusers can
+  now view, enable/disable, and pick a system-wide default for the registered
+  LLM providers from the admin **System Settings → Pipeline Configuration**
+  page. LLM providers were already discovered by the pipeline registry and
+  exposed over GraphQL (`pipelineComponents.llmProviders`), but the frontend
+  never surfaced them.
+  - **Frontend** — the Component Library now lists LLM providers (Anthropic,
+    OpenAI, Google, Ollama) as a fourth stage with suggested-model chips, an
+    "API key" indicator, and the same enable/disable toggle used by
+    parsers/embedders/thumbnailers
+    (`frontend/src/components/admin/system_settings/ComponentLibrary.tsx`,
+    `config.ts`, `types.ts`). A new **Default LLM** row + picker modal lets
+    admins choose the install-wide default model spec
+    (`frontend/src/components/admin/SystemSettings.tsx`,
+    `system_settings/FiletypeDefaults.tsx`). `GET_PIPELINE_COMPONENTS` now
+    fetches `llmProviders`; settings queries/mutations carry `defaultLlm`
+    (`system_settings/graphql.ts`). Fixed a latent bug where toggling any
+    component while in the "all enabled" state would have silently dropped
+    every LLM provider from the rebuilt enabled list — LLM providers are now
+    included in that computation.
+  - **Backend** — new `PipelineSettings.default_llm` field + migration
+    (`opencontractserver/documents/models.py`,
+    `documents/migrations/0040_add_default_llm_to_pipeline_settings.py`),
+    surfaced and mutable via GraphQL (`config/graphql/pipeline_types.py`,
+    `pipeline_queries.py`, `pipeline_settings_mutations.py`; validated with
+    `validate_model_spec` and stored in canonical `provider:model` form).
+    `resolve_model_spec` gained a `settings_default` tier so the configured
+    default is consulted *before* Django's `DEFAULT_LLM` / `OPENAI_MODEL`
+    (`opencontractserver/llms/llm_registry.py`); it is threaded in by the agent
+    factory (async, via `database_sync_to_async`) and `Corpus.save()` through a
+    new `get_default_llm_spec()` helper
+    (`opencontractserver/pipeline/utils.py`,
+    `llms/agents/agent_factory.py`, `corpuses/models.py`). The resolver itself
+    stays ORM-free and async-safe. Precedence is unchanged otherwise: per-call →
+    per-agent → per-corpus → this default → Django settings.
+  - **Fixed** — `PipelineSettings.get_instance()` and
+    `ResetPipelineSettingsMutation` could assign `None` to the NOT NULL
+    `default_llm` column when Django's `DEFAULT_LLM` setting was explicitly set
+    to `None` (e.g. in tests exercising the legacy fallback), raising an
+    `IntegrityError`; both now coerce the setting to `""`
+    (`opencontractserver/documents/models.py` line ~1371,
+    `config/graphql/pipeline_settings_mutations.py`). The reset mutation now
+    also resets/returns `default_reranker` (previously omitted from the reset
+    path and its response). `normalise_model_spec` was moved inside the
+    `validate_model_spec` try/except in `UpdatePipelineSettingsMutation` so an
+    unexpected raise returns a clean `ok=False` response rather than a 500.
+    Added stable `data-testid`s (`edit-default-llm`, `edit-default-embedder`,
+    `library-filter-*`) to replace positional/text selectors in the component
+    tests, and dropped the untyped `settingsKey` carried into
+    `LIBRARY_STAGE_CONFIG` by the previous `STAGE_CONFIG` spread.
 - **Corpus Home "Map" view — per-corpus geographic annotations (#1821).** A
   fifth Corpus Home view mode (`landing` / `details` / `discussions` /
   `article` / **`map`**) that plots a corpus's geographic annotations, reusing

@@ -91,22 +91,29 @@ def resolve_model_spec(
     explicit: str | None = None,
     agent_preferred: str | None = None,
     corpus_preferred: str | None = None,
+    settings_default: str | None = None,
 ) -> str:
     """Resolve a model spec by walking the documented priority order.
 
     Priority (highest wins):
 
-        ``explicit`` → ``agent_preferred`` → ``corpus_preferred`` → settings.
+        ``explicit`` → ``agent_preferred`` → ``corpus_preferred`` →
+        ``settings_default`` → Django settings.
 
-    The settings default falls back to ``settings.DEFAULT_LLM`` when set,
-    otherwise the legacy ``settings.OPENAI_MODEL`` for backwards
-    compatibility. Empty / whitespace-only values are skipped so callers
-    can pass through ``None`` or ``""`` without poisoning the chain.
+    ``settings_default`` is the install-wide default configured at runtime
+    via ``PipelineSettings.default_llm`` (set by superusers in the admin
+    System Settings UI). It is threaded in by callers rather than read here
+    so this resolver stays free of ORM access and safe to call from async
+    contexts. When unset, the chain falls back to ``settings.DEFAULT_LLM``
+    and finally the legacy ``settings.OPENAI_MODEL``.
+
+    Empty / whitespace-only values are skipped at every tier so callers can
+    pass through ``None`` or ``""`` without poisoning the chain.
 
     Returns:
         A non-empty, normalised pydantic-ai model spec.
     """
-    for candidate in (explicit, agent_preferred, corpus_preferred):
+    for candidate in (explicit, agent_preferred, corpus_preferred, settings_default):
         if candidate and candidate.strip():
             return normalise_model_spec(candidate)
 

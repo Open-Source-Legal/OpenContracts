@@ -21,6 +21,7 @@ from opencontractserver.llms.tools.tool_factory import (
     build_inject_params_for_context,
 )
 from opencontractserver.llms.types import AgentFramework
+from opencontractserver.pipeline.utils import get_default_llm_spec
 from opencontractserver.types.enums import PermissionTypes
 
 logger = logging.getLogger(__name__)
@@ -223,6 +224,11 @@ class UnifiedAgentFactory:
             explicit=model or kwarg_model_name,
             agent_preferred=agent_preferred_llm,
             corpus_preferred=getattr(corpus_obj, "preferred_llm", None),
+            # Install-wide default configured by superusers in the admin
+            # System Settings UI (PipelineSettings.default_llm). Read through
+            # database_sync_to_async because this runs in an async context;
+            # resolve_model_spec itself stays ORM-free.
+            settings_default=await database_sync_to_async(get_default_llm_spec)(),
         )
 
         config = get_default_config(
@@ -424,6 +430,11 @@ class UnifiedAgentFactory:
             explicit=model or kwarg_model_name,
             agent_preferred=agent_preferred_llm,
             corpus_preferred=getattr(corpus_obj, "preferred_llm", None),
+            # Install-wide default configured by superusers in the admin
+            # System Settings UI (PipelineSettings.default_llm). Read through
+            # database_sync_to_async because this runs in an async context;
+            # resolve_model_spec itself stays ORM-free.
+            settings_default=await database_sync_to_async(get_default_llm_spec)(),
         )
 
         config = get_default_config(

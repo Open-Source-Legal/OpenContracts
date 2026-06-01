@@ -368,6 +368,30 @@ def get_default_embedder_path() -> str:
     return PipelineSettings.get_instance().get_default_embedder()
 
 
+def get_default_llm_spec() -> str:
+    """Get the install-wide default LLM model spec from PipelineSettings.
+
+    Returns the runtime-configurable ``PipelineSettings.default_llm`` (set by
+    superusers in the admin System Settings UI). An empty string means "no
+    runtime override is configured" — callers should pass this through to
+    :func:`opencontractserver.llms.llm_registry.resolve_model_spec` as
+    ``settings_default`` so the documented priority chain falls back to the
+    Django settings default.
+
+    **Sync-only**: performs synchronous ORM access via
+    ``PipelineSettings.get_instance()``. Call from synchronous contexts or
+    wrap in ``sync_to_async`` when invoking from async code.
+
+    Returns:
+        str: The default LLM model spec (e.g. "anthropic:claude-opus-4-6"),
+        or empty string if not configured.
+    """
+    # Import here to avoid circular imports
+    from opencontractserver.documents.models import PipelineSettings
+
+    return PipelineSettings.get_instance().get_default_llm()
+
+
 def get_default_embedder() -> Optional[type[BaseEmbedder]]:
     """
     Get the default embedder class.
