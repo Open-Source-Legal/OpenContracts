@@ -35,13 +35,19 @@ _caches: dict[str, dict[str, Any]] = {
 CACHES = _caches
 
 # Channels — real Redis instead of InMemoryChannelLayer
-# channels_redis supports URL strings directly in the hosts list.
 # ------------------------------------------------------------------------------
+# Use a dict host (not a bare URL string) so socket_timeout can be set.
+# redis-py 8.0 defaults socket_timeout to 5s, which makes channels-redis'
+# 5s idle blocking pop time out client-side and crash the consumer (the 1011
+# reconnect churn in #1886). Mirror the base.py fix so integration tests run
+# against the corrected config (and so test_redis_integration's idle-receive
+# regression test exercises it). socket_timeout=None disables the client read
+# deadline for these long-lived idle channel-layer reads. See issue #1886.
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL],
+            "hosts": [{"address": REDIS_URL, "socket_timeout": None}],
         },
     },
 }

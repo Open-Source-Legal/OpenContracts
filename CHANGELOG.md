@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WebSocket 1011 reconnect churn on a 5-second beat: channels-redis 4.3.0 vs.
+  redis-py 8.0 default `socket_timeout=5` (#1886).** Every consumer's idle
+  channel-layer receive loop crashed ~every 5s, so Daphne closed the socket with
+  code **1011** and the browser reconnected, went idle, and tripped again —
+  continuous churn on `/ws/notification-updates/`, `/ws/agent-chat/`, and every
+  other consumer. Root cause: `redis` (redis-py) is unpinned in
+  `requirements/base.txt` and floated to **8.0.0**, which changed the default
+  `socket_timeout` from `None` to **5s**. channels-redis' receive loop issues a
+  5s *server-side* blocking pop (`bzpopmin`/`brpop`, `brpop_timeout=5`); with a
+  5s *client* read timeout the client's deadline fires before the server's nil
+  reply returns, so redis-py raises `redis.exceptions.TimeoutError` out of the
+  consumer (`retry_on_timeout=False`, and channels-redis doesn't catch it). The
+  client loses the race on every idle cycle, which is why the failures were
+  idle-only and landed on a clean 5s beat (a local send→receive round-trip
+  returns before 5s, so it never exercised the path). **Fix:** the
+  `CHANNEL_LAYERS` host is now a dict with an explicit `socket_timeout: None` in
+  both `config/settings/base.py` (`{"host": …, "port": …, "socket_timeout":
+  None}`) and `config/settings/test_integration.py` (`{"address": REDIS_URL,
+  "socket_timeout": None}`), restoring the historical no-client-read-deadline
+  behavior these long-lived idle WebSockets require. redis-py is **not** pinned
+  back below 8.0. Regression test:
+  `opencontractserver/tests/test_redis_integration.py::TestChannelsRedisLayer::test_idle_receive_survives_blocking_pop_window`
+  delivers a message only after the first 5s blocking-pop cycle, so a regressed
+  config (client read timeout ≤ `brpop_timeout`) raises `redis.TimeoutError` and
+  fails the test.
+
 - **Location Tagger: non-string geocoding hints crashed the tool (#1871,
   follow-up to #1822).** `add_annotations_from_exact_strings`
   (`opencontractserver/llms/tools/core_tools/annotations.py`) forwarded the
