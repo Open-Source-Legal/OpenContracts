@@ -173,6 +173,40 @@ test.describe("CorpusArticleView - Auto corpus image", () => {
 
     await component.unmount();
   });
+
+  test("suppresses the auto cover image when CAML references corpus://icon", async ({
+    mount,
+    page,
+  }) => {
+    // CAML body that explicitly embeds the corpus icon. Because the article
+    // already surfaces the icon itself, the view must NOT also render the
+    // auto cover hero above it (the inverse of the case above).
+    const CAML_BODY_WITH_ICON =
+      "---\nversion: '1.0'\nhero:\n  title:\n    - Test Article\n  image: corpus://icon\n---\n\n::: chapter {#intro}\n## Hello World\n:::\n";
+
+    await page.route("**/media/test/readme.caml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: CAML_BODY_WITH_ICON,
+      })
+    );
+
+    const component = await mount(
+      <CorpusArticleViewTestWrapper
+        hasArticle={true}
+        corpus={{ ...MOCK_CORPUS, icon: COVER_IMAGE_DATA_URI }}
+      />
+    );
+
+    // Toolbar renders (article parsed) but the auto hero is absent.
+    await expect(page.getByText("Back")).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByTestId("test-corpus-article-hero-image")
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
 });
 
 test.describe("CorpusArticleView - Documents Drawer", () => {

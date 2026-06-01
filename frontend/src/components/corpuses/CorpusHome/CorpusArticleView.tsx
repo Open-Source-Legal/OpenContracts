@@ -420,11 +420,11 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
         />
       )}
 
-      {showCorpusImage && (
+      {showCorpusImage && corpus.icon && (
         <HeroAvatarRow data-testid={`${testId}-hero-image`}>
           <HeroImageBand>
             <img
-              src={corpus.icon as string}
+              src={corpus.icon}
               alt={`${corpus.title || "Corpus"} cover image`}
               loading="lazy"
             />
