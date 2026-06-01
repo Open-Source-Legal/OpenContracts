@@ -26,6 +26,7 @@ from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.users.models import User
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 
 class CorpusActionExecutionModelTestCase(TestCase):
@@ -687,12 +688,32 @@ class CorpusActionExecutionPermissionsTestCase(TestCase):
             is_public=True,
         )
 
-    def test_superuser_sees_all(self):
-        """Superuser can see all executions."""
-        result = CorpusActionExecution.objects.visible_to_user(self.superuser)
+    def test_superuser_computed_like_normal_user(self):
+        """A no-grant superuser is computed exactly like any authenticated user
+        (scoped admin access, 2026-05) — no blanket "sees all" bypass.
 
-        self.assertIn(self.private_exec, result)
+        - The private execution created by a stranger (owner) is NOT visible.
+        - The public execution IS visible.
+        - Granting the superuser READ on the private corpus does NOT by itself
+          surface the execution (visibility is creator/public/explicit-grant on
+          the execution row), but an explicit READ grant on the execution does.
+        """
+        # No grants → the superuser sees only the public execution.
+        result = list(CorpusActionExecution.objects.visible_to_user(self.superuser))
+        self.assertNotIn(self.private_exec, result)
         self.assertIn(self.public_exec, result)
+
+        # Positive case: an explicit guardian READ grant on the private
+        # execution makes it visible — exactly like any normal user would
+        # gain access via a grant.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_exec, [PermissionTypes.READ]
+        )
+        result_after_grant = list(
+            CorpusActionExecution.objects.visible_to_user(self.superuser)
+        )
+        self.assertIn(self.private_exec, result_after_grant)
+        self.assertIn(self.public_exec, result_after_grant)
 
     def test_owner_sees_own_private(self):
         """Owner can see their own private executions."""

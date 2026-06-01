@@ -123,11 +123,17 @@ class TestPermission_CorpusCreatorHasFullAccess(TestCase):
         self.assertTrue(self.corpus.user_can(self.creator, PermissionTypes.DELETE))
 
 
-class TestPermission_SuperuserBypassesAllChecks(TestCase):
+class TestPermission_SuperuserComputedLikeNormalUser(TestCase):
     """
-    SCENARIO: Superusers should have all permissions on any corpus.
+    SCENARIO: Superusers are computed exactly like a normal authenticated user
+    on corpus DATA permissions (scoped admin access, 2026-05).
 
-    BUSINESS RULE: Superusers are system administrators with unrestricted access.
+    BUSINESS RULE: There is NO blanket "superuser sees/does everything over
+    data" bypass. A no-grant superuser is a stranger to a private corpus it
+    did not create — it cannot READ/WRITE/DELETE it. Access is granted only
+    via creator status, ``is_public`` (READ), or an explicit guardian grant,
+    just like any other user. (The one retained admin data privilege —
+    structural-annotation/relationship writes — is unrelated to corpora.)
     """
 
     def setUp(self):
@@ -147,17 +153,47 @@ class TestPermission_SuperuserBypassesAllChecks(TestCase):
             title="Private Corpus", creator=self.owner, is_public=False
         )
 
-    def test_superuser_can_read_any_corpus(self):
-        """Superuser should have READ permission on any corpus."""
+    def test_superuser_cannot_read_private_stranger_corpus(self):
+        """A no-grant superuser CANNOT read a private stranger corpus."""
+        self.assertFalse(self.corpus.user_can(self.superuser, PermissionTypes.READ))
+
+    def test_superuser_cannot_write_to_private_stranger_corpus(self):
+        """A no-grant superuser CANNOT write to a private stranger corpus."""
+        self.assertFalse(self.corpus.user_can(self.superuser, PermissionTypes.UPDATE))
+
+    def test_superuser_cannot_delete_from_private_stranger_corpus(self):
+        """A no-grant superuser CANNOT delete from a private stranger corpus."""
+        self.assertFalse(self.corpus.user_can(self.superuser, PermissionTypes.DELETE))
+
+    def test_superuser_can_read_with_explicit_grant(self):
+        """Granting the superuser READ lets it read — exactly like a normal user."""
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
         self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.READ))
 
-    def test_superuser_can_write_to_any_corpus(self):
-        """Superuser should have WRITE permission on any corpus."""
+    def test_superuser_can_write_with_explicit_grant(self):
+        """Granting the superuser UPDATE lets it write — like a normal user."""
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.UPDATE]
+        )
         self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.UPDATE))
 
-    def test_superuser_can_delete_from_any_corpus(self):
-        """Superuser should have DELETE permission on any corpus."""
+    def test_superuser_can_delete_with_explicit_grant(self):
+        """Granting the superuser DELETE lets it delete — like a normal user."""
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.DELETE]
+        )
         self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.DELETE))
+
+    def test_superuser_as_creator_has_full_access(self):
+        """A superuser that CREATED the corpus has full access via creator."""
+        own_corpus = Corpus.objects.create(
+            title="Superuser's Own Corpus", creator=self.superuser, is_public=False
+        )
+        self.assertTrue(own_corpus.user_can(self.superuser, PermissionTypes.READ))
+        self.assertTrue(own_corpus.user_can(self.superuser, PermissionTypes.UPDATE))
+        self.assertTrue(own_corpus.user_can(self.superuser, PermissionTypes.DELETE))
 
 
 class TestPermission_PublicCorpusGrantsReadOnly(TestCase):
@@ -5412,13 +5448,35 @@ class TestGetCorpusDocumentsVisibleToUser(TransactionTestCase):
         )
         self.assertEqual(qs.count(), 0)
 
-    def test_superuser_sees_everything(self):
-        """A superuser bypasses both the corpus and document gates."""
+    def test_superuser_computed_like_normal_user(self):
+        """A superuser is computed exactly like a normal user under the MIN
+        semantic (scoped admin access, 2026-05) — no blanket bypass.
+
+        - A no-grant superuser cannot READ this private corpus, so it sees
+          nothing (the corpus side of MIN, IDOR-safe).
+        - Once granted corpus READ + document READ, it sees only the documents
+          it has document-level access to — same as any collaborator.
+        """
+        # No grants → empty, just like the stranger case.
         qs = CorpusDocumentService.get_corpus_documents_visible_to_user(
             user=self.superuser, corpus=self.corpus
         )
-        ids = set(qs.values_list("id", flat=True))
-        self.assertEqual(ids, {self.visible_doc.id, self.private_doc.id})
+        self.assertEqual(qs.count(), 0)
+
+        # Grant corpus READ + document READ on the visible doc only.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.visible_doc, [PermissionTypes.READ]
+        )
+        qs_after = CorpusDocumentService.get_corpus_documents_visible_to_user(
+            user=self.superuser, corpus=self.corpus
+        )
+        ids = set(qs_after.values_list("id", flat=True))
+        # MIN(document, corpus): the private doc (no document-level grant) stays
+        # hidden even for a superuser with corpus READ.
+        self.assertEqual(ids, {self.visible_doc.id})
 
     def test_include_caml_toggle_composes_with_min_filter(self):
         """``include_caml`` surfaces the CAML article, and the MIN filter

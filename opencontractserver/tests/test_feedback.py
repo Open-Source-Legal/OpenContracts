@@ -458,9 +458,42 @@ class TestUserFeedbackVisibility(TestCase):
             comment="Other user fb",
         )
 
-    def test_superuser_sees_all(self):
+    def test_superuser_computed_like_normal_user(self):
+        """A superuser is computed exactly like a normal authenticated user
+        (scoped admin access, 2026-05) — no blanket "sees all" bypass.
+
+        A no-grant superuser sees feedback only when the row is itself
+        ``is_public=True`` OR it comments on an annotation that is visible to
+        the superuser as a normal authenticated user. The two rows on
+        ``hidden_annotation`` (private document, no grant) stay hidden — so
+        the superuser sees the SAME 3 rows as any other authenticated stranger,
+        not all 5.
+        """
         qs = UserFeedback.objects.visible_to_user(self.superuser)
-        self.assertEqual(qs.count(), 5)
+        ids = set(qs.values_list("id", flat=True))
+        # is_public feedback row.
+        self.assertIn(self.public_feedback.id, ids)
+        # Feedback on annotations on the public document (visible to authenticated).
+        self.assertIn(self.feedback_on_visible_ann.id, ids)
+        self.assertIn(self.feedback_on_authenticated_only_ann.id, ids)
+        # Feedback on the hidden annotation (private doc, no grant) → NOT visible.
+        self.assertNotIn(self.feedback_on_hidden_ann.id, ids)
+        self.assertNotIn(self.other_user_feedback.id, ids)
+        self.assertEqual(qs.count(), 3)
+
+        # Positive parity: a guardian READ grant on the private document makes
+        # the hidden annotation — and thus its feedback — visible, exactly as
+        # it would for any normal user.
+        from guardian.shortcuts import assign_perm
+
+        assign_perm("read_document", self.superuser, self.private_document)
+        granted_ids = set(
+            UserFeedback.objects.visible_to_user(self.superuser).values_list(
+                "id", flat=True
+            )
+        )
+        self.assertIn(self.feedback_on_hidden_ann.id, granted_ids)
+        self.assertIn(self.other_user_feedback.id, granted_ids)
 
     def test_anonymous_sees_public_or_on_visible_annotation(self):
         """Anonymous READ visibility mirrors ``UserFeedbackManager.user_can``
