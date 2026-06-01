@@ -61,4 +61,22 @@ export interface AnnotationMapProps {
   height?: string;
   /** Optional extra class name on the outer wrapper. */
   className?: string;
+  /**
+   * When true, imperatively frame the map to the bounds of the pin set on first
+   * load (the coarsest band present, so the initial paint always shows pins).
+   * Opt-in for callers like Corpus Home (#1821) that open on a region rather
+   * than the whole world; Discover leaves it off and keeps its mount viewport.
+   * `center`/`zoom` are mount-only in react-leaflet, so this is the supported
+   * way to (re)frame an already-mounted map.
+   */
+  fitToPins?: boolean;
+  /**
+   * Canonical name of a pin to focus (deep-link support, e.g. Corpus Home's
+   * `?pin=Paris`). When a pin with this name is present in `pins`, the map
+   * selects it (opening the side panel) and flies to it at a zoom that keeps
+   * its band visible. Applied once per distinct name, after which user
+   * interaction takes over; takes precedence over `fitToPins`. Resolving is
+   * deferred until the named pin appears, so it works when `pins` load async.
+   */
+  focusPinName?: string | null;
 }

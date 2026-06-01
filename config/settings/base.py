@@ -111,7 +111,22 @@ try:
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [(host, int(port))],
+                # Host MUST be a dict (not a (host, port) tuple) so socket_timeout
+                # can be set explicitly. redis-py 8.0 changed the default
+                # socket_timeout from None to 5s. channels-redis' idle receive
+                # loop issues a 5s *server-side* blocking pop (bzpopmin/brpop,
+                # brpop_timeout=5); with a 5s *client* read timeout the client's
+                # deadline fires before the server's nil reply returns, raising
+                # redis.TimeoutError out of the consumer -> Daphne closes the
+                # socket with code 1011 -> the browser reconnects, goes idle, and
+                # trips again ~5s later (the idle reconnect churn in #1886).
+                # These are long-lived idle WebSockets, so the client read
+                # timeout must stay disabled (the historical channels-redis
+                # default that every redis-py < 8.0 provided). Do NOT pin redis
+                # back below 8.0 to "fix" this. See issue #1886.
+                "hosts": [
+                    {"host": host, "port": int(port), "socket_timeout": None}
+                ],
             },
         },
     }

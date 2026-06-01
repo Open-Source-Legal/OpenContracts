@@ -9,6 +9,139 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP `search_corpus` returned duplicate hits and dead-end passages; bad
+  tool arguments leaked a raw `TypeError`.** Surfaced while evaluating the
+  public MCP server (`cite.opensource.legal/mcp`). Three fixes:
+  - **Duplicate hits.** The annotation→embedding join can return one row per
+    stored vector, so a single annotation surfaced multiple times with an
+    identical score (observed: the same passage filling 3 of 4 result slots).
+    `search_corpus` (`opencontractserver/mcp/tools.py`) now over-fetches
+    candidates (`MCP_SEARCH_CANDIDATE_MULTIPLIER`/`_MAX` in
+    `opencontractserver/constants/mcp.py`) and de-duplicates the merged feed
+    (`_dedupe_search_hits`) after sorting by score — keeping the highest-scoring
+    instance — before capping at `limit`.
+  - **Dead-end passages.** Passage search hits omitted any identifier, so a hit
+    could not be bridged back to the `annotation://` resource or
+    `list_annotations`. `format_search_passage`
+    (`opencontractserver/mcp/formatters.py`) now includes `annotation_id`
+    (matching the `annotation_id` key used by relationship nodes); it is also
+    the stable key the dedup logic uses.
+  - **Raw `TypeError` on bad arguments.** An unknown tool argument (e.g. `page`
+    on `get_document_text`) raised a bare `TypeError` deep in `sync_to_async`,
+    escaping the structured-error branch as an opaque transport error that
+    leaked the Python function signature. A new `_safe_tool_arguments`
+    (`opencontractserver/mcp/server.py`), used by both the global and scoped
+    dispatchers, drops the server-injected `user` and rejects unknown arguments
+    as a `ValidationError` — surfaced as a structured `{"error": ...}` payload
+    that names the offending argument and lists the valid ones. The scoped tool
+    wrapper now carries `functools.wraps` so validation sees the wrapped tool's
+    real signature rather than the wrapper's `(**kwargs)`.
+  - Corpus-level retrieval sparseness on machine-ingested imports (the SpaceX
+    S-1) is tracked separately in #1883 (V2 import skips structural ingestion +
+    PAWLs re-encoding) and is not addressed here.
+- **Deep-research code-review follow-ups (#1864).** Addressed the actionable
+  items from the PR #1836 review:
+  - `frontend/src/graphql/mutations.ts` — `CancelResearchReportOutput.obj.status`
+    was typed as the bare `string`; narrowed to `JobStatus | string` to match
+    `ResearchReportType.status` so callers comparing against `JobStatus` values
+    get type checking on this payload.
+  - `frontend/tests/ResearchReportDetailTestWrapper.tsx` — the single detail
+    mock now carries `maxUsageCount: Number.POSITIVE_INFINITY` (mirroring
+    `CorpusResearchReportCardsTestWrapper`). The detail view uses
+    `notifyOnNetworkStatusChange` and can refetch/poll, so a fixed-bucket mock
+    risked a "No more mocked responses" error if a future test exercised a
+    non-terminal state.
+  - `opencontractserver/research/models.py` — documented that
+    `ResearchReport.duration_seconds` is always a computed `@property` (never a
+    stored field), since the status-tool duration tests set `started_at` /
+    `completed_at` directly and depend on that invariant. Added a guard test
+    (`test_research_report_model.py::test_duration_seconds_computed_from_timestamps`).
+  - Reviewer items that needed no change, after verification: async catch blocks
+    in `ResearchReportDetail.tsx` / `StartResearchModal.tsx` already log via
+    `console.error`; the `slug` column is already indexed (`unique=True` +
+    `db_index=True`); and the snake_case reactive-var locals in
+    `CorpusResearchReportCards.tsx` (`opened_corpus`, `research_search_term`,
+    `auth_token`) intentionally match the established codebase convention used by
+    the sibling `CorpusExtractCards`/`CorpusAnalysesCards` and avoid shadowing the
+    imported camelCase reactive vars — renaming them would have been a regression.
+
+- **WebSocket 1011 reconnect churn on a 5-second beat: channels-redis 4.3.0 vs.
+  redis-py 8.0 default `socket_timeout=5` (#1886).** Every consumer's idle
+  channel-layer receive loop crashed ~every 5s, so Daphne closed the socket with
+  code **1011** and the browser reconnected, went idle, and tripped again —
+  continuous churn on `/ws/notification-updates/`, `/ws/agent-chat/`, and every
+  other consumer. Root cause: `redis` (redis-py) is unpinned in
+  `requirements/base.txt` and floated to **8.0.0**, which changed the default
+  `socket_timeout` from `None` to **5s**. channels-redis' receive loop issues a
+  5s *server-side* blocking pop (`bzpopmin`/`brpop`, `brpop_timeout=5`); with a
+  5s *client* read timeout the client's deadline fires before the server's nil
+  reply returns, so redis-py raises `redis.exceptions.TimeoutError` out of the
+  consumer (`retry_on_timeout=False`, and channels-redis doesn't catch it). The
+  client loses the race on every idle cycle, which is why the failures were
+  idle-only and landed on a clean 5s beat (a local send→receive round-trip
+  returns before 5s, so it never exercised the path). **Fix:** the
+  `CHANNEL_LAYERS` host is now a dict with an explicit `socket_timeout: None` in
+  both `config/settings/base.py` (`{"host": …, "port": …, "socket_timeout":
+  None}`) and `config/settings/test_integration.py` (`{"address": REDIS_URL,
+  "socket_timeout": None}`), restoring the historical no-client-read-deadline
+  behavior these long-lived idle WebSockets require. redis-py is **not** pinned
+  back below 8.0. Regression test:
+  `opencontractserver/tests/test_redis_integration.py::TestChannelsRedisLayer::test_idle_receive_survives_blocking_pop_window`
+  delivers a message only after the first 5s blocking-pop cycle, so a regressed
+  config (client read timeout ≤ `brpop_timeout`) raises `redis.TimeoutError` and
+  fails the test.
+
+- **`AnnotationFilterMode` export filtering silently ignored the requested mode
+  (#1868).** `AnnotationFilterMode` (`opencontractserver/types/enums.py`) was a
+  plain `Enum`, not a `str`-mixin enum like every sibling in the file, so a
+  member never compared equal to its string value. `build_label_lookups`
+  (`opencontractserver/utils/etl.py`) compounded this by mixing comparison
+  styles: bare string literals at the mode-selection branches
+  (`== "ANALYSES_ONLY"`, `== "CORPUS_LABELSET_PLUS_ANALYSES"`) but enum-member
+  membership at the corpus-labelset augmentation branch
+  (`in (AnnotationFilterMode.CORPUS_LABELSET_ONLY, …)`). As a result **no single
+  argument type was handled correctly**:
+  - A **string** argument (what the GraphQL export mutation and Celery tasks
+    deliver — `config/graphql/document_mutations.py:644,672`) satisfied the
+    selection branches but silently **skipped the corpus-labelset augmentation**,
+    so labels defined in a corpus's label set but not referenced by any
+    annotation were dropped from the export's label lookups, breaking
+    roundtrip-safety (fork ≡ export+import).
+  - An **enum-member** argument failed the string selection branches and fell
+    through to `CORPUS_LABELSET_ONLY` for `ANALYSES_ONLY` /
+    `CORPUS_LABELSET_PLUS_ANALYSES`.
+
+  Separately, `build_document_export` compared only against enum members and
+  hit its `else: raise ValueError` for a **string** argument; that exception is
+  caught by the function's own `except`, returning `("", "", None, {}, {})`, so
+  the **V2 export path** (`package_corpus_export_v2` →`build_corpus_v2_zip`,
+  which forwards the GraphQL string unchanged) silently **dropped every
+  document** from the archive — for all modes, including the default.
+
+  Fix: `AnnotationFilterMode` is now `class AnnotationFilterMode(str, enum.Enum)`,
+  and `build_label_lookups`'s string-literal comparisons are normalized to enum
+  members so both ETL functions compare consistently. Members and their string
+  values are now interchangeable, so both the in-process (enum) and
+  GraphQL/Celery (string) call paths hit the same branches. Both ETL function
+  signatures now accept `AnnotationFilterMode | str` to match runtime reality,
+  retiring the `# type: ignore[arg-type]` / `cast(AnnotationFilterMode, …)`
+  workarounds that prior callers had used. Regression coverage added in
+  `opencontractserver/tests/test_corpus_export_with_analysis_filters.py`
+  (`BuildLabelLookupsStringEnumEquivalenceTestCase`) and
+  `opencontractserver/tests/test_types.py`
+  (`TestAnnotationFilterMode.test_is_string_enum`). Observable effect: the
+  string-driven export paths now include the corpus's full label set in their
+  label lookups (matching the enum-driven fork path) instead of only the
+  referenced labels. `test_filter_modes_change_annotation_count`'s
+  `build_label_lookups` assertions were updated to verify the per-mode label
+  *membership* (which the fix corrects) rather than brittle raw counts; the
+  `build_document_export` counts are unchanged. Both ETL functions also now
+  normalize their `annotation_filter_mode` argument to an
+  `AnnotationFilterMode` member at the boundary, so an invalid mode string
+  raises a clear `ValueError` instead of silently falling through to
+  `CORPUS_LABELSET_ONLY`; covered by
+  `BuildLabelLookupsStringEnumEquivalenceTestCase.test_invalid_mode_raises_valueerror`.
+
 - **Location Tagger: non-string geocoding hints crashed the tool (#1871,
   follow-up to #1822).** `add_annotations_from_exact_strings`
   (`opencontractserver/llms/tools/core_tools/annotations.py`) forwarded the
@@ -27,7 +160,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` to a `Literal` value type; and documented
   the no-superuser migration-skip recovery path in
   `docs/agents/location_tagger.md`.
-
 - **Corpus chat duplicate-response loop on reconnect**
   (`frontend/src/components/corpuses/CorpusChat.tsx`). Submitting a query from
   the corpus home search bar navigated into the chat view and auto-sent the
@@ -93,6 +225,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `library-filter-*`) to replace positional/text selectors in the component
     tests, and dropped the untyped `settingsKey` carried into
     `LIBRARY_STAGE_CONFIG` by the previous `STAGE_CONFIG` spread.
+- **Corpus Home "Map" view — per-corpus geographic annotations (#1821).** A
+  fifth Corpus Home view mode (`landing` / `details` / `discussions` /
+  `article` / **`map`**) that plots a corpus's geographic annotations, reusing
+  the #1820 `AnnotationMap` and the #1819 `geographicAnnotationsForCorpus`
+  query.
+  - **`CorpusMapView`** (`frontend/src/components/corpuses/CorpusMapView.tsx`) —
+    wraps `AnnotationMap` with the corpus-scoped pins query, a back-to-overview
+    header badged with the place count, an empty state pointing users at the
+    Location Tagger agent, and pin-panel document links that resolve through the
+    permission-filtered `document(id:)` redirect query. Performance: corpus pin
+    sets are bounded/aggregated, so it fetches the whole corpus **once**
+    (`bbox: null`, all label types) with no per-pan refetch, selecting only the
+    lightweight pin fields.
+  - **Map toggle + count badge** (`CorpusHome/CorpusMapToggle.tsx`, rendered in
+    `CorpusLandingView`'s top bar) — "Map · N places", muted when the corpus has
+    no geo annotations but still clickable so users reach the empty-state
+    guidance. Its count query reuses `corpusGeoInitialVariables`, so it shares an
+    Apollo cache entry with `CorpusMapView` — the badge warms the map and opening
+    it costs no extra round-trip.
+  - **Routing** — `view=map` and a `pin=<place>` deep-link param are parsed by
+    `CentralRouteManager` into the `corpusDetailView` / new `corpusMapPin`
+    reactive vars (no direct URL touches in components). `?view=map&pin=Paris`
+    opens the map zoomed to Paris with its side panel open; selecting a pin
+    reflects the place into the URL (`updateCorpusMapPinParam`, replace-mode) so
+    the map is shareable and survives refresh.
+  - **`AnnotationMap` additive props** (`fitToPins`, `focusPinName`) — opt-in
+    imperative framing via an internal `MapController` (auto-fit to the coarsest
+    band on first load; fly-to + select for the deep-link place). Both default
+    off, so Discover and existing callers are unaffected. New `bandZoomRange` /
+    `coarsestBand` helpers keep the framed zoom inside the band that has pins.
+    The auto-fit now passes `MAP_FIT_PADDING_PX` to `getBoundsZoom` so framed
+    pins are not flush against the viewport edges (the constant was previously
+    imported but never applied), and a deep-link focus consumes the one-shot
+    auto-fit (`didFitRef`) so clearing `?pin=` cannot retroactively re-fit an
+    already-framed map.
+  - **Tests** — `frontend/tests/CorpusMapView.ct.tsx` (pins render + corpus-doc
+    panel, empty state, error placeholder, `?pin=Paris` deep link),
+    `frontend/tests/CorpusMapToggle.ct.tsx` (with-places / no-places /
+    loading badge states), and `zoomBands.test.ts` coverage for the new
+    helpers. Screenshots:
+    `corpus--map-view--with-pins`, `corpus--map-view--empty`,
+    `corpus--map-view--load-error`, `corpus--map-toggle--with-places`,
+    `corpus--map-toggle--no-places`.
 
 - **Reusable `AnnotationMap` (Leaflet) component + Discover "Map" tab (#1820).**
   A caller-agnostic React map that visualises geographic document annotations,
@@ -951,6 +1126,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Prod (`production.yml`)**: wires `cache_from: [type=registry,ref=ghcr.io/.../django-production-cache:main]` into both the `django` and `migrate` services (they share the same image). No-op until a follow-up PR adds the CI job that publishes the production cache (`compose/production/django/Dockerfile` is distinct from the local/test Dockerfile and needs its own scope). Wiring it now means that follow-up is a single workflow file rather than a workflow + compose-file change.
 
   _Visibility note:_ the ghcr cache packages inherit the repo's visibility on first publish (public, in this repo) — if either package is created private by mistake, change visibility in the Packages settings once.
+
+- **Typing: graduated the `tests.test_agent*` 9-module agent domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `agent` chunk from the issue's `tests.*` leaf-files batching plan, following the `corpus` chunk in PR #1866). Removed all 9 `[mypy-opencontractserver.tests.test_agent*]` `ignore_errors` blocks from `mypy.ini` (`test_agent_action_result`, `test_agent_action_result_admin`, `test_agent_api`, `test_agent_factory`, `test_agent_framework_api`, `test_agent_memory`, `test_agent_tasks`, `test_agentic_highlighter_task`, `test_agents`), pruned the corresponding 364 lines from `docs/typing/mypy_baseline.txt` (4012 → 3648), and fixed the 338 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`; also verified clean under CI's `mypy==2.1.0`). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1247 source files"). The fixes are the established mechanical patterns from prior chunks: class-level annotations for `setUpTestData`/`setUpClass` attributes (the recommended fix from #1479, the bulk of the 338), `User = get_user_model()` → direct `from opencontractserver.users.models import User` import, the graphene `self.client` → `self.graphene_client` rename, `assert … is not None` narrowing of Optional returns, and a small number of error-code-scoped `# type: ignore`s. All changes are type-level and behaviour-neutral or behaviour-equivalent. Grouped highlights:
+
+  - **Graphene-client rename** (`test_agents.py`): the `graphene.test.Client` assigned to `self.client` shadows the inherited `django.test.TestCase.client`, which has no `.execute()`. (`test_agent_action_result_admin.py` was deliberately left untouched — it uses the real `django.test.Client` for admin GET requests.)
+  - **Class-attribute annotations + direct `User` import** (most of the 338): every `test_agent*` `TestCase` whose `setUpTestData` populated `cls.` model fixtures invisible to mypy — `test_agent_framework_api.py` (one shared `TestAPISetup` base, 11 fixtures, inherited by 3 subclasses), `test_agents.py`, `test_agent_tasks.py`, `test_agent_factory.py` (5 classes), `test_agent_action_result_admin.py`, `test_agent_memory.py` (4 classes).
+  - **List-invariance annotations** (`test_agent_api.py`, `test_agent_factory.py`): `list[str]` / mixed tool literals passed to `_resolve_tools` / `create_document_agent` (both take `list[ToolType]`) annotated as `list[ToolType]` so invariance is satisfied.
+  - **`Optional` narrowing** (`test_agent_api.py`, `test_agent_memory.py`, `test_agent_action_result.py`): `assertIsNotNone(x)` → `assert x is not None` (preserves the assertion while narrowing) for `ToolRegistryEntry`/`CoreTool` registry returns, `_FakeConfig.system_prompt` (`Optional[str]`), and `AgentActionResult.duration_seconds` (`float | None`).
+  - **Scoped `# type: ignore`s** (no blanket ignores; `warn_unused_ignores=True` keeps them honest): a deliberately-`None` `AdminSite` (`test_agent_action_result_admin.py`), the deliberately-invalid `framework="invalid_framework_name"` string that exercises the `ValueError` path (`test_agent_factory.py`), a deliberately-invalid `["summarize", 123, None]` tool list that exercises the skip-and-warn path (`test_agent_api.py`), the per-instance override of the base `ClassVar` `corpus`/`docs` fixtures (`test_agentic_highlighter_task.py`), and the legacy `stream_chat` wrapper (see below).
+
+  Two test-quality findings surfaced behind the mocks (the audit the issue invites):
+
+  - **`test_agent_api.py::test_contextual_embedding_generation` passed a non-existent `embedder_path=` kwarg to `embeddings.generate`** — the public `EmbeddingAPI.generate` parameter is `embedder` (no `embedder_path`, no `**kwargs`). The call only "worked" because `generate` was mocked, so the wrong kwarg name was hidden. Corrected the call (and its `assert_called_once_with`) to `embedder=`, which keeps the test green and self-consistent while aligning it with the real public API.
+  - **`test_agent_api.py::test_vector_store_with_all_options` retains `embedder_path=`** — unlike the agent/embedding APIs, the public `VectorStoreAPI.create` parameter is genuinely named `embedder_path` (it forwards straight through to `UnifiedVectorStoreFactory.create_vector_store(embedder_path=...)`). The same blanket rename applied elsewhere had been carried into this test, but `create` has a `**kwargs` catch-all, so `embedder="custom-embedder"` was silently absorbed while `embedder_path` defaulted to `None` — making the `assert_called_once_with(embedder="custom-embedder")` mismatch the actual `create_vector_store(embedder_path=None, …, embedder="custom-embedder")` call. Kept this test on the real `embedder_path=` parameter name.
+  - **`CoreAgent.stream_chat` is a legacy compatibility wrapper that lives on the concrete `CoreAgentBase` but is deliberately absent from the modern `CoreAgent` protocol** (which exposes `stream`). It is never called in production — only `test_agent_api.py` and `test_agent_framework_api.py` exercise it, via mocks that replace it wholesale. Left the protocol as-is (the omission looks intentional) and scoped the two test calls with `# type: ignore[attr-defined]`; a follow-up could either fold it into the protocol or remove the now-effectively-dead wrapper.
 
 - **Typing: graduated the `tests.test_corpus_*` 23-module corpus domain chunk out of the mypy baseline** (issue #1738, continuing the #1331 → #1335 → #1447 cadence; the `corpus` chunk from the issue's `tests.*` leaf-files batching plan, following the `document` chunk in PR #1851). Removed all 23 `[mypy-opencontractserver.tests.test_corpus_*]` `ignore_errors` blocks from `mypy.ini`, pruned the corresponding 798 lines from `docs/typing/mypy_baseline.txt` (4810 → 4012), and fixed the 898 errors that surfaced under the currently-pinned mypy / django-stubs (`mypy==2.0.0`, `django-stubs==6.0.5`, per `.pre-commit-config.yaml`; also verified clean under CI's `mypy==2.1.0`). Pre-commit `mypy` continues to pass on the full project surface (`mypy --config-file mypy.ini opencontractserver config` → "Success: no issues found in 1245 source files"). The fixes are the established mechanical patterns from prior chunks: class-level annotations for `setUpTestData`/`setUpClass`/`setUp` attributes (the recommended fix from #1479), `User = get_user_model()` → direct `from opencontractserver.users.models import User` import, the graphene `self.client` → `self.graphene_client` rename, `assert … is not None` narrowing of Optional service/ORM returns, and `cast(...)` at call sites that pass intentionally-incomplete export TypedDict fixtures (the repo's established idiom). Grouped highlights:
 
