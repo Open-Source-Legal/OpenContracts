@@ -93,7 +93,10 @@ class ResearchReportModelTestCase(TestCase):
         report.started_at = now - timedelta(seconds=125)
         report.completed_at = now
         report.save(update_fields=["started_at", "completed_at"])
-        self.assertAlmostEqual(report.duration_seconds, 125.0)
+        duration = report.duration_seconds
+        self.assertIsNotNone(duration)
+        assert duration is not None  # narrow Optional for type-checker
+        self.assertAlmostEqual(duration, 125.0)
 
     def test_visible_to_user_creator_only(self):
         report = ResearchReport.objects.create(
