@@ -18,9 +18,11 @@ from .import_tasks import (
     process_documents_zip,
 )
 from .lookup_tasks import build_label_lookups_task
+from .memory_tasks import check_conversations_for_curation, curate_corpus_memory
 
 # Materialized view tasks removed - using direct queries instead
 from .permissioning_tasks import make_analysis_public_task, make_corpus_public_task
+from .research_tasks import run_deep_research
 from .telemetry_tasks import send_usage_heartbeat
 
 # Great, quick guidance on how to restructure tasks into multiple modules:
@@ -48,4 +50,7 @@ __all__ = [
     "generate_agent_response",
     "trigger_agent_responses_for_message",
     "send_usage_heartbeat",
+    "run_deep_research",
+    "check_conversations_for_curation",
+    "curate_corpus_memory",
 ]
