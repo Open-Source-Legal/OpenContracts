@@ -1033,7 +1033,10 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
             if lbl.label_type == DOC_TYPE_LABEL:
                 doc_label_lookup[lbl.text] = lbl
 
-    annot_id_map = import_annotations(
+    # Creates one Annotation per anchored item whose label resolves (and wires
+    # parent relationships + dispatches embeddings as a side effect). The return
+    # map is intentionally not used for the success count — see ``created`` below.
+    import_annotations(
         user_id=user_id,
         doc_obj=doc,
         corpus_obj=corpus,
@@ -1069,6 +1072,7 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
             )
 
     doc_labels_created = 0
+    doc_labels_unresolved = 0
     for name in doc_label_names:
         label_obj = doc_label_lookup.get(name)
         if label_obj:
@@ -1083,13 +1087,30 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
                 user_id, annot_obj, [PermissionTypes.ALL], is_new=True
             )
             doc_labels_created += 1
+        else:
+            # Parity with the token-label gap above: never drop a doc-label
+            # silently. Record it so an unresolved labels.json entry is visible.
+            doc_labels_unresolved += 1
+            report.append(
+                {
+                    "id": None,
+                    "rawText": "",
+                    "dropped": True,
+                    "reason": f"doc_label '{name}' not found in corpus labelset",
+                }
+            )
 
-    # If annotations WERE anchored but every one of them was then dropped at
-    # import because its label could not be resolved, nothing landed — that is
-    # a real failure, not a silent DONE. Otherwise (something imported, or there
-    # was nothing to anchor in the first place) the run is DONE with the drops
-    # recorded in the report.
-    if anchored and not annot_id_map:
+    # ``import_annotations`` creates one Annotation per anchored item whose
+    # label resolves, so the number actually created is ``len(anchored)`` minus
+    # the unresolved-label drops. We deliberately do NOT use ``len(annot_id_map)``
+    # here: that map only contains entries for annotations that carried an
+    # export-local ``id`` (importing.py only records ``old_id`` when non-None),
+    # so id-less-but-successfully-created annotations would be miscounted as
+    # zero and wrongly flip the row to FAILED.
+    created = len(anchored) - label_unresolved
+    # If annotations WERE anchored but every one was then dropped at import for
+    # an unresolved label, nothing landed — a real failure, not a silent DONE.
+    if anchored and created == 0:
         pending.status = PendingDocumentAnnotations.Status.FAILED
     else:
         pending.status = PendingDocumentAnnotations.Status.DONE
@@ -1098,8 +1119,9 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
     return {
         "doc_id": doc_id,
         "status": pending.status,
-        "anchored": len(annot_id_map),
+        "anchored": created,
         "dropped": sum(1 for r in report if r.get("dropped")),
         "label_unresolved": label_unresolved,
         "doc_labels": doc_labels_created,
+        "doc_labels_unresolved": doc_labels_unresolved,
     }

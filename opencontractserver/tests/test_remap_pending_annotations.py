@@ -114,6 +114,31 @@ class TestRemapPendingAnnotations(TestCase):
 
     # -----------------------------------------------------------------------
 
+    def test_id_less_annotation_imports_and_is_not_failed(self):
+        """An anchored annotation without an export-local ``id`` still imports;
+        the row must be DONE (not FAILED) and ``anchored`` must count it.
+
+        Regression: the status decision previously keyed off ``annot_id_map``,
+        which only contains id-bearing annotations, so an id-less-but-created
+        annotation wrongly flipped the row to FAILED with anchored=0.
+        """
+        ann_no_id = {k: v for k, v in _DUMB_ANN.items() if k != "id"}
+        self.pending.payload = {"annotations": [ann_no_id], "doc_labels": []}
+        self.pending.save(update_fields=["payload"])
+
+        result = remap_pending_annotations(doc_id=self.doc.id)
+
+        self.assertEqual(result["anchored"], 1, msg=f"Unexpected result: {result}")
+        self.assertEqual(result["status"], PendingDocumentAnnotations.Status.DONE)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, PendingDocumentAnnotations.Status.DONE)
+        self.assertEqual(
+            Annotation.objects.filter(
+                document=self.doc, annotation_label=self.label
+            ).count(),
+            1,
+        )
+
     def test_annotation_created_and_pending_marked_done(self):
         """Task creates an Annotation for OC_SECTION and marks pending as DONE."""
         result = remap_pending_annotations(doc_id=self.doc.id)

@@ -141,7 +141,7 @@ def anchor_annotations(
             report.append(
                 {
                     "id": ann.get("id"),
-                    "rawText": ann.get("rawText", "")[:80],
+                    "rawText": (ann.get("rawText") or "")[:80],
                     "dropped": False,
                     "reason": "",
                 }
@@ -150,7 +150,7 @@ def anchor_annotations(
             report.append(
                 {
                     "id": ann.get("id"),
-                    "rawText": ann.get("rawText", "")[:80],
+                    "rawText": (ann.get("rawText") or "")[:80],
                     "dropped": True,
                     "reason": reason,
                 }
