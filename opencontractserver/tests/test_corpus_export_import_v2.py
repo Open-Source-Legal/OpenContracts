@@ -3175,9 +3175,7 @@ class TestPostImportStructuralIngestion(TestCase):
             processing_started=timezone.now(),
         )
 
-        targets = _collect_structural_ingestion_targets(
-            [needs, has_set, markdown_doc]
-        )
+        targets = _collect_structural_ingestion_targets([needs, has_set, markdown_doc])
         self.assertEqual(targets, [needs.pk])
 
     # ----- import-wiring tests ------------------------------------------
@@ -3201,6 +3199,7 @@ class TestPostImportStructuralIngestion(TestCase):
                 )
 
         self.assertIsNotNone(corpus_id, "import should succeed")
+        assert corpus_id is not None  # narrow Optional[int] for the queries below
         mock_dispatch.assert_called_once()
         doc_ids, dispatched_user_id = mock_dispatch.call_args.args
         self.assertEqual(dispatched_user_id, self.user.id)
@@ -3246,6 +3245,7 @@ class TestPostImportStructuralIngestion(TestCase):
                 )
 
         self.assertIsNotNone(corpus_id, "import should succeed")
+        assert corpus_id is not None  # narrow Optional[int] for the queries below
         mock_dispatch.assert_not_called()
 
         # Sanity check: the imported doc really does carry the structural set,
