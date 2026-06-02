@@ -96,7 +96,7 @@ describe("ErrorBoundary", () => {
 
     // componentDidCatch logs with the marker "ErrorBoundary caught an error:"
     const markerCall = consoleErrorSpy.mock.calls.find(
-      (call) =>
+      (call: unknown[]) =>
         typeof call[0] === "string" &&
         (call[0] as string).includes("ErrorBoundary caught an error:")
     );

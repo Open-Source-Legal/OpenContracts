@@ -183,11 +183,15 @@ export default defineConfig(async () => {
       setupFiles: "./src/setupTests.ts",
       css: true,
       reporters: ["verbose"],
-      deps: {
-        // @os-legal/caml-react uses styled-components template literals in its
-        // ESM bundle. Vitest's jsdom environment needs these inlined so the
-        // styled-components CJS interop resolves correctly.
-        inline: ["@os-legal/caml-react"],
+      server: {
+        deps: {
+          // @os-legal/caml-react uses styled-components template literals in its
+          // ESM bundle. Vitest's jsdom environment needs these inlined so the
+          // styled-components CJS interop resolves correctly. (vitest 4 removed
+          // the top-level `test.deps.inline` option in favour of
+          // `test.server.deps.inline`.)
+          inline: ["@os-legal/caml-react"],
+        },
       },
       // More specific include pattern
       include: ["src/**/*.test.{ts,tsx}"],

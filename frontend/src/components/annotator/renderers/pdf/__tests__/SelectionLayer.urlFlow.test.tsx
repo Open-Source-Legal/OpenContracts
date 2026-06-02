@@ -16,6 +16,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import SelectionLayer from "../SelectionLayer";
 import { PDFPageInfo } from "../../../types/pdf";
+import { ServerTokenAnnotation } from "../../../types/annotations";
 import {
   AnnotationLabelType,
   LabelType,
@@ -92,8 +93,14 @@ function buildPageInfo() {
 }
 
 function mountLayer(opts: {
-  createUrlAnnotation?: ReturnType<typeof vi.fn>;
-  createAnnotation?: ReturnType<typeof vi.fn>;
+  createUrlAnnotation?: ReturnType<
+    typeof vi.fn<
+      (annotation: ServerTokenAnnotation, url: string) => Promise<void>
+    >
+  >;
+  createAnnotation?: ReturnType<
+    typeof vi.fn<(annotation: ServerTokenAnnotation) => void>
+  >;
 }) {
   const corpusMock = vi.mocked(useCorpusState);
   corpusMock.mockReturnValue({

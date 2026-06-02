@@ -641,7 +641,12 @@ describe("useAgentChat", () => {
         { wrapper: createWrapper() }
       );
       act(() => latestSocket()._open());
-      latestSocket().send.mockImplementation(() => {
+      // Scope the throw to the single send triggered by sendMessage below.
+      // A persistent mockImplementation leaks into the hook's token-rotation
+      // effect (useWebSocketAuth.ts), which calls ws.send() inside a React
+      // passive effect that has no try/catch — surfacing as an uncaught
+      // exception that vitest 4 reports as a run-failing unhandled error.
+      latestSocket().send.mockImplementationOnce(() => {
         throw new Error("socket boom");
       });
 
