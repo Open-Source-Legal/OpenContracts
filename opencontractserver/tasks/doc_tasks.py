@@ -1041,6 +1041,33 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
         label_lookup=label_lookup,
     )
 
+    # ------------------------------------------------------------------
+    # Close the label-resolution silent-failure gap.
+    #
+    # import_annotations() SILENTLY SKIPS any anchored annotation whose
+    # ``annotationLabel`` is not in ``label_lookup`` (e.g. the producer's
+    # labels.json declared the label wrong / not at all). Without the
+    # bookkeeping below, the remap would report status=DONE even when an
+    # annotation was anchored but then dropped at import for an unresolved
+    # label — a real, invisible loss. We detect every anchored annotation
+    # whose label is unresolvable, append a ``dropped`` report entry citing
+    # the missing label, and surface the count in the return dict.
+    # ------------------------------------------------------------------
+    resolvable_labels = set(label_lookup)
+    label_unresolved = 0
+    for a in anchored:
+        label_name = a.get("annotationLabel")
+        if label_name not in resolvable_labels:
+            label_unresolved += 1
+            report.append(
+                {
+                    "id": a.get("id"),
+                    "rawText": (a.get("rawText") or "")[:80],
+                    "dropped": True,
+                    "reason": (f"label '{label_name}' not found in corpus labelset"),
+                }
+            )
+
     doc_labels_created = 0
     for name in doc_label_names:
         label_obj = doc_label_lookup.get(name)
@@ -1057,12 +1084,22 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
             )
             doc_labels_created += 1
 
-    pending.status = PendingDocumentAnnotations.Status.DONE
+    # If annotations WERE anchored but every one of them was then dropped at
+    # import because its label could not be resolved, nothing landed — that is
+    # a real failure, not a silent DONE. Otherwise (something imported, or there
+    # was nothing to anchor in the first place) the run is DONE with the drops
+    # recorded in the report.
+    if anchored and not annot_id_map:
+        pending.status = PendingDocumentAnnotations.Status.FAILED
+    else:
+        pending.status = PendingDocumentAnnotations.Status.DONE
     pending.report = report
     pending.save(update_fields=["status", "report"])
     return {
         "doc_id": doc_id,
+        "status": pending.status,
         "anchored": len(annot_id_map),
         "dropped": sum(1 for r in report if r.get("dropped")),
+        "label_unresolved": label_unresolved,
         "doc_labels": doc_labels_created,
     }

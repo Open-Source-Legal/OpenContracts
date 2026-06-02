@@ -3,6 +3,7 @@
 Verifies that PendingDocumentAnnotations are correctly consumed after
 pipeline output (PAWLs / text layer) is present on the document.
 """
+
 from __future__ import annotations
 
 import json
@@ -13,10 +14,10 @@ from django.test import TestCase
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
+    TOKEN_LABEL,
     Annotation,
     AnnotationLabel,
     LabelSet,
-    TOKEN_LABEL,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, PendingDocumentAnnotations
@@ -124,9 +125,7 @@ class TestRemapPendingAnnotations(TestCase):
 
         # PendingDocumentAnnotations row updated
         self.pending.refresh_from_db()
-        self.assertEqual(
-            self.pending.status, PendingDocumentAnnotations.Status.DONE
-        )
+        self.assertEqual(self.pending.status, PendingDocumentAnnotations.Status.DONE)
 
         # Annotation exists
         anns = Annotation.objects.filter(
@@ -140,7 +139,9 @@ class TestRemapPendingAnnotations(TestCase):
         ann = anns.first()
 
         # annotation_json should contain the page key with tokensJsons
-        self.assertIn("0", ann.json, msg=f"annotation_json missing page '0': {ann.json}")
+        self.assertIn(
+            "0", ann.json, msg=f"annotation_json missing page '0': {ann.json}"
+        )
         page_data = ann.json["0"]
         tokens_json = page_data.get("tokensJsons") or []
         self.assertTrue(len(tokens_json) > 0, "tokensJsons should be non-empty")
@@ -168,3 +169,73 @@ class TestRemapPendingAnnotations(TestCase):
         result = remap_pending_annotations(doc_id=other_doc.id)
         self.assertIn("skipped", result, msg=f"Expected 'skipped' key, got: {result}")
         self.assertEqual(result["doc_id"], other_doc.id)
+
+    def test_unresolved_label_is_reported_not_silently_dropped(self):
+        """An anchored annotation whose label is absent from the corpus labelset
+        must NOT be created, and the loss must be visible.
+
+        The annotation anchors fine onto the PAWLs (geometry/text match), but
+        import_annotations silently skips it because its label is not in the
+        corpus labelset. The remap task must record a dropped report entry that
+        cites the missing label, surface ``label_unresolved`` in the return
+        dict, and — since nothing landed — mark the pending row FAILED rather
+        than a silent DONE.
+        """
+        # A second pending doc referencing a label NOT in the corpus labelset.
+        doc = Document.objects.create(
+            title="Bad Label Doc",
+            creator=self.user,
+            file_type="application/pdf",
+            processing_started=timezone.now(),
+        )
+        pawls_bytes = json.dumps(_PAWLS_V1).encode("utf-8")
+        doc.pawls_parse_file.save("bad_pawls.json", ContentFile(pawls_bytes), save=True)
+        doc.txt_extract_file.save("bad_text.txt", ContentFile(_TEXT_CONTENT), save=True)
+
+        bad_ann = dict(_DUMB_ANN)
+        bad_ann["label"] = "NOT_IN_LABELSET"
+        pending = PendingDocumentAnnotations.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            creator=self.user,
+            payload={"annotations": [bad_ann], "doc_labels": []},
+            status=PendingDocumentAnnotations.Status.PENDING,
+        )
+
+        result = remap_pending_annotations(doc_id=doc.id)
+
+        # No annotation should have been created for this document.
+        self.assertEqual(
+            Annotation.objects.filter(document=doc).count(),
+            0,
+            msg="Annotation with an unresolved label must not be created",
+        )
+
+        # Return dict reflects the unresolved label and the empty anchoring.
+        self.assertEqual(result["anchored"], 0, msg=f"Unexpected result: {result}")
+        self.assertEqual(
+            result["label_unresolved"], 1, msg=f"Unexpected result: {result}"
+        )
+        self.assertEqual(
+            result["status"],
+            PendingDocumentAnnotations.Status.FAILED,
+            msg=f"Unexpected result: {result}",
+        )
+
+        # Pending row marked FAILED (everything anchored was dropped on label).
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.FAILED)
+
+        # Report has a dropped entry citing the missing label.
+        dropped = [r for r in pending.report if r.get("dropped")]
+        self.assertTrue(
+            dropped, msg=f"Expected a dropped report entry: {pending.report}"
+        )
+        self.assertTrue(
+            any(
+                "NOT_IN_LABELSET" in (r.get("reason") or "")
+                and "labelset" in (r.get("reason") or "")
+                for r in dropped
+            ),
+            msg=f"Expected a report entry citing the missing label: {dropped}",
+        )
