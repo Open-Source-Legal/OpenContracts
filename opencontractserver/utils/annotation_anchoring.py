@@ -6,15 +6,21 @@ them into full ``OpenContractsAnnotationPythonType`` dicts ready for
 ``import_annotations``; annotations that cannot be confidently anchored are
 dropped and recorded in the returned report. Pure: no DB, no IO.
 """
+
 from __future__ import annotations
 
 from difflib import SequenceMatcher
+from typing import cast
 
 from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL
 from opencontractserver.constants.annotations import (
     ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD,
     ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO,
     PDF_OUTLINE_FUZZY_MATCH_THRESHOLD,
+)
+from opencontractserver.types.dicts import (
+    BoundingBoxPythonType,
+    PawlsPagePythonType,
 )
 from opencontractserver.utils.pdf_token_matching import (
     match_title_to_tokens,
@@ -40,7 +46,9 @@ def _anchor_pdf(ann: dict, pawls: list[dict]) -> dict | None:
     bbox = ann.get("bbox")
     if isinstance(bbox, dict):
         cand = select_tokens_in_region(
-            page, bbox, overlap_threshold=ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD
+            cast(PawlsPagePythonType, page),
+            cast(BoundingBoxPythonType, bbox),
+            overlap_threshold=ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD,
         )
         if cand:
             joined = " ".join((tokens[i].get("text") or "") for i in cand)
@@ -50,10 +58,10 @@ def _anchor_pdf(ann: dict, pawls: list[dict]) -> dict | None:
                 indices = cand
 
     if indices is None:
-        texts, original = page_text_tokens(page)
+        texts, original = page_text_tokens(cast(PawlsPagePythonType, page))
         span = match_title_to_tokens(raw, texts, PDF_OUTLINE_FUZZY_MATCH_THRESHOLD)
         if span is not None:
-            indices = original[span[0]: span[1] + 1]
+            indices = original[span[0] : span[1] + 1]
 
     if not indices:
         return None
@@ -130,9 +138,21 @@ def anchor_annotations(
             reason = "" if built else "no confident anchor"
         if built:
             out.append(built)
-            report.append({"id": ann.get("id"), "rawText": ann.get("rawText", "")[:80],
-                           "dropped": False, "reason": ""})
+            report.append(
+                {
+                    "id": ann.get("id"),
+                    "rawText": ann.get("rawText", "")[:80],
+                    "dropped": False,
+                    "reason": "",
+                }
+            )
         else:
-            report.append({"id": ann.get("id"), "rawText": ann.get("rawText", "")[:80],
-                           "dropped": True, "reason": reason})
+            report.append(
+                {
+                    "id": ann.get("id"),
+                    "rawText": ann.get("rawText", "")[:80],
+                    "dropped": True,
+                    "reason": reason,
+                }
+            )
     return out, report

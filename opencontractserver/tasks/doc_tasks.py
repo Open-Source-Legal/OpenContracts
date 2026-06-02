@@ -974,6 +974,7 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
         Document,
         PendingDocumentAnnotations,
     )
+    from opencontractserver.types.dicts import OpenContractsAnnotationPythonType
     from opencontractserver.types.enums import PermissionTypes
     from opencontractserver.utils.annotation_anchoring import anchor_annotations
     from opencontractserver.utils.compact_pawls import expand_pawls_pages
@@ -1036,7 +1037,7 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
         user_id=user_id,
         doc_obj=doc,
         corpus_obj=corpus,
-        annotations_data=anchored,
+        annotations_data=cast(list[OpenContractsAnnotationPythonType], anchored),
         label_lookup=label_lookup,
     )
 
