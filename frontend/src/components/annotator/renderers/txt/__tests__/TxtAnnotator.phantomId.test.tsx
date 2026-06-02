@@ -80,10 +80,13 @@ const defaultProps = {
 // ---------- Tests ----------
 
 describe("TxtAnnotator annotation ref registration", () => {
-  let onAnnotationRefChange: ReturnType<typeof vi.fn>;
+  let onAnnotationRefChange: ReturnType<
+    typeof vi.fn<(annotationId: string, element: HTMLElement | null) => void>
+  >;
 
   beforeEach(() => {
-    onAnnotationRefChange = vi.fn();
+    onAnnotationRefChange =
+      vi.fn<(annotationId: string, element: HTMLElement | null) => void>();
   });
 
   it("registers refs for annotations with matching DOM spans", async () => {
