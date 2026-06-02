@@ -26,6 +26,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   single conversation is open — recovering ~71px and leaving one header (the
   ASK/search-expanded flow already did this). Regression test added in
   `frontend/src/views/__tests__/CorpusQueryView.handlers.test.tsx`.
+- **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
+  `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
+  memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
+  (`opencontractserver/tasks/memory_tasks.py`) were absent from
+  `opencontractserver/tasks/__init__.py`. The Celery worker registers central
+  tasks only as a side effect of that package's `__init__` running at boot
+  (the `@shared_task` decorator registers a task when its module is imported);
+  these three modules were reachable only through lazy, function-local
+  producer-side imports (`research/services/research_reports.py`) or by
+  name via `CELERY_BEAT_SCHEDULE`. A real worker would therefore reject the
+  queued message with *"Received unregistered task"*, leaving deep-research
+  reports stuck and the conversation-curation beat job non-functional. The
+  defect was masked in the unit suite because `config/settings/test.py` runs
+  Celery in `CELERY_TASK_ALWAYS_EAGER` mode, where `.delay()` executes inline
+  in the process that just lazily imported the module. Fix: import the three
+  tasks in `opencontractserver/tasks/__init__.py` (and add them to `__all__`),
+  matching the registration mechanism every other shipped task relies on.
+  Added a subprocess-based regression test
+  (`opencontractserver/tests/architecture/test_celery_task_registration.py`)
+  that boots a worker in a clean interpreter and asserts these task names are
+  present in `app.tasks`.
 
 ### Changed
 
@@ -101,6 +122,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deep research reports rendered fabricated `example.com` hyperlinks.** The
+  deep-research agent is given only corpus-internal retrieval tools (no web
+  access — see `opencontractserver/research/constants.py`
+  `DEEP_RESEARCH_READ_ONLY_TOOLS`), yet it was asked to write a polished
+  markdown report. With no real URLs to hand, the model fabricated markdown
+  hyperlinks — overwhelmingly the canonical `https://example.com` placeholder —
+  and nothing stripped them, so the frontend `SafeMarkdown` renderer
+  (`frontend/src/components/knowledge_base/markdown/SafeMarkdown.tsx`, which
+  allows `https:`) turned them into live, misleading anchors. The agent's only
+  sanctioned attribution channel is the `<cite ids="…">` tag, which the system
+  renders to footnotes. Fixed in two layers: (1) `build_deep_research_system_prompt`
+  (`opencontractserver/research/constants.py`) now explicitly forbids hyperlinks
+  / URLs and names `example.com` as a placeholder to avoid; (2) a new
+  `_strip_fabricated_links` helper in
+  `opencontractserver/research/services/research_reports.py` downgrades any
+  externally-resolvable markdown link (`scheme://`, `//host`, `mailto:`/`tel:`,
+  or a bare domain) to its plain label inside `ResearchReportService.finalize`,
+  applied to both the executive summary and the rendered body so no fabricated
+  link survives into stored content (covers the normal and salvage paths).
+  In-app relative links (`/d/…`), fragment anchors (`#…`), `<cite>` tags, and
+  `[^n]` footnote markers are left untouched. Tests in
+  `opencontractserver/tests/research/test_research_report_service.py`.
 - **MCP `search_corpus` returned duplicate hits and dead-end passages; bad
   tool arguments leaked a raw `TypeError`.** Surfaced while evaluating the
   public MCP server (`cite.opensource.legal/mcp`). Three fixes:

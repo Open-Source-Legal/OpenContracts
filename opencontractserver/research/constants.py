@@ -109,6 +109,12 @@ def build_deep_research_system_prompt(
         "- You MUST cite only annotation IDs that retrieval tools returned in "
         "this run. Fabricated or guessed IDs will be rejected and you will "
         "be asked to re-search.",
+        "- Do NOT write hyperlinks or URLs of any kind — no markdown links "
+        "(`[text](http://…)`), no bare URLs. You have NO web access, so any "
+        "link you emit is invented (do not reach for placeholders like "
+        "`example.com`). The ONLY way to attribute a source is the "
+        '`<cite ids="…">` tag, which the system renders into footnotes. Any '
+        "URL you write would be stripped before the report is saved.",
         "- Do NOT mutate corpus state — you have no write tools, by design.",
         "- Do NOT speculate beyond what the corpus supports. If the corpus "
         "does not contain the answer, say so explicitly in the report.",

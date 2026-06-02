@@ -20,6 +20,7 @@ from opencontractserver.research.services.research_reports import (
     ResearchReportService,
     _derive_title_from_prompt,
     _render_citations,
+    _strip_fabricated_links,
 )
 from opencontractserver.types.enums import JobStatus
 
@@ -322,3 +323,91 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(citations[0]["footnote"], 1)
         # Both occurrences point at footnote 1.
         self.assertEqual(rendered.count("[^1]"), 2)
+
+    # ------------------------------------------------------------------
+    # _strip_fabricated_links() — kill agent-invented hyperlinks
+    # ------------------------------------------------------------------
+    def test_strip_fabricated_links_neutralises_external_targets(self):
+        # Every externally-resolvable target the agent might invent is
+        # downgraded to its label; in-app relative links and fragments survive.
+        cases = [
+            ("see [the MSA](https://example.com)", "see the MSA"),
+            ("see [the MSA](http://example.com/path?q=1)", "see the MSA"),
+            ("ref [x](//example.com/proto-relative)", "ref x"),
+            ("bare [domain](example.com/terms)", "bare domain"),
+            ("mail [us](mailto:legal@example.com)", "mail us"),
+            ("an ![logo](https://example.com/a.png) image", "an logo image"),
+            # In-app + fragment links are legitimate and must be preserved.
+            (
+                "open [the doc](/d/alice/cases/lease)",
+                "open [the doc](/d/alice/cases/lease)",
+            ),
+            ("jump [down](#summary)", "jump [down](#summary)"),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(_strip_fabricated_links(source), expected)
+
+    def test_strip_fabricated_links_leaves_footnotes_untouched(self):
+        # Footnote markers/definitions look bracket-y but have no (target);
+        # they must pass through unharmed so citations keep working.
+        body = "A claim[^1] and another[^2].\n\n[^1]: *Doc* (doc 1) annotation 5"
+        self.assertEqual(_strip_fabricated_links(body), body)
+
+    def test_strip_fabricated_links_leaves_reference_style_links_unchanged(self):
+        # Known, deliberate gap: only inline ``[text](url)`` links are stripped.
+        # Reference-style links pass through (the agent's observed fabrication
+        # pattern is the inline example.com placeholder, not reference style).
+        # This pins current behaviour so the gap reads as intentional.
+        body = "See [the MSA][1] for details.\n\n[1]: https://example.com/msa"
+        self.assertEqual(_strip_fabricated_links(body), body)
+
+    def test_strip_fabricated_links_does_not_match_dotted_prose(self):
+        # The bare-domain branch requires a >=2 char trailing segment, so dotted
+        # identifiers that are not real domains are not mistaken for link targets.
+        cases = [
+            ("version [v1.0](v1.0) shipped", "version [v1.0](v1.0) shipped"),
+            ("clause [a](section_a.2) applies", "clause [a](section_a.2) applies"),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(_strip_fabricated_links(source), expected)
+
+    def test_strip_fabricated_links_handles_empty_label(self):
+        # An empty-label fabricated link ``[](url)`` strips to "" without
+        # crashing; surrounding whitespace collapses gracefully in finalize.
+        self.assertEqual(
+            _strip_fabricated_links("lead [](https://example.com) trail"),
+            "lead  trail",
+        )
+        self.assertEqual(_strip_fabricated_links("[](https://example.com)"), "")
+
+    def test_finalize_strips_fabricated_links_from_content(self):
+        # End-to-end: an agent that ignores the prompt and embeds an
+        # example.com link in both the summary and the body must not leak
+        # that link into the stored, rendered report.
+        ann = self._make_annotation(raw_text="indemnity clause")
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "broad indemnity", "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+
+        body = (
+            f'The lease has a <cite ids="{ann.pk}">broad indemnity clause</cite>. '
+            "Full text at [the source](https://example.com/lease)."
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="Summary; details at [here](https://example.com).",
+            markdown_body=body,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        # The fabricated link is gone, but the prose (and the real citation
+        # footnote) survive.
+        self.assertNotIn("example.com", report.content)
+        self.assertNotIn("](http", report.content)
+        self.assertIn("the source", report.content)
+        self.assertIn("[^1]", report.content)
+        self.assertIn("## Sources", report.content)
