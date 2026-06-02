@@ -25,10 +25,19 @@ class PermissionFilteringTestCase(TestCase):
         # Create users
         self.user1 = User.objects.create_user(username="user1", password="password1")
         self.user2 = User.objects.create_user(username="user2", password="password2")
+        # A no-grant superuser. Under the scoped-admin contract (2026-05) a
+        # superuser is authorized over data like a normal user, so this admin is
+        # a "stranger" to user1/user2's private labels and must NOT see them.
+        # Username is class-unique to avoid colliding with other test classes'
+        # superusers under xdist.
+        self.superuser = User.objects.create_superuser(
+            username="perm_filter_admin", password="adminpass"
+        )
 
         # Create GraphQL clients
         self.client1 = Client(schema, context_value=TestContext(self.user1))
         self.client2 = Client(schema, context_value=TestContext(self.user2))
+        self.client_super = Client(schema, context_value=TestContext(self.superuser))
 
         # Create test data
         self.corpus1 = Corpus.objects.create(title="Corpus 1", creator=self.user1)
@@ -148,19 +157,31 @@ class PermissionFilteringTestCase(TestCase):
         }
         """
 
-        # Test for user1
-        result1 = self.client1.execute(query)
-        self.assertEqual(len(result1["data"]["annotationLabels"]["edges"]), 1)
-        self.assertEqual(
-            result1["data"]["annotationLabels"]["edges"][0]["node"]["text"], "Label 1"
-        )
+        def _label_texts(result):
+            return {
+                edge["node"]["text"]
+                for edge in result["data"]["annotationLabels"]["edges"]
+            }
 
-        # Test for user2
-        result2 = self.client2.execute(query)
-        self.assertEqual(len(result2["data"]["annotationLabels"]["edges"]), 1)
-        self.assertEqual(
-            result2["data"]["annotationLabels"]["edges"][0]["node"]["text"], "Label 2"
-        )
+        # Test for user1: sees its OWN private label, never user2's private one.
+        # Membership (not exact count) keeps the assertion robust to unrelated
+        # public/seed labels that other parallel tests may make visible — the
+        # permission-filtering contract under test is "a user never sees another
+        # user's PRIVATE label".
+        texts1 = _label_texts(self.client1.execute(query))
+        self.assertIn("Label 1", texts1)
+        self.assertNotIn("Label 2", texts1)
+
+        # Test for user2: mirror.
+        texts2 = _label_texts(self.client2.execute(query))
+        self.assertIn("Label 2", texts2)
+        self.assertNotIn("Label 1", texts2)
+
+        # No-grant superuser is computed like a stranger: sees NEITHER private
+        # label (no blanket superuser bypass for data visibility, 2026-05).
+        texts_super = _label_texts(self.client_super.execute(query))
+        self.assertNotIn("Label 1", texts_super)
+        self.assertNotIn("Label 2", texts_super)
 
     def test_annotation_permission_filtering(self):
         query = """

@@ -69,11 +69,35 @@ class DocumentTypeReadPermissionTests(TestCase):
         )
         self.assertEqual(result, self.owner)
 
-    def test_superuser_allowed(self) -> None:
-        result = DocumentType._assert_user_can_read(
+    def test_superuser_computed_like_normal_user(self) -> None:
+        """A superuser is computed exactly like a normal user for DocumentType
+        READ (scoped admin access, 2026-05) — no blanket bypass.
+
+        A no-grant superuser is a stranger to a private document it did not
+        create, so READ is denied. Granting it explicit READ (or it being the
+        creator / the doc being public) allows access, just like any user.
+        """
+        # No grant on a private stranger document → denied.
+        with self.assertRaises(GraphQLError) as cm:
+            DocumentType._assert_user_can_read(
+                self.private_doc, _info_for(self.superuser)
+            )
+        self.assertIn("do not have access", str(cm.exception))
+
+        # Public document → allowed (public short-circuit, like any user).
+        result_public = DocumentType._assert_user_can_read(
+            self.public_doc, _info_for(self.superuser)
+        )
+        self.assertEqual(result_public, self.superuser)
+
+        # Explicit guardian READ grant on the private document → allowed.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_doc, [PermissionTypes.READ]
+        )
+        result_granted = DocumentType._assert_user_can_read(
             self.private_doc, _info_for(self.superuser)
         )
-        self.assertEqual(result, self.superuser)
+        self.assertEqual(result_granted, self.superuser)
 
     def test_user_with_explicit_read_allowed(self) -> None:
         result = DocumentType._assert_user_can_read(

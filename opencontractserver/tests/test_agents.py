@@ -301,7 +301,20 @@ class TestAgentConfigurationModel(TestCase):
         self.assertNotIn(corpus_agent, visible_to_other)
 
     def test_inactive_agent_not_visible(self):
-        """Test inactive agents are not visible to non-superusers."""
+        """Inactive agents are not visible — even to their creator superuser.
+
+        ``AgentConfigurationQuerySet.visible_to_user`` filters BOTH global and
+        corpus agents on ``is_active=True`` and has NO creator / is_public /
+        guardian branch. So an inactive global agent matches no clause and is
+        invisible to everyone through the manager.
+
+        Scoped admin access (2026-05): the superuser is computed like a normal
+        user — there is no blanket bypass — so the agent's superuser *creator*
+        ALSO does not see their own inactive agent via ``visible_to_user``
+        (it is reachable only through the Django admin site). This is the
+        intended consequence of the active-only filter combined with the
+        removal of the superuser bypass.
+        """
         inactive_agent = AgentConfiguration.objects.create(
             name="Inactive Agent",
             description="Not active",
@@ -312,13 +325,34 @@ class TestAgentConfigurationModel(TestCase):
             is_active=False,  # Inactive
         )
 
-        # Superuser should see all agents
+        # The superuser creator does NOT see their own inactive agent: the
+        # visibility filter is active-only with no creator/superuser branch.
         visible_to_admin = AgentConfiguration.objects.visible_to_user(self.admin_user)
-        self.assertIn(inactive_agent, visible_to_admin)
+        self.assertNotIn(inactive_agent, visible_to_admin)
 
-        # Normal user should NOT see inactive agent
+        # A normal (non-creator) user likewise does NOT see the inactive agent.
         visible_to_normal = AgentConfiguration.objects.visible_to_user(self.normal_user)
         self.assertNotIn(inactive_agent, visible_to_normal)
+
+        # Positive control: an ACTIVE global agent IS visible to both, proving
+        # the filter only excludes on the is_active flag (not on creator).
+        active_agent = AgentConfiguration.objects.create(
+            name="Active Agent",
+            description="Active",
+            system_instructions="Test",
+            scope="GLOBAL",
+            creator=self.admin_user,
+            is_public=True,
+            is_active=True,
+        )
+        self.assertIn(
+            active_agent,
+            AgentConfiguration.objects.visible_to_user(self.admin_user),
+        )
+        self.assertIn(
+            active_agent,
+            AgentConfiguration.objects.visible_to_user(self.normal_user),
+        )
 
 
 class TestChatMessageAgentRelationship(TestCase):

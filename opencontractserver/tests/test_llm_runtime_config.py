@@ -153,6 +153,32 @@ class TestResolveModelSpec(TestCase):
                 "anthropic:claude-opus-4-6",
             )
 
+    def test_settings_default_wins_over_django_settings(self):
+        # The runtime PipelineSettings default (threaded in by callers as
+        # ``settings_default``) takes priority over the Django DEFAULT_LLM /
+        # OPENAI_MODEL settings.
+        with override_settings(DEFAULT_LLM="anthropic:claude-sonnet-4-6"):
+            self.assertEqual(
+                resolve_model_spec(settings_default="anthropic:claude-opus-4-6"),
+                "anthropic:claude-opus-4-6",
+            )
+
+    def test_corpus_preferred_wins_over_settings_default(self):
+        self.assertEqual(
+            resolve_model_spec(
+                corpus_preferred="openai:gpt-4o",
+                settings_default="anthropic:claude-opus-4-6",
+            ),
+            "openai:gpt-4o",
+        )
+
+    def test_empty_settings_default_falls_through_to_django(self):
+        with override_settings(DEFAULT_LLM="anthropic:claude-sonnet-4-6"):
+            self.assertEqual(
+                resolve_model_spec(settings_default="   "),
+                "anthropic:claude-sonnet-4-6",
+            )
+
 
 class TestPipelineRegistryDiscoversLLMProviders(TestCase):
     def setUp(self):

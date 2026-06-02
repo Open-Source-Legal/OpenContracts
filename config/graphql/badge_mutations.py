@@ -386,23 +386,6 @@ class AwardBadgeMutation(graphene.Mutation):
                     ok=False, message="Badge not found", user_badge=None
                 )
 
-            try:
-                recipient_pk = from_global_id(user_id)[1]
-            except Exception:
-                return AwardBadgeMutation(
-                    ok=False, message="User not found", user_badge=None
-                )
-            # Recipient lookup must be visible to the awarder. Superusers
-            # bypass the profile-privacy filter via UserProfileManager's
-            # superuser branch, so admin / moderation awarding paths still
-            # reach private-profile users; non-superuser awarders only see
-            # their own profile + public profiles.
-            recipient = get_for_user_or_none(User, recipient_pk, awarder)
-            if recipient is None:
-                return AwardBadgeMutation(
-                    ok=False, message="User not found", user_badge=None
-                )
-
             corpus = None
             if corpus_id:
                 try:
@@ -437,6 +420,26 @@ class AwardBadgeMutation(graphene.Mutation):
                     ok=False,
                     message="Badge not found",
                     user_badge=None,
+                )
+
+            # Awarding is authorized above (corpus CRUD for corpus badges, or
+            # superuser for global badges). Resolve the recipient with a direct,
+            # unfiltered lookup: awarding to a private-profile recipient is
+            # legitimate once the awarder is authorized, so this no longer
+            # depends on the awarder being able to *see* the recipient's profile
+            # (scoped admin access, 2026-05). Running it after the authorization
+            # gate also keeps the IDOR contract — an unauthorized caller gets
+            # "Badge not found" before any recipient existence is revealed.
+            try:
+                recipient_pk = from_global_id(user_id)[1]
+            except Exception:
+                return AwardBadgeMutation(
+                    ok=False, message="User not found", user_badge=None
+                )
+            recipient = User.objects.filter(pk=recipient_pk, is_active=True).first()
+            if recipient is None:
+                return AwardBadgeMutation(
+                    ok=False, message="User not found", user_badge=None
                 )
 
             # Check if badge was already awarded

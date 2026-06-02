@@ -305,12 +305,20 @@ class AnnotationMutationPermissionTestCase(TestCase):
             private_annotation.user_can(self.collaborator, PermissionTypes.DELETE)
         )
 
-    def test_superuser_always_has_permissions(self):
-        """Test that superusers bypass all permission checks."""
+    def test_superuser_has_no_blanket_annotation_permissions(self):
+        """A no-grant superuser is authorized like a normal user (scoped admin
+        access, 2026-05): no blanket bypass on a private, non-structural
+        annotation.
+
+        The superuser created none of these objects and holds no guardian
+        grant on the private doc/corpus, so it inherits exactly what a
+        stranger would — i.e. nothing. Admins reach private data through the
+        ordinary doc+corpus grant path, not a superuser shortcut.
+        """
         # Create superuser
         superuser = User.objects.create_superuser(username="super", password="test")
 
-        # Create private annotation
+        # Create private annotation on a private doc in a private corpus.
         private_annotation = Annotation.objects.create(
             annotation_label=self.label,
             document=self.doc,
@@ -322,7 +330,11 @@ class AnnotationMutationPermissionTestCase(TestCase):
             raw_text="Private annotation",
         )
 
-        # Superuser should have all permissions even without explicit grants
-        self.assertTrue(private_annotation.user_can(superuser, PermissionTypes.READ))
-        self.assertTrue(private_annotation.user_can(superuser, PermissionTypes.UPDATE))
-        self.assertTrue(private_annotation.user_can(superuser, PermissionTypes.DELETE))
+        # No grants → superuser sees nothing, just like any other stranger.
+        # (The annotation is analysis-linked and private; the no-grant admin
+        # has neither doc/corpus nor analysis visibility, so all three checks
+        # are denied exactly as they would be for the outsider. The positive
+        # grant-path is exercised in test_base_model_permissions.py.)
+        self.assertFalse(private_annotation.user_can(superuser, PermissionTypes.READ))
+        self.assertFalse(private_annotation.user_can(superuser, PermissionTypes.UPDATE))
+        self.assertFalse(private_annotation.user_can(superuser, PermissionTypes.DELETE))

@@ -3,10 +3,12 @@ Tests for opencontractserver.shared.Managers (closes #1477).
 
 Covers the branches introduced or modified during the mypy graduation:
   - BaseVisibilityManager.visible_to_user(user=None)    → AnonymousUser path
-  - BaseVisibilityManager.visible_to_user(superuser)    → all-objects path
+  - BaseVisibilityManager.visible_to_user(superuser)    → computed like a
+        normal user (no blanket bypass; scoped admin access 2026-05)
   - BaseVisibilityManager.visible_to_user(abstract)     → RuntimeError guard
   - PermissionManager.visible_to_user(user=None)        → AnonymousUser path
-  - PermissionManager.visible_to_user(superuser)        → all-objects path
+  - PermissionManager.visible_to_user(superuser)        → computed like a
+        normal user (no blanket bypass; scoped admin access 2026-05)
   - UserFeedbackManager.visible_to_user(user=None)      → AnonymousUser path
   - UserFeedbackManager.get_or_none()                   → hit and miss paths
   - DocumentManager.unique_blob_paths()                 → blob sharing logic
@@ -166,17 +168,21 @@ class UserFeedbackManagerGetOrNoneTest(TestCase):
         self.assertIsNone(result)
 
 
-class BaseVisibilityManagerSuperuserTest(TestCase):
+class BaseVisibilityManagerSuperuserComputedNormallyTest(TestCase):
     """Exercises ``BaseVisibilityManager.visible_to_user`` directly via the
     ``Embedding`` model — it uses ``EmbeddingManager(BaseVisibilityManager)``
     which does NOT override ``visible_to_user``, so the call lands in the
-    base manager's superuser / anonymous / authenticated branches.
+    base manager's anonymous / authenticated branches.
+
+    Scoped admin access (2026-05): there is NO superuser bypass. A no-grant
+    superuser's visibility is computed exactly like a normal authenticated
+    user (public + own + explicit guardian grant).
 
     (``Corpus.objects`` is a ``PermissionManager`` that overrides
     ``visible_to_user`` to delegate to ``PermissionQuerySet`` — using
     Corpus here would miss the base-manager code paths entirely. See
-    ``PermissionManagerSuperuserTest`` below for the PermissionQuerySet
-    superuser branch.)
+    ``PermissionManagerSuperuserComputedNormallyTest`` below for the
+    PermissionQuerySet path.)
     """
 
     def setUp(self) -> None:
@@ -221,13 +227,30 @@ class BaseVisibilityManagerSuperuserTest(TestCase):
             is_public=False,
         )
 
-    def test_superuser_sees_all_embeddings(self) -> None:
-        """Superuser must hit the early-return ``return queryset`` branch in
-        BaseVisibilityManager and receive every embedding row."""
+    def test_superuser_has_no_blanket_access_to_embeddings(self) -> None:
+        """A no-grant superuser is computed like a normal user: it sees only
+        public + own + explicitly-shared embeddings, NOT the private embedding
+        owned by another user (scoped admin access, 2026-05)."""
         qs = self.Embedding.objects.visible_to_user(user=self.superuser)
         ids = list(qs.values_list("pk", flat=True))
         self.assertIn(self.public_embedding.pk, ids)
-        self.assertIn(self.private_embedding.pk, ids)
+        # Private embedding owned by ``self.owner`` is NOT visible to the
+        # no-grant superuser.
+        self.assertNotIn(self.private_embedding.pk, ids)
+
+    def test_superuser_sees_private_embedding_via_creator(self) -> None:
+        """Positive case: when the superuser is the creator of a private
+        embedding it sees it through the normal creator path."""
+        own_private = self.Embedding.objects.create(
+            document=self.private_doc,
+            embedder_path="bvm.embedder.super_own",
+            vector_384=[0.3] * 384,
+            creator=self.superuser,
+            is_public=False,
+        )
+        qs = self.Embedding.objects.visible_to_user(user=self.superuser)
+        ids = list(qs.values_list("pk", flat=True))
+        self.assertIn(own_private.pk, ids)
 
     def test_anonymous_user_sees_only_public_embeddings(self) -> None:
         """Passing ``user=None`` is coerced to ``AnonymousUser`` and must
@@ -248,13 +271,16 @@ class BaseVisibilityManagerSuperuserTest(TestCase):
         self.assertNotIn(self.private_embedding.pk, ids)
 
 
-class PermissionManagerSuperuserTest(TestCase):
+class PermissionManagerSuperuserComputedNormallyTest(TestCase):
     """
-    PermissionManager.visible_to_user(superuser) should return ALL objects,
-    including private ones owned by other users.
+    PermissionManager.visible_to_user(superuser) is computed exactly like a
+    normal user — NO blanket bypass (scoped admin access, 2026-05). A no-grant
+    superuser does NOT see a private corpus owned by another user; granting
+    READ via the normal guardian path makes it visible.
 
-    Corpus uses PermissionManager (via BaseVisibilityManager), making it a
-    convenient model to verify the superuser branch (model_cls.objects.all()).
+    Corpus.objects is a ``PermissionedTreeQuerySet.as_manager()`` whose
+    ``visible_to_user`` filters on creator / is_public / explicit guardian
+    grant, making it a convenient model to verify the normal-user computation.
     """
 
     def setUp(self) -> None:
@@ -278,11 +304,22 @@ class PermissionManagerSuperuserTest(TestCase):
             is_public=False,
         )
 
-    def test_superuser_sees_all_corpora_including_private(self) -> None:
-        """Superuser must see both public and private corpora via visible_to_user."""
+    def test_superuser_has_no_blanket_access_to_private_corpora(self) -> None:
+        """No-grant superuser sees the public corpus but NOT a private corpus
+        owned by another user."""
         qs = Corpus.objects.visible_to_user(user=self.superuser)
         ids = list(qs.values_list("pk", flat=True))
         self.assertIn(self.public_corpus.pk, ids)
+        self.assertNotIn(self.private_corpus.pk, ids)
+
+    def test_superuser_sees_private_corpus_after_grant(self) -> None:
+        """Positive case: an explicit guardian READ grant makes the private
+        corpus visible to the superuser via the normal path."""
+        from guardian.shortcuts import assign_perm
+
+        assign_perm("corpuses.read_corpus", self.superuser, self.private_corpus)
+        qs = Corpus.objects.visible_to_user(user=self.superuser)
+        ids = list(qs.values_list("pk", flat=True))
         self.assertIn(self.private_corpus.pk, ids)
 
 

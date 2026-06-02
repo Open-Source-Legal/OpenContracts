@@ -871,11 +871,16 @@ class SearchPermissionLeakageTestCase(TestCase):
     """Cross-user leakage guards on every search resolver used by Discover.
 
     Models the production concern: two regular users with disjoint, private
-    content must never see each other's data through any search resolver,
-    while a superuser sees everything. Each resolver
-    (corpuses/documents/annotations/notes) gets its own assertion so a
-    regression in any one of them fails loudly and points at the right code
-    path.
+    content must never see each other's data through any search resolver.
+
+    Under the post-refactor admin DATA contract a superuser is NOT a
+    see-everything reference: its data visibility/search is computed exactly
+    like a normal authenticated user (public + own + explicitly-shared). The
+    superuser fixture here owns nothing, so for these private-content searches
+    it is subject to the same no-cross-user-leakage rules as alice/bob and sees
+    nothing. Each resolver (corpuses/documents/annotations/notes) gets its own
+    assertion so a regression in any one of them fails loudly and points at the
+    right code path.
     """
 
     @mock.patch("opencontractserver.documents.signals.calculate_embedding_for_doc_text")
@@ -883,7 +888,9 @@ class SearchPermissionLeakageTestCase(TestCase):
         from opencontractserver.annotations.models import Annotation, Note
 
         # Two regular users (alice/bob) with disjoint private content, plus a
-        # superuser who must transparently see everything.
+        # no-grant superuser. Post-refactor the superuser's DATA visibility is
+        # computed like a normal user, so this superuser (which owns nothing)
+        # must see none of alice's or bob's private content.
         self.alice = User.objects.create_user(
             username="alice", password="test", slug="alice"
         )
@@ -1020,13 +1027,15 @@ class SearchPermissionLeakageTestCase(TestCase):
         self.assertIn("bob-secret-corpus", bob_slugs)
         self.assertNotIn("alice-secret-corpus", bob_slugs)
 
+        # The no-grant superuser is computed like a normal user: it owns
+        # nothing here, so it must NOT see alice's or bob's private corpuses.
         admin_result = self._execute(query, self.admin, variables)
         admin_slugs = {
             e["node"]["slug"]
             for e in admin_result["data"]["searchCorpusesForMention"]["edges"]
         }
-        self.assertIn("alice-secret-corpus", admin_slugs)
-        self.assertIn("bob-secret-corpus", admin_slugs)
+        self.assertNotIn("alice-secret-corpus", admin_slugs)
+        self.assertNotIn("bob-secret-corpus", admin_slugs)
 
     def test_document_search_no_cross_user_leakage(self):
         """`searchDocumentsForMention` filters via creator + write perms."""
@@ -1056,13 +1065,15 @@ class SearchPermissionLeakageTestCase(TestCase):
         self.assertIn("bob-secret-doc", bob_slugs)
         self.assertNotIn("alice-secret-doc", bob_slugs)
 
+        # The no-grant superuser is computed like a normal user: it owns
+        # nothing here, so it must NOT see alice's or bob's private documents.
         admin_result = self._execute(query, self.admin, variables)
         admin_slugs = {
             e["node"]["slug"]
             for e in admin_result["data"]["searchDocumentsForMention"]["edges"]
         }
-        self.assertIn("alice-secret-doc", admin_slugs)
-        self.assertIn("bob-secret-doc", admin_slugs)
+        self.assertNotIn("alice-secret-doc", admin_slugs)
+        self.assertNotIn("bob-secret-doc", admin_slugs)
 
     def test_annotation_search_no_cross_user_leakage(self):
         """`searchAnnotationsForMention` inherits doc+corpus visibility."""
@@ -1092,13 +1103,16 @@ class SearchPermissionLeakageTestCase(TestCase):
         self.assertIn("bob secret annotation", bob_texts)
         self.assertNotIn("alice secret annotation", bob_texts)
 
+        # The no-grant superuser is computed like a normal user: annotation
+        # visibility inherits doc+corpus visibility, both private here, so it
+        # must NOT see alice's or bob's private annotations.
         admin_result = self._execute(query, self.admin, variables)
         admin_texts = {
             e["node"]["rawText"]
             for e in admin_result["data"]["searchAnnotationsForMention"]["edges"]
         }
-        self.assertIn("alice secret annotation", admin_texts)
-        self.assertIn("bob secret annotation", admin_texts)
+        self.assertNotIn("alice secret annotation", admin_texts)
+        self.assertNotIn("bob secret annotation", admin_texts)
 
     def test_note_search_no_cross_user_leakage(self):
         """`searchNotesForMention` inherits doc+corpus visibility."""
@@ -1128,13 +1142,16 @@ class SearchPermissionLeakageTestCase(TestCase):
         self.assertIn("Bob secret note", bob_titles)
         self.assertNotIn("Alice secret note", bob_titles)
 
+        # The no-grant superuser is computed like a normal user: note
+        # visibility inherits doc+corpus visibility, both private here, so it
+        # must NOT see alice's or bob's private notes.
         admin_result = self._execute(query, self.admin, variables)
         admin_titles = {
             e["node"]["title"]
             for e in admin_result["data"]["searchNotesForMention"]["edges"]
         }
-        self.assertIn("Alice secret note", admin_titles)
-        self.assertIn("Bob secret note", admin_titles)
+        self.assertNotIn("Alice secret note", admin_titles)
+        self.assertNotIn("Bob secret note", admin_titles)
 
     def test_note_search_corpus_scoping_blocks_other_users_corpus(self):
         """Scoping a search to another user's corpus must return nothing.
@@ -1167,7 +1184,9 @@ class SearchPermissionLeakageTestCase(TestCase):
             "Alice must not see Bob's notes even when scoping to Bob's corpus",
         )
 
-        # Same scope for the superuser — admin sees Bob's notes.
+        # Same scope for the no-grant superuser. Computed like a normal user,
+        # it cannot read Bob's private corpus/notes, and the corpus scope
+        # filter cannot widen visibility — so the result must be empty too.
         admin_result = self._execute(
             query,
             self.admin,
@@ -1176,11 +1195,12 @@ class SearchPermissionLeakageTestCase(TestCase):
                 "corpusId": to_global_id("CorpusType", self.bob_corpus.id),
             },
         )
-        admin_titles = {
-            e["node"]["title"]
-            for e in admin_result["data"]["searchNotesForMention"]["edges"]
-        }
-        self.assertIn("Bob secret note", admin_titles)
+        self.assertEqual(
+            admin_result["data"]["searchNotesForMention"]["edges"],
+            [],
+            "A no-grant superuser is computed like a normal user and must not "
+            "see Bob's notes even when scoping to Bob's corpus",
+        )
 
     def test_note_search_document_scoping_blocks_other_users_document(self):
         """Document-scoped note search cannot reveal another user's notes."""

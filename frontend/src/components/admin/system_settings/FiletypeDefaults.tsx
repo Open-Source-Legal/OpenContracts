@@ -1,6 +1,6 @@
 import React, { memo, useMemo, useCallback } from "react";
 import { Button, Spinner } from "@os-legal/ui";
-import { AlertTriangle, FileText, Cpu, Settings } from "lucide-react";
+import { AlertTriangle, FileText, Cpu, Settings, Bot } from "lucide-react";
 import {
   PipelineComponentType,
   SupportedMimeTypeType,
@@ -43,6 +43,7 @@ interface FiletypeDefaultsProps {
   preferredEmbedders: Record<string, string>;
   preferredThumbnailers: Record<string, string>;
   defaultEmbedder: string;
+  defaultLlm: string;
   updating: boolean;
   onAssign: (
     stage: "parsers" | "embedders" | "thumbnailers",
@@ -50,6 +51,7 @@ interface FiletypeDefaultsProps {
     className: string
   ) => void;
   onEditDefaultEmbedder: () => void;
+  onEditDefaultLlm: () => void;
 }
 
 // ============================================================================
@@ -76,9 +78,11 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
     preferredEmbedders,
     preferredThumbnailers,
     defaultEmbedder,
+    defaultLlm,
     updating,
     onAssign,
     onEditDefaultEmbedder,
+    onEditDefaultLlm,
   }) => {
     // Build a lookup from stage key to its preferred mapping
     const preferredByStage = useMemo(
@@ -239,7 +243,37 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                 <Button
                   variant="secondary"
                   size="sm"
+                  data-testid="edit-default-embedder"
                   onClick={onEditDefaultEmbedder}
+                >
+                  Edit
+                </Button>
+              </DefaultEmbedderDisplay>
+            </div>
+          </FiletypeRow>
+
+          {/* Default LLM row. Not file-type-scoped: this is the install-wide
+              fallback model for agents/chat when no per-corpus or per-agent
+              override is set. */}
+          <FiletypeRow>
+            <FiletypeLabel>
+              <Bot />
+              Default LLM
+            </FiletypeLabel>
+            <div style={{ gridColumn: "2 / -1" }}>
+              <DefaultEmbedderDisplay>
+                {defaultLlm ? (
+                  <DefaultEmbedderInfo>
+                    <ComponentName>{defaultLlm}</ComponentName>
+                  </DefaultEmbedderInfo>
+                ) : (
+                  <EmptyValue>Using server default</EmptyValue>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="edit-default-llm"
+                  onClick={onEditDefaultLlm}
                 >
                   Edit
                 </Button>

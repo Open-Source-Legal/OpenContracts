@@ -241,26 +241,42 @@ class AnnotationServiceTestCase(TestCase):
 
     def test_get_extract_annotation_summary_superuser(self):
         """
-        Superuser should see everything regardless of permissions.
+        A no-grant superuser is computed like a stranger: with no READ on the
+        private document/corpus it sees an empty summary. Once granted (or as
+        creator) it sees the summary through the normal permission path.
         """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Superuser sees complete summary")
+        logger.info("TEST: No-grant superuser sees empty; granted superuser sees all")
         logger.info("=" * 80)
 
-        # Don't grant any explicit permissions to superuser
+        # No grants → no-grant superuser is a stranger → empty summary.
+        summary = AnnotationService.get_extract_annotation_summary(
+            document_id=self.doc1.id,
+            extract_id=self.extract.id,
+            user=self.superuser,
+        )
+        self.assertEqual(summary["total_source_annotations"], 0)
+        self.assertEqual(summary["by_label"], {})
+        self.assertEqual(summary["pages_with_sources"], [])
+
+        # Grant the superuser READ on doc + corpus → normal path grants access.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
 
         summary = AnnotationService.get_extract_annotation_summary(
             document_id=self.doc1.id,
             extract_id=self.extract.id,
             user=self.superuser,
         )
-
-        # Should see all 3 annotations
         self.assertEqual(summary["total_source_annotations"], 3)
         self.assertEqual(summary["by_label"]["Contract Term"], 2)
         self.assertEqual(summary["by_label"]["Party Name"], 1)
 
-        logger.info("✓ Superuser sees complete summary without explicit permissions")
+        logger.info("✓ Superuser computed like a normal user (denied → granted)")
 
     def test_get_extract_annotation_summary_nonexistent_extract(self):
         """
@@ -874,26 +890,41 @@ class RelationshipServiceTestCase(TestCase):
 
     def test_get_document_relationships_superuser(self):
         """
-        Superuser should see manual relationships without explicit permissions.
+        A no-grant superuser is computed like a stranger: with no READ on the
+        private document/corpus it sees no relationships. Once granted READ it
+        sees the manual relationships through the normal permission path.
         When analysis_id is not provided, only manual relationships are returned.
         """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Superuser sees all relationships")
+        logger.info("TEST: No-grant superuser sees none; granted superuser sees all")
         logger.info("=" * 80)
+
+        # No grants → no-grant superuser is a stranger → no relationships.
+        qs = RelationshipService.get_document_relationships(
+            document_id=self.doc1.id,
+            user=self.superuser,
+            corpus_id=self.corpus.id,
+        )
+        self.assertEqual(qs.count(), 0)
+
+        # Grant READ on doc + corpus → normal path grants access.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
 
         qs = RelationshipService.get_document_relationships(
             document_id=self.doc1.id,
             user=self.superuser,
             corpus_id=self.corpus.id,
         )
-
         # Should see manual corpus-based relationships (rel1, rel2, rel3)
         # analysis_rel is filtered out because analysis_id is not specified
         self.assertEqual(qs.count(), 3)
 
-        logger.info(
-            "✓ Superuser sees all manual relationships without explicit permissions"
-        )
+        logger.info("✓ Superuser computed like a normal user (denied → granted)")
 
     def test_get_document_relationships_structural_filter(self):
         """
@@ -1119,23 +1150,39 @@ class RelationshipServiceTestCase(TestCase):
 
     def test_get_relationship_summary_superuser(self):
         """
-        Superuser should see complete summary without explicit permissions.
+        A no-grant superuser is computed like a stranger: with no READ on the
+        private document/corpus it sees an empty summary. Once granted READ it
+        sees the full summary through the normal permission path.
         The summary method shows ALL relationships (manual + analysis).
         """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Superuser sees complete summary")
+        logger.info("TEST: No-grant superuser sees empty; granted superuser sees all")
         logger.info("=" * 80)
+
+        # No grants → no-grant superuser is a stranger → empty summary.
+        summary = RelationshipService.get_relationship_summary(
+            document_id=self.doc1.id, corpus_id=self.corpus.id, user=self.superuser
+        )
+        self.assertEqual(summary["total"], 0)
+        self.assertEqual(summary["by_type"], {})
+
+        # Grant READ on doc + corpus → normal path grants access.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
 
         summary = RelationshipService.get_relationship_summary(
             document_id=self.doc1.id, corpus_id=self.corpus.id, user=self.superuser
         )
-
         # Summary shows ALL relationships including analysis ones
         self.assertEqual(summary["total"], 4)
         self.assertEqual(summary["by_type"]["References"], 3)
         self.assertEqual(summary["by_type"]["Defines"], 1)
 
-        logger.info("✓ Superuser sees complete summary")
+        logger.info("✓ Superuser computed like a normal user (denied → granted)")
 
 
 class ExtractServiceTestCase(TestCase):
@@ -1365,18 +1412,33 @@ class ExtractServiceTestCase(TestCase):
 
     def test_get_visible_extracts_superuser(self):
         """
-        Superuser should see all extracts without explicit permissions.
+        A no-grant superuser sees only what a normal ungranted user would see
+        (nothing here — all extracts are on private corpora owned by someone
+        else). Once granted extract + corpus READ it sees that extract through
+        the normal hybrid permission path, exactly like any other user.
         """
         logger.info("\n" + "=" * 80)
-        logger.info("TEST: Superuser sees all extracts")
+        logger.info("TEST: No-grant superuser sees none; granted sees only permitted")
         logger.info("=" * 80)
 
+        # No grants → no-grant superuser is a stranger → no extracts.
         qs = ExtractService.get_visible_extracts(user=self.superuser)
+        self.assertEqual(qs.count(), 0)
 
-        # Should see all 4 extracts
-        self.assertEqual(qs.count(), 4)
+        # Grant extract1 + corpus1 READ → hybrid model now grants exactly one.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.extract1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus1, [PermissionTypes.READ]
+        )
 
-        logger.info("✓ Superuser sees all extracts without explicit permissions")
+        qs = ExtractService.get_visible_extracts(user=self.superuser)
+        extract_names = [e.name for e in qs]
+        self.assertIn("Extract 1 (Corpus 1)", extract_names)
+        self.assertNotIn("Extract 2 (Corpus 2)", extract_names)
+
+        logger.info("✓ Superuser computed like a normal user (denied → granted)")
 
     def test_get_visible_extracts_stranger_no_permission(self):
         """
@@ -1429,8 +1491,24 @@ class ExtractServiceTestCase(TestCase):
 
         logger.info("✓ Corpus creator can see permitted extracts on their corpus")
 
-    def test_check_extract_permission_superuser_sees_anything(self):
-        """Superuser branch returns the extract regardless of permissions."""
+    def test_check_extract_permission_superuser_computed_normally(self):
+        """A no-grant superuser does NOT get blanket access to a private extract;
+        it is computed like a stranger (denied) and only resolves the extract
+        once granted extract + corpus READ through the normal path."""
+        # No grants → no-grant superuser is a stranger → denied.
+        ok, extract = ExtractService.check_extract_permission(
+            self.superuser, self.extract1.id
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(extract)
+
+        # Grant extract1 + corpus1 READ → normal hybrid path resolves it.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.extract1, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus1, [PermissionTypes.READ]
+        )
         ok, extract = ExtractService.check_extract_permission(
             self.superuser, self.extract1.id
         )
@@ -1551,9 +1629,26 @@ class AnalysisServicePermissionTestCase(TestCase):
             is_public=False,
         )
 
-    def test_superuser_branch_resolves_analysis(self):
+    def test_superuser_computed_normally_for_analysis(self):
+        """A no-grant superuser cannot resolve a private analysis; it is computed
+        like a stranger. Once granted analysis + corpus READ (the normal path)
+        it resolves, exactly like any other user."""
         from opencontractserver.analyzer.services import AnalysisService
 
+        # No grants → no-grant superuser is a stranger → denied.
+        ok, analysis = AnalysisService.check_analysis_permission(
+            self.superuser, self.analysis.id
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(analysis)
+
+        # Grant analysis + corpus READ → normal path resolves it.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.analysis, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
         ok, analysis = AnalysisService.check_analysis_permission(
             self.superuser, self.analysis.id
         )

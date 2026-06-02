@@ -57,12 +57,9 @@ class ResearchReportType(DjangoObjectType):
         user = getattr(info.context, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):
             return []
-        if getattr(user, "is_superuser", False):
-            return [
-                "read_researchreport",
-                "update_researchreport",
-                "remove_researchreport",
-            ]
+        # Scoped admin access (2026-05): superusers are computed like a normal
+        # user — no synthetic full-permission grant. A report is visible (and
+        # editable) only to its creator in v1.
         if self.creator_id == getattr(user, "id", None):
             # Creator sees their own report end-to-end; cancel routes
             # through the dedicated mutation, not a guardian grant.

@@ -142,13 +142,32 @@ class TestCorpusAnnotationsQuery(TestCase):
             cls.viewer, cls.doc_without_structural, [PermissionTypes.READ]
         )
 
-    def test_superuser_sees_all_annotations(self):
-        """Superuser should see both structural and document-attached annotations."""
+    def test_superuser_has_no_blanket_access_to_annotations(self):
+        """Scoped admin access (2026-05): a no-grant superuser is computed like
+        a normal user. The corpus is private and the superuser is neither
+        creator nor grantee, so ``get_corpus_annotations`` returns nothing —
+        the corpus-READ gate is not satisfied. Granting corpus + document READ
+        via the normal path then surfaces both annotation types.
+        """
+        # No grant: superuser fails the corpus-READ gate → empty.
+        denied = AnnotationService.get_corpus_annotations(
+            corpus_id=self.corpus.id,
+            user=self.superuser,
+        )
+        self.assertEqual(denied.count(), 0)
+
+        # Positive path: grant corpus + document READ via the normal guardian
+        # path so the superuser passes through exactly like an authorized user.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.doc_with_structural, [PermissionTypes.READ]
+        )
         result = AnnotationService.get_corpus_annotations(
             corpus_id=self.corpus.id,
             user=self.superuser,
         )
-
         self.assertIn(self.structural_annotation, result)
         self.assertIn(self.user_annotation, result)
 
@@ -396,8 +415,21 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
         self.assertEqual(result.count(), 0)
 
-    def test_superuser_with_structural_filter(self):
-        """Superuser can filter by structural=True."""
+    def test_authorized_superuser_with_structural_filter(self):
+        """The structural filter behaves correctly for an *authorized* superuser.
+
+        Scoped admin access (2026-05): a superuser no longer gets a blanket
+        bypass in ``get_corpus_annotations`` — it goes through the normal
+        corpus-permission path. We grant corpus + document READ via the normal
+        guardian path so the filter case executes meaningfully, then assert the
+        ``structural=True`` filter returns only structural annotations.
+        """
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.document, [PermissionTypes.READ]
+        )
         result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=self.superuser,
@@ -407,8 +439,20 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
         self.assertIn(self.structural_annotation, result)
         self.assertNotIn(self.user_annotation, result)
 
-    def test_superuser_with_analysis_isnull_filter(self):
-        """Superuser can filter by analysis_isnull=True."""
+    def test_authorized_superuser_with_analysis_isnull_filter(self):
+        """The analysis-isnull filter behaves correctly for an *authorized*
+        superuser.
+
+        As above, the superuser is granted corpus + document READ through the
+        normal path (no blanket bypass; scoped admin access 2026-05). Both
+        annotations are manual (analysis=NULL), so the filter returns both.
+        """
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.document, [PermissionTypes.READ]
+        )
         result = AnnotationService.get_corpus_annotations(
             corpus_id=self.private_corpus.id,
             user=self.superuser,
@@ -418,6 +462,15 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
         # Both annotations have analysis=NULL (manual annotations)
         self.assertIn(self.structural_annotation, result)
         self.assertIn(self.user_annotation, result)
+
+    def test_no_grant_superuser_sees_no_private_corpus_annotations(self):
+        """A no-grant superuser fails the corpus-READ gate on a private corpus
+        and therefore sees no annotations (parity with a stranger)."""
+        result = AnnotationService.get_corpus_annotations(
+            corpus_id=self.private_corpus.id,
+            user=self.superuser,
+        )
+        self.assertEqual(result.count(), 0)
 
     def test_regular_user_with_analysis_isnull_filter(self):
         """Regular user can filter by analysis_isnull=True."""

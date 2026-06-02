@@ -8,10 +8,11 @@ of truth that mirrors ``visible_to_user`` semantics and honors creator
 status (which the legacy helper did via an explicit shortcut, and which
 ``_default_user_can`` now does as part of the standard rules).
 
-These tests pin the contract under the new API: superuser, creator,
-explicit guardian UPDATE (user- and group-level), and the no-access /
-anonymous denial branches. Same assertions as before — only the call
-site changed.
+These tests pin the contract under the new API: creator, explicit guardian
+UPDATE (user- and group-level), and the no-access / anonymous denial
+branches. As of the scoped-admin-access change (2026-05) a superuser is
+computed exactly like a normal user here — there is NO blanket bypass, so a
+no-grant superuser cannot modify a private stranger corpus.
 """
 
 from django.contrib.auth import get_user_model
@@ -27,7 +28,8 @@ User = get_user_model()
 
 
 class UserCanModifyCorpusTests(TestCase):
-    """Pin the canonical "is_superuser OR creator OR UPDATE" matrix."""
+    """Pin the canonical "creator OR explicit UPDATE" matrix (superuser
+    computed like a normal user — no blanket bypass)."""
 
     def setUp(self) -> None:
         self.owner = User.objects.create_user(username="owner", password="pw")
@@ -54,7 +56,26 @@ class UserCanModifyCorpusTests(TestCase):
         self.group_member.groups.add(self.update_group)
         assign_perm("update_corpus", self.update_group, self.corpus)
 
-    def test_superuser_can_modify(self) -> None:
+    def test_superuser_computed_like_normal_user(self) -> None:
+        """A superuser is computed exactly like a normal user for the corpus
+        modify check (scoped admin access, 2026-05) — no blanket bypass.
+
+        A no-grant superuser CANNOT modify a private stranger corpus; it can
+        only modify corpora it created or was explicitly granted UPDATE on.
+        """
+        # No grant on a stranger's corpus → cannot modify.
+        self.assertFalse(self.corpus.user_can(self.superuser, PermissionTypes.UPDATE))
+
+        # Creator branch: a corpus the superuser created → can modify.
+        own_corpus = Corpus.objects.create(
+            title="Superuser's Corpus", creator=self.superuser
+        )
+        self.assertTrue(own_corpus.user_can(self.superuser, PermissionTypes.UPDATE))
+
+        # Explicit guardian UPDATE grant → can modify, like any normal user.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.corpus, [PermissionTypes.UPDATE]
+        )
         self.assertTrue(self.corpus.user_can(self.superuser, PermissionTypes.UPDATE))
 
     def test_creator_can_modify(self) -> None:

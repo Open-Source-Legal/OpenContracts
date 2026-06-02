@@ -526,7 +526,10 @@ class TestDeleteMultipleLabelMutationSecurity(TestCase):
     Tests for DeleteMultipleLabelMutation permission checks.
 
     Note: AnnotationLabel uses creator-based permissions (no guardian object permissions).
-    Only the creator or superuser can delete labels.
+    Only the creator can delete a label. Superusers are authorized like any
+    other user (scoped admin access, 2026-05) — a superuser who is not the
+    creator gets the same IDOR-safe "Label not found" response; the Django
+    admin site is the break-glass path for cross-user label cleanup.
     """
 
     def setUp(self):
@@ -536,6 +539,9 @@ class TestDeleteMultipleLabelMutationSecurity(TestCase):
         )
         self.unauthorized_user = User.objects.create_user(
             username="unauthorized", password="test", email="unauth@test.com"
+        )
+        self.superuser = User.objects.create_superuser(
+            username="label_scoped_admin", password="test", email="su@test.com"
         )
 
         # Create label - creator-based permissions apply (owner is the creator)
@@ -575,6 +581,38 @@ class TestDeleteMultipleLabelMutationSecurity(TestCase):
         )
 
         # Label should still exist
+        self.assertTrue(AnnotationLabel.objects.filter(id=self.label.id).exists())
+
+    def test_superuser_cannot_delete_foreign_label(self):
+        """
+        GIVEN: A label created by another user
+        WHEN: A superuser (not the creator) attempts to delete it
+        THEN: Mutation fails with the same IDOR-safe "Label not found"
+              message — superusers are authorized like a normal user under
+              the scoped admin model (2026-05); no blanket delete bypass.
+        """
+        client = Client(schema, context_value=MockContext(self.superuser))
+
+        mutation = """
+            mutation DeleteMultipleLabels($labelIds: [String]!) {
+                deleteMultipleAnnotationLabels(annotationLabelIdsToDelete: $labelIds) {
+                    ok
+                    message
+                }
+            }
+        """
+
+        variables = {"labelIds": [to_global_id("AnnotationLabelType", self.label.id)]}
+
+        result = client.execute(mutation, variables=variables)
+
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["deleteMultipleAnnotationLabels"]["ok"])
+        self.assertEqual(
+            "Label not found",
+            result["data"]["deleteMultipleAnnotationLabels"]["message"],
+        )
+        # Foreign label must still exist — superuser did not delete it.
         self.assertTrue(AnnotationLabel.objects.filter(id=self.label.id).exists())
 
     def test_owner_can_delete_own_label(self):

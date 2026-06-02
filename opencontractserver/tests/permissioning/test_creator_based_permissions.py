@@ -3,7 +3,9 @@ Tests for creator-based permission fallback in get_users_permissions_for_obj.
 
 Models without django-guardian permission tables (like AnnotationLabel) use
 creator-based permissions instead. This test file verifies that:
-1. Superusers get all CRUD permissions
+1. Superusers are computed like any other user (no blanket grant) — a
+   no-grant superuser is a "stranger" and gets only what is_public/creator
+   would give.
 2. Creators get all CRUD permissions on their own objects
 3. Other users get no permissions on private objects
 4. All users get read permission on public objects
@@ -75,24 +77,24 @@ class CreatorBasedPermissionsTestCase(TestCase):
             "AnnotationLabel should NOT have django-guardian permission tables",
         )
 
-    def test_superuser_gets_all_permissions_on_annotation_label(self):
-        """Superuser should get all CRUD permissions on AnnotationLabel."""
+    def test_no_grant_superuser_treated_as_stranger_on_annotation_label(self):
+        """A no-grant superuser is computed like a stranger on a private label.
+
+        Under the scoped-admin contract (2026-05) a superuser gets NO blanket
+        grant. The label here is owned by ``user1`` and is not public, so the
+        superuser — who is neither the creator nor helped by ``is_public`` —
+        gets an empty permission set, exactly like any other non-creator.
+        """
         permissions = get_users_permissions_for_obj(
             user=self.superuser,
             instance=self.annotation_label,
         )
 
-        expected_perms = {
-            "create_annotationlabel",
-            "read_annotationlabel",
-            "update_annotationlabel",
-            "remove_annotationlabel",
-        }
-
         self.assertEqual(
             permissions,
-            expected_perms,
-            f"Superuser should have all CRUD permissions, got: {permissions}",
+            set(),
+            "No-grant superuser should be treated as a stranger (empty set) on "
+            f"a private, stranger-owned label, got: {permissions}",
         )
 
     def test_creator_gets_all_permissions_on_own_annotation_label(self):
@@ -150,21 +152,33 @@ class CreatorBasedPermissionsTestCase(TestCase):
             has_read, "Other user should NOT have READ permission on private label"
         )
 
-    def test_user_can_superuser(self):
-        """user_can should return True for superuser on any permission."""
+    def test_user_can_superuser_computed_normally(self):
+        """user_can is computed normally for a no-grant superuser.
+
+        The label is owned by ``user1`` and is not public, so a superuser with
+        no grants is denied every permission (READ/UPDATE/DELETE) exactly like
+        a stranger — there is no blanket superuser bypass for data access.
+        """
         for perm in [
             PermissionTypes.READ,
             PermissionTypes.UPDATE,
             PermissionTypes.DELETE,
         ]:
             has_perm = self.annotation_label.user_can(self.superuser, perm)
-            self.assertTrue(has_perm, f"Superuser should have {perm} permission")
+            self.assertFalse(
+                has_perm,
+                f"No-grant superuser should be denied {perm} on a private, "
+                "stranger-owned label",
+            )
 
 
-class GuardianModelSuperuserPermissionsTestCase(TestCase):
+class GuardianModelSuperuserComputedLikeNormalUserTestCase(TestCase):
     """
-    Tests that superusers get the full extended permission set on
-    guardian-enabled models (comment, publish, permission beyond CRUD).
+    Regression guard for the scoped-admin contract (2026-05): on
+    guardian-enabled models a superuser is computed exactly like a normal
+    user. A no-grant superuser gets NO blanket grant — its permission set is
+    the real guardian/creator/is_public grant set, which here (stranger-owned,
+    private corpus) is empty.
     """
 
     def setUp(self):
@@ -174,6 +188,11 @@ class GuardianModelSuperuserPermissionsTestCase(TestCase):
             )
             self.other_user = User.objects.create_user(
                 username="guardian_other", password="test12345"
+            )
+            # A normal, non-creator user with NO grants — the "stranger"
+            # baseline the superuser is cross-checked against.
+            self.other_user_no_grants = User.objects.create_user(
+                username="guardian_stranger", password="test12345"
             )
 
         # Create a corpus owned by a different user
@@ -186,31 +205,43 @@ class GuardianModelSuperuserPermissionsTestCase(TestCase):
                 creator=self.other_user,
             )
 
-    def test_superuser_gets_all_guardian_permissions(self):
-        """Superuser who is NOT the creator should get the full 7-permission set."""
+    def test_no_grant_superuser_gets_real_grant_set(self):
+        """A no-grant superuser gets the REAL grant set, not the full 7 perms.
+
+        The corpus is owned by ``other_user`` and is private, so the superuser
+        — neither creator nor aided by ``is_public`` and holding no guardian
+        grants — has an empty permission set, identical to what a normal
+        non-creator user with no grants would have.
+        """
         permissions = get_users_permissions_for_obj(
             user=self.superuser,
             instance=self.corpus,
         )
 
-        expected_perms = {
-            "create_corpus",
-            "read_corpus",
-            "update_corpus",
-            "remove_corpus",
-            "comment_corpus",
-            "publish_corpus",
-            "permission_corpus",
-        }
+        # Cross-check: a normal stranger user computes to the same empty set.
+        normal_user_permissions = get_users_permissions_for_obj(
+            user=self.other_user_no_grants,
+            instance=self.corpus,
+        )
 
         self.assertEqual(
             permissions,
-            expected_perms,
-            f"Superuser should have all 7 guardian permissions, got: {permissions}",
+            set(),
+            "No-grant superuser should get the real (empty) grant set on a "
+            f"private, stranger-owned corpus, got: {permissions}",
+        )
+        self.assertEqual(
+            permissions,
+            normal_user_permissions,
+            "Superuser grant set should equal a normal stranger's grant set",
         )
 
-    def test_superuser_has_each_permission_type(self):
-        """Verify user_can returns True for every permission type."""
+    def test_no_grant_superuser_has_each_permission_type_like_normal_user(self):
+        """user_can is computed normally for every permission type.
+
+        With no grants on a private, stranger-owned corpus, a superuser is
+        denied every permission — exactly like a normal non-creator user.
+        """
         for perm in [
             PermissionTypes.READ,
             PermissionTypes.CREATE,
@@ -222,9 +253,10 @@ class GuardianModelSuperuserPermissionsTestCase(TestCase):
             PermissionTypes.ALL,
         ]:
             has_perm = self.corpus.user_can(self.superuser, perm)
-            self.assertTrue(
+            self.assertFalse(
                 has_perm,
-                f"Superuser should have {perm} permission on corpus, but got False",
+                f"No-grant superuser should be denied {perm} on a private, "
+                "stranger-owned corpus",
             )
 
 

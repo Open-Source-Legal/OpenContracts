@@ -398,15 +398,16 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         self.assertFalse(
             Annotation.objects.user_can(self.stranger, ann, PermissionTypes.READ)
         )
-        # Superuser bypass short-circuits before the fallback (sanity
-        # check that branch order intact: superuser precedes the
-        # document_id deny + visible_to_user fallback).
+        # Under the new admin-data contract there is no superuser bypass:
+        # a no-grant superuser is a data "stranger" and ALSO falls through
+        # to the ``visible_to_user(...).exists()`` check, which is False for
+        # the spoof pk — parity with the stranger above.
         admin = User.objects.create_superuser(
             username="orphan_read_admin",
             email="ora@cov.test",
             password="x",
         )
-        self.assertTrue(Annotation.objects.user_can(admin, ann, PermissionTypes.READ))
+        self.assertFalse(Annotation.objects.user_can(admin, ann, PermissionTypes.READ))
 
     def test_stranger_denied_on_private_annotation(self) -> None:
         """A user with no grants on the doc/corpus is denied every code."""
@@ -1041,7 +1042,21 @@ class PermissionQuerySetVisibleToUserTestCase(TestCase):
         qs: Any = self.PermissionQuerySet(model=Document, using="default")
         return set(qs.visible_to_user(user).values_list("pk", flat=True))
 
-    def test_superuser_sees_all(self) -> None:
+    def test_superuser_has_no_blanket_access(self) -> None:
+        """A no-grant superuser is a data "stranger": the base
+        ``PermissionQuerySet.visible_to_user`` body returns only
+        public/own/shared rows for it, NOT every row. It owns neither doc
+        and has no guardian grant, so only the public doc is visible.
+        Granting READ unlocks the private doc — the ordinary grant path.
+        """
+        ids = self._filter(self.superuser)
+        self.assertIn(self.public_doc.pk, ids)
+        self.assertNotIn(self.private_doc.pk, ids)
+
+        # Positive case: explicit READ grant unlocks the private doc.
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_doc, [PermissionTypes.READ]
+        )
         ids = self._filter(self.superuser)
         self.assertIn(self.private_doc.pk, ids)
         self.assertIn(self.public_doc.pk, ids)

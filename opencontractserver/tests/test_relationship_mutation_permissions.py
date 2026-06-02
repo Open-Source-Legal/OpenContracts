@@ -217,14 +217,56 @@ class RelationshipMutationPermissionTestCase(TestCase):
         self.assertFalse(structural_rel.user_can(self.owner, PermissionTypes.UPDATE))
         self.assertFalse(structural_rel.user_can(self.owner, PermissionTypes.DELETE))
 
-    def test_superuser_always_has_permissions(self):
-        """Test that superusers bypass all permission checks."""
+    def test_superuser_computed_like_normal_user_except_structural_write(self):
+        """A superuser's relationship authorization is computed like a normal user.
+
+        Post-refactor a no-grant superuser has no blanket bypass: for a
+        non-structural relationship it is subject to the same
+        MIN(document_permission, corpus_permission) rule as anyone else, so a
+        superuser with no grants on the (private) doc+corpus is DENIED
+        READ/UPDATE/DELETE.
+
+        The ONE retained data exception is the structural-write break-glass:
+        a superuser CAN write (UPDATE/DELETE) a structural relationship even
+        though structural items are read-only for every other user.
+        """
         superuser = User.objects.create_superuser(username="super", password="test")
 
-        # Superuser should have all permissions even without explicit grants
+        # No grants on the private doc/corpus → denied like a normal stranger.
+        self.assertFalse(self.relationship.user_can(superuser, PermissionTypes.READ))
+        self.assertFalse(self.relationship.user_can(superuser, PermissionTypes.UPDATE))
+        self.assertFalse(self.relationship.user_can(superuser, PermissionTypes.DELETE))
+
+        # Granting the superuser UPDATE on both doc and corpus (exactly what a
+        # normal user would need) unlocks the non-structural relationship.
+        set_permissions_for_obj_to_user(superuser, self.doc, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(superuser, self.corpus, [PermissionTypes.CRUD])
         self.assertTrue(self.relationship.user_can(superuser, PermissionTypes.READ))
         self.assertTrue(self.relationship.user_can(superuser, PermissionTypes.UPDATE))
         self.assertTrue(self.relationship.user_can(superuser, PermissionTypes.DELETE))
+
+    def test_superuser_structural_write_break_glass(self):
+        """Structural relationships remain WRITABLE by superusers (break-glass).
+
+        Structural items are read-only for everyone else (see
+        ``test_structural_relationship_is_read_only``), but the superuser
+        retains the structural-write break-glass — the single retained admin
+        data privilege under the new contract.
+        """
+        superuser = User.objects.create_superuser(
+            username="structural_super", password="test"
+        )
+        structural_rel = Relationship.objects.create(
+            relationship_label=self.relationship_label,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            structural=True,
+        )
+
+        # Superuser can write the structural relationship even with no grants.
+        self.assertTrue(structural_rel.user_can(superuser, PermissionTypes.UPDATE))
+        self.assertTrue(structural_rel.user_can(superuser, PermissionTypes.DELETE))
 
     def test_relationship_with_no_annotations(self):
         """Test that relationships can exist with no source or target annotations."""

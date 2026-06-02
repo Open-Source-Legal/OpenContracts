@@ -691,10 +691,21 @@ class DocumentManagerVisibleToUserTest(TestCase):
             set(qs_anon.values_list("pk", flat=True)),
         )
 
-    def test_superuser_sees_all(self):
-        """Superuser sees all documents regardless of permissions."""
+    def test_superuser_has_no_blanket_document_access(self):
+        """A no-grant superuser is a data "stranger": it does NOT see a
+        private document it neither owns nor was granted READ on. Granting
+        READ makes the document visible — proving admins go through the
+        ordinary grant path, not a blanket bypass.
+        """
         private_doc = Document.objects.create(
             title="Private Hidden", creator=self.owner, is_public=False
+        )
+        qs = Document.objects.visible_to_user(self.superuser, lightweight=True)
+        self.assertNotIn(private_doc.pk, qs.values_list("pk", flat=True))
+
+        # Positive case: an explicit READ grant unlocks the document.
+        set_permissions_for_obj_to_user(
+            self.superuser, private_doc, [PermissionTypes.READ]
         )
         qs = Document.objects.visible_to_user(self.superuser, lightweight=True)
         self.assertIn(private_doc.pk, qs.values_list("pk", flat=True))

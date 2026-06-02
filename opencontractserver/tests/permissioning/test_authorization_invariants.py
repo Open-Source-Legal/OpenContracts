@@ -46,7 +46,15 @@ instance), and anonymous. The following invariants are explicitly pinned:
   ``is_public`` field.
 * **Structural locking** — every non-READ permission returns ``False`` for any
   non-superuser on a structural annotation/relationship
-  (``test_structural_*_are_read_only_for_non_superuser``).
+  (``test_structural_*_are_read_only_for_non_superuser``). Superusers retain the
+  *one* structural-write break-glass (same tests assert the superuser CAN
+  UPDATE a structural item).
+* **No blanket admin data access (scoped admin access, 2026-05)** — a superuser
+  is authorized over data exactly like a normal user; with no grants it cannot
+  READ/UPDATE/DELETE a private instance it does not own
+  (``test_superuser_has_no_blanket_data_access``,
+  ``test_superuser_with_normal_grant_behaves_like_granted_user``). The only
+  retained superuser data privilege is the structural-write break-glass above.
 * **Recursive privacy (annotation)** — ``created_by_analysis`` is pinned by
   ``test_privacy_recursion_*``; ``created_by_extract`` is covered by the matrix
   (``private_via_extract`` instance) here and by focused branch tests in
@@ -164,24 +172,44 @@ class CorpusAuthorizationInvariantsTestCase(TestCase):
                         f"corpus={corpus.title}, perm={perm}",
                     )
 
-    def test_superuser_bypass_all_permissions(self):
-        """Superuser gets True for every permission on every corpus."""
-        for corpus in (self.private_corpus, self.public_corpus):
-            for perm in (
-                PermissionTypes.READ,
-                PermissionTypes.CREATE,
-                PermissionTypes.UPDATE,
-                PermissionTypes.DELETE,
-                PermissionTypes.COMMENT,
-                PermissionTypes.PUBLISH,
-                PermissionTypes.PERMISSION,
-                PermissionTypes.CRUD,
-                PermissionTypes.ALL,
-            ):
-                self.assertTrue(
-                    corpus.user_can(self.superuser, perm),
-                    f"superuser denied {perm} on {corpus.title}",
-                )
+    def test_superuser_has_no_blanket_data_access(self):
+        """SECURITY (scoped admin access, 2026-05): a superuser is authorized
+        over data exactly like a normal user. With no grants it is denied
+        every write/permission op on a private corpus it does not own, and it
+        only gets READ on a corpus that is public — never a blanket bypass."""
+        for perm in (
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+            PermissionTypes.PERMISSION,
+            PermissionTypes.PUBLISH,
+        ):
+            self.assertFalse(
+                self.private_corpus.user_can(self.superuser, perm),
+                f"superuser got blanket {perm} on a private corpus — data leak!",
+            )
+        # No grant ⇒ no READ on a private corpus (parity with a stranger).
+        self.assertFalse(
+            self.private_corpus.user_can(self.superuser, PermissionTypes.READ),
+            "superuser read a private corpus with no grant — data leak!",
+        )
+        # Public corpus is READ-only to the (ungranted) superuser, like anyone.
+        self.assertTrue(
+            self.public_corpus.user_can(self.superuser, PermissionTypes.READ)
+        )
+
+    def test_superuser_with_normal_grant_behaves_like_granted_user(self):
+        """Granting the superuser READ on the private corpus makes READ pass —
+        proving admins are computed through the ordinary grant path, not a
+        bypass."""
+        self.assertFalse(
+            self.private_corpus.user_can(self.superuser, PermissionTypes.READ)
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
+        )
+        self.assertTrue(
+            self.private_corpus.user_can(self.superuser, PermissionTypes.READ)
+        )
 
     def test_creator_gets_all_base_perms_without_explicit_grants(self):
         """Corpus creator has READ/UPDATE/DELETE without a guardian assignment."""
@@ -602,8 +630,14 @@ class CorpusFolderDelegatesUserCanToCorpusTestCase(TestCase):
         """Anonymous users without an is_public corpus get False (delegated)."""
         self.assertFalse(self.folder.user_can(AnonymousUser(), PermissionTypes.READ))
 
-    def test_superuser_bypass_via_corpus_delegate(self):
-        """Superusers pass through the corpus delegate's superuser bypass."""
+    def test_superuser_has_no_blanket_folder_access(self):
+        """SECURITY: a superuser with no grant on the parent corpus is denied
+        READ on the folder (delegation answers like it would for a stranger);
+        granting corpus READ then flips it — admins are not bypassed."""
+        self.assertFalse(self.folder.user_can(self.superuser, PermissionTypes.READ))
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
+        )
         self.assertTrue(self.folder.user_can(self.superuser, PermissionTypes.READ))
 
     def test_public_corpus_makes_folder_public_for_read(self):
@@ -723,13 +757,28 @@ class _UserCanInvariantsMixin(_MixinBase):
                     f"user={getattr(user, 'username', 'anon')}, pk={instance.pk}, perm={perm}",
                 )
 
-    def test_superuser_bypass_all_permissions(self):
-        """Superuser passes every permission on every instance in the matrix."""
+    def test_superuser_has_no_blanket_data_access(self):
+        """SECURITY (scoped admin access, 2026-05): a superuser enjoys no
+        blanket data bypass. For every non-structural matrix instance that the
+        (ungranted) superuser cannot READ, it must also be denied UPDATE and
+        DELETE — exactly like a stranger. Structural-write break-glass is the
+        one retained exception and is pinned in the structural subclasses
+        (``test_structural_*_are_read_only_for_non_superuser``)."""
         for instance in self._matrix_instances:
-            for perm in PermissionTypes:
-                self.assertTrue(
+            if getattr(instance, "structural", False):
+                continue  # structural break-glass pinned separately
+            readable = (
+                self.model_cls.objects.visible_to_user(self._superuser)
+                .filter(pk=instance.pk)
+                .exists()
+            )
+            if readable:
+                continue  # legitimately visible (public/own/granted)
+            for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+                self.assertFalse(
                     self.model_cls.objects.user_can(self._superuser, instance, perm),
-                    f"superuser denied {perm} on {self.model_cls.__name__} pk={instance.pk}",
+                    f"superuser wrote a non-readable {self.model_cls.__name__} "
+                    f"pk={instance.pk} via {perm} — blanket data bypass leak!",
                 )
 
 

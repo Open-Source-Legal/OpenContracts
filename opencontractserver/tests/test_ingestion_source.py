@@ -1467,8 +1467,17 @@ class TestAnonymousIngestionSourceAccess(TestCase):
 # ------------------------------------------------------------------ #
 
 
-class TestSuperuserIngestionSourceAccess(TestCase):
-    """Test that superusers can see all ingestion sources."""
+class TestSuperuserIngestionSourceComputedLikeNormalUser(TestCase):
+    """A superuser's IngestionSource visibility is computed like a normal user.
+
+    IngestionSource uses the standard visibility manager, which post-refactor
+    computes a superuser exactly like a normal authenticated user (public +
+    own + explicitly-shared). A no-grant superuser is therefore a "stranger":
+    it must NOT see another user's private ingestion source, but it CAN see a
+    source it created itself.
+
+    (Note: IngestionSource is treated as user-scoped data here.)
+    """
 
     def setUp(self):
         self.superuser = User.objects.create_superuser(
@@ -1477,6 +1486,7 @@ class TestSuperuserIngestionSourceAccess(TestCase):
         self.regular_user = User.objects.create_user(
             username="regular", password="regularpass"
         )
+        # Owned by the regular user; superuser holds no grant on it.
         self.source = IngestionSource.objects.create(
             name="regular_source",
             source_type=IngestionSourceCategory.API,
@@ -1485,25 +1495,45 @@ class TestSuperuserIngestionSourceAccess(TestCase):
         set_permissions_for_obj_to_user(
             self.regular_user, self.source, [PermissionTypes.CRUD]
         )
+        # Owned by the superuser itself — the positive (creator) case.
+        self.own_source = IngestionSource.objects.create(
+            name="superuser_own_source",
+            source_type=IngestionSourceCategory.API,
+            creator=self.superuser,
+        )
+        set_permissions_for_obj_to_user(
+            self.superuser, self.own_source, [PermissionTypes.CRUD]
+        )
 
-    def test_superuser_list_sees_all_sources(self):
-        """Superuser should see sources from all users."""
+    def test_superuser_list_excludes_other_users_sources(self):
+        """A no-grant superuser must not see another user's private source,
+        but does see the source it created itself."""
         admin_client = Client(schema, context_value=TestContext(self.superuser))
         result = admin_client.execute(LIST_SOURCES_QUERY)
         self.assertIsNone(result.get("errors"))
         sources = result["data"]["ingestionSources"]
         names = [s["name"] for s in sources]
-        self.assertIn("regular_source", names)
+        self.assertNotIn("regular_source", names)
+        self.assertIn("superuser_own_source", names)
 
-    def test_superuser_single_source(self):
-        """Superuser should be able to query any source by ID."""
+    def test_superuser_single_other_users_source_not_visible(self):
+        """Querying another user's private source by ID returns None for a
+        no-grant superuser (computed like a normal user)."""
         admin_client = Client(schema, context_value=TestContext(self.superuser))
         gid = to_global_id("IngestionSourceType", self.source.pk)
         result = admin_client.execute(SINGLE_SOURCE_QUERY, variables={"id": gid})
         self.assertIsNone(result.get("errors"))
+        self.assertIsNone(result["data"]["ingestionSource"])
+
+    def test_superuser_single_own_source_visible(self):
+        """A superuser can query a source it created itself (creator path)."""
+        admin_client = Client(schema, context_value=TestContext(self.superuser))
+        gid = to_global_id("IngestionSourceType", self.own_source.pk)
+        result = admin_client.execute(SINGLE_SOURCE_QUERY, variables={"id": gid})
+        self.assertIsNone(result.get("errors"))
         data = result["data"]["ingestionSource"]
         self.assertIsNotNone(data)
-        self.assertEqual(data["name"], "regular_source")
+        self.assertEqual(data["name"], "superuser_own_source")
 
 
 # ------------------------------------------------------------------ #

@@ -781,18 +781,59 @@ class ApplyCamlArticleEditTests(TransactionTestCase):
         self.assertTrue(result["applied"])
         self.assertIn("{{@cite sentence}}", self._read_caml_body())
 
-    def test_superuser_can_edit_any_corpus(self):
-        """Superusers bypass guardian checks (matches existing tool conventions)."""
+    def test_superuser_edit_computed_like_normal_user(self):
+        """A superuser's DATA authorization is computed like a normal user.
+
+        Post-refactor a no-grant superuser is a "stranger": it has no blanket
+        bypass over corpus/document data. Editing a private stranger corpus's
+        CAML article requires corpus READ (to resolve the article) and
+        document UPDATE (to write it), computed normally.
+
+        Denied path: the no-grant superuser cannot even resolve the private
+        corpus's Readme.CAML, so it gets the same opaque "no CAML article"
+        error an outsider receives — it must NOT be able to apply the edit.
+        Allowed path: once the corpus is shared READ-able and the superuser is
+        granted UPDATE on the CAML document, the edit succeeds via the normal
+        gate (no superuser exception involved).
+        """
         target = "Liability is capped at twice the annual fee. {{@cite sentence}}"
         replacement = (
             "Liability is capped at twice the annual fee. {{@cite sentence mode=all}}"
         )
+
+        # Denied: no-grant superuser is computed like a stranger.
+        with self.assertRaises(ValueError) as ctx:
+            _apply_caml_article_edit(
+                corpus_id=self.corpus.id,
+                author_id=self.superuser.id,
+                target_text=target,
+                replacement_text=replacement,
+                rationale="superuser update (should be denied)",
+            )
+        self.assertIn("Readme.CAML", str(ctx.exception))
+        # The edit must not have landed.
+        self.assertNotIn("mode=all", self._read_caml_body())
+
+        # Allowed: grant the superuser exactly what a normal user would need —
+        # corpus READ (so the article resolves) and document UPDATE (so it can
+        # be written). The edit now succeeds through the ordinary permission
+        # path, with no superuser bypass.
+        self.corpus.is_public = True
+        self.corpus.save(update_fields=["is_public"])
+        self.caml_doc.is_public = True
+        self.caml_doc.save(update_fields=["is_public"])
+        set_permissions_for_obj_to_user(
+            self.superuser,
+            self.caml_doc,
+            [PermissionTypes.READ, PermissionTypes.UPDATE],
+        )
+
         _apply_caml_article_edit(
             corpus_id=self.corpus.id,
             author_id=self.superuser.id,
             target_text=target,
             replacement_text=replacement,
-            rationale="superuser update",
+            rationale="superuser update (granted)",
         )
         self.assertIn("mode=all", self._read_caml_body())
 

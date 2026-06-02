@@ -228,9 +228,47 @@ class CommentPermissionTestCase(TestCase):
             "Annotation should have _can_comment=True",
         )
 
-    def test_superuser_has_comment_permission(self):
-        """Test that superusers have COMMENT permission"""
+    def test_superuser_comment_permission_computed_like_normal_user(self):
+        """Superuser COMMENT follows the normal rule — no blanket grant.
+
+        Under the scoped-admin contract (2026-05) a superuser is authorized
+        over data like a normal user. The document and corpus here are owned
+        by ``self.owner``, are private, and ``allow_comments`` is off, so a
+        no-grant superuser is a stranger: it gets no READ and therefore no
+        COMMENT. Once granted READ + COMMENT on both document and corpus it
+        gains COMMENT exactly like any other user.
+        """
         superuser = User.objects.create_superuser(username="super", password="admin")
+
+        # No grants: stranger to a private corpus/document → no COMMENT.
+        can_read, can_create, can_update, can_delete, can_comment = (
+            AnnotationService._compute_effective_permissions(
+                superuser,
+                self.document.id,
+                self.corpus.id,
+            )
+        )
+        self.assertFalse(
+            can_read,
+            "No-grant superuser should NOT have READ on a private, "
+            "stranger-owned document",
+        )
+        self.assertFalse(
+            can_comment,
+            "No-grant superuser should NOT have COMMENT (computed like a " "stranger)",
+        )
+
+        # Grant READ + COMMENT on both document and corpus → COMMENT follows.
+        set_permissions_for_obj_to_user(
+            superuser,
+            self.document,
+            [PermissionTypes.READ, PermissionTypes.COMMENT],
+        )
+        set_permissions_for_obj_to_user(
+            superuser,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.COMMENT],
+        )
 
         can_read, can_create, can_update, can_delete, can_comment = (
             AnnotationService._compute_effective_permissions(
@@ -239,8 +277,11 @@ class CommentPermissionTestCase(TestCase):
                 self.corpus.id,
             )
         )
-
-        self.assertTrue(can_comment, "Superuser should have COMMENT permission")
+        self.assertTrue(can_read, "Superuser should have READ once granted")
+        self.assertTrue(
+            can_comment,
+            "Superuser should have COMMENT once granted READ + COMMENT on both",
+        )
 
     def test_allow_comments_enables_commenting_for_readers(self):
         """Test that corpus.allow_comments=True gives COMMENT to all readers (BACON MODE)"""
