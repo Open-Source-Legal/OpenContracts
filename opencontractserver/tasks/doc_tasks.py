@@ -953,3 +953,115 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
         "doc_id": doc_id,
         "message": "Document reprocessing has been queued",
     }
+
+
+@celery_app.task()
+def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
+    """Anchor a document's PendingDocumentAnnotations onto pipeline output.
+
+    Runs AFTER ``ingest_doc`` in the import chain, so PAWLs / text layer exist.
+    No-op when there is no pending row. ``*args`` absorbs the previous chain
+    task's return value.
+    """
+    import json
+
+    from opencontractserver.annotations.models import (
+        DOC_TYPE_LABEL,
+        Annotation,
+        AnnotationLabel,
+    )
+    from opencontractserver.documents.models import (
+        Document,
+        PendingDocumentAnnotations,
+    )
+    from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.utils.annotation_anchoring import anchor_annotations
+    from opencontractserver.utils.compact_pawls import expand_pawls_pages
+    from opencontractserver.utils.importing import import_annotations
+    from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+
+    pending = (
+        PendingDocumentAnnotations.objects.filter(
+            document_id=doc_id, status=PendingDocumentAnnotations.Status.PENDING
+        )
+        .order_by("id")
+        .first()
+    )
+    if pending is None:
+        return {"doc_id": doc_id, "skipped": "no pending annotations"}
+
+    doc = Document.objects.get(pk=doc_id)
+    corpus = pending.corpus
+    user_id = pending.creator_id
+    payload = pending.payload or {}
+    dumb_anns = payload.get("annotations", []) or []
+    doc_label_names = payload.get("doc_labels", []) or []
+
+    is_pdf = (doc.file_type or "").lower() == "application/pdf"
+    pawls: list[dict] = []
+    content = ""
+    try:
+        if is_pdf and doc.pawls_parse_file:
+            doc.pawls_parse_file.seek(0)
+            pawls = expand_pawls_pages(
+                json.loads(doc.pawls_parse_file.read().decode("utf-8"))
+            )
+        if doc.txt_extract_file:
+            doc.txt_extract_file.seek(0)
+            content = doc.txt_extract_file.read().decode("utf-8")
+    except Exception as exc:
+        pending.status = PendingDocumentAnnotations.Status.FAILED
+        pending.report = [{"error": f"could not read doc layers: {exc}"}]
+        pending.save(update_fields=["status", "report"])
+        return {"doc_id": doc_id, "failed": str(exc)}
+
+    anchored, report = anchor_annotations(
+        dumb_anns, is_pdf=is_pdf, pawls=pawls, content=content
+    )
+
+    # Build label_lookup keyed by lbl.text — exactly as import_annotations
+    # looks up: ``label_name = annotation_data["annotationLabel"]``;
+    # ``label_obj = label_lookup.get(label_name)``.
+    label_lookup: dict[str, AnnotationLabel] = {}
+    doc_label_lookup: dict[str, AnnotationLabel] = {}
+    if corpus is not None and corpus.label_set_id:
+        for lbl in AnnotationLabel.objects.filter(
+            included_in_labelset=corpus.label_set_id
+        ):
+            label_lookup[lbl.text] = lbl
+            if lbl.label_type == DOC_TYPE_LABEL:
+                doc_label_lookup[lbl.text] = lbl
+
+    annot_id_map = import_annotations(
+        user_id=user_id,
+        doc_obj=doc,
+        corpus_obj=corpus,
+        annotations_data=anchored,
+        label_lookup=label_lookup,
+    )
+
+    doc_labels_created = 0
+    for name in doc_label_names:
+        label_obj = doc_label_lookup.get(name)
+        if label_obj:
+            annot_obj = Annotation.objects.create(
+                annotation_label=label_obj,
+                annotation_type=DOC_TYPE_LABEL,
+                document=doc,
+                corpus=corpus,
+                creator_id=user_id,
+            )
+            set_permissions_for_obj_to_user(
+                user_id, annot_obj, [PermissionTypes.ALL], is_new=True
+            )
+            doc_labels_created += 1
+
+    pending.status = PendingDocumentAnnotations.Status.DONE
+    pending.report = report
+    pending.save(update_fields=["status", "report"])
+    return {
+        "doc_id": doc_id,
+        "anchored": len(annot_id_map),
+        "dropped": sum(1 for r in report if r.get("dropped")),
+        "doc_labels": doc_labels_created,
+    }
