@@ -124,9 +124,7 @@ try:
                 # timeout must stay disabled (the historical channels-redis
                 # default that every redis-py < 8.0 provided). Do NOT pin redis
                 # back below 8.0 to "fix" this. See issue #1886.
-                "hosts": [
-                    {"host": host, "port": int(port), "socket_timeout": None}
-                ],
+                "hosts": [{"host": host, "port": int(port), "socket_timeout": None}],
             },
         },
     }
