@@ -393,11 +393,12 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     }
   }, []);
 
-  // Distinguish a bulk (re)load — opening an existing conversation or switching
-  // threads, where many messages arrive at once — from a single incremental
-  // append. Bulk loads jump instantly to the bottom; a new appended message (or
-  // streamed tokens) scrolls smoothly. This removes the long, janky smooth
-  // animation that previously played every time a populated conversation opened.
+  // Smooth scroll fires only when exactly one new message is appended (user
+  // sends, or a finalised assistant message lands). Bulk (re)loads — opening or
+  // switching a conversation — and in-place streaming token updates (which
+  // mutate the last entry without changing the count) both instant-jump. This
+  // removes the long, janky smooth animation that previously played every time
+  // a populated conversation opened.
   const prevConversationKeyRef = useRef<string | undefined>(undefined);
   const prevMessageCountRef = useRef<number>(0);
   useEffect(() => {

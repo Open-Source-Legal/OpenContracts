@@ -270,6 +270,14 @@ export const CorpusQueryView = ({
     showQueryViewState("VIEW");
   };
 
+  // VIEW -> ASK exits (header Back / Return to Dashboard) don't go through
+  // resetToSearch, so clear the conversation-expanded flag here too — keeps it
+  // from staying stale (true) into the next ASK expansion.
+  const backToAskFromView = () => {
+    setChatExpandedInConversation(false);
+    showQueryViewState("ASK");
+  };
+
   if (!opened_corpus) {
     return <div>No corpus selected</div>;
   }
@@ -297,7 +305,7 @@ export const CorpusQueryView = ({
           <BackButton
             onClick={
               show_query_view_state === "VIEW"
-                ? () => showQueryViewState("ASK")
+                ? backToAskFromView
                 : resetToSearch
             }
             whileHover={{ scale: 1.02 }}
@@ -325,7 +333,7 @@ export const CorpusQueryView = ({
               </ActionButton>
             )}
             <ActionButton
-              onClick={() => showQueryViewState("ASK")}
+              onClick={backToAskFromView}
               title="Return to Dashboard"
               data-testid="corpus-query-view-home-btn"
               whileHover={{ scale: 1.05 }}
