@@ -33,6 +33,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Bulk-ZIP importer: dumb-anchor sidecars persist annotations + dispatch a post-ingest remap chain; `skip_pipeline` removed (2026-06).**
+  `import_zip_with_folder_structure` (`opencontractserver/tasks/import_tasks.py`)
+  now recognises the new dumb-anchor sidecar format — a flat
+  `{"annotations": [...], "doc_labels": [...]}` document where each annotation is
+  a `label`/`rawText` anchor with either a `page`+`bbox` (PDF) or `start`+`end`
+  (span) locator (no PAWLs content, no `content`, no `tokensJsons`, no
+  `skip_pipeline`). For such a sidecar the importer creates the document via the
+  normal parser pipeline, persists the producer annotations verbatim in a
+  `PendingDocumentAnnotations` row (new `results["pending_annotation_docs"]`
+  counter), and dispatches an explicit
+  `extract_thumbnail -> ingest_doc -> remap_pending_annotations -> set_doc_lock_state`
+  Celery chain on commit so the remap runs **after** PAWLs / text exist.
+  To own the dispatch and interleave the remap, the document is created with
+  `processing_started` stamped at creation time, which suppresses the
+  `Document` `post_save` auto-ingest chain (`process_doc_on_create_atomic`)
+  for these docs and prevents a double-ingest race; documents without a sidecar
+  are unchanged and still rely on the signal. **Removed** the old
+  `skip_pipeline` inline-application path: deleted the
+  `if skip_pipeline and sidecar_data:` branch, the `_apply_sidecar_annotations`
+  helper, the `_validate_sidecar_schema` helper plus its
+  `_ANNOTATION_REQUIRED_KEYS` / `_RELATIONSHIP_REQUIRED_KEYS` constants, and the
+  now-unused `create_document_from_export_data` / `import_relationships` / `io` /
+  `Mapping` imports. `create_document_from_export_data`
+  (`opencontractserver/utils/importing.py`) is retained — it is still used by the
+  V2 corpus importer (`opencontractserver/tasks/import_tasks_v2.py`). Tests in
+  `opencontractserver/tests/test_sidecar_import.py` were rewritten to the new
+  format/behavior (assert the persisted pending row + queued chain instead of
+  inline annotation application); the OLD-format schema-validation test classes
+  were removed.
+
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
   permission layer: it could READ every row of every data model and pass every
