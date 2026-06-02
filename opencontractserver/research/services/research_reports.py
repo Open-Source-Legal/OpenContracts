@@ -331,9 +331,20 @@ class ResearchReportService(BaseService):
         # Build the citation table, ordered by first appearance in the body.
         rendered_body, citations = _render_citations(markdown_body, cited_ids)
 
+        # Strip any hyperlinks the agent fabricated. It has no web tools, so
+        # every URL it emits is invented (canonically ``https://example.com``);
+        # the ``<cite>`` footnotes rendered above are the only sanctioned
+        # attribution channel. Applied to both the body and the summary so no
+        # fabricated link survives into the stored content (or the salvage
+        # path, which also flows through here). See ``_strip_fabricated_links``.
+        rendered_body = _strip_fabricated_links(rendered_body)
+        clean_summary = _strip_fabricated_links(executive_summary or "")
+
         full_content_parts: list[str] = []
-        if executive_summary:
-            full_content_parts.append("## Executive Summary\n\n" + executive_summary)
+        # ``.strip()``: a summary that was nothing but a fabricated link reduces
+        # to whitespace after stripping — skip the empty header in that case.
+        if clean_summary.strip():
+            full_content_parts.append("## Executive Summary\n\n" + clean_summary)
         full_content_parts.append(rendered_body)
         if citations:
             sources_section = ["## Sources", ""]
@@ -435,6 +446,66 @@ def _derive_title_from_prompt(prompt: str, limit: int = 80) -> str:
     if len(first_line) <= limit:
         return first_line
     return first_line[: limit - 1].rstrip() + "…"
+
+
+# Inline markdown link (optionally an image: ``![alt](src)``), capturing the
+# label/alt text and the target. The target group stops at the first space,
+# ``)`` or ``>`` so a trailing ``"title"`` and angle-bracket wrappers
+# (``<https://…>``) are tolerated. Footnote markers/definitions (``[^1]`` /
+# ``[^1]: …``) have no ``(target)`` and never match.
+# Inline links only. The target group ``([^)\s>]+)`` stops at the first ``)``,
+# so a parenthesised URL like ``Foo_(bar)`` is captured as ``Foo_(bar`` and the
+# trailing ``)`` leaks through — academic here since the agent fabricates flat
+# ``example.com`` URLs without parens.
+_MARKDOWN_LINK_RE = re.compile(
+    r"!?\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)"
+)
+
+# A link target that resolves *outside* the SPA: an explicit ``scheme://``,
+# a protocol-relative ``//host``, a ``mailto:``/``tel:``, or a bare domain
+# (``example.com/…``). These are exactly the targets ``SafeMarkdown`` would
+# turn into a live anchor. In-app relative paths (``/d/…``) and bare
+# fragments (``#section``) are deliberately NOT matched.
+_EXTERNAL_TARGET_RE = re.compile(
+    r"""^(?:
+        [a-z][a-z0-9+.\-]*://       # scheme://  (http, https, ftp, …)
+        | //                        # protocol-relative  //host
+        | mailto: | tel:            # non-web but still externally resolvable
+        | [\w-]+(?:\.[\w-]{2,})+     # bare domain  example.com/… (TLD ≥2 chars,
+                                    # so dotted prose like ``v1.0`` / ``section_a.2``
+                                    # is not mistaken for a link target). Known
+                                    # false positive: a relative ``name.ext``
+                                    # path (``schema.json``, ``openapi.yaml``)
+                                    # also matches — fine today since the agent
+                                    # emits no legitimate relative-path links.
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_fabricated_links(markdown: str) -> str:
+    """Downgrade externally-resolvable markdown links the (web-less) agent
+    invented to their plain label before storage, leaving the sanctioned
+    ``<cite ids="…">`` tag, in-app relative links, and fragment anchors intact.
+
+    Deliberate gap: only *inline* ``[text](url)`` links are matched, not
+    reference-style ``[text][1]`` + ``[1]: url`` (the observed fabrication is the
+    inline ``example.com`` placeholder); pinned by
+    ``test_strip_fabricated_links_leaves_reference_style_links_unchanged``.
+    """
+    if not markdown:
+        return markdown
+
+    def _replace(match: re.Match[str]) -> str:
+        label = match.group(1)
+        target = match.group(2).strip()
+        if _EXTERNAL_TARGET_RE.match(target):
+            # Drop the fabricated URL (and any leading ``!`` image marker),
+            # keep the human-readable label so the prose still reads cleanly.
+            return label
+        return match.group(0)
+
+    return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
 def _render_citations(
