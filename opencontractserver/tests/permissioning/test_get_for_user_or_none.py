@@ -67,7 +67,23 @@ class GetForUserOrNoneTestCase(TestCase):
         result = get_for_user_or_none(Corpus, self.private_corpus.pk, self.other)
         self.assertEqual(result, self.private_corpus)
 
-    def test_superuser_sees_everything(self):
+    def test_superuser_cannot_fetch_private_stranger_object(self):
+        """A no-grant superuser is a data "stranger": fetching a private
+        object it neither owns nor was granted READ on returns None — the
+        same IDOR-safe answer a normal stranger gets. Admins reach private
+        data through the ordinary grant path, not a blanket bypass.
+        """
+        self.assertIsNone(
+            get_for_user_or_none(Corpus, self.private_corpus.pk, self.superuser)
+        )
+
+    def test_superuser_read_grant_unlocks_lookup(self):
+        """Positive case: granting the superuser READ on the private corpus
+        makes ``get_for_user_or_none`` return it — proving admins go through
+        the normal grant path like any other user."""
+        set_permissions_for_obj_to_user(
+            self.superuser, self.private_corpus, [PermissionTypes.READ]
+        )
         result = get_for_user_or_none(Corpus, self.private_corpus.pk, self.superuser)
         self.assertEqual(result, self.private_corpus)
 

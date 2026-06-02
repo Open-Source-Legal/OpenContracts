@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
+  Previously a `is_superuser` account received a blanket bypass throughout the
+  permission layer: it could READ every row of every data model and pass every
+  `user_can` check regardless of ownership, sharing, `is_public`, or corpus
+  membership. An admin's access to **user data** (corpuses, documents,
+  annotations, relationships, notes, conversations, analyses, extracts,
+  datacells, folders, feedback, user profiles, badge awards, agents, research
+  reports, ingestion sources, …) is now computed **identically to a normal
+  user**. The `if user.is_superuser: return all()/True` short-circuits were
+  removed from every visibility/authorization path:
+  - **Managers / querysets** (`opencontractserver/shared/Managers.py`,
+    `shared/QuerySets.py`): `BaseVisibilityManager`, `PermissionQuerySet`,
+    `DocumentQuerySet`, `AnnotationQuerySet`, `NoteQuerySet`,
+    `UserFeedbackQuerySet`, `PermissionedTreeQuerySet`, `RelationshipManager`
+    `visible_to_user`; `UserProfileManager.visible_to_user`
+    (`users/models.py`). Superusers now also receive the permission prefetch +
+    `distinct()` previously skipped for them.
+  - **Single-object checks**: `_default_user_can`
+    (`utils/permissioning.py`), `AnnotationManager`/`NoteManager`/
+    `RelationshipManager.user_can`. `get_users_permissions_for_obj` no longer
+    grants superusers the full permission set; `resolve_my_permissions`
+    (`config/graphql/.../mixins.py`) no longer injects a synthetic `superuser`
+    permission.
+  - **Service layer**: `AnnotationService` (`_compute_effective_permissions`,
+    privacy filtering, `get_corpus_annotations`), `RelationshipService`,
+    `Conversation`/`ChatMessage` visibility (`conversations/models.py`),
+    `ConversationService`, `UserService.get_visible_users`, `MetadataService`,
+    `ExtractService`, `AnalysisService`, `DocumentRelationship` service,
+    `AgentConfiguration`/`AgentActionResult`/`ResearchReport` managers,
+    `BadgeService.get_visible_user_badges`.
+  - **GraphQL resolvers** (`config/graphql/`): extract document count/list,
+    `ResearchReport` `myPermissions`, `@mention` corpus/document autocomplete
+    (`search_queries.py`), `Document.can_retry` (`document_types.py`), label
+    deletion (`label_mutations.py`).
+  - **Badge awarding** (`config/graphql/badge_mutations.py`): now authorizes the
+    awarder first (corpus CRUD for corpus badges, superuser for global badges)
+    and resolves the recipient with a direct, unfiltered lookup, so it no longer
+    depends on the removed `UserProfileManager` superuser bypass while preserving
+    the IDOR contract.
+  - **Retained for superusers** (deliberate): (1) the **structural-write
+    break-glass** — superusers may still write structural annotations/
+    relationships (`AnnotationManager`/`RelationshipManager.user_can`); (2)
+    **moderation** of conversations/threads (`Conversation`/`Corpus.can_moderate`
+    + moderation-action resolvers); (3) **admin-only configuration/restriction
+    gates** in mutations/services (`PipelineSettings`, `Badge`/`CorpusCategory`
+    management, "create global agents", "make analyses public", worker-upload
+    provisioning). The break-glass for inspecting/repairing arbitrary user data
+    is the **Django admin site** (`is_staff`), unaffected by these changes.
+    Permanent document deletion now requires normal DELETE permission (no
+    superuser override). Follow-up: an explicit, audited support/impersonation
+    mechanism may be added later.
+  - **Tests**: the authorization-invariant suite and ~30 permission/optimizer/
+    service test modules were updated so a no-grant superuser is asserted to be
+    a "stranger" for data (with positive grant-path cases and the retained
+    structural-write break-glass). Docs: `docs/permissioning/consolidated_permissioning_guide.md`.
+
 ### Fixed
 
 - **Imported corpuses were unsearchable: import never ran structural ingestion
@@ -207,6 +265,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Admin management of registered LLMs in System Settings.** Superusers can
+  now view, enable/disable, and pick a system-wide default for the registered
+  LLM providers from the admin **System Settings → Pipeline Configuration**
+  page. LLM providers were already discovered by the pipeline registry and
+  exposed over GraphQL (`pipelineComponents.llmProviders`), but the frontend
+  never surfaced them.
+  - **Frontend** — the Component Library now lists LLM providers (Anthropic,
+    OpenAI, Google, Ollama) as a fourth stage with suggested-model chips, an
+    "API key" indicator, and the same enable/disable toggle used by
+    parsers/embedders/thumbnailers
+    (`frontend/src/components/admin/system_settings/ComponentLibrary.tsx`,
+    `config.ts`, `types.ts`). A new **Default LLM** row + picker modal lets
+    admins choose the install-wide default model spec
+    (`frontend/src/components/admin/SystemSettings.tsx`,
+    `system_settings/FiletypeDefaults.tsx`). `GET_PIPELINE_COMPONENTS` now
+    fetches `llmProviders`; settings queries/mutations carry `defaultLlm`
+    (`system_settings/graphql.ts`). Fixed a latent bug where toggling any
+    component while in the "all enabled" state would have silently dropped
+    every LLM provider from the rebuilt enabled list — LLM providers are now
+    included in that computation.
+  - **Backend** — new `PipelineSettings.default_llm` field + migration
+    (`opencontractserver/documents/models.py`,
+    `documents/migrations/0040_add_default_llm_to_pipeline_settings.py`),
+    surfaced and mutable via GraphQL (`config/graphql/pipeline_types.py`,
+    `pipeline_queries.py`, `pipeline_settings_mutations.py`; validated with
+    `validate_model_spec` and stored in canonical `provider:model` form).
+    `resolve_model_spec` gained a `settings_default` tier so the configured
+    default is consulted *before* Django's `DEFAULT_LLM` / `OPENAI_MODEL`
+    (`opencontractserver/llms/llm_registry.py`); it is threaded in by the agent
+    factory (async, via `database_sync_to_async`) and `Corpus.save()` through a
+    new `get_default_llm_spec()` helper
+    (`opencontractserver/pipeline/utils.py`,
+    `llms/agents/agent_factory.py`, `corpuses/models.py`). The resolver itself
+    stays ORM-free and async-safe. Precedence is unchanged otherwise: per-call →
+    per-agent → per-corpus → this default → Django settings.
+  - **Fixed** — `PipelineSettings.get_instance()` and
+    `ResetPipelineSettingsMutation` could assign `None` to the NOT NULL
+    `default_llm` column when Django's `DEFAULT_LLM` setting was explicitly set
+    to `None` (e.g. in tests exercising the legacy fallback), raising an
+    `IntegrityError`; both now coerce the setting to `""`
+    (`opencontractserver/documents/models.py` line ~1371,
+    `config/graphql/pipeline_settings_mutations.py`). The reset mutation now
+    also resets/returns `default_reranker` (previously omitted from the reset
+    path and its response). `normalise_model_spec` was moved inside the
+    `validate_model_spec` try/except in `UpdatePipelineSettingsMutation` so an
+    unexpected raise returns a clean `ok=False` response rather than a 500.
+    Added stable `data-testid`s (`edit-default-llm`, `edit-default-embedder`,
+    `library-filter-*`) to replace positional/text selectors in the component
+    tests, and dropped the untyped `settingsKey` carried into
+    `LIBRARY_STAGE_CONFIG` by the previous `STAGE_CONFIG` spread.
 - **Corpus Home "Map" view — per-corpus geographic annotations (#1821).** A
   fifth Corpus Home view mode (`landing` / `details` / `discussions` /
   `article` / **`map`**) that plots a corpus's geographic annotations, reusing

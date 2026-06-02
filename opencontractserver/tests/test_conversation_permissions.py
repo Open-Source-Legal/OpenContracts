@@ -10,7 +10,7 @@ Key test scenarios:
 2. THREAD: context inheritance from corpus/document
 3. AND logic when both corpus AND document are set on THREAD
 4. Anonymous users: only public
-5. Superusers: see all
+5. Superusers: computed like a normal user (no blanket bypass)
 6. Parallel permission schemes: Same context with both CHAT and THREAD
 """
 
@@ -331,24 +331,51 @@ class TestConversationBifurcatedPermissions(TestCase):
     # Superuser and Anonymous Tests
     # =========================================================================
 
-    def test_superuser_sees_all_conversations(self):
-        """Superusers can see all conversations regardless of type or permissions."""
-        chat = Conversation.objects.create(
+    def test_superuser_computed_like_normal_user(self):
+        """A no-grant superuser is computed exactly like any authenticated user
+        (scoped admin access, 2026-05) — no blanket "sees everything" bypass.
+
+        - A private CHAT created by a stranger (Alice) is NOT visible.
+        - A private THREAD on a private corpus the superuser cannot read is
+          NOT visible.
+        - Once the superuser is granted READ on the corpus, it inherits
+          THREAD visibility via context, exactly like a normal corpus reader.
+        - A conversation the superuser creates itself is visible via creator.
+        """
+        stranger_chat = Conversation.objects.create(
             title="Private Chat",
             chat_with_corpus=self.corpus,
             creator=self.alice,
             conversation_type=ConversationTypeChoices.CHAT,
         )
-        thread = Conversation.objects.create(
+        stranger_thread = Conversation.objects.create(
             title="Private Thread",
             chat_with_corpus=self.corpus,
             creator=self.bob,
             conversation_type=ConversationTypeChoices.THREAD,
         )
 
+        # No grants → the superuser sees neither stranger conversation.
         visible = Conversation.objects.visible_to_user(self.superuser)
-        self.assertIn(chat, visible)
-        self.assertIn(thread, visible)
+        self.assertNotIn(stranger_chat, visible)
+        self.assertNotIn(stranger_thread, visible)
+
+        # Positive case 1: the superuser's OWN conversation is visible (creator).
+        own_chat = Conversation.objects.create(
+            title="Superuser's Own Chat",
+            chat_with_corpus=self.corpus,
+            creator=self.superuser,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        self.assertIn(own_chat, Conversation.objects.visible_to_user(self.superuser))
+
+        # Positive case 2: grant the superuser READ on the corpus → it now
+        # inherits visibility of the THREAD via context, like a normal reader.
+        assign_perm("read_corpus", self.superuser, self.corpus)
+        visible_after_grant = Conversation.objects.visible_to_user(self.superuser)
+        self.assertIn(stranger_thread, visible_after_grant)
+        # The CHAT is still restrictive (no context inheritance) — still hidden.
+        self.assertNotIn(stranger_chat, visible_after_grant)
 
     def test_anonymous_user_sees_only_public(self):
         """Anonymous users can only see public conversations."""
@@ -639,16 +666,31 @@ class TestConversationService(TestCase):
         )
 
     def test_check_conversation_visibility_superuser(self):
-        """Superusers see any conversation that exists; non-existent IDs fail."""
+        """Visibility is computed for a superuser exactly like a normal user
+        (scoped admin access, 2026-05) — no blanket bypass.
+
+        - A private THREAD on a corpus the superuser cannot read → False.
+        - Once granted corpus READ (THREAD context inheritance) → True.
+        - Non-existent IDs always fail (IDOR-safe).
+        """
         thread = Conversation.objects.create(
             title="Super Thread",
             chat_with_corpus=self.corpus,
             creator=self.alice,
             conversation_type=ConversationTypeChoices.THREAD,
         )
+        # No grant on the private corpus → the THREAD is not visible.
+        self.assertFalse(
+            ConversationService.check_conversation_visibility(self.superuser, thread.id)
+        )
+
+        # Grant corpus READ → the THREAD becomes visible via context inheritance.
+        assign_perm("read_corpus", self.superuser, self.corpus)
         self.assertTrue(
             ConversationService.check_conversation_visibility(self.superuser, thread.id)
         )
+
+        # Non-existent ID returns False (IDOR-safe), regardless of superuser.
         self.assertFalse(
             ConversationService.check_conversation_visibility(self.superuser, 99999)
         )

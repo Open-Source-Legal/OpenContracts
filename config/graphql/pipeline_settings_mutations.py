@@ -252,6 +252,16 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 "disables reranking (first-stage vector / hybrid search only)."
             ),
         )
+        default_llm = graphene.String(
+            required=False,
+            description=(
+                "Install-wide default LLM model spec (pydantic-ai "
+                "'{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') "
+                "for agents when no per-corpus or per-agent override is set. "
+                "Empty string falls back to the Django settings default. The "
+                "provider prefix must be a registered LLM provider."
+            ),
+        )
         enabled_components = graphene.List(
             graphene.String,
             required=False,
@@ -277,6 +287,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         component_settings=None,
         default_embedder=None,
         default_reranker=None,
+        default_llm=None,
         enabled_components=None,
     ) -> "UpdatePipelineSettingsMutation":
         """
@@ -508,6 +519,46 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
 
                 invalidate_reranker_cache()
 
+            # Validate default_llm (empty string = fall back to Django settings).
+            # Unlike the other defaults this is a pydantic-ai model spec
+            # ("{provider}:{model}"), not a component class path, so it is
+            # validated with the LLM registry rather than validate_component_path.
+            if default_llm is not None:
+                if default_llm:
+                    from opencontractserver.llms.llm_registry import (
+                        LLMProviderNotRegistered,
+                        normalise_model_spec,
+                        validate_model_spec,
+                    )
+
+                    # Both calls are required and complementary, NOT redundant:
+                    # validate_model_spec is the only one that checks the
+                    # provider is registered (raises LLMProviderNotRegistered);
+                    # normalise_model_spec only parses/formats and raises
+                    # ValueError on a malformed spec. Collapsing to a single
+                    # normalise call would silently accept an unregistered
+                    # provider. Both live in the same try/except so either error
+                    # returns a clean ok=False response instead of a 500.
+                    try:
+                        validate_model_spec(default_llm)
+                        # Persist the canonical "{provider}:{model}" form so the
+                        # stored value is unambiguous (bare names get the default
+                        # provider prefix applied).
+                        normalised_llm = normalise_model_spec(default_llm)
+                    except LLMProviderNotRegistered as exc:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False, message=str(exc), pipeline_settings=None
+                        )
+                    except ValueError as exc:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=f"Invalid default LLM spec: {exc}",
+                            pipeline_settings=None,
+                        )
+                    settings_instance.default_llm = normalised_llm
+                else:
+                    settings_instance.default_llm = ""
+
             # Validate enabled_components
             if enabled_components is not None:
                 if not isinstance(enabled_components, list):
@@ -603,6 +654,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     ("component_settings", component_settings),
                     ("default_embedder", default_embedder),
                     ("default_reranker", default_reranker),
+                    ("default_llm", default_llm),
                     ("enabled_components", enabled_components),
                 ]
                 if val is not None
@@ -625,6 +677,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
                     default_reranker=settings_instance.default_reranker or "",
+                    default_llm=settings_instance.default_llm or "",
                     enabled_components=settings_instance.enabled_components or [],
                     components_with_secrets=list(
                         settings_instance.get_secrets().keys()
@@ -698,8 +751,16 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
             settings_instance.component_settings = getattr(
                 django_settings, "PIPELINE_SETTINGS", {}
             )
-            settings_instance.default_embedder = getattr(
-                django_settings, "DEFAULT_EMBEDDER", ""
+            settings_instance.default_embedder = (
+                getattr(django_settings, "DEFAULT_EMBEDDER", "") or ""
+            )
+            settings_instance.default_reranker = (
+                getattr(django_settings, "DEFAULT_RERANKER", "") or ""
+            )
+            # ``DEFAULT_LLM`` may be explicitly None; coerce to "" so the NOT NULL
+            # default_llm column is never assigned a null value.
+            settings_instance.default_llm = (
+                getattr(django_settings, "DEFAULT_LLM", "") or ""
             )
             settings_instance.enabled_components = []
             settings_instance.modified_by = user
@@ -718,6 +779,8 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
+                    default_reranker=settings_instance.default_reranker or "",
+                    default_llm=settings_instance.default_llm or "",
                     enabled_components=[],
                     components_with_secrets=list(
                         settings_instance.get_secrets().keys()

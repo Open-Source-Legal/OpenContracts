@@ -42,11 +42,6 @@ class ConversationService(BaseService):
         """Return ``user`` unchanged, or an ``AnonymousUser`` when ``None``."""
         return user if user is not None else AnonymousUser()
 
-    @staticmethod
-    def _is_superuser(user: Any) -> bool:
-        """Check if the user is a superuser."""
-        return bool(getattr(user, "is_superuser", False))
-
     @classmethod
     def _get_visible_conversation_ids(
         cls, user: Any, *, request: Optional[Any] = None
@@ -54,21 +49,15 @@ class ConversationService(BaseService):
         """
         Get the set of conversation IDs visible to ``user``.
 
-        For superusers this returns an empty set — callers must check
-        ``_is_superuser`` first and bypass set-membership entirely.
-
         When ``request`` is provided the set is cached on the request,
         keyed by user, so repeated visibility checks share the subquery.
 
         Returns:
-            Set of conversation IDs the user can see, or empty set for superusers.
+            Set of conversation IDs the user can see.
         """
         from opencontractserver.conversations.models import Conversation
 
-        if cls._is_superuser(user):
-            # Superusers see all - callers short-circuit before reaching here.
-            return set()
-
+        # scoped admin access, 2026-05: admins computed like a normal user (no superuser short-circuit).
         cache_key = (
             f"{cls._VISIBLE_CONVERSATION_IDS_CACHE_KEY}_{getattr(user, 'id', None)}"
         )
@@ -101,12 +90,8 @@ class ConversationService(BaseService):
             True if user can see the conversation, False otherwise.
             Returns False for both non-existent and inaccessible conversations.
         """
-        from opencontractserver.conversations.models import Conversation
-
         user = cls._normalize_user(user)
-        if cls._is_superuser(user):
-            # Superusers see all - just check existence
-            return Conversation.objects.filter(id=conversation_id).exists()
+        # scoped admin access, 2026-05: admins computed like a normal user (no superuser short-circuit).
         return conversation_id in cls._get_visible_conversation_ids(
             user, request=request
         )

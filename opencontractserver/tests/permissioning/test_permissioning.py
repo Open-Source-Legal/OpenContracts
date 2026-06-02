@@ -778,11 +778,26 @@ class PermissioningTestCase(TestCase):
         self.assertNotIn(feedback4, visible_feedback_user2)
         logger.info(f"User2 can see {visible_feedback_user2.count()} feedback items")
 
-        # Test visibility for superuser
+        # Test visibility for the superuser. Under the scoped-admin contract
+        # (2026-05) the superuser is computed like a normal user for DATA
+        # authorization — no blanket bypass — and feedback follows the
+        # commented annotation's visibility for admins too. The superuser
+        # therefore sees only:
+        #   - feedback2: ``is_public=True``.
+        #   - feedback3 / feedback4: their commented annotations were CREATED
+        #     by the superuser, so it sees those annotations via the normal
+        #     creator path (regardless of the annotation's ``is_public`` flag).
+        # It does NOT see feedback1: created by ``self.user``, not public, and
+        # with no commented annotation to inherit visibility from.
         visible_feedback_superuser = UserFeedback.objects.visible_to_user(
             self.superuser
         )
-        self.assertIn(feedback1, visible_feedback_superuser)
+        self.assertNotIn(
+            feedback1,
+            visible_feedback_superuser,
+            "No-bypass superuser must NOT see another user's private, "
+            "annotation-less feedback",
+        )
         self.assertIn(feedback2, visible_feedback_superuser)
         self.assertIn(feedback3, visible_feedback_superuser)
         self.assertIn(feedback4, visible_feedback_superuser)

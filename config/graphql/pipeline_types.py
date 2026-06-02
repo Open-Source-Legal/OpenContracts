@@ -229,6 +229,16 @@ class PipelineSettingsType(graphene.ObjectType):
         required=False,
     )
 
+    # Default LLM model spec for agents. Empty string falls back to the
+    # Django settings default (DEFAULT_LLM / OPENAI_MODEL).
+    default_llm = graphene.String(
+        description="Install-wide default LLM model spec (pydantic-ai "
+        "'{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') used by "
+        "agents when no per-corpus or per-agent override is set. Empty string "
+        "means the Django settings default is used.",
+        required=False,
+    )
+
     # Secrets indicator (actual secrets are never exposed via GraphQL)
     components_with_secrets = graphene.List(
         graphene.String,

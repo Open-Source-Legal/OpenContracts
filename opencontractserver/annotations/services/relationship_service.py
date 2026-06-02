@@ -90,63 +90,65 @@ class RelationshipService(BaseService):
         # Build query with combined document filters
         qs = Relationship.objects.filter(doc_filters)
 
-        # Apply privacy filtering for created_by_* fields (same pattern as Annotations)
-        if not user.is_superuser:
-            # Get analyses user can access
-            from opencontractserver.analyzer.models import (
-                Analysis,
-                AnalysisUserObjectPermission,
+        # Apply privacy filtering for created_by_* fields (same pattern as
+        # Annotations). Applies to ALL users including superusers (scoped admin
+        # access, 2026-05): an admin only sees analysis-/extract-private
+        # relationships it can actually reach.
+        # Get analyses user can access
+        from opencontractserver.analyzer.models import (
+            Analysis,
+            AnalysisUserObjectPermission,
+        )
+        from opencontractserver.extracts.models import Extract
+
+        # Anonymous users can only see public analyses/extracts
+        if user.is_anonymous:
+            visible_analyses = Analysis.objects.filter(Q(is_public=True))
+            visible_extracts = Extract.objects.none()  # No extracts for anonymous
+        else:
+            # Base query for visible analyses
+            visible_analyses = Analysis.objects.filter(
+                Q(is_public=True) | Q(creator=user)
             )
-            from opencontractserver.extracts.models import Extract
 
-            # Anonymous users can only see public analyses/extracts
-            if user.is_anonymous:
-                visible_analyses = Analysis.objects.filter(Q(is_public=True))
-                visible_extracts = Extract.objects.none()  # No extracts for anonymous
-            else:
-                # Base query for visible analyses
-                visible_analyses = Analysis.objects.filter(
-                    Q(is_public=True) | Q(creator=user)
-                )
+            # Add analyses with explicit permissions
+            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
+                user=user
+            ).values_list("content_object_id", flat=True)
 
-                # Add analyses with explicit permissions
-                analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                    user=user
-                ).values_list("content_object_id", flat=True)
-
-                visible_analyses = visible_analyses | Analysis.objects.filter(
-                    id__in=analyses_with_permission
-                )
-
-                # Get extracts user can access
-                from opencontractserver.extracts.models import (
-                    ExtractUserObjectPermission,
-                )
-
-                visible_extracts = Extract.objects.filter(Q(creator=user))
-
-                # Add extracts with explicit permissions
-                extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                    user=user
-                ).values_list("content_object_id", flat=True)
-
-                visible_extracts = visible_extracts | Extract.objects.filter(
-                    id__in=extracts_with_permission
-                )
-
-            # Filter relationships: exclude private ones unless user has access
-            # BUT always include structural relationships (they're always visible)
-            qs = qs.exclude(
-                # Exclude non-structural analysis-created relationships user can't see
-                Q(created_by_analysis__isnull=False)
-                & Q(structural=False)  # Only apply privacy to non-structural
-                & ~Q(created_by_analysis__in=visible_analyses)
-            ).exclude(
-                # Exclude non-structural extract-created relationships user can't see
-                Q(created_by_extract__isnull=False)
-                & Q(structural=False)  # Only apply privacy to non-structural
-                & ~Q(created_by_extract__in=visible_extracts)
+            visible_analyses = visible_analyses | Analysis.objects.filter(
+                id__in=analyses_with_permission
             )
+
+            # Get extracts user can access
+            from opencontractserver.extracts.models import (
+                ExtractUserObjectPermission,
+            )
+
+            visible_extracts = Extract.objects.filter(Q(creator=user))
+
+            # Add extracts with explicit permissions
+            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
+                user=user
+            ).values_list("content_object_id", flat=True)
+
+            visible_extracts = visible_extracts | Extract.objects.filter(
+                id__in=extracts_with_permission
+            )
+
+        # Filter relationships: exclude private ones unless user has access
+        # BUT always include structural relationships (they're always visible)
+        qs = qs.exclude(
+            # Exclude non-structural analysis-created relationships user can't see
+            Q(created_by_analysis__isnull=False)
+            & Q(structural=False)  # Only apply privacy to non-structural
+            & ~Q(created_by_analysis__in=visible_analyses)
+        ).exclude(
+            # Exclude non-structural extract-created relationships user can't see
+            Q(created_by_extract__isnull=False)
+            & Q(structural=False)  # Only apply privacy to non-structural
+            & ~Q(created_by_extract__in=visible_extracts)
+        )
 
         if corpus_id:
             # Filter by corpus (permissions already checked)

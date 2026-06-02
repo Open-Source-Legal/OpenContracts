@@ -618,14 +618,16 @@ class TestBadgeGraphQLMutations(TestCase):
         self.assertFalse(result["data"]["awardBadge"]["ok"])
         self.assertEqual(result["data"]["awardBadge"]["message"], "Corpus not found")
 
-    def test_non_superuser_cannot_award_to_private_profile_recipient(self):
-        """Phase D semantic: ``AwardBadgeMutation`` resolves the recipient
-        through ``visible_to_user``. A non-superuser corpus moderator/owner
-        cannot reach a recipient whose profile is private — they get the
-        unified ``User not found`` envelope (no leak of "exists but hidden").
-
-        Superusers retain the bypass via ``UserProfileManager.visible_to_user``
-        so admin / moderation surfaces still work against private profiles.
+    def test_award_to_private_recipient_gated_by_authorization_not_visibility(self):
+        """Scoped-admin semantic (2026-05): ``AwardBadgeMutation`` authorizes the
+        AWARDER first (corpus CRUD for corpus badges, superuser for global) and
+        then resolves the recipient with a direct, unfiltered lookup. Awarding
+        to a private-profile recipient is therefore legitimate once the awarder
+        is authorized — it no longer depends on the awarder being able to *see*
+        the recipient's profile (the old ``UserProfileManager`` superuser bypass
+        is gone). An UNAUTHORIZED caller is rejected at the authorization gate
+        with the unified ``Badge not found`` envelope, before any recipient
+        existence is revealed (IDOR contract preserved).
         """
         # Recipient with a private profile.
         private_recipient = User.objects.create_user(
@@ -635,11 +637,9 @@ class TestBadgeGraphQLMutations(TestCase):
             is_profile_public=False,
         )
 
-        # Corpus-scoped badge so the corpus_owner (non-superuser) clears the
-        # awarder permission gate via ``corpus.user_can(CRUD)``.
         corpus_badge = Badge.objects.create(
             name="Private-Recipient Badge",
-            description="Verify private-profile gate",
+            description="Verify authorize-then-unfiltered-lookup",
             icon="Award",
             badge_type=BadgeTypeChoices.CORPUS,
             corpus=self.corpus,
@@ -664,16 +664,17 @@ class TestBadgeGraphQLMutations(TestCase):
             }}
         """
 
-        # Non-superuser awarder: blocked with unified "User not found".
-        non_superuser_result = self.client.execute(
+        # UNAUTHORIZED awarder (no corpus CRUD): rejected at the authorization
+        # gate with the unified "Badge not found", no UserBadge created.
+        unauthorized_result = self.client.execute(
             mutation,
-            context_value=type("Request", (), {"user": self.corpus_owner})(),
+            context_value=type("Request", (), {"user": self.normal_user})(),
         )
-        self.assertIsNone(non_superuser_result.get("errors"))
-        self.assertFalse(non_superuser_result["data"]["awardBadge"]["ok"])
+        self.assertIsNone(unauthorized_result.get("errors"))
+        self.assertFalse(unauthorized_result["data"]["awardBadge"]["ok"])
         self.assertEqual(
-            non_superuser_result["data"]["awardBadge"]["message"],
-            "User not found",
+            unauthorized_result["data"]["awardBadge"]["message"],
+            "Badge not found",
         )
         self.assertFalse(
             UserBadge.objects.filter(
@@ -681,13 +682,15 @@ class TestBadgeGraphQLMutations(TestCase):
             ).exists()
         )
 
-        # Superuser bypass still works — same payload, succeeds.
-        superuser_result = self.client.execute(
+        # AUTHORIZED awarder (corpus owner with CRUD) CAN award to the
+        # private-profile recipient — authorization, not profile visibility,
+        # is the gate.
+        authorized_result = self.client.execute(
             mutation,
-            context_value=type("Request", (), {"user": self.admin_user})(),
+            context_value=type("Request", (), {"user": self.corpus_owner})(),
         )
-        self.assertIsNone(superuser_result.get("errors"))
-        self.assertTrue(superuser_result["data"]["awardBadge"]["ok"])
+        self.assertIsNone(authorized_result.get("errors"))
+        self.assertTrue(authorized_result["data"]["awardBadge"]["ok"])
         self.assertTrue(
             UserBadge.objects.filter(
                 user=private_recipient, badge=corpus_badge

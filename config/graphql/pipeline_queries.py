@@ -277,6 +277,7 @@ class PipelineQueryMixin:
             component_settings=settings_instance.component_settings or {},
             default_embedder=settings_instance.default_embedder or "",
             default_reranker=settings_instance.default_reranker or "",
+            default_llm=settings_instance.default_llm or "",
             components_with_secrets=components_with_secrets,
             tools_with_secrets=settings_instance.get_tools_with_secrets(),
             enabled_components=settings_instance.enabled_components or [],

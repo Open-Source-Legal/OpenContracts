@@ -445,18 +445,45 @@ class TestSuperuserBadgeVisibility(TestCase):
             badge=self.badge,
         )
 
-    def test_superuser_sees_all_badges(self):
+    def test_superuser_sees_badges_per_normal_visibility(self):
         """
-        GIVEN: A badge awarded to a private user
-        WHEN: A superuser queries for badges
-        THEN: All badges should be visible
+        Under the scoped-admin contract (2026-05) badge awards (UserBadge) are
+        user data and follow normal profile-privacy + corpus visibility for
+        superusers too — there is no blanket "sees all" bypass.
+
+        GIVEN: A badge awarded to a private-profile user (no shared corpus)
+        AND: A global badge awarded to a public-profile user
+        WHEN: A no-grant superuser queries for badges
+        THEN: The private-profile user's badge is HIDDEN, while the
+              public-profile user's global badge is VISIBLE.
         """
         visible_badges = BadgeService.get_visible_user_badges(self.superuser)
 
-        self.assertIn(
+        # Private-profile stranger's badge is NOT visible (no bypass).
+        self.assertNotIn(
             self.badge_award,
             visible_badges,
-            "Superusers should see all badges",
+            "No-grant superuser must NOT see a private-profile stranger's badge",
+        )
+
+        # Positive case: a public-profile user's global badge IS visible via
+        # the normal path.
+        public_user = User.objects.create_user(
+            username="public_badge_holder",
+            email="public_badge_holder@example.com",
+            password="testpass123",
+            is_profile_public=True,
+        )
+        public_badge_award = UserBadge.objects.create(
+            user=public_user,
+            badge=self.badge,
+        )
+
+        visible_badges = BadgeService.get_visible_user_badges(self.superuser)
+        self.assertIn(
+            public_badge_award,
+            visible_badges,
+            "Superuser should see a public-profile user's global badge",
         )
 
 

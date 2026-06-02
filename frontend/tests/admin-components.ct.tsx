@@ -583,6 +583,7 @@ const mockPipelineSettings = {
   parserKwargs: {},
   componentSettings: {},
   defaultEmbedder: null,
+  defaultLlm: null,
   componentsWithSecrets: [
     "opencontractserver.pipeline.embedders.openai.OpenAIEmbedder",
   ],
@@ -664,6 +665,7 @@ const mockPipelineComponents = {
       settingsSchema: [],
     },
   ],
+  llmProviders: [],
 };
 
 const mockPipelineComponentsWithConfiguredSecrets = {
@@ -1507,8 +1509,15 @@ test.describe("SystemSettings Component", () => {
 
     // Check Default Embedder section
     await expect(page.locator("text=Default Embedder")).toBeVisible();
-    await expect(page.locator("button:has-text('Edit')")).toBeVisible();
     await expect(page.locator("text=Using system default")).toBeVisible();
+
+    // Default LLM section renders alongside the embedder default (both are
+    // non-filetype-scoped system defaults living in this panel).
+    await expect(page.locator("text=Default LLM")).toBeVisible();
+    await expect(page.locator("text=Using server default")).toBeVisible();
+
+    // Each default exposes its own Edit button (Default Embedder, Default LLM).
+    await expect(page.locator("button:has-text('Edit')")).toHaveCount(2);
 
     await component.unmount();
   });
@@ -1620,6 +1629,7 @@ test.describe("SystemSettings Component", () => {
           settingsSchema: [],
         },
       ],
+      llmProviders: [],
     };
 
     const settingsMock = {

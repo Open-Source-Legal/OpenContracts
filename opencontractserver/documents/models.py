@@ -1201,6 +1201,25 @@ class PipelineSettings(django.db.models.Model):
         ),
     )
 
+    # Install-wide default LLM model spec for pydantic-ai agents. Uses the
+    # pydantic-ai provider-prefixed form "{provider_key}:{model_name}"
+    # (e.g. "anthropic:claude-opus-4-6"). Empty string means "fall back to
+    # the Django settings default (DEFAULT_LLM / OPENAI_MODEL)". Per-agent
+    # (AgentConfiguration.preferred_llm) and per-corpus (Corpus.preferred_llm)
+    # values still win over this. Resolved by
+    # opencontractserver.llms.llm_registry.resolve_model_spec.
+    default_llm = django.db.models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text=(
+            "Default LLM model spec (pydantic-ai '{provider}:{model}' form, "
+            "e.g. 'anthropic:claude-opus-4-6') for agents when no per-corpus "
+            "or per-agent override is set. Empty string falls back to the "
+            "Django settings default."
+        ),
+    )
+
     # Encrypted secrets storage (API keys, tokens, credentials)
     # Stored as Fernet-encrypted JSON blob
     encrypted_secrets = django.db.models.BinaryField(
@@ -1349,6 +1368,11 @@ class PipelineSettings(django.db.models.Model):
                     "default_reranker": getattr(
                         django_settings, "DEFAULT_RERANKER", ""
                     ),
+                    # ``DEFAULT_LLM`` may be explicitly set to ``None`` (e.g. in
+                    # tests exercising the legacy fallback). Coerce to "" so the
+                    # NOT NULL ``default_llm`` column is never given a null value;
+                    # an empty string already means "fall back to Django default".
+                    "default_llm": getattr(django_settings, "DEFAULT_LLM", "") or "",
                 },
             )
 
@@ -1544,6 +1568,22 @@ class PipelineSettings(django.db.models.Model):
             Default reranker class path, or empty string if unset.
         """
         return self.default_reranker or ""
+
+    def get_default_llm(self) -> str:
+        """
+        Get the install-wide default LLM model spec.
+
+        Database is the single source of truth at runtime. An empty string
+        means "fall back to the Django settings default" — callers should
+        defer to ``resolve_model_spec`` which walks the documented priority
+        chain (per-call → per-agent → per-corpus → this value → Django
+        settings).
+
+        Returns:
+            Default LLM model spec (e.g. "anthropic:claude-opus-4-6"), or
+            empty string if unset.
+        """
+        return self.default_llm or ""
 
     def is_component_enabled(self, class_path: str) -> bool:
         """Check if a component is enabled.

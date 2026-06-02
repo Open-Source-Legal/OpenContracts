@@ -183,7 +183,8 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
                 # from caller", and "caller can READ but is not the creator"
                 # into the same response. AnnotationLabel uses creator-based
                 # permissions (no guardian tables); the service-layer
-                # IDOR-safe lookup enforces creator/public/superuser.
+                # IDOR-safe lookup enforces creator/public (superusers are
+                # computed like a normal user — scoped admin access, 2026-05).
                 label = get_for_user_or_none(AnnotationLabel, label_pk, user)
                 if label is None:
                     return DeleteMultipleLabelMutation(
@@ -195,7 +196,7 @@ class DeleteMultipleLabelMutation(graphene.Mutation):
                 # — surfacing "Cannot delete read-only labels" would reveal
                 # the label's existence + read-only flag to anyone with a
                 # guessable pk.
-                if not user.is_superuser and label.creator_id != user.id:
+                if label.creator_id != user.id:
                     return DeleteMultipleLabelMutation(
                         ok=False, message="Label not found"
                     )

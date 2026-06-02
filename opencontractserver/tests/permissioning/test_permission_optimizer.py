@@ -135,7 +135,16 @@ class PerInstanceMemoizationTestCase(TestCase):
         self.assertFalse(hasattr(corpus, INSTANCE_PERMS_CACHE_ATTR))
 
     def test_fast_paths_do_not_populate_cache(self):
-        """Superuser/creator/public-READ short-circuits skip the cold path."""
+        """The genuine fast paths (anonymous public-READ, creator) short-circuit
+        before the cold path and never populate the cache.
+
+        NOTE: superuser is NO LONGER a fast path — under the security refactor a
+        superuser is computed like a normal authenticated user and flows through
+        the guardian cold path (populating the cache), so it is intentionally
+        omitted from this enumeration. See
+        ``test_direct_call_with_superuser_warms_instance_cache`` for the
+        superuser's normal cold-path cache behaviour.
+        """
 
         # Public corpus + anonymous user — fast path.
         public = Corpus.objects.create(
@@ -149,13 +158,6 @@ class PerInstanceMemoizationTestCase(TestCase):
             title="private", creator=self.creator, is_public=False
         )
         self.assertTrue(private.user_can(self.creator, PermissionTypes.READ))
-        self.assertFalse(hasattr(private, INSTANCE_PERMS_CACHE_ATTR))
-
-        # Superuser — fast path.
-        admin = User.objects.create_superuser(
-            username="t1_admin", email="t1a@test.test", password="x"
-        )
-        self.assertTrue(private.user_can(admin, PermissionTypes.READ))
         self.assertFalse(hasattr(private, INSTANCE_PERMS_CACHE_ATTR))
 
     def test_cache_returns_defensive_copy(self):
@@ -173,24 +175,26 @@ class PerInstanceMemoizationTestCase(TestCase):
         self.assertNotIn("synthetic_marker", second)
 
     def test_direct_call_with_superuser_warms_instance_cache(self):
-        """Superusers go through the guardian-superuser branch.
+        """A superuser flows through the normal guardian cold path.
 
-        ``_default_user_can`` short-circuits for superusers before reaching
-        ``get_users_permissions_for_obj``, so the warming side-effect at
-        the superuser return path is only exercised when callers invoke
-        the helper directly (e.g. mutation resolvers checking compound
-        permissions). The cache must still populate so a subsequent
-        direct call short-circuits to the Tier 1 hit path.
+        Under the security refactor there is no superuser short-circuit:
+        ``get_users_permissions_for_obj`` resolves a superuser's grants from
+        guardian exactly like a normal authenticated user. With a READ grant on
+        this corpus the helper returns ``{"read_corpus"}`` (NOT the old rich
+        7-perm bypass set) and warms the per-instance cache the same way any
+        granted user would, so a subsequent direct call hits Tier 1.
         """
 
         admin = User.objects.create_superuser(
             username="t1_warm_admin", email="t1_wa@test.test", password="x"
         )
         corpus = self._fresh_corpus()
+        # Grant READ via the normal path — the superuser is computed normally.
+        set_permissions_for_obj_to_user(admin, corpus, [PermissionTypes.READ])
+
         granted = get_users_permissions_for_obj(user=admin, instance=corpus)
-        # Superuser on a guardian-enabled model gets the rich 7-perm set.
-        self.assertIn("create_corpus", granted)
-        self.assertIn("permission_corpus", granted)
+        # Normal guardian resolution: only the granted READ codename, no bypass.
+        self.assertEqual(granted, {"read_corpus"})
         # Cache attribute is now present under the keyed slot.
         cache = getattr(corpus, INSTANCE_PERMS_CACHE_ATTR, None)
         assert cache is not None
@@ -784,10 +788,21 @@ class DefaultUserCanCoverageTestCase(TestCase):
         # Non-public + double → False
         self.assertFalse(self._call(_FakeUnauthUser(), PermissionTypes.READ))
 
-    def test_superuser_short_circuits_all_permissions(self):
+    def test_superuser_computed_like_normal_user(self):
+        """There is no superuser short-circuit anymore: ``_default_user_can``
+        computes a superuser exactly like a normal authenticated user.
+
+        - On a private object it owns no grants for (``self.corpus`` belongs to
+          ``self.creator``), every permission is denied — the superuser is a
+          stranger.
+        - On a public corpus it gets READ (and only READ).
+        - On a corpus it created it gets the full creator surface.
+        """
         admin = User.objects.create_superuser(
             username="duc_admin", email="duc_a@test.test", password="x"
         )
+
+        # Private stranger object → denied on every permission.
         for perm in (
             PermissionTypes.READ,
             PermissionTypes.CREATE,
@@ -800,7 +815,33 @@ class DefaultUserCanCoverageTestCase(TestCase):
             PermissionTypes.CRUD,
             PermissionTypes.ALL,
         ):
-            self.assertTrue(self._call(admin, perm), f"superuser denied {perm}")
+            self.assertFalse(
+                self._call(admin, perm),
+                f"no-grant superuser must be denied {perm} on a stranger object",
+            )
+
+        # Public corpus → READ only, like any normal user.
+        from opencontractserver.utils.permissioning import _default_user_can
+
+        public = Corpus.objects.create(
+            title="public_admin", creator=self.creator, is_public=True
+        )
+        self.assertTrue(_default_user_can(admin, public, PermissionTypes.READ))
+        self.assertFalse(_default_user_can(admin, public, PermissionTypes.UPDATE))
+
+        # Corpus the superuser created → full creator surface, via normal path.
+        own = Corpus.objects.create(title="admin_own", creator=admin, is_public=False)
+        for perm in (
+            PermissionTypes.READ,
+            PermissionTypes.UPDATE,
+            PermissionTypes.DELETE,
+            PermissionTypes.CRUD,
+            PermissionTypes.ALL,
+        ):
+            self.assertTrue(
+                _default_user_can(admin, own, perm),
+                f"creator-superuser denied {perm} on its own corpus",
+            )
 
     def test_each_individual_permission_branch(self):
         """Each non-compound permission codename is dispatched correctly."""

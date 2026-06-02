@@ -12,7 +12,9 @@ Architecture context:
   the user cannot navigate to ("annotations linked to unknown document").
 - The hidden rows must reappear after a doc is restored from trash, and
   must vanish permanently after ``permanently_delete_document``.
-- Superusers see everything (intentional bypass for admin/audit tooling).
+- Scoped admin access (2026-05): superusers are computed like a normal user
+  and therefore do NOT see trashed annotations/relationships through the
+  manager. Audit/repair of trashed data is done via the Django admin site.
 """
 
 from django.contrib.auth import get_user_model
@@ -150,8 +152,10 @@ class AnnotationVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
         )
         self.assertNotIn(self.source_ann.id, visible_ids)
 
-    def test_superuser_still_sees_trashed_annotations(self):
-        """Admin tooling explicitly bypasses the trash filter."""
+    def test_superuser_does_not_see_trashed_annotations(self):
+        """Scoped admin access (2026-05): a superuser is computed like a normal
+        user, so trashed annotations are hidden from the manager. They are
+        reachable only via the Django admin site, not ``visible_to_user``."""
         delete_document(self.corpus, "/vis_doc.pdf", self.user)
 
         visible_ids = set(
@@ -159,8 +163,8 @@ class AnnotationVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
                 "id", flat=True
             )
         )
-        self.assertIn(self.source_ann.id, visible_ids)
-        self.assertIn(self.target_ann.id, visible_ids)
+        self.assertNotIn(self.source_ann.id, visible_ids)
+        self.assertNotIn(self.target_ann.id, visible_ids)
 
     def test_restore_makes_annotations_visible_again(self):
         """The data round-trips: soft-delete hides, restore unhides."""
@@ -399,7 +403,10 @@ class RelationshipVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
         )
         self.assertNotIn(self.relationship.id, visible_ids)
 
-    def test_superuser_still_sees_trashed_relationships(self):
+    def test_superuser_does_not_see_trashed_relationships(self):
+        """Scoped admin access (2026-05): a superuser is computed like a normal
+        user, so trashed relationships are hidden from the manager. They are
+        reachable only via the Django admin site, not ``visible_to_user``."""
         delete_document(self.corpus, "/vis_doc.pdf", self.user)
 
         visible_ids = set(
@@ -407,7 +414,7 @@ class RelationshipVisibilityWhenSoftDeletedTests(SoftDeleteVisibilityBase):
                 "id", flat=True
             )
         )
-        self.assertIn(self.relationship.id, visible_ids)
+        self.assertNotIn(self.relationship.id, visible_ids)
 
     def test_restore_makes_relationship_visible_again(self):
         delete_document(self.corpus, "/vis_doc.pdf", self.user)

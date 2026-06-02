@@ -386,8 +386,10 @@ class TestImportAnnotationsPermissionInvariants(TestCase):
             self.assertTrue(a.user_can(self.collaborator, PermissionTypes.READ))
             # Outsider: no doc/corpus perms → cannot read.
             self.assertFalse(a.user_can(self.outsider, PermissionTypes.READ))
-            # Superuser: always.
-            self.assertTrue(a.user_can(self.superuser, PermissionTypes.READ))
+            # Superuser is authorized like any normal user (scoped admin
+            # access, 2026-05): with no doc/corpus grant on this private
+            # annotation it reads exactly like the outsider — i.e. cannot.
+            self.assertFalse(a.user_can(self.superuser, PermissionTypes.READ))
 
     def test_no_per_annotation_guardian_rows_are_required(self):
         """The annotation-level guardian table can be empty without
