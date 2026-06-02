@@ -453,6 +453,10 @@ def _derive_title_from_prompt(prompt: str, limit: int = 80) -> str:
 # ``)`` or ``>`` so a trailing ``"title"`` and angle-bracket wrappers
 # (``<https://…>``) are tolerated. Footnote markers/definitions (``[^1]`` /
 # ``[^1]: …``) have no ``(target)`` and never match.
+# Inline links only. The target group ``([^)\s>]+)`` stops at the first ``)``,
+# so a parenthesised URL like ``Foo_(bar)`` is captured as ``Foo_(bar`` and the
+# trailing ``)`` leaks through — academic here since the agent fabricates flat
+# ``example.com`` URLs without parens.
 _MARKDOWN_LINK_RE = re.compile(
     r"!?\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)"
 )
@@ -469,31 +473,25 @@ _EXTERNAL_TARGET_RE = re.compile(
         | mailto: | tel:            # non-web but still externally resolvable
         | [\w-]+(?:\.[\w-]{2,})+     # bare domain  example.com/… (TLD ≥2 chars,
                                     # so dotted prose like ``v1.0`` / ``section_a.2``
-                                    # is not mistaken for a link target)
+                                    # is not mistaken for a link target). Known
+                                    # false positive: a relative ``name.ext``
+                                    # path (``schema.json``, ``openapi.yaml``)
+                                    # also matches — fine today since the agent
+                                    # emits no legitimate relative-path links.
     )""",
     re.IGNORECASE | re.VERBOSE,
 )
 
 
 def _strip_fabricated_links(markdown: str) -> str:
-    """Neutralise hyperlinks the deep-research agent invented.
+    """Downgrade externally-resolvable markdown links the (web-less) agent
+    invented to their plain label before storage, leaving the sanctioned
+    ``<cite ids="…">`` tag, in-app relative links, and fragment anchors intact.
 
-    The agent has no web tools, so every URL it emits is fabricated —
-    overwhelmingly the canonical ``https://example.com`` placeholder. The
-    only sanctioned attribution channel is the ``<cite ids="…">`` tag
-    (rendered to footnotes by :func:`_render_citations`), so any
-    externally-resolvable markdown link is downgraded to its plain label
-    before the body is stored and handed to the frontend ``SafeMarkdown``
-    renderer (which would otherwise render http(s)/mailto/tel targets as
-    live anchors). In-app relative links and fragment anchors are left
-    untouched.
-
-    Known gap (deliberate): only *inline* links ``[text](url)`` are matched.
-    Reference-style links (``[text][1]`` with a trailing ``[1]: url``
-    definition) are left as-is, because the agent's observed fabrication
-    pattern is the inline ``example.com`` placeholder, not reference style.
-    ``test_strip_fabricated_links_leaves_reference_style_links_unchanged``
-    pins this pass-through so the gap reads as intentional, not an oversight.
+    Deliberate gap: only *inline* ``[text](url)`` links are matched, not
+    reference-style ``[text][1]`` + ``[1]: url`` (the observed fabrication is the
+    inline ``example.com`` placeholder); pinned by
+    ``test_strip_fabricated_links_leaves_reference_style_links_unchanged``.
     """
     if not markdown:
         return markdown
