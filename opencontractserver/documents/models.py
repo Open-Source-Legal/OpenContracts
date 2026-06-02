@@ -2068,3 +2068,43 @@ class PipelineSettings(django.db.models.Model):
                 schemas[component_def.class_name] = schema
 
         return schemas
+
+
+# -------------------- PendingDocumentAnnotations -------------------- #
+
+
+class PendingDocumentAnnotations(django.db.models.Model):
+    """Producer (dumb-anchor) annotations awaiting post-ingest re-anchoring.
+
+    Written by the bulk-ZIP importer for a freshly created document, then
+    consumed by ``remap_pending_annotations`` once the parser pipeline has
+    produced the document's PAWLs / text layer. One row per imported document
+    that carries sidecar annotations.
+    """
+
+    class Status(django.db.models.TextChoices):
+        PENDING = "pending", "Pending"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
+
+    document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.CASCADE,
+        related_name="pending_annotations",
+    )
+    corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus", null=True, blank=True, on_delete=django.db.models.SET_NULL
+    )
+    creator = django.db.models.ForeignKey(
+        get_user_model(), on_delete=django.db.models.CASCADE
+    )
+    # {"annotations": [<dumb-anchor dicts>], "doc_labels": [<label names>]}
+    payload = django.db.models.JSONField(default=dict)
+    status = django.db.models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    report = django.db.models.JSONField(default=list, blank=True)
+    created_at = django.db.models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"PendingDocumentAnnotations(doc={self.document_id}, {self.status})"
