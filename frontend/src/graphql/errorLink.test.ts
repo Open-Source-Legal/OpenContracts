@@ -218,7 +218,7 @@ describe("errorLink", () => {
 
       // Non-auth branch still logs for debugging
       const logged = consoleErrorSpy.mock.calls.some(
-        (call) =>
+        (call: unknown[]) =>
           typeof call[0] === "string" &&
           (call[0] as string).includes("[GraphQL Error]")
       );

@@ -75,12 +75,12 @@ function makeSpanAnnot(
 
 // ─── Tests ─────────────────────────────────────────────────────
 describe("RelationHighlightItem", () => {
-  let onSelect: ReturnType<typeof vi.fn>;
-  let onRemove: ReturnType<typeof vi.fn>;
+  let onSelect: ReturnType<typeof vi.fn<(annotationId: string) => void>>;
+  let onRemove: ReturnType<typeof vi.fn<(annotationId: string) => void>>;
 
   beforeEach(() => {
-    onSelect = vi.fn();
-    onRemove = vi.fn();
+    onSelect = vi.fn<(annotationId: string) => void>();
+    onRemove = vi.fn<(annotationId: string) => void>();
   });
 
   describe("type switch (SOURCE vs TARGET)", () => {

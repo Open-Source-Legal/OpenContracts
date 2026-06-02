@@ -146,7 +146,7 @@ describe("downloadFile", () => {
 
     // Verify the catch block logged before re-throwing
     const logged = consoleLogSpy.mock.calls.some(
-      (call) =>
+      (call: unknown[]) =>
         typeof call[0] === "string" &&
         (call[0] as string).includes("Downloading file failed")
     );
