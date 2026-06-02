@@ -3859,7 +3859,6 @@ export interface ChatMessageNode {
   msgType: string;
   content: string;
   state?: string;
-  // Add other fields (data, createdAt, creator, etc.) if you need them
 }
 
 export interface ChatMessageEdge {
