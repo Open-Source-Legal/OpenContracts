@@ -31,6 +31,7 @@ boot-time registration.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -41,8 +42,10 @@ import pytest
 # Canonical task names that MUST be registered on a freshly-booted worker.
 # These are tasks reachable only through lazy/beat dispatch (no module-level
 # import on the boot path), which is exactly the class of task that silently
-# fails to register. Add new entries here when a task is dispatched by name
-# (beat schedule) or via a lazy ``.delay()`` import.
+# fails to register. Add an entry here whenever a task is dispatched by name
+# (beat schedule) or via a lazy, function-local ``.delay()`` import -- i.e.
+# any task whose defining module is NOT transitively imported from
+# ``opencontractserver/tasks/__init__.py`` at worker boot.
 REQUIRED_TASK_NAMES = [
     "opencontractserver.tasks.research_tasks.run_deep_research",
     "opencontractserver.tasks.memory_tasks.check_conversations_for_curation",
@@ -93,7 +96,9 @@ def test_required_tasks_register_on_fresh_worker_boot() -> None:
         capture_output=True,
         text=True,
         env=env,
-        timeout=300,
+        # Django setup in a fresh interpreter is ~5-15s; 90s is generous but
+        # fails fast if the subprocess genuinely hangs.
+        timeout=90,
     )
 
     assert result.returncode == 0, (
@@ -103,8 +108,6 @@ def test_required_tasks_register_on_fresh_worker_boot() -> None:
 
     # The boot script prints a single JSON object on its final stdout line.
     last_line = result.stdout.strip().splitlines()[-1]
-    import json
-
     present = json.loads(last_line)
 
     missing = [name for name, ok in present.items() if not ok]
