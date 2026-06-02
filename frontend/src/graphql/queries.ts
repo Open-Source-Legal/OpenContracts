@@ -3859,6 +3859,7 @@ export interface ChatMessageNode {
   msgType: string;
   content: string;
   state?: string;
+  createdAt?: string;
 }
 
 export interface ChatMessageEdge {
