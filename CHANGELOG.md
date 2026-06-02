@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Post-ingest annotation remap for bulk-ZIP imports (2026-06).**
+  Bulk-ZIP producers now ship _dumb-anchor_ annotations — PDF `page`+`bbox` or
+  text char-span (`start`/`end`) plus `rawText`, with no PAWLs/text supplied. The
+  parser pipeline runs normally, then a chained `remap_pending_annotations`
+  Celery task (`opencontractserver/tasks/doc_tasks.py`) re-anchors each anchor
+  onto the real PAWLs/text layer via `anchor_annotations`
+  (`opencontractserver/utils/annotation_anchoring.py`) and `import_annotations`.
+  Producer annotations are persisted in a new `PendingDocumentAnnotations` model
+  (`opencontractserver/documents/models.py`) and consumed after ingest.
+  Annotations that cannot be confidently anchored, or whose label does not
+  resolve in the corpus labelset, are **dropped and reported** on the pending
+  row (`report` entries with `dropped: true` and a reason; the remap result
+  carries `dropped` and `label_unresolved` counts). When anchoring succeeded but
+  every anchored annotation was dropped on an unresolved label, the pending row
+  is marked `FAILED` rather than a silent `DONE`. A standalone validator,
+  `validate_dumb_anchor_sidecar` (`opencontractserver/utils/validate_export.py`),
+  checks a producer's sidecar against its `labels.json` before zipping
+  (including the span-label-must-be-`TOKEN_LABEL` import gotcha).
+
 ### Fixed
 
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
@@ -63,6 +84,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inline annotation application); the OLD-format schema-validation test classes
   were removed.
 
+- **Shared PAWLs token-matching helpers extracted (2026-06).**
+  Token-region selection, page-text tokenisation, fuzzy title-to-token matching,
+  and bounds-union helpers used by both the PDF enricher and the new annotation
+  re-anchoring now live in `opencontractserver/utils/pdf_token_matching.py`,
+  consumed by `opencontractserver/utils/annotation_anchoring.py`.
+
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
   permission layer: it could READ every row of every data model and pass every
@@ -118,6 +145,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     service test modules were updated so a no-grant superuser is asserted to be
     a "stranger" for data (with positive grant-path cases and the retained
     structural-write break-glass). Docs: `docs/permissioning/consolidated_permissioning_guide.md`.
+
+### Removed
+
+- **`skip_pipeline` bulk-ZIP sidecar path and inline `_apply_sidecar_annotations` (2026-06).**
+  The old pre-anchored sidecar format (inline `pawls_file_content` / `content` /
+  `tokensJsons`, applied synchronously at import with the parser pipeline
+  skipped) is gone, replaced by the dumb-anchor format + post-ingest remap above.
+  See the bulk-ZIP importer entry under **Changed** for the full list of removed
+  helpers, constants, and imports.
 
 ### Fixed
 
