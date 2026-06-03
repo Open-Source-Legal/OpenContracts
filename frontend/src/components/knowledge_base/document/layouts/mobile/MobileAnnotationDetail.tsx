@@ -136,9 +136,9 @@ export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
   const annotation = useMemo(
     () =>
       [...allAnnotations, ...(structuralAnnotations || [])].find(
-        (a) => a.id === selectedId,
+        (a) => a.id === selectedId
       ) ?? null,
-    [allAnnotations, structuralAnnotations, selectedId],
+    [allAnnotations, structuralAnnotations, selectedId]
   );
 
   if (!annotation) {
