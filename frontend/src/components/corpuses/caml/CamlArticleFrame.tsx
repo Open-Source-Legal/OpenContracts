@@ -1,6 +1,11 @@
 import styled from "styled-components";
 
-import { CORPUS_COLORS } from "../styles/corpusDesignTokens";
+import {
+  CORPUS_BREAKPOINTS,
+  CORPUS_COLORS,
+  CORPUS_FONT_SIZES,
+  CORPUS_SPACING,
+} from "../styles/corpusDesignTokens";
 
 /**
  * Viewport guard around @os-legal/caml-react output.
@@ -58,7 +63,7 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
   /* muted lead styling survives.                                            */
   /* ----------------------------------------------------------------------- */
   article > section {
-    max-width: 720px;
+    max-width: ${CORPUS_BREAKPOINTS.readingMeasure}px;
     margin-inline: auto;
   }
 
@@ -86,20 +91,35 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
     color: ${CORPUS_COLORS.slate[900]};
     letter-spacing: -0.01em;
     line-height: 1.25;
-    font-weight: 650;
+    font-weight: 600;
   }
 
   article > section h2 {
-    font-size: 1.5rem;
+    font-size: ${CORPUS_FONT_SIZES["3xl"]};
     margin: 2.25em 0 0.6em;
     padding-bottom: 0.3em;
-    /* hairline rule: teal[700] accent at ~18% alpha (token + 8-digit hex) */
-    border-bottom: 1px solid ${CORPUS_COLORS.teal[700]}2e;
+    /* hairline rule: teal[700] accent at ~18% alpha. color-mix keeps this robust
+       if the token format ever changes (rgb()/oklch()/hex) -- no reliance on a
+       6-digit #rrggbb literal for an 8-digit hex concatenation. */
+    border-bottom: 1px solid
+      color-mix(in srgb, ${CORPUS_COLORS.teal[700]} 18%, transparent);
   }
 
   article > section h3 {
     font-size: 1.175rem;
     margin: 1.75em 0 0.4em;
+  }
+
+  /* Fallthrough for deeper headings (h4-h6) so #### and beyond stay legible
+     instead of inheriting browser defaults inside the scoped section. */
+  article > section h4,
+  article > section h5,
+  article > section h6 {
+    color: ${CORPUS_COLORS.slate[800]};
+    font-size: ${CORPUS_FONT_SIZES.lg};
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 1.5em 0 0.3em;
   }
 
   article img,
@@ -122,15 +142,21 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
     }
 
     article > header {
-      padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
-      padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+      padding-left: max(${CORPUS_SPACING[5]}, env(safe-area-inset-left, 0px));
+      padding-right: max(${CORPUS_SPACING[5]}, env(safe-area-inset-right, 0px));
     }
 
     article > section {
       width: 100%;
       max-width: 100%;
-      padding-left: max(1.25rem, env(safe-area-inset-left, 0px)) !important;
-      padding-right: max(1.25rem, env(safe-area-inset-right, 0px)) !important;
+      padding-left: max(
+        ${CORPUS_SPACING[5]},
+        env(safe-area-inset-left, 0px)
+      ) !important;
+      padding-right: max(
+        ${CORPUS_SPACING[5]},
+        env(safe-area-inset-right, 0px)
+      ) !important;
     }
 
     article blockquote {
