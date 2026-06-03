@@ -28,7 +28,10 @@ import {
 import { CorpusType } from "../../../types/graphql-api";
 import { parseCaml } from "@os-legal/caml";
 import type { CamlDocument } from "@os-legal/caml";
-import { CAML_ARTICLE_FILENAME } from "../../../assets/configurations/constants";
+import {
+  CAML_ARTICLE_FILENAME,
+  TABLET_BREAKPOINT,
+} from "../../../assets/configurations/constants";
 import { CamlDirectiveRenderer } from "../caml/CamlDirectiveRenderer";
 import {
   registerDirectiveHandler,
@@ -111,16 +114,14 @@ const ToolbarTitle = styled.span`
   color: ${OS_LEGAL_COLORS.textMuted};
   font-weight: 400;
   letter-spacing: 0.01em;
-  /* Allow the title to shrink so the nav controls (incl. the mode toggle)
-     never get pushed off-screen on narrow viewports. */
+  /* Shrink so the nav controls never get pushed off-screen on narrow viewports. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  /* The corpus title is redundant with the article hero on small screens —
-     hide it on mobile to make room for the back button + nav controls. */
-  @media (max-width: 768px) {
+  /* Redundant with the article hero on mobile — hide to make room for nav controls. */
+  @media (max-width: ${TABLET_BREAKPOINT}px) {
     display: none;
   }
 `;
@@ -133,15 +134,7 @@ const ToolbarNav = styled.div`
   flex-shrink: 0;
 `;
 
-/**
- * Mobile-only control that opens the corpus tab menu (navigation sidebar).
- *
- * The sidebar is the only way to reach the other corpus tabs on mobile, and it
- * only exists in power-user mode (see Corpuses.tsx). On desktop the sidebar is
- * always present, so this button is hidden there. Styled as a compact circular
- * icon button so it reads clearly as a tappable control against the glassy
- * toolbar without competing with the pill actions beside it.
- */
+/** Mobile-only control opening the corpus tab menu; sidebar is always present on desktop. */
 const ToolbarMenuButton = styled.button`
   display: none;
   align-items: center;
@@ -171,7 +164,7 @@ const ToolbarMenuButton = styled.button`
     outline-offset: 2px;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: ${TABLET_BREAKPOINT}px) {
     display: inline-flex;
   }
 `;
@@ -463,10 +456,7 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
               </PillToggleLabel>
             </PillToggle>
           )}
-          {/* Mobile-only entry point to the corpus tab menu. Without this, a
-              Readme.CAML article (which replaces the corpus home) leaves mobile
-              users with no way to open the navigation sidebar. The sidebar only
-              exists in power-user mode, so the button is gated to match it. */}
+          {/* Mobile entry point to the nav sidebar — not present on desktop. */}
           {onOpenMobileMenu && isPowerUserMode && (
             <ToolbarMenuButton
               onClick={onOpenMobileMenu}
