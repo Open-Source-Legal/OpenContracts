@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Alarming "Reconnecting…" / network-error toast pile-up on mobile screen-unlock (2026-06).**
+  On mobile, locking the screen suspends the page and drops in-flight queries
+  and WebSockets; on unlock a burst of failures fired before connectivity
+  re-established, stacking a column of red toasts ("Network error.",
+  repeated "ERROR Unable to fetch corpuses.", "Failed to refresh data. Please
+  reload the page."). Two root causes: (1) the per-query error toasts in the
+  corpus views (`frontend/src/views/Corpuses.tsx`,
+  `frontend/src/components/{documents,extracts,annotations,analyses,research}/*Cards.tsx`)
+  were fired from the component render body **without a `toastId`**, so each
+  re-render while `error` stayed truthy stacked a brand-new toast; (2)
+  `frontend/src/graphql/errorLink.ts` and
+  `frontend/src/components/network/NetworkStatusHandler.tsx` showed network/refetch
+  error toasts unconditionally, even during the brief, expected reconnect window.
+  Fix: a shared "reconnecting" grace window (`isReconnectingVar` in
+  `frontend/src/graphql/cache.ts`, helpers in
+  `frontend/src/utils/networkNotifications.ts`). `NetworkStatusHandler` arms the
+  window around its reconnect refetch (and a 10s safety auto-disarm); while armed
+  — or while `navigator.onLine` is false — `notifyTransientNetworkError` suppresses
+  the alarming toasts in favour of the single calm "Reconnecting…" indicator. All
+  transient network toasts now carry a stable `toastId` so they de-duplicate
+  instead of stacking; genuine persistent failures still surface once (after the
+  window closes). The red "Failed to refresh data. Please reload the page." toast
+  on a reconnect refetch failure was removed. Tests:
+  `frontend/src/utils/__tests__/networkNotifications.test.ts` and updated
+  `frontend/src/components/network/__tests__/NetworkStatusHandler.test.tsx`.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`

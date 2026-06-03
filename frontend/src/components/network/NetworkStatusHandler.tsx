@@ -15,6 +15,7 @@ import { useCallback, useRef } from "react";
 import { useApolloClient } from "@apollo/client";
 import { toast } from "react-toastify";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
+import { setReconnecting } from "../../utils/networkNotifications";
 
 // ============================================================================
 // Constants
@@ -25,8 +26,18 @@ const TOAST_IDS = {
   RECONNECTING: "network-reconnecting",
   ONLINE: "network-online",
   OFFLINE: "network-offline",
-  REFETCH_ERROR: "network-refetch-error",
 } as const;
+
+/**
+ * Delay (ms) after a reconnect refetch settles before the "reconnecting" grace
+ * window is disarmed.
+ *
+ * Queries that failed-then-(maybe)-succeeded during the reconnect emit a
+ * trailing error render as their state settles; keeping the window armed a
+ * little longer lets {@link notifyTransientNetworkError} swallow that final
+ * flicker instead of flashing a red toast right as we recover.
+ */
+const RECONNECT_TRAILING_DELAY = 1500;
 
 /**
  * Delay (ms) before refetching after network comes online.
@@ -98,6 +109,12 @@ export function NetworkStatusHandler({
       }
       lastRefetchRef.current = now;
 
+      // Arm the reconnect grace window: while a reconnect refetch is in flight,
+      // the queries it re-runs may briefly fail and trigger component-level
+      // error toasts. Suppress those (and errorLink's network-error toast) in
+      // favour of the single calm "Reconnecting…" indicator below.
+      setReconnecting(true);
+
       try {
         console.debug(
           `[NetworkStatusHandler] Refetching active queries: ${reason}`
@@ -111,22 +128,23 @@ export function NetworkStatusHandler({
 
         console.debug("[NetworkStatusHandler] Refetch completed successfully");
       } catch (error) {
+        // Deliberately quiet: a refetch failure here means the connection is
+        // still flaky right after resuming/coming online. We do NOT throw a
+        // red "reload the page" toast at the user mid-reconnect — the calm
+        // "Reconnecting…" indicator already conveys state, and any genuinely
+        // persistent failure surfaces (once) via the normal per-query error
+        // toasts after the grace window closes.
         console.error(
           "[NetworkStatusHandler] Error refetching queries:",
           error
         );
-
-        // Notify user that data may be stale
-        if (showToasts) {
-          toast.error("Failed to refresh data. Please reload the page.", {
-            toastId: TOAST_IDS.REFETCH_ERROR,
-            position: "bottom-right",
-            autoClose: 5000,
-          });
-        }
+      } finally {
+        // Keep the window armed briefly so the trailing error render from
+        // queries that just settled stays suppressed, then disarm.
+        setTimeout(() => setReconnecting(false), RECONNECT_TRAILING_DELAY);
       }
     },
-    [client, refetchDebounceMs, showToasts]
+    [client, refetchDebounceMs]
   );
 
   /**
