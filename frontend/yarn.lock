@@ -1550,10 +1550,10 @@
   resolved "https://registry.yarnpkg.com/@os-legal/caml/-/caml-0.1.2.tgz#403fcd236c5206abd9ed3d5657e95a898a67bda2"
   integrity sha512-7Kdhu5ziXMepoDg+ONC041vag4kHAQfam98R0pvmPST7xbfZCu+oY3jDdVtPuNjcVgbKZWh223VfStJCAKExQQ==
 
-"@os-legal/ui@0.1.16":
-  version "0.1.16"
-  resolved "https://registry.yarnpkg.com/@os-legal/ui/-/ui-0.1.16.tgz#e417df07eb08a7ed793987e4a62d08167d95bc68"
-  integrity sha512-2ltI5voRHCsXUBK/OqEErc9u5n6Ks0xz8arOpzpUe31hahdwnGbS6aeVVN/qHpYp3txUx39544eCpFLF+rbtww==
+"@os-legal/ui@0.1.19":
+  version "0.1.19"
+  resolved "https://registry.yarnpkg.com/@os-legal/ui/-/ui-0.1.19.tgz#d3511090cc41a8b8e0f499bcab23bd010e99e237"
+  integrity sha512-+bu/s0hJc5pS92Rd/iKggb7Luutwc6Gs76+ErT4uMTnzoIwxI6PA0HQS2FJFbcnvuNBNy+qRxy32AKhFuAzkAA==
 
 "@pkgjs/parseargs@^0.11.0":
   version "0.11.0"
