@@ -7,6 +7,7 @@ import {
   OS_LEGAL_TYPOGRAPHY,
 } from "../../assets/configurations/osLegalStyles";
 import {
+  SMALL_MOBILE_BREAKPOINT,
   TABLET_BREAKPOINT,
   TABLET_LANDSCAPE_BREAKPOINT,
 } from "../../assets/configurations/constants";
@@ -100,6 +101,19 @@ const HeroSubtitle = styled.p`
 
 const SearchContainer = styled.div`
   margin-bottom: 16px;
+
+  /* The @os-legal/ui SearchBox ships a mobile rule that sets the input to
+     "flex: 1 1 100%", which forces it onto its own full-width row. That wraps
+     the magnifying-glass icon onto a line by itself, above the placeholder
+     (and pushes the submit button to a third row). Keep the icon and input on
+     the same row on small screens; the full-width button can still wrap below.
+     The two-class selector here out-specifies the library's single-class media
+     rule, so it wins regardless of stylesheet injection order. */
+  @media (max-width: ${SMALL_MOBILE_BREAKPOINT}px) {
+    .oc-search-box__input {
+      flex: 1 1 auto;
+    }
+  }
 `;
 
 const FilterContainer = styled.div`
