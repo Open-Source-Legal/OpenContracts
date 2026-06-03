@@ -280,8 +280,7 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
             <DocumentSurface data-testid="mobile-surface-document">
               <ViewerArea>
                 {viewerContent}
-                {/* Floating controls overlay the viewer's top-right corner so
-                    the page fills the whole surface (no wasteful band). */}
+                {/* Floating controls overlay the viewer so the page fills it. */}
                 <MobileDocToolbar
                   zoomPercent={zoomLevel * 100}
                   onFitWidth={fitToWidth}

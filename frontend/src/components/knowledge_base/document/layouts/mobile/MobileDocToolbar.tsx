@@ -2,6 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { List, Search, Maximize2 } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
+import { Z_INDEX } from "../../../../../assets/configurations/constants";
 import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 
 export interface MobileDocToolbarProps {
@@ -11,20 +12,12 @@ export interface MobileDocToolbarProps {
   onFitWidth: () => void;
 }
 
-/**
- * Floating document controls.
- *
- * Previously a full-width band wedged between the header and the page — which
- * ate vertical space and read as wasteful. Now the controls float as a single
- * compact pill in the top-right corner of the viewer, so the document fills the
- * entire surface and the controls stay one tap away. The frosted pill carries
- * its own elevation, so it stays legible over either a PDF or a text page.
- */
+/** Compact frosted-pill toolbar that floats over the viewer's top-right corner. */
 const Cluster = styled.div`
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 5;
+  z-index: ${Z_INDEX.MOBILE_DOC_TOOLBAR_OVERLAY};
   display: flex;
   align-items: center;
   gap: 2px;
@@ -38,6 +31,7 @@ const Cluster = styled.div`
 
 /** Icon-only ghost control inside the floating pill. */
 const IconButton = styled.button`
+  position: relative;
   width: 34px;
   height: 34px;
   display: flex;
@@ -50,6 +44,14 @@ const IconButton = styled.button`
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.12s ease, background 0.16s ease;
+
+  /* Extend the tap target to a 44px minimum (WCAG 2.5.5 / Apple HIG) without
+     growing the 34px visual pill. */
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+  }
 
   &:active {
     transform: scale(0.92);
