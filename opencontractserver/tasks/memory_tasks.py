@@ -72,6 +72,7 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
         make_pydantic_ai_agent,
     )
     from opencontractserver.llms.context_guardrails import estimate_token_count
+    from opencontractserver.llms.model_factory import abuild_agent_model
 
     # 1. Load conversation and validate
     try:
@@ -192,8 +193,13 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
         await _release_claim()
         return {"status": "error", "reason": "config_failed"}
 
+    # Resolve once: a credentialed pydantic-ai model when the provider has DB
+    # creds, otherwise the bare spec string (env credentials). Reused for both
+    # the summarise and curation agents below.
+    resolved_model = await abuild_agent_model(model_name)
+
     summarise_agent = make_pydantic_ai_agent(
-        model=model_name,
+        model=resolved_model,
         instructions=MEMORY_SUMMARISE_SYSTEM_PROMPT,
     )
 
@@ -220,7 +226,7 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
     )
 
     curation_agent = make_pydantic_ai_agent(
-        model=model_name,
+        model=resolved_model,
         instructions=system_prompt,
     )
     try:

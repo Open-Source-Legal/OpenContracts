@@ -261,7 +261,7 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
                       </StageBadge>
                       {isLlmProvider && component.requiresApiKey && (
                         <FileTypeBadge
-                          title="This provider needs an API credential (resolved from the process environment, e.g. ANTHROPIC_API_KEY)"
+                          title="This provider needs an API credential. Set it below (stored encrypted) to configure it live, or leave it to the process environment (e.g. ANTHROPIC_API_KEY)."
                           style={{
                             display: "inline-flex",
                             alignItems: "center",

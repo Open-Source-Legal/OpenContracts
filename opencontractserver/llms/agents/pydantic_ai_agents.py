@@ -73,6 +73,10 @@ from opencontractserver.llms.context_guardrails import (
     strip_compaction_prefix,
 )
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
+
+# Resolves a model spec into a credentialed pydantic-ai Model when the provider
+# has DB-configured credentials (DB-wins / env-fallback); see model_factory.
+from opencontractserver.llms.model_factory import abuild_agent_model
 from opencontractserver.llms.tools.core_tools import (
     AnnotationItem,
     aadd_annotations_from_exact_strings,
@@ -1763,7 +1767,9 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # ended up being set, so non-Anthropic structured runs without
             # caller pins are bit-identical to before.
             structured_agent = make_pydantic_ai_agent(
-                model=effective_model,
+                # Resolve to a credentialed model when the provider has DB
+                # creds; otherwise this returns ``effective_model`` unchanged.
+                model=await abuild_agent_model(effective_model),
                 instructions=structured_system_prompt,
                 output_type=target_type,
                 deps_type=PydanticAIDependencies,
@@ -3001,7 +3007,8 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
         )
         logger.info(f"Created pydantic ai agent with context {config.system_prompt}")
         pydantic_ai_agent_instance = make_pydantic_ai_agent(
-            model=config.model_name,
+            # DB-configured provider credentials win over env (see model_factory).
+            model=await abuild_agent_model(config.model_name),
             instructions=config.system_prompt,
             deps_type=PydanticAIDependencies,
             tools=effective_tools,
@@ -3465,7 +3472,8 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
             )
 
         pydantic_ai_agent_instance = make_pydantic_ai_agent(
-            model=config.model_name,
+            # DB-configured provider credentials win over env (see model_factory).
+            model=await abuild_agent_model(config.model_name),
             instructions=config.system_prompt,
             deps_type=PydanticAIDependencies,
             tools=effective_tools,
