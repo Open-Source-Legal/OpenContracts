@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ugly white line in PDF annotation highlights when the bounding box is hidden (2026-06).**
+  `SelectionInfo` (the annotation label container) in
+  `frontend/src/components/annotator/display/components/Containers.tsx`
+  is absolutely positioned just above the highlight's top edge and spans the
+  full annotation width. When the bounding box was not displayed
+  (`showBoundingBox === false`) its background fell back to an *opaque* white
+  (`rgba(255, 255, 255, 0.9)`), rendering a full-width white bar across the top
+  of every highlight — even when labels were turned off entirely. The
+  equivalent search-result highlight (`SearchResult.tsx`) already used a
+  transparent fallback (`rgba(255, 255, 255, 0.0)`) and had no such artifact.
+  Fix: when the bounding box is hidden, render the `SelectionInfo` background as
+  `transparent` instead of opaque white, matching the search-result pattern. The
+  colored label "tab" is preserved unchanged when the bounding box *is*
+  displayed, and the label pill itself (`LabelTagContainer`) keeps its own
+  colored background, so labels remain readable.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
