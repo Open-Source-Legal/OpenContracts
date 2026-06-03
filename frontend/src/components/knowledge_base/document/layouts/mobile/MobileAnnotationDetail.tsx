@@ -35,15 +35,13 @@ const spin = keyframes`
  * annotation before anything is cached. A quietly spinning icon over the
  * sheet's white surface, never a heavy full-bleed spinner.
  */
-const LoadingState = styled.div`
+const LoadingState = styled(EmptyState)`
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  /* A touch more vertical breathing room than EmptyState for the spinner. */
   padding: 40px 16px;
-  font-size: 14px;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-  text-align: center;
 
   svg {
     color: ${OS_LEGAL_COLORS.accent};
