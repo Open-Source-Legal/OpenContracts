@@ -379,6 +379,37 @@ type Query {
 
   """Public OG metadata for data extract - no auth required"""
   ogExtractMetadata(extractId: String!): OGExtractMetadataType
+
+  """
+  Materialised install-wide aggregate counts (refreshed periodically). Global, not permission-scoped — use a scoped connection's totalCount for per-user figures.
+  """
+  systemStats: SystemStatsType
+}
+
+"""
+Install-wide aggregate metrics, materialised periodically. All counts are global, not permission-scoped.
+"""
+type SystemStatsType {
+  """Active users."""
+  userCount: Int
+
+  """Documents with an active path."""
+  documentCount: Int
+
+  """Corpuses."""
+  corpusCount: Int
+
+  """Non-structural annotations."""
+  annotationCount: Int
+
+  """Non-deleted conversations."""
+  conversationCount: Int
+
+  """Non-deleted chat messages."""
+  messageCount: Int
+
+  """When the snapshot was last recomputed; null until first run."""
+  computedAt: DateTime
 }
 
 type UserType implements Node {

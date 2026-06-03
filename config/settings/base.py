@@ -13,6 +13,7 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import MAX_FILE_UPLOAD_SIZE_BYTES
+from opencontractserver.constants.stats import SYSTEM_STATS_REFRESH_INTERVAL_SECONDS
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # opencontractserver/
@@ -806,6 +807,13 @@ CELERY_BEAT_SCHEDULE = {
     "chunked-uploads-purge-stale": {
         "task": "opencontractserver.document_imports.tasks.purge_stale_chunked_uploads",
         "schedule": 3600.0,  # hourly
+        "options": {"queue": "celery"},
+    },
+    # Materialise install-wide headline counts so dashboards/landing tiles
+    # don't run full-table COUNTs on every page load (issue #1908).
+    "system-stats-refresh": {
+        "task": "opencontractserver.tasks.stats_tasks.refresh_system_stats",
+        "schedule": SYSTEM_STATS_REFRESH_INTERVAL_SECONDS,
         "options": {"queue": "celery"},
     },
 }

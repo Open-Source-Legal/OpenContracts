@@ -653,3 +653,117 @@ class Installation(django.db.models.Model):
         """Get or create the singleton installation instance"""
         instance, _ = cls.objects.get_or_create()
         return instance
+
+
+class SystemStats(django.db.models.Model):
+    """Materialised install-wide aggregate metrics (issue #1908).
+
+    A singleton snapshot refreshed on a schedule by
+    ``opencontractserver.tasks.stats_tasks.refresh_system_stats`` so headline
+    surfaces (dashboards, landing tiles) read pre-computed counts in one
+    indexed PK lookup instead of running full-table ``COUNT``s on every page
+    load. Once annotation volume reaches the hundreds of thousands those
+    on-request counts dominate latency.
+
+    IMPORTANT: these are GLOBAL counts — they are NOT permission-scoped. Use
+    them for install-level metrics, never as a per-user "what can I see"
+    figure (the Browse-annotations "Total" tile stays per-user and exact via
+    the cached-count queryset, not this model).
+
+    ``compute_values()`` is the single source of truth for the count
+    definitions and is shared with the telemetry heartbeat so the two never
+    drift.
+    """
+
+    # Fixed primary key for the lone row — readers fetch it with
+    # ``SystemStats.get()`` rather than ordering/filtering.
+    SINGLETON_PK = 1
+
+    # The aggregate count fields, in one place so ``compute_values`` and any
+    # consumer (the refresh task, GraphQL type) iterate the same set.
+    COUNT_FIELDS = (
+        "user_count",
+        "document_count",
+        "corpus_count",
+        "annotation_count",
+        "conversation_count",
+        "message_count",
+    )
+
+    id = django.db.models.PositiveSmallIntegerField(
+        primary_key=True, default=SINGLETON_PK, editable=False
+    )
+    # Counts use BigInteger so the snapshot never overflows as the install
+    # grows (annotation counts in particular can climb past the ~2.1B
+    # PositiveInteger ceiling over a deployment's lifetime).
+    user_count = django.db.models.PositiveBigIntegerField(default=0)
+    document_count = django.db.models.PositiveBigIntegerField(default=0)
+    corpus_count = django.db.models.PositiveBigIntegerField(default=0)
+    annotation_count = django.db.models.PositiveBigIntegerField(
+        default=0, help_text="Non-structural annotations (matches telemetry)."
+    )
+    conversation_count = django.db.models.PositiveBigIntegerField(default=0)
+    message_count = django.db.models.PositiveBigIntegerField(default=0)
+    computed_at = django.db.models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the snapshot was last recomputed; null until first run.",
+    )
+    created = django.db.models.DateTimeField(default=timezone.now, editable=False)
+    modified = django.db.models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "System Stats"
+        verbose_name_plural = "System Stats"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Pin every instance to the singleton primary key."""
+        self.id = self.SINGLETON_PK
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls) -> "SystemStats":
+        """Get or create the singleton stats row (zeros until first refresh)."""
+        instance, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
+        return instance
+
+    @staticmethod
+    def compute_values() -> dict[str, int]:
+        """Compute the live aggregate counts — the single source of truth.
+
+        Shared by :meth:`refresh` and by the telemetry heartbeat
+        (``opencontractserver.tasks.telemetry_tasks.send_usage_heartbeat``) so
+        the materialised snapshot and the telemetry payload always agree on
+        what each count means. Imports are deferred to avoid import cycles
+        (this module is loaded early in app startup).
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.conversations.models import ChatMessage, Conversation
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import DocumentPath
+
+        return {
+            "user_count": get_user_model().objects.filter(is_active=True).count(),
+            "document_count": (
+                DocumentPath.objects.filter(is_deleted=False, is_current=True)
+                .values("document_id")
+                .distinct()
+                .count()
+            ),
+            "corpus_count": Corpus.objects.count(),
+            "annotation_count": Annotation.objects.filter(structural=False).count(),
+            "conversation_count": Conversation.objects.filter(
+                deleted_at__isnull=True
+            ).count(),
+            "message_count": ChatMessage.objects.filter(deleted_at__isnull=True).count(),
+        }
+
+    @classmethod
+    def refresh(cls) -> "SystemStats":
+        """Recompute the aggregate counts and persist them on the singleton."""
+        instance = cls.get()
+        for field, value in cls.compute_values().items():
+            setattr(instance, field, value)
+        instance.computed_at = timezone.now()
+        instance.save()
+        return instance

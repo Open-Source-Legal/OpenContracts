@@ -1198,13 +1198,11 @@ export const GET_ANNOTATIONS_FOR_CARDS = gql`
             id
             text
             color
-            labelType
             __typename
           }
           annotationType
           structural
           rawText
-          linkUrl
           isPublic
           contentModalities
           __typename

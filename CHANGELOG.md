@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Materialised install-wide statistics (`SystemStats`) — issue #1908.** A new
+  singleton model (`opencontractserver/users/models.py`) holds pre-computed
+  headline counts (active users, documents with an active path, corpuses,
+  non-structural annotations, conversations, chat messages), refreshed hourly
+  by the `refresh_system_stats` Celery beat task
+  (`opencontractserver/tasks/stats_tasks.py`;
+  `SYSTEM_STATS_REFRESH_INTERVAL_SECONDS` in
+  `opencontractserver/constants/stats.py`). Surfaced via the GraphQL
+  `systemStats` query (`config/graphql/stats_queries.py`) so dashboards/landing
+  tiles read one indexed row instead of running full-table `COUNT`s on every
+  page load. These are GLOBAL (not permission-scoped) counts. The count
+  definitions live in one place (`SystemStats.compute_values()`) and are now
+  shared by the telemetry heartbeat (`telemetry_tasks.send_usage_heartbeat`) so
+  the two can never drift. Migration: `users/0031_systemstats.py`.
+
+### Changed
+
+- **Cheap exact `totalCount` for the un-scoped annotations browse — issue
+  #1908.** The "Browse annotations" view's exact "Total Annotations" tile is a
+  `COUNT` over the full permission-filtered annotation set (a `DISTINCT` across
+  several visibility joins). graphene-django 3.2.3 runs that `COUNT` eagerly on
+  every page — including each infinite-scroll page — so at hundreds of
+  thousands of rows it dominated page latency. `AnnotationQuerySet`
+  (`opencontractserver/shared/QuerySets.py`) gains `with_cached_count()`, which
+  casts to a `CachedCountAnnotationQuerySet` whose `COUNT(*)` is cached per
+  `(user, filter)` (keyed by the compiled SQL) for
+  `ANNOTATION_COUNT_CACHE_TTL_SECONDS` (60 min). The value stays **exact** and
+  is stale by at most the TTL after a create/delete. Only the un-scoped
+  resolver branch (`config/graphql/annotation_queries.py`) opts in; document-
+  and corpus-scoped annotation counts stay live. The cached-count behaviour
+  survives the queryset clones graphene makes during pagination.
+- **Trimmed unused fields from `GET_ANNOTATIONS_FOR_CARDS`**
+  (`frontend/src/graphql/queries.ts`): `linkUrl` and `annotationLabel.labelType`
+  are never read by the annotation card (`getAnnotationLabelType` keys off
+  `annotationType`), so they are no longer fetched.
+
 ### Fixed
 
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**

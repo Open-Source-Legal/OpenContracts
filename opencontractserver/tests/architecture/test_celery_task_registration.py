@@ -50,6 +50,9 @@ REQUIRED_TASK_NAMES = [
     "opencontractserver.tasks.research_tasks.run_deep_research",
     "opencontractserver.tasks.memory_tasks.check_conversations_for_curation",
     "opencontractserver.tasks.memory_tasks.curate_corpus_memory",
+    # Beat-only (referenced by name in CELERY_BEAT_SCHEDULE, no module-level
+    # producer import) — issue #1908.
+    "opencontractserver.tasks.stats_tasks.refresh_system_stats",
 ]
 
 # Replicates the Celery worker boot path (``celery -A config.celery_app
