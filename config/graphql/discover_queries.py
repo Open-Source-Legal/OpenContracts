@@ -41,7 +41,12 @@ from config.graphql.graphene_types import (
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.constants.annotations import SEMANTIC_SEARCH_MAX_RESULTS
-from opencontractserver.constants.search import FTS_CONFIG, RRF_K
+from opencontractserver.constants.search import (
+    DISCOVER_DEFAULT_LIMIT,
+    DISCOVER_OVERSAMPLE,
+    FTS_CONFIG,
+    RRF_K,
+)
 from opencontractserver.conversations.models import (
     Conversation,
     ConversationTypeChoices,
@@ -51,14 +56,6 @@ from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
-
-# Default number of results per category. The frontend caps this per tab
-# (preview vs. entity tab) via the ``limit`` argument.
-DISCOVER_DEFAULT_LIMIT = 25
-
-# How many candidates each arm fetches relative to the requested ``limit``
-# before fusion — a small oversample so RRF has room to reorder.
-DISCOVER_OVERSAMPLE = 4
 
 
 # --------------------------------------------------------------------------- #
@@ -155,7 +152,10 @@ def _semantic_ids(
             vector, embedder_path, top_k=fetch_k
         )
     except Exception:  # noqa: BLE001 - semantic arm is best-effort
-        logger.warning("Discover semantic arm failed; falling back to text-only.")
+        logger.warning(
+            "Discover semantic arm failed; falling back to text-only.",
+            exc_info=True,
+        )
         return []
     return [obj.pk for obj in results]
 
@@ -397,9 +397,15 @@ class DiscoverSearchQueryMixin:
         from opencontractserver.pipeline.utils import get_default_embedder_path
 
         # Discover "Discussions" == collaborative THREADs (never personal CHATs).
+        # Exclude soft-deleted threads server-side so deleted thread metadata
+        # (title/description/creator) never reaches the client, even in the raw
+        # network response. The frontend keeps a defensive ``deletedAt`` filter.
         visible = BaseService.filter_visible(
             Conversation, user, request=info.context
-        ).filter(conversation_type=ConversationTypeChoices.THREAD)
+        ).filter(
+            conversation_type=ConversationTypeChoices.THREAD,
+            deleted_at__isnull=True,
+        )
 
         # Text arm now covers message *bodies*, not just the thread title — a
         # thread titled "Q3 sync" whose messages discuss "indemnification" is
@@ -412,6 +418,9 @@ class DiscoverSearchQueryMixin:
         ids = _rrf([text_ids, semantic_ids], limit)
 
         qs = visible.filter(id__in=ids).select_related(
-            "creator", "chat_with_corpus", "chat_with_corpus__creator"
+            "creator",
+            "chat_with_corpus",
+            "chat_with_corpus__creator",
+            "chat_with_document",
         )
         return _order_by_ids(qs, ids)

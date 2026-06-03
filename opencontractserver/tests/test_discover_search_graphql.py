@@ -9,6 +9,7 @@ permission filtering deterministically by disabling the semantic arm
 query vector to prove fusion surfaces semantic-only hits.
 """
 
+from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -273,6 +274,10 @@ class DiscoverSemanticArmTest(TestCase):
 
         self.client = Client(schema, context_value=TestContext(self.user))
 
+    @skipUnless(
+        get_default_embedder_path(),
+        "No default embedder configured; semantic arm cannot be exercised.",
+    )
     def test_semantic_only_hit(self):
         with patch(
             "config.graphql.discover_queries._query_vector",
