@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
+import { Loader2 } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
 import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
@@ -20,6 +21,34 @@ const EmptyState = styled.div`
   font-size: 14px;
   color: ${OS_LEGAL_COLORS.textSecondary};
   text-align: center;
+`;
+
+const spin = keyframes`
+  to {
+    transform: rotate(360deg);
+  }
+`;
+
+/**
+ * Subtle, calm loading affordance shown while the document (and its
+ * annotations) are still being fetched — e.g. a deep-link straight to an
+ * annotation before anything is cached. A quietly spinning icon over the
+ * sheet's white surface, never a heavy full-bleed spinner.
+ */
+const LoadingState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 16px;
+  font-size: 14px;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  text-align: center;
+
+  svg {
+    color: ${OS_LEGAL_COLORS.accent};
+    animation: ${spin} 0.9s linear infinite;
+  }
 `;
 
 /**
@@ -66,6 +95,13 @@ const Card = styled.div`
 interface MobileAnnotationDetailProps {
   /** Read-only mode disables editing capabilities (delete). */
   readOnly: boolean;
+  /**
+   * True while the document (and its annotations) are still being fetched.
+   * Threaded from the document loader so a deep-link straight to an annotation
+   * — before anything is cached — shows a loader instead of prematurely
+   * claiming the annotation is gone.
+   */
+  loading: boolean;
 }
 
 /**
@@ -85,6 +121,7 @@ interface MobileAnnotationDetailProps {
  */
 export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
   readOnly,
+  loading,
 }) => {
   const { selectedAnnotations } = useAnnotationSelection();
   const allAnnotations = useAllAnnotations();
@@ -99,12 +136,25 @@ export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
   const annotation = useMemo(
     () =>
       [...allAnnotations, ...(structuralAnnotations || [])].find(
-        (a) => a.id === selectedId
+        (a) => a.id === selectedId,
       ) ?? null,
-    [allAnnotations, structuralAnnotations, selectedId]
+    [allAnnotations, structuralAnnotations, selectedId],
   );
 
   if (!annotation) {
+    // While the document/annotations are still loading (e.g. a deep-link
+    // straight to an annotation before anything is cached), the selected id
+    // simply hasn't arrived yet — show a loader rather than wrongly reporting
+    // the annotation as gone. Only once loading settles and it's still
+    // unresolved do we treat it as unavailable.
+    if (loading) {
+      return (
+        <LoadingState>
+          <Loader2 size={22} aria-hidden />
+          Loading annotation…
+        </LoadingState>
+      );
+    }
     return <EmptyState>This annotation is no longer available.</EmptyState>;
   }
 

@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Mobile annotation deep-link showed "no longer available" instead of a loader during the initial uncached load (2026-06).**
+  Navigating directly to an annotation on mobile (e.g. `cite.opensource.legal/d/...?ann=<id>`)
+  before anything is cached takes a few seconds while the document and its
+  annotations are fetched. During that window the mobile "Annotation" sheet
+  (`frontend/src/components/knowledge_base/document/layouts/mobile/MobileAnnotationDetail.tsx`)
+  resolved the selected id against an empty annotation set and rendered
+  "This annotation is no longer available." — wrongly implying the annotation
+  was gone. The component had no access to a loading signal, so it could not
+  distinguish "still fetching" from "not found". Fix: thread the document
+  loader's `loading` flag from `MobileDocumentLayout.tsx` into
+  `MobileAnnotationDetail`; while `loading` is true and the annotation is not
+  yet resolved, render a subtle spinning loader ("Loading annotation…") instead
+  of the not-found message. The not-found state now only appears once loading
+  settles and the annotation is still unresolved.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
