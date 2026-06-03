@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`frontend/src/components/landing/NewHeroSection.tsx`) that restores
   `flex: 1 1 auto` on the input below `SMALL_MOBILE_BREAKPOINT` (480px), so the
   icon and input share one row again while the submit button still wraps to its
-  own full-width row.
+  own full-width row. Note: the upstream `SearchBox` mobile rule is unchanged
+  through the latest `@os-legal/ui` 0.1.19, so this consumer-side override is
+  version-independent and is retained after the bump noted under Changed.
 
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
@@ -43,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   present in `app.tasks`.
 
 ### Changed
+
+- **Bumped `@os-legal/ui` 0.1.16 → 0.1.19** (`frontend/package.json`,
+  `frontend/yarn.lock`). The upstream `SearchBox` mobile layout is unchanged in
+  0.1.19, so the consumer-side icon/input override above is still required.
 
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
