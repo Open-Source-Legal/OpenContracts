@@ -1010,7 +1010,17 @@ def import_zip_with_folder_structure(
                         try:
                             sidecar_data = _read_sidecar(import_zip, sidecar_path)
                             # New dumb-anchor format is identified by a
-                            # top-level ``"annotations"`` list.
+                            # top-level ``"annotations"`` list. This does NOT
+                            # collide with the legacy ``OpenContractDocExport``
+                            # sidecar (which keys annotations under
+                            # ``"labelled_text"``, never ``"annotations"``), so
+                            # the heuristic is unambiguous against every format
+                            # shipped today. An explicit ``"format":
+                            # "dumb-anchor-v1"`` marker would harden this against
+                            # a hypothetical future format that reuses
+                            # ``"annotations"`` — deferred until such a format
+                            # exists and the producer contract + validator can be
+                            # updated together (review finding #5).
                             has_pending_annotations = isinstance(
                                 sidecar_data.get("annotations"), list
                             )

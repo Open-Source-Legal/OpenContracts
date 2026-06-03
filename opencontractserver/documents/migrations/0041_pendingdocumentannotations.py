@@ -42,6 +42,7 @@ class Migration(migrations.Migration):
                 ),
                 ("report", models.JSONField(blank=True, default=list)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "corpus",
                     models.ForeignKey(

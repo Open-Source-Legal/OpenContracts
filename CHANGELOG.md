@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `validate_dumb_anchor_sidecar` (`opencontractserver/utils/validate_export.py`),
   checks a producer's sidecar against its `labels.json` before zipping
   (including the span-label-must-be-`TOKEN_LABEL` import gotcha).
+  Review hardening: `remap_pending_annotations` now processes **all** PENDING
+  rows for a document (not just the first) so a duplicate/retry row is never
+  orphaned; the success count is clamped with `max(0, ...)` and logs a warning
+  if it would go negative, so a bookkeeping bug can never silently flip a
+  no-op remap to `DONE`. `PendingDocumentAnnotations` gains an `updated_at`
+  (`auto_now`) column and a Django admin registration for operational
+  visibility into stuck/failed rows. Text/SPAN anchors now record `page: 0`
+  (0-indexed PAWLs) instead of the misleading `1`. Report `rawText` previews
+  keep head+tail (`truncate_middle` in `opencontractserver/utils/text.py`)
+  rather than a head-only 80-char slice, so a long dropped span can be
+  reconstructed from both ends.
 
 ### Fixed
 

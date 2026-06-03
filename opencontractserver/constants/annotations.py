@@ -154,3 +154,9 @@ ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD = 0.5
 # Min difflib ratio between selected tokens' text and rawText to confirm a PDF
 # geometric anchor before falling back to text search.
 ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO = 0.82
+# rawText preview kept on a remap ``report`` entry. Head+tail (rather than a
+# single head slice) so a long-span annotation that was dropped can be
+# reconstructed from both ends of its text — the start AND the end disambiguate
+# which span failed when several share a prefix.
+ANNOTATION_REPORT_RAWTEXT_HEAD = 60
+ANNOTATION_REPORT_RAWTEXT_TAIL = 20

@@ -16,6 +16,8 @@ from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL
 from opencontractserver.constants.annotations import (
     ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD,
     ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO,
+    ANNOTATION_REPORT_RAWTEXT_HEAD,
+    ANNOTATION_REPORT_RAWTEXT_TAIL,
     PDF_OUTLINE_FUZZY_MATCH_THRESHOLD,
 )
 from opencontractserver.types.dicts import (
@@ -28,6 +30,14 @@ from opencontractserver.utils.pdf_token_matching import (
     select_tokens_in_region,
     union_bounds,
 )
+from opencontractserver.utils.text import truncate_middle
+
+
+def report_rawtext_preview(raw: str | None) -> str:
+    """Head+tail preview of an annotation's rawText for a remap report entry."""
+    return truncate_middle(
+        raw, ANNOTATION_REPORT_RAWTEXT_HEAD, ANNOTATION_REPORT_RAWTEXT_TAIL
+    )
 
 
 def _norm(s: str) -> str:
@@ -112,7 +122,10 @@ def _anchor_text(ann: dict, content: str) -> dict | None:
         "parent_id": ann.get("parent_id"),
         "rawText": raw,
         "long_description": ann.get("long_description"),
-        "page": 1,
+        # PAWLs pages are 0-indexed. A text/SPAN annotation has no meaningful
+        # page (its locator is the char span below), so anchor it to page 0
+        # rather than the misleading 1.
+        "page": 0,
         "annotation_json": {"start": chosen, "end": end, "text": content[chosen:end]},
     }
 
@@ -141,7 +154,7 @@ def anchor_annotations(
             report.append(
                 {
                     "id": ann.get("id"),
-                    "rawText": (ann.get("rawText") or "")[:80],
+                    "rawText": report_rawtext_preview(ann.get("rawText")),
                     "dropped": False,
                     "reason": "",
                 }
@@ -150,7 +163,7 @@ def anchor_annotations(
             report.append(
                 {
                     "id": ann.get("id"),
-                    "rawText": (ann.get("rawText") or "")[:80],
+                    "rawText": report_rawtext_preview(ann.get("rawText")),
                     "dropped": True,
                     "reason": reason,
                 }

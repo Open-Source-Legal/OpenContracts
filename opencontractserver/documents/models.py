@@ -2105,6 +2105,9 @@ class PendingDocumentAnnotations(django.db.models.Model):
     )
     report = django.db.models.JSONField(default=list, blank=True)
     created_at = django.db.models.DateTimeField(auto_now_add=True)
+    # ``updated_at`` lets operators tell how long a row has been stalled in
+    # PENDING when debugging stuck remaps in production.
+    updated_at = django.db.models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
         return f"PendingDocumentAnnotations(doc={self.document_id}, {self.status})"

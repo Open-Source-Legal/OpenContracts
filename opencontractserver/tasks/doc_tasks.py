@@ -960,9 +960,46 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
     """Anchor a document's PendingDocumentAnnotations onto pipeline output.
 
     Runs AFTER ``ingest_doc`` in the import chain, so PAWLs / text layer exist.
-    No-op when there is no pending row. ``*args`` absorbs the previous chain
-    task's return value.
+    No-op when there is no pending row.
+
+    ``*args`` absorbs the previous chain task's return value. Every dispatch site
+    in ``import_tasks.py`` uses ``.si()`` (immutable signature), so ``*args`` is
+    always empty in practice; it is retained only so a future caller wiring this
+    with ``.s()`` does not break on the upstream task's positional return.
+
+    Processes *all* PENDING rows for the document, not just the first: a retry or
+    a bug could leave more than one PENDING row, and a single-row implementation
+    would silently orphan the extras forever (review finding #2).
     """
+    # Imports are deferred into the task body to keep ``opencontractserver.tasks``
+    # import-time cheap (this module is imported at worker boot to register tasks)
+    # and to avoid pulling the ``importing`` / ``annotation_anchoring`` chains in
+    # at module import time. None of these modules import ``doc_tasks`` back, so
+    # this is not breaking a hard cycle — moving them up is safe but unnecessary.
+    from opencontractserver.documents.models import PendingDocumentAnnotations
+
+    pending_rows = list(
+        PendingDocumentAnnotations.objects.filter(
+            document_id=doc_id, status=PendingDocumentAnnotations.Status.PENDING
+        ).order_by("id")
+    )
+    if not pending_rows:
+        return {"doc_id": doc_id, "skipped": "no pending annotations"}
+
+    per_row = [_remap_one_pending_row(pending, doc_id) for pending in pending_rows]
+
+    if len(per_row) == 1:
+        return per_row[0]
+    # Multiple PENDING rows for one document: aggregate so none is orphaned.
+    return {
+        "doc_id": doc_id,
+        "rows_processed": len(per_row),
+        "results": per_row,
+    }
+
+
+def _remap_one_pending_row(pending, doc_id: int) -> dict[str, Any]:
+    """Anchor and import a single ``PendingDocumentAnnotations`` row."""
     import json
 
     from opencontractserver.annotations.models import (
@@ -976,20 +1013,13 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
     )
     from opencontractserver.types.dicts import OpenContractsAnnotationPythonType
     from opencontractserver.types.enums import PermissionTypes
-    from opencontractserver.utils.annotation_anchoring import anchor_annotations
+    from opencontractserver.utils.annotation_anchoring import (
+        anchor_annotations,
+        report_rawtext_preview,
+    )
     from opencontractserver.utils.compact_pawls import expand_pawls_pages
     from opencontractserver.utils.importing import import_annotations
     from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-    pending = (
-        PendingDocumentAnnotations.objects.filter(
-            document_id=doc_id, status=PendingDocumentAnnotations.Status.PENDING
-        )
-        .order_by("id")
-        .first()
-    )
-    if pending is None:
-        return {"doc_id": doc_id, "skipped": "no pending annotations"}
 
     doc = Document.objects.get(pk=doc_id)
     corpus = pending.corpus
@@ -1065,7 +1095,7 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
             report.append(
                 {
                     "id": a.get("id"),
-                    "rawText": (a.get("rawText") or "")[:80],
+                    "rawText": report_rawtext_preview(a.get("rawText")),
                     "dropped": True,
                     "reason": (f"label '{label_name}' not found in corpus labelset"),
                 }
@@ -1107,7 +1137,20 @@ def remap_pending_annotations(*args, doc_id: int) -> dict[str, Any]:
     # export-local ``id`` (importing.py only records ``old_id`` when non-None),
     # so id-less-but-successfully-created annotations would be miscounted as
     # zero and wrongly flip the row to FAILED.
-    created = len(anchored) - label_unresolved
+    raw_created = len(anchored) - label_unresolved
+    if raw_created < 0:
+        # Should be impossible: ``label_unresolved`` is counted over the same
+        # ``anchored`` list, so it can never exceed ``len(anchored)``. If a
+        # future bookkeeping change makes it negative, clamp to 0 (so the row is
+        # correctly marked FAILED below rather than a silent DONE) and shout.
+        logger.warning(
+            "remap_pending_annotations: negative created count for doc %s "
+            "(anchored=%s, label_unresolved=%s); clamping to 0",
+            doc_id,
+            len(anchored),
+            label_unresolved,
+        )
+    created = max(0, raw_created)
     # If annotations WERE anchored but every one was then dropped at import for
     # an unresolved label, nothing landed — a real failure, not a silent DONE.
     if anchored and created == 0:

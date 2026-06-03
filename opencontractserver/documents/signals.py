@@ -52,6 +52,15 @@ def process_doc_on_create_atomic(
         instance: The instance being saved.
         created (bool): True if a new record was created.
         **kwargs: Additional keyword arguments.
+
+    Note on the ``not instance.processing_started`` guard: a caller can
+    deliberately suppress this auto-ingest chain by stamping
+    ``processing_started`` at creation time. The bulk-ZIP importer does exactly
+    this for dumb-anchor sidecar documents (see
+    ``import_zip_with_folder_structure`` in ``tasks/import_tasks.py``) so it can
+    own dispatch and interleave ``remap_pending_annotations`` between ingest and
+    unlock — without this guard the signal would fire its own ingest->unlock
+    chain and race the remap.
     """
     if created and not instance.processing_started:
 
