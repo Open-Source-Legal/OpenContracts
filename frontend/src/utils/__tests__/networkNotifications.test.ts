@@ -29,8 +29,10 @@ describe("networkNotifications", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    // Ensure a clean grace-window state between tests.
-    isReconnectingVar(false);
+    // Ensure a clean grace-window state between tests. Go through
+    // setReconnecting (not isReconnectingVar directly) so any pending safety
+    // timeout left armed by a prior test is force-cleared too.
+    setReconnecting(false);
 
     originalOnLine = Object.getOwnPropertyDescriptor(navigator, "onLine");
     Object.defineProperty(navigator, "onLine", {
@@ -72,6 +74,22 @@ describe("networkNotifications", () => {
         toastId: "Same message",
         autoClose: 5000,
       });
+    });
+
+    it("emits a stable toast id on every repeat so the toasts de-duplicate", () => {
+      // Simulates the same component re-rendering while `error` stays truthy.
+      // react-toastify is mocked here, so the actual collapse-into-one happens
+      // in the real lib via `toastId`; what we assert is the contract that makes
+      // it possible — every call carries the SAME stable id (not a fresh one).
+      notifyTransientNetworkError("Unable to fetch corpuses.");
+      notifyTransientNetworkError("Unable to fetch corpuses.");
+      notifyTransientNetworkError("Unable to fetch corpuses.");
+
+      expect(toast.error).toHaveBeenCalledTimes(3);
+      const ids = (toast.error as ReturnType<typeof vi.fn>).mock.calls.map(
+        ([, opts]) => (opts as { toastId?: string }).toastId
+      );
+      expect(new Set(ids)).toEqual(new Set(["Unable to fetch corpuses."]));
     });
 
     it("suppresses the toast while reconnecting", () => {

@@ -113,6 +113,13 @@ export function NetworkStatusHandler({
       // the queries it re-runs may briefly fail and trigger component-level
       // error toasts. Suppress those (and errorLink's network-error toast) in
       // favour of the single calm "Reconnecting…" indicator below.
+      //
+      // Intentionally NOT gated on `showToasts`: the window only suppresses
+      // *other* surfaces' toasts (errorLink, per-query card errors), which are
+      // global and exist regardless of this handler's `showToasts` prop. A
+      // consumer passing `showToasts={false}` only silences this handler's own
+      // status toasts, not those independent error surfaces, so the grace
+      // window must still arm to keep them quiet during reconnect.
       setReconnecting(true);
 
       try {

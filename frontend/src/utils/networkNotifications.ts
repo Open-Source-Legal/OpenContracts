@@ -18,7 +18,7 @@
  * Related to Issue #697 - Error on screen unlock
  */
 
-import { toast } from "react-toastify";
+import { toast, type ToastOptions } from "react-toastify";
 import { isReconnectingVar } from "../graphql/cache";
 
 // ============================================================================
@@ -93,18 +93,23 @@ export function shouldSuppressNetworkError(): boolean {
  * a single toast instead of stacking.
  *
  * @param message - User-facing error text.
- * @param options.toastId - Stable de-dupe id. Defaults to `message`.
+ * @param options - Standard react-toastify options. `toastId` is a stable
+ *   de-dupe id that defaults to `message`; `autoClose` defaults to
+ *   {@link TRANSIENT_ERROR_AUTOCLOSE_MS} but, like any other option, may be
+ *   overridden by the caller.
  */
 export function notifyTransientNetworkError(
   message: string,
-  options: { toastId?: string } = {}
+  options: Omit<ToastOptions, "toastId"> & { toastId?: string } = {}
 ): void {
   if (shouldSuppressNetworkError()) {
     return;
   }
 
+  const { toastId, ...rest } = options;
   toast.error(message, {
-    toastId: options.toastId ?? message,
     autoClose: TRANSIENT_ERROR_AUTOCLOSE_MS,
+    ...rest,
+    toastId: toastId ?? message,
   });
 }
