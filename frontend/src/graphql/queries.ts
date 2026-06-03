@@ -3236,6 +3236,266 @@ export const SEARCH_ANNOTATIONS_FOR_MENTION = gql`
   }
 `;
 
+// ---------------------------------------------------------------------------
+// Discover cross-content search
+//
+// These power the Discover view (frontend/src/views/DiscoverSearchResults.tsx).
+// Unlike the *ForMention queries above, each Discover query is hybrid on the
+// server: it fuses substring + full-text + semantic (vector) matching and
+// returns a single relevance-ranked list (NOT a Relay connection), so the
+// client just renders the array in order.
+// ---------------------------------------------------------------------------
+
+export interface DiscoverSearchInput {
+  textSearch: string;
+  limit?: number;
+}
+
+interface DiscoverCreatorRef {
+  id: string;
+  slug: string;
+}
+
+export interface DiscoverAnnotationNode {
+  id: string;
+  rawText: string | null;
+  page: number | null;
+  annotationLabel: {
+    id: string;
+    text: string;
+    color: string;
+  } | null;
+  document: {
+    id: string;
+    title: string;
+    slug: string;
+    creator: DiscoverCreatorRef;
+  } | null;
+  corpus: {
+    id: string;
+    title: string;
+    slug: string;
+    creator: DiscoverCreatorRef;
+  } | null;
+}
+
+export interface DiscoverAnnotationsOutput {
+  discoverAnnotations: DiscoverAnnotationNode[];
+}
+
+export const DISCOVER_ANNOTATIONS = gql`
+  query DiscoverAnnotations($textSearch: String!, $limit: Int) {
+    discoverAnnotations(textSearch: $textSearch, limit: $limit) {
+      id
+      rawText
+      page
+      annotationLabel {
+        id
+        text
+        color
+      }
+      document {
+        id
+        title
+        slug
+        creator {
+          id
+          slug
+        }
+      }
+      corpus {
+        id
+        title
+        slug
+        creator {
+          id
+          slug
+        }
+      }
+    }
+  }
+`;
+
+export interface DiscoverDocumentNode {
+  id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  fileType: string | null;
+  creator: DiscoverCreatorRef;
+}
+
+export interface DiscoverDocumentsOutput {
+  discoverDocuments: DiscoverDocumentNode[];
+}
+
+export const DISCOVER_DOCUMENTS = gql`
+  query DiscoverDocuments($textSearch: String!, $limit: Int) {
+    discoverDocuments(textSearch: $textSearch, limit: $limit) {
+      id
+      title
+      slug
+      description
+      fileType
+      creator {
+        id
+        slug
+      }
+    }
+  }
+`;
+
+export interface DiscoverNoteNode {
+  id: string;
+  title: string;
+  contentPreview: string | null;
+  modified: string;
+  creator: {
+    id: string;
+    username: string;
+    slug: string;
+  } | null;
+  document: {
+    id: string;
+    title: string;
+    slug: string;
+    creator: DiscoverCreatorRef;
+  } | null;
+  corpus: {
+    id: string;
+    title: string;
+    slug: string;
+    creator: DiscoverCreatorRef;
+  } | null;
+}
+
+export interface DiscoverNotesOutput {
+  discoverNotes: DiscoverNoteNode[];
+}
+
+export const DISCOVER_NOTES = gql`
+  query DiscoverNotes($textSearch: String!, $limit: Int) {
+    discoverNotes(textSearch: $textSearch, limit: $limit) {
+      id
+      title
+      contentPreview
+      modified
+      creator {
+        id
+        username
+        slug
+      }
+      document {
+        id
+        title
+        slug
+        creator {
+          id
+          slug
+        }
+      }
+      corpus {
+        id
+        title
+        slug
+        creator {
+          id
+          slug
+        }
+      }
+    }
+  }
+`;
+
+export interface DiscoverCorpusNode {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  isPublic: boolean;
+  documentCount: number | null;
+  creator: DiscoverCreatorRef;
+}
+
+export interface DiscoverCorpusesOutput {
+  discoverCorpuses: DiscoverCorpusNode[];
+}
+
+export const DISCOVER_CORPUSES = gql`
+  query DiscoverCorpuses($textSearch: String!, $limit: Int) {
+    discoverCorpuses(textSearch: $textSearch, limit: $limit) {
+      id
+      slug
+      title
+      description
+      isPublic
+      documentCount
+      creator {
+        id
+        slug
+      }
+    }
+  }
+`;
+
+export interface DiscoverDiscussionsOutput {
+  discoverDiscussions: ConversationType[];
+}
+
+export const DISCOVER_DISCUSSIONS = gql`
+  query DiscoverDiscussions($textSearch: String!, $limit: Int) {
+    discoverDiscussions(textSearch: $textSearch, limit: $limit) {
+      id
+      conversationType
+      title
+      description
+      createdAt
+      updatedAt
+      creator {
+        id
+        slug
+        username
+        email
+      }
+      chatWithCorpus {
+        id
+        title
+        slug
+        creator {
+          id
+          slug
+          username
+        }
+      }
+      chatWithDocument {
+        id
+        title
+      }
+      chatMessages {
+        totalCount
+      }
+      isPublic
+      myPermissions
+      upvoteCount
+      downvoteCount
+      userVote
+      isLocked
+      lockedBy {
+        id
+        username
+      }
+      lockedAt
+      isPinned
+      pinnedBy {
+        id
+        username
+      }
+      pinnedAt
+      deletedAt
+    }
+  }
+`;
+
 /**
  * Fetches all the data needed for the DocumentKnowledgeBase component:
  * - Basic document info (title, fileType, creator, created)

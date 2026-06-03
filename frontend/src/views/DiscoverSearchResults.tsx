@@ -11,6 +11,7 @@ import {
   StickyNote,
   Layers,
   MapPin,
+  FileText,
 } from "lucide-react";
 import { FilterTabs, SearchBox } from "@os-legal/ui";
 import type { FilterTabItem } from "@os-legal/ui";
@@ -27,18 +28,17 @@ import {
 } from "../components/layout/DiscoveryViewLayout";
 
 import {
-  GET_CONVERSATIONS,
-  GetConversationsInputs,
-  GetConversationsOutputs,
-  GET_CORPUSES,
-  GetCorpusesInputs,
-  GetCorpusesOutputs,
-  SEARCH_ANNOTATIONS_FOR_MENTION,
-  SearchAnnotationsForMentionInput,
-  SearchAnnotationsForMentionOutput,
-  SEARCH_NOTES_FOR_MENTION,
-  SearchNotesForMentionInput,
-  SearchNotesForMentionOutput,
+  DISCOVER_DISCUSSIONS,
+  DiscoverDiscussionsOutput,
+  DISCOVER_ANNOTATIONS,
+  DiscoverAnnotationsOutput,
+  DISCOVER_DOCUMENTS,
+  DiscoverDocumentsOutput,
+  DISCOVER_CORPUSES,
+  DiscoverCorpusesOutput,
+  DISCOVER_NOTES,
+  DiscoverNotesOutput,
+  DiscoverSearchInput,
 } from "../graphql/queries";
 import { ThreadListItem } from "../components/threads/ThreadListItem";
 import { ModernLoadingDisplay } from "../components/widgets/ModernLoadingDisplay";
@@ -234,6 +234,7 @@ type EntityTab =
   | "all"
   | "discussions"
   | "annotations"
+  | "documents"
   | "corpuses"
   | "notes"
   | "map";
@@ -242,6 +243,7 @@ const VALID_TABS = new Set<EntityTab>([
   "all",
   "discussions",
   "annotations",
+  "documents",
   "corpuses",
   "notes",
   "map",
@@ -262,6 +264,11 @@ const TAB_ITEMS: FilterTabItem[] = [
     id: "annotations",
     label: "Annotations",
     icon: <Bookmark size={FILTER_TAB_ICON_SIZE} />,
+  },
+  {
+    id: "documents",
+    label: "Documents",
+    icon: <FileText size={FILTER_TAB_ICON_SIZE} />,
   },
   {
     id: "corpuses",
@@ -356,6 +363,7 @@ const UNROUTEABLE_ROW_TOOLTIP =
 
 const DISCUSSION_GRADIENT = `linear-gradient(135deg, ${CORPUS_COLORS.teal[600]} 0%, ${CORPUS_COLORS.teal[800]} 100%)`;
 const ANNOTATION_GRADIENT = `linear-gradient(135deg, ${OS_LEGAL_COLORS.primaryBlue} 0%, ${OS_LEGAL_COLORS.primaryBlueHover} 100%)`;
+const DOCUMENT_GRADIENT = `linear-gradient(135deg, ${CORPUS_COLORS.slate[500]} 0%, ${CORPUS_COLORS.slate[700]} 100%)`;
 const CORPUS_GRADIENT = `linear-gradient(135deg, ${CORPUS_COLORS.slate[600]} 0%, ${CORPUS_COLORS.slate[800]} 100%)`;
 const NOTE_GRADIENT = `linear-gradient(135deg, ${OS_LEGAL_COLORS.folderIcon} 0%, ${OS_LEGAL_COLORS.folderIconDark} 100%)`;
 
@@ -371,24 +379,18 @@ const DiscussionsSection: React.FC<DiscussionsSectionProps> = ({
   limit,
 }) => {
   const { data, loading, error } = useQuery<
-    GetConversationsOutputs,
-    GetConversationsInputs
-  >(GET_CONVERSATIONS, {
-    variables: {
-      conversationType: "THREAD",
-      title_Contains: query || undefined,
-      limit,
-    },
+    DiscoverDiscussionsOutput,
+    DiscoverSearchInput
+  >(DISCOVER_DISCUSSIONS, {
+    variables: { textSearch: query, limit },
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     skip: !query,
   });
 
-  const threads = (data?.conversations.edges ?? [])
-    .map((e) => e?.node)
-    .filter((n): n is NonNullable<typeof n> => Boolean(n) && !n?.deletedAt);
-  // Count what we render — server `totalCount` includes soft-deleted
-  // threads, so it would diverge from the visible row count.
+  const threads = (data?.discoverDiscussions ?? []).filter(
+    (n): n is NonNullable<typeof n> => Boolean(n) && !n?.deletedAt
+  );
   const total = threads.length;
 
   return (
@@ -422,20 +424,20 @@ const AnnotationsSection: React.FC<AnnotationsSectionProps> = ({
 }) => {
   const navigate = useNavigate();
   const { data, loading, error } = useQuery<
-    SearchAnnotationsForMentionOutput,
-    SearchAnnotationsForMentionInput
-  >(SEARCH_ANNOTATIONS_FOR_MENTION, {
-    variables: { textSearch: query, first: limit },
+    DiscoverAnnotationsOutput,
+    DiscoverSearchInput
+  >(DISCOVER_ANNOTATIONS, {
+    variables: { textSearch: query, limit },
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     skip: !query,
   });
 
-  // Drop edges whose annotation lost its parent document — without a
+  // Drop nodes whose annotation lost its parent document — without a
   // document we can't build a URL or render the meta row, and the
   // backend can null it out for visibility/soft-delete reasons.
-  const rows = (data?.searchAnnotationsForMention.edges ?? []).filter(
-    (e): e is NonNullable<typeof e> => Boolean(e?.node && e.node.document)
+  const rows = (data?.discoverAnnotations ?? []).filter(
+    (n): n is NonNullable<typeof n> => Boolean(n && n.document)
   );
 
   return (
@@ -451,7 +453,7 @@ const AnnotationsSection: React.FC<AnnotationsSectionProps> = ({
       emptyMessage="No matching annotations"
       errorMessage={error && !data ? SECTION_ERROR_FALLBACK : undefined}
     >
-      {rows.map(({ node }) => {
+      {rows.map((node) => {
         const docUrl = getDocumentUrl(node.document, node.corpus, {
           annotationIds: [node.id],
         });
@@ -470,7 +472,7 @@ const AnnotationsSection: React.FC<AnnotationsSectionProps> = ({
             snippet={label && node.rawText ? `Label: ${label}` : undefined}
             meta={
               <>
-                <span>{node.document.title}</span>
+                <span>{node.document!.title}</span>
                 {node.corpus ? <span>· {node.corpus.title}</span> : null}
                 {node.page != null ? <span>· p. {node.page + 1}</span> : null}
               </>
@@ -478,6 +480,72 @@ const AnnotationsSection: React.FC<AnnotationsSectionProps> = ({
             disabled={unrouteable}
             disabledReason={UNROUTEABLE_ROW_TOOLTIP}
             onClick={() => navigate(docUrl)}
+          />
+        );
+      })}
+    </Section>
+  );
+};
+
+// --- Documents ------------------------------------------------------------
+
+interface DocumentsSectionProps {
+  query: string;
+  limit: number;
+}
+
+const DocumentsSection: React.FC<DocumentsSectionProps> = ({
+  query,
+  limit,
+}) => {
+  const navigate = useNavigate();
+  const { data, loading, error } = useQuery<
+    DiscoverDocumentsOutput,
+    DiscoverSearchInput
+  >(DISCOVER_DOCUMENTS, {
+    variables: { textSearch: query, limit },
+    fetchPolicy: "cache-and-network",
+    nextFetchPolicy: "cache-first",
+    skip: !query,
+  });
+
+  const rows = (data?.discoverDocuments ?? []).filter(
+    (n): n is NonNullable<typeof n> => Boolean(n)
+  );
+
+  return (
+    <Section
+      title="Documents"
+      icon={<FileText size={FILTER_TAB_ICON_SIZE} />}
+      iconColor={DOCUMENT_GRADIENT}
+      countLabel={`${rows.length} ${
+        rows.length === 1 ? "document" : "documents"
+      }`}
+      loading={loading && !data}
+      empty={!loading && rows.length === 0}
+      emptyMessage="No matching documents"
+      errorMessage={error && !data ? SECTION_ERROR_FALLBACK : undefined}
+    >
+      {rows.map((doc) => {
+        // Standalone deep-link: a document can live in several collections,
+        // so Discover links to its creator-scoped canonical URL rather than
+        // guessing a corpus context.
+        const url = getDocumentUrl(doc);
+        const unrouteable = url === "#";
+        return (
+          <ResultRow
+            key={doc.id}
+            title={doc.title || "Untitled document"}
+            snippet={doc.description || undefined}
+            meta={
+              <>
+                {doc.creator?.slug ? <span>by {doc.creator.slug}</span> : null}
+                {doc.fileType ? <span>· {doc.fileType}</span> : null}
+              </>
+            }
+            disabled={unrouteable}
+            disabledReason={UNROUTEABLE_ROW_TOOLTIP}
+            onClick={() => navigate(url)}
           />
         );
       })}
@@ -495,18 +563,18 @@ interface CorpusesSectionProps {
 const CorpusesSection: React.FC<CorpusesSectionProps> = ({ query, limit }) => {
   const navigate = useNavigate();
   const { data, loading, error } = useQuery<
-    GetCorpusesOutputs,
-    GetCorpusesInputs
-  >(GET_CORPUSES, {
+    DiscoverCorpusesOutput,
+    DiscoverSearchInput
+  >(DISCOVER_CORPUSES, {
     variables: { textSearch: query, limit },
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     skip: !query,
   });
 
-  const rows = (data?.corpuses.edges ?? [])
-    .map((e) => e.node)
-    .filter((n): n is NonNullable<typeof n> => Boolean(n));
+  const rows = (data?.discoverCorpuses ?? []).filter(
+    (n): n is NonNullable<typeof n> => Boolean(n)
+  );
 
   return (
     <Section
@@ -560,19 +628,19 @@ interface NotesSectionProps {
 const NotesSection: React.FC<NotesSectionProps> = ({ query, limit }) => {
   const navigate = useNavigate();
   const { data, loading, error } = useQuery<
-    SearchNotesForMentionOutput,
-    SearchNotesForMentionInput
-  >(SEARCH_NOTES_FOR_MENTION, {
-    variables: { textSearch: query, first: limit },
+    DiscoverNotesOutput,
+    DiscoverSearchInput
+  >(DISCOVER_NOTES, {
+    variables: { textSearch: query, limit },
     fetchPolicy: "cache-and-network",
     nextFetchPolicy: "cache-first",
     skip: !query,
   });
 
-  // Drop edges whose note has lost its parent document — without it
+  // Drop nodes whose note has lost its parent document — without it
   // there's no routeable target and the meta row would crash on null.
-  const rows = (data?.searchNotesForMention.edges ?? []).filter(
-    (e): e is NonNullable<typeof e> => Boolean(e?.node && e.node.document)
+  const rows = (data?.discoverNotes ?? []).filter(
+    (n): n is NonNullable<typeof n> => Boolean(n && n.document)
   );
 
   return (
@@ -586,7 +654,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ query, limit }) => {
       emptyMessage="No matching notes"
       errorMessage={error && !data ? SECTION_ERROR_FALLBACK : undefined}
     >
-      {rows.map(({ node }) => {
+      {rows.map((node) => {
         const url = getDocumentUrl(node.document, node.corpus, {
           noteId: node.id,
         });
@@ -600,7 +668,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({ query, limit }) => {
             snippet={snippet}
             meta={
               <>
-                <span>{node.document.title}</span>
+                <span>{node.document!.title}</span>
                 {node.corpus ? <span>· {node.corpus.title}</span> : null}
                 {node.creator ? (
                   <span>· by {getCreatorDisplay(node.creator)}</span>
@@ -687,7 +755,8 @@ export const DiscoverSearchResults: React.FC = () => {
       <DiscoveryHeader>
         <DiscoveryTitle $marginBottom="0.25rem">Search</DiscoveryTitle>
         <SubTitle>
-          Find discussions, annotations, collections, and notes you can access.
+          Find discussions, annotations, documents, collections, and notes you
+          can access.
         </SubTitle>
         <DiscoveryFilterBar>
           {activeTab !== "map" && (
@@ -735,6 +804,16 @@ export const DiscoverSearchResults: React.FC = () => {
           )}
           {(showAll || activeTab === "annotations") && (
             <AnnotationsSection
+              query={trimmed}
+              limit={
+                showAll
+                  ? DISCOVER_SEARCH_ALL_TAB_PREVIEW
+                  : DISCOVER_SEARCH_ENTITY_TAB_LIMIT
+              }
+            />
+          )}
+          {(showAll || activeTab === "documents") && (
+            <DocumentsSection
               query={trimmed}
               limit={
                 showAll
