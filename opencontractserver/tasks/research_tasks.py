@@ -20,12 +20,14 @@ from django.conf import settings
 from django.utils import timezone
 
 from opencontractserver.research.constants import (
+    DEEP_RESEARCH_MEMORY_TOOL_NAMES,
     DEEP_RESEARCH_READ_ONLY_TOOLS,
     build_deep_research_system_prompt,
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.research.services.research_reports import (
     ResearchCancelled,
+    ResearchMemoryLimitExceeded,
     ResearchReportService,
 )
 from opencontractserver.types.enums import JobStatus
@@ -152,10 +154,20 @@ def run_deep_research(self, research_report_id: int) -> dict:
         )
         return {"status": "skipped_terminal", "report_id": research_report_id}
 
-    ResearchReportService.mark_started(report)
+    # A report already in RUNNING when a worker picks it up means a prior
+    # worker died (or the task was redelivered) mid-run. Treat it as a resume:
+    # preserve the original start time and tell the agent it is continuing.
+    resuming = report.status == JobStatus.RUNNING.value
+    if resuming:
+        logger.info(
+            "[DeepResearch] Report %s already RUNNING; resuming from durable "
+            "plan/findings/memory",
+            research_report_id,
+        )
+    ResearchReportService.mark_started(report, resuming=resuming)
 
     try:
-        result = asyncio.run(_run_deep_research_async(report))
+        result = asyncio.run(_run_deep_research_async(report, resuming=resuming))
     except ResearchCancelled:
         ResearchReportService.mark_cancelled(report)
         _send_completion_notification(report, "RESEARCH_REPORT_CANCELLED")
@@ -194,16 +206,47 @@ def run_deep_research(self, research_report_id: int) -> dict:
     return result
 
 
+@shared_task
+def reap_stalled_research() -> dict:
+    """Resume RUNNING reports whose progress clock has gone cold.
+
+    A worker that dies mid-run leaves the row in RUNNING with a stale
+    ``last_progress_at`` and no task in flight. This periodic reaper finds
+    those and re-enqueues ``run_deep_research``; the resumed run rebuilds its
+    context from the durable plan/findings/memory rather than starting over.
+    The soft/hard time-limit path already produces a CANCELLED terminal, so a
+    report that simply ran long is not eligible here — only ones with no
+    progress past ``DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS``.
+    """
+    stalled = ResearchReportService.list_stalled()
+    resumed: list[int] = []
+    for report_id in stalled:
+        try:
+            report = ResearchReport.objects.get(pk=report_id)
+        except ResearchReport.DoesNotExist:  # pragma: no cover - race
+            continue
+        if ResearchReportService.resume(report):
+            resumed.append(report_id)
+    if resumed:
+        logger.info("[DeepResearch] Reaped + resumed stalled reports: %s", resumed)
+    return {"stalled": len(stalled), "resumed": resumed}
+
+
 # ---------------------------------------------------------------------------
 # Async loop
 # ---------------------------------------------------------------------------
 
 
-async def _run_deep_research_async(report: ResearchReport) -> dict:
+async def _run_deep_research_async(
+    report: ResearchReport, *, resuming: bool = False
+) -> dict:
     """Build the corpus agent and drive the loop.
 
-    The scratchpad-tool closures (``record_finding``, ``finalize_report``)
-    are bound to ``report`` here so they cannot escape this run.
+    The scratchpad/plan/memory tool closures are bound to ``report`` here so
+    they cannot escape this run. On ``resuming`` (or any run where prior
+    durable state exists) the plan, a findings digest, and the memory index
+    are folded into the system prompt so the agent recovers its bearings
+    without re-deriving everything from scratch.
     """
     from pydantic_ai.usage import UsageLimits
 
@@ -213,11 +256,22 @@ async def _run_deep_research_async(report: ResearchReport) -> dict:
     corpus_title = corpus.title or ""
     corpus_description = getattr(corpus, "description", None) or None
 
+    # Rebuild the durable context surface (plan / findings digest / memory
+    # index) and prime the system prompt with it. ``is_resume`` is True
+    # whenever there is prior state to recover, even on a first delivery that
+    # somehow has findings (defensive) — but we trust the task-level
+    # ``resuming`` flag for the "you were interrupted" framing.
+    digest = await sync_to_async(ResearchReportService.build_recovery_digest)(report)
+
     system_prompt = build_deep_research_system_prompt(
         task_description=report.prompt,
         corpus_title=corpus_title,
         corpus_description=corpus_description,
         max_steps=report.max_steps,
+        plan=digest["plan"],
+        findings_digest=digest["findings_digest"],
+        memory_index=digest["memory_index"],
+        resuming=resuming or digest["is_resume"],
     )
 
     # Mutable container so the closures can read the live citation
@@ -283,6 +337,78 @@ async def _run_deep_research_async(report: ResearchReport) -> dict:
         )
         return "Report finalized."
 
+    # ------------------------------------------------------------------
+    # Durable context-management closures (plan + memory)
+    # ------------------------------------------------------------------
+    async def update_research_plan(plan: str) -> str:
+        """Replace your living high-level plan.
+
+        The plan is re-injected at the top of the system prompt on every run,
+        so it is the one note guaranteed to survive context compaction and a
+        worker restart. Keep it current: restate the task, list sub-questions,
+        track what is done and what is next.
+        """
+        stored = await sync_to_async(ResearchReportService.update_plan)(report, plan)
+        await sync_to_async(ResearchReportService.cancel_if_requested)(report)
+        return f"Plan updated ({len(stored)} chars stored)."
+
+    async def get_research_plan() -> str:
+        """Return your current saved plan (empty string if none yet)."""
+        await sync_to_async(report.refresh_from_db)(fields=["plan"])
+        return report.plan or "(no plan saved yet — call update_research_plan)"
+
+    async def write_memory(key: str, content: str, mode: str = "replace") -> str:
+        """Offload content to durable memory under ``key``.
+
+        ``mode='replace'`` overwrites; ``mode='append'`` concatenates onto the
+        existing value. Use this to remember quotes, per-document notes, and
+        tallies that you do not want to lose to context compaction. Retrieve
+        with read_memory / list_memory / search_memory.
+        """
+        try:
+            result = await sync_to_async(ResearchReportService.write_memory)(
+                report, key, content, mode=mode
+            )
+        except ResearchMemoryLimitExceeded as exc:
+            return f"Error: {exc}"
+        await sync_to_async(ResearchReportService.cancel_if_requested)(report)
+        return (
+            f"Wrote memory '{result['key']}' ({result['bytes']} chars; "
+            f"{result['keys']} keys total)."
+        )
+
+    async def read_memory(key: str) -> str:
+        """Return the full content stored under ``key``."""
+        content = await sync_to_async(ResearchReportService.read_memory)(report, key)
+        if content is None:
+            return f"No memory entry under '{key}'. Use list_memory to see keys."
+        return content
+
+    async def list_memory() -> str:
+        """List every memory key with its size and a short preview."""
+        await sync_to_async(report.refresh_from_db)(fields=["memory"])
+        index = await sync_to_async(ResearchReportService.memory_index)(report)
+        if not index:
+            return "Memory store is empty. Use write_memory to save notes."
+        lines = [
+            f"- {item['key']} ({item['bytes']} chars): {item['preview']}"
+            for item in index
+        ]
+        return "Memory keys:\n" + "\n".join(lines)
+
+    async def search_memory(query: str) -> str:
+        """Grep across your memory entries and recorded findings (case-insensitive)."""
+        hits = await sync_to_async(ResearchReportService.search_memory)(report, query)
+        if not hits:
+            return f"No matches for {query!r} in memory or findings."
+        lines = [f"[{h['source']}:{h['key']}] {h['line']}" for h in hits]
+        return f"Matches for {query!r}:\n" + "\n".join(lines)
+
+    async def delete_memory(key: str) -> str:
+        """Delete a memory entry to free room under the store caps."""
+        removed = await sync_to_async(ResearchReportService.delete_memory)(report, key)
+        return f"Deleted memory '{key}'." if removed else f"No memory entry '{key}'."
+
     # Tools the agent may call. Retrieval tools come from the corpus
     # agent's default toolset (filtered via ``restrict_tool_names``);
     # closures are appended so they take effect after wrapping.
@@ -290,9 +416,23 @@ async def _run_deep_research_async(report: ResearchReport) -> dict:
     # wider ToolType list the API accepts.
     closure_tools = cast(
         "list[str | Any | Callable[..., Any]]",
-        [record_finding, finalize_report],
+        [
+            record_finding,
+            finalize_report,
+            update_research_plan,
+            get_research_plan,
+            write_memory,
+            read_memory,
+            list_memory,
+            search_memory,
+            delete_memory,
+        ],
     )
-    restrict = set(DEEP_RESEARCH_READ_ONLY_TOOLS) | SCRATCHPAD_TOOL_NAMES
+    restrict = (
+        set(DEEP_RESEARCH_READ_ONLY_TOOLS)
+        | SCRATCHPAD_TOOL_NAMES
+        | DEEP_RESEARCH_MEMORY_TOOL_NAMES
+    )
 
     agent = await agents.for_corpus(
         corpus=corpus,

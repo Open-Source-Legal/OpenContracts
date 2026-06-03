@@ -118,6 +118,23 @@ class ResearchReport(BaseOCModel):
     content = models.TextField(
         blank=True, help_text="Rendered final markdown report with footnote citations"
     )
+    plan = models.TextField(
+        blank=True,
+        help_text=(
+            "The agent's living high-level plan. Re-injected into the system "
+            "prompt at the start of every run so the original task and "
+            "strategy survive context compaction and worker restarts."
+        ),
+    )
+    memory = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Durable key->entry memory store the agent writes to offload "
+            "content beyond the context window. Each entry is "
+            "{content, updated_at}. Survives compaction and worker restarts."
+        ),
+    )
     findings = models.JSONField(
         default=list, blank=True, help_text="Structured scratchpad of agent findings"
     )

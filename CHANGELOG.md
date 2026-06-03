@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Deep-research durable context management: living plan + agent memory + crash recovery (2026-06).**
+  The deep-research agent could exhaust its context window on long
+  investigations and fail without a graceful recovery path. It now has a
+  Claude-Code-style durable working surface that survives both in-run context
+  compaction (the system prompt is never compacted) and a worker restart:
+  - **Living plan** — `ResearchReport.plan` (new field). `update_research_plan` /
+    `get_research_plan` tools let the agent maintain a high-level plan that is
+    re-injected at the top of the system prompt on *every* run, so the original
+    task and strategy are always retrievable inside the context window. Clamped
+    to `MAX_RESEARCH_PLAN_CHARS` (head-preserving truncation).
+  - **Memory store** — `ResearchReport.memory` (new JSON field). `write_memory`
+    (replace/append), `read_memory`, `list_memory`, `delete_memory`, and a
+    grep-like `search_memory` (scans memory entries *and* recorded findings)
+    let the agent offload far more than fits in context. Bounded by per-key,
+    per-value, key-count, and total-store caps
+    (`opencontractserver/research/constants.py`), surfaced to the model as
+    operational error strings (via `ResearchMemoryLimitExceeded`) rather than
+    crashing the job.
+  - **Resume after crash** — a worker that picks up a report already in
+    `RUNNING` (prior worker died / task redelivered) now resumes instead of
+    restarting: `mark_started(resuming=True)` preserves the original
+    `started_at`, and `build_recovery_digest` primes the system prompt with the
+    plan, a tail digest of findings, and the memory index (with a "you are
+    RESUMING" preamble). New periodic task `reap_stalled_research` (beat: every
+    5 min) finds RUNNING reports whose `last_progress_at` is colder than
+    `DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS` and re-enqueues them via
+    `ResearchReportService.resume`.
+  - Files: `opencontractserver/research/models.py` (+migration
+    `0002_researchreport_plan_memory`), `.../research/constants.py`,
+    `.../research/services/research_reports.py`,
+    `opencontractserver/tasks/research_tasks.py`,
+    `config/settings/base.py` (beat entry). Tests:
+    `opencontractserver/tests/research/test_research_memory.py`.
+
 ### Fixed
 
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
