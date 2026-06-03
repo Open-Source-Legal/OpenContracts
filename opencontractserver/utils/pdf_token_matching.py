@@ -4,10 +4,10 @@ Shared by the PDF outline enricher and the post-ingest annotation remap.
 PAWLs coordinates use a top-left origin; each token is
 ``{"x","y","width","height","text"}`` and ``top`` is the minimum ``y``.
 """
+
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from typing import Optional
 
 from opencontractserver.constants.annotations import (
     PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO,
@@ -37,7 +37,7 @@ def page_text_tokens(page: PawlsPagePythonType) -> tuple[list[str], list[int]]:
 
 def match_title_to_tokens(
     title: str, token_texts: list[str], fuzzy_threshold: float
-) -> Optional[tuple[int, int]]:
+) -> tuple[int, int] | None:
     """Locate ``title`` among a page's text tokens (whitespace-collapsed,
     case-insensitive). Returns inclusive ``(start, end)`` into ``token_texts``
     or ``None``."""
@@ -50,7 +50,7 @@ def match_title_to_tokens(
     cf = [t.casefold() for t in token_texts]
     n = len(cf)
     best_ratio = 0.0
-    best_span: Optional[tuple[int, int]] = None
+    best_span: tuple[int, int] | None = None
 
     for j in range(n):
         if (
