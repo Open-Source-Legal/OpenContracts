@@ -22,7 +22,7 @@ export interface CorpusAboutData {
 export interface CorpusAboutProps {
   /** The corpus object containing description data */
   corpus: CorpusAboutData;
-  /** Markdown content fetched from mdDescription URL */
+  /** Inline markdown description (canonical-CAML `description` projection) */
   mdContent: string | null;
   /** Whether the corpus data is currently loading */
   isLoading: boolean;

@@ -44,7 +44,6 @@ const mockCorpus = {
   slug: "test-corpus",
   title: "Test Corpus",
   description: "A test corpus",
-  mdDescription: "Test MD description",
   isPublic: true,
   myPermissions: ["read", "write"],
   labelSet: null,
