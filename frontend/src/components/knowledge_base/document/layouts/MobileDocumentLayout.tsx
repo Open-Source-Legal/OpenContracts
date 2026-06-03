@@ -50,9 +50,11 @@ const Surface = styled.div`
 `;
 
 /**
- * Document surface: a fixed toolbar on top, the viewer fills the rest.
- * The viewer itself owns its internal scrolling, so this column does not
- * scroll — it just sizes the viewer to the available space.
+ * Document surface: the viewer fills the whole column and the document
+ * controls float over its top-right corner ({@link MobileDocToolbar}), so no
+ * vertical space is spent on a control band. The viewer owns its internal
+ * scrolling, so this column does not scroll — it just sizes the viewer to the
+ * available space.
  */
 const DocumentSurface = styled.div`
   display: flex;
@@ -131,11 +133,11 @@ const ErrorSurface = styled.div`
  * data/state.
  *
  * The Document surface renders the real document viewer
- * ({@link DocumentLayoutProps.viewerContent}) below a
- * {@link MobileDocToolbar}, defaulting to fit-to-width so the document is
- * readable on mount. Sections and Find open {@link MobileSheet}s over the
- * existing structural-annotation and text-search systems. The Summary surface
- * embeds the {@link UnifiedKnowledgeLayer}.
+ * ({@link DocumentLayoutProps.viewerContent}) full-bleed, with a floating
+ * {@link MobileDocToolbar} over its top-right corner, defaulting to
+ * fit-to-width so the document is readable on mount. Sections and Find open
+ * {@link MobileSheet}s over the existing structural-annotation and text-search
+ * systems. The Summary surface embeds the {@link UnifiedKnowledgeLayer}.
  *
  * The Annotations surface renders the existing unified annotation feed
  * full-screen ({@link RightPanelContent} in `feed` mode). Selecting an
@@ -276,13 +278,17 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
           )}
           {!queryError && activeTab === "document" && (
             <DocumentSurface data-testid="mobile-surface-document">
-              <MobileDocToolbar
-                zoomPercent={zoomLevel * 100}
-                onFitWidth={fitToWidth}
-                onSections={() => setSectionsSheetOpen(true)}
-                onFind={() => setFindSheetOpen(true)}
-              />
-              <ViewerArea>{viewerContent}</ViewerArea>
+              <ViewerArea>
+                {viewerContent}
+                {/* Floating controls overlay the viewer's top-right corner so
+                    the page fills the whole surface (no wasteful band). */}
+                <MobileDocToolbar
+                  zoomPercent={zoomLevel * 100}
+                  onFitWidth={fitToWidth}
+                  onSections={() => setSectionsSheetOpen(true)}
+                  onFind={() => setFindSheetOpen(true)}
+                />
+              </ViewerArea>
             </DocumentSurface>
           )}
           {!queryError && activeTab === "summary" && (

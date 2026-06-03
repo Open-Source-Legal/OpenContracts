@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Mobile DocumentKnowledgeBase layout cleanup (2026-06).** Removed the
+  full-width control band that sat between the header and the page on mobile —
+  it ate vertical space and read as wasteful. The Sections / Find / fit-width
+  controls now float as a single compact frosted pill over the viewer's
+  top-right corner (`frontend/src/components/knowledge_base/document/layouts/mobile/MobileDocToolbar.tsx`,
+  rendered as an overlay inside `ViewerArea` in
+  `frontend/.../layouts/MobileDocumentLayout.tsx`), so the document fills the
+  whole surface. Also deepened the document backdrop on mobile from the
+  near-white `#f7f9f9` to a new `VIEWER_CANVAS` token (`#e4e9f0`,
+  `frontend/src/assets/configurations/designTokens.ts`), applied in the
+  `@media (max-width: 768px)` branch of `PDFContainer`
+  (`frontend/src/components/annotator/display/viewer/DocumentViewer.tsx`), so
+  the white page sheet reads as a floating sheet with real contrast instead of
+  washed-out near-white-on-near-white.
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
   permission layer: it could READ every row of every data model and pass every
