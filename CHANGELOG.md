@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   single conversation is open — recovering ~71px and leaving one header (the
   ASK/search-expanded flow already did this). Regression test added in
   `frontend/src/views/__tests__/CorpusQueryView.handlers.test.tsx`.
+- **Discover landing search box stacked its icon on a separate line from the input on mobile (2026-06).**
+  The `@os-legal/ui` `SearchBox` ships a `@media (max-width: 480px)` rule that
+  sets `.oc-search-box__input { flex: 1 1 100% }`, forcing the input onto its
+  own full-width row and stranding the magnifying-glass icon alone on the line
+  above the placeholder. Added a higher-specificity override in the
+  `SearchContainer` styled-component
+  (`frontend/src/components/landing/NewHeroSection.tsx`) that restores
+  `flex: 1 1 auto` on the input below `SMALL_MOBILE_BREAKPOINT` (480px), so the
+  icon and input share one row again while the submit button still wraps to its
+  own full-width row. Note: the upstream `SearchBox` mobile rule is unchanged
+  through the latest `@os-legal/ui` 0.1.19, so this consumer-side override is
+  version-independent and is retained after the bump noted under Changed.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
@@ -36,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   these three modules were reachable only through lazy, function-local
   producer-side imports (`research/services/research_reports.py`) or by
   name via `CELERY_BEAT_SCHEDULE`. A real worker would therefore reject the
-  queued message with *"Received unregistered task"*, leaving deep-research
+  queued message with _"Received unregistered task"_, leaving deep-research
   reports stuck and the conversation-curation beat job non-functional. The
   defect was masked in the unit suite because `config/settings/test.py` runs
   Celery in `CELERY_TASK_ALWAYS_EAGER` mode, where `.delay()` executes inline
@@ -63,6 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scroll animation across the whole history; smooth scrolling is reserved for
   single incremental appends / streamed tokens
   (`frontend/src/components/corpuses/CorpusChat.tsx`).
+- **Bumped `@os-legal/ui` 0.1.16 → 0.1.19** (`frontend/package.json`,
+  `frontend/yarn.lock`). The upstream `SearchBox` mobile layout is unchanged in
+  0.1.19, so the consumer-side icon/input override above is still required.
 
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
@@ -107,14 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     break-glass** — superusers may still write structural annotations/
     relationships (`AnnotationManager`/`RelationshipManager.user_can`); (2)
     **moderation** of conversations/threads (`Conversation`/`Corpus.can_moderate`
-    + moderation-action resolvers); (3) **admin-only configuration/restriction
-    gates** in mutations/services (`PipelineSettings`, `Badge`/`CorpusCategory`
-    management, "create global agents", "make analyses public", worker-upload
-    provisioning). The break-glass for inspecting/repairing arbitrary user data
-    is the **Django admin site** (`is_staff`), unaffected by these changes.
-    Permanent document deletion now requires normal DELETE permission (no
-    superuser override). Follow-up: an explicit, audited support/impersonation
-    mechanism may be added later.
+    - moderation-action resolvers); (3) **admin-only configuration/restriction
+      gates** in mutations/services (`PipelineSettings`, `Badge`/`CorpusCategory`
+      management, "create global agents", "make analyses public", worker-upload
+      provisioning). The break-glass for inspecting/repairing arbitrary user data
+      is the **Django admin site** (`is_staff`), unaffected by these changes.
+      Permanent document deletion now requires normal DELETE permission (no
+      superuser override). Follow-up: an explicit, audited support/impersonation
+      mechanism may be added later.
   - **Tests**: the authorization-invariant suite and ~30 permission/optimizer/
     service test modules were updated so a no-grant superuser is asserted to be
     a "stranger" for data (with positive grant-path cases and the retained
@@ -176,6 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     PAWLs re-encoding) and is not addressed here.
 - **Deep-research code-review follow-ups (#1864).** Addressed the actionable
   items from the PR #1836 review:
+
   - `frontend/src/graphql/mutations.ts` — `CancelResearchReportOutput.obj.status`
     was typed as the bare `string`; narrowed to `JobStatus | string` to match
     `ResearchReportType.status` so callers comparing against `JobStatus` values
@@ -208,8 +225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other consumer. Root cause: `redis` (redis-py) is unpinned in
   `requirements/base.txt` and floated to **8.0.0**, which changed the default
   `socket_timeout` from `None` to **5s**. channels-redis' receive loop issues a
-  5s *server-side* blocking pop (`bzpopmin`/`brpop`, `brpop_timeout=5`); with a
-  5s *client* read timeout the client's deadline fires before the server's nil
+  5s _server-side_ blocking pop (`bzpopmin`/`brpop`, `brpop_timeout=5`); with a
+  5s _client_ read timeout the client's deadline fires before the server's nil
   reply returns, so redis-py raises `redis.exceptions.TimeoutError` out of the
   consumer (`retry_on_timeout=False`, and channels-redis doesn't catch it). The
   client loses the race on every idle cycle, which is why the failures were
@@ -217,8 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns before 5s, so it never exercised the path). **Fix:** the
   `CHANNEL_LAYERS` host is now a dict with an explicit `socket_timeout: None` in
   both `config/settings/base.py` (`{"host": …, "port": …, "socket_timeout":
-  None}`) and `config/settings/test_integration.py` (`{"address": REDIS_URL,
-  "socket_timeout": None}`), restoring the historical no-client-read-deadline
+None}`) and `config/settings/test_integration.py` (`{"address": REDIS_URL,
+"socket_timeout": None}`), restoring the historical no-client-read-deadline
   behavior these long-lived idle WebSockets require. redis-py is **not** pinned
   back below 8.0. Regression test:
   `opencontractserver/tests/test_redis_integration.py::TestChannelsRedisLayer::test_idle_receive_survives_blocking_pop_window`
@@ -236,6 +253,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   membership at the corpus-labelset augmentation branch
   (`in (AnnotationFilterMode.CORPUS_LABELSET_ONLY, …)`). As a result **no single
   argument type was handled correctly**:
+
   - A **string** argument (what the GraphQL export mutation and Celery tasks
     deliver — `config/graphql/document_mutations.py:644,672`) satisfied the
     selection branches but silently **skipped the corpus-labelset augmentation**,
@@ -269,7 +287,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   label lookups (matching the enum-driven fork path) instead of only the
   referenced labels. `test_filter_modes_change_annotation_count`'s
   `build_label_lookups` assertions were updated to verify the per-mode label
-  *membership* (which the fix corrects) rather than brittle raw counts; the
+  _membership_ (which the fix corrects) rather than brittle raw counts; the
   `build_document_export` counts are unchanged. Both ETL functions also now
   normalize their `annotation_filter_mode` argument to an
   `AnnotationFilterMode` member at the boundary, so an invalid mode string
@@ -337,7 +355,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `pipeline_queries.py`, `pipeline_settings_mutations.py`; validated with
     `validate_model_spec` and stored in canonical `provider:model` form).
     `resolve_model_spec` gained a `settings_default` tier so the configured
-    default is consulted *before* Django's `DEFAULT_LLM` / `OPENAI_MODEL`
+    default is consulted _before_ Django's `DEFAULT_LLM` / `OPENAI_MODEL`
     (`opencontractserver/llms/llm_registry.py`); it is threaded in by the agent
     factory (async, via `database_sync_to_async`) and `Corpus.save()` through a
     new `get_default_llm_spec()` helper
@@ -365,6 +383,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `article` / **`map`**) that plots a corpus's geographic annotations, reusing
   the #1820 `AnnotationMap` and the #1819 `geographicAnnotationsForCorpus`
   query.
+
   - **`CorpusMapView`** (`frontend/src/components/corpuses/CorpusMapView.tsx`) —
     wraps `AnnotationMap` with the corpus-scoped pins query, a back-to-overview
     header badged with the place count, an empty state pointing users at the
@@ -478,9 +497,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Geocoding integrated into `add_annotations_from_exact_strings`**
     (`opencontractserver/llms/tools/core_tools/annotations.py`): each item gained
     an optional `hints` field (`{"country": "US", "state": "TX"}`). When
-    `label_text` is one of the OC_* geographic labels the span is resolved via the
+    `label_text` is one of the OC\_\* geographic labels the span is resolved via the
     offline geocoder (#1819) and `{canonical_name, lat, lng, admin_codes,
-    geocoded}` is written to `Annotation.data`. Non-geographic labels are
+geocoded}` is written to `Annotation.data`. Non-geographic labels are
     untouched — fully backward-compatible.
   - **Shared geocoding-data builder** (`build_geocoded_annotation_data` +
     `LABEL_TEXT_TO_GEOCODE_LABEL_TYPE` in
@@ -512,6 +531,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cloud storage (fixed separately in the `read_field_file_text` work), and
   annotations were not content-searchable. This initiative addresses the
   remaining gaps:
+
   - **`search_corpus` → unified passage + block feed** (#1858, #1862): now
     searches **annotation** embeddings (passages) instead of document-level
     vectors, and merges in **`OC_SUBTREE_GROUP` relationship "blocks"**
@@ -700,6 +720,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `except`-guarded binary fallbacks never fired and `bytes` flowed into the
   `str`-only `body.encode(...)`. Invisible locally because `FileSystemStorage`
   honors text mode and returns `str`.
+
   - **Migration readers normalise to `str`** (`_read_md_description`,
     `_read_caml_doc_body`) via a new module-local `_coerce_to_text` helper,
     inlined to keep the historical migration self-contained. The migration is
@@ -806,7 +827,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`resolve_version_history` is scoped to `visible_to_user`** (`config/graphql/document_types.py`) — it no longer leaks version metadata (creator, hash, size) for documents hidden from the caller, matching `resolve_corpus_versions`.
   - **`get_document_folder` tolerates more than one active path** (`services/folder_documents.py`) — switched from `.get()` (could raise `MultipleObjectsReturned`, HTTP 500) to a deterministic `.order_by("-created").first()`.
   - **`get_filesystem_at_time` is scoped to the target corpus** (`documents/versioning.py`) — the outer query was an unscoped full-table scan relying solely on a correlated subquery; it now filters `corpus=corpus`.
-  - **CI green-up follow-up** (`opencontractserver/tests/test_caml_review_tools.py`): the new leading-`/` precondition on `CorpusPathService.disambiguate_path` exposed a test-only misuse — the `_create_caml_doc` fixture built the corpus's `Readme.CAML` article through `corpus.add_document(path="Readme.CAML")`. `add_document` is the disambiguating *new-independent-document* API and now (correctly) rejects the reserved, slashless CAML sentinel path. The fixture now mirrors the production canonical write path (`documents.versioning.import_document` with `path=CAML_ARTICLE_TITLE`, version-up semantics, no disambiguation), matching `backfill_caml_doc_for_corpus` and the CAML edit tool. Production was never affected — it never routes the CAML path through `add_document`/`disambiguate_path`.
+  - **CI green-up follow-up** (`opencontractserver/tests/test_caml_review_tools.py`): the new leading-`/` precondition on `CorpusPathService.disambiguate_path` exposed a test-only misuse — the `_create_caml_doc` fixture built the corpus's `Readme.CAML` article through `corpus.add_document(path="Readme.CAML")`. `add_document` is the disambiguating _new-independent-document_ API and now (correctly) rejects the reserved, slashless CAML sentinel path. The fixture now mirrors the production canonical write path (`documents.versioning.import_document` with `path=CAML_ARTICLE_TITLE`, version-up semantics, no disambiguation), matching `backfill_caml_doc_for_corpus` and the CAML edit tool. Production was never affected — it never routes the CAML path through `add_document`/`disambiguate_path`.
 - **Corpus category management — PR #1837 follow-up (issue #1847).** Code-review fixes for the runtime-configurable corpus-category admin feature.
   - **`CorpusCategoryService.update_category` no longer issues a no-op write** (`opencontractserver/corpuses/services/corpus_category_service.py`). An update with all-`None` kwargs previously still ran a `save()` that only bumped `modified`; it now short-circuits to a successful no-op. Regression: `test_update_with_no_fields_is_noop` (asserted via `assertNumQueries(0)`).
   - **Category `description` now has a 2,000-char soft cap** — new `MAX_CATEGORY_DESCRIPTION_LENGTH`, mirrored between `opencontractserver/constants/corpus_categories.py` and `frontend/src/assets/configurations/constants.ts`. Validated in `CorpusCategoryService._validate_fields` (consistent with the name/icon checks, since the model field is an unbounded `TextField`) and enforced as a `maxLength` on the description textarea. Regression: `test_create_rejects_overly_long_description`, `test_update_rejects_overly_long_description`.
@@ -820,7 +841,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returned its labelset's labels with **no corpus-READ gate**, so any
   authenticated user could enumerate a private corpus's label taxonomy. It now
   routes the fetch through `BaseService.get_or_none(Corpus, pk, user,
-  PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
+PermissionTypes.READ, request=info.context)` and returns the IDOR-safe
   "Corpus not found" response for both missing and unreadable corpuses. This
   bug pre-dated the Phase 6 service-layer refactor (it was not a regression).
   Regression test added: `test_smart_label_list_denies_unreadable_corpus`.
