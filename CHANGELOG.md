@@ -41,7 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GIN index to `Note`, mirroring `Annotation.search_vector` (migration 0063).
   This gives note search stemming + ranking and an index instead of the prior
   unindexed `LIKE '%…%'` sequential scan. Model change in
-  `opencontractserver/annotations/models.py`.
+  `opencontractserver/annotations/models.py`. `NoteType`
+  (`config/graphql/annotation_types.py`) excludes the new `search_vector`
+  field — graphene-django cannot convert a `SearchVectorField` and would
+  otherwise raise at schema-import time, crashing Django startup.
 
 ### Fixed
 
