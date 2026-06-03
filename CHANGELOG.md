@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Discover landing search box stacked its icon on a separate line from the input on mobile (2026-06).**
+  The `@os-legal/ui` `SearchBox` ships a `@media (max-width: 480px)` rule that
+  sets `.oc-search-box__input { flex: 1 1 100% }`, forcing the input onto its
+  own full-width row and stranding the magnifying-glass icon alone on the line
+  above the placeholder. Added a higher-specificity override in the
+  `SearchContainer` styled-component
+  (`frontend/src/components/landing/NewHeroSection.tsx`) that restores
+  `flex: 1 1 auto` on the input below `SMALL_MOBILE_BREAKPOINT` (480px), so the
+  icon and input share one row again while the submit button still wraps to its
+  own full-width row.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
