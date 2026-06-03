@@ -339,10 +339,19 @@ class ResearchReportService(BaseService):
         Returns the stored plan (post-clamp) so the caller can echo back what
         was actually persisted. Bumps ``last_progress_at`` — writing a plan is
         real forward progress and should reset the stalled-job clock.
+
+        Refreshes the row first (mirroring ``write_memory``) so a concurrent
+        ``cancel_requested`` flip is not stomped. Last-writer-wins semantics
+        are intentional and safe: only one worker owns a report at a time, and
+        the reaper's ``DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS`` guard makes a
+        two-worker plan race vanishingly unlikely — not worth a
+        ``select_for_update`` on the hot write path.
         """
+        report.refresh_from_db(fields=["cancel_requested"])
         clamped = _clamp_text(plan or "", MAX_RESEARCH_PLAN_CHARS)
+        now = timezone.now()
         report.plan = clamped
-        report.last_progress_at = timezone.now()
+        report.last_progress_at = now
         report.save(update_fields=["plan", "last_progress_at", "modified"])
         return clamped
 
@@ -364,7 +373,11 @@ class ResearchReportService(BaseService):
         to the model. Returns ``{key, bytes, keys}`` summarising the store.
 
         Refreshes the row first so a concurrent ``cancel_requested`` flip (or a
-        memory write from a redelivered task) is not stomped.
+        memory write from a redelivered task) is not stomped. Last-writer-wins
+        semantics are intentional here — only one worker owns a report at a
+        time in the normal case, and the reaper's stuck-threshold guard makes a
+        genuine two-worker race vanishingly unlikely — so we deliberately do
+        NOT take a ``select_for_update`` on this hot write path.
         """
         key = (key or "").strip()
         if not key:
@@ -420,12 +433,16 @@ class ResearchReportService(BaseService):
                 "Prune older keys with delete_memory first."
             )
 
+        # One timestamp for both the entry's ``updated_at`` and the row's
+        # ``last_progress_at`` so they agree exactly (two ``timezone.now()``
+        # calls would drift microseconds apart).
+        now = timezone.now()
         store[key] = {
             "content": new_content,
-            "updated_at": timezone.now().isoformat(),
+            "updated_at": now.isoformat(),
         }
         report.memory = store
-        report.last_progress_at = timezone.now()
+        report.last_progress_at = now
         report.save(update_fields=["memory", "last_progress_at", "modified"])
         return {"key": key, "bytes": len(new_content), "keys": len(store)}
 
@@ -455,7 +472,9 @@ class ResearchReportService(BaseService):
         """Return ``[{key, bytes, preview}]`` for every memory entry.
 
         Sorted by key for stable rendering in the prompt index. Does not
-        refresh — callers that need freshness refresh first.
+        refresh — callers that need freshness refresh first (the ``list_memory``
+        tool closure satisfies this by calling ``refresh_from_db(["memory"])``
+        immediately before this method).
         """
         out: list[dict] = []
         for key in sorted((report.memory or {}).keys()):
@@ -517,6 +536,12 @@ class ResearchReportService(BaseService):
         and the memory index is keys + sizes + short previews — never full
         contents. The agent pulls full memory on demand via ``read_memory`` /
         ``search_memory``.
+
+        Reads from the in-memory ``report`` object and does NOT refresh from the
+        DB. This is intentional for the only caller (task startup, where the row
+        was just loaded). If a future mid-run caller needs freshness, it must
+        call ``report.refresh_from_db()`` first — unlike ``search_memory``,
+        which refreshes itself because it runs from a tool closure.
         """
         plan = (report.plan or "").strip()
 

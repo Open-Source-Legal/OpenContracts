@@ -210,7 +210,9 @@ def build_deep_research_system_prompt(
             + "`search_memory(query)`. Prefer many small, well-named keys (e.g. "
             + "`doc-1421-summary`) over one giant blob.",
             "- `record_finding(...)` — your citation-backed scratchpad (above). "
-            + "Findings are also searchable via `search_memory`.",
+            + "`search_memory` greps findings alongside memory entries, but "
+            + "findings are NOT memory keys: add them with `record_finding`, not "
+            + "`write_memory`, and you cannot `read_memory` a finding's section.",
             "Offload eagerly. If you read a long document, write the salient "
             + "points to memory immediately rather than trusting them to stay in "
             + "the conversation history.",
@@ -256,6 +258,15 @@ def build_deep_research_system_prompt(
     # Durable recovery surface. Plan / findings / memory are agent-authored,
     # not user-supplied, so they are NOT fenced as untrusted content — fencing
     # them would teach the model to ignore its own notes.
+    #
+    # Accepted residual risk (indirect prompt injection): the agent populates
+    # memory by reading corpus documents, so a malicious document could embed
+    # text that mimics instructions, get written to memory, and be re-injected
+    # here on a later run. Fencing the agent's own notes would defeat their
+    # purpose, so we accept this trade-off. It is bounded: the research agent is
+    # strictly read-only over corpus state (see ``DEEP_RESEARCH_READ_ONLY_TOOLS``
+    # — no write tool reaches this surface), so an attacker would already need
+    # write access to a corpus document to plant the payload.
     if plan and plan.strip():
         parts.extend(["", "## Your current plan", plan.strip()])
 

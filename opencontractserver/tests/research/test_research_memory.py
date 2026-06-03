@@ -132,16 +132,13 @@ class ResearchMemoryTestCase(TestCase):
         )
 
     def test_total_store_cap(self):
-        # Fill close to the total cap across a few keys, then overflow.
+        # Fill close to the total cap across a few keys, then overflow. Derive
+        # the count from the constants so the test stays correct if the per-
+        # value / total caps are ever changed to a non-divisible ratio.
         chunk = "x" * MAX_RESEARCH_MEMORY_VALUE_CHARS
-        written = 0
-        i = 0
-        while (
-            written + MAX_RESEARCH_MEMORY_VALUE_CHARS <= MAX_RESEARCH_MEMORY_TOTAL_CHARS
-        ):
+        needed = MAX_RESEARCH_MEMORY_TOTAL_CHARS // MAX_RESEARCH_MEMORY_VALUE_CHARS
+        for i in range(needed):
             ResearchReportService.write_memory(self.report, f"k{i}", chunk)
-            written += MAX_RESEARCH_MEMORY_VALUE_CHARS
-            i += 1
         with self.assertRaises(ResearchMemoryLimitExceeded):
             ResearchReportService.write_memory(self.report, "overflow", chunk)
 
@@ -227,6 +224,22 @@ class ResearchResumeTestCase(TestCase):
         self.assertEqual(report.started_at, original_start)
         self.assertEqual(report.status, JobStatus.RUNNING.value)
 
+    def test_mark_started_resuming_sets_start_when_started_at_is_none(self):
+        # Resuming a report that never recorded a start (e.g. it went RUNNING
+        # via a direct status write) must still stamp ``started_at`` rather than
+        # leaving it None — the ``not (resuming and report.started_at)`` guard.
+        report = ResearchReport.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            prompt="x",
+            status=JobStatus.RUNNING.value,
+        )
+        self.assertIsNone(report.started_at)
+        ResearchReportService.mark_started(report, resuming=True)
+        report.refresh_from_db()
+        self.assertIsNotNone(report.started_at)
+        self.assertEqual(report.status, JobStatus.RUNNING.value)
+
     def test_resume_enqueues_for_non_terminal(self):
         report = ResearchReport.objects.create(
             creator=self.user,
@@ -286,6 +299,38 @@ class ResearchResumeTestCase(TestCase):
         self.assertIn(stale.pk, stalled)
         self.assertNotIn(fresh.pk, stalled)
         self.assertNotIn(done.pk, stalled)
+
+    @override_settings(DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS=600)
+    def test_reap_stalled_research_resumes_only_cold_running_reports(self):
+        from opencontractserver.tasks.research_tasks import reap_stalled_research
+
+        now = timezone.now()
+        stale = ResearchReport.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            prompt="stale",
+            status=JobStatus.RUNNING.value,
+        )
+        ResearchReport.objects.filter(pk=stale.pk).update(
+            last_progress_at=now - timedelta(seconds=1200)
+        )
+        fresh = ResearchReport.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            prompt="fresh",
+            status=JobStatus.RUNNING.value,
+        )
+        ResearchReport.objects.filter(pk=fresh.pk).update(last_progress_at=now)
+
+        with patch(
+            "opencontractserver.tasks.research_tasks.run_deep_research.delay"
+        ) as enqueued:
+            result = reap_stalled_research()
+
+        # Only the cold RUNNING report is re-enqueued.
+        enqueued.assert_called_once_with(stale.pk)
+        self.assertEqual(result["resumed"], [stale.pk])
+        self.assertEqual(result["stalled"], 1)
 
 
 class DeepResearchSystemPromptTestCase(TestCase):

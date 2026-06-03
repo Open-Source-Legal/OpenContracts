@@ -220,13 +220,12 @@ def reap_stalled_research() -> dict:
     """
     stalled = ResearchReportService.list_stalled()
     resumed: list[int] = []
-    for report_id in stalled:
-        try:
-            report = ResearchReport.objects.get(pk=report_id)
-        except ResearchReport.DoesNotExist:  # pragma: no cover - race
-            continue
+    # Single ``pk__in`` fetch rather than one ``get()`` per id: avoids an N+1
+    # and is naturally robust to a report being deleted between ``list_stalled``
+    # and here (it simply won't appear in the queryset).
+    for report in ResearchReport.objects.filter(pk__in=stalled):
         if ResearchReportService.resume(report):
-            resumed.append(report_id)
+            resumed.append(report.pk)
     if resumed:
         logger.info("[DeepResearch] Reaped + resumed stalled reports: %s", resumed)
     return {"stalled": len(stalled), "resumed": resumed}

@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `opencontractserver/tasks/research_tasks.py`,
     `config/settings/base.py` (beat entry). Tests:
     `opencontractserver/tests/research/test_research_memory.py`.
+  - Review hardening: `write_memory`/`update_plan` now capture a single
+    `timezone.now()` for the entry's `updated_at` and the row's
+    `last_progress_at` (no microsecond drift); `update_plan` refreshes before
+    writing to mirror `write_memory` and avoid stomping a concurrent
+    `cancel_requested` flip (last-writer-wins documented as intentional);
+    `reap_stalled_research` collapses the per-id `get()` loop into a single
+    `pk__in` fetch (no N+1, race-safe against deletion). Added tests for the
+    `reap_stalled_research` task end-to-end and for `mark_started(resuming=True)`
+    when `started_at` is `None`.
 
 ### Fixed
 
