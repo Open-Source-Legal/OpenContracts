@@ -48,9 +48,11 @@ class ResearchPlanTestCase(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(stored, "1. search\n2. report")
         self.assertEqual(self.report.plan, "1. search\n2. report")
-        self.assertIsNotNone(self.report.last_progress_at)
+        after = self.report.last_progress_at
+        self.assertIsNotNone(after)
+        assert after is not None  # narrow Optional[datetime] for mypy
         if before is not None:
-            self.assertGreaterEqual(self.report.last_progress_at, before)
+            self.assertGreaterEqual(after, before)
 
     def test_update_plan_clamps_to_ceiling_keeping_head(self):
         head = "HEAD-MARKER "
@@ -70,12 +72,12 @@ class ResearchMemoryTestCase(TestCase):
         )
 
     def test_write_read_replace(self):
-        result = ResearchReportService.write_memory(
-            self.report, "doc-1", "first note"
-        )
+        result = ResearchReportService.write_memory(self.report, "doc-1", "first note")
         self.assertEqual(result["key"], "doc-1")
         self.assertEqual(result["keys"], 1)
-        self.assertEqual(ResearchReportService.read_memory(self.report, "doc-1"), "first note")
+        self.assertEqual(
+            ResearchReportService.read_memory(self.report, "doc-1"), "first note"
+        )
 
         ResearchReportService.write_memory(self.report, "doc-1", "second note")
         self.assertEqual(
@@ -110,9 +112,7 @@ class ResearchMemoryTestCase(TestCase):
 
     def test_unknown_mode_rejected(self):
         with self.assertRaises(ResearchMemoryLimitExceeded):
-            ResearchReportService.write_memory(
-                self.report, "k", "v", mode="prepend"
-            )
+            ResearchReportService.write_memory(self.report, "k", "v", mode="prepend")
 
     def test_oversized_value_rejected(self):
         with self.assertRaises(ResearchMemoryLimitExceeded):
@@ -127,14 +127,18 @@ class ResearchMemoryTestCase(TestCase):
             ResearchReportService.write_memory(self.report, "one-too-many", "v")
         # Overwriting an existing key is still allowed at the cap.
         ResearchReportService.write_memory(self.report, "k0", "updated")
-        self.assertEqual(ResearchReportService.read_memory(self.report, "k0"), "updated")
+        self.assertEqual(
+            ResearchReportService.read_memory(self.report, "k0"), "updated"
+        )
 
     def test_total_store_cap(self):
         # Fill close to the total cap across a few keys, then overflow.
         chunk = "x" * MAX_RESEARCH_MEMORY_VALUE_CHARS
         written = 0
         i = 0
-        while written + MAX_RESEARCH_MEMORY_VALUE_CHARS <= MAX_RESEARCH_MEMORY_TOTAL_CHARS:
+        while (
+            written + MAX_RESEARCH_MEMORY_VALUE_CHARS <= MAX_RESEARCH_MEMORY_TOTAL_CHARS
+        ):
             ResearchReportService.write_memory(self.report, f"k{i}", chunk)
             written += MAX_RESEARCH_MEMORY_VALUE_CHARS
             i += 1
@@ -155,7 +159,11 @@ class ResearchMemoryTestCase(TestCase):
         )
         ResearchReportService.append_finding(
             self.report,
-            {"section": "Findings", "claim": "indemnification is capped", "citations": [1]},
+            {
+                "section": "Findings",
+                "claim": "indemnification is capped",
+                "citations": [1],
+            },
         )
         hits = ResearchReportService.search_memory(self.report, "indemnification")
         sources = {h["source"] for h in hits}

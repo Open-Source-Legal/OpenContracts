@@ -150,9 +150,15 @@ def build_deep_research_system_prompt(
     if corpus_description:
         warn_if_content_large(corpus_description, context="corpus description")
 
+    # NOTE: every multi-fragment string below uses explicit ``+`` concatenation
+    # rather than Python's implicit adjacent-literal concatenation. They render
+    # identically, but the explicit operator keeps CodeQL's
+    # ``py/implicit-string-concatenation-in-list`` rule (a "did you forget a
+    # comma?" heuristic) quiet inside these list displays. Parentheses do NOT
+    # help — they leave the AST unchanged — so ``+`` is the canonical fix.
     parts: list[str] = [
         "You are a deep-research analyst executing an autonomous, multi-step "
-        "investigation across a document corpus.",
+        + "investigation across a document corpus.",
         f"\n{UNTRUSTED_CONTENT_NOTICE}",
     ]
 
@@ -162,11 +168,11 @@ def build_deep_research_system_prompt(
                 "",
                 "## You are RESUMING an interrupted run",
                 "A previous worker began this task and was interrupted (crash, "
-                "restart, or time limit). Your plan, prior findings, and memory "
-                "store below were preserved. Do NOT start over: read your plan "
-                "and memory first, reconcile what is already done, and continue "
-                "from where you left off. Re-issue a search only when you "
-                "genuinely need a fresh annotation ID to cite.",
+                + "restart, or time limit). Your plan, prior findings, and memory "
+                + "store below were preserved. Do NOT start over: read your plan "
+                + "and memory first, reconcile what is already done, and continue "
+                + "from where you left off. Re-issue a search only when you "
+                + "genuinely need a fresh annotation ID to cite.",
             ]
         )
 
@@ -176,57 +182,57 @@ def build_deep_research_system_prompt(
             "## Mission",
             "1. Use the retrieval tools below to explore the corpus thoroughly.",
             "2. Each time you uncover a discrete, source-backed claim, call "
-            "`record_finding` with the claim text, the citing section, and the "
-            "annotation IDs returned by your retrieval tools.",
+            + "`record_finding` with the claim text, the citing section, and the "
+            + "annotation IDs returned by your retrieval tools.",
             "3. When you have enough evidence to answer the task, call "
-            "`finalize_report` with an executive summary and the final markdown "
-            'body. The body MUST use `<cite ids="a,b">claim text</cite>` '
-            "placeholder tags for every cited claim — the system converts these "
-            "to footnote markers and a Sources section.",
+            + "`finalize_report` with an executive summary and the final markdown "
+            + 'body. The body MUST use `<cite ids="a,b">claim text</cite>` '
+            + "placeholder tags for every cited claim — the system converts these "
+            + "to footnote markers and a Sources section.",
             "4. `finalize_report` is the terminal action. Once you call it, the "
-            "run ends.",
+            + "run ends.",
             "",
             "## Managing your context window",
             "Your context window is finite and older tool results may be "
-            "compacted away mid-run. Three durable stores survive compaction "
-            "AND a worker restart — use them so you never lose progress:",
+            + "compacted away mid-run. Three durable stores survive compaction "
+            + "AND a worker restart — use them so you never lose progress:",
             "- `update_research_plan(plan)` — keep a living high-level plan: the "
-            "task restated in your own words, the sub-questions, what is done, "
-            "and the next steps. Call this early and update it whenever your "
-            "strategy changes. It is re-injected at the top of every run, so it "
-            "is the one thing guaranteed to always be in context. Read it back "
-            "any time with `get_research_plan()`.",
+            + "task restated in your own words, the sub-questions, what is done, "
+            + "and the next steps. Call this early and update it whenever your "
+            + "strategy changes. It is re-injected at the top of every run, so it "
+            + "is the one thing guaranteed to always be in context. Read it back "
+            + "any time with `get_research_plan()`.",
             "- `write_memory(key, content, mode)` — offload anything you want to "
-            "remember but cannot keep in context: extracted quotes, per-document "
-            "notes, running tallies. `mode='append'` adds to an existing key; "
-            "`mode='replace'` overwrites. Retrieve with `read_memory(key)`, "
-            "enumerate with `list_memory()`, and grep across everything with "
-            "`search_memory(query)`. Prefer many small, well-named keys (e.g. "
-            "`doc-1421-summary`) over one giant blob.",
+            + "remember but cannot keep in context: extracted quotes, per-document "
+            + "notes, running tallies. `mode='append'` adds to an existing key; "
+            + "`mode='replace'` overwrites. Retrieve with `read_memory(key)`, "
+            + "enumerate with `list_memory()`, and grep across everything with "
+            + "`search_memory(query)`. Prefer many small, well-named keys (e.g. "
+            + "`doc-1421-summary`) over one giant blob.",
             "- `record_finding(...)` — your citation-backed scratchpad (above). "
-            "Findings are also searchable via `search_memory`.",
+            + "Findings are also searchable via `search_memory`.",
             "Offload eagerly. If you read a long document, write the salient "
-            "points to memory immediately rather than trusting them to stay in "
-            "the conversation history.",
+            + "points to memory immediately rather than trusting them to stay in "
+            + "the conversation history.",
             "",
             "## Critical rules",
             "- You MUST cite only annotation IDs that retrieval tools returned in "
-            "this run. Fabricated or guessed IDs will be rejected and you will "
-            "be asked to re-search.",
+            + "this run. Fabricated or guessed IDs will be rejected and you will "
+            + "be asked to re-search.",
             "- Do NOT write hyperlinks or URLs of any kind — no markdown links "
-            "(`[text](http://…)`), no bare URLs. You have NO web access, so any "
-            "link you emit is invented (do not reach for placeholders like "
-            "`example.com`). The ONLY way to attribute a source is the "
-            '`<cite ids="…">` tag, which the system renders into footnotes. Any '
-            "URL you write would be stripped before the report is saved.",
+            + "(`[text](http://…)`), no bare URLs. You have NO web access, so any "
+            + "link you emit is invented (do not reach for placeholders like "
+            + "`example.com`). The ONLY way to attribute a source is the "
+            + '`<cite ids="…">` tag, which the system renders into footnotes. Any '
+            + "URL you write would be stripped before the report is saved.",
             "- Do NOT mutate corpus state — you have no write tools, by design.",
             "- Do NOT speculate beyond what the corpus supports. If the corpus "
-            "does not contain the answer, say so explicitly in the report.",
+            + "does not contain the answer, say so explicitly in the report.",
             "",
             "## Budget",
             f"- You have approximately {max_steps} tool calls. Plan accordingly.",
             "- Prefer broad coverage early (vector + exact-text searches across "
-            "several queries), then drill into the most promising documents.",
+            + "several queries), then drill into the most promising documents.",
             "",
             "## Context",
             f"- Corpus: {fence_user_content(corpus_title or 'untitled', label='corpus title')}",
@@ -236,7 +242,7 @@ def build_deep_research_system_prompt(
     if corpus_description:
         parts.append(
             "- Corpus description: "
-            f"{fence_user_content(corpus_description, label='corpus description')}"
+            + f"{fence_user_content(corpus_description, label='corpus description')}"
         )
 
     parts.extend(
@@ -254,9 +260,7 @@ def build_deep_research_system_prompt(
         parts.extend(["", "## Your current plan", plan.strip()])
 
     if findings_digest and findings_digest.strip():
-        parts.extend(
-            ["", "## Findings recorded so far", findings_digest.strip()]
-        )
+        parts.extend(["", "## Findings recorded so far", findings_digest.strip()])
 
     if memory_index and memory_index.strip():
         parts.extend(
@@ -269,14 +273,14 @@ def build_deep_research_system_prompt(
 
     closing = (
         "Reconcile your plan and memory with the task, then continue from "
-        "where the interrupted run left off. When you have a coherent answer, "
-        "call `finalize_report`."
+        + "where the interrupted run left off. When you have a coherent answer, "
+        + "call `finalize_report`."
         if resuming
         else (
             "Begin by drafting a short plan with `update_research_plan`, then "
-            "issue 2–4 broad searches to map the corpus. Drill into the most "
-            "promising documents, offload notes to memory, and record findings "
-            "as you go. When you have a coherent answer, call `finalize_report`."
+            + "issue 2–4 broad searches to map the corpus. Drill into the most "
+            + "promising documents, offload notes to memory, and record findings "
+            + "as you go. When you have a coherent answer, call `finalize_report`."
         )
     )
     parts.extend(["", closing])
