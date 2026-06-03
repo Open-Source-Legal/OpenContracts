@@ -11,8 +11,6 @@ anonymous visitors — there is nothing user-specific to leak. For a per-user
 "what can I see" total, use the relevant scoped connection's ``totalCount``.
 """
 
-from typing import Any
-
 import graphene
 
 from opencontractserver.users.models import SystemStats
@@ -44,11 +42,14 @@ class StatsQueryMixin:
         description=(
             "Materialised install-wide aggregate counts (refreshed "
             "periodically). Global, not permission-scoped — use a scoped "
-            "connection's totalCount for per-user figures."
+            "connection's totalCount for per-user figures. NOTE: these "
+            "aggregates are readable WITHOUT authentication (landing/dashboard "
+            "use case); they expose total user/document/corpus/conversation/"
+            "annotation counts to anonymous callers."
         ),
     )
 
-    def resolve_system_stats(self, info, **kwargs) -> Any:
+    def resolve_system_stats(self, info, **kwargs) -> SystemStats:
         # Singleton accessor — no permission scoping (global public
         # aggregates). Returns zeros until the first scheduled refresh runs.
         return SystemStats.get()

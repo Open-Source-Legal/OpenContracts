@@ -117,15 +117,10 @@ class AnnotationQueryMixin:
             analysis_isnull = None
 
         else:
-            # Fallback to visible_to_user for queries without document or corpus.
-            # This un-scoped path backs the "Browse annotations" view, whose
-            # exact ``totalCount`` is a COUNT over the full permission-filtered
-            # set (a DISTINCT across several visibility joins). graphene-django
-            # runs that COUNT eagerly on every page, so we cache it per
-            # (user, filter) — see ``CachedCountQuerySetMixin`` / issue #1908.
-            # The cached-count class survives the pagination clones graphene
-            # makes before reading ``totalCount``. Scoped (document/corpus)
-            # paths above intentionally keep live counts.
+            # Fallback to visible_to_user for queries without document or
+            # corpus. This un-scoped "Browse annotations" path uses a cached
+            # exact totalCount (scoped paths above keep live counts) — see
+            # ``CachedCountQuerySetMixin`` / issue #1908.
             queryset = BaseService.filter_visible(
                 Annotation, info.context.user, request=info.context
             ).with_cached_count()

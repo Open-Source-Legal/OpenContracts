@@ -52,7 +52,11 @@ class CachedCountQuerySetMixin(_CachedCountBase):
     Concrete subclasses set ``_count_cache_ttl`` and ``_count_cache_prefix``.
     """
 
-    # Sensible neutral defaults; concrete subclasses override.
+    # Concrete subclasses MUST override ``_count_cache_ttl`` with a positive
+    # number of seconds. The ``0`` sentinel means "not configured" and bypasses
+    # the cache entirely (count runs live) — we deliberately avoid passing it to
+    # ``cache.set``, whose meaning for ``0`` is backend-dependent: LocMemCache
+    # treats it as "never expire", other backends as "expire immediately".
     _count_cache_ttl: int = 0
     _count_cache_prefix: str = "oc:qs_count"
 
@@ -63,19 +67,35 @@ class CachedCountQuerySetMixin(_CachedCountBase):
         if self._result_cache is not None:
             return len(self._result_cache)
 
+        # Unconfigured TTL → behave like a plain QuerySet (no caching). Prevents
+        # a subclass that forgets to set ``_count_cache_ttl`` from silently
+        # caching forever under LocMemCache (see the attribute comment above).
+        if self._count_cache_ttl <= 0:
+            return super().count()
+
         from django.core.cache import cache
 
         sql = str(self.query)
+        # ``str(self.query)`` compiles the full SQL (several OR'd visibility
+        # subqueries + EXISTS clauses for the annotation browse). That cost is
+        # intentionally inside the miss path — do NOT hoist it above the cache
+        # lookup; the whole point is to pay it at most once per TTL per filter.
         digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
         cache_key = f"{self._count_cache_prefix}:{digest}"
 
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        value = super().count()
-        cache.set(cache_key, value, self._count_cache_ttl)
-        return value
+        # Degrade gracefully on a cache-backend outage (e.g. a transient Redis
+        # blip): the eager graphene-django count path means an unhandled cache
+        # error would otherwise break the entire annotations browse page rather
+        # than just losing the optimisation. Fall back to a live COUNT.
+        try:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
+            value = super().count()
+            cache.set(cache_key, value, self._count_cache_ttl)
+            return value
+        except Exception:  # noqa: BLE001 — cache must never break the page
+            return super().count()
 
 
 # Preserves the concrete QuerySet subclass (e.g. AnnotationQuerySet) across
@@ -651,6 +671,11 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         ``.select_related()`` / ``.filter()`` / pagination slicing keeps the
         cached-count behaviour. See ``CachedCountQuerySetMixin``.
         """
+        # Reassigning ``__class__`` on a fresh ``_chain()`` clone is an
+        # intentional, well-established Django-internal technique for swapping a
+        # queryset to a subclass without re-running the query construction. It
+        # is safe here because ``CachedCountAnnotationQuerySet`` only ADDS the
+        # cached ``.count()`` and shares ``AnnotationQuerySet``'s state layout.
         clone = self._chain()  # type: ignore[attr-defined]
         clone.__class__ = CachedCountAnnotationQuerySet
         return clone

@@ -39,7 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is stale by at most the TTL after a create/delete. Only the un-scoped
   resolver branch (`config/graphql/annotation_queries.py`) opts in; document-
   and corpus-scoped annotation counts stay live. The cached-count behaviour
-  survives the queryset clones graphene makes during pagination.
+  survives the queryset clones graphene makes during pagination. A cache-backend
+  outage (e.g. a transient Redis blip) degrades gracefully to a live `COUNT`
+  rather than breaking the browse page, and an unconfigured TTL bypasses the
+  cache entirely instead of caching indefinitely.
 - **Trimmed unused fields from `GET_ANNOTATIONS_FOR_CARDS`**
   (`frontend/src/graphql/queries.ts`): `linkUrl` and `annotationLabel.labelType`
   are never read by the annotation card (`getAnnotationLabelType` keys off

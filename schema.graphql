@@ -381,7 +381,7 @@ type Query {
   ogExtractMetadata(extractId: String!): OGExtractMetadataType
 
   """
-  Materialised install-wide aggregate counts (refreshed periodically). Global, not permission-scoped — use a scoped connection's totalCount for per-user figures.
+  Materialised install-wide aggregate counts (refreshed periodically). Global, not permission-scoped — use a scoped connection's totalCount for per-user figures. NOTE: these aggregates are readable WITHOUT authentication (landing/dashboard use case); they expose total user/document/corpus/conversation/annotation counts to anonymous callers.
   """
   systemStats: SystemStatsType
 }

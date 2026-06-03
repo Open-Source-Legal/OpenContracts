@@ -11,6 +11,8 @@ the value keyed by the compiled SQL. These tests pin that the cache:
   - survives the ``_clone()`` graphene performs during pagination.
 """
 
+from unittest.mock import patch
+
 from django.core.cache import cache
 from django.test import TestCase
 
@@ -110,3 +112,22 @@ class TestCachedAnnotationCount(TestCase):
         )
         self.assertIsInstance(qs, CachedCountAnnotationQuerySet)
         self.assertEqual(qs.count(), 3)
+
+    def test_cache_backend_failure_degrades_to_live_count(self):
+        # A cache-backend outage must NOT break the browse page: count() falls
+        # back to a live COUNT rather than propagating the cache error.
+        qs = self._visible_qs(self.owner).with_cached_count()
+        with patch(
+            "django.core.cache.cache.get", side_effect=Exception("redis down")
+        ), patch("django.core.cache.cache.set", side_effect=Exception("redis down")):
+            self.assertEqual(qs.count(), 3)
+
+    def test_zero_ttl_bypasses_cache(self):
+        # An unconfigured TTL (<= 0) must behave like a plain queryset: always
+        # live, never written to the cache (guards against caching forever
+        # under LocMemCache).
+        qs = self._visible_qs(self.owner).with_cached_count()
+        qs._count_cache_ttl = 0
+        with patch("django.core.cache.cache.set") as mock_set:
+            self.assertEqual(qs.count(), 3)
+            mock_set.assert_not_called()
