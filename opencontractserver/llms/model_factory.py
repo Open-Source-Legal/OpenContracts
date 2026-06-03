@@ -127,7 +127,14 @@ def _construct_model(
             provider=AnthropicProvider(api_key=api_key, base_url=base_url),
         )
 
-    if provider_key in ("google-gla", "google", "google-vertex"):
+    if provider_key == "google-gla":
+        # Only the AI-Studio (``google-gla``) provider is registered and
+        # authenticates with an API key. ``google-vertex`` uses
+        # service-account ADC credentials, not an api_key — building a
+        # ``GoogleProvider(api_key=...)`` for it would construct cleanly
+        # but fail at request time. We therefore handle only ``google-gla``
+        # here and let any future Vertex provider fall through to the
+        # warning + ``None`` (env-fallback) below.
         from pydantic_ai.models.google import GoogleModel
         from pydantic_ai.providers.google import GoogleProvider
 

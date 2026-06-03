@@ -97,7 +97,10 @@ class TestBuildAgentModelEnvFallback(TestCase):
             "anthropic:claude-opus-4-6",
         )
 
-    def test_bare_spec_passthrough(self):
+    def test_colonless_spec_returned_unchanged(self):
+        # A spec without a "provider:model" colon can't be parsed, so it is
+        # returned verbatim before any credential lookup — pydantic-ai
+        # resolves it from the environment as before.
         self.assertEqual(build_agent_model("gpt-4o"), "gpt-4o")
 
     def test_malformed_spec_returned_unchanged(self):

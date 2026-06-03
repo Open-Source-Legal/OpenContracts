@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tests: `opencontractserver/tests/test_llm_model_factory.py` covers provider
     settings-schema extraction, DB-wins/env-fallback resolution, construction
     failure degradation, and the GraphQL-facing secret status surface.
+  - `_construct_model` handles only `google-gla` (AI-Studio, API-key auth);
+    `google-vertex` uses service-account ADC credentials rather than an
+    API key, so a DB `api_key` would build cleanly but fail at request time —
+    it now falls through to the env-fallback path instead of being grouped
+    with `google-gla`.
 
 ### Fixed
 
