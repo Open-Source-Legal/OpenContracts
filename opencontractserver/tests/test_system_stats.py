@@ -24,6 +24,11 @@ class _Context:
 
 
 class TestSystemStats(TestCase):
+    user: User
+    corpus: Corpus
+    doc: Document
+    label: AnnotationLabel
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(

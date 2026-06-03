@@ -22,6 +22,11 @@ from opencontractserver.users.models import User
 
 
 class TestCachedAnnotationCount(TestCase):
+    owner: User
+    other: User
+    doc: Document
+    label: AnnotationLabel
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(

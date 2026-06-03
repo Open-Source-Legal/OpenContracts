@@ -27,7 +27,10 @@ def refresh_system_stats() -> dict | None:
         # Read the counts back off the refreshed row rather than recomputing
         # them — ``refresh()`` already ran every COUNT once.
         result = {field: getattr(instance, field) for field in SystemStats.COUNT_FIELDS}
-        result["computed_at"] = instance.computed_at.isoformat()
+        # ``refresh()`` always stamps ``computed_at`` before saving, so it is
+        # non-null here (the field is nullable only for the pre-first-run row).
+        computed_at = instance.computed_at
+        result["computed_at"] = computed_at.isoformat() if computed_at else None
         logger.info("System stats refreshed: %s", result)
         return result
     except Exception as e:  # noqa: BLE001 — beat task must never crash the worker

@@ -755,7 +755,9 @@ class SystemStats(django.db.models.Model):
             "conversation_count": Conversation.objects.filter(
                 deleted_at__isnull=True
             ).count(),
-            "message_count": ChatMessage.objects.filter(deleted_at__isnull=True).count(),
+            "message_count": ChatMessage.objects.filter(
+                deleted_at__isnull=True
+            ).count(),
         }
 
     @classmethod

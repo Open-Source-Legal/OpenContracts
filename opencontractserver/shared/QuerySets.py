@@ -1,6 +1,6 @@
 import hashlib
 from datetime import timedelta
-from typing import Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 from django.db import models
 from django.db.models import Exists, OuterRef, Q
@@ -14,8 +14,18 @@ from opencontractserver.constants.annotations import (
 from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
 from opencontractserver.shared.user_can_mixin import UserCanMixin
 
+# At runtime this is a bare mixin (no QuerySet base) so it can be combined
+# ahead of a concrete ``models.QuerySet`` subclass without MRO/metaclass
+# clashes. For type-checking we declare ``models.QuerySet`` as the base so
+# mypy resolves the inherited ``_result_cache``/``query`` attributes and the
+# ``super().count()`` call against the real QuerySet API.
+if TYPE_CHECKING:
+    _CachedCountBase = models.QuerySet
+else:
+    _CachedCountBase = object
 
-class CachedCountQuerySetMixin:
+
+class CachedCountQuerySetMixin(_CachedCountBase):
     """Mixin that caches a queryset's ``COUNT(*)`` keyed by its compiled SQL.
 
     Motivation (issue #1908): graphene-django 3.2.3 calls ``.count()``
@@ -66,6 +76,7 @@ class CachedCountQuerySetMixin:
         value = super().count()
         cache.set(cache_key, value, self._count_cache_ttl)
         return value
+
 
 # Preserves the concrete QuerySet subclass (e.g. AnnotationQuerySet) across
 # ``_exclude_soft_deleted_doc_orphans`` so callers don't lose their typed
@@ -640,7 +651,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         ``.select_related()`` / ``.filter()`` / pagination slicing keeps the
         cached-count behaviour. See ``CachedCountQuerySetMixin``.
         """
-        clone = self._chain()
+        clone = self._chain()  # type: ignore[attr-defined]
         clone.__class__ = CachedCountAnnotationQuerySet
         return clone
 
