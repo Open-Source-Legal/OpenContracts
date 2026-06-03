@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   displayed, and the label pill itself (`LabelTagContainer`) keeps its own
   colored background, so labels remain readable.
 
+- **Discover landing search box stacked its icon on a separate line from the input on mobile (2026-06).**
+  The `@os-legal/ui` `SearchBox` ships a `@media (max-width: 480px)` rule that
+  sets `.oc-search-box__input { flex: 1 1 100% }`, forcing the input onto its
+  own full-width row and stranding the magnifying-glass icon alone on the line
+  above the placeholder. Added a higher-specificity override in the
+  `SearchContainer` styled-component
+  (`frontend/src/components/landing/NewHeroSection.tsx`) that restores
+  `flex: 1 1 auto` on the input below `SMALL_MOBILE_BREAKPOINT` (480px), so the
+  icon and input share one row again while the submit button still wraps to its
+  own full-width row. Note: the upstream `SearchBox` mobile rule is unchanged
+  through the latest `@os-legal/ui` 0.1.19, so this consumer-side override is
+  version-independent and is retained after the bump noted under Changed.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
@@ -48,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   present in `app.tasks`.
 
 ### Changed
+
+- **Bumped `@os-legal/ui` 0.1.16 → 0.1.19** (`frontend/package.json`,
+  `frontend/yarn.lock`). The upstream `SearchBox` mobile layout is unchanged in
+  0.1.19, so the consumer-side icon/input override above is still required.
 
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
