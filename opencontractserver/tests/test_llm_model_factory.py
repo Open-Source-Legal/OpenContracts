@@ -118,7 +118,9 @@ class TestBuildAgentModelDbWins(TestCase):
         reset_registry()
         cache.delete(PipelineSettings.CACHE_KEY)
         PipelineSettings._invalidate_cache()
-        self.openai_path = get_llm_provider_by_key_cached("openai").class_name
+        openai_defn = get_llm_provider_by_key_cached("openai")
+        assert openai_defn is not None
+        self.openai_path = openai_defn.class_name
 
     def _configure_openai_creds(self, *, api_key="sk-db-key", base_url=None):
         instance = PipelineSettings.get_instance()
@@ -178,7 +180,9 @@ class TestProviderSecretStatusSurface(TestCase):
         reset_registry()
         cache.delete(PipelineSettings.CACHE_KEY)
         PipelineSettings._invalidate_cache()
-        self.anthropic_path = get_llm_provider_by_key_cached("anthropic").class_name
+        anthropic_defn = get_llm_provider_by_key_cached("anthropic")
+        assert anthropic_defn is not None
+        self.anthropic_path = anthropic_defn.class_name
 
     def test_has_value_flips_after_setting_secret(self):
         instance = PipelineSettings.get_instance()

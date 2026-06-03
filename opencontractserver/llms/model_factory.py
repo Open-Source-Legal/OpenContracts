@@ -30,9 +30,8 @@ pipeline registry stays importable during early startup / migrations.
 
 from __future__ import annotations
 
-import inspect
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from asgiref.sync import sync_to_async
 
@@ -41,7 +40,7 @@ from opencontractserver.llms.llm_registry import parse_model_spec
 logger = logging.getLogger(__name__)
 
 
-def _provider_class_path(provider_key: str) -> Optional[str]:
+def _provider_class_path(provider_key: str) -> str | None:
     """Return the full class path of the registered provider for ``provider_key``."""
     # Lazy import — the registry pulls Django apps, which is unsafe at module
     # import time during early startup.
@@ -84,32 +83,23 @@ def _get_db_credentials(provider_key: str) -> dict[str, str]:
     return creds
 
 
-def _provider_init_kwargs(provider_cls: type, creds: dict[str, str]) -> dict[str, str]:
-    """Select the credential kwargs a provider ``__init__`` actually accepts.
-
-    Filtering by the real signature means we never pass ``base_url`` to a
-    provider that does not support it (which would raise) — a configured
-    endpoint for such a provider is simply ignored.
-    """
-    try:
-        params = inspect.signature(provider_cls.__init__).parameters
-    except (TypeError, ValueError):
-        params = {}
-    kwargs: dict[str, str] = {}
-    for name in ("api_key", "base_url"):
-        if name in params and creds.get(name):
-            kwargs[name] = creds[name]
-    return kwargs
-
-
 def _construct_model(
     provider_key: str, model_name: str, creds: dict[str, str]
-) -> Optional[Any]:
+) -> Any | None:
     """Build a ``pydantic-ai`` model carrying explicit provider credentials.
+
+    Each provider's ``Provider`` accepts ``api_key`` / ``base_url`` keyword
+    arguments (both optional). We pass whatever the DB supplied and leave
+    the rest to ``pydantic-ai`` — a ``None`` ``api_key`` means "read the
+    provider-native env var", so a base-URL-only override still picks up
+    the environment key.
 
     Returns ``None`` for providers we have no construction recipe for, so
     the caller can fall back to the bare spec string (env credentials).
     """
+    api_key = creds.get("api_key")
+    base_url = creds.get("base_url")
+
     if provider_key in ("openai", "ollama"):
         from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -118,27 +108,32 @@ def _construct_model(
         except ImportError:  # pragma: no cover - older pydantic-ai alias
             from pydantic_ai.models.openai import OpenAIModel as _Model
 
-        kwargs = _provider_init_kwargs(OpenAIProvider, creds)
         # Ollama (and other OpenAI-compatible local servers) require *some*
         # api_key for the underlying OpenAI client even when the server
         # ignores it. Supply a harmless placeholder when none is configured.
-        if provider_key == "ollama" and "api_key" not in kwargs:
-            kwargs["api_key"] = "ollama"
-        return _Model(model_name, provider=OpenAIProvider(**kwargs))
+        if provider_key == "ollama" and not api_key:
+            api_key = "ollama"
+        return _Model(
+            model_name,
+            provider=OpenAIProvider(api_key=api_key, base_url=base_url),
+        )
 
     if provider_key == "anthropic":
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
 
-        kwargs = _provider_init_kwargs(AnthropicProvider, creds)
-        return AnthropicModel(model_name, provider=AnthropicProvider(**kwargs))
+        return AnthropicModel(
+            model_name,
+            provider=AnthropicProvider(api_key=api_key, base_url=base_url),
+        )
 
     if provider_key in ("google-gla", "google", "google-vertex"):
         from pydantic_ai.models.google import GoogleModel
         from pydantic_ai.providers.google import GoogleProvider
 
-        kwargs = _provider_init_kwargs(GoogleProvider, creds)
-        return GoogleModel(model_name, provider=GoogleProvider(**kwargs))
+        # AI-Studio takes no caller-supplied endpoint, so only the key flows
+        # through (GoogleProvider has no base_url field on this path).
+        return GoogleModel(model_name, provider=GoogleProvider(api_key=api_key))
 
     logger.warning(
         "No credentialed-model recipe for provider %r; using environment "
