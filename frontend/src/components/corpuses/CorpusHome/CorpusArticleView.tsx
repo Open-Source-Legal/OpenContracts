@@ -13,6 +13,7 @@ import {
   Edit,
   Compass,
   LayoutDashboard,
+  Menu,
 } from "lucide-react";
 import styled from "styled-components";
 
@@ -132,6 +133,49 @@ const ToolbarNav = styled.div`
   flex-shrink: 0;
 `;
 
+/**
+ * Mobile-only control that opens the corpus tab menu (navigation sidebar).
+ *
+ * The sidebar is the only way to reach the other corpus tabs on mobile, and it
+ * only exists in power-user mode (see Corpuses.tsx). On desktop the sidebar is
+ * always present, so this button is hidden there. Styled as a compact circular
+ * icon button so it reads clearly as a tappable control against the glassy
+ * toolbar without competing with the pill actions beside it.
+ */
+const ToolbarMenuButton = styled.button`
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9999px;
+  background: ${OS_LEGAL_COLORS.surfaceLight};
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+
+  &:hover {
+    background: ${OS_LEGAL_COLORS.accentSurface};
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${OS_LEGAL_COLORS.accent};
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 768px) {
+    display: inline-flex;
+  }
+`;
+
 /** Centered corpus avatar shown above the article body when the CAML does not
  *  already reference the corpus icon. Restores the hero image that the corpus
  *  landing view shows automatically, so a Readme.CAML article doesn't silently
@@ -193,6 +237,14 @@ export interface CorpusArticleViewProps {
   onModeToggle?: () => void;
   /** Whether power-user ("Manage") mode is currently active. */
   isPowerUserMode?: boolean;
+  /**
+   * Opens the corpus tab menu (mobile navigation sidebar). When provided, a
+   * mobile-only menu button is rendered in the sticky toolbar so the corpus
+   * tabs stay reachable while the Readme.CAML article is the corpus home. The
+   * sidebar only exists in power-user mode, so the button is gated on
+   * isPowerUserMode to match CorpusLandingView / CorpusDetailsView.
+   */
+  onOpenMobileMenu?: () => void;
   stats?: {
     annotations?: number;
     documents?: number;
@@ -209,6 +261,7 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
   showDocumentsButton,
   onModeToggle,
   isPowerUserMode = false,
+  onOpenMobileMenu,
   stats,
   testId = "corpus-article",
 }) => {
@@ -409,6 +462,19 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
                 Manage
               </PillToggleLabel>
             </PillToggle>
+          )}
+          {/* Mobile-only entry point to the corpus tab menu. Without this, a
+              Readme.CAML article (which replaces the corpus home) leaves mobile
+              users with no way to open the navigation sidebar. The sidebar only
+              exists in power-user mode, so the button is gated to match it. */}
+          {onOpenMobileMenu && isPowerUserMode && (
+            <ToolbarMenuButton
+              onClick={onOpenMobileMenu}
+              aria-label="Open navigation menu"
+              data-testid={`${testId}-mobile-menu`}
+            >
+              <Menu size={16} />
+            </ToolbarMenuButton>
           )}
         </ToolbarNav>
       </ArticleToolbar>
