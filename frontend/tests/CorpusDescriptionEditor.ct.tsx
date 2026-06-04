@@ -1,5 +1,4 @@
 import React from "react";
-import type { Page, Route } from "@playwright/test";
 import { test, expect } from "./utils/coverage";
 import { MockedResponse } from "@apollo/client/testing";
 import { CorpusDescriptionEditorTestWrapper } from "./CorpusDescriptionEditorTestWrapper";
@@ -8,7 +7,6 @@ import { UPDATE_CORPUS_DESCRIPTION } from "../src/graphql/mutations";
 import { docScreenshot } from "./utils/docScreenshot";
 
 const TEST_CORPUS_ID = "corpus-cde-1";
-const MD_URL = "http://localhost/test-md/initial.md";
 const INITIAL_MD = "# Initial Description\n\nHello world.";
 
 /* -------------------------------------------------------------------------- */
@@ -36,9 +34,8 @@ const buildCorpusMock = (overrides: Partial<any> = {}): MockedResponse => ({
         id: TEST_CORPUS_ID,
         slug: "test-corpus",
         title: "Test Corpus",
-        description: "Short description",
+        description: INITIAL_MD,
         descriptionPreview: "Short description",
-        mdDescription: MD_URL,
         icon: null,
         created: "2026-01-01T00:00:00Z",
         modified: "2026-01-02T00:00:00Z",
@@ -73,7 +70,6 @@ const buildCorpusMockNoMd = (): MockedResponse => ({
         title: "Empty Corpus",
         description: "",
         descriptionPreview: "",
-        mdDescription: null,
         icon: null,
         created: "2026-01-01T00:00:00Z",
         modified: "2026-01-01T00:00:00Z",
@@ -90,16 +86,6 @@ const buildCorpusMockNoMd = (): MockedResponse => ({
   },
 });
 
-const setupMdRoute = async (page: Page, body: string = INITIAL_MD) => {
-  await page.route("**/test-md/**", async (route: Route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "text/markdown",
-      body,
-    });
-  });
-};
-
 /* -------------------------------------------------------------------------- */
 /* Tests                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -109,7 +95,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[]}
@@ -124,8 +109,6 @@ test.describe("CorpusDescriptionEditor", () => {
   });
 
   test("loads markdown content into editor", async ({ mount, page }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[buildCorpusMock()]}
@@ -152,7 +135,7 @@ test.describe("CorpusDescriptionEditor", () => {
     await component.unmount();
   });
 
-  test("shows empty editor when corpus has no mdDescription", async ({
+  test("shows empty editor when corpus has no description", async ({
     mount,
     page,
   }) => {
@@ -184,8 +167,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[buildCorpusMock()]}
@@ -216,8 +197,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[buildCorpusMock()]}
@@ -257,8 +236,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[buildCorpusMock()]}
@@ -294,7 +271,6 @@ test.describe("CorpusDescriptionEditor", () => {
   });
 
   test("save mutation persists edited content", async ({ mount, page }) => {
-    await setupMdRoute(page);
     let onUpdateCalled = false;
 
     const newContent = INITIAL_MD + "\n\nAdditional content.";
@@ -316,7 +292,6 @@ test.describe("CorpusDescriptionEditor", () => {
               id: TEST_CORPUS_ID,
               title: "Test Corpus",
               description: "Short description",
-              mdDescription: MD_URL,
               descriptionRevisions: [
                 baseRevision(),
                 {
@@ -386,8 +361,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const reapplyMock: MockedResponse = {
       request: {
         query: UPDATE_CORPUS_DESCRIPTION,
@@ -406,7 +379,6 @@ test.describe("CorpusDescriptionEditor", () => {
               id: TEST_CORPUS_ID,
               title: "Test Corpus",
               description: "Short description",
-              mdDescription: MD_URL,
               descriptionRevisions: [baseRevision()],
             },
           },
@@ -445,7 +417,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
     let onCloseCalled = false;
 
     const component = await mount(
@@ -475,8 +446,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[buildCorpusMock()]}
@@ -514,8 +483,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const newContent = INITIAL_MD + "\n\nExtra.";
     const failingSaveMock: MockedResponse = {
       request: {
@@ -564,8 +531,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const newContent = INITIAL_MD + "\n\nExtra.";
     const networkErrorMock: MockedResponse = {
       request: {
@@ -604,8 +569,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[
@@ -648,8 +611,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[buildCorpusMock()]}
@@ -687,8 +648,6 @@ test.describe("CorpusDescriptionEditor", () => {
     mount,
     page,
   }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[
@@ -742,40 +701,7 @@ test.describe("CorpusDescriptionEditor", () => {
     await component.unmount();
   });
 
-  test("fetching mdDescription URL failure falls back to empty editor", async ({
-    mount,
-    page,
-  }) => {
-    // Abort the network request so the fetch promise rejects and the
-    // component's .catch() branch (setCurrentContent("")) runs.
-    await page.route("**/test-md/**", async (route: Route) => {
-      await route.abort("failed");
-    });
-
-    const component = await mount(
-      <CorpusDescriptionEditorTestWrapper
-        mocks={[buildCorpusMock()]}
-        corpusId={TEST_CORPUS_ID}
-      />
-    );
-
-    await expect(page.getByText("Edit Corpus Description")).toBeVisible({
-      timeout: 20000,
-    });
-
-    const textarea = page.locator(
-      'textarea[placeholder="Write your corpus description in Markdown..."]'
-    );
-    await expect(textarea).toBeVisible({ timeout: 5000 });
-    // The catch branch resets content to empty string; pin that contract.
-    await expect(textarea).toHaveValue("", { timeout: 5000 });
-
-    await component.unmount();
-  });
-
   test("version count label pluralizes correctly", async ({ mount, page }) => {
-    await setupMdRoute(page);
-
     const component = await mount(
       <CorpusDescriptionEditorTestWrapper
         mocks={[
