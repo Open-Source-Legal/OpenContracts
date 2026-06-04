@@ -197,6 +197,36 @@ class LogoCredentialResolutionTests(TestCase):
         )
 
 
+class UnregisteredProviderGracefulTests(TestCase):
+    """Logo + credential reads degrade gracefully when OpenAI isn't registered."""
+
+    def test_aget_provider_credentials_empty_for_unregistered(self):
+        from opencontractserver.llms.model_factory import aget_provider_credentials
+
+        # Registry returns None for an unregistered provider — the read must
+        # yield {} rather than raise.
+        with patch(
+            "opencontractserver.pipeline.registry.get_llm_provider_by_key_cached",
+            return_value=None,
+        ):
+            creds = async_to_sync(aget_provider_credentials)("openai")
+        self.assertEqual(creds, {})
+
+    @override_settings(CORPUS_LOGO_GENERATION_ENABLED=True, OPENAI_API_KEY="")
+    def test_logo_falls_back_to_monogram_when_openai_unregistered(self):
+        # No DB creds (provider unregistered) and no env key -> AI path is
+        # skipped and the deterministic monogram is produced, no exception.
+        with patch(
+            "opencontractserver.pipeline.registry.get_llm_provider_by_key_cached",
+            return_value=None,
+        ):
+            data, ext = async_to_sync(agenerate_logo_image)(
+                prompt="p", fallback_text="Acme Corp", fallback_seed="1"
+            )
+        self.assertEqual(ext, "png")
+        self.assertTrue(data)
+
+
 class GenerateAiLogoParseTests(TestCase):
     """``_generate_ai_logo`` parses the OpenAI Images response shapes."""
 

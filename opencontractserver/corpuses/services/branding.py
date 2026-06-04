@@ -171,10 +171,17 @@ async def _generate_logo(corpus: Corpus, user_id: int) -> str:
 def _build_branding_system_prompt(corpus: Corpus, tools: list[str]) -> str:
     """System prompt for the README-writing agent.
 
+    Reuses the canonical ``CAML_AUTHORING_GUIDE`` (the same CAML syntax /
+    editorial reference the seeded "CAML Article Writer" corpus action uses) so
+    auto-branding produces a real CAML article — not ad-hoc markdown — then
+    layers the branding-specific framing on top: a freshly-created (possibly
+    empty) corpus, researched via ``web_search`` rather than document tools.
+
     SECURITY: the corpus title/description are user-generated, so they are
     wrapped in ``<user_content>`` fences to keep the model from treating them
     as instructions. See ``opencontractserver/utils/prompt_sanitization.py``.
     """
+    from opencontractserver.corpuses.caml_authoring import CAML_AUTHORING_GUIDE
     from opencontractserver.utils.prompt_sanitization import (
         UNTRUSTED_CONTENT_NOTICE,
         fence_user_content,
@@ -190,9 +197,9 @@ def _build_branding_system_prompt(corpus: Corpus, tools: list[str]) -> str:
     tool_list = ", ".join(tools) if tools else "none"
 
     parts = [
-        "You are an automated corpus-branding agent. You write a concise, "
-        "accurate README for a newly created document collection without human "
-        "interaction.",
+        "You are an automated corpus-branding agent. You write the "
+        "``Readme.CAML`` article for a newly created document collection, "
+        "without human interaction, following the CAML authoring guide below.",
         f"\n{UNTRUSTED_CONTENT_NOTICE}",
         "",
         "## Collection",
@@ -208,27 +215,27 @@ def _build_branding_system_prompt(corpus: Corpus, tools: list[str]) -> str:
     parts.extend(
         [
             "",
-            "## Rules",
-            "1. You MUST use tools. Use web_search to research the "
-            "collection's subject, then call update_corpus_description to save "
-            "the README. Describing what you would do is NOT sufficient.",
-            "2. Do NOT ask clarifying questions. Execute the task.",
-            "3. Ground the README in the title/description above and what you "
-            "find via web_search. Do not fabricate documents or contents you "
-            "cannot verify — the collection may be empty so far.",
-            "4. Keep it concise and skimmable.",
+            "## Branding rules (override the guide where they conflict)",
+            "1. You MUST use tools. Research the collection's subject with "
+            "web_search, then call update_corpus_description with the raw CAML "
+            "as ``new_content`` to SAVE the article. Merely printing it is NOT "
+            "sufficient — the guide's 'output ONLY the raw CAML' rule refers to "
+            "what you pass to that tool.",
+            "2. You have NO document-analysis tools (only web_search + "
+            "update_corpus_description). Wherever the guide says to use "
+            "ask_document / load_document_text, substitute your web_search "
+            "findings and the collection metadata above.",
+            "3. Ground every claim in the title/description above and what you "
+            "verify via web_search. Never fabricate documents, statistics, or "
+            "quotes — the collection may be empty so far, so favour a concise "
+            "article over invented data blocks (pills/maps/timelines).",
+            "4. Do NOT ask clarifying questions. Execute the task.",
             "",
-            "## README format",
-            "- Write GitHub-flavored markdown (a valid CAML article).",
-            "- Start with a single H1 title.",
-            "- Include a short overview paragraph, then sections such as "
-            '"What\'s inside", "Key topics", and "How to use this '
-            'collection".',
-            "- Prefer bullet lists; link to authoritative sources you found.",
+            CAML_AUTHORING_GUIDE,
             "",
             "## Task",
-            "Produce and SAVE (via update_corpus_description) a README that "
-            "helps a new reader quickly understand what this collection is "
+            "Produce and SAVE (via update_corpus_description) a CAML article "
+            "that helps a new reader quickly understand what this collection is "
             "about.",
         ]
     )
