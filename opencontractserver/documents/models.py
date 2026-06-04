@@ -1300,8 +1300,10 @@ class PipelineSettings(django.db.models.Model):
         # (required in autocommit mode and Django TestCase which never commits).
         self.clear_cache()
         # Also invalidate on commit in case save() runs inside a larger
-        # transaction that might roll back and be retried.
-        transaction.on_commit(lambda: self.clear_cache())
+        # transaction that might roll back and be retried. clear_cache is a
+        # classmethod, so register it directly rather than capturing self in a
+        # lambda.
+        transaction.on_commit(PipelineSettings.clear_cache)
 
     def delete(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Prevent deletion of the singleton instance."""
