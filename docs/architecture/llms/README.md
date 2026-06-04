@@ -2853,12 +2853,20 @@ LLM providers are registered as pluggable [pipeline components](../../pipelines/
 - `provider_key` — pydantic-ai prefix used to build the spec and route credential lookups.
 - `supported_models` — bare model names suggested to the UI (e.g. dropdown for `Corpus.preferred_llm`). Not strictly enforced at runtime so newly-released models can be used without a code change.
 - `requires_api_key` — whether the provider needs a credential (`False` for `ollama`).
+- a nested `Settings` dataclass — the standard pipeline-component config schema, carrying an `api_key` (`SECRET`) and, where applicable, a `base_url` (`OPTIONAL`). Built with the `llm_api_key_field` / `llm_base_url_field` helpers so the credentials are stored in the `PipelineSettings` singleton (the key encrypted) and editable live in the System Settings UI.
 
-Add a new provider by dropping a file in `pipeline/llm_providers/` — the `PipelineComponentRegistry` walks the package on first access and registers every concrete subclass. Discover the registered providers programmatically via `get_all_llm_providers_cached()` or through the GraphQL `pipelineComponents { llmProviders { providerKey, supportedModels, requiresApiKey } }` query.
+Add a new provider by dropping a file in `pipeline/llm_providers/` — the `PipelineComponentRegistry` walks the package on first access and registers every concrete subclass. Discover the registered providers programmatically via `get_all_llm_providers_cached()` or through the GraphQL `pipelineComponents { llmProviders { providerKey, supportedModels, requiresApiKey, settingsSchema { name settingType hasValue } } }` query.
 
-### API keys
+### API keys & endpoints
 
-Phase 1 of the runtime LLM configuration roadmap keeps API-key resolution where it has always been: provider-native environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, …) read by pydantic-ai. A future phase adds a `LLMProviderCredential` encrypted store so keys can be registered per corpus / per user via GraphQL without redeploying.
+LLM credentials are configurable **live** — exactly like a parser's or embedder's — without editing environment variables or redeploying. A superuser sets a provider's `api_key` (and optional `base_url`) in **System Settings → Pipeline Components**; the key is stored encrypted in the `PipelineSettings` singleton and the endpoint as a plaintext setting.
+
+Resolution is **DB-wins / env-fallback**, applied by [`opencontractserver/llms/model_factory.py`](../../../opencontractserver/llms/model_factory.py):
+
+- When a provider has a DB-configured `api_key`/`base_url`, `build_agent_model()` returns a concrete pydantic-ai model whose `Provider` carries those credentials — overriding the environment. A custom `base_url` lets you point OpenAI/Ollama at an OpenAI-compatible gateway or self-hosted server.
+- When nothing is configured (the default), it returns the bare `"{provider}:{model}"` spec string and pydantic-ai resolves the credential from the provider-native environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, …) exactly as before.
+
+Any failure to build a credentialed model degrades to the env-fallback string, so a misconfiguration can never take the chat path down. The factory is invoked at every `make_pydantic_ai_agent` call site (document, corpus, and structured-output agents, plus the memory-curation tasks); it performs ORM access, so async call sites use the `abuild_agent_model()` wrapper.
 
 ### Validation
 
