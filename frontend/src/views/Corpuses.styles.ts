@@ -33,7 +33,8 @@ export const CorpusViewContainer = styled.div`
 `;
 
 export const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
-  position: relative;
+  position: sticky;
+  top: 0;
   width: ${(props) => (props.$isExpanded ? "280px" : "80px")};
   background: linear-gradient(180deg, #ffffff 0%, #fafbfc 50%, #f8f9fa 100%);
   backdrop-filter: blur(10px);
@@ -48,9 +49,13 @@ export const NavigationSidebar = styled(motion.div)<{ $isExpanded: boolean }>`
   flex-direction: column;
   overflow: hidden;
   flex-shrink: 0;
+  /* Cap the rail to the viewport so a long tab list scrolls inside it instead of growing the row past the viewport-pinned chat column (which left whitespace under the composer). */
+  max-height: calc(100vh - var(--oc-navbar-height, 4.5rem));
+  max-height: calc(100dvh - var(--oc-navbar-height, 4.5rem));
 
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     position: fixed;
+    top: auto;
     left: 50%;
     bottom: 0;
     width: 100%;
@@ -194,6 +199,7 @@ export const NavigationToggle = styled(motion.button)`
 
 export const NavigationItems = styled.div`
   flex: 1;
+  min-height: 0;
   padding: 1rem 0;
   overflow-y: auto;
   overflow-x: hidden;

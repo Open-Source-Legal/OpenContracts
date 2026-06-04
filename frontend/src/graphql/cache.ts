@@ -788,6 +788,19 @@ export type AuthStatus = "LOADING" | "AUTHENTICATED" | "ANONYMOUS";
 export const authStatusVar = makeVar<AuthStatus>("LOADING");
 
 /**
+ * Network reconnection state.
+ *
+ * True while the app is knowingly re-establishing connectivity — e.g. the page
+ * just resumed from background after a mobile screen-unlock, or a reconnect
+ * refetch is in flight. While true, transient network-error toasts are
+ * suppressed in favour of a single calm "Reconnecting…" indicator so users
+ * don't see an alarming pile of red errors during the brief reconnect window
+ * (issue #697 follow-up). Driven by NetworkStatusHandler; read by the network
+ * notification helpers in utils/networkNotifications.ts.
+ */
+export const isReconnectingVar = makeVar<boolean>(false);
+
+/**
  * Tracks whether auth initialization is fully complete, including any cache operations.
  *
  * This is separate from authStatusVar because:

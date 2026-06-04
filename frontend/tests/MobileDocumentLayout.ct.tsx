@@ -1,4 +1,5 @@
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { MobileLayoutHarness } from "./MobileDocumentLayout.harness";
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -18,6 +19,10 @@ test("starts on the Document tab with chrome present", async ({
     "true"
   );
   await expect(page.getByPlaceholder(/ask anything/i)).toBeVisible();
+  await docScreenshot(
+    page,
+    "annotations--mobile-document-layout--document-tab"
+  );
 });
 
 test("selecting the Summary tab swaps the surface", async ({ mount, page }) => {

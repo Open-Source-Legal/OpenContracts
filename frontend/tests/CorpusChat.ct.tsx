@@ -2322,4 +2322,105 @@ test.describe("CorpusChat", () => {
     await expect(page.getByText("First Conversation")).toBeVisible();
     await component.unmount();
   });
+
+  /* ------------------------------------------------------------------------ */
+  /* Scroll-to-bottom behavior (auto on bulk load, smooth on single append)   */
+  /* ------------------------------------------------------------------------ */
+
+  // Records the `behavior` of every Element.scrollTo({...}) into a window-level
+  // array so we can assert which scroll mode the conversation effect chose.
+  const installScrollSpy = async (page: import("@playwright/test").Page) => {
+    await page.evaluate(() => {
+      (window as any).__scrollBehaviors = [];
+      const proto = Element.prototype as any;
+      const orig = proto.scrollTo;
+      proto.scrollTo = function (opts: any) {
+        if (opts && typeof opts === "object" && opts.behavior) {
+          (window as any).__scrollBehaviors.push(opts.behavior);
+        }
+        if (typeof orig === "function") return orig.apply(this, arguments);
+      };
+    });
+  };
+  const readScrollBehaviors = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => (window as any).__scrollBehaviors as string[]);
+  const clearScrollBehaviors = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => {
+      (window as any).__scrollBehaviors = [];
+    });
+
+  test("bulk conversation load instant-jumps (auto), never smooth", async ({
+    mount,
+    page,
+  }) => {
+    await installScrollSpy(page);
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[
+          conversationsWithDataMock,
+          conversationsWithDataMock,
+          chatMessagesMock,
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("First Conversation")).toBeVisible({
+      timeout: 20000,
+    });
+
+    // Only measure the load: clear anything captured while the list rendered.
+    await clearScrollBehaviors(page);
+    await page.getByText("First Conversation").click();
+
+    await expect(page.getByText("Server question")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const behaviors = await readScrollBehaviors(page);
+    // Opening a populated conversation is a multi-message (bulk) load, so the
+    // effect must instant-jump and must NOT play the long smooth animation.
+    expect(behaviors).toContain("auto");
+    expect(behaviors).not.toContain("smooth");
+
+    await component.unmount();
+  });
+
+  test("single message append scrolls smoothly", async ({ mount, page }) => {
+    await installScrollSpy(page);
+
+    const component = await mount(
+      <CorpusChatTestWrapper
+        mocks={[emptyConversationsMock, emptyConversationsMock]}
+        corpusId={TEST_CORPUS_ID}
+        forceNewChat
+      />
+    );
+
+    const input = page.locator("textarea").first();
+    await expect(input).toBeVisible({ timeout: 20000 });
+    await expect(input).toBeEnabled({ timeout: 20000 });
+
+    // Ignore the instant-jump from the initial (empty) new-chat render; we only
+    // want to assert the mode chosen for the subsequent single-message append.
+    await clearScrollBehaviors(page);
+
+    // "trigger error" makes the WS stub emit a content-less ASYNC_START
+    // (a no-op for the message list) synchronously and defer the error frame,
+    // so the only synchronous list change is the user's own message: a clean
+    // +1 append that must scroll smoothly (the echo path batches user+reply
+    // into a single +2 render, which is a bulk "auto" jump instead).
+    await input.fill("trigger error");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("trigger error", { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+
+    const behaviors = await readScrollBehaviors(page);
+    expect(behaviors).toContain("smooth");
+
+    await component.unmount();
+  });
 });

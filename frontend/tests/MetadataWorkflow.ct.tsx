@@ -269,7 +269,6 @@ test.describe("Metadata Workflow Integration", () => {
           data: {
             corpus: {
               ...corpus,
-              mdDescription: "",
               descriptionRevisions: [],
               allAnnotationSummaries: [],
             },

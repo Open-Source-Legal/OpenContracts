@@ -252,4 +252,29 @@ describe("CorpusQueryView handler branches", () => {
     });
     expect(screen.queryByText("Back")).not.toBeInTheDocument();
   });
+
+  it("VIEW (Conversation History) suppresses the outer header while a conversation is open", () => {
+    // Regression for the stacked "Conversation History" + "Conversation"
+    // double header: in VIEW mode the outer header must hide once a single
+    // conversation is open (the inner CorpusChat header owns Back + Home there)
+    // and reappear when the user returns to the conversation list.
+    showQueryViewState("VIEW");
+    renderView();
+
+    // Conversation-list view: the outer "Conversation History" header is shown.
+    expect(screen.queryByText("Conversation History")).toBeInTheDocument();
+
+    // Opening a conversation (onViewModeChange(true)) suppresses the outer
+    // header — previously it stayed, stacking on the inner one.
+    act(() => {
+      fireEvent.click(screen.getByTestId("trigger-conversation-view"));
+    });
+    expect(screen.queryByText("Conversation History")).not.toBeInTheDocument();
+
+    // Returning to the list (onViewModeChange(false)) restores it.
+    act(() => {
+      fireEvent.click(screen.getByTestId("trigger-conversation-list"));
+    });
+    expect(screen.queryByText("Conversation History")).toBeInTheDocument();
+  });
 });
