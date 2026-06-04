@@ -34,7 +34,6 @@ import { threadContextSidebarExpandedAtom } from "../../atoms/threadAtoms";
 import { DocumentTableOfContents } from "../corpuses/DocumentTableOfContents";
 import { SafeMarkdown } from "../knowledge_base/markdown/SafeMarkdown";
 import useWindowDimensions from "../hooks/WindowDimensionHook";
-import { useCorpusMdDescription } from "../../hooks/useCorpusMdDescription";
 
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import {
@@ -98,9 +97,8 @@ export const CorpusContextSidebar: React.FC<CorpusContextSidebarProps> =
 
     const stats: CorpusStats | null = statsData?.corpusStats ?? null;
 
-    // Fetch markdown description from the file URL, falling back to plain text
-    const mdContent = useCorpusMdDescription(corpus?.mdDescription);
-    const description = mdContent || corpus?.description || null;
+    // `description` is the inline markdown (canonical-CAML projection).
+    const description = corpus?.description || null;
 
     // Don't render on small screens
     if (width < SIDEBAR_BREAKPOINT_HIDE) {

@@ -38,7 +38,6 @@ import { routingLogger } from "../../../utils/routingLogger";
 import { canEditAnnotationsInCorpus } from "../../../utils/annotationPermissions";
 import { selectedNoteId, selectedThreadId } from "../../../graphql/cache";
 import { useAuthReady } from "../../../hooks/useAuthReady";
-import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
 import { useTextSearch } from "../../annotator/hooks/useTextSearch";
 import {
   useAnalysisManager,
@@ -525,10 +524,8 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     selectedExtractId: selectedExtract?.id ?? null,
   });
 
-  // Fetch versioned markdown description for corpus info display
-  const corpusMdContent = useCorpusMdDescription(
-    corpusData?.corpus?.mdDescription
-  );
+  // `description` is the inline markdown (canonical-CAML projection).
+  const corpusMdContent = corpusData?.corpus?.description ?? null;
 
   const metadata = combinedData?.document ?? {
     title: "Loading...",

@@ -7,60 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- **Deep-research durable context management: living plan + agent memory + crash recovery (2026-06).**
-  The deep-research agent could exhaust its context window on long
-  investigations and fail without a graceful recovery path. It now has a
-  Claude-Code-style durable working surface that survives both in-run context
-  compaction (the system prompt is never compacted) and a worker restart:
-  - **Living plan** — `ResearchReport.plan` (new field). `update_research_plan` /
-    `get_research_plan` tools let the agent maintain a high-level plan that is
-    re-injected at the top of the system prompt on *every* run, so the original
-    task and strategy are always retrievable inside the context window. Clamped
-    to `MAX_RESEARCH_PLAN_CHARS` (head-preserving truncation).
-  - **Memory store** — `ResearchReport.memory` (new JSON field). `write_memory`
-    (replace/append), `read_memory`, `list_memory`, `delete_memory`, and a
-    grep-like `search_memory` (scans memory entries *and* recorded findings)
-    let the agent offload far more than fits in context. Bounded by per-key,
-    per-value, key-count, and total-store caps
-    (`opencontractserver/research/constants.py`), surfaced to the model as
-    operational error strings (via `ResearchMemoryLimitExceeded`) rather than
-    crashing the job.
-  - **Resume after crash** — a worker that picks up a report already in
-    `RUNNING` (prior worker died / task redelivered) now resumes instead of
-    restarting: `mark_started(resuming=True)` preserves the original
-    `started_at`, and `build_recovery_digest` primes the system prompt with the
-    plan, a tail digest of findings, and the memory index (with a "you are
-    RESUMING" preamble). New periodic task `reap_stalled_research` (beat: every
-    5 min) finds RUNNING reports whose `last_progress_at` is colder than
-    `DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS` and re-enqueues them via
-    `ResearchReportService.resume`.
-  - Files: `opencontractserver/research/models.py` (+migration
-    `0002_researchreport_plan_memory`), `.../research/constants.py`,
-    `.../research/services/research_reports.py`,
-    `opencontractserver/tasks/research_tasks.py`,
-    `config/settings/base.py` (beat entry). Tests:
-    `opencontractserver/tests/research/test_research_memory.py`.
-  - Review hardening: `write_memory`/`update_plan` now capture a single
-    `timezone.now()` for the entry's `updated_at` and the row's
-    `last_progress_at` (no microsecond drift); `update_plan` refreshes before
-    writing to mirror `write_memory` and avoid stomping a concurrent
-    `cancel_requested` flip (last-writer-wins documented as intentional);
-    `reap_stalled_research` collapses the per-id `get()` loop into a single
-    `pk__in` fetch (no N+1, race-safe against deletion). Added tests for the
-    `reap_stalled_research` task end-to-end and for `mark_started(resuming=True)`
-    when `started_at` is `None`. Second review round: split the memory
-    exception hierarchy so malformed input (empty key, unknown mode) raises a
-    `ResearchMemoryError` base while genuine cap violations raise the
-    `ResearchMemoryLimitExceeded` subclass (the `write_memory` closure now
-    catches the base); `delete_memory` bumps `last_progress_at` so an agent
-    pruning keys to free space is not flagged stalled by the reaper;
-    `list_memory` backtick-fences keys to match the system-prompt memory index.
-    Added tests for the append-mode per-value cap, the `delete_memory` progress
-    bump, and a guard pinning `test_total_store_cap` to the correct cap.
+- **Corpus CAML article (README) reading layer — typography, contrast, and spacing (2026-06).**
+  The corpus home README.caml view felt crowded and low-contrast on mobile
+  because its prose blocks render through the shared chat `MarkdownMessageRenderer`,
+  whose 8px paragraph spacing and missing heading rules are tuned for chat
+  bubbles, not long-form articles. Added a long-form reading layer scoped to
+  `article > section` in `frontend/src/components/corpuses/caml/CamlArticleFrame.tsx`:
+  body line-height 1.72 at slate[800] for contrast, generous heading rhythm
+  (`h2` top margin 2.25em with a teal hairline rule, `h3` 1.75em), a 720px
+  measure cap, and a mobile gutter bump from 1rem to 1.25rem. The library-owned
+  article header (serif title, eyebrow/dek, hero) is intentionally left
+  untouched so its elegant muted-lead styling survives.
 
 ### Fixed
+
+- **Ugly white line in PDF annotation highlights when the bounding box is hidden (2026-06).**
+  `SelectionInfo` (the annotation label container) in
+  `frontend/src/components/annotator/display/components/Containers.tsx`
+  is absolutely positioned just above the highlight's top edge and spans the
+  full annotation width. When the bounding box was not displayed
+  (`showBoundingBox === false`) its background fell back to an *opaque* white
+  (`rgba(255, 255, 255, 0.9)`), rendering a full-width white bar across the top
+  of every highlight — even when labels were turned off entirely. The
+  equivalent search-result highlight (`SearchResult.tsx`) already used a
+  transparent fallback (`rgba(255, 255, 255, 0.0)`) and had no such artifact.
+  Fix: when the bounding box is hidden, render the `SelectionInfo` background as
+  `transparent` instead of opaque white, matching the search-result pattern. The
+  colored label "tab" is preserved unchanged when the bounding box *is*
+  displayed, and the label pill itself (`LabelTagContainer`) keeps its own
+  colored background, so labels remain readable.
 
 - **Corpus Chat — "Invalid Date" on every server-loaded message.** `CorpusChat`
   rendered `new Date(msg.createdAt).toLocaleString()`
@@ -92,6 +69,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through the latest `@os-legal/ui` 0.1.19, so this consumer-side override is
   version-independent and is retained after the bump noted under Changed.
 
+- **Alarming "Reconnecting…" / network-error toast pile-up on mobile screen-unlock (2026-06).**
+  On mobile, locking the screen suspends the page and drops in-flight queries
+  and WebSockets; on unlock a burst of failures fired before connectivity
+  re-established, stacking a column of red toasts ("Network error.",
+  repeated "ERROR Unable to fetch corpuses.", "Failed to refresh data. Please
+  reload the page."). Two root causes: (1) the per-query error toasts in the
+  corpus views (`frontend/src/views/Corpuses.tsx`,
+  `frontend/src/components/{documents,extracts,annotations,analyses,research}/*Cards.tsx`)
+  were fired from the component render body **without a `toastId`**, so each
+  re-render while `error` stayed truthy stacked a brand-new toast; (2)
+  `frontend/src/graphql/errorLink.ts` and
+  `frontend/src/components/network/NetworkStatusHandler.tsx` showed network/refetch
+  error toasts unconditionally, even during the brief, expected reconnect window.
+  Fix: a shared "reconnecting" grace window (`isReconnectingVar` in
+  `frontend/src/graphql/cache.ts`, helpers in
+  `frontend/src/utils/networkNotifications.ts`). `NetworkStatusHandler` arms the
+  window around its reconnect refetch (and a 10s safety auto-disarm); while armed
+  — or while `navigator.onLine` is false — `notifyTransientNetworkError` suppresses
+  the alarming toasts in favour of the single calm "Reconnecting…" indicator. All
+  transient network toasts now carry a stable `toastId` so they de-duplicate
+  instead of stacking; genuine persistent failures still surface once (after the
+  window closes). The red "Failed to refresh data. Please reload the page." toast
+  on a reconnect refetch failure was removed. Tests:
+  `frontend/src/utils/__tests__/networkNotifications.test.ts` and updated
+  `frontend/src/components/network/__tests__/NetworkStatusHandler.test.tsx`.
+
 - **Deep-research and conversation-memory Celery tasks were never registered on the worker (2026-06).**
   `run_deep_research` (`opencontractserver/tasks/research_tasks.py`) and the
   memory tasks `check_conversations_for_curation` / `curate_corpus_memory`
@@ -116,6 +119,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Mobile DocumentKnowledgeBase layout cleanup (2026-06).** Removed the
+  full-width control band that sat between the header and the page on mobile —
+  it ate vertical space and read as wasteful. The Sections / Find / fit-width
+  controls now float as a single compact frosted pill over the viewer's
+  top-right corner (`frontend/src/components/knowledge_base/document/layouts/mobile/MobileDocToolbar.tsx`,
+  rendered as an overlay inside `ViewerArea` in
+  `frontend/.../layouts/MobileDocumentLayout.tsx`), so the document fills the
+  whole surface. Also deepened the document backdrop on mobile from the
+  near-white `#f7f9f9` to a new `VIEWER_CANVAS` token (`#e4e9f0`,
+  `frontend/src/assets/configurations/designTokens.ts`), applied in the
+  `@media (max-width: 768px)` branch of `PDFContainer`
+  (`frontend/src/components/annotator/display/viewer/DocumentViewer.tsx`), so
+  the white page sheet reads as a floating sheet with real contrast instead of
+  washed-out near-white-on-near-white.
+
 - **Corpus/document chat — message readability.** Capped the message column at
   60rem and centered it (`frontend/src/components/widgets/chat/ChatMessage.styles.ts`,
   `MessageContainer`) so messages no longer span the full width of a wide
@@ -132,7 +150,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bumped `@os-legal/ui` 0.1.16 → 0.1.19** (`frontend/package.json`,
   `frontend/yarn.lock`). The upstream `SearchBox` mobile layout is unchanged in
   0.1.19, so the consumer-side icon/input override above is still required.
-
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
   permission layer: it could READ every row of every data model and pass every

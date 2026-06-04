@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { toast } from "react-toastify";
+import { notifyTransientNetworkError } from "../../utils/networkNotifications";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import styled from "styled-components";
 import { Button, EmptyState } from "@os-legal/ui";
@@ -119,7 +119,10 @@ export const CorpusResearchReportCards: React.FC<
   // call re-fires on every re-render while ``error`` stays truthy.
   useEffect(() => {
     if (error) {
-      toast.error("ERROR\nCould not fetch research reports for this corpus.");
+      notifyTransientNetworkError(
+        "ERROR\nCould not fetch research reports for this corpus.",
+        { toastId: "fetch-research-reports-error" }
+      );
     }
   }, [error]);
 

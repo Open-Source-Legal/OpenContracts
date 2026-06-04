@@ -113,6 +113,65 @@ test.describe("CamlDirectiveRenderer - Mobile Layout", () => {
   });
 });
 
+test.describe("CamlDirectiveRenderer - Reading Layer", () => {
+  test("should apply the long-form reading layer to article prose and headings", async ({
+    mount,
+    page,
+  }) => {
+    // Desktop width so the 720px reading-measure cap and full heading
+    // hierarchy (h2/h3/h4) are exercised, not the mobile full-width override.
+    await page.setViewportSize({ width: 1280, height: 1024 });
+
+    const readingDocument: CamlDocument = {
+      frontmatter: {
+        title: "Reading Layer Demo",
+      },
+      chapters: [
+        {
+          id: "overview",
+          title: "Overview",
+          blocks: [
+            {
+              type: "prose",
+              content:
+                "## Background\n\nThis paragraph is rendered through the corpus reading layer, which caps the line measure, opens up vertical rhythm, and restores body contrast so long-form CAML articles read like prose rather than chat bubbles.\n\n### Procedural History\n\nNested sections keep a clear hierarchy. The h3 sits below the h2 in size and weight.\n\n#### Deeper Heading\n\nEven h4 and deeper headings stay legible instead of inheriting browser defaults inside the scoped section.\n\n- First list item with comfortable spacing.\n- Second list item to show vertical rhythm.",
+            },
+          ],
+        },
+      ],
+    };
+
+    const component = await mount(
+      <CamlDirectiveRendererTestWrapper document={readingDocument} />
+    );
+
+    // The reading layer is scoped to article > section, so confirm a styled
+    // section heading renders before snapshotting the typography.
+    const heading = page.getByRole("heading", { name: "Background" });
+    await expect(heading).toBeVisible({ timeout: 10000 });
+
+    // h2 should pick up the bold, tokenized 3xl size and the teal hairline rule.
+    const h2Weight = await heading.evaluate(
+      (el) => getComputedStyle(el).fontWeight
+    );
+    expect(Number(h2Weight)).toBe(600);
+    const h2BorderBottom = await heading.evaluate(
+      (el) => getComputedStyle(el).borderBottomWidth
+    );
+    expect(h2BorderBottom).toBe("1px");
+
+    // Section measure should be capped at the reading-measure token (720px).
+    const section = page.locator("article > section").first();
+    const sectionBox = await section.boundingBox();
+    expect(sectionBox).not.toBeNull();
+    expect(sectionBox!.width).toBeLessThanOrEqual(720);
+
+    await docScreenshot(page, "corpus--caml-article-frame--reading-layer");
+
+    await component.unmount();
+  });
+});
+
 test.describe("CamlDirectiveRenderer - Duplicate Content", () => {
   test("should render correct directives for duplicate prose blocks", async ({
     mount,
