@@ -187,7 +187,9 @@ def build_agent_model(spec: str) -> Any:
     if model is None:
         return spec
 
-    logger.info(
+    # debug, not info: once DB credentials are configured this runs on every
+    # single agent build (every chat message, structured call, memory task).
+    logger.debug(
         "Using DB-configured credentials for LLM provider %r (custom_endpoint=%s).",
         provider_key,
         bool(creds.get("base_url")),
