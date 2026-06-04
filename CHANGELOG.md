@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Corpus CAML article (README) reading layer — typography, contrast, and spacing (2026-06).**
+  The corpus home README.caml view felt crowded and low-contrast on mobile
+  because its prose blocks render through the shared chat `MarkdownMessageRenderer`,
+  whose 8px paragraph spacing and missing heading rules are tuned for chat
+  bubbles, not long-form articles. Added a long-form reading layer scoped to
+  `article > section` in `frontend/src/components/corpuses/caml/CamlArticleFrame.tsx`:
+  body line-height 1.72 at slate[800] for contrast, generous heading rhythm
+  (`h2` top margin 2.25em with a teal hairline rule, `h3` 1.75em), a 720px
+  measure cap, and a mobile gutter bump from 1rem to 1.25rem. The library-owned
+  article header (serif title, eyebrow/dek, hero) is intentionally left
+  untouched so its elegant muted-lead styling survives.
+
 ### Fixed
 
 - **Corpus Chat — "Invalid Date" on every server-loaded message.** `CorpusChat`

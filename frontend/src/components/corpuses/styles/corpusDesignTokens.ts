@@ -108,6 +108,10 @@ export const CORPUS_BREAKPOINTS = {
   tablet: 768,
   desktop: 1024,
   wide: 1280,
+  // Optimal long-form reading measure (~65-75 chars). Caps article prose width
+  // so lines stay comfortable on wide viewports. Sits between tablet (768) and
+  // desktop (1024) on purpose -- it is a typographic measure, not a device size.
+  readingMeasure: 720,
 } as const;
 
 // Combined export for convenience
