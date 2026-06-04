@@ -140,6 +140,36 @@ class TestRemapPendingAnnotations(TestCase):
             1,
         )
 
+    def test_concurrent_claim_guard_skips_already_processed_row(self):
+        """A row flipped to DONE after the batch read is skipped, not re-imported.
+
+        Simulates the Celery at-least-once race (review finding #2): a sibling
+        worker has already processed the row by the time this one acquires the
+        FOR UPDATE lock. The guard must bail before ``import_annotations`` so no
+        duplicate annotations are created.
+        """
+        from opencontractserver.tasks.doc_tasks import _remap_one_pending_row
+
+        # In-memory object still reads PENDING (as it would right after the batch
+        # ``filter(status=PENDING)`` materialised it)...
+        stale_pending = PendingDocumentAnnotations.objects.get(pk=self.pending.pk)
+        # ...but a sibling worker has already finished and flipped the DB row.
+        PendingDocumentAnnotations.objects.filter(pk=self.pending.pk).update(
+            status=PendingDocumentAnnotations.Status.DONE
+        )
+
+        result = _remap_one_pending_row(stale_pending, self.doc, {})
+
+        self.assertIn("skipped", result, msg=f"Expected a skip, got {result}")
+        # No annotations were created by this redundant pass.
+        self.assertEqual(
+            Annotation.objects.filter(
+                document=self.doc, annotation_label=self.label
+            ).count(),
+            0,
+            msg="Concurrent-claim guard must not create duplicate annotations",
+        )
+
     def test_annotation_created_and_pending_marked_done(self):
         """Task creates an Annotation for OC_SECTION and marks pending as DONE."""
         result = remap_pending_annotations(doc_id=self.doc.id)

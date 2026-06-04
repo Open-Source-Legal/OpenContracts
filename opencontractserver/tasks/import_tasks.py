@@ -1044,14 +1044,21 @@ def import_zip_with_folder_structure(
                             # relationships were ignored on import.
                             sidecar_rels = sidecar_data.get("relationships")
                             if isinstance(sidecar_rels, list) and sidecar_rels:
-                                logger.warning(
-                                    "import_zip_with_folder_structure() - sidecar "
-                                    "%s declares %d intra-document relationship(s) "
-                                    "which the deferred remap pipeline does not yet "
-                                    "import; they were ignored.",
-                                    sidecar_path,
-                                    len(sidecar_rels),
+                                rel_msg = (
+                                    f"Sidecar {sidecar_path} declares "
+                                    f"{len(sidecar_rels)} intra-document "
+                                    "relationship(s) which the deferred remap "
+                                    "pipeline does not yet import; they were "
+                                    "ignored."
                                 )
+                                logger.warning(
+                                    "import_zip_with_folder_structure() - %s",
+                                    rel_msg,
+                                )
+                                # Surface to the caller, not just the Celery log
+                                # (review finding #3): an import that drops
+                                # relationships must not look like a clean success.
+                                results["errors"].append(rel_msg)
                         except Exception as e:
                             logger.error(
                                 f"import_zip_with_folder_structure() - "

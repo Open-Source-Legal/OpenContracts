@@ -1146,6 +1146,28 @@ def _remap_one_pending_row(
     # duplicates. Wrapping both writes closes that window: a failure rolls the
     # annotations back too, so the retry starts clean.
     with transaction.atomic():
+        # Concurrent-retry guard (review finding #2): Celery is at-least-once, so
+        # a duplicated task (or a manual admin replay) could run two copies of
+        # this remap for the same PENDING row. Re-fetch the row FOR UPDATE with
+        # SKIP LOCKED and re-assert it is still PENDING before importing. If a
+        # sibling worker already holds the lock (``None``) or has already flipped
+        # the status, we bail without calling ``import_annotations`` — otherwise
+        # both workers would create duplicate annotations, since each one's
+        # ``transaction.atomic()`` commits independently.
+        locked = (
+            PendingDocumentAnnotations.objects.select_for_update(skip_locked=True)
+            .filter(pk=pending.pk)
+            .first()
+        )
+        if locked is None or locked.status != PendingDocumentAnnotations.Status.PENDING:
+            logger.info(
+                "remap_pending_annotations: pending row %s for doc %s already "
+                "claimed/processed by a concurrent run; skipping.",
+                pending.pk,
+                doc_id,
+            )
+            return {"doc_id": doc_id, "skipped": "claimed by concurrent run"}
+
         # Creates one Annotation per anchored item whose label resolves (and wires
         # parent relationships + dispatches embeddings as a side effect). The
         # return map (export-local id -> new Annotation pk) is not used for the
