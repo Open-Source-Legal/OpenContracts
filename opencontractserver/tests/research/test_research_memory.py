@@ -26,6 +26,7 @@ from opencontractserver.research.constants import (
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.research.services.research_reports import (
+    ResearchMemoryError,
     ResearchMemoryLimitExceeded,
     ResearchReportService,
 )
@@ -100,9 +101,38 @@ class ResearchMemoryTestCase(TestCase):
         self.assertFalse(ResearchReportService.delete_memory(self.report, "k"))
         self.assertIsNone(ResearchReportService.read_memory(self.report, "k"))
 
+    def test_delete_memory_bumps_progress(self):
+        # Pruning keys is forward progress: a successful delete must advance
+        # last_progress_at so an agent that is only deleting doesn't look
+        # stalled to the reaper. A no-op delete (missing key) does not.
+        ResearchReportService.write_memory(self.report, "k", "v")
+        self.report.refresh_from_db()
+        before = self.report.last_progress_at
+        assert before is not None  # write_memory always stamps it
+        ResearchReport.objects.filter(pk=self.report.pk).update(
+            last_progress_at=before - timedelta(seconds=600)
+        )
+        self.report.refresh_from_db()
+        stale = self.report.last_progress_at
+        assert stale is not None
+
+        self.assertTrue(ResearchReportService.delete_memory(self.report, "k"))
+        self.report.refresh_from_db()
+        bumped = self.report.last_progress_at
+        assert bumped is not None
+        self.assertGreater(bumped, stale)
+
+        # No-op delete (key already gone) leaves the clock untouched.
+        self.assertFalse(ResearchReportService.delete_memory(self.report, "k"))
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.last_progress_at, bumped)
+
     def test_empty_key_rejected(self):
-        with self.assertRaises(ResearchMemoryLimitExceeded):
+        # Malformed input raises the base ResearchMemoryError, NOT the
+        # LimitExceeded subclass (no cap was exceeded — the input is invalid).
+        with self.assertRaises(ResearchMemoryError) as ctx:
             ResearchReportService.write_memory(self.report, "   ", "v")
+        self.assertNotIsInstance(ctx.exception, ResearchMemoryLimitExceeded)
 
     def test_long_key_rejected(self):
         with self.assertRaises(ResearchMemoryLimitExceeded):
@@ -111,14 +141,29 @@ class ResearchMemoryTestCase(TestCase):
             )
 
     def test_unknown_mode_rejected(self):
-        with self.assertRaises(ResearchMemoryLimitExceeded):
+        # Same as empty key: a validation error, not a capacity violation.
+        with self.assertRaises(ResearchMemoryError) as ctx:
             ResearchReportService.write_memory(self.report, "k", "v", mode="prepend")
+        self.assertNotIsInstance(ctx.exception, ResearchMemoryLimitExceeded)
 
     def test_oversized_value_rejected(self):
         with self.assertRaises(ResearchMemoryLimitExceeded):
             ResearchReportService.write_memory(
                 self.report, "k", "x" * (MAX_RESEARCH_MEMORY_VALUE_CHARS + 1)
             )
+
+    def test_append_over_value_cap_rejected(self):
+        # The per-value cap is enforced against the COMBINED prior + appended
+        # content, not just the new chunk. Seed just under the cap, then append
+        # enough to push the combined value past it.
+        seed = "x" * (MAX_RESEARCH_MEMORY_VALUE_CHARS - 5)
+        ResearchReportService.write_memory(self.report, "log", seed)
+        with self.assertRaises(ResearchMemoryLimitExceeded):
+            ResearchReportService.write_memory(
+                self.report, "log", "y" * 10, mode="append"
+            )
+        # The rejected append left the prior value intact.
+        self.assertEqual(ResearchReportService.read_memory(self.report, "log"), seed)
 
     def test_key_count_cap(self):
         for i in range(MAX_RESEARCH_MEMORY_KEYS):
@@ -137,6 +182,16 @@ class ResearchMemoryTestCase(TestCase):
         # value / total caps are ever changed to a non-divisible ratio.
         chunk = "x" * MAX_RESEARCH_MEMORY_VALUE_CHARS
         needed = MAX_RESEARCH_MEMORY_TOTAL_CHARS // MAX_RESEARCH_MEMORY_VALUE_CHARS
+        # Guard: this test only exercises the total-store cap if the key-count
+        # cap doesn't fire first. If the constants ever change so that filling
+        # the store needs more keys than allowed, the key-count cap would trip
+        # and we'd silently be testing the wrong constraint.
+        self.assertLess(
+            needed,
+            MAX_RESEARCH_MEMORY_KEYS,
+            "adjust test: filling the total cap now needs more keys than the "
+            "key-count cap allows, so the wrong cap fires first",
+        )
         for i in range(needed):
             ResearchReportService.write_memory(self.report, f"k{i}", chunk)
         with self.assertRaises(ResearchMemoryLimitExceeded):

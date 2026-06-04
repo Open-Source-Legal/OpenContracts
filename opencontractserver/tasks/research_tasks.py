@@ -27,7 +27,7 @@ from opencontractserver.research.constants import (
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.research.services.research_reports import (
     ResearchCancelled,
-    ResearchMemoryLimitExceeded,
+    ResearchMemoryError,
     ResearchReportService,
 )
 from opencontractserver.types.enums import JobStatus
@@ -368,7 +368,7 @@ async def _run_deep_research_async(
             result = await sync_to_async(ResearchReportService.write_memory)(
                 report, key, content, mode=mode
             )
-        except ResearchMemoryLimitExceeded as exc:
+        except ResearchMemoryError as exc:
             return f"Error: {exc}"
         await sync_to_async(ResearchReportService.cancel_if_requested)(report)
         return (
@@ -389,8 +389,11 @@ async def _run_deep_research_async(
         index = await sync_to_async(ResearchReportService.memory_index)(report)
         if not index:
             return "Memory store is empty. Use write_memory to save notes."
+        # Backtick-fence the key to match the system-prompt memory index
+        # (build_recovery_digest renders ``- `key` (...)``) so the model sees
+        # one consistent key format across the prompt and this tool's output.
         lines = [
-            f"- {item['key']} ({item['bytes']} chars): {item['preview']}"
+            f"- `{item['key']}` ({item['bytes']} chars): {item['preview']}"
             for item in index
         ]
         return "Memory keys:\n" + "\n".join(lines)

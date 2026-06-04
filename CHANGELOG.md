@@ -50,7 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `reap_stalled_research` collapses the per-id `get()` loop into a single
     `pk__in` fetch (no N+1, race-safe against deletion). Added tests for the
     `reap_stalled_research` task end-to-end and for `mark_started(resuming=True)`
-    when `started_at` is `None`.
+    when `started_at` is `None`. Second review round: split the memory
+    exception hierarchy so malformed input (empty key, unknown mode) raises a
+    `ResearchMemoryError` base while genuine cap violations raise the
+    `ResearchMemoryLimitExceeded` subclass (the `write_memory` closure now
+    catches the base); `delete_memory` bumps `last_progress_at` so an agent
+    pruning keys to free space is not flagged stalled by the reaper;
+    `list_memory` backtick-fences keys to match the system-prompt memory index.
+    Added tests for the append-mode per-value cap, the `delete_memory` progress
+    bump, and a guard pinning `test_total_store_cap` to the correct cap.
 
 ### Fixed
 

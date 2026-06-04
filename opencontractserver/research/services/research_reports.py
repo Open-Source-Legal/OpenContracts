@@ -48,15 +48,23 @@ class ConcurrentResearchInProgress(Exception):
     same corpus inside the concurrency-guard window."""
 
 
-class ResearchMemoryLimitExceeded(Exception):
-    """Raised by the memory-write path when a cap (per-key, per-value,
-    total-store, or key-count) would be exceeded.
+class ResearchMemoryError(Exception):
+    """Base for anything the memory-write path rejects — both malformed input
+    (empty key, unknown mode) and capacity violations.
 
-    The agent-bound ``write_memory`` closure catches this and returns the
-    message to the model as an operational error string (mirroring
+    The agent-bound ``write_memory`` closure catches this base class and returns
+    the message to the model as an operational error string (mirroring
     ``record_finding``'s bad-id handling) so the run continues — the agent is
-    expected to prune or shorten and retry rather than crash the job.
+    expected to fix the input, prune, or shorten and retry rather than crash the
+    job. Catch the base when you only need "the write was rejected, tell the
+    model"; catch :class:`ResearchMemoryLimitExceeded` specifically to
+    distinguish a genuine cap violation from bad input.
     """
+
+
+class ResearchMemoryLimitExceeded(ResearchMemoryError):
+    """Raised when a numeric cap (per-key, per-value, total-store, or key-count)
+    would be exceeded — a capacity violation, not malformed input."""
 
 
 class ResearchReportService(BaseService):
@@ -368,9 +376,11 @@ class ResearchReportService(BaseService):
 
         ``mode`` is ``"replace"`` (default) or ``"append"`` (concatenate with a
         newline onto any existing value). Enforces, in order: key length, value
-        length, key-count, and total-store-size caps. A violation raises
-        :class:`ResearchMemoryLimitExceeded` with a message the closure surfaces
-        to the model. Returns ``{key, bytes, keys}`` summarising the store.
+        length, key-count, and total-store-size caps. A cap violation raises
+        :class:`ResearchMemoryLimitExceeded`; malformed input (empty key,
+        unknown mode) raises the :class:`ResearchMemoryError` base. The closure
+        catches the base and surfaces the message to the model. Returns
+        ``{key, bytes, keys}`` summarising the store.
 
         Refreshes the row first so a concurrent ``cancel_requested`` flip (or a
         memory write from a redelivered task) is not stomped. Last-writer-wins
@@ -381,7 +391,7 @@ class ResearchReportService(BaseService):
         """
         key = (key or "").strip()
         if not key:
-            raise ResearchMemoryLimitExceeded("Memory key must be non-empty.")
+            raise ResearchMemoryError("Memory key must be non-empty.")
         if len(key) > MAX_RESEARCH_MEMORY_KEY_CHARS:
             raise ResearchMemoryLimitExceeded(
                 f"Memory key too long ({len(key)} chars); max is "
@@ -389,7 +399,7 @@ class ResearchReportService(BaseService):
                 "'doc-1421-summary'."
             )
         if mode not in ("replace", "append"):
-            raise ResearchMemoryLimitExceeded(
+            raise ResearchMemoryError(
                 f"Unknown memory mode {mode!r}; use 'replace' or 'append'."
             )
 
@@ -448,14 +458,20 @@ class ResearchReportService(BaseService):
 
     @classmethod
     def delete_memory(cls, report: ResearchReport, key: str) -> bool:
-        """Drop a memory entry. Returns True if a key was removed."""
+        """Drop a memory entry. Returns True if a key was removed.
+
+        Bumps ``last_progress_at`` on a successful delete: pruning keys to free
+        room under the store caps is real forward progress, so an agent that is
+        only deleting should not look stalled to the reaper.
+        """
         report.refresh_from_db(fields=["memory"])
         store = dict(report.memory or {})
         if key not in store:
             return False
         del store[key]
         report.memory = store
-        report.save(update_fields=["memory", "modified"])
+        report.last_progress_at = timezone.now()
+        report.save(update_fields=["memory", "last_progress_at", "modified"])
         return True
 
     @classmethod
