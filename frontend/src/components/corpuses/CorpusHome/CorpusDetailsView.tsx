@@ -26,7 +26,6 @@ import { CorpusType } from "../../../types/graphql-api";
 import { PermissionTypes } from "../../types";
 import { getPermissions } from "../../../utils/transform";
 import { getCreatorDisplay } from "../../../utils/userDisplay";
-import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
 import { tocExpandAll } from "../../../graphql/cache";
 import { updateTocExpandedParam } from "../../../utils/navigationUtils";
 import { CorpusAbout } from "../CorpusAbout/CorpusAbout";
@@ -126,11 +125,8 @@ export const CorpusDetailsView: React.FC<CorpusDetailsViewProps> = ({
     variables: historyVariables,
   });
 
-  // Shared hook deduplicates concurrent in-flight fetches with
-  // CorpusLandingView (e.g. tab switches that mount both simultaneously).
-  // Sequential navigation refetches; the hook does not maintain a
-  // settled-result cache.
-  const mdContent = useCorpusMdDescription(corpusData?.corpus?.mdDescription);
+  // `description` is the inline markdown (canonical-CAML projection).
+  const mdContent = corpusData?.corpus?.description ?? null;
 
   // Use the fetched corpus data instead of the prop for description/history
   const fullCorpus = corpusData?.corpus || corpus;

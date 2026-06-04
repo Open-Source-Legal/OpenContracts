@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import _ from "lodash";
 import { toast } from "react-toastify";
+import { notifyTransientNetworkError } from "../utils/networkNotifications";
 import {
   useLazyQuery,
   useMutation,
@@ -544,7 +545,9 @@ export const Corpuses = () => {
    * -------------------------------------------------------------------------------------------------- */
 
   if (corpus_load_error) {
-    toast.error("ERROR\nUnable to fetch corpuses.");
+    notifyTransientNetworkError("ERROR\nUnable to fetch corpuses.", {
+      toastId: "fetch-corpuses-error",
+    });
   }
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -590,7 +593,12 @@ export const Corpuses = () => {
     }
   );
   if (documents_error) {
-    toast.error("ERROR\nCould not fetch documents for corpus.");
+    notifyTransientNetworkError(
+      "ERROR\nCould not fetch documents for corpus.",
+      {
+        toastId: "fetch-documents-error",
+      }
+    );
   }
 
   useEffect(() => {
@@ -1388,7 +1396,6 @@ export const Corpuses = () => {
                         id: opened_corpus.id,
                         title: opened_corpus.title,
                         description: opened_corpus.description || "",
-                        mdDescription: opened_corpus.mdDescription,
                         allowComments: opened_corpus.allowComments || false,
                         preferredEmbedder: opened_corpus.preferredEmbedder,
                         slug: (opened_corpus as any).slug || null,

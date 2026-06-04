@@ -303,10 +303,9 @@ export type RawCorpusType = Node & {
   // card layouts and hero subtitles. Synced server-side from
   // ``description`` on every save — see ``Corpus._summarize_for_preview``.
   descriptionPreview?: Scalars["String"];
-  mdDescription?: Maybe<Scalars["String"]>;
   // Canonical Readme.CAML Document object (post canonical-CAML refactor).
-  // Optional, additive field — existing clients can keep using
-  // ``mdDescription`` (URL) or ``descriptionPreview`` (text).
+  // ``description`` carries the full inline markdown; ``descriptionPreview``
+  // the short text preview.
   readmeCamlDocument?: Maybe<{
     id: string;
     title: string;

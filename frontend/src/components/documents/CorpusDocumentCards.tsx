@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "react-toastify";
+import { notifyTransientNetworkError } from "../../utils/networkNotifications";
 import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 
@@ -143,7 +144,12 @@ export const CorpusDocumentCards = ({
     notifyOnNetworkStatusChange: true, // necessary in order to trigger loading signal on fetchMore
   });
   if (documents_error) {
-    toast.error("ERROR\nCould not fetch documents for corpus.");
+    notifyTransientNetworkError(
+      "ERROR\nCould not fetch documents for corpus.",
+      {
+        toastId: "fetch-documents-error",
+      }
+    );
   }
 
   // Fetch folders for current directory
@@ -161,7 +167,9 @@ export const CorpusDocumentCards = ({
   );
 
   if (folders_error) {
-    toast.error("ERROR\nCould not fetch folders for corpus.");
+    notifyTransientNetworkError("ERROR\nCould not fetch folders for corpus.", {
+      toastId: "fetch-folders-error",
+    });
   }
 
   // Filter folders to show only direct children of current folder
