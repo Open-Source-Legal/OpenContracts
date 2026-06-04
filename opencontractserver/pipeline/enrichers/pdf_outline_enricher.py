@@ -20,13 +20,11 @@ A document with no usable outline is returned unchanged.
 
 import logging
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 from typing import ClassVar, Optional
 from uuid import uuid4
 
 from opencontractserver.constants.annotations import (
     OC_SECTION_LABEL,
-    PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO,
     PDF_OUTLINE_FUZZY_MATCH_THRESHOLD,
     PDF_OUTLINE_MAX_DEPTH,
     PDF_OUTLINE_MAX_ENTRIES,
@@ -39,13 +37,15 @@ from opencontractserver.pipeline.base.settings_schema import (
     SettingType,
 )
 from opencontractserver.types.dicts import (
-    BoundingBoxPythonType,
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
     OpenContractsSinglePageAnnotationType,
-    PawlsPagePythonType,
-    PawlsTokenPythonType,
     TokenIdPythonType,
+)
+from opencontractserver.utils.pdf_token_matching import (
+    match_title_to_tokens,
+    page_text_tokens,
+    union_bounds,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,114 +60,6 @@ class _OutlineNode:
     page_index: int  # 0-based destination page
     parent_temp_id: Optional[str]
     depth: int
-
-
-def _page_text_tokens(page: PawlsPagePythonType) -> tuple[list[str], list[int]]:
-    """Extract a PAWLs page's text tokens.
-
-    Returns ``(token_texts, original_indices)`` — parallel lists of the
-    non-image, non-empty token strings and their indices in the page's
-    original ``tokens`` array. Image tokens are skipped so the indices the
-    enricher anchors to always reference real text tokens.
-    """
-    token_texts: list[str] = []
-    original_indices: list[int] = []
-    for idx, tok in enumerate(page.get("tokens", []) or []):
-        if tok.get("is_image"):
-            continue
-        text = (tok.get("text") or "").strip()
-        if not text:
-            continue
-        token_texts.append(text)
-        original_indices.append(idx)
-    return token_texts, original_indices
-
-
-def _match_title_to_tokens(
-    title: str, token_texts: list[str], fuzzy_threshold: float
-) -> Optional[tuple[int, int]]:
-    """Locate ``title`` among a page's text tokens.
-
-    Matching is whitespace-collapsed and case-insensitive. An exact normalized
-    match wins immediately; otherwise the best windowed fuzzy match is used if
-    it clears ``fuzzy_threshold``.
-
-    Args:
-        title: The bookmark title to locate.
-        token_texts: The destination page's text-token strings.
-        fuzzy_threshold: Minimum difflib ratio for a fuzzy match (0.0-1.0).
-
-    Returns:
-        ``(start, end)`` inclusive indices into ``token_texts`` of the matched
-        token run, or ``None`` if the title cannot be located.
-    """
-    title_norm = " ".join(title.casefold().split())
-    if not title_norm:
-        return None
-    first_word = title_norm.split()[0]
-    max_len = int(len(title_norm) * 1.5) + 8
-
-    cf = [t.casefold() for t in token_texts]
-    n = len(cf)
-    best_ratio = 0.0
-    best_span: Optional[tuple[int, int]] = None
-
-    for j in range(n):
-        # Cheap pre-filter: the run must start on a token resembling the
-        # title's first word, else the whole fuzzy scan from j is wasted.
-        if (
-            SequenceMatcher(None, cf[j], first_word).ratio()
-            < PDF_OUTLINE_FIRST_WORD_PREFILTER_RATIO
-        ):
-            continue
-        candidate = cf[j]
-        k = j
-        while k < n:
-            if k > j:
-                candidate = candidate + " " + cf[k]
-            if len(candidate) > max_len:
-                break
-            if candidate == title_norm:
-                return (j, k)
-            matcher = SequenceMatcher(None, candidate, title_norm)
-            # quick_ratio() is a cheap upper bound on ratio(); skip the full
-            # (O(n*m)) comparison for windows that can neither beat the current
-            # best nor clear the fuzzy threshold.
-            if matcher.quick_ratio() >= max(best_ratio, fuzzy_threshold):
-                ratio = matcher.ratio()
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_span = (j, k)
-            k += 1
-
-    if best_span is not None and best_ratio >= fuzzy_threshold:
-        return best_span
-    return None
-
-
-def _union_bounds(
-    tokens: list[PawlsTokenPythonType], indices: list[int]
-) -> BoundingBoxPythonType:
-    """Compute the union bounding box of the given tokens.
-
-    Returns a ``BoundingBoxPythonType`` dict (top/bottom/left/right). PAWLs
-    coordinates use a top-left origin, so ``top`` is the minimum ``y``.
-    """
-    lefts, tops, rights, bottoms = [], [], [], []
-    for idx in indices:
-        tok = tokens[idx]
-        x, y = float(tok["x"]), float(tok["y"])
-        w, h = float(tok["width"]), float(tok["height"])
-        lefts.append(x)
-        tops.append(y)
-        rights.append(x + w)
-        bottoms.append(y + h)
-    return {
-        "left": min(lefts),
-        "top": min(tops),
-        "right": max(rights),
-        "bottom": max(bottoms),
-    }
 
 
 def _walk_outline(
@@ -454,11 +346,11 @@ class PdfOutlineEnricher(BaseEnricher):
             if p >= len(pawls_pages):
                 continue  # destination page beyond the parsed PAWLs layer
             if p not in page_token_cache:
-                page_token_cache[p] = _page_text_tokens(pawls_pages[p])
+                page_token_cache[p] = page_text_tokens(pawls_pages[p])
             token_texts, _orig = page_token_cache[p]
             if not token_texts:
                 continue  # image-only / empty page — cannot anchor
-            span = _match_title_to_tokens(node.title, token_texts, fuzzy_threshold)
+            span = match_title_to_tokens(node.title, token_texts, fuzzy_threshold)
             if span is not None:
                 matched_spans[node.temp_id] = span
 
@@ -500,7 +392,7 @@ class PdfOutlineEnricher(BaseEnricher):
             start, end = span
             matched_token_indices = original_indices[start : end + 1]
             page_tokens = pawls_pages[p].get("tokens", []) or []
-            bounds = _union_bounds(page_tokens, matched_token_indices)
+            bounds = union_bounds(page_tokens, matched_token_indices)
             page_raw_text = " ".join(token_texts[start : end + 1])
 
             tokens_jsons: list[TokenIdPythonType] = [

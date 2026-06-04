@@ -20,22 +20,17 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase
 
-from opencontractserver.annotations.models import (
-    Annotation,
-    LabelSet,
-    Relationship,
+from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
+from opencontractserver.documents.models import (
+    DocumentPath,
+    PendingDocumentAnnotations,
 )
-from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
-from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.tasks.import_tasks import (
-    _validate_sidecar_schema,
     import_zip_with_folder_structure,
 )
 from opencontractserver.tests.fixtures import (
-    SAMPLE_PAWLS_FILE_ONE_PATH,
     SAMPLE_PDF_FILE_ONE_PATH,
     SAMPLE_PDF_FILE_TWO_PATH,
-    SAMPLE_TXT_FILE_ONE_PATH,
 )
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.importing import validate_labels_data
@@ -45,55 +40,30 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-def _load_pawls_subset(num_pages: int = 2) -> list[dict]:
-    """Load a subset of real PAWLs data from the test fixture."""
-    full_pawls = json.loads(SAMPLE_PAWLS_FILE_ONE_PATH.read_text())
-    return full_pawls[:num_pages]
-
-
 def _build_sidecar_json(
-    title: str = "Test Document",
-    description: str = "A test document with annotations",
-    pawls_pages: list[dict] | None = None,
-    content: str | None = None,
     annotations: list[dict] | None = None,
     doc_labels: list[str] | None = None,
-    relationships: list[dict] | None = None,
-    skip_pipeline: bool = False,
 ) -> dict:
     """
-    Build a realistic OpenContractDocExport dict using real fixture data.
+    Build a dumb-anchor sidecar dict in the NEW importer format.
+
+    The new sidecar is a flat ``{"annotations": [...], "doc_labels": [...]}``
+    document. Each annotation is a label/rawText anchor with either a
+    page+bbox (PDF) or start+end (span) locator — there is no PAWLs content,
+    no ``content``, no ``skip_pipeline``, and no ``tokensJsons``. The importer
+    persists this payload verbatim into a ``PendingDocumentAnnotations`` row
+    for post-ingest re-anchoring by ``remap_pending_annotations``.
     """
-    if pawls_pages is None:
-        pawls_pages = _load_pawls_subset(2)
-
-    if content is None:
-        content = SAMPLE_TXT_FILE_ONE_PATH.read_text()[:500]
-
     if annotations is None:
         annotations = []
 
     if doc_labels is None:
         doc_labels = []
 
-    result = {
-        "title": title,
-        "content": content,
-        "description": description,
-        "pawls_file_content": pawls_pages,
-        "page_count": len(pawls_pages),
+    return {
+        "annotations": annotations,
         "doc_labels": doc_labels,
-        "labelled_text": annotations,
-        "file_type": "application/pdf",
     }
-
-    if relationships is not None:
-        result["relationships"] = relationships
-
-    if skip_pipeline:
-        result["skip_pipeline"] = True
-
-    return result
 
 
 def _build_labels_json(
@@ -112,29 +82,33 @@ def _make_annotation(
     raw_text: str,
     label_name: str,
     page: int = 0,
-    token_start: int = 0,
-    token_end: int = 1,
+    token_start: int = 0,  # retained for call-site compatibility (unused)
+    token_end: int = 1,  # retained for call-site compatibility (unused)
 ) -> dict:
-    """Build a realistic OpenContractsAnnotationPythonType dict."""
+    """Build a dumb-anchor annotation dict (page + bbox locator)."""
     return {
         "id": annot_id,
-        "annotationLabel": label_name,
+        "label": label_name,
         "rawText": raw_text,
         "page": page,
-        "annotation_json": {
-            str(page): {
-                "bounds": {
-                    "top": 50,
-                    "bottom": 70,
-                    "left": 50,
-                    "right": 200,
-                },
-                "tokensJsons": list(range(token_start, token_end)),
-                "rawText": raw_text,
-            }
-        },
-        "structural": False,
-        "annotation_type": "TOKEN_LABEL",
+        "bbox": {"left": 50, "top": 50, "right": 200, "bottom": 70},
+    }
+
+
+def _make_span_annotation(
+    annot_id: int,
+    raw_text: str,
+    label_name: str,
+    start: int,
+    end: int,
+) -> dict:
+    """Build a dumb-anchor annotation dict (start/end span locator)."""
+    return {
+        "id": annot_id,
+        "label": label_name,
+        "rawText": raw_text,
+        "start": start,
+        "end": end,
     }
 
 
@@ -342,10 +316,18 @@ class TestSidecarDetectionInManifest(TestCase):
 
 class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
     """
-    Integration tests for annotation sidecar import via the
+    Integration tests for dumb-anchor sidecar import via the
     import_zip_with_folder_structure Celery task.
 
-    Uses real PDF fixtures and realistic PAWLs/annotation data.
+    The importer does NOT apply annotations inline and no longer dispatches its
+    own Celery chain. It creates the document through the normal parser pipeline
+    and persists the producer (dumb-anchor) annotations in a
+    ``PendingDocumentAnnotations`` row stamped with the import's run id. The
+    standard Document post_save chain (``extract_thumbnail -> ingest_doc ->
+    remap_pending_annotations -> set_doc_lock_state``) then runs the remap after
+    PAWLs / text exist. These tests assert the persisted pending row + its
+    payload; end-to-end re-anchoring through the chain is covered by the
+    post-ingest integration tests (``TestDumbAnchorRemapThroughChain``).
     """
 
     def setUp(self):
@@ -367,1237 +349,272 @@ class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
 
         self.pdf_bytes = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
         self.pdf_bytes_2 = SAMPLE_PDF_FILE_TWO_PATH.read_bytes()
-        self.pawls_pages = _load_pawls_subset(2)
-        self.text_content = SAMPLE_TXT_FILE_ONE_PATH.read_text()[:500]
 
-    def test_single_annotated_document_import(self):
-        """Import a single PDF with annotation sidecar and labels."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
+    def _run_import(self, files: dict[str, bytes], job_id: str) -> dict:
+        """Run the importer and capture (but do NOT execute) any on_commit callbacks.
 
-        # Build annotation sidecar with two text annotations
+        The importer no longer dispatches its own ingest chain — the standard
+        Document post_save chain (signal-owned) does, and that signal is
+        disconnected in these unit tests. We capture with ``execute=False`` so
+        any on_commit callbacks are not run inline (running the real chain would
+        invoke the parser pipeline, out of scope here). These tests assert the
+        importer persists the ``PendingDocumentAnnotations`` row; full
+        re-anchoring through the chain is covered by the post-ingest integration
+        suite (``TestDumbAnchorRemapThroughChain``). ``self.captured`` holds the
+        captured callbacks for the most recent import.
+        """
+        zip_buffer = self._create_test_zip(files)
+        handle = self._create_temp_file_handle(zip_buffer)
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            result = import_zip_with_folder_structure.apply(
+                kwargs={
+                    "temporary_file_handle_id": handle.id,
+                    "user_id": self.user.id,
+                    "job_id": job_id,
+                    "corpus_id": self.corpus.id,
+                }
+            ).get()
+        self.captured = callbacks
+        return result
+
+    def test_single_annotated_document_persists_pending_row(self):
+        """A dumb-anchor sidecar persists a PendingDocumentAnnotations row."""
         annotations = [
-            _make_annotation(
-                annot_id=1,
-                raw_text="Exhibit",
-                label_name="Heading",
-                page=0,
-                token_start=0,
-                token_end=1,
-            ),
-            _make_annotation(
-                annot_id=2,
-                raw_text="Certain information",
-                label_name="Clause",
-                page=0,
-                token_start=2,
-                token_end=4,
-            ),
+            _make_annotation(1, "Exhibit", "Heading", page=0),
+            _make_span_annotation(2, "Certain information", "Clause", start=10, end=29),
         ]
-
         sidecar = _build_sidecar_json(
-            title="Development Agreement",
-            description="Eton Pharmaceuticals agreement",
-            pawls_pages=self.pawls_pages,
-            content=self.text_content,
             annotations=annotations,
             doc_labels=["Contract"],
         )
+        files = {
+            "agreement.pdf": self.pdf_bytes,
+            "agreement.json": json.dumps(sidecar).encode("utf-8"),
+        }
 
+        result = self._run_import(files, "test-sidecar-1")
+
+        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["files_processed"], 1)
+        self.assertEqual(result["annotation_sidecars_found"], 1)
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        # New importer applies NO annotations inline.
+        self.assertEqual(result["annotations_imported"], 0)
+        # The deferred path tracks work via ``pending_annotation_docs``; the old
+        # ``annotation_sidecars_processed`` counter was removed as dead (always 0).
+        self.assertNotIn("annotation_sidecars_processed", result)
+
+        # Document was created in the corpus.
+        doc_paths = DocumentPath.objects.filter(corpus=self.corpus)
+        self.assertEqual(doc_paths.count(), 1)
+        corpus_doc = doc_paths.first().document
+
+        # Exactly one pending row, carrying the verbatim dumb-anchor payload.
+        pending = PendingDocumentAnnotations.objects.filter(document=corpus_doc)
+        self.assertEqual(pending.count(), 1)
+        row = pending.first()
+        self.assertEqual(row.corpus_id, self.corpus.id)
+        self.assertEqual(row.creator_id, self.user.id)
+        self.assertEqual(row.status, PendingDocumentAnnotations.Status.PENDING)
+        self.assertEqual(row.payload["annotations"], annotations)
+        self.assertEqual(row.payload["doc_labels"], ["Contract"])
+        # The deferred set is stamped with this import's ingestion run id so the
+        # standard chain's remap step (and later relationship wiring) can group
+        # and gate it.
+        self.assertIsNotNone(row.ingestion_run_id)
+
+    def test_sidecar_without_doc_labels_persists_empty_list(self):
+        """A sidecar with only span annotations persists doc_labels=[]."""
+        annotations = [
+            _make_span_annotation(1, "Hello world", "Phrase", start=0, end=11),
+        ]
+        sidecar = _build_sidecar_json(annotations=annotations)
+        files = {
+            "doc.pdf": self.pdf_bytes,
+            "doc.json": json.dumps(sidecar).encode("utf-8"),
+        }
+
+        result = self._run_import(files, "test-sidecar-span")
+
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        row = PendingDocumentAnnotations.objects.get()
+        self.assertEqual(row.payload["annotations"], annotations)
+        self.assertEqual(row.payload["doc_labels"], [])
+
+    def test_malformed_dumb_anchor_with_labels_json_persists_failed_row(self):
+        """When a labels.json ships alongside a dumb-anchor sidecar, the sidecar
+        is pre-flight validated and a malformed payload is persisted FAILED.
+
+        The validator's label-resolution check is defined against labels.json,
+        so it only runs when one is present. Here a label is missing entirely
+        (an empty string) and the row's anchor is fine — the import must NOT
+        silently queue a doomed remap; it persists the pending row as FAILED
+        with the validation errors in its ``report`` and surfaces an error,
+        co-locating the failure with the import.
+        """
+        annotations = [
+            # Valid, label resolves in labels.json below.
+            _make_annotation(1, "Heading", "OC_SECTION", page=0),
+            # Malformed: empty label → fails dumb-anchor schema.
+            _make_annotation(2, "Body", "", page=0),
+        ]
+        sidecar = _build_sidecar_json(annotations=annotations)
         labels = _build_labels_json(
-            text_labels={
-                "Heading": _make_label_data("Heading"),
-                "Clause": _make_label_data("Clause"),
-            },
-            doc_labels={
-                "Contract": _make_label_data("Contract", label_type="DOC_TYPE_LABEL"),
-            },
+            text_labels={"OC_SECTION": _make_label_data("OC_SECTION")}
         )
-
         files = {
             "agreement.pdf": self.pdf_bytes,
             "agreement.json": json.dumps(sidecar).encode("utf-8"),
             "labels.json": json.dumps(labels).encode("utf-8"),
         }
 
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
+        result = self._run_import(files, "test-sidecar-malformed")
 
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-1",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        # Verify task succeeded
+        # Document still ingests; only the annotation set is rejected.
         self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 1)
-        self.assertTrue(result["labels_file_found"])
-        self.assertEqual(result["annotation_sidecars_found"], 1)
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-        self.assertEqual(result["annotation_sidecars_errored"], 0)
-
-        # Verify annotations were created (2 text + 1 doc-level)
-        self.assertEqual(result["annotations_imported"], 3)
-
-        # Verify document exists in corpus
-        doc_paths = DocumentPath.objects.filter(corpus=self.corpus)
-        self.assertEqual(doc_paths.count(), 1)
-
-        corpus_doc = doc_paths.first().document
-        # backend_lock remains True until the pipeline finishes processing;
-        # sidecar annotations are additive and don't control the lock
-        self.assertTrue(corpus_doc.backend_lock)
-
-        # Verify text annotations exist on the corpus document
-        text_annotations = Annotation.objects.filter(
-            document=corpus_doc,
-            corpus=self.corpus,
-            annotation_type="TOKEN_LABEL",
-        )
-        self.assertEqual(text_annotations.count(), 2)
-
-        # Verify doc-level annotation exists
-        doc_annotations = Annotation.objects.filter(
-            document=corpus_doc,
-            corpus=self.corpus,
-            annotation_label__label_type="DOC_TYPE_LABEL",
-        )
-        self.assertEqual(doc_annotations.count(), 1)
-
-        # Verify labels were created in the corpus label set
-        self.corpus.refresh_from_db()
-        label_set = self.corpus.label_set
-        self.assertIsNotNone(label_set)
-        label_texts = set(label_set.annotation_labels.values_list("text", flat=True))
-        self.assertIn("Heading", label_texts)
-        self.assertIn("Clause", label_texts)
-        self.assertIn("Contract", label_texts)
-
-    def test_sidecar_with_relationships(self):
-        """Import a document with intra-document annotation relationships."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        self.assertEqual(result["annotation_sidecars_errored"], 1)
+        self.assertTrue(
+            any("failed validation" in e for e in result["errors"]),
+            msg=f"Expected a validation error surfaced: {result['errors']}",
         )
 
-        annotations = [
-            _make_annotation(
-                annot_id=1,
-                raw_text="Exhibit 10.1",
-                label_name="Heading",
-                page=0,
-                token_start=0,
-                token_end=2,
-            ),
-            _make_annotation(
-                annot_id=2,
-                raw_text="Certain information",
-                label_name="Clause",
-                page=0,
-                token_start=2,
-                token_end=4,
-            ),
-        ]
-
-        relationships_data = [
-            {
-                "id": 1,
-                "relationshipLabel": "Contains",
-                "source_annotation_ids": [1],
-                "target_annotation_ids": [2],
-                "structural": False,
-            }
-        ]
-
-        sidecar = _build_sidecar_json(
-            title="Doc with Relationships",
-            annotations=annotations,
-            relationships=relationships_data,
+        # Pending row is persisted FAILED (never silently dropped) with the
+        # validation errors recorded on its report so remap skips it.
+        row = PendingDocumentAnnotations.objects.get()
+        self.assertEqual(row.status, PendingDocumentAnnotations.Status.FAILED)
+        self.assertTrue(
+            row.report and any("error" in entry for entry in row.report),
+            msg=f"Expected validation errors on report: {row.report}",
         )
 
-        labels = _build_labels_json(
-            text_labels={
-                "Heading": _make_label_data("Heading"),
-                "Clause": _make_label_data("Clause"),
-                "Contains": _make_label_data(
-                    "Contains", label_type="RELATIONSHIP_LABEL"
-                ),
-            },
-        )
+    def test_empty_annotations_list_still_persists_pending_row(self):
+        """A sidecar with an empty ``annotations`` list is still NEW-format.
 
+        The list being present (even if empty) identifies the dumb-anchor
+        format, so a pending row is created (the remap is a downstream no-op).
+        """
+        sidecar = _build_sidecar_json(annotations=[], doc_labels=["Contract"])
         files = {
-            "doc_with_rels.pdf": self.pdf_bytes,
-            "doc_with_rels.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
+            "doc.pdf": self.pdf_bytes,
+            "doc.json": json.dumps(sidecar).encode("utf-8"),
         }
 
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
+        result = self._run_import(files, "test-sidecar-empty")
 
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-rels",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
         self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        row = PendingDocumentAnnotations.objects.get()
+        self.assertEqual(row.payload["annotations"], [])
+        self.assertEqual(row.payload["doc_labels"], ["Contract"])
 
-        # Verify relationship was created
-        corpus_doc = DocumentPath.objects.get(corpus=self.corpus).document
-        relationships = Relationship.objects.filter(
-            document=corpus_doc,
-            corpus=self.corpus,
+    def test_sidecar_in_subfolder_persists_pending_row(self):
+        """A sidecar co-located in a subfolder is detected and persisted."""
+        annotations = [_make_annotation(1, "Heading", "Heading", page=0)]
+        sidecar = _build_sidecar_json(annotations=annotations)
+        files = {
+            "contracts/master.pdf": self.pdf_bytes,
+            "contracts/master.json": json.dumps(sidecar).encode("utf-8"),
+        }
+
+        result = self._run_import(files, "test-sidecar-subfolder")
+
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        self.assertEqual(PendingDocumentAnnotations.objects.count(), 1)
+
+    def test_multiple_annotated_documents_each_get_pending_row(self):
+        """Each annotated document gets its own pending row."""
+        sidecar_a = _build_sidecar_json(
+            annotations=[
+                _make_annotation(1, "A1", "Heading", page=0),
+                _make_annotation(2, "A2", "Heading", page=0),
+            ],
+            doc_labels=["Contract"],
         )
-        self.assertEqual(relationships.count(), 1)
-
-        rel = relationships.first()
-        self.assertEqual(rel.source_annotations.count(), 1)
-        self.assertEqual(rel.target_annotations.count(), 1)
-        self.assertEqual(rel.relationship_label.text, "Contains")
-
-    def test_mixed_sidecar_and_pipeline_import(self):
-        """Import a zip where one doc has a sidecar and another doesn't."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
+        sidecar_b = _build_sidecar_json(
+            annotations=[_make_annotation(3, "B1", "Heading", page=0)],
         )
+        files = {
+            "doc_a.pdf": self.pdf_bytes,
+            "doc_a.json": json.dumps(sidecar_a).encode("utf-8"),
+            "doc_b.pdf": self.pdf_bytes_2,
+            "doc_b.json": json.dumps(sidecar_b).encode("utf-8"),
+        }
 
-        # Annotated document with sidecar
-        annotations = [
-            _make_annotation(
-                annot_id=1,
-                raw_text="Section 1",
-                label_name="Section",
-                page=0,
-                token_start=0,
-                token_end=2,
-            ),
-        ]
+        result = self._run_import(files, "test-sidecar-multi")
 
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["files_processed"], 2)
+        self.assertEqual(result["pending_annotation_docs"], 2)
+        self.assertEqual(PendingDocumentAnnotations.objects.count(), 2)
+
+    def test_mixed_sidecar_and_plain_documents(self):
+        """A plain (no-sidecar) document gets NO pending row."""
         sidecar = _build_sidecar_json(
-            title="Annotated Doc",
-            annotations=annotations,
+            annotations=[_make_annotation(1, "Heading", "Heading", page=0)],
         )
-
-        labels = _build_labels_json(
-            text_labels={
-                "Section": _make_label_data("Section"),
-            },
-        )
-
         files = {
             "annotated.pdf": self.pdf_bytes,
             "annotated.json": json.dumps(sidecar).encode("utf-8"),
-            "plain.pdf": self.pdf_bytes_2,  # No sidecar - goes through pipeline
-            "labels.json": json.dumps(labels).encode("utf-8"),
+            "plain.pdf": self.pdf_bytes_2,
         }
 
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
+        result = self._run_import(files, "test-sidecar-mixed")
 
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-mixed",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
         self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
         self.assertEqual(result["files_processed"], 2)
-        self.assertEqual(result["annotation_sidecars_found"], 1)
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-
-        # Both documents should be in the corpus
-        doc_paths = DocumentPath.objects.filter(corpus=self.corpus)
-        self.assertEqual(doc_paths.count(), 2)
-
-        # The annotated doc should have annotations
-        total_annotations = Annotation.objects.filter(
-            corpus=self.corpus,
-            annotation_type="TOKEN_LABEL",
-        ).count()
-        self.assertEqual(total_annotations, 1)
-
-    def test_sidecar_in_subfolder(self):
-        """Import annotated document in a subfolder with sidecar."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        annotations = [
-            _make_annotation(
-                annot_id=1,
-                raw_text="Article I",
-                label_name="Article",
-                page=0,
-                token_start=0,
-                token_end=2,
-            ),
-        ]
-
-        sidecar = _build_sidecar_json(
-            title="Subfolder Document",
-            annotations=annotations,
-        )
-
-        labels = _build_labels_json(
-            text_labels={
-                "Article": _make_label_data("Article"),
-            },
-        )
-
-        files = {
-            "contracts/agreement.pdf": self.pdf_bytes,
-            "contracts/agreement.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-subfolder",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 1)
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-        self.assertEqual(result["folders_created"], 1)
-
-        # Verify folder was created
-        folder = CorpusFolder.objects.get(corpus=self.corpus, name="contracts")
-        self.assertIsNotNone(folder)
-
-        # Verify annotation
-        annotations_qs = Annotation.objects.filter(
-            corpus=self.corpus, annotation_type="TOKEN_LABEL"
-        )
-        self.assertEqual(annotations_qs.count(), 1)
-        self.assertEqual(annotations_qs.first().raw_text, "Article I")
-
-    def test_sidecar_without_labels_file_warns_and_skips_annotations(self):
-        """
-        When no labels.json is present but the sidecar has annotations,
-        the document is still created via the pipeline but sidecar
-        annotations are skipped with a warning (labels needed to resolve
-        annotation label references).
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        # Attach a pre-existing label set to ensure the auto-creation code
-        # path is NOT exercised here — this test only verifies the
-        # "sidecar without labels.json" warning, not label set creation.
-        label_set = LabelSet.objects.create(
-            title="Pre-existing labels",
-            creator=self.user,
-        )
-        set_permissions_for_obj_to_user(self.user, label_set, [PermissionTypes.ALL])
-        self.corpus.label_set = label_set
-        self.corpus.save(update_fields=["label_set"])
-
-        annotations = [
-            _make_annotation(
-                annot_id=1,
-                raw_text="Test",
-                label_name="Heading",
-                page=0,
-            ),
-        ]
-        sidecar = _build_sidecar_json(annotations=annotations)
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            # No labels.json - sidecar detected but no labels available
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-no-labels",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        # Sidecar was found but labels file wasn't
-        self.assertEqual(result["annotation_sidecars_found"], 1)
-        self.assertFalse(result["labels_file_found"])
-        # Sidecar is errored (not processed) because annotations were skipped
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertEqual(result["annotation_sidecars_processed"], 0)
-        self.assertEqual(result["annotations_imported"], 0)
-        self.assertEqual(result["files_processed"], 1)
-        # Warning should be in errors
-        self.assertTrue(
-            any("annotations skipped" in e for e in result["errors"]),
-            f"Expected warning about skipped annotations, got: {result['errors']}",
-        )
-
-    def test_multiple_annotated_documents(self):
-        """Import multiple annotated documents in one zip."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar1 = _build_sidecar_json(
-            title="First Doc",
-            annotations=[
-                _make_annotation(1, "Section A", "Heading", 0, 0, 2),
-                _make_annotation(2, "Clause 1", "Clause", 0, 3, 5),
-            ],
-        )
-
-        sidecar2 = _build_sidecar_json(
-            title="Second Doc",
-            annotations=[
-                _make_annotation(1, "Part I", "Heading", 0, 0, 2),
-            ],
-        )
-
-        labels = _build_labels_json(
-            text_labels={
-                "Heading": _make_label_data("Heading"),
-                "Clause": _make_label_data("Clause"),
-            },
-        )
-
-        files = {
-            "doc1.pdf": self.pdf_bytes,
-            "doc1.json": json.dumps(sidecar1).encode("utf-8"),
-            "doc2.pdf": self.pdf_bytes_2,
-            "doc2.json": json.dumps(sidecar2).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-multi",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 2)
-        self.assertEqual(result["annotation_sidecars_found"], 2)
-        self.assertEqual(result["annotation_sidecars_processed"], 2)
-        self.assertEqual(result["annotations_imported"], 3)  # 2 + 1
-
-        # Verify both documents in corpus
-        doc_paths = DocumentPath.objects.filter(corpus=self.corpus)
-        self.assertEqual(doc_paths.count(), 2)
-
-        # Verify total annotations
-        all_annotations = Annotation.objects.filter(
-            corpus=self.corpus, annotation_type="TOKEN_LABEL"
-        )
-        self.assertEqual(all_annotations.count(), 3)
-
-    def test_sidecar_with_cross_doc_relationships_csv(self):
-        """
-        Annotated documents can also use relationships.csv
-        for cross-document relationships.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar1 = _build_sidecar_json(title="Master Agreement")
-        sidecar2 = _build_sidecar_json(title="Amendment 1")
-
-        labels = _build_labels_json()
-
-        rel_csv = "source_path,relationship_label,target_path,notes\n"
-        rel_csv += "/master.pdf,Amends,/amendment.pdf,First amendment\n"
-
-        files = {
-            "master.pdf": self.pdf_bytes,
-            "master.json": json.dumps(sidecar1).encode("utf-8"),
-            "amendment.pdf": self.pdf_bytes_2,
-            "amendment.json": json.dumps(sidecar2).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-            "relationships.csv": rel_csv.encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-cross-doc",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["annotation_sidecars_processed"], 2)
-        self.assertTrue(result["relationships_file_found"])
-        self.assertEqual(result["relationships_created"], 1)
+        # Only the annotated document yields a pending row.
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        self.assertEqual(PendingDocumentAnnotations.objects.count(), 1)
 
     def test_zip_without_any_sidecars_unchanged_behavior(self):
-        """A plain zip without sidecars should behave exactly as before."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
+        """A zip with no sidecars creates docs but no pending rows."""
         files = {
-            "file1.pdf": self.pdf_bytes,
-            "file2.pdf": self.pdf_bytes_2,
+            "a.pdf": self.pdf_bytes,
+            "b.pdf": self.pdf_bytes_2,
         }
 
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
+        result = self._run_import(files, "test-no-sidecar")
 
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-no-sidecar",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
         self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
         self.assertEqual(result["files_processed"], 2)
         self.assertEqual(result["annotation_sidecars_found"], 0)
-        self.assertEqual(result["annotation_sidecars_processed"], 0)
-        self.assertFalse(result["labels_file_found"])
-        self.assertEqual(result["annotations_imported"], 0)
+        self.assertEqual(result["pending_annotation_docs"], 0)
+        self.assertEqual(PendingDocumentAnnotations.objects.count(), 0)
 
-    def test_sidecar_creates_label_set_if_corpus_has_none(self):
-        """If the corpus has no label set, one is created during import."""
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        # Ensure corpus has no label set
-        self.corpus.label_set = None
-        self.corpus.save(update_fields=["label_set"])
-
-        sidecar = _build_sidecar_json(
-            annotations=[
-                _make_annotation(1, "Title", "Heading", 0, 0, 1),
-            ],
-        )
-
-        labels = _build_labels_json(
-            text_labels={
-                "Heading": _make_label_data("Heading"),
-            },
-        )
-
+    def test_malformed_sidecar_json_records_error_and_no_pending_row(self):
+        """A sidecar that is not valid JSON is reported; the doc still imports."""
         files = {
             "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
+            "doc.json": b"{ this is not valid json ]",
         }
 
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
+        result = self._run_import(files, "test-malformed-sidecar")
 
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-no-labelset",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-
-        # Verify label set was created
-        self.corpus.refresh_from_db()
-        self.assertIsNotNone(self.corpus.label_set)
-        label_texts = set(
-            self.corpus.label_set.annotation_labels.values_list("text", flat=True)
-        )
-        self.assertIn("Heading", label_texts)
-
-    def test_sidecar_with_missing_label_skips_annotation(self):
-        """
-        When a sidecar references a label not in labels.json, those annotations
-        are skipped and a warning is recorded — but valid annotations still import.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        annotations = [
-            _make_annotation(1, "Valid Text", "Heading", 0, 0, 1),
-            _make_annotation(2, "Missing Label", "NonExistentLabel", 0, 2, 3),
-        ]
-        sidecar = _build_sidecar_json(annotations=annotations)
-
-        # labels.json only defines "Heading", not "NonExistentLabel"
-        labels = _build_labels_json(
-            text_labels={
-                "Heading": _make_label_data("Heading"),
-            },
-        )
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-missing-label",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-        # Only the valid annotation should be imported
-        self.assertEqual(result["annotations_imported"], 1)
-        # Warning about skipped annotation(s) should appear
-        self.assertTrue(
-            any("skipped" in e for e in result["errors"]),
-            f"Expected warning about skipped annotations, got: {result['errors']}",
-        )
-
-    def test_malformed_sidecar_json_records_error(self):
-        """
-        When a sidecar file contains invalid JSON, the error is caught and
-        recorded — the document is still created via the pipeline.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": b"THIS IS NOT VALID JSON {{{",
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-malformed-sidecar",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        # Document should still be created via pipeline
+        # The document is still created via the pipeline (sidecar is best-effort).
         self.assertEqual(result["files_processed"], 1)
-        # Sidecar should be counted as errored
         self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertEqual(result["annotation_sidecars_processed"], 0)
+        self.assertEqual(result["pending_annotation_docs"], 0)
+        self.assertEqual(PendingDocumentAnnotations.objects.count(), 0)
         self.assertTrue(
             any("Sidecar read error" in e for e in result["errors"]),
-            f"Expected sidecar error message, got: {result['errors']}",
+            f"Expected a sidecar read error in {result['errors']}",
         )
-
-    def test_malformed_labels_json_records_error(self):
-        """
-        When labels.json contains invalid JSON, the error is caught and
-        recorded — documents are still imported via the pipeline.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar = _build_sidecar_json(
-            annotations=[_make_annotation(1, "Text", "Heading", 0, 0, 1)],
-        )
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": b"NOT VALID JSON!!!",
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-malformed-labels",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["labels_file_found"])
-        self.assertFalse(result["labels_loaded"])
-        # Document still processed via pipeline
-        self.assertEqual(result["files_processed"], 1)
-        # Labels file error should be recorded
-        self.assertTrue(
-            any("Labels file error" in e for e in result["errors"]),
-            f"Expected labels file error, got: {result['errors']}",
-        )
-        # The sidecar has annotations but labels failed to load, so
-        # _apply_sidecar_annotations records an annotations-skipped error too.
-        self.assertEqual(
-            result["annotation_sidecars_errored"],
-            1,
-            f"Expected annotation sidecar error for missing labels, got: {result}",
-        )
-
-    def test_sidecar_with_missing_relationship_label_skips_relationship(self):
-        """
-        When a sidecar references a relationship label not in labels.json,
-        that relationship is skipped gracefully — other annotations still import.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        annotations = [
-            _make_annotation(1, "Source text", "Heading", 0, 0, 1),
-            _make_annotation(2, "Target text", "Heading", 0, 2, 3),
-        ]
-        relationships = [
-            {
-                "id": 1,
-                "relationshipLabel": "NonExistentRelLabel",
-                "source_annotation_ids": [1],
-                "target_annotation_ids": [2],
-                "structural": False,
-            },
-        ]
-        sidecar = _build_sidecar_json(
-            annotations=annotations, relationships=relationships
-        )
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-missing-rel-label",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-        # Both text annotations should import fine
-        self.assertEqual(result["annotations_imported"], 2)
-        # Relationship with missing label should be skipped (not crash)
-        self.assertEqual(Relationship.objects.filter(corpus=self.corpus).count(), 0)
-
-    def test_skip_pipeline_creates_document_from_export_data(self):
-        """
-        When the sidecar contains skip_pipeline=True, the document is created
-        directly from the sidecar's export data — no parser pipeline triggered.
-        PAWLs data, text content, and annotations all come from the sidecar.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        annotations = [
-            _make_annotation(1, "Section Title", "Heading", 0, 0, 1),
-        ]
-        sidecar = _build_sidecar_json(
-            title="Pipeline-Skipped Doc",
-            annotations=annotations,
-            skip_pipeline=True,
-        )
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-skip-pipeline",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 1)
-        self.assertEqual(result["pipeline_skipped"], 1)
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-        self.assertEqual(result["annotations_imported"], 1)
-
-        # Verify the document was created with sidecar content
-        from opencontractserver.documents.models import Document
-
-        doc_id = int(result["document_ids"][0])
-        doc = Document.objects.get(pk=doc_id)
-        # Document should NOT be backend_locked (pipeline was skipped, not pending)
-        self.assertFalse(doc.backend_lock)
-        # PAWLs data should be populated from the sidecar
-        self.assertTrue(bool(doc.pawls_parse_file))
-        # Text content should be populated from the sidecar
-        self.assertTrue(bool(doc.txt_extract_file))
-
-    def test_skip_pipeline_false_uses_pipeline(self):
-        """
-        When skip_pipeline is absent or False, the document goes through
-        the pipeline as normal (additive behavior).
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        annotations = [
-            _make_annotation(1, "Section Title", "Heading", 0, 0, 1),
-        ]
-        # skip_pipeline defaults to False
-        sidecar = _build_sidecar_json(annotations=annotations)
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-no-skip-pipeline",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 1)
-        # Pipeline was NOT skipped
-        self.assertEqual(result["pipeline_skipped"], 0)
-        # Sidecar annotations still applied (additively)
-        self.assertEqual(result["annotation_sidecars_processed"], 1)
-        self.assertEqual(result["annotations_imported"], 1)
-
-    def test_skip_pipeline_without_labels_json(self):
-        """
-        When skip_pipeline=True but no labels.json is present, the document
-        is still created from export data.  Annotations in the sidecar are
-        skipped because no labels are available, and the appropriate error is
-        recorded.
-
-        Note: this scenario produces success=False — the sidecar declared
-        annotations that the importer was unable to apply (no labels), which
-        is silent annotation loss from the caller's perspective.  Prior to
-        the success-flag fix in PR #1489 this test asserted success=True;
-        that was the broken contract the fix corrects.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        annotations = [
-            _make_annotation(1, "Section Title", "Heading", 0, 0, 1),
-        ]
-        sidecar = _build_sidecar_json(
-            title="No-Labels Doc",
-            annotations=annotations,
-            skip_pipeline=True,
-        )
-
-        # No labels.json included in the zip
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-skip-pipeline-no-labels",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        # Sidecar errors must drop overall success (annotations were silently
-        # lost) — file itself was imported, but the user's request to import
-        # annotations was not fulfilled.
-        self.assertFalse(
-            result["success"],
-            "Sidecar with annotations but no labels should report "
-            "success=False since annotations were dropped.",
-        )
-        self.assertEqual(result["files_processed"], 1)
-        self.assertEqual(result["pipeline_skipped"], 1)
-        # Labels file was not present
-        self.assertFalse(result["labels_file_found"])
-        self.assertFalse(result["labels_loaded"])
-        # Sidecar has annotations but no labels → errored
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertEqual(result["annotations_imported"], 0)
-
-        # Document should still exist and be unlocked
-        from opencontractserver.documents.models import Document
-
-        doc_id = int(result["document_ids"][0])
-        doc = Document.objects.get(pk=doc_id)
-        self.assertFalse(doc.backend_lock)
-        self.assertTrue(bool(doc.pawls_parse_file))
-
-    def test_skip_pipeline_applies_metadata_from_csv(self):
-        """
-        When skip_pipeline=True and a meta.csv is present, the document
-        title and description from meta.csv override the sidecar defaults.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar = _build_sidecar_json(
-            title="Sidecar Title",
-            description="Sidecar description",
-            skip_pipeline=True,
-        )
-
-        labels = _build_labels_json()
-
-        meta_csv = "source_path,title,description\n/doc.pdf,CSV Title,CSV description\n"
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-            "meta.csv": meta_csv.encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-skip-pipeline-metadata",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 1)
-        self.assertEqual(result["pipeline_skipped"], 1)
-        self.assertEqual(result["metadata_applied"], 1)
-
-        from opencontractserver.documents.models import Document
-
-        doc_id = int(result["document_ids"][0])
-        doc = Document.objects.get(pk=doc_id)
-        self.assertEqual(doc.title, "CSV Title")
-        self.assertEqual(doc.description, "CSV description")
-
-    def test_oversized_sidecar_pre_read_rejected(self):
-        """
-        When a sidecar's declared size in the zip central directory exceeds
-        ZIP_MAX_SIDECAR_SIZE_BYTES, the read is rejected before allocation.
-        The document falls through to pipeline creation.
-        """
-        from unittest.mock import patch
-
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar = _build_sidecar_json(skip_pipeline=True)
-        sidecar_bytes = json.dumps(sidecar).encode("utf-8")
-        labels = _build_labels_json()
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": sidecar_bytes,
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        # Patch the limit to be smaller than the sidecar
-        with patch(
-            "opencontractserver.tasks.import_tasks.ZIP_MAX_SIDECAR_SIZE_BYTES",
-            10,
-        ):
-            result = import_zip_with_folder_structure.apply(
-                kwargs={
-                    "temporary_file_handle_id": handle.id,
-                    "user_id": self.user.id,
-                    "job_id": "test-oversized-sidecar-pre",
-                    "corpus_id": self.corpus.id,
-                }
-            ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["files_processed"], 1)
-        # Sidecar should be errored (size check rejected it)
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertTrue(
-            any("exceeds limit" in e for e in result["errors"]),
-            f"Expected size limit error, got: {result['errors']}",
-        )
-        # Document should still be created via pipeline fallback
-        self.assertEqual(result["pipeline_skipped"], 0)
-
-    def test_oversized_sidecar_post_read_rejected(self):
-        """
-        Defence-in-depth: when the central directory declares a small size
-        but the actual decompressed data exceeds the limit, the post-read
-        check catches it.  Uses a mock ZipFile to simulate a forged central
-        directory entry.
-        """
-        from unittest.mock import MagicMock, patch
-
-        from opencontractserver.tasks.import_tasks import _read_sidecar
-
-        large_data = b'{"key": "' + b"x" * 200 + b'"}'
-
-        # Mock ZipFile where getinfo reports small size but read returns large
-        mock_info = MagicMock()
-        mock_info.file_size = 10  # forged: passes pre-read
-
-        mock_handle = MagicMock()
-        mock_handle.read.return_value = large_data
-        mock_handle.__enter__ = MagicMock(return_value=mock_handle)
-        mock_handle.__exit__ = MagicMock(return_value=False)
-
-        mock_zip = MagicMock()
-        mock_zip.getinfo.return_value = mock_info
-        mock_zip.open.return_value = mock_handle
-
-        with patch(
-            "opencontractserver.tasks.import_tasks.ZIP_MAX_SIDECAR_SIZE_BYTES",
-            100,
-        ):
-            with self.assertRaises(ValueError) as ctx:
-                _read_sidecar(mock_zip, "doc.json")
-
-        self.assertIn("exceeds limit", str(ctx.exception))
-
-    def test_sidecar_error_drops_overall_success_flag(self):
-        """
-        Regression: when a sidecar fails (here, oversized), the importer
-        previously returned success=True because the success determination
-        only checked files_errored — annotation_sidecars_errored was ignored
-        and callers had no signal that annotations were silently dropped.
-
-        After the fix, an oversized sidecar produces success=False even though
-        the document itself is created via the pipeline fallback. A clean
-        run with the same payload (default size limit) still yields
-        success=True, so this also pins the happy-path contract.
-        """
-        from unittest.mock import patch
-
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar = _build_sidecar_json(skip_pipeline=True)
-        sidecar_bytes = json.dumps(sidecar).encode("utf-8")
-        labels = _build_labels_json()
-
-        def _build_handle():
-            files = {
-                "doc.pdf": self.pdf_bytes,
-                "doc.json": sidecar_bytes,
-                "labels.json": json.dumps(labels).encode("utf-8"),
-            }
-            zip_buffer = self._create_test_zip(files)
-            return self._create_temp_file_handle(zip_buffer)
-
-        # Failure path: shrink the limit so the sidecar is rejected.
-        handle = _build_handle()
-        with patch(
-            "opencontractserver.tasks.import_tasks.ZIP_MAX_SIDECAR_SIZE_BYTES",
-            10,
-        ):
-            failed = import_zip_with_folder_structure.apply(
-                kwargs={
-                    "temporary_file_handle_id": handle.id,
-                    "user_id": self.user.id,
-                    "job_id": "test-success-flag-sidecar-error",
-                    "corpus_id": self.corpus.id,
-                }
-            ).get()
-
-        self.assertTrue(failed["completed"])
-        self.assertEqual(failed["annotation_sidecars_errored"], 1)
-        self.assertEqual(failed["files_errored"], 0)
-        self.assertFalse(
-            failed["success"],
-            "Sidecar errors must surface as success=False so callers don't "
-            "treat silent annotation loss as a clean import.",
-        )
-
-        # Happy path: same payload, default limit, success=True.
-        handle = _build_handle()
-        ok = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-success-flag-clean-run",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(ok["completed"])
-        self.assertEqual(ok["annotation_sidecars_errored"], 0)
-        self.assertEqual(ok["files_errored"], 0)
-        self.assertTrue(
-            ok["success"],
-            f"Clean import should report success=True, got errors: "
-            f"{ok.get('errors')}",
-        )
-
-    def test_skip_pipeline_with_custom_meta_and_public(self):
-        """
-        When skip_pipeline=True and custom_meta / make_public are passed,
-        those fields are applied to the document after creation.
-        """
-        from opencontractserver.tasks.import_tasks import (
-            import_zip_with_folder_structure,
-        )
-
-        sidecar = _build_sidecar_json(
-            title="Sidecar Title",
-            description="Sidecar description",
-            skip_pipeline=True,
-        )
-        labels = _build_labels_json()
-
-        files = {
-            "doc.pdf": self.pdf_bytes,
-            "doc.json": json.dumps(sidecar).encode("utf-8"),
-            "labels.json": json.dumps(labels).encode("utf-8"),
-        }
-
-        zip_buffer = self._create_test_zip(files)
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        test_meta = {"source": "unit_test", "priority": 1}
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-skip-pipeline-meta-public",
-                "corpus_id": self.corpus.id,
-                "custom_meta": test_meta,
-                "make_public": True,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
-        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
-        self.assertEqual(result["pipeline_skipped"], 1)
-
-        from opencontractserver.documents.models import Document
-
-        doc_id = int(result["document_ids"][0])
-        doc = Document.objects.get(pk=doc_id)
-        self.assertEqual(doc.custom_meta, test_meta)
-        self.assertTrue(doc.is_public)
 
 
 class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
     """
-    Intersection of sidecar import + path-collision upversioning.
+    Intersection of dumb-anchor sidecar import + path-collision upversioning.
 
-    Verifies that when a zip containing a document AND its annotation sidecar
-    is imported at a path that already has a Document (default pipeline route,
-    i.e. ``skip_pipeline`` absent / falsy), the new Document version receives
-    the sidecar's annotations, while the prior version's annotations remain
-    attached to the prior (now non-current) Document. This confirms that
-    annotations are NOT migrated between versions: each Document row owns its
-    own annotation set, tied by FK to that specific version.
-
-    Note: sidecar ``title`` / ``description`` only attach to the Document row
-    when ``skip_pipeline=True`` (see ``test_skip_pipeline_creates_document_from_export_data``).
-    The default-pipeline upversion flow used here uses the bare filename as
-    the Document title, so this test does not assert on title/description.
+    Verifies that when a zip containing a document AND its dumb-anchor sidecar
+    is imported at a path that already has a Document, the NEW Document version
+    receives its own ``PendingDocumentAnnotations`` row, while the prior
+    version's pending row remains attached to the prior (now non-current)
+    Document. Pending rows are NOT migrated between versions: each Document row
+    owns its own pending payload, tied by FK to that specific version.
     """
 
     handle_name = "test_sidecar_upversion.zip"
@@ -1620,74 +637,44 @@ class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
 
         self.pdf_bytes_v1 = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
         self.pdf_bytes_v2 = SAMPLE_PDF_FILE_TWO_PATH.read_bytes()
-        self.pawls_pages = _load_pawls_subset(2)
 
-    @staticmethod
-    def _shared_labels_json() -> bytes:
-        """labels.json shared by both imports — covers all labels used."""
-        return json.dumps(
-            _build_labels_json(
-                text_labels={
-                    "Heading": _make_label_data("Heading"),
-                    "Section": _make_label_data("Section"),
-                },
-                doc_labels={
-                    "Contract": _make_label_data(
-                        "Contract", label_type="DOC_TYPE_LABEL"
-                    ),
-                    "Amendment": _make_label_data(
-                        "Amendment", label_type="DOC_TYPE_LABEL"
-                    ),
-                },
-            )
-        ).encode("utf-8")
+    def _run_import(self, files: dict[str, bytes], job_id: str) -> dict:
+        # execute=False: queue the ingest chain without running the real
+        # parser pipeline (see TestSidecarImportTask._run_import).
+        handle = self._create_temp_file_handle(self._create_test_zip(files))
+        with self.captureOnCommitCallbacks(execute=False):
+            return import_zip_with_folder_structure.apply(
+                kwargs={
+                    "temporary_file_handle_id": handle.id,
+                    "user_id": self.user.id,
+                    "job_id": job_id,
+                    "corpus_id": self.corpus.id,
+                }
+            ).get()
 
-    def test_sidecar_annotations_attach_to_new_version(self):
+    def test_pending_rows_attach_to_their_own_version(self):
         """
-        Importing a sidecar+document at an existing path (default pipeline route):
+        Importing a sidecar+document at an existing path:
         - creates a new Document version (same version_tree_id, parent=v1)
-        - attaches v2's sidecar annotations + doc-level labels to the NEW Document
-        - leaves v1's annotations attached to the now-non-current v1 Document
+        - attaches v2's pending row to the NEW Document
+        - leaves v1's pending row attached to the now-non-current v1 Document
         - increments DocumentPath.version_number and re-links the path chain
         """
-        # --- v1 import: master.pdf + sidecar A ---
-        annotations_v1 = [
-            _make_annotation(
-                annot_id=1,
-                raw_text="Original Heading",
-                label_name="Heading",
-                page=0,
-                token_start=0,
-                token_end=1,
-            ),
-        ]
+        # --- v1 import ---
+        annotations_v1 = [_make_annotation(1, "Original Heading", "Heading", page=0)]
         sidecar_v1 = _build_sidecar_json(
-            title="V1 Title",
-            description="V1 description",
-            pawls_pages=self.pawls_pages,
-            annotations=annotations_v1,
-            doc_labels=["Contract"],
+            annotations=annotations_v1, doc_labels=["Contract"]
         )
         files_v1 = {
             "filings/master.pdf": self.pdf_bytes_v1,
             "filings/master.json": json.dumps(sidecar_v1).encode("utf-8"),
-            "labels.json": self._shared_labels_json(),
         }
-        handle_v1 = self._create_temp_file_handle(self._create_test_zip(files_v1))
-
-        result_v1 = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle_v1.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-upversion-v1",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
+        result_v1 = self._run_import(files_v1, "test-sidecar-upversion-v1")
 
         self.assertTrue(result_v1["success"], f"Errors: {result_v1.get('errors')}")
         self.assertEqual(result_v1["files_processed"], 1)
         self.assertEqual(result_v1["files_upversioned"], 0)
-        self.assertEqual(result_v1["annotation_sidecars_processed"], 1)
+        self.assertEqual(result_v1["pending_annotation_docs"], 1)
 
         v1_path = DocumentPath.objects.get(
             corpus=self.corpus,
@@ -1697,70 +684,30 @@ class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
         )
         self.assertEqual(v1_path.version_number, 1)
         v1_doc = v1_path.document
-        self.assertTrue(v1_doc.is_current)
 
-        # v1 has its annotations
-        v1_text_annots = Annotation.objects.filter(
-            document=v1_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
-        )
-        self.assertEqual(v1_text_annots.count(), 1)
-        self.assertEqual(v1_text_annots.first().raw_text, "Original Heading")
+        v1_pending = PendingDocumentAnnotations.objects.get(document=v1_doc)
+        self.assertEqual(v1_pending.payload["annotations"], annotations_v1)
+        self.assertEqual(v1_pending.payload["doc_labels"], ["Contract"])
 
-        v1_doc_labels = Annotation.objects.filter(
-            document=v1_doc,
-            corpus=self.corpus,
-            annotation_label__label_type="DOC_TYPE_LABEL",
-        )
-        self.assertEqual(v1_doc_labels.count(), 1)
-        self.assertEqual(v1_doc_labels.first().annotation_label.text, "Contract")
-
-        # --- v2 import: same path, different PDF content, different sidecar ---
+        # --- v2 import: same path, different content + sidecar ---
         annotations_v2 = [
-            _make_annotation(
-                annot_id=10,
-                raw_text="Revised Heading",
-                label_name="Heading",
-                page=0,
-                token_start=0,
-                token_end=2,
-            ),
-            _make_annotation(
-                annot_id=11,
-                raw_text="New Section",
-                label_name="Section",
-                page=0,
-                token_start=2,
-                token_end=4,
-            ),
+            _make_annotation(10, "Revised Heading", "Heading", page=0),
+            _make_annotation(11, "New Section", "Section", page=0),
         ]
         sidecar_v2 = _build_sidecar_json(
-            title="V2 Title",
-            description="V2 description",
-            pawls_pages=self.pawls_pages,
-            annotations=annotations_v2,
-            doc_labels=["Amendment"],
+            annotations=annotations_v2, doc_labels=["Amendment"]
         )
         files_v2 = {
             "filings/master.pdf": self.pdf_bytes_v2,
             "filings/master.json": json.dumps(sidecar_v2).encode("utf-8"),
-            "labels.json": self._shared_labels_json(),
         }
-        handle_v2 = self._create_temp_file_handle(self._create_test_zip(files_v2))
-
-        result_v2 = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle_v2.id,
-                "user_id": self.user.id,
-                "job_id": "test-sidecar-upversion-v2",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
+        result_v2 = self._run_import(files_v2, "test-sidecar-upversion-v2")
 
         self.assertTrue(result_v2["success"], f"Errors: {result_v2.get('errors')}")
         self.assertEqual(result_v2["files_processed"], 1)
         self.assertEqual(result_v2["files_upversioned"], 1)
         self.assertIn("/filings/master.pdf", result_v2["upversioned_paths"])
-        self.assertEqual(result_v2["annotation_sidecars_processed"], 1)
+        self.assertEqual(result_v2["pending_annotation_docs"], 1)
 
         # --- Path tree assertions ---
         v1_path.refresh_from_db()
@@ -1780,89 +727,23 @@ class TestSidecarUpversioning(_SidecarImportTestMixin, TestCase):
         self.assertNotEqual(v2_doc.id, v1_doc.id)
         self.assertEqual(v2_doc.version_tree_id, v1_doc.version_tree_id)
         self.assertEqual(v2_doc.parent, v1_doc)
-        self.assertTrue(v2_doc.is_current)
-        v1_doc.refresh_from_db()
-        self.assertFalse(v1_doc.is_current)
 
-        # Content hash diverged (different PDF bytes)
-        self.assertNotEqual(v2_doc.pdf_file_hash, v1_doc.pdf_file_hash)
+        # --- Pending rows are scoped to their own version ---
+        v2_pending = PendingDocumentAnnotations.objects.get(document=v2_doc)
+        self.assertEqual(v2_pending.payload["annotations"], annotations_v2)
+        self.assertEqual(v2_pending.payload["doc_labels"], ["Amendment"])
 
-        # --- Sidecar annotations landed on v2 ---
-        v2_text_annots = Annotation.objects.filter(
-            document=v2_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
-        )
+        # v1's pending row is unchanged and still attached to v1.
+        v1_pending.refresh_from_db()
+        self.assertEqual(v1_pending.payload["annotations"], annotations_v1)
+        self.assertEqual(v1_pending.document_id, v1_doc.id)
+
+        # Exactly two pending rows total (one per version), no migration.
         self.assertEqual(
-            set(v2_text_annots.values_list("raw_text", flat=True)),
-            {"Revised Heading", "New Section"},
-        )
-
-        v2_doc_labels = Annotation.objects.filter(
-            document=v2_doc,
-            corpus=self.corpus,
-            annotation_label__label_type="DOC_TYPE_LABEL",
-        )
-        self.assertEqual(v2_doc_labels.count(), 1)
-        self.assertEqual(v2_doc_labels.first().annotation_label.text, "Amendment")
-
-        # --- v1 annotations remain on v1 (NOT migrated, NOT deleted) ---
-        v1_text_annots_after = Annotation.objects.filter(
-            document=v1_doc, corpus=self.corpus, annotation_type="TOKEN_LABEL"
-        )
-        self.assertEqual(v1_text_annots_after.count(), 1)
-        self.assertEqual(v1_text_annots_after.first().raw_text, "Original Heading")
-
-        v1_doc_labels_after = Annotation.objects.filter(
-            document=v1_doc,
-            corpus=self.corpus,
-            annotation_label__label_type="DOC_TYPE_LABEL",
-        )
-        self.assertEqual(v1_doc_labels_after.count(), 1)
-        self.assertEqual(v1_doc_labels_after.first().annotation_label.text, "Contract")
-
-        # --- "Frontend query" only sees the current version's annotations ---
-        # Resolves path → current Document → its annotations only.
-        current_doc = DocumentPath.objects.get(
-            corpus=self.corpus,
-            path="/filings/master.pdf",
-            is_current=True,
-            is_deleted=False,
-        ).document
-        self.assertEqual(current_doc.id, v2_doc.id)
-
-        visible_texts = set(
-            Annotation.objects.filter(
-                document=current_doc, corpus=self.corpus
-            ).values_list("raw_text", flat=True)
-        )
-        # Old-version annotations are not visible via the current-path query.
-        self.assertNotIn("Original Heading", visible_texts)
-        # And v2's annotations ARE visible (guards against ghost / empty result).
-        self.assertIn("Revised Heading", visible_texts)
-        self.assertIn("New Section", visible_texts)
-        # Both v1 and v2 annotations still exist in the DB.
-        self.assertEqual(
-            Annotation.objects.filter(
-                document__version_tree_id=v1_doc.version_tree_id,
-                corpus=self.corpus,
-                annotation_type="TOKEN_LABEL",
+            PendingDocumentAnnotations.objects.filter(
+                document__version_tree_id=v1_doc.version_tree_id
             ).count(),
-            3,  # 1 from v1 + 2 from v2
-        )
-
-        # --- DocumentPath rows are scoped to one Document version each ---
-        all_paths = DocumentPath.objects.filter(
-            corpus=self.corpus, path="/filings/master.pdf"
-        ).order_by("version_number")
-        self.assertEqual(all_paths.count(), 2)
-        self.assertEqual(all_paths[0].document_id, v1_doc.id)
-        self.assertEqual(all_paths[1].document_id, v2_doc.id)
-
-        # Exactly one current Document per version tree (Rule C3).
-        self.assertEqual(
-            Document.objects.filter(
-                version_tree_id=v1_doc.version_tree_id, is_current=True
-            ).count(),
-            1,
+            2,
         )
 
 
@@ -2090,295 +971,3 @@ class TestMalformedLabelsImport(_SidecarImportTestMixin, TestCase):
         self.assertFalse(result["labels_loaded"])
         error_text = " ".join(result["errors"])
         self.assertIn("must be a JSON object", error_text)
-
-
-class TestSidecarSchemaValidation(TestCase):
-    """Unit tests for _validate_sidecar_schema."""
-
-    def test_valid_sidecar_passes(self):
-        """A well-formed sidecar passes validation with no errors."""
-        data = _build_sidecar_json(
-            annotations=[
-                _make_annotation(1, "hello", "Heading"),
-            ],
-            doc_labels=["Important"],
-            relationships=[
-                {
-                    "id": 1,
-                    "relationshipLabel": "Parent",
-                    "source_annotation_ids": [1],
-                    "target_annotation_ids": [2],
-                    "structural": False,
-                }
-            ],
-        )
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(errors, [])
-
-    def test_labelled_text_wrong_type(self):
-        """labelled_text as a string triggers a validation error."""
-        data = _build_sidecar_json()
-        data["labelled_text"] = "not a list"
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("labelled_text", errors[0])
-        self.assertIn("str", errors[0])
-
-    def test_doc_labels_wrong_type(self):
-        """doc_labels as a dict triggers a validation error."""
-        data = _build_sidecar_json()
-        data["doc_labels"] = {"label": "wrong"}
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("doc_labels", errors[0])
-        self.assertIn("dict", errors[0])
-
-    def test_relationships_wrong_type(self):
-        """relationships as a dict triggers a validation error."""
-        data = _build_sidecar_json()
-        data["relationships"] = {"rel": "wrong"}
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("relationships", errors[0])
-        self.assertIn("dict", errors[0])
-
-    def test_annotation_missing_required_keys(self):
-        """An annotation entry missing required keys reports them."""
-        data = _build_sidecar_json(
-            annotations=[
-                {"annotationLabel": "Heading"}
-            ],  # missing rawText, annotation_json
-        )
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("annotation_json", errors[0])
-        self.assertIn("rawText", errors[0])
-
-    def test_annotation_entry_not_dict(self):
-        """A non-dict annotation entry is caught."""
-        data = _build_sidecar_json(annotations=["not a dict"])
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("labelled_text[0]", errors[0])
-
-    def test_relationship_missing_required_keys(self):
-        """A relationship missing source/target IDs is caught."""
-        data = _build_sidecar_json(
-            relationships=[{"relationshipLabel": "Parent"}],
-        )
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("source_annotation_ids", errors[0])
-        self.assertIn("target_annotation_ids", errors[0])
-
-    def test_relationship_entry_not_dict(self):
-        """A non-dict relationship entry is caught."""
-        data = _build_sidecar_json(relationships=["not a dict"])
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 1)
-        self.assertIn("relationships[0]", errors[0])
-
-    def test_multiple_container_errors(self):
-        """Multiple wrong container types are all reported."""
-        data = _build_sidecar_json()
-        data["labelled_text"] = "bad"
-        data["doc_labels"] = 42
-        data["relationships"] = True
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 3)
-
-    def test_empty_lists_pass(self):
-        """Empty annotation/label/relationship lists are valid."""
-        data = _build_sidecar_json(annotations=[], doc_labels=[], relationships=[])
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(errors, [])
-
-    def test_absent_fields_pass(self):
-        """Absent fields are valid --- they're simply not present in the dict."""
-        data = {"title": "Test"}
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(errors, [])
-
-    def test_multiple_bad_annotations(self):
-        """Multiple bad annotation entries each produce an error."""
-        data = _build_sidecar_json(
-            annotations=[
-                {"annotationLabel": "X"},  # missing rawText, annotation_json
-                {"rawText": "text"},  # missing annotationLabel, annotation_json
-            ],
-        )
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 2)
-
-    def test_doc_labels_non_string_entry(self):
-        """A non-string doc_labels entry is caught."""
-        data = _build_sidecar_json(doc_labels=["Valid", 42, {"bad": True}])
-        errors = _validate_sidecar_schema(data, "doc.json")
-        self.assertEqual(len(errors), 2)
-        self.assertIn("doc_labels[1]", errors[0])
-        self.assertIn("int", errors[0])
-        self.assertIn("doc_labels[2]", errors[1])
-        self.assertIn("dict", errors[1])
-
-
-class TestSidecarSchemaValidationIntegration(_SidecarImportTestMixin, TestCase):
-    """
-    Integration tests verifying that invalid sidecar schemas are rejected
-    gracefully by the full import_zip_with_folder_structure task.
-    """
-
-    handle_name = "test_schema_val.zip"
-
-    def setUp(self):
-        with transaction.atomic():
-            self.user = User.objects.create_user(
-                username="schema_val_user", password="testpass"
-            )
-        with transaction.atomic():
-            self.corpus = Corpus.objects.create(
-                title="Schema Validation Corpus",
-                description="Corpus for testing schema validation",
-                creator=self.user,
-            )
-            set_permissions_for_obj_to_user(
-                self.user, self.corpus, [PermissionTypes.ALL]
-            )
-        self.pdf_bytes = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
-
-    def test_bad_labelled_text_type_reports_error(self):
-        """A sidecar with labelled_text as a string is rejected gracefully."""
-        sidecar = _build_sidecar_json()
-        sidecar["labelled_text"] = "not a list"
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        zip_buffer = self._create_test_zip(
-            {
-                "doc.pdf": self.pdf_bytes,
-                "doc.json": json.dumps(sidecar).encode("utf-8"),
-                "labels.json": json.dumps(labels).encode("utf-8"),
-            }
-        )
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-bad-labelled-text",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"])
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertEqual(result["annotations_imported"], 0)
-        self.assertTrue(
-            any("labelled_text" in e for e in result["errors"]),
-            f"Expected labelled_text error in {result['errors']}",
-        )
-
-    def test_bad_annotation_entry_reports_error(self):
-        """A sidecar with an annotation missing required keys is rejected."""
-        sidecar = _build_sidecar_json(
-            annotations=[
-                {"annotationLabel": "Heading"}
-            ],  # missing rawText, annotation_json
-        )
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        zip_buffer = self._create_test_zip(
-            {
-                "doc.pdf": self.pdf_bytes,
-                "doc.json": json.dumps(sidecar).encode("utf-8"),
-                "labels.json": json.dumps(labels).encode("utf-8"),
-            }
-        )
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-bad-annotation-entry",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"])
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertEqual(result["annotations_imported"], 0)
-
-    def test_bad_relationship_entry_reports_error(self):
-        """A sidecar with a relationship missing required keys is rejected."""
-        sidecar = _build_sidecar_json(
-            annotations=[
-                _make_annotation(1, "text", "Heading"),
-            ],
-            relationships=[{"relationshipLabel": "Parent"}],  # missing source/target
-        )
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        zip_buffer = self._create_test_zip(
-            {
-                "doc.pdf": self.pdf_bytes,
-                "doc.json": json.dumps(sidecar).encode("utf-8"),
-                "labels.json": json.dumps(labels).encode("utf-8"),
-            }
-        )
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-bad-relationship-entry",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"])
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-
-    def test_bad_doc_labels_type_reports_error(self):
-        """A sidecar with doc_labels as a non-list is rejected gracefully."""
-        sidecar = _build_sidecar_json()
-        sidecar["doc_labels"] = {"label": "wrong"}
-
-        labels = _build_labels_json(
-            text_labels={"Heading": _make_label_data("Heading")},
-        )
-
-        zip_buffer = self._create_test_zip(
-            {
-                "doc.pdf": self.pdf_bytes,
-                "doc.json": json.dumps(sidecar).encode("utf-8"),
-                "labels.json": json.dumps(labels).encode("utf-8"),
-            }
-        )
-        handle = self._create_temp_file_handle(zip_buffer)
-
-        result = import_zip_with_folder_structure.apply(
-            kwargs={
-                "temporary_file_handle_id": handle.id,
-                "user_id": self.user.id,
-                "job_id": "test-bad-doc-labels-type",
-                "corpus_id": self.corpus.id,
-            }
-        ).get()
-
-        self.assertTrue(result["completed"])
-        self.assertEqual(result["annotation_sidecars_errored"], 1)
-        self.assertEqual(result["annotations_imported"], 0)
-        self.assertTrue(
-            any("doc_labels" in e for e in result["errors"]),
-            f"Expected doc_labels error in {result['errors']}",
-        )

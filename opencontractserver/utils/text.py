@@ -35,3 +35,18 @@ def truncate(text: str | None, max_length: int, suffix: str = "") -> str:
             return suffix[:max_length]
         return text[:cut] + suffix
     return text[:max_length]
+
+
+def truncate_middle(text: str | None, head: int, tail: int, marker: str = "…") -> str:
+    """Truncate *text* keeping its first *head* and last *tail* characters.
+
+    Unlike :func:`truncate`, this preserves both ends of a long string joined by
+    *marker*, so a debug/report preview of a long span shows where it started
+    *and* where it ended (e.g. for reconstructing which annotation failed).
+    ``None``/empty input returns ``""``; short input is returned unchanged.
+    """
+    if not text:
+        return ""
+    if len(text) <= head + tail + len(marker):
+        return text
+    return text[:head] + marker + text[-tail:]

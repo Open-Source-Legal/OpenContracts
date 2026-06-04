@@ -16,13 +16,17 @@ from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.enrichers.pdf_outline_enricher import (
     PdfOutlineEnricher,
-    _match_title_to_tokens,
-    _page_text_tokens,
     _walk_outline,
 )
 from opencontractserver.tests.fixtures.pdf_generator import create_pdf_with_outline
 from opencontractserver.types.dicts import OpenContractDocExport, PawlsPagePythonType
 from opencontractserver.users.models import User
+from opencontractserver.utils.pdf_token_matching import (
+    match_title_to_tokens as _match_title_to_tokens,
+)
+from opencontractserver.utils.pdf_token_matching import (
+    page_text_tokens as _page_text_tokens,
+)
 
 
 class PdfOutlineEnricherTests(TestCase):

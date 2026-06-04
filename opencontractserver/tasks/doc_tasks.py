@@ -4,19 +4,29 @@ import enum
 import json
 import logging
 import traceback
+import uuid
 from typing import Any, cast
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from pydantic import validate_call
 
 from config import celery_app
-from opencontractserver.annotations.compact_json import iter_page_annotations
-from opencontractserver.annotations.models import TOKEN_LABEL, Annotation
+from opencontractserver.annotations.compact_json import (
+    compact_annotation_json,
+    iter_page_annotations,
+)
+from opencontractserver.annotations.models import (
+    DOC_TYPE_LABEL,
+    TOKEN_LABEL,
+    Annotation,
+    AnnotationLabel,
+)
 from opencontractserver.constants import (
     MAX_PROCESSING_ERROR_LENGTH,
     MAX_PROCESSING_TRACEBACK_LENGTH,
@@ -26,7 +36,11 @@ from opencontractserver.constants.truncation import (
     MAX_DOC_TITLE_FALLBACK_LENGTH,
     MAX_NOTIFICATION_ERROR_LENGTH,
 )
-from opencontractserver.documents.models import Document, DocumentProcessingStatus
+from opencontractserver.documents.models import (
+    Document,
+    DocumentProcessingStatus,
+    PendingDocumentAnnotations,
+)
 from opencontractserver.notifications.models import (
     Notification,
     NotificationTypeChoices,
@@ -48,12 +62,19 @@ from opencontractserver.types.dicts import (
     FunsdTokenType,
     LabelLookupPythonType,
     OpenContractDocExport,
+    OpenContractsAnnotationPythonType,
     PawlsTokenPythonType,
 )
-from opencontractserver.types.enums import AnnotationFilterMode
+from opencontractserver.types.enums import AnnotationFilterMode, PermissionTypes
+from opencontractserver.utils.annotation_anchoring import (
+    anchor_annotations,
+    report_rawtext_preview,
+)
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.etl import build_document_export, pawls_bbox_to_funsd_box
 from opencontractserver.utils.files import split_pdf_into_images
+from opencontractserver.utils.importing import import_annotations
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.utils.text import truncate
 
 logger = get_task_logger(__name__)
@@ -952,4 +973,338 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
         "status": "queued",
         "doc_id": doc_id,
         "message": "Document reprocessing has been queued",
+    }
+
+
+@celery_app.task()
+def remap_pending_annotations(
+    *args, doc_id: int, run_id: str | uuid.UUID | None = None
+) -> dict[str, Any]:
+    """Anchor a document's PendingDocumentAnnotations onto pipeline output.
+
+    Runs AFTER ``ingest_doc`` in the import chain, so PAWLs / text layer exist.
+    No-op when there is no matching pending row.
+
+    ``run_id`` scopes processing to a single ingestion run. The standard
+    post_save chain calls with ``run_id=None`` ("apply every PENDING row for
+    this doc") — correct because rows are created in the same transaction as the
+    document, before the on_commit chain runs. An explicit caller can pass a run
+    id to apply only that run's deferred set even when unrelated PENDING rows
+    exist for the doc.
+
+    ``*args`` absorbs the previous chain task's return value. Every dispatch site
+    uses ``.si()`` (immutable signature), so ``*args`` is always empty in
+    practice; it is retained only so a future caller wiring this with ``.s()``
+    does not break on the upstream task's positional return.
+
+    Processes *all* matching PENDING rows for the document, not just the first: a
+    retry or a bug could leave more than one PENDING row, and a single-row
+    implementation would silently orphan the extras forever (review finding #2).
+    """
+    qs = PendingDocumentAnnotations.objects.filter(
+        document_id=doc_id, status=PendingDocumentAnnotations.Status.PENDING
+    )
+    if run_id is not None:
+        qs = qs.filter(ingestion_run_id=run_id)
+    pending_rows = list(qs.order_by("id"))
+    if not pending_rows:
+        return {"doc_id": doc_id, "skipped": "no pending annotations"}
+
+    # Load the document ONCE for the whole batch (review finding #1). Every row
+    # targets the same document, so re-fetching it per row was wasted work and —
+    # worse — if the document were deleted partway through the loop the later
+    # rows would raise an unhandled ``Document.DoesNotExist`` and stay PENDING
+    # forever. Resolving it up front means a deleted document fails *all* rows
+    # cleanly instead of orphaning the tail.
+    try:
+        doc = Document.objects.get(pk=doc_id)
+    except Document.DoesNotExist:
+        logger.warning(
+            "remap_pending_annotations: document %s no longer exists; "
+            "failing %s pending row(s).",
+            doc_id,
+            len(pending_rows),
+        )
+        for pending in pending_rows:
+            pending.status = PendingDocumentAnnotations.Status.FAILED
+            pending.report = [{"error": f"document {doc_id} no longer exists"}]
+            try:
+                pending.save(update_fields=["status", "report"])
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "remap_pending_annotations: could not mark pending row %s "
+                    "FAILED after document %s vanished.",
+                    pending.pk,
+                    doc_id,
+                )
+        return {"doc_id": doc_id, "failed": "document does not exist"}
+
+    # Label lookups are keyed by the corpus' label_set; rows for one document
+    # normally share a corpus, so cache per label_set_id rather than rebuilding
+    # the queryset for every row (review finding #2). Keyed by label_set_id (not
+    # corpus) so the rare multi-corpus batch is still correct.
+    label_cache: dict[Any, tuple[dict[str, Any], dict[str, Any]]] = {}
+    per_row = [
+        _remap_one_pending_row(pending, doc, label_cache) for pending in pending_rows
+    ]
+
+    if len(per_row) == 1:
+        return per_row[0]
+    # Multiple PENDING rows for one document: aggregate so none is orphaned.
+    return {
+        "doc_id": doc_id,
+        "rows_processed": len(per_row),
+        "results": per_row,
+    }
+
+
+def _remap_one_pending_row(
+    pending: PendingDocumentAnnotations,
+    doc: Document,
+    label_cache: dict[Any, tuple[dict[str, Any], dict[str, Any]]],
+) -> dict[str, Any]:
+    """Anchor and import a single ``PendingDocumentAnnotations`` row.
+
+    ``doc`` is resolved once by the caller and shared across rows;
+    ``label_cache`` memoises ``(label_lookup, doc_label_lookup)`` per
+    label_set_id so the label queryset is not rebuilt for every row.
+    """
+    doc_id = doc.pk
+    corpus = pending.corpus
+    user_id = pending.creator_id
+    payload = pending.payload or {}
+    dumb_anns = payload.get("annotations", []) or []
+    doc_label_names = payload.get("doc_labels", []) or []
+
+    is_pdf = (doc.file_type or "").lower() == "application/pdf"
+    pawls: list[dict] = []
+    content = ""
+    try:
+        if is_pdf and doc.pawls_parse_file:
+            doc.pawls_parse_file.seek(0)
+            pawls = expand_pawls_pages(
+                json.loads(doc.pawls_parse_file.read().decode("utf-8"))
+            )
+        if doc.txt_extract_file:
+            doc.txt_extract_file.seek(0)
+            content = doc.txt_extract_file.read().decode("utf-8")
+    except Exception as exc:
+        pending.status = PendingDocumentAnnotations.Status.FAILED
+        pending.report = [{"error": f"could not read doc layers: {exc}"}]
+        # Guard the status save itself (review finding #3): if the DB connection
+        # is wedged the save can also raise, which would otherwise leave the row
+        # stuck PENDING with no trace. Log so the failure is at least visible.
+        try:
+            pending.save(update_fields=["status", "report"])
+        except Exception:
+            logger.exception(
+                "remap_pending_annotations: failed to mark pending row %s FAILED "
+                "after a doc-layer read error on doc %s.",
+                pending.pk,
+                doc_id,
+            )
+        return {"doc_id": doc_id, "failed": str(exc)}
+
+    anchored, report = anchor_annotations(
+        dumb_anns, is_pdf=is_pdf, pawls=pawls, content=content
+    )
+
+    # Persist annotation_json in the canonical compact v2 encoding (``{"v": 2,
+    # "p": {...}}`` with range-encoded token indices) — the same shape the
+    # parser writes for structural annotations, so remapped and parser-produced
+    # annotations are stored consistently. ``anchor_annotations`` returns the
+    # explicit verbose shape; we compact it here at the storage boundary. Span
+    # annotations (``{start, end, text}``) are returned unchanged by the encoder.
+    for a in anchored:
+        a["annotation_json"] = compact_annotation_json(a.get("annotation_json"))
+
+    # Build label_lookup keyed by lbl.text — exactly as import_annotations
+    # looks up: ``label_name = annotation_data["annotationLabel"]``;
+    # ``label_obj = label_lookup.get(label_name)``. Memoised per label_set_id in
+    # ``label_cache`` so a multi-row batch doesn't rebuild the queryset per row.
+    label_set_id = corpus.label_set_id if corpus is not None else None
+    if corpus is None:
+        # Diagnostic: with no corpus there is no labelset, so ``label_lookup``
+        # is built empty and EVERY annotation is dropped with "label not found
+        # in corpus labelset". The row will (correctly) end up FAILED, but the
+        # report alone reads like a bad labels.json rather than a missing
+        # corpus. Surface the real root cause for whoever inspects the row.
+        logger.warning(
+            "remap_pending_annotations: pending row %s for doc %s has no "
+            "corpus; label lookup will be empty and all annotations will be "
+            "dropped.",
+            pending.pk,
+            doc_id,
+        )
+    cached = label_cache.get(label_set_id)
+    if cached is None:
+        label_lookup = {}
+        doc_label_lookup = {}
+        if label_set_id:
+            for lbl in AnnotationLabel.objects.filter(
+                included_in_labelset=label_set_id
+            ):
+                label_lookup[lbl.text] = lbl
+                if lbl.label_type == DOC_TYPE_LABEL:
+                    doc_label_lookup[lbl.text] = lbl
+        cached = (label_lookup, doc_label_lookup)
+        label_cache[label_set_id] = cached
+    label_lookup, doc_label_lookup = cached
+
+    # Atomicity (review finding #3): create the annotations AND flip the row's
+    # status in one transaction. If the status/id_map save failed after
+    # ``import_annotations`` committed its rows, the annotations would be live but
+    # the pending row would stay PENDING — and the next retry of
+    # ``remap_pending_annotations`` would re-run ``import_annotations`` and create
+    # duplicates. Wrapping both writes closes that window: a failure rolls the
+    # annotations back too, so the retry starts clean.
+    with transaction.atomic():
+        # Concurrent-retry guard (review finding #2): Celery is at-least-once, so
+        # a duplicated task (or a manual admin replay) could run two copies of
+        # this remap for the same PENDING row. Re-fetch the row FOR UPDATE with
+        # SKIP LOCKED and re-assert it is still PENDING before importing. If a
+        # sibling worker already holds the lock (``None``) or has already flipped
+        # the status, we bail without calling ``import_annotations`` — otherwise
+        # both workers would create duplicate annotations, since each one's
+        # ``transaction.atomic()`` commits independently.
+        locked = (
+            PendingDocumentAnnotations.objects.select_for_update(skip_locked=True)
+            .filter(pk=pending.pk)
+            .first()
+        )
+        if locked is None or locked.status != PendingDocumentAnnotations.Status.PENDING:
+            logger.info(
+                "remap_pending_annotations: pending row %s for doc %s already "
+                "claimed/processed by a concurrent run; skipping.",
+                pending.pk,
+                doc_id,
+            )
+            return {"doc_id": doc_id, "skipped": "claimed by concurrent run"}
+
+        # Creates one Annotation per anchored item whose label resolves (and wires
+        # parent relationships + dispatches embeddings as a side effect). The
+        # return map (export-local id -> new Annotation pk) is not used for the
+        # success count (see ``created`` below) but IS persisted on the row's
+        # ``id_map`` so a future relationship-wiring feature can resolve endpoints
+        # without a backfill.
+        annot_id_map = import_annotations(
+            user_id=user_id,
+            doc_obj=doc,
+            corpus_obj=corpus,
+            annotations_data=cast(list[OpenContractsAnnotationPythonType], anchored),
+            label_lookup=label_lookup,
+        )
+        # JSON object keys are strings; export-local ids may be int or str.
+        pending.id_map = {
+            str(old_id): new_pk for old_id, new_pk in annot_id_map.items()
+        }
+
+        # ------------------------------------------------------------------
+        # Close the label-resolution silent-failure gap.
+        #
+        # import_annotations() SILENTLY SKIPS any anchored annotation whose
+        # ``annotationLabel`` is not in ``label_lookup`` (e.g. the producer's
+        # labels.json declared the label wrong / not at all). Without the
+        # bookkeeping below, the remap would report status=DONE even when an
+        # annotation was anchored but then dropped at import for an unresolved
+        # label — a real, invisible loss. We detect every anchored annotation
+        # whose label is unresolvable, append a ``dropped`` report entry citing
+        # the missing label, and surface the count in the return dict.
+        # ------------------------------------------------------------------
+        resolvable_labels = set(label_lookup)
+        label_unresolved = 0
+        for a in anchored:
+            label_name = a.get("annotationLabel")
+            if label_name not in resolvable_labels:
+                label_unresolved += 1
+                report.append(
+                    {
+                        "id": a.get("id"),
+                        "rawText": report_rawtext_preview(a.get("rawText")),
+                        "dropped": True,
+                        "reason": (
+                            f"label '{label_name}' not found in corpus labelset"
+                        ),
+                    }
+                )
+
+        doc_labels_created = 0
+        doc_labels_unresolved = 0
+        for name in doc_label_names:
+            label_obj = doc_label_lookup.get(name)
+            if label_obj:
+                annot_obj = Annotation.objects.create(
+                    annotation_label=label_obj,
+                    annotation_type=DOC_TYPE_LABEL,
+                    document=doc,
+                    corpus=corpus,
+                    creator_id=user_id,
+                )
+                set_permissions_for_obj_to_user(
+                    user_id, annot_obj, [PermissionTypes.ALL], is_new=True
+                )
+                doc_labels_created += 1
+            else:
+                # Parity with the token-label gap above: never drop a doc-label
+                # silently. Record it so an unresolved labels.json entry is
+                # visible.
+                doc_labels_unresolved += 1
+                report.append(
+                    {
+                        "id": None,
+                        "rawText": "",
+                        "dropped": True,
+                        "reason": f"doc_label '{name}' not found in corpus labelset",
+                    }
+                )
+
+        # ``import_annotations`` creates one Annotation per anchored item whose
+        # label resolves, so the number actually created is ``len(anchored)``
+        # minus the unresolved-label drops. We deliberately do NOT use
+        # ``len(annot_id_map)`` here: that map only contains entries for
+        # annotations that carried an export-local ``id`` (importing.py only
+        # records ``old_id`` when non-None), so id-less-but-successfully-created
+        # annotations would be miscounted as zero and wrongly flip the row to
+        # FAILED.
+        raw_created = len(anchored) - label_unresolved
+        if raw_created < 0:
+            # Should be impossible: ``label_unresolved`` is counted over the same
+            # ``anchored`` list, so it can never exceed ``len(anchored)``. If a
+            # future bookkeeping change makes it negative, clamp to 0 (so the row
+            # is correctly marked FAILED below rather than a silent DONE) and
+            # shout.
+            logger.warning(
+                "remap_pending_annotations: negative created count for doc %s "
+                "(anchored=%s, label_unresolved=%s); clamping to 0",
+                doc_id,
+                len(anchored),
+                label_unresolved,
+            )
+        created = max(0, raw_created)
+        # Nothing landed but the producer DID ask for something to land (some
+        # annotation/doc-label was dropped) → a real failure, not a silent DONE.
+        # This covers BOTH failure modes uniformly:
+        #   * anchored but every one dropped at import for an unresolved label
+        #     (``anchored`` non-empty, ``created == 0``), and
+        #   * every annotation failed to anchor in the first place (geometry
+        #     miss + rawText not found), so ``anchored == []`` — the previous
+        #     ``anchored and created == 0`` guard short-circuited to DONE here
+        #     and mis-reported a total anchor failure as success.
+        # An empty payload (nothing requested, nothing dropped) stays DONE.
+        nothing_landed = created == 0 and doc_labels_created == 0
+        any_dropped = any(r.get("dropped") for r in report)
+        if nothing_landed and any_dropped:
+            pending.status = PendingDocumentAnnotations.Status.FAILED
+        else:
+            pending.status = PendingDocumentAnnotations.Status.DONE
+        pending.report = report
+        pending.save(update_fields=["status", "report", "id_map"])
+    return {
+        "doc_id": doc_id,
+        "status": pending.status,
+        "anchored": created,
+        "dropped": sum(1 for r in report if r.get("dropped")),
+        "label_unresolved": label_unresolved,
+        "doc_labels": doc_labels_created,
+        "doc_labels_unresolved": doc_labels_unresolved,
     }

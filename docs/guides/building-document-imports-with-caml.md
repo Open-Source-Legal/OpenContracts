@@ -138,44 +138,43 @@ contracts/agreement.json   ← sidecar (annotations for this document)
 
 Sidecar files are detected automatically by stem-matching during ZIP validation. They are **not** treated as regular document uploads.
 
+### The "dumb-anchor" sidecar format
+
+The bulk-ZIP sidecar uses the **dumb-anchor** format. A producer does **not** pre-compute PAWLs tokens, character offsets, or `annotation_json`. Instead, each annotation carries only:
+
+- the **label** to apply,
+- the **`rawText`** it covers (this is the source of truth), and
+- a **location hint** — for PDFs a `page` + `bbox`; for text a character `start` + `end`.
+
+On import, the document is created and **the normal parser pipeline runs** (producing the real PAWLs / text layer). A post-ingest task, `remap_pending_annotations`, then **re-anchors** each dumb anchor onto that pipeline output: it locates the tokens (PDF) or the character span (text) that match the hint and `rawText`, and builds the final `annotation_json` for you. Annotations that cannot be confidently anchored — or whose label cannot be resolved — are **dropped and reported** on the document's `PendingDocumentAnnotations` row (they are not silently lost).
+
+> There is **no** `pawls_file_content`, `content`, `tokensJsons`, `annotation_json`, or `skip_pipeline` in this format. Those belonged to the old pre-anchored sidecar and have been removed. If you want to ship fully pre-computed annotations with no pipeline run, use the full-corpus `data.json` export format (Section 7) instead.
+
 ### Sidecar JSON Structure
 
-The sidecar follows the `OpenContractDocExport` schema:
+A sidecar is a JSON object with a top-level `"annotations"` list (and an optional `"doc_labels"` list):
 
 ```json
 {
-  "title": "Master Services Agreement",
-  "content": "Full extracted text of the document...",
-  "description": "Main services contract between parties",
-  "page_count": 12,
-  "pawls_file_content": [],
-  "doc_labels": ["Commercial Contract"],
-  "labelled_text": [
+  "annotations": [
     {
-      "id": "annot-1",
-      "annotationLabel": "PARTY_NAME",
+      "id": "ann-1",
+      "label": "PARTY_NAME",
       "rawText": "Acme Corporation",
+      "start": 145,
+      "end": 162,
+      "parent_id": null
+    },
+    {
+      "id": "ann-2",
+      "label": "SECTION_HEADER",
+      "rawText": "1. Definitions",
       "page": 0,
-      "annotation_json": {
-        "start": 145,
-        "end": 162,
-        "text": "Acme Corporation"
-      },
-      "annotation_type": "SPAN_LABEL",
-      "parent_id": null,
-      "structural": false,
-      "long_description": null
+      "bbox": { "left": 72.0, "top": 96.0, "right": 280.0, "bottom": 112.0 },
+      "parent_id": null
     }
   ],
-  "relationships": [
-    {
-      "id": "rel-1",
-      "relationshipLabel": "REFERENCES",
-      "source_annotation_ids": ["annot-1"],
-      "target_annotation_ids": ["annot-2"],
-      "structural": false
-    }
-  ]
+  "doc_labels": ["Commercial Contract"]
 }
 ```
 
@@ -183,47 +182,43 @@ The sidecar follows the `OpenContractDocExport` schema:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `title` | string | Yes | Document title |
-| `content` | string | Yes | Full extracted text |
-| `description` | string/null | No | Document description |
-| `page_count` | int | Yes | Number of pages |
-| `pawls_file_content` | list | Yes | PAWLs token data (empty `[]` for text docs) |
-| `doc_labels` | list of strings | No | Document-level label names to apply |
-| `labelled_text` | list | No | Text/token annotations |
-| `relationships` | list | No | Annotation-to-annotation relationships |
-| `structural` | bool | No | Whether annotations are structural (parser-generated) |
-| `skip_pipeline` | bool | No | If `true`, skip parsing pipeline on import |
+| `annotations` | list | Yes | The dumb-anchor annotations to re-anchor onto pipeline output |
+| `doc_labels` | list of strings | No | Document-level label names to apply (must resolve in `labels.json`) |
 
 ### Annotation Fields
 
-Each entry in `labelled_text`:
+Each entry in `annotations`:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string/int/null | No | Local ID for cross-referencing within this import |
-| `annotationLabel` | string | Yes | Label name (must exist in `labels.json`) |
-| `rawText` | string | Yes | The annotated text content |
-| `page` | int | Yes | 0-based page index |
-| `annotation_json` | object | Yes | Positional data (format depends on type) |
-| `annotation_type` | string | Yes | `"TOKEN_LABEL"` or `"SPAN_LABEL"` |
-| `parent_id` | string/int/null | No | ID of parent annotation (for hierarchical trees) |
-| `structural` | bool | No | Whether parser-generated |
-| `long_description` | string/null | No | Markdown description (for document index entries) |
-| `content_modalities` | list of strings | No | `["TEXT"]`, `["IMAGE"]`, or `["TEXT", "IMAGE"]` |
+| `label` | string | Yes | Label name — must resolve in `labels.json` (matched by label `text`) |
+| `rawText` | string | Yes | The exact annotated text — used to confirm/locate the anchor |
+| `page` | int | PDF only | 0-based page index (use **with** `bbox`) |
+| `bbox` | object | PDF only | `{left, top, right, bottom}` (numbers, PDF points) of the covered region |
+| `start` | int | text only | 0-based character offset hint (inclusive); use **with** `end` |
+| `end` | int | text only | Character offset hint (exclusive), `> start` |
+| `id` | string/int/null | No | Local ID for `parent_id` cross-referencing within this sidecar |
+| `parent_id` | string/int/null | No | `id` of the parent annotation (hierarchical trees) — must reference an `id` present in the same sidecar |
+| `long_description` | string/null | No | Markdown description (e.g. for document index entries) |
 
-### Import Process
+Each annotation must carry **either** (`page` + `bbox`) for PDFs **or** (`start` + `end`) for text — not neither. The `start`/`end` offsets are *hints*: the remap re-locates `rawText` in the produced text layer and picks the occurrence nearest the hint, so they do not need to be exact against your own extraction.
 
-Annotations are imported in **two passes**:
-1. **Pass 1**: Create all annotation records, building an ID mapping from import-local IDs → new database PKs
-2. **Pass 2**: Wire up `parent` FK relationships using the ID mapping
+### Re-anchoring process
 
-Then relationships are created using the remapped annotation IDs.
+1. The document is created and the parser pipeline runs (`extract_thumbnail` → `ingest_doc`), producing the real PAWLs / text layer.
+2. `remap_pending_annotations` re-anchors each dumb anchor onto that output and builds the final `annotation_json`.
+3. `parent_id` links are wired using the sidecar-local `id` map.
+4. The document is unlocked (`set_doc_lock_state`).
+
+Outcomes (anchored vs. dropped, and the reason for each drop) are recorded on the document's `PendingDocumentAnnotations.report`.
 
 ### Requirements
 
-- A `labels.json` file **must** be present at the ZIP root if any sidecar contains annotations
-- Every `annotationLabel` value in a sidecar must have a matching entry in `labels.json`
-- Missing labels cause those annotations to be silently skipped (with a warning in the result)
+- A `labels.json` file **must** be present at the ZIP root if any sidecar contains annotations.
+- Every `label` value in a sidecar must have a matching entry in `labels.json` (matched by the label's `text`). Labels that do not resolve cause those annotations to be **dropped and reported** (with `label_unresolved` reflected in the remap result) — they are not silently lost.
+- **Gotcha — span labels use `TOKEN_LABEL`, not `SPAN_LABEL`:** the importer only accepts `TOKEN_LABEL`, `DOC_TYPE_LABEL`, and `RELATIONSHIP_LABEL` for import. A text/span annotation (one that uses `start`/`end`) re-anchors as a token import, so **its label must be declared `TOKEN_LABEL` in `labels.json`** — *not* `SPAN_LABEL`. Declaring it `SPAN_LABEL` will cause the annotation to be dropped at import.
+
+You can validate a sidecar against its `labels.json` before zipping with `opencontractserver.utils.validate_export.validate_dumb_anchor_sidecar(sidecar, labels_json)`.
 
 ---
 
@@ -290,6 +285,8 @@ A `labels.json` file at the ZIP root defines all labels used across all sidecar 
 ---
 
 ## 5. Annotation JSON Formats
+
+> These `annotation_json` formats apply to the **full-corpus `data.json` export** (Section 7), where annotations are already anchored. The **dumb-anchor bulk-ZIP sidecar** (Section 3) does **not** carry `annotation_json` — the `remap_pending_annotations` task produces it for you from the producer's `rawText` + location hint. The structures below document what that re-anchoring step generates and what the corpus export emits.
 
 The `annotation_json` field format depends on the `annotation_type`.
 
@@ -392,7 +389,7 @@ PAWLs (Page-Aware Word-Level Segmentation) represents document structure with pr
 **Token fields**: `x`, `y`, `width`, `height` (in PDF points), `text` (content).
 Coordinates use top-left origin, Y increases downward.
 
-For most imports you can leave `pawls_file_content` as an empty list `[]` and use SPAN_LABEL annotations instead. PAWLs data is only required for TOKEN_LABEL annotations that reference specific PDF tokens.
+PAWLs only appears in the full-corpus `data.json` export (Section 7), where annotations are already anchored to tokens. The **dumb-anchor bulk-ZIP sidecar** (Section 3) ships no PAWLs at all — the parser pipeline produces it, and `remap_pending_annotations` anchors your annotations onto it.
 
 ---
 
@@ -740,6 +737,8 @@ Here is a complete example of building a ZIP import with annotated documents and
 
 ### Step 1: Create the Labels File
 
+> Note the span labels (`PARTY_NAME`, `EFFECTIVE_DATE`, `GOVERNING_LAW`) are declared `TOKEN_LABEL`, **not** `SPAN_LABEL`. Dumb-anchor text annotations re-anchor as token imports, and the importer rejects `SPAN_LABEL` — see the gotcha in Section 3.
+
 `labels.json`:
 ```json
 {
@@ -747,7 +746,7 @@ Here is a complete example of building a ZIP import with annotated documents and
     "PARTY_NAME": {
       "id": "1",
       "text": "PARTY_NAME",
-      "label_type": "SPAN_LABEL",
+      "label_type": "TOKEN_LABEL",
       "color": "#FF6B6B",
       "description": "Name of a contracting party",
       "icon": "tag"
@@ -755,7 +754,7 @@ Here is a complete example of building a ZIP import with annotated documents and
     "EFFECTIVE_DATE": {
       "id": "2",
       "text": "EFFECTIVE_DATE",
-      "label_type": "SPAN_LABEL",
+      "label_type": "TOKEN_LABEL",
       "color": "#4ECDC4",
       "description": "Effective date of the contract",
       "icon": "calendar"
@@ -763,7 +762,7 @@ Here is a complete example of building a ZIP import with annotated documents and
     "GOVERNING_LAW": {
       "id": "3",
       "text": "GOVERNING_LAW",
-      "label_type": "SPAN_LABEL",
+      "label_type": "TOKEN_LABEL",
       "color": "#45B7D1",
       "description": "Governing law jurisdiction",
       "icon": "scales"
@@ -784,57 +783,44 @@ Here is a complete example of building a ZIP import with annotated documents and
 
 ### Step 2: Create Sidecar Annotation Files
 
-`contracts/agreement.json` (sidecar for `contracts/agreement.txt`):
+`contracts/agreement.json` (dumb-anchor sidecar for `contracts/agreement.txt`). Each annotation carries only its `label`, `rawText`, and a `start`/`end` *hint* — the pipeline produces the text layer and `remap_pending_annotations` re-anchors each one and builds its `annotation_json`:
 ```json
 {
-  "title": "Master Services Agreement",
-  "content": "MASTER SERVICES AGREEMENT\n\nThis Master Services Agreement (the \"Agreement\") is entered into as of January 1, 2025 by and between Acme Corporation (\"Provider\") and Beta Industries (\"Client\").\n\n...\n\nThis Agreement shall be governed by the laws of the State of Delaware.",
-  "description": "Services agreement between Acme Corp and Beta Industries",
-  "page_count": 1,
-  "pawls_file_content": [],
-  "doc_labels": ["Services Agreement"],
-  "labelled_text": [
+  "annotations": [
     {
       "id": "a1",
-      "annotationLabel": "PARTY_NAME",
+      "label": "PARTY_NAME",
       "rawText": "Acme Corporation",
-      "page": 0,
-      "annotation_json": {"start": 89, "end": 105, "text": "Acme Corporation"},
-      "annotation_type": "SPAN_LABEL",
-      "parent_id": null,
-      "structural": false
+      "start": 89,
+      "end": 105,
+      "parent_id": null
     },
     {
       "id": "a2",
-      "annotationLabel": "PARTY_NAME",
+      "label": "PARTY_NAME",
       "rawText": "Beta Industries",
-      "page": 0,
-      "annotation_json": {"start": 123, "end": 138, "text": "Beta Industries"},
-      "annotation_type": "SPAN_LABEL",
-      "parent_id": null,
-      "structural": false
+      "start": 123,
+      "end": 138,
+      "parent_id": null
     },
     {
       "id": "a3",
-      "annotationLabel": "EFFECTIVE_DATE",
+      "label": "EFFECTIVE_DATE",
       "rawText": "January 1, 2025",
-      "page": 0,
-      "annotation_json": {"start": 65, "end": 80, "text": "January 1, 2025"},
-      "annotation_type": "SPAN_LABEL",
-      "parent_id": null,
-      "structural": false
+      "start": 65,
+      "end": 80,
+      "parent_id": null
     },
     {
       "id": "a4",
-      "annotationLabel": "GOVERNING_LAW",
+      "label": "GOVERNING_LAW",
       "rawText": "the State of Delaware",
-      "page": 0,
-      "annotation_json": {"start": 210, "end": 231, "text": "the State of Delaware"},
-      "annotation_type": "SPAN_LABEL",
-      "parent_id": null,
-      "structural": false
+      "start": 210,
+      "end": 231,
+      "parent_id": null
     }
-  ]
+  ],
+  "doc_labels": ["Services Agreement"]
 }
 ```
 
