@@ -56,12 +56,16 @@ def process_doc_on_create_atomic(
 
     Note on the ``not instance.processing_started`` guard: a caller can
     deliberately suppress this auto-ingest chain by stamping
-    ``processing_started`` at creation time. The bulk-ZIP importer does exactly
-    this for dumb-anchor sidecar documents (see
-    ``import_zip_with_folder_structure`` in ``tasks/import_tasks.py``) so it can
-    own dispatch and interleave ``remap_pending_annotations`` between ingest and
-    unlock — without this guard the signal would fire its own ingest->unlock
-    chain and race the remap.
+    ``processing_started`` at creation time (e.g. when a document's text layer
+    is supplied directly and no parsing is wanted).
+
+    Deferred (dumb-anchor) annotation import does NOT use that suppression. The
+    bulk-ZIP importer (``import_zip_with_folder_structure`` in
+    ``tasks/import_tasks.py``) creates documents normally and relies on this
+    standard chain: ``remap_pending_annotations`` is a built-in step here
+    (between ``ingest_doc`` and ``set_doc_lock_state``), so producer annotations
+    persisted in ``PendingDocumentAnnotations`` are re-anchored after PAWLs /
+    text exist. There is no bespoke importer-owned chain.
     """
     if created and not instance.processing_started:
 

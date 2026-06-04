@@ -401,7 +401,9 @@ class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
         self.assertEqual(result["pending_annotation_docs"], 1)
         # New importer applies NO annotations inline.
         self.assertEqual(result["annotations_imported"], 0)
-        self.assertEqual(result["annotation_sidecars_processed"], 0)
+        # The deferred path tracks work via ``pending_annotation_docs``; the old
+        # ``annotation_sidecars_processed`` counter was removed as dead (always 0).
+        self.assertNotIn("annotation_sidecars_processed", result)
 
         # Document was created in the corpus.
         doc_paths = DocumentPath.objects.filter(corpus=self.corpus)

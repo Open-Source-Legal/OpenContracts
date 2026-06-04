@@ -44,6 +44,11 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
+                    "ingestion_run_id",
+                    models.UUIDField(blank=True, db_index=True, null=True),
+                ),
+                ("id_map", models.JSONField(blank=True, default=dict)),
+                (
                     "corpus",
                     models.ForeignKey(
                         blank=True,
@@ -68,5 +73,12 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
+            options={
+                "indexes": [
+                    models.Index(
+                        fields=["document", "status"], name="pending_doc_status_idx"
+                    )
+                ],
+            },
         ),
     ]

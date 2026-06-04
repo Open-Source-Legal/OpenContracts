@@ -683,7 +683,6 @@ def import_zip_with_folder_structure(
         "labels_file_found": False,
         "labels_loaded": False,
         "annotation_sidecars_found": 0,
-        "annotation_sidecars_processed": 0,
         "annotation_sidecars_errored": 0,
         "annotations_imported": 0,
         "pipeline_skipped": 0,
@@ -1031,6 +1030,22 @@ def import_zip_with_folder_structure(
                             has_pending_annotations = (
                                 pending_annotations_list is not None
                             )
+                            # Intra-document annotation relationships are not yet
+                            # wired by the deferred remap pipeline (forward
+                            # investment — see PR description). The old sidecar
+                            # format carried a ``"relationships"`` list; never
+                            # drop it silently. Warn so producers know their
+                            # relationships were ignored on import.
+                            sidecar_rels = sidecar_data.get("relationships")
+                            if isinstance(sidecar_rels, list) and sidecar_rels:
+                                logger.warning(
+                                    "import_zip_with_folder_structure() - sidecar "
+                                    "%s declares %d intra-document relationship(s) "
+                                    "which the deferred remap pipeline does not yet "
+                                    "import; they were ignored.",
+                                    sidecar_path,
+                                    len(sidecar_rels),
+                                )
                         except Exception as e:
                             logger.error(
                                 f"import_zip_with_folder_structure() - "
@@ -1242,7 +1257,7 @@ def import_zip_with_folder_structure(
             f"upversioned: {results['files_upversioned']}, "
             f"folders created: {results['folders_created']}, "
             f"metadata applied: {results['metadata_applied']}, "
-            f"sidecars processed: {results['annotation_sidecars_processed']}, "
+            f"pending annotation docs: {results['pending_annotation_docs']}, "
             f"pipeline skipped: {results['pipeline_skipped']}, "
             f"annotations imported: {results['annotations_imported']}, "
             f"relationships created: {results['relationships_created']}"
