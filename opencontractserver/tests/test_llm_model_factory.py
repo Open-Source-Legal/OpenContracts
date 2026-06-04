@@ -136,8 +136,8 @@ class TestBuildAgentModelDbWins(TestCase):
         instance.set_secrets({self.openai_path: {"api_key": api_key}})
         if base_url is not None:
             instance.component_settings = {self.openai_path: {"base_url": base_url}}
-        # save() eagerly invalidates the singleton cache, so the subsequent
-        # get_instance() in build_agent_model() re-reads these creds from the DB.
+        # save() auto-invalidates the PipelineSettings cache, so no explicit
+        # clear_cache() is needed here.
         instance.save()
 
     def test_db_creds_route_through_construct_model(self):
@@ -174,9 +174,9 @@ class TestBuildAgentModelDbWins(TestCase):
             api_key="sk-db-key", base_url="http://gateway.local/v1"
         )
         result = build_agent_model("openai:gpt-4o")
-        self.assertNotIsInstance(result, str)
         # Assert against pydantic-ai's exported abstract base class, not a
         # class-name string: robust to a future rename of OpenAIChatModel.
+        # (A Model instance is necessarily not the bare spec string.)
         self.assertIsInstance(result, Model)
 
     def test_abuild_agent_model_async_wrapper(self):
