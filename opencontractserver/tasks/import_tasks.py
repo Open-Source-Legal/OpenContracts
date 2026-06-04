@@ -701,6 +701,12 @@ def import_zip_with_folder_structure(
 
     # One ingestion-run token for every deferred annotation set this import
     # produces, so the rows can be grouped / gated / reported on later.
+    # NOTE (review finding #4): this is minted per task *execution*, so a Celery
+    # retry of a partially-completed import gives documents from the retry a
+    # different ``import_run_id`` than those created on the first attempt. Any
+    # caller using ``run_id`` to gate/aggregate must treat a single logical
+    # import as potentially spanning multiple run ids; ``run_id=None`` (apply
+    # every PENDING row for the document) is unaffected.
     import_run_id = uuid.uuid4()
 
     try:

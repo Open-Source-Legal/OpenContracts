@@ -1010,7 +1010,43 @@ def remap_pending_annotations(
     if not pending_rows:
         return {"doc_id": doc_id, "skipped": "no pending annotations"}
 
-    per_row = [_remap_one_pending_row(pending, doc_id) for pending in pending_rows]
+    # Load the document ONCE for the whole batch (review finding #1). Every row
+    # targets the same document, so re-fetching it per row was wasted work and —
+    # worse — if the document were deleted partway through the loop the later
+    # rows would raise an unhandled ``Document.DoesNotExist`` and stay PENDING
+    # forever. Resolving it up front means a deleted document fails *all* rows
+    # cleanly instead of orphaning the tail.
+    try:
+        doc = Document.objects.get(pk=doc_id)
+    except Document.DoesNotExist:
+        logger.warning(
+            "remap_pending_annotations: document %s no longer exists; "
+            "failing %s pending row(s).",
+            doc_id,
+            len(pending_rows),
+        )
+        for pending in pending_rows:
+            pending.status = PendingDocumentAnnotations.Status.FAILED
+            pending.report = [{"error": f"document {doc_id} no longer exists"}]
+            try:
+                pending.save(update_fields=["status", "report"])
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "remap_pending_annotations: could not mark pending row %s "
+                    "FAILED after document %s vanished.",
+                    pending.pk,
+                    doc_id,
+                )
+        return {"doc_id": doc_id, "failed": "document does not exist"}
+
+    # Label lookups are keyed by the corpus' label_set; rows for one document
+    # normally share a corpus, so cache per label_set_id rather than rebuilding
+    # the queryset for every row (review finding #2). Keyed by label_set_id (not
+    # corpus) so the rare multi-corpus batch is still correct.
+    label_cache: dict[Any, tuple[dict[str, Any], dict[str, Any]]] = {}
+    per_row = [
+        _remap_one_pending_row(pending, doc, label_cache) for pending in pending_rows
+    ]
 
     if len(per_row) == 1:
         return per_row[0]
@@ -1022,9 +1058,18 @@ def remap_pending_annotations(
     }
 
 
-def _remap_one_pending_row(pending, doc_id: int) -> dict[str, Any]:
-    """Anchor and import a single ``PendingDocumentAnnotations`` row."""
-    doc = Document.objects.get(pk=doc_id)
+def _remap_one_pending_row(
+    pending: "PendingDocumentAnnotations",
+    doc: "Document",
+    label_cache: dict[Any, tuple[dict[str, Any], dict[str, Any]]],
+) -> dict[str, Any]:
+    """Anchor and import a single ``PendingDocumentAnnotations`` row.
+
+    ``doc`` is resolved once by the caller and shared across rows;
+    ``label_cache`` memoises ``(label_lookup, doc_label_lookup)`` per
+    label_set_id so the label queryset is not rebuilt for every row.
+    """
+    doc_id = doc.pk
     corpus = pending.corpus
     user_id = pending.creator_id
     payload = pending.payload or {}
@@ -1046,7 +1091,18 @@ def _remap_one_pending_row(pending, doc_id: int) -> dict[str, Any]:
     except Exception as exc:
         pending.status = PendingDocumentAnnotations.Status.FAILED
         pending.report = [{"error": f"could not read doc layers: {exc}"}]
-        pending.save(update_fields=["status", "report"])
+        # Guard the status save itself (review finding #3): if the DB connection
+        # is wedged the save can also raise, which would otherwise leave the row
+        # stuck PENDING with no trace. Log so the failure is at least visible.
+        try:
+            pending.save(update_fields=["status", "report"])
+        except Exception:
+            logger.exception(
+                "remap_pending_annotations: failed to mark pending row %s FAILED "
+                "after a doc-layer read error on doc %s.",
+                pending.pk,
+                doc_id,
+            )
         return {"doc_id": doc_id, "failed": str(exc)}
 
     anchored, report = anchor_annotations(
@@ -1064,16 +1120,23 @@ def _remap_one_pending_row(pending, doc_id: int) -> dict[str, Any]:
 
     # Build label_lookup keyed by lbl.text — exactly as import_annotations
     # looks up: ``label_name = annotation_data["annotationLabel"]``;
-    # ``label_obj = label_lookup.get(label_name)``.
-    label_lookup: dict[str, AnnotationLabel] = {}
-    doc_label_lookup: dict[str, AnnotationLabel] = {}
-    if corpus is not None and corpus.label_set_id:
-        for lbl in AnnotationLabel.objects.filter(
-            included_in_labelset=corpus.label_set_id
-        ):
-            label_lookup[lbl.text] = lbl
-            if lbl.label_type == DOC_TYPE_LABEL:
-                doc_label_lookup[lbl.text] = lbl
+    # ``label_obj = label_lookup.get(label_name)``. Memoised per label_set_id in
+    # ``label_cache`` so a multi-row batch doesn't rebuild the queryset per row.
+    label_set_id = corpus.label_set_id if corpus is not None else None
+    cached = label_cache.get(label_set_id)
+    if cached is None:
+        label_lookup = {}
+        doc_label_lookup = {}
+        if label_set_id:
+            for lbl in AnnotationLabel.objects.filter(
+                included_in_labelset=label_set_id
+            ):
+                label_lookup[lbl.text] = lbl
+                if lbl.label_type == DOC_TYPE_LABEL:
+                    doc_label_lookup[lbl.text] = lbl
+        cached = (label_lookup, doc_label_lookup)
+        label_cache[label_set_id] = cached
+    label_lookup, doc_label_lookup = cached
 
     # Atomicity (review finding #3): create the annotations AND flip the row's
     # status in one transaction. If the status/id_map save failed after
