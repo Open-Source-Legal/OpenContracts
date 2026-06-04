@@ -7,6 +7,7 @@ from opencontractserver.documents.models import (
     Document,
     DocumentAnalysisRow,
     DocumentRelationship,
+    PendingDocumentAnnotations,
 )
 
 
@@ -96,3 +97,15 @@ class DocumentRelationshipAdmin(GuardedModelAdmin):
         "corpus",
         "creator",
     )
+
+
+@admin.register(PendingDocumentAnnotations)
+class PendingDocumentAnnotationsAdmin(admin.ModelAdmin):
+    """Operational visibility into dumb-anchor remap rows (stuck / failed)."""
+
+    list_display = ["id", "document", "corpus", "status", "created_at", "updated_at"]
+    list_filter = ("status", "created_at", "updated_at")
+    search_fields = ["id", "document__title", "creator__username"]
+    raw_id_fields = ("document", "corpus", "creator")
+    readonly_fields = ("created_at", "updated_at")
+    date_hierarchy = "created_at"

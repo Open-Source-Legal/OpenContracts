@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Post-ingest annotation remap for bulk-ZIP imports (2026-06).**
+  Bulk-ZIP producers now ship _dumb-anchor_ annotations — PDF `page`+`bbox` or
+  text char-span (`start`/`end`) plus `rawText`, with no PAWLs/text supplied. The
+  parser pipeline runs normally, then a chained `remap_pending_annotations`
+  Celery task (`opencontractserver/tasks/doc_tasks.py`) re-anchors each anchor
+  onto the real PAWLs/text layer via `anchor_annotations`
+  (`opencontractserver/utils/annotation_anchoring.py`) and `import_annotations`.
+  Producer annotations are persisted in a new `PendingDocumentAnnotations` model
+  (`opencontractserver/documents/models.py`) and consumed after ingest.
+  Annotations that cannot be confidently anchored, or whose label does not
+  resolve in the corpus labelset, are **dropped and reported** on the pending
+  row (`report` entries with `dropped: true` and a reason; the remap result
+  carries `dropped` and `label_unresolved` counts). When anchoring succeeded but
+  every anchored annotation was dropped on an unresolved label, the pending row
+  is marked `FAILED` rather than a silent `DONE`. A standalone validator,
+  `validate_dumb_anchor_sidecar` (`opencontractserver/utils/validate_export.py`),
+  checks a producer's sidecar against its `labels.json` before zipping
+  (including the span-label-must-be-`TOKEN_LABEL` import gotcha).
+  Review hardening: `remap_pending_annotations` now processes **all** PENDING
+  rows for a document (not just the first) so a duplicate/retry row is never
+  orphaned; the success count is clamped with `max(0, ...)` and logs a warning
+  if it would go negative, so a bookkeeping bug can never silently flip a
+  no-op remap to `DONE`. `PendingDocumentAnnotations` gains an `updated_at`
+  (`auto_now`) column and a Django admin registration for operational
+  visibility into stuck/failed rows. Text/SPAN anchors now record `page: 0`
+  (0-indexed PAWLs) instead of the misleading `1`. Report `rawText` previews
+  keep head+tail (`truncate_middle` in `opencontractserver/utils/text.py`)
+  rather than a head-only 80-char slice, so a long dropped span can be
+  reconstructed from both ends.
+
 ### Fixed
 
 - **Discover landing search box stacked its icon on a separate line from the input on mobile (2026-06).**
@@ -45,6 +77,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   present in `app.tasks`.
 
 ### Changed
+
+- **Remapped annotations are persisted in the compact v2 `annotation_json` encoding (2026-06).**
+  `remap_pending_annotations` now stores the re-anchored token annotations in the
+  canonical compact v2 shape (`{"v": 2, "p": {page: {"b": [top,left,right,bottom],
+  "t": "<range-encoded token indices>"}}}`) via
+  `opencontractserver.annotations.compact_json.compact_annotation_json` — the
+  same format the parser writes for structural annotations, so remapped and
+  parser-produced annotations are stored consistently (smaller rows too). The
+  pure `anchor_annotations` helper still returns the explicit verbose shape; the
+  compaction happens at the storage boundary in the remap task. Span annotations
+  (`{start, end, text}`) are stored unchanged.
+- **Deferred remap pipeline accepts legacy-format annotations (2026-06).**
+  `anchor_annotations` (`opencontractserver/utils/annotation_anchoring.py`) now
+  normalises any annotation carrying a baked `annotation_json` (the legacy
+  export shape — per-page `bounds`/`tokensJsons` for PDF, `{start,end,text}` for
+  spans) through a new `legacy_annotation_to_dumb_anchor` adapter that **drops
+  the token indices** and re-derives them from bbox + rawText against the
+  freshly-parsed PAWLs. `_anchor_pdf` is now multi-page (a legacy annotation
+  spanning several pages anchors each page independently; existing single-page
+  dumb-anchor sidecars are byte-identical). `structural=True` annotations and
+  unrecognised/compact-v2 `annotation_json` are reported as dropped, never
+  silently lost. This lets bulk-ZIP / scraper / sidecar imports (which re-parse
+  and ship no PAWLs) accept old-format annotations; the full-V2/single-doc
+  corpus-export import path, which ships self-consistent PAWLs+indices, is
+  deliberately unchanged.
+- **Post-ingest annotation remap is now a standard ingest-chain step linked to an ingestion run (2026-06).**
+  `remap_pending_annotations` now runs as a normal step in the standard Document
+  post_save ingest chain (`extract_thumbnail → ingest_doc →
+  remap_pending_annotations → set_doc_lock_state`, `opencontractserver/documents/signals.py`)
+  and bails fast — a single indexed query — when a document has no pending
+  annotations (the common case for ordinary uploads). The bulk-ZIP importer
+  (`opencontractserver/tasks/import_tasks.py`) no longer suppresses the
+  auto-ingest signal via `processing_started` or dispatches its own Celery
+  chain; its sidecar documents flow through the standard chain. Doc creation and
+  the `PendingDocumentAnnotations` row are now created in one `transaction.atomic()`
+  so the chain's `on_commit` dispatch fires only after the pending row is
+  committed (previously the chain could fire at `import_content`'s inner commit
+  before the row existed — a latent race, now closed). Each deferred set is
+  linked to its import via a new `PendingDocumentAnnotations.ingestion_run_id`
+  UUID (+ composite `(document, status)` index; migration `documents/0042`), and
+  `remap_pending_annotations` accepts an optional `run_id` to scope processing to
+  a single run. The general `processing_started` suppression guard is retained
+  for `Corpus.add_document`, single-doc import, and the reprocess path.
+- **Bulk-ZIP importer: dumb-anchor sidecars persist annotations + dispatch a post-ingest remap chain; `skip_pipeline` removed (2026-06).**
+  `import_zip_with_folder_structure` (`opencontractserver/tasks/import_tasks.py`)
+  now recognises the new dumb-anchor sidecar format — a flat
+  `{"annotations": [...], "doc_labels": [...]}` document where each annotation is
+  a `label`/`rawText` anchor with either a `page`+`bbox` (PDF) or `start`+`end`
+  (span) locator (no PAWLs content, no `content`, no `tokensJsons`, no
+  `skip_pipeline`). For such a sidecar the importer creates the document via the
+  normal parser pipeline, persists the producer annotations verbatim in a
+  `PendingDocumentAnnotations` row (new `results["pending_annotation_docs"]`
+  counter), and dispatches an explicit
+  `extract_thumbnail -> ingest_doc -> remap_pending_annotations -> set_doc_lock_state`
+  Celery chain on commit so the remap runs **after** PAWLs / text exist.
+  To own the dispatch and interleave the remap, the document is created with
+  `processing_started` stamped at creation time, which suppresses the
+  `Document` `post_save` auto-ingest chain (`process_doc_on_create_atomic`)
+  for these docs and prevents a double-ingest race; documents without a sidecar
+  are unchanged and still rely on the signal. **Removed** the old
+  `skip_pipeline` inline-application path: deleted the
+  `if skip_pipeline and sidecar_data:` branch, the `_apply_sidecar_annotations`
+  helper, the `_validate_sidecar_schema` helper plus its
+  `_ANNOTATION_REQUIRED_KEYS` / `_RELATIONSHIP_REQUIRED_KEYS` constants, and the
+  now-unused `create_document_from_export_data` / `import_relationships` / `io` /
+  `Mapping` imports. `create_document_from_export_data`
+  (`opencontractserver/utils/importing.py`) is retained — it is still used by the
+  V2 corpus importer (`opencontractserver/tasks/import_tasks_v2.py`). Tests in
+  `opencontractserver/tests/test_sidecar_import.py` were rewritten to the new
+  format/behavior (assert the persisted pending row + queued chain instead of
+  inline annotation application); the OLD-format schema-validation test classes
+  were removed.
+
+- **Shared PAWLs token-matching helpers extracted (2026-06).**
+  Token-region selection, page-text tokenisation, fuzzy title-to-token matching,
+  and bounds-union helpers used by both the PDF enricher and the new annotation
+  re-anchoring now live in `opencontractserver/utils/pdf_token_matching.py`,
+  consumed by `opencontractserver/utils/annotation_anchoring.py`.
 
 - **Bumped `@os-legal/ui` 0.1.16 → 0.1.19** (`frontend/package.json`,
   `frontend/yarn.lock`). The upstream `SearchBox` mobile layout is unchanged in
@@ -105,6 +215,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     service test modules were updated so a no-grant superuser is asserted to be
     a "stranger" for data (with positive grant-path cases and the retained
     structural-write break-glass). Docs: `docs/permissioning/consolidated_permissioning_guide.md`.
+
+### Removed
+
+- **`skip_pipeline` bulk-ZIP sidecar path and inline `_apply_sidecar_annotations` (2026-06).**
+  The old pre-anchored sidecar format (inline `pawls_file_content` / `content` /
+  `tokensJsons`, applied synchronously at import with the parser pipeline
+  skipped) is gone, replaced by the dumb-anchor format + post-ingest remap above.
+  See the bulk-ZIP importer entry under **Changed** for the full list of removed
+  helpers, constants, and imports.
 
 ### Fixed
 

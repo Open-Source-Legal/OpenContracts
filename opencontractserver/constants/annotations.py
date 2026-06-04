@@ -146,3 +146,17 @@ SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS = 16_000
 COMPACT_JSON_MAX_RANGE_SPAN = 10_000
 # Maximum total tokens across all pages (safety guard).
 COMPACT_JSON_MAX_TOTAL_TOKENS = 50_000
+
+# --- Post-ingest annotation remap (dumb-anchor sidecars) ----------------------
+# Min fraction of an OC token's area that must intersect a producer bbox for the
+# token to be selected when anchoring a PDF annotation.
+ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD = 0.5
+# Min difflib ratio between selected tokens' text and rawText to confirm a PDF
+# geometric anchor before falling back to text search.
+ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO = 0.82
+# rawText preview kept on a remap ``report`` entry. Head+tail (rather than a
+# single head slice) so a long-span annotation that was dropped can be
+# reconstructed from both ends of its text — the start AND the end disambiguate
+# which span failed when several share a prefix.
+ANNOTATION_REPORT_RAWTEXT_HEAD = 60
+ANNOTATION_REPORT_RAWTEXT_TAIL = 20

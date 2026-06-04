@@ -78,7 +78,13 @@ V3_REQUIRED_FIELDS = {
 
 V3_FORBIDDEN_FIELDS = {"md_description", "md_description_revisions"}
 
-__all__ = ["validate_export", "validate_data_json", "ValidationResult", "main"]
+__all__ = [
+    "validate_export",
+    "validate_data_json",
+    "validate_dumb_anchor_sidecar",
+    "ValidationResult",
+    "main",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -865,6 +871,192 @@ def _validate_parsed_data(data: dict, result: ValidationResult) -> None:
         # in _check_documents. Check top-level if present.
         if data.get("relationships"):
             _check_corpus_level_relationships(data, all_annot_ids, result)
+
+
+# ---------------------------------------------------------------------------
+# Bulk-ZIP "dumb-anchor" sidecar validation
+# ---------------------------------------------------------------------------
+#
+# The bulk-ZIP importer no longer ships pre-anchored PAWLs in the sidecar
+# (the old skip_pipeline / pawls_file_content / tokensJsons shape). Instead a
+# producer ships *dumb-anchor* annotations: each carries a label + rawText and
+# a location hint — either PDF ``page`` + ``bbox`` or text ``start`` / ``end``
+# — and the parser pipeline runs normally before a post-ingest
+# ``remap_pending_annotations`` task re-anchors them onto the real PAWLs / text
+# layer. This validator checks the producer-facing shape of that sidecar
+# *before* it is zipped, against the accompanying ``labels.json``.
+
+# Label types accepted by ``import_annotations`` (see
+# ``opencontractserver.utils.importing.VALID_LABEL_TYPES_FOR_IMPORT``). Kept as
+# a literal here because validate_export.py is intentionally Django-free.
+_SIDECAR_VALID_LABEL_TYPES_FOR_IMPORT = {
+    "TOKEN_LABEL",
+    "DOC_TYPE_LABEL",
+    "RELATIONSHIP_LABEL",
+}
+
+
+def _collect_sidecar_label_types(labels_json: dict) -> dict[str, str]:
+    """Map label *text* -> label_type from a parsed ``labels.json``.
+
+    Sidecar annotations reference labels by their ``text`` (exactly how the
+    remap task builds its ``label_lookup`` keyed by ``lbl.text``), so the
+    lookup here is keyed by each label entry's ``text`` field (falling back to
+    the map key when ``text`` is absent).
+    """
+    label_types: dict[str, str] = {}
+    if not isinstance(labels_json, dict):
+        return label_types
+    for section in ("text_labels", "doc_labels"):
+        entries = labels_json.get(section)
+        if not isinstance(entries, dict):
+            continue
+        for key, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            text = entry.get("text") or key
+            label_types[text] = entry.get("label_type", "")
+    return label_types
+
+
+def _check_dumb_anchor_annotation(
+    ann: dict,
+    index: int,
+    label_types: dict[str, str],
+    result: ValidationResult,
+) -> None:
+    """Validate one dumb-anchor annotation's shape and label resolution."""
+    prefix = f"annotations[{index}]"
+    if not isinstance(ann, dict):
+        result.error(f"{prefix}: must be a JSON object, got {type(ann).__name__}")
+        return
+
+    # label — non-empty string, must resolve in labels.json
+    label = ann.get("label")
+    if not isinstance(label, str) or not label.strip():
+        result.error(f"{prefix}: 'label' must be a non-empty string")
+        label = None
+
+    # rawText — non-empty string
+    raw_text = ann.get("rawText")
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        result.error(f"{prefix}: 'rawText' must be a non-empty string")
+
+    # Location hint: EITHER (page + bbox) OR (start + end) — not neither.
+    has_page = isinstance(ann.get("page"), int) and not isinstance(
+        ann.get("page"), bool
+    )
+    bbox = ann.get("bbox")
+    is_pdf_anchor = "page" in ann or "bbox" in ann
+
+    has_start = isinstance(ann.get("start"), int) and not isinstance(
+        ann.get("start"), bool
+    )
+    has_end = isinstance(ann.get("end"), int) and not isinstance(ann.get("end"), bool)
+    is_span_anchor = "start" in ann or "end" in ann
+
+    if not is_pdf_anchor and not is_span_anchor:
+        result.error(
+            f"{prefix}: must carry a location hint — either "
+            f"('page' + 'bbox') for PDF or ('start' + 'end') for text"
+        )
+    elif is_pdf_anchor:
+        if not has_page or ann.get("page", -1) < 0:
+            result.error(f"{prefix}: 'page' must be an integer >= 0")
+        if not isinstance(bbox, dict):
+            result.error(f"{prefix}: 'bbox' must be an object with numeric bounds")
+        else:
+            for coord in ("left", "top", "right", "bottom"):
+                val = bbox.get(coord)
+                if not isinstance(val, (int, float)) or isinstance(val, bool):
+                    result.error(
+                        f"{prefix}: bbox.{coord} must be a number "
+                        f"(got {type(val).__name__})"
+                    )
+    elif is_span_anchor:
+        if not has_start or ann.get("start", -1) < 0:
+            result.error(f"{prefix}: 'start' must be an integer >= 0")
+        if not has_end or (
+            has_start and has_end and ann.get("end", 0) <= ann.get("start", 0)
+        ):
+            result.error(f"{prefix}: 'end' must be an integer > 'start'")
+
+    # Label resolution against labels.json
+    if label is not None:
+        if label not in label_types:
+            result.error(f"{prefix}: label '{label}' does not resolve in labels.json")
+        elif is_span_anchor and not is_pdf_anchor:
+            # Span (start/end) annotations import as TOKEN_LABEL — SPAN_LABEL
+            # is NOT accepted by import_annotations. Declaring a span label as
+            # SPAN_LABEL in labels.json silently drops it at import.
+            lt = label_types[label]
+            if lt == "SPAN_LABEL":
+                result.error(
+                    f"{prefix}: span annotation label '{label}' is declared "
+                    f"SPAN_LABEL in labels.json, but text/span annotations must "
+                    f"use TOKEN_LABEL (SPAN_LABEL is not accepted by the importer)"
+                )
+            elif lt not in _SIDECAR_VALID_LABEL_TYPES_FOR_IMPORT:
+                result.error(
+                    f"{prefix}: span annotation label '{label}' has label_type "
+                    f"'{lt}' in labels.json; must be 'TOKEN_LABEL'"
+                )
+
+
+def validate_dumb_anchor_sidecar(
+    sidecar: dict, labels_json: dict | None = None
+) -> ValidationResult:
+    """Validate a bulk-ZIP *dumb-anchor* sidecar against its ``labels.json``.
+
+    A dumb-anchor sidecar carries a top-level ``"annotations"`` list (and an
+    optional ``"doc_labels"`` list). Each annotation must have:
+
+    * a non-empty string ``"label"`` that resolves in ``labels.json``,
+    * a non-empty string ``"rawText"``,
+    * EITHER (``"page"`` int >= 0 AND ``"bbox"`` with numeric
+      left/top/right/bottom) OR (``"start"`` int >= 0 AND ``"end"`` int >
+      start) — not neither,
+    * every non-null ``"parent_id"`` references some annotation ``"id"``
+      present in the same sidecar,
+    * span (start/end) annotations whose label is declared ``SPAN_LABEL`` in
+      ``labels.json`` are rejected — the importer only accepts
+      ``TOKEN_LABEL`` / ``DOC_TYPE_LABEL`` / ``RELATIONSHIP_LABEL``.
+
+    Args:
+        sidecar: The parsed sidecar JSON (must contain ``"annotations"``).
+        labels_json: The parsed ``labels.json`` accompanying the sidecar.
+
+    Returns:
+        ValidationResult with all errors and warnings.
+    """
+    result = ValidationResult()
+
+    annotations = sidecar.get("annotations")
+    if not isinstance(annotations, list):
+        result.error("sidecar 'annotations' must be a JSON list")
+        return result
+
+    label_types = _collect_sidecar_label_types(labels_json or {})
+
+    # Collect all annotation ids first so parent_id references can be checked
+    # regardless of declaration order.
+    annotation_ids: set[str] = set()
+    for ann in annotations:
+        if isinstance(ann, dict) and ann.get("id") is not None:
+            annotation_ids.add(str(ann.get("id")))
+
+    for i, ann in enumerate(annotations):
+        _check_dumb_anchor_annotation(ann, i, label_types, result)
+
+        if isinstance(ann, dict):
+            parent_id = ann.get("parent_id")
+            if parent_id is not None and str(parent_id) not in annotation_ids:
+                result.error(
+                    f"annotations[{i}]: parent_id '{parent_id}' does not "
+                    f"reference any annotation 'id' in this sidecar"
+                )
+
+    return result
 
 
 # ---------------------------------------------------------------------------

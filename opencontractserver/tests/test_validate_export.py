@@ -18,6 +18,7 @@ from opencontractserver.utils.validate_export import (
     ValidationResult,
     main,
     validate_data_json,
+    validate_dumb_anchor_sidecar,
     validate_export,
 )
 
@@ -1262,3 +1263,154 @@ class TestCLI(unittest.TestCase):
 
     def test_nonexistent_file_returns_one(self):
         assert main(["/nonexistent/path.zip"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Dumb-anchor bulk-ZIP sidecar validation
+# ---------------------------------------------------------------------------
+
+
+def _labels_json(
+    *,
+    section_label_types: dict[str, str] | None = None,
+) -> dict:
+    """Build a minimal labels.json. ``section_label_types`` maps label text ->
+    label_type; TOKEN_LABEL/RELATIONSHIP_LABEL go to text_labels, DOC_TYPE_LABEL
+    to doc_labels."""
+    types = section_label_types or {"OC_SECTION": "TOKEN_LABEL"}
+    text_labels: dict = {}
+    doc_labels: dict = {}
+    for text, lt in types.items():
+        entry = {"text": text, "label_type": lt}
+        if lt == "DOC_TYPE_LABEL":
+            doc_labels[text] = entry
+        else:
+            text_labels[text] = entry
+    return {"text_labels": text_labels, "doc_labels": doc_labels}
+
+
+class TestDumbAnchorSidecarValidation(unittest.TestCase):
+    """Validation of the new bulk-ZIP dumb-anchor sidecar format."""
+
+    def _pdf_ann(self, **overrides) -> dict:
+        ann = {
+            "id": "a1",
+            "label": "OC_SECTION",
+            "rawText": "CHAPTER 1",
+            "page": 0,
+            "bbox": {"left": 8.0, "top": 8.0, "right": 110.0, "bottom": 24.0},
+            "parent_id": None,
+        }
+        ann.update(overrides)
+        return ann
+
+    def _span_ann(self, **overrides) -> dict:
+        ann = {
+            "id": "s1",
+            "label": "OC_SECTION",
+            "rawText": "CHAPTER 1",
+            "start": 0,
+            "end": 9,
+            "parent_id": None,
+        }
+        ann.update(overrides)
+        return ann
+
+    def test_valid_pdf_sidecar(self):
+        sidecar = {"annotations": [self._pdf_ann()]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertTrue(result.ok, msg=result.summary())
+
+    def test_valid_span_sidecar_with_token_label(self):
+        sidecar = {"annotations": [self._span_ann()]}
+        result = validate_dumb_anchor_sidecar(
+            sidecar, _labels_json(section_label_types={"OC_SECTION": "TOKEN_LABEL"})
+        )
+        self.assertTrue(result.ok, msg=result.summary())
+
+    def test_annotations_must_be_list(self):
+        result = validate_dumb_anchor_sidecar({"annotations": {}}, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("must be a JSON list" in e for e in result.errors))
+
+    def test_missing_label_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(label="")]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("'label' must be a non-empty" in e for e in result.errors))
+
+    def test_missing_raw_text_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(rawText="")]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("'rawText' must be a non-empty" in e for e in result.errors)
+        )
+
+    def test_no_location_hint_is_error(self):
+        ann = {"id": "x", "label": "OC_SECTION", "rawText": "hi", "parent_id": None}
+        result = validate_dumb_anchor_sidecar({"annotations": [ann]}, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("location hint" in e for e in result.errors))
+
+    def test_negative_page_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(page=-1)]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("'page' must be an integer >= 0" in e for e in result.errors)
+        )
+
+    def test_bbox_non_numeric_is_error(self):
+        sidecar = {
+            "annotations": [
+                self._pdf_ann(bbox={"left": "x", "top": 0, "right": 1, "bottom": 1})
+            ]
+        }
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("bbox.left must be a number" in e for e in result.errors))
+
+    def test_end_not_greater_than_start_is_error(self):
+        sidecar = {"annotations": [self._span_ann(start=5, end=5)]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("'end' must be an integer > 'start'" in e for e in result.errors)
+        )
+
+    def test_unresolved_label_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(label="NOT_DECLARED")]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("does not resolve in labels.json" in e for e in result.errors)
+        )
+
+    def test_span_label_declared_span_label_is_error(self):
+        """A text/span annotation whose label is declared SPAN_LABEL must be
+        rejected — the importer only accepts TOKEN_LABEL for span imports."""
+        sidecar = {"annotations": [self._span_ann()]}
+        result = validate_dumb_anchor_sidecar(
+            sidecar, _labels_json(section_label_types={"OC_SECTION": "SPAN_LABEL"})
+        )
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("SPAN_LABEL" in e and "TOKEN_LABEL" in e for e in result.errors),
+            msg=result.summary(),
+        )
+
+    def test_dangling_parent_id_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(parent_id="does-not-exist")]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("does not reference any annotation 'id'" in e for e in result.errors)
+        )
+
+    def test_valid_parent_id_reference(self):
+        parent = self._pdf_ann(id="p1", parent_id=None)
+        child = self._pdf_ann(id="c1", parent_id="p1")
+        sidecar = {"annotations": [child, parent]}  # forward reference OK
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertTrue(result.ok, msg=result.summary())
