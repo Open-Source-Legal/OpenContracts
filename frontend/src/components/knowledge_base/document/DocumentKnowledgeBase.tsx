@@ -494,7 +494,12 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
   // Lazy-load structural annotations (headers/sections/paragraphs) — keep
   // them out of the main payload since large documents have thousands and
   // they're hidden by default.
-  useStructuralAnnotations(documentId);
+  // `loading` here is the targeted deep-link fetch for structural annotations,
+  // which runs after the corpus/document queries settle; OR it into the shared
+  // `loading` below so a structural `?ann=<id>` deep-link shows a loader instead
+  // of a premature "no longer available" flash (see MobileAnnotationDetail).
+  const { loading: targetedStructuralLoading } =
+    useStructuralAnnotations(documentId);
 
   // Wire ``?rel=<pk>`` deep-link → relation selection + scroll-to.
   // No-op when the param is absent; safe to keep mounted unconditionally.
@@ -826,7 +831,10 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     dataCells,
     columns,
     notes,
-    loading,
+    // Include the targeted structural deep-link fetch so a `?ann=<id>` link to a
+    // structural annotation shows a loader until that fetch settles, not just
+    // until the corpus/document queries settle.
+    loading: loading || targetedStructuralLoading,
     queryError,
     corpusData,
     combinedDocumentData: combinedData?.document,

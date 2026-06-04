@@ -36,8 +36,20 @@ import { relationToGroup } from "./helpers";
  *
  * Resets all three atoms on `documentId` change so a stale partial load from
  * the previous document can never bleed into the new one.
+ *
+ * Returns `{ loading }` reflecting the **targeted** deep-link fetch only. A
+ * deep-link to a structural annotation (`?ann=<id>`) resolves via the targeted
+ * lazy query, which fires *after* the corpus/document queries (and therefore
+ * after the document loader's own `loading` has already dropped to false).
+ * Surfacing this lets callers OR it into their not-found guard so a structural
+ * deep-link shows a loader instead of briefly flashing "no longer available".
+ * The all-structural toggle fetch is deliberately excluded: it only runs when
+ * the user turns structural visibility on, and folding it into a shared loading
+ * flag would make unrelated surfaces flash loading on that toggle.
  */
-export function useStructuralAnnotations(documentId: string): void {
+export function useStructuralAnnotations(documentId: string): {
+  loading: boolean;
+} {
   const [, setStructuralAnnotations] = useAtom(structuralAnnotationsAtom);
   const [, setStructuralRelationships] = useAtom(structuralRelationshipsAtom);
   const [structuralAnnotationsLoaded, setStructuralAnnotationsLoaded] = useAtom(
@@ -176,4 +188,6 @@ export function useStructuralAnnotations(documentId: string): void {
     setStructuralAnnotations,
     setStructuralRelationships,
   ]);
+
+  return { loading: targetedStructuralResult.loading };
 }
