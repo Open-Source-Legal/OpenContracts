@@ -300,6 +300,10 @@ export const Z_INDEX = {
    *  annotations. Must sit above ``PDF_SELECTION_LAYER`` so its
    *  ``pointer-events: auto`` anchors receive clicks first. */
   PDF_NATIVE_LINK_LAYER: 2,
+  /** Mobile floating document-controls pill — overlays the viewer's top-right
+   *  corner inside ViewerArea's local stacking context, above the rendered
+   *  page but below in-page loading overlays. */
+  MOBILE_DOC_TOOLBAR_OVERLAY: 5,
   /** In-page loading overlays (position: absolute within a relative parent) */
   OVERLAY: 10,
   /** Document header — establishes stacking context above content when backdrop-filter is active.
@@ -384,6 +388,14 @@ export const CHAT_SEND_LOCK_MS = 300;
  * don't yank them back to the latest message.
  */
 export const CHAT_AUTOSCROLL_THRESHOLD_PX = 100;
+// Caps the chat message reading column on wide viewports (e.g. corpus chat) so
+// lines stay scannable; a no-op on narrow surfaces already below this width.
+export const CHAT_MESSAGE_MAX_WIDTH_REM = "60rem";
+// User message bubble: solid neutral card surface + border so it reads as a
+// distinct card against the near-white messages background (blue stays reserved
+// for the assistant's identity).
+export const CHAT_USER_MESSAGE_BG = "rgba(237, 240, 244, 0.92)";
+export const CHAT_USER_MESSAGE_BORDER = "rgba(203, 210, 219, 0.9)";
 
 export type ConversationType =
   (typeof CONVERSATION_TYPE)[keyof typeof CONVERSATION_TYPE];

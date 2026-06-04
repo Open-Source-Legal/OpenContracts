@@ -202,7 +202,6 @@ const corpusHistoryMock: MockedResponse = {
         title: dummyCorpus.title,
         description: dummyCorpus.description,
         descriptionPreview: dummyCorpus.description,
-        mdDescription: null,
         created: dummyCorpus.created,
         modified: dummyCorpus.modified,
         isPublic: dummyCorpus.isPublic,

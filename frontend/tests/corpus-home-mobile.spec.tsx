@@ -57,7 +57,6 @@ const mocks = [
       data: {
         corpus: {
           ...mockCorpus,
-          mdDescription: null,
         },
       },
     },
