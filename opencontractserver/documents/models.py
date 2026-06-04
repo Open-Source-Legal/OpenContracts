@@ -1298,21 +1298,40 @@ class PipelineSettings(django.db.models.Model):
         super().save(*args, **kwargs)
         # Eagerly invalidate cache after save for immediate consistency
         # (required in autocommit mode and Django TestCase which never commits).
-        self._invalidate_cache()
+        self.clear_cache()
         # Also invalidate on commit in case save() runs inside a larger
-        # transaction that might roll back and be retried.
-        transaction.on_commit(lambda: self._invalidate_cache())
+        # transaction that might roll back and be retried. clear_cache is a
+        # classmethod, so register it directly rather than capturing self in a
+        # lambda.
+        transaction.on_commit(PipelineSettings.clear_cache)
 
     def delete(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Prevent deletion of the singleton instance."""
         raise ValidationError("PipelineSettings singleton cannot be deleted.")
 
     @classmethod
-    def _invalidate_cache(cls) -> None:
-        """Invalidate the cached instance."""
+    def clear_cache(cls) -> None:
+        """Drop the cached singleton so the next ``get_instance()`` re-reads the DB.
+
+        The public, documented entry point for forcing cache invalidation.
+        ``save()`` already invalidates automatically, so application code
+        rarely needs this; it exists for tests and admin/CLI tooling that
+        write the singleton row out-of-band (e.g. a direct ``QuerySet.update``
+        or a fixture load) and then need the change visible immediately.
+        """
         from django.core.cache import cache
 
         cache.delete(cls.CACHE_KEY)
+
+    @classmethod
+    def _invalidate_cache(cls) -> None:
+        """Backwards-compatible alias for :meth:`clear_cache`.
+
+        Retained for existing callers (the test suite and ``conftest.py``)
+        that predate :meth:`clear_cache`; new code should use the public
+        method.
+        """
+        cls.clear_cache()
 
     @classmethod
     def get_instance(cls, use_cache: bool = True) -> PipelineSettings:
