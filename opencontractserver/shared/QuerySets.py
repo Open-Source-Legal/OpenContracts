@@ -666,7 +666,7 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             visibility_filter & doc_visibility_filter & corpus_filter
         ).distinct()
 
-    def with_cached_count(self) -> "AnnotationQuerySet":
+    def with_cached_count(self) -> "CachedCountAnnotationQuerySet":
         """Return a clone whose ``.count()`` is cached (issue #1908).
 
         Used only by the un-scoped annotations browse, where the exact
