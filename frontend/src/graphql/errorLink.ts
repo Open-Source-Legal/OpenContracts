@@ -1,6 +1,7 @@
 import { onError } from "@apollo/client/link/error";
 import { toast } from "react-toastify";
 import { authToken, authStatusVar, userObj } from "./cache";
+import { notifyTransientNetworkError } from "../utils/networkNotifications";
 
 /**
  * Apollo error link that handles authentication errors and network errors.
@@ -123,13 +124,14 @@ export const errorLink = onError(
       // Log other network errors
       console.error(`[Network Error]: ${networkError}`, networkError);
 
-      // Show user-friendly network error message
-      toast.error(
+      // Show a user-friendly network error message — but stay quiet while we
+      // are knowingly reconnecting (e.g. mobile screen-unlock) or offline, so a
+      // transient blip doesn't spam alarming toasts. The single calm
+      // "Reconnecting…"/offline indicator covers that window; a genuine
+      // persistent failure still surfaces (once) afterwards.
+      notifyTransientNetworkError(
         "Network error. Please check your connection and try again.",
-        {
-          toastId: "network-error",
-          autoClose: 5000,
-        }
+        { toastId: "network-error" }
       );
     }
   }

@@ -32,7 +32,6 @@ const mockCorpus = {
   slug: "test-corpus",
   title: "Test Corpus",
   description: "A test corpus",
-  mdDescription: null,
   isPublic: false,
   myPermissions: ["READ", "UPDATE", "DELETE"], // Corpus has UPDATE permission
   creator: {

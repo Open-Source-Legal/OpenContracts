@@ -502,27 +502,40 @@ This project follows **trunk-based development**:
 
 ## Changelog Maintenance
 
-**IMPORTANT**: Always update `CHANGELOG.md` when making significant changes to the codebase.
+**IMPORTANT**: Always record significant changes — but **do NOT edit `CHANGELOG.md`
+directly in a PR.** Add a *changelog fragment* under `changelog.d/` instead.
 
-The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format:
+**Why:** every PR used to insert its entry at the top of `CHANGELOG.md`'s single
+`## [Unreleased]` section, so concurrent PRs collided on the same lines and
+produced perpetual merge conflicts (the file changed in ~hundreds of commits per
+month). Each PR now adds its own uniquely-named file, so two PRs can never touch
+the same lines — changelog merge conflicts become structurally impossible. The
+fragments are collated into `CHANGELOG.md` at release time. (A `merge=union`
+driver in `.gitattributes` is a safety net for any direct edit that slips
+through; it auto-keeps both sides instead of conflicting.)
 
-```markdown
-## [Unreleased] - YYYY-MM-DD
+**How to add an entry** — create one file per change:
 
-### Added
-- New features
-
-### Fixed
-- Bug fixes with file locations and line numbers
-
-### Changed
-- Changes to existing functionality
-
-### Technical Details
-- Implementation specifics, architectural notes
+```
+changelog.d/<slug>.<type>.md
 ```
 
-**When to update**:
+- `<slug>` — anything unique; the PR number (`1901`) is ideal, or a short
+  kebab-case description.
+- `<type>` — one of `added`, `changed`, `deprecated`, `removed`, `fixed`,
+  `security` (Keep a Changelog groups).
+- **Body** = the markdown bullet(s) you'd have written under the section header,
+  *without* the `### Fixed` header itself (the type comes from the filename).
+- Keep the same quality bar: file paths, line numbers, issue/impact, rationale.
+- Multiple categories in one PR → multiple fragments
+  (`1908-search.added.md` + `1908-search.fixed.md`).
+
+Tooling (`scripts/collate_changelog.py`): `--check` validates fragments (CI /
+pre-commit), `--preview` prints the collated markdown, `--apply` folds fragments
+into `CHANGELOG.md`'s `[Unreleased]` section and deletes them (release step).
+See `changelog.d/README.md` for full details.
+
+**When to add a fragment**:
 - New features or models added
 - Production code bugs fixed (document file location, line numbers, and impact)
 - Breaking changes to APIs or data models

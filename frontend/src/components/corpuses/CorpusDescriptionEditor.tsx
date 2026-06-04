@@ -744,26 +744,12 @@ export const CorpusDescriptionEditor: React.FC<
     UpdateCorpusDescriptionInputs
   >(UPDATE_CORPUS_DESCRIPTION);
 
-  // Fetch current content from mdDescription URL when data loads
+  // `description` is the inline markdown source (canonical-CAML projection).
   useEffect(() => {
-    if (data?.corpus?.mdDescription) {
-      fetch(data.corpus.mdDescription)
-        .then((res) => res.text())
-        .then((text) => {
-          setCurrentContent(text);
-          setContent(text);
-          setHasChanges(false);
-          setEditingFromVersion(null);
-        })
-        .catch((err) => {
-          console.error("Error fetching corpus description:", err);
-          setCurrentContent("");
-          setContent("");
-        });
-    } else if (data?.corpus) {
-      // No mdDescription yet, start with empty
-      setCurrentContent("");
-      setContent("");
+    if (data?.corpus) {
+      const text = data.corpus.description ?? "";
+      setCurrentContent(text);
+      setContent(text);
       setHasChanges(false);
       setEditingFromVersion(null);
     }

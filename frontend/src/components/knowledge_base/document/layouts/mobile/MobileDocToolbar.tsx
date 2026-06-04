@@ -2,7 +2,8 @@ import React from "react";
 import styled from "styled-components";
 import { List, Search, Maximize2 } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
-import { MOBILE_RADIUS } from "./mobileTheme";
+import { Z_INDEX } from "../../../../../assets/configurations/constants";
+import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
 
 export interface MobileDocToolbarProps {
   zoomPercent: number;
@@ -11,49 +12,72 @@ export interface MobileDocToolbarProps {
   onFitWidth: () => void;
 }
 
-/**
- * Thin document toolbar. Sits flush on the warm surface tint with no hard
- * hairline — the chips themselves carry the visual weight.
- */
-const Bar = styled.div`
-  flex-shrink: 0;
-  height: 44px;
+/** Compact frosted-pill toolbar that floats over the viewer's top-right corner. */
+const Cluster = styled.div`
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: ${Z_INDEX.MOBILE_DOC_TOOLBAR_OVERLAY};
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  background: transparent;
+  gap: 2px;
+  padding: 4px;
+  border-radius: ${MOBILE_RADIUS.pill};
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: ${MOBILE_SHADOW.raised};
 `;
 
-/** Light "ghost" chip — soft slate-tinted, no harsh border. */
-const Chip = styled.button`
-  height: 30px;
+/** Icon-only ghost control inside the floating pill. */
+const IconButton = styled.button`
+  position: relative;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
+  justify-content: center;
   border: none;
   border-radius: ${MOBILE_RADIUS.pill};
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  font-size: 12px;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.textSecondary};
+  background: transparent;
+  color: ${OS_LEGAL_COLORS.accent};
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.12s ease, background 0.16s ease;
 
-  & svg {
-    color: ${OS_LEGAL_COLORS.textSecondary};
+  /* Extend the tap target to a 44px minimum (WCAG 2.5.5 / Apple HIG) without
+     growing the 34px visual pill. */
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
   }
 
   &:active {
-    transform: scale(0.95);
-    background: ${OS_LEGAL_COLORS.border};
+    transform: scale(0.92);
+    background: ${OS_LEGAL_COLORS.surfaceLight};
   }
 `;
 
-const Spacer = styled.div`
-  flex: 1;
+/** Fit-width control — keeps a compact live zoom readout alongside the icon. */
+const ZoomButton = styled(IconButton)`
+  width: auto;
+  gap: 5px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: ${OS_LEGAL_COLORS.textTertiary};
+
+  & svg {
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+`;
+
+const Divider = styled.span`
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: ${OS_LEGAL_COLORS.border};
 `;
 
 export const MobileDocToolbar: React.FC<MobileDocToolbarProps> = ({
@@ -62,16 +86,16 @@ export const MobileDocToolbar: React.FC<MobileDocToolbarProps> = ({
   onFind,
   onFitWidth,
 }) => (
-  <Bar>
-    <Chip aria-label="Sections" onClick={onSections}>
-      <List size={14} /> Sections
-    </Chip>
-    <Chip aria-label="Find" onClick={onFind}>
-      <Search size={14} /> Find
-    </Chip>
-    <Spacer />
-    <Chip aria-label="Fit width" onClick={onFitWidth}>
-      <Maximize2 size={14} /> {Math.round(zoomPercent)}%
-    </Chip>
-  </Bar>
+  <Cluster>
+    <IconButton aria-label="Sections" onClick={onSections}>
+      <List size={17} />
+    </IconButton>
+    <IconButton aria-label="Find" onClick={onFind}>
+      <Search size={17} />
+    </IconButton>
+    <Divider aria-hidden="true" />
+    <ZoomButton aria-label="Fit width" onClick={onFitWidth}>
+      <Maximize2 size={15} /> {Math.round(zoomPercent)}%
+    </ZoomButton>
+  </Cluster>
 );

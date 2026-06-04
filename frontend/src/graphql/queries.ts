@@ -308,7 +308,6 @@ export const RESOLVE_CORPUS_BY_SLUGS_FULL = gql`
       slug
       title
       description
-      mdDescription
       icon
       isPublic
       isPersonal
@@ -368,7 +367,6 @@ export const RESOLVE_DOCUMENT_IN_CORPUS_BY_SLUGS_FULL = gql`
       slug
       title
       description
-      mdDescription
       isPublic
       myPermissions
       creator {
@@ -525,7 +523,6 @@ export const GET_CORPUS_METADATA = gql`
       slug
       title
       description
-      mdDescription
       myPermissions
       creator {
         id
@@ -544,7 +541,6 @@ export const GET_CORPUS_WITH_HISTORY = gql`
       title
       description
       descriptionPreview
-      mdDescription
       icon
       created
       modified
@@ -605,7 +601,6 @@ export interface GetCorpusWithHistoryQuery {
     title: string;
     description: string;
     descriptionPreview?: string | null;
-    mdDescription?: string | null;
     icon?: string | null;
     created: string;
     modified: string;
@@ -3728,7 +3723,6 @@ export const GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS = gql`
       id
       title
       description
-      mdDescription
       myPermissions
       labelSet {
         id
@@ -4119,7 +4113,7 @@ export interface ChatMessageNode {
   msgType: string;
   content: string;
   state?: string;
-  // Add other fields (data, createdAt, creator, etc.) if you need them
+  createdAt?: string;
 }
 
 export interface ChatMessageEdge {
@@ -4162,6 +4156,7 @@ export const GET_CHAT_MESSAGES = gql`
       content
       state
       data
+      createdAt
       creator {
         id
         slug
