@@ -443,6 +443,53 @@ class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
         self.assertEqual(row.payload["annotations"], annotations)
         self.assertEqual(row.payload["doc_labels"], [])
 
+    def test_malformed_dumb_anchor_with_labels_json_persists_failed_row(self):
+        """When a labels.json ships alongside a dumb-anchor sidecar, the sidecar
+        is pre-flight validated and a malformed payload is persisted FAILED.
+
+        The validator's label-resolution check is defined against labels.json,
+        so it only runs when one is present. Here a label is missing entirely
+        (an empty string) and the row's anchor is fine — the import must NOT
+        silently queue a doomed remap; it persists the pending row as FAILED
+        with the validation errors in its ``report`` and surfaces an error,
+        co-locating the failure with the import.
+        """
+        annotations = [
+            # Valid, label resolves in labels.json below.
+            _make_annotation(1, "Heading", "OC_SECTION", page=0),
+            # Malformed: empty label → fails dumb-anchor schema.
+            _make_annotation(2, "Body", "", page=0),
+        ]
+        sidecar = _build_sidecar_json(annotations=annotations)
+        labels = _build_labels_json(
+            text_labels={"OC_SECTION": _make_label_data("OC_SECTION")}
+        )
+        files = {
+            "agreement.pdf": self.pdf_bytes,
+            "agreement.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(labels).encode("utf-8"),
+        }
+
+        result = self._run_import(files, "test-sidecar-malformed")
+
+        # Document still ingests; only the annotation set is rejected.
+        self.assertTrue(result["completed"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        self.assertEqual(result["annotation_sidecars_errored"], 1)
+        self.assertTrue(
+            any("failed validation" in e for e in result["errors"]),
+            msg=f"Expected a validation error surfaced: {result['errors']}",
+        )
+
+        # Pending row is persisted FAILED (never silently dropped) with the
+        # validation errors recorded on its report so remap skips it.
+        row = PendingDocumentAnnotations.objects.get()
+        self.assertEqual(row.status, PendingDocumentAnnotations.Status.FAILED)
+        self.assertTrue(
+            row.report and any("error" in entry for entry in row.report),
+            msg=f"Expected validation errors on report: {row.report}",
+        )
+
     def test_empty_annotations_list_still_persists_pending_row(self):
         """A sidecar with an empty ``annotations`` list is still NEW-format.
 

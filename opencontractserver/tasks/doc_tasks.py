@@ -1123,6 +1123,19 @@ def _remap_one_pending_row(
     # ``label_obj = label_lookup.get(label_name)``. Memoised per label_set_id in
     # ``label_cache`` so a multi-row batch doesn't rebuild the queryset per row.
     label_set_id = corpus.label_set_id if corpus is not None else None
+    if corpus is None:
+        # Diagnostic: with no corpus there is no labelset, so ``label_lookup``
+        # is built empty and EVERY annotation is dropped with "label not found
+        # in corpus labelset". The row will (correctly) end up FAILED, but the
+        # report alone reads like a bad labels.json rather than a missing
+        # corpus. Surface the real root cause for whoever inspects the row.
+        logger.warning(
+            "remap_pending_annotations: pending row %s for doc %s has no "
+            "corpus; label lookup will be empty and all annotations will be "
+            "dropped.",
+            pending.pk,
+            doc_id,
+        )
     cached = label_cache.get(label_set_id)
     if cached is None:
         label_lookup = {}
@@ -1268,10 +1281,19 @@ def _remap_one_pending_row(
                 label_unresolved,
             )
         created = max(0, raw_created)
-        # If annotations WERE anchored but every one was then dropped at import
-        # for an unresolved label, nothing landed — a real failure, not a silent
-        # DONE.
-        if anchored and created == 0:
+        # Nothing landed but the producer DID ask for something to land (some
+        # annotation/doc-label was dropped) → a real failure, not a silent DONE.
+        # This covers BOTH failure modes uniformly:
+        #   * anchored but every one dropped at import for an unresolved label
+        #     (``anchored`` non-empty, ``created == 0``), and
+        #   * every annotation failed to anchor in the first place (geometry
+        #     miss + rawText not found), so ``anchored == []`` — the previous
+        #     ``anchored and created == 0`` guard short-circuited to DONE here
+        #     and mis-reported a total anchor failure as success.
+        # An empty payload (nothing requested, nothing dropped) stays DONE.
+        nothing_landed = created == 0 and doc_labels_created == 0
+        any_dropped = any(r.get("dropped") for r in report)
+        if nothing_landed and any_dropped:
             pending.status = PendingDocumentAnnotations.Status.FAILED
         else:
             pending.status = PendingDocumentAnnotations.Status.DONE

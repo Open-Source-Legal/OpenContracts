@@ -381,3 +381,72 @@ class TestRemapPendingAnnotations(TestCase):
             ),
             msg=f"Expected a report entry citing the missing label: {dropped}",
         )
+
+    def test_total_anchor_failure_is_reported_failed_not_done(self):
+        """When NO annotation anchors (geometry miss + rawText not found), the
+        row must be FAILED, not a silent DONE.
+
+        Regression for the ``anchored and created == 0`` guard: with every
+        annotation failing to anchor, ``anchored == []`` made the guard
+        ``[] and ...`` → False → DONE, mis-reporting a total anchor failure as
+        success even though the producer asked for an annotation and it was
+        dropped. The label resolves fine here (OC_SECTION) — the failure is
+        purely anchoring, distinguishing it from the unresolved-label path.
+        """
+        doc = Document.objects.create(
+            title="Unanchorable Doc",
+            creator=self.user,
+            file_type="application/pdf",
+            processing_started=timezone.now(),
+        )
+        pawls_bytes = json.dumps(_PAWLS_V1).encode("utf-8")
+        doc.pawls_parse_file.save(
+            "unanchor_pawls.json", ContentFile(pawls_bytes), save=True
+        )
+        doc.txt_extract_file.save(
+            "unanchor_text.txt", ContentFile(_TEXT_CONTENT), save=True
+        )
+
+        # bbox far from any token AND rawText that won't fuzzy-match "CHAPTER 1".
+        unanchorable = dict(_DUMB_ANN)
+        unanchorable["bbox"] = {
+            "left": 500.0,
+            "top": 500.0,
+            "right": 560.0,
+            "bottom": 520.0,
+        }
+        unanchorable["rawText"] = "ZZZ NONEXISTENT PHRASE QQQ"
+        pending = PendingDocumentAnnotations.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            creator=self.user,
+            payload={"annotations": [unanchorable], "doc_labels": []},
+            status=PendingDocumentAnnotations.Status.PENDING,
+        )
+
+        result = remap_pending_annotations(doc_id=doc.id)
+
+        # Nothing landed, and the failure to anchor is surfaced — not DONE.
+        self.assertEqual(
+            Annotation.objects.filter(document=doc).count(),
+            0,
+            msg="Unanchorable annotation must not be created",
+        )
+        self.assertEqual(result["anchored"], 0, msg=f"Unexpected result: {result}")
+        self.assertEqual(
+            result["label_unresolved"],
+            0,
+            msg=f"Label resolves; failure is anchoring, not label: {result}",
+        )
+        self.assertEqual(
+            result["status"],
+            PendingDocumentAnnotations.Status.FAILED,
+            msg=f"Total anchor failure must be FAILED, not DONE: {result}",
+        )
+
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.FAILED)
+        dropped = [r for r in pending.report if r.get("dropped")]
+        self.assertTrue(
+            dropped, msg=f"Expected a dropped report entry: {pending.report}"
+        )

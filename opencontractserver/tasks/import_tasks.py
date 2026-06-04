@@ -52,6 +52,7 @@ from opencontractserver.utils.importing import (
     validate_labels_data,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.validate_export import validate_dumb_anchor_sidecar
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -861,6 +862,11 @@ def import_zip_with_folder_structure(
             # These are needed when importing annotation sidecars
             label_lookup: dict[str, AnnotationLabel] = {}
             doc_label_lookup: dict[str, AnnotationLabel] = {}
+            # Retained at function scope so the Phase-4 dumb-anchor sidecar
+            # pre-flight (validate_dumb_anchor_sidecar) can check producer
+            # annotations against the same labels.json. ``None`` when no
+            # labels file was loaded.
+            labels_data: dict | None = None
             if manifest.labels_file:
                 results["labels_file_found"] = True
             if manifest.labels_file and manifest.annotation_sidecars:
@@ -1011,6 +1017,10 @@ def import_zip_with_folder_structure(
                     sidecar_data: dict | None = None
                     has_pending_annotations = False
                     pending_annotations_list: list | None = None
+                    # True only for the dumb-anchor format (top-level
+                    # ``"annotations"``); the legacy ``"labelled_text"`` format
+                    # has no pre-flight schema and is re-anchored leniently.
+                    sidecar_is_dumb_anchor = False
                     if sidecar_path:
                         try:
                             sidecar_data = _read_sidecar(import_zip, sidecar_path)
@@ -1031,6 +1041,19 @@ def import_zip_with_folder_structure(
                             # re-anchored.
                             if isinstance(sidecar_data.get("annotations"), list):
                                 pending_annotations_list = sidecar_data["annotations"]
+                                # Only PURE dumb-anchor entries (``label`` +
+                                # ``page``/``bbox`` or ``start``/``end``) are
+                                # understood by validate_dumb_anchor_sidecar.
+                                # Legacy export entries (``annotationLabel`` +
+                                # baked ``annotation_json``) can also live in an
+                                # "annotations" list; those are normalised by
+                                # anchor_annotations' legacy adapter at remap
+                                # time and must NOT be pre-flighted (they would
+                                # false-fail the dumb-anchor schema).
+                                sidecar_is_dumb_anchor = not any(
+                                    isinstance(a, dict) and "annotation_json" in a
+                                    for a in pending_annotations_list
+                                )
                             elif isinstance(sidecar_data.get("labelled_text"), list):
                                 pending_annotations_list = sidecar_data["labelled_text"]
                             has_pending_annotations = (
@@ -1042,6 +1065,10 @@ def import_zip_with_folder_structure(
                             # format carried a ``"relationships"`` list; never
                             # drop it silently. Warn so producers know their
                             # relationships were ignored on import.
+                            # TODO(deferred-remap): wire relationship import into
+                            # remap_pending_annotations once the dumb-anchor
+                            # id_map is consumed end-to-end, then remove this
+                            # drop-and-warn path.
                             sidecar_rels = sidecar_data.get("relationships")
                             if isinstance(sidecar_rels, list) and sidecar_rels:
                                 rel_msg = (
@@ -1119,6 +1146,56 @@ def import_zip_with_folder_structure(
                                 # Stamped with this import's run id so the set
                                 # can be grouped / gated / reported on later.
                                 if has_pending_annotations and sidecar_data:
+                                    # Pre-flight validate the dumb-anchor payload
+                                    # against labels.json BEFORE persisting. A
+                                    # malformed sidecar (entry missing label /
+                                    # rawText / anchor, or a label that doesn't
+                                    # resolve in labels.json) otherwise drains
+                                    # through the Celery queue and only surfaces
+                                    # as a remap failure after ingest; validating
+                                    # here co-locates the error with the import
+                                    # and gives faster feedback. Invalid rows are
+                                    # still persisted (never silently dropped) but
+                                    # marked FAILED so remap skips them.
+                                    #
+                                    # Gated on BOTH conditions:
+                                    #   * dumb-anchor format only — the validator
+                                    #     does not understand the legacy
+                                    #     "labelled_text" shape, which stays
+                                    #     PENDING and is re-anchored leniently;
+                                    #   * a labels.json was actually loaded — the
+                                    #     validator's label-resolution check is
+                                    #     defined against labels.json, but in the
+                                    #     import flow labels legitimately resolve
+                                    #     from the corpus labelset when no
+                                    #     labels.json ships. Running it without
+                                    #     labels.json would false-fail every label
+                                    #     as "does not resolve".
+                                    pending_status = (
+                                        PendingDocumentAnnotations.Status.PENDING
+                                    )
+                                    pending_report: list = []
+                                    if (
+                                        sidecar_is_dumb_anchor
+                                        and labels_data is not None
+                                    ):
+                                        vres = validate_dumb_anchor_sidecar(
+                                            sidecar_data, labels_data
+                                        )
+                                        if not vres.ok:
+                                            pending_status = (
+                                                PendingDocumentAnnotations.Status.FAILED
+                                            )
+                                            pending_report = [
+                                                {"error": e} for e in vres.errors
+                                            ]
+                                            results["annotation_sidecars_errored"] += 1
+                                            results["errors"].append(
+                                                f"Sidecar {sidecar_path} failed "
+                                                f"validation ({len(vres.errors)} "
+                                                "error(s)); annotations not "
+                                                "imported."
+                                            )
                                     PendingDocumentAnnotations.objects.create(
                                         document=added_doc,
                                         corpus=corpus_obj,
@@ -1131,9 +1208,8 @@ def import_zip_with_folder_structure(
                                                 "doc_labels", []
                                             ),
                                         },
-                                        status=(
-                                            PendingDocumentAnnotations.Status.PENDING
-                                        ),
+                                        status=pending_status,
+                                        report=pending_report,
                                     )
                                     results["pending_annotation_docs"] += 1
                                     logger.info(

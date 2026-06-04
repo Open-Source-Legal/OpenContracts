@@ -154,6 +154,13 @@ ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD = 0.5
 # Min difflib ratio between selected tokens' text and rawText to confirm a PDF
 # geometric anchor before falling back to text search.
 ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO = 0.82
+# Min difflib ratio for the rawText fuzzy-match fallback when a PDF annotation
+# could not be confirmed geometrically. Kept separate from
+# ``PDF_OUTLINE_FUZZY_MATCH_THRESHOLD`` even though they share a value today:
+# the outline threshold is calibrated for short exact headings, whereas an
+# annotation's rawText can be a long multi-word span, so the two are tuned
+# independently as the feature matures.
+ANNOTATION_ANCHOR_TEXT_FUZZY_THRESHOLD = 0.82
 # rawText preview kept on a remap ``report`` entry. Head+tail (rather than a
 # single head slice) so a long-span annotation that was dropped can be
 # reconstructed from both ends of its text — the start AND the end disambiguate

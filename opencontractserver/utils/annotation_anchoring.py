@@ -16,9 +16,9 @@ from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL
 from opencontractserver.constants.annotations import (
     ANNOTATION_ANCHOR_GEOMETRY_OVERLAP_THRESHOLD,
     ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO,
+    ANNOTATION_ANCHOR_TEXT_FUZZY_THRESHOLD,
     ANNOTATION_REPORT_RAWTEXT_HEAD,
     ANNOTATION_REPORT_RAWTEXT_TAIL,
-    PDF_OUTLINE_FUZZY_MATCH_THRESHOLD,
 )
 from opencontractserver.types.dicts import (
     BoundingBoxPythonType,
@@ -74,7 +74,7 @@ def _anchor_pdf_page(
 
     if indices is None:
         texts, original = page_text_tokens(cast(PawlsPagePythonType, page))
-        span = match_title_to_tokens(raw, texts, PDF_OUTLINE_FUZZY_MATCH_THRESHOLD)
+        span = match_title_to_tokens(raw, texts, ANNOTATION_ANCHOR_TEXT_FUZZY_THRESHOLD)
         if span is not None:
             indices = original[span[0] : span[1] + 1]
 

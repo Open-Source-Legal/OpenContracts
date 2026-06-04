@@ -28,15 +28,26 @@
     `compact_annotation_json`.
   - Annotations that cannot be confidently anchored, or whose label does not
     resolve in the corpus labelset, are dropped and reported on the pending row
-    (`dropped: true` + reason; `dropped` / `label_unresolved` counts). If
-    anchoring succeeded but every annotation was dropped on an unresolved label,
-    the row is marked `FAILED` rather than a silent `DONE`. `PendingDocumentAnnotations`
-    gains an `updated_at` column and a Django admin registration for visibility
-    into stuck/failed rows.
+    (`dropped: true` + reason; `dropped` / `label_unresolved` counts). If the
+    producer asked for annotations but **nothing landed** — whether every
+    annotation failed to anchor outright (geometry miss + `rawText` not found)
+    or anchored-then-dropped on an unresolved label — the row is marked `FAILED`
+    rather than a silent `DONE`. A pending row with no resolvable corpus logs an
+    explicit warning so an empty labelset isn't mistaken for a bad `labels.json`.
+    `PendingDocumentAnnotations` gains an `updated_at` column and a Django admin
+    registration for visibility into stuck/failed rows.
   - A standalone validator `validate_dumb_anchor_sidecar`
     (`opencontractserver/utils/validate_export.py`) checks a producer's sidecar
     against its `labels.json` before zipping (including the span-label-must-be-
-    `TOKEN_LABEL` import gotcha). Shared PAWLs token-matching helpers
+    `TOKEN_LABEL` import gotcha), and is **also run inline during the bulk-ZIP
+    import** (`opencontractserver/tasks/import_tasks.py`) — when the producer
+    ships a `labels.json` alongside a dumb-anchor sidecar — so a malformed
+    sidecar fails fast at import time: the pending row is persisted `FAILED` with
+    the validation errors in its `report` instead of draining through the Celery
+    queue to surface only as a post-ingest remap failure. (Imports without a
+    `labels.json`, where labels resolve from the corpus labelset, skip the
+    pre-flight and are re-anchored as before.) Shared PAWLs token-matching
+    helpers
     (region selection, page-text tokenisation, fuzzy title matching, bounds
     union) were extracted to `opencontractserver/utils/pdf_token_matching.py`
     and are shared by the PDF outline enricher and the re-anchoring code.
