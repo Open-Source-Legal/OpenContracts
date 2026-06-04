@@ -1308,11 +1308,23 @@ class PipelineSettings(django.db.models.Model):
         raise ValidationError("PipelineSettings singleton cannot be deleted.")
 
     @classmethod
-    def _invalidate_cache(cls) -> None:
-        """Invalidate the cached instance."""
+    def clear_cache(cls) -> None:
+        """Drop the cached singleton so the next ``get_instance()`` re-reads the DB.
+
+        The public, documented entry point for forcing cache invalidation.
+        ``save()`` already invalidates automatically, so application code
+        rarely needs this; it exists for tests and admin/CLI tooling that
+        write the singleton row out-of-band (e.g. a direct ``QuerySet.update``
+        or a fixture load) and then need the change visible immediately.
+        """
         from django.core.cache import cache
 
         cache.delete(cls.CACHE_KEY)
+
+    @classmethod
+    def _invalidate_cache(cls) -> None:
+        """Backwards-compatible internal alias for :meth:`clear_cache`."""
+        cls.clear_cache()
 
     @classmethod
     def get_instance(cls, use_cache: bool = True) -> PipelineSettings:
