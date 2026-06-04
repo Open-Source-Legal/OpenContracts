@@ -6,7 +6,6 @@ import { Button } from "@os-legal/ui";
 import { Edit } from "lucide-react";
 import { editingCorpus } from "../../../graphql/cache";
 import { CorpusType } from "../../../types/graphql-api";
-import { useCorpusMdDescription } from "../../../hooks/useCorpusMdDescription";
 import { SafeMarkdown } from "../../knowledge_base/markdown/SafeMarkdown";
 import {
   CorpusHeaderContainer,
@@ -20,13 +19,11 @@ interface CorpusHeaderProps {
     id: string;
     title: string;
     description: string;
-    mdDescription?: string | null;
   };
 }
 
 export const CorpusHeader: React.FC<CorpusHeaderProps> = ({ corpus }) => {
-  const mdContent = useCorpusMdDescription(corpus.mdDescription);
-  const displayContent = mdContent || corpus.description;
+  const displayContent = corpus.description;
 
   return (
     <CorpusHeaderContainer>
