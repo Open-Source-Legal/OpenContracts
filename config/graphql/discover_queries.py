@@ -42,6 +42,7 @@ from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dyna
 from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.constants.annotations import SEMANTIC_SEARCH_MAX_RESULTS
 from opencontractserver.constants.search import (
+    DISCOVER_CORPUS_CONTENT_OVERSAMPLE,
     DISCOVER_DEFAULT_LIMIT,
     DISCOVER_OVERSAMPLE,
     FTS_CONFIG,
@@ -90,7 +91,12 @@ def _rrf(rankings: list[list[Any]], limit: int) -> list[Any]:
     for ids in rankings:
         for rank, _id in enumerate(ids):
             scores[_id] = scores.get(_id, 0.0) + 1.0 / (RRF_K + rank + 1)
-    ordered = sorted(scores.keys(), key=lambda i: (-scores[i], i))
+    # Tie-break on ``str(i)`` rather than ``i``: ``(-float, value)`` tuples are
+    # only comparable when every ``value`` is mutually comparable. Integer PKs
+    # work today, but a model migrating to UUID PKs would make ``uuid < uuid``
+    # the only comparable path and mixing types would raise TypeError. Casting
+    # to str keeps the sort total-orderable regardless of PK type.
+    ordered = sorted(scores.keys(), key=lambda i: (-scores[i], str(i)))
     return ordered[:limit]
 
 
@@ -368,7 +374,9 @@ class DiscoverSearchQueryMixin:
             BaseService.filter_visible(Document, user, request=info.context)
             .filter(Q(title__icontains=text) | Q(description__icontains=text))
             .order_by()
-            .values_list("id", flat=True)[: fetch_k * 4]
+            .values_list("id", flat=True)[
+                : fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE
+            ]
         )
         corpus_ids_from_docs = DocumentPath.objects.filter(
             document_id__in=list(matching_doc_ids),
@@ -382,7 +390,9 @@ class DiscoverSearchQueryMixin:
                 | Q(search_vector=SearchQuery(text, config=FTS_CONFIG))
             )
             .order_by()
-            .values_list("corpus_id", flat=True)[: fetch_k * 4]
+            .values_list("corpus_id", flat=True)[
+                : fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE
+            ]
         )
         content_corpus_ids = {
             cid

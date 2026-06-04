@@ -315,3 +315,40 @@ class DiscoverSemanticArmTest(TestCase):
         self.assertIsNone(result.get("errors"), result.get("errors"))
         texts = [n["rawText"] for n in result["data"]["discoverAnnotations"]]
         self.assertIn("zzz totally unrelated lexical content", texts)
+
+
+class DiscoverHelperTest(TestCase):
+    """Pure-function coverage for the fusion/ranking helpers (no DB)."""
+
+    def test_clamp_limit_none_and_nonpositive_fall_back_to_default(self):
+        from config.graphql.discover_queries import _clamp_limit
+        from opencontractserver.constants.search import DISCOVER_DEFAULT_LIMIT
+
+        # None, 0 and negatives all collapse to the documented default rather
+        # than producing an empty / inverted slice.
+        self.assertEqual(_clamp_limit(None), DISCOVER_DEFAULT_LIMIT)
+        self.assertEqual(_clamp_limit(0), DISCOVER_DEFAULT_LIMIT)
+        self.assertEqual(_clamp_limit(-1), DISCOVER_DEFAULT_LIMIT)
+
+    def test_clamp_limit_caps_at_semantic_max(self):
+        from config.graphql.discover_queries import _clamp_limit
+        from opencontractserver.constants.annotations import (
+            SEMANTIC_SEARCH_MAX_RESULTS,
+        )
+
+        self.assertEqual(_clamp_limit(5), 5)
+        self.assertEqual(
+            _clamp_limit(SEMANTIC_SEARCH_MAX_RESULTS + 1000),
+            SEMANTIC_SEARCH_MAX_RESULTS,
+        )
+
+    def test_rrf_tie_break_is_deterministic_and_type_agnostic(self):
+        from config.graphql.discover_queries import _rrf
+
+        # Two ids tied on score (each appears once at rank 0 in its own arm)
+        # must order deterministically by str(id). Mixing int and str ids would
+        # raise TypeError under the old ``(-score, id)`` key; str() keeps it
+        # total-orderable.
+        fused = _rrf([[2], ["10"]], limit=10)
+        self.assertEqual(sorted(fused, key=str), sorted([2, "10"], key=str))
+        self.assertEqual(fused, sorted([2, "10"], key=str))

@@ -47,6 +47,12 @@ DISCOVER_DEFAULT_LIMIT = 25
 # before fusion — a small oversample so RRF has room to reorder.
 DISCOVER_OVERSAMPLE = 4
 
+# Extra oversample applied to the corpus "content match" pre-filters
+# (documents/annotations whose text matches), on top of ``fetch_k``. A corpus
+# is reached transitively through many matching documents/annotations, so this
+# arm casts a wider net before collapsing to distinct corpus ids.
+DISCOVER_CORPUS_CONTENT_OVERSAMPLE = 4
+
 # =============================================================================
 # Reranker Parameters
 # =============================================================================

@@ -539,7 +539,9 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
             snippet={doc.description || undefined}
             meta={
               <>
-                {doc.creator?.slug ? <span>by {doc.creator.slug}</span> : null}
+                {doc.creator ? (
+                  <span>by {getCreatorDisplay(doc.creator)}</span>
+                ) : null}
                 {doc.fileType ? <span>· {doc.fileType}</span> : null}
               </>
             }
@@ -599,8 +601,8 @@ const CorpusesSection: React.FC<CorpusesSectionProps> = ({ query, limit }) => {
             snippet={corpus.description || undefined}
             meta={
               <>
-                {corpus.creator?.slug ? (
-                  <span>by {corpus.creator.slug}</span>
+                {corpus.creator ? (
+                  <span>by {getCreatorDisplay(corpus.creator)}</span>
                 ) : null}
                 {typeof corpus.documentCount === "number" ? (
                   <span>· {corpus.documentCount} docs</span>
