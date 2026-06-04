@@ -1,13 +1,111 @@
+import hashlib
 from datetime import timedelta
-from typing import Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
 from django.db import models
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from tree_queries.query import TreeQuerySet
 
+from opencontractserver.constants.annotations import (
+    ANNOTATION_COUNT_CACHE_PREFIX,
+    ANNOTATION_COUNT_CACHE_TTL_SECONDS,
+)
 from opencontractserver.shared.mixins import VectorSearchViaEmbeddingMixin
 from opencontractserver.shared.user_can_mixin import UserCanMixin
+
+# At runtime this is a bare mixin (no QuerySet base) so it can be combined
+# ahead of a concrete ``models.QuerySet`` subclass without MRO/metaclass
+# clashes. For type-checking we declare ``models.QuerySet`` as the base so
+# mypy resolves the inherited ``_result_cache``/``query`` attributes and the
+# ``super().count()`` call against the real QuerySet API.
+if TYPE_CHECKING:
+    _CachedCountBase = models.QuerySet
+else:
+    _CachedCountBase = object
+
+
+class CachedCountQuerySetMixin(_CachedCountBase):
+    """Mixin that caches a queryset's ``COUNT(*)`` keyed by its compiled SQL.
+
+    Motivation (issue #1908): graphene-django 3.2.3 calls ``.count()``
+    *eagerly* inside ``DjangoConnectionField.resolve_connection`` — regardless
+    of whether the client selected ``totalCount`` — and ``CountableConnection``
+    then resolves ``total_count`` with a second ``.count()``. For the un-scoped
+    annotation browse that COUNT runs over the full permission-filtered set (a
+    ``DISTINCT`` across several visibility joins on hundreds of thousands of
+    rows), so it dominates page latency and fires again on every
+    infinite-scroll page.
+
+    Casting a queryset to a subclass that mixes this in turns BOTH counts into
+    a single cache lookup. The key is the compiled SQL string, which inlines
+    the per-user visibility predicate and every active filter — so it is
+    naturally user- and filter-scoped and two different users (or two
+    different filter combinations) never share a cached value. The value is
+    exact when fresh and stale by at most ``_count_cache_ttl`` after a
+    create/delete, which is acceptable for a headline tile.
+
+    Clone-safety: Django's ``_clone()``/``_chain()`` reconstruct via
+    ``self.__class__(...)``, so the cached-count behaviour survives the
+    pagination slicing graphene performs before it reads ``total_count``.
+
+    Concrete subclasses set ``_count_cache_ttl`` and ``_count_cache_prefix``.
+    """
+
+    # Concrete subclasses MUST override ``_count_cache_ttl`` with a positive
+    # number of seconds. The ``0`` sentinel means "not configured" and bypasses
+    # the cache entirely (count runs live) — we deliberately avoid passing it to
+    # ``cache.set``, whose meaning for ``0`` is backend-dependent: LocMemCache
+    # treats it as "never expire", other backends as "expire immediately".
+    _count_cache_ttl: int = 0
+    _count_cache_prefix: str = "oc:qs_count"
+
+    def count(self) -> int:
+        # If the rows are already in memory (e.g. a parent resolver prefetched
+        # this queryset), behave exactly like a plain QuerySet and avoid both
+        # the SQL hash and the cache round-trip.
+        if self._result_cache is not None:
+            return len(self._result_cache)
+
+        # Unconfigured TTL → behave like a plain QuerySet (no caching). Prevents
+        # a subclass that forgets to set ``_count_cache_ttl`` from silently
+        # caching forever under LocMemCache (see the attribute comment above).
+        if self._count_cache_ttl <= 0:
+            return super().count()
+
+        from django.core.cache import cache
+
+        sql = str(self.query)
+        # ``str(self.query)`` compiles the full SQL (several OR'd visibility
+        # subqueries + EXISTS clauses for the annotation browse). That cost is
+        # intentionally inside the miss path — do NOT hoist it above the cache
+        # lookup; the whole point is to pay it at most once per TTL per filter.
+        #
+        # Cache-key determinism assumption: the compiled SQL (with parameters
+        # interpolated) must be stable for a given user+filter combination.
+        # That holds today because the visibility predicate and any label/type
+        # filters compile to fixed subqueries. A future filter that bakes a
+        # volatile value into the SQL — ``now()``, an unordered ``IN`` list
+        # built from a ``set``, or a locale-sensitive comparison — would make
+        # the digest unstable and turn every call into a miss. Keep filters on
+        # this path order-stable and value-free.
+        digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+        cache_key = f"{self._count_cache_prefix}:{digest}"
+
+        # Degrade gracefully on a cache-backend outage (e.g. a transient Redis
+        # blip): the eager graphene-django count path means an unhandled cache
+        # error would otherwise break the entire annotations browse page rather
+        # than just losing the optimisation. Fall back to a live COUNT.
+        try:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
+            value = super().count()
+            cache.set(cache_key, value, self._count_cache_ttl)
+            return value
+        except Exception:  # noqa: BLE001 — cache must never break the page
+            return super().count()
+
 
 # Preserves the concrete QuerySet subclass (e.g. AnnotationQuerySet) across
 # ``_exclude_soft_deleted_doc_orphans`` so callers don't lose their typed
@@ -567,6 +665,42 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         return qs.filter(
             visibility_filter & doc_visibility_filter & corpus_filter
         ).distinct()
+
+    def with_cached_count(self) -> "CachedCountAnnotationQuerySet":
+        """Return a clone whose ``.count()`` is cached (issue #1908).
+
+        Used only by the un-scoped annotations browse, where the exact
+        ``totalCount`` over the full permission-filtered set is the dominant
+        cost. Document- and corpus-scoped annotation queries deliberately do
+        NOT call this — their counts are bounded and must stay live so a count
+        badge updates immediately after an edit.
+
+        The returned clone is an instance of ``CachedCountAnnotationQuerySet``;
+        because ``_clone()`` preserves ``self.__class__``, any further
+        ``.select_related()`` / ``.filter()`` / pagination slicing keeps the
+        cached-count behaviour. See ``CachedCountQuerySetMixin``.
+        """
+        # Reassigning ``__class__`` on a fresh ``_chain()`` clone is an
+        # intentional, well-established Django-internal technique for swapping a
+        # queryset to a subclass without re-running the query construction. It
+        # is safe here because ``CachedCountAnnotationQuerySet`` only ADDS the
+        # cached ``.count()`` and shares ``AnnotationQuerySet``'s state layout.
+        clone = self._chain()  # type: ignore[attr-defined]
+        clone.__class__ = CachedCountAnnotationQuerySet
+        return clone
+
+
+class CachedCountAnnotationQuerySet(CachedCountQuerySetMixin, AnnotationQuerySet):
+    """``AnnotationQuerySet`` whose ``COUNT(*)`` is cached.
+
+    Reached via ``AnnotationQuerySet.with_cached_count()`` rather than
+    instantiated directly. The cache TTL/namespace come from
+    ``opencontractserver.constants.annotations`` so the value and the
+    documentation of the freshness window live in one place.
+    """
+
+    _count_cache_ttl = ANNOTATION_COUNT_CACHE_TTL_SECONDS
+    _count_cache_prefix = ANNOTATION_COUNT_CACHE_PREFIX
 
 
 class NoteQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):

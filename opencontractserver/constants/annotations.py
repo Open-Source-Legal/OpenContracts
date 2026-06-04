@@ -160,3 +160,19 @@ ANNOTATION_ANCHOR_TEXT_CONFIRM_RATIO = 0.82
 # which span failed when several share a prefix.
 ANNOTATION_REPORT_RAWTEXT_HEAD = 60
 ANNOTATION_REPORT_RAWTEXT_TAIL = 20
+
+# ── Annotation count caching (issue #1908) ──
+# The un-scoped "Browse annotations" view shows an exact "Total Annotations"
+# tile backed by ``COUNT(*)`` over the full permission-filtered annotation set
+# (a ``DISTINCT`` across several visibility joins). graphene-django 3.2.3 runs
+# that COUNT eagerly on every page — including each infinite-scroll page — so
+# at hundreds of thousands of rows it dominates latency. ``CachedCountQuerySet``
+# caches the exact value, keyed by the compiled SQL (which inlines the
+# per-user visibility predicate and every active filter), for this long. The
+# tile stays exact; it is stale by at most this window after a create/delete.
+ANNOTATION_COUNT_CACHE_TTL_SECONDS = 60 * 60  # 60 minutes
+
+# Cache-key namespace for the cached annotation count. Bump the trailing
+# version when the visibility predicate or count semantics change so stale
+# entries from the old shape are never served.
+ANNOTATION_COUNT_CACHE_PREFIX = "oc:annotation_count:v1"
