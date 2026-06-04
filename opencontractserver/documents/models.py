@@ -1298,10 +1298,10 @@ class PipelineSettings(django.db.models.Model):
         super().save(*args, **kwargs)
         # Eagerly invalidate cache after save for immediate consistency
         # (required in autocommit mode and Django TestCase which never commits).
-        self._invalidate_cache()
+        self.clear_cache()
         # Also invalidate on commit in case save() runs inside a larger
         # transaction that might roll back and be retried.
-        transaction.on_commit(lambda: self._invalidate_cache())
+        transaction.on_commit(lambda: self.clear_cache())
 
     def delete(self, *args: Any, **kwargs: Any) -> NoReturn:
         """Prevent deletion of the singleton instance."""
@@ -1323,7 +1323,11 @@ class PipelineSettings(django.db.models.Model):
 
     @classmethod
     def _invalidate_cache(cls) -> None:
-        """Backwards-compatible internal alias for :meth:`clear_cache`."""
+        """Backwards-compatible alias for :meth:`clear_cache`.
+
+        Retained for the existing test call sites that predate
+        :meth:`clear_cache`; new code should use the public method.
+        """
         cls.clear_cache()
 
     @classmethod
