@@ -228,6 +228,15 @@ def reap_stalled_research() -> dict:
             resumed.append(report.pk)
     if resumed:
         logger.info("[DeepResearch] Reaped + resumed stalled reports: %s", resumed)
+    elif stalled:
+        # Stalled rows were found but all turned out terminal (resume() no-ops).
+        # Log so the "reaper runs but nothing happens" case is diagnosable.
+        logger.debug(
+            "[DeepResearch] Found %d stalled report(s) but none were resumable "
+            "(all terminal): %s",
+            len(stalled),
+            stalled,
+        )
     return {"stalled": len(stalled), "resumed": resumed}
 
 
@@ -409,6 +418,10 @@ async def _run_deep_research_async(
     async def delete_memory(key: str) -> str:
         """Delete a memory entry to free room under the store caps."""
         removed = await sync_to_async(ResearchReportService.delete_memory)(report, key)
+        # Match the other DB-write tools (update_research_plan/write_memory):
+        # honour a cancellation request immediately after the write so a
+        # cancelled job stops issuing further delete_memory calls.
+        await sync_to_async(ResearchReportService.cancel_if_requested)(report)
         return f"Deleted memory '{key}'." if removed else f"No memory entry '{key}'."
 
     # Tools the agent may call. Retrieval tools come from the corpus
