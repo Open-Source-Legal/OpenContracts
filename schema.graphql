@@ -1310,6 +1310,7 @@ type CorpusType implements Node {
 
   """Documents in this corpus via DocumentPath"""
   documents(before: String, after: String, first: Int, last: Int): DocumentTypeConnection
+  autoBrandingEnabled: Boolean!
   categories: [CorpusCategoryType]
   labelSet: LabelSetType
 

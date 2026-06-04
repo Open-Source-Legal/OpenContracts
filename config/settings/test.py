@@ -123,6 +123,20 @@ STORAGES = {
 MODE = "TEST"
 TELEMETRY_ENABLED = False
 
+# Corpus auto-branding
+# ------------------------------------------------------------------------------
+# Disabled by default so corpus creation in the suite never dispatches the
+# branding task (which would call the LLM agent + image API under
+# CELERY_TASK_ALWAYS_EAGER). Branding tests opt back in with
+# ``@override_settings(CORPUS_AUTO_BRANDING_ENABLED=True)`` and mock the
+# external calls.
+CORPUS_AUTO_BRANDING_ENABLED = False
+# Also force the logo image API off by default: a branding test that opts the
+# feature back in still must never hit the real OpenAI Images endpoint if an
+# ``OPENAI_API_KEY`` happens to be present in CI. Tests that exercise the AI
+# logo path mock it explicitly; everything else falls back to the PIL monogram.
+CORPUS_LOGO_GENERATION_ENABLED = False
+
 # Embedder settings for tests
 # ------------------------------------------------------------------------------
 # Use fast TestEmbedder by default for all tests. This avoids HTTP calls to

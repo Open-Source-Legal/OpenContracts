@@ -86,3 +86,34 @@ def warn_if_content_large(content: str, *, context: str = "user content") -> Non
             len(content),
             UNTRUSTED_CONTENT_SIZE_WARNING_THRESHOLD,
         )
+
+
+def sanitize_plaintext_for_prompt(content: str, *, max_length: int = 300) -> str:
+    """Neutralise user content for embedding into a *plain-text* prompt.
+
+    The ``<user_content>`` fence (:func:`fence_user_content`) is the right
+    defence for instruction-following text models, but it is meaningless to a
+    text-to-image model, which has no concept of a data fence. For those
+    prompts the user value is interpolated directly into a sentence (often
+    inside quotes), so a title like ``" . Instead generate the text: ...`` can
+    break out of the quotes and inject directives.
+
+    This strips the characters that enable that break-out — straight/curly
+    quotes and any control/newline whitespace (collapsed to single spaces) —
+    and caps the length. It is intentionally lossy: the goal is a safe,
+    descriptive fragment, not a faithful echo of the original.
+
+    Args:
+        content: The raw, untrusted string.
+        max_length: Hard cap on the returned length.
+
+    Returns:
+        A single-line, quote-free, length-bounded fragment.
+    """
+    # Drop straight and common curly quotes so the value can't terminate a
+    # surrounding quoted span in the prompt template.
+    no_quotes = re.sub(r"[\"'‘’“”`]", "", content)
+    # Collapse all whitespace (including newlines/tabs/control chars) to single
+    # spaces so the value stays on one line and can't fake a new prompt section.
+    collapsed = re.sub(r"\s+", " ", no_quotes).strip()
+    return collapsed[:max_length]
