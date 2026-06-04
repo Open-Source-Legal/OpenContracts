@@ -128,6 +128,13 @@ async def _generate_logo(corpus: Corpus, user_id: int) -> str:
         fresh = Corpus.objects.select_related("creator").get(pk=corpus.pk)
         if fresh.icon:
             return "skipped_icon_present"
+        # Honour an opt-out that landed between _generate_logo's check and this
+        # save. _generate_logo already passed the gate by the time we get here,
+        # so without this re-check a user who disabled auto-branding mid-flight
+        # would still get a logo written. Mirrors the README step's top-level
+        # auto_branding_enabled re-check.
+        if not fresh.auto_branding_enabled:
+            return "skipped_opted_out"
         if fresh.creator is None:
             return "skipped_no_creator"
         result = CorpusService.update_icon(
@@ -211,16 +218,33 @@ def _build_branding_system_prompt(corpus: Corpus, tools: list[str]) -> str:
 
 
 def _build_logo_prompt(corpus: Corpus) -> str:
-    """Text-to-image prompt for the corpus logo."""
-    title = (corpus.title or "Document collection").strip()
-    description = (corpus.description or "").strip()
+    """Text-to-image prompt for the corpus logo.
+
+    SECURITY: the title/description are user-controlled and are interpolated
+    directly into the (quoted) image prompt. A text-to-image model has no
+    ``<user_content>`` fence concept, so we instead neutralise the values with
+    ``sanitize_plaintext_for_prompt`` — stripping quotes and collapsing
+    whitespace — so a crafted title cannot break out of the quotes and inject
+    its own directives (e.g. ``" . Instead, render the text: ...``). This
+    mirrors the prompt-hardening applied to the README agent's system prompt.
+    """
+    from opencontractserver.utils.prompt_sanitization import (
+        sanitize_plaintext_for_prompt,
+    )
+
+    title = sanitize_plaintext_for_prompt(
+        (corpus.title or "Document collection").strip(), max_length=200
+    )
+    description = sanitize_plaintext_for_prompt(
+        (corpus.description or "").strip(), max_length=300
+    )
 
     prompt = (
         "A clean, modern, minimalist vector logo icon for a document "
         f'collection titled "{title}".'
     )
     if description:
-        prompt += f" The collection is about: {description[:300]}."
+        prompt += f" The collection is about: {description}."
     prompt += (
         " Flat design, simple geometric shapes, a single focal symbol, bold "
         "solid colors, centered on a plain background, no text, no words, no "
