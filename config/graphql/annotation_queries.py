@@ -117,10 +117,13 @@ class AnnotationQueryMixin:
             analysis_isnull = None
 
         else:
-            # Fallback to visible_to_user for queries without document or corpus
+            # Fallback to visible_to_user for queries without document or
+            # corpus. This un-scoped "Browse annotations" path uses a cached
+            # exact totalCount (scoped paths above keep live counts) — see
+            # ``CachedCountQuerySetMixin`` / issue #1908.
             queryset = BaseService.filter_visible(
                 Annotation, info.context.user, request=info.context
-            )
+            ).with_cached_count()
 
         queryset = queryset.select_related(
             "annotation_label",

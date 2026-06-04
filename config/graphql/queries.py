@@ -26,6 +26,7 @@ from config.graphql.research_queries import ResearchQueryMixin
 from config.graphql.search_queries import SearchQueryMixin
 from config.graphql.slug_queries import SlugQueryMixin
 from config.graphql.social_queries import SocialQueryMixin
+from config.graphql.stats_queries import StatsQueryMixin
 from config.graphql.user_queries import UserQueryMixin
 from config.graphql.worker_queries import WorkerQueryMixin
 
@@ -46,6 +47,7 @@ class Query(
     OGMetadataQueryMixin,
     WorkerQueryMixin,
     ResearchQueryMixin,
+    StatsQueryMixin,
     graphene.ObjectType,
 ):
     if settings.ALLOW_GRAPHQL_DEBUG:
