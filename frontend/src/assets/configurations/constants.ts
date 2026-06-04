@@ -384,6 +384,14 @@ export const CHAT_SEND_LOCK_MS = 300;
  * don't yank them back to the latest message.
  */
 export const CHAT_AUTOSCROLL_THRESHOLD_PX = 100;
+// Caps the chat message reading column on wide viewports (e.g. corpus chat) so
+// lines stay scannable; a no-op on narrow surfaces already below this width.
+export const CHAT_MESSAGE_MAX_WIDTH_REM = "60rem";
+// User message bubble: solid neutral card surface + border so it reads as a
+// distinct card against the near-white messages background (blue stays reserved
+// for the assistant's identity).
+export const CHAT_USER_MESSAGE_BG = "rgba(237, 240, 244, 0.92)";
+export const CHAT_USER_MESSAGE_BORDER = "rgba(203, 210, 219, 0.9)";
 
 export type ConversationType =
   (typeof CONVERSATION_TYPE)[keyof typeof CONVERSATION_TYPE];
