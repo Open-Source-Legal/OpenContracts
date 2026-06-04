@@ -1059,8 +1059,8 @@ def remap_pending_annotations(
 
 
 def _remap_one_pending_row(
-    pending: "PendingDocumentAnnotations",
-    doc: "Document",
+    pending: PendingDocumentAnnotations,
+    doc: Document,
     label_cache: dict[Any, tuple[dict[str, Any], dict[str, Any]]],
 ) -> dict[str, Any]:
     """Anchor and import a single ``PendingDocumentAnnotations`` row.
