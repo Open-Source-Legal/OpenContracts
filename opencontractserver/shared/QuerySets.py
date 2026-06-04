@@ -80,6 +80,15 @@ class CachedCountQuerySetMixin(_CachedCountBase):
         # subqueries + EXISTS clauses for the annotation browse). That cost is
         # intentionally inside the miss path — do NOT hoist it above the cache
         # lookup; the whole point is to pay it at most once per TTL per filter.
+        #
+        # Cache-key determinism assumption: the compiled SQL (with parameters
+        # interpolated) must be stable for a given user+filter combination.
+        # That holds today because the visibility predicate and any label/type
+        # filters compile to fixed subqueries. A future filter that bakes a
+        # volatile value into the SQL — ``now()``, an unordered ``IN`` list
+        # built from a ``set``, or a locale-sensitive comparison — would make
+        # the digest unstable and turn every call into a miss. Keep filters on
+        # this path order-stable and value-free.
         digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
         cache_key = f"{self._count_cache_prefix}:{digest}"
 
