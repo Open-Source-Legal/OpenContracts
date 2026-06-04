@@ -46,6 +46,7 @@ class CorpusSerializer(serializers.ModelSerializer):
             "is_public",
             "slug",
             "icon",
+            "auto_branding_enabled",
             "label_set",
             "creator",
             "creator_id",

@@ -220,6 +220,67 @@ def trigger_corpus_actions_on_message_creation(
 
 
 # =============================================================================
+# Corpus auto-branding trigger (logo + Readme.CAML on creation)
+# =============================================================================
+#
+# Fires once when a corpus is first created. Gated so it only runs for genuine
+# user-facing corpora that opted in and did not upload their own icon:
+#
+#   * ``created`` only (never on update)
+#   * not a fixture/test save (``_skip_signals``)
+#   * install-wide kill-switch ``settings.CORPUS_AUTO_BRANDING_ENABLED``
+#   * not a personal "My Documents" corpus (auto-provisioned per user)
+#   * the per-corpus opt-out flag ``auto_branding_enabled``
+#   * no icon uploaded at creation (uploading one opts the corpus out)
+#
+# The work is deferred to a Celery task via ``transaction.on_commit`` so the
+# corpus row (and its creator-permission grant) is durable first. The task is
+# fire-and-forget — branding never blocks corpus creation.
+
+
+@receiver(post_save, sender="corpuses.Corpus")
+def trigger_corpus_branding_on_creation(
+    sender: type[Corpus],
+    instance: Corpus,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Queue logo + Readme.CAML generation for a newly-created corpus."""
+    from django.conf import settings
+
+    if not created:
+        return
+    if hasattr(instance, "_skip_signals"):
+        return
+    if not getattr(settings, "CORPUS_AUTO_BRANDING_ENABLED", False):
+        return
+    if instance.is_personal:
+        return
+    if not instance.auto_branding_enabled:
+        return
+    if instance.icon:
+        # User uploaded their own image — opt out of auto-branding entirely.
+        return
+    if instance.creator_id is None:
+        return
+
+    corpus_id = instance.pk
+    user_id = instance.creator_id
+
+    def _queue() -> None:
+        from opencontractserver.tasks.corpus_tasks import generate_corpus_branding
+
+        generate_corpus_branding.delay(corpus_id=corpus_id, user_id=user_id)
+        logger.info(
+            "[CorpusBranding] Queued auto-branding for corpus %s (creator %s)",
+            corpus_id,
+            user_id,
+        )
+
+    transaction.on_commit(_queue)
+
+
+# =============================================================================
 # Corpus vote count denormalization
 # =============================================================================
 #

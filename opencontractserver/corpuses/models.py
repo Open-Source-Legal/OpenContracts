@@ -165,6 +165,23 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         blank=True, null=True, upload_to=calculate_icon_filepath
     )
 
+    # Auto-branding opt-out (issue: corpus auto-branding).
+    #
+    # When True, a freshly-created corpus that has no uploaded ``icon`` gets an
+    # auto-generated logo + ``Readme.CAML`` article produced by an LLM agent
+    # (web research on the title/description + image generation). This is the
+    # per-corpus opt-out lever surfaced to users; the install-wide kill-switch
+    # is the ``CORPUS_AUTO_BRANDING_ENABLED`` setting, and uploading an icon at
+    # creation also suppresses the run (see ``corpuses/signals.py``).
+    auto_branding_enabled = django.db.models.BooleanField(
+        default=True,
+        help_text=(
+            "When True, auto-generate a logo and Readme.CAML article on "
+            "creation if no icon was uploaded. Set False to opt this corpus "
+            "out of auto-branding."
+        ),
+    )
+
     # Categories and Labels in the Corpus
     categories = django.db.models.ManyToManyField(
         "CorpusCategory",

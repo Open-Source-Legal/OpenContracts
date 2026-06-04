@@ -123,6 +123,15 @@ STORAGES = {
 MODE = "TEST"
 TELEMETRY_ENABLED = False
 
+# Corpus auto-branding
+# ------------------------------------------------------------------------------
+# Disabled by default so corpus creation in the suite never dispatches the
+# branding task (which would call the LLM agent + image API under
+# CELERY_TASK_ALWAYS_EAGER). Branding tests opt back in with
+# ``@override_settings(CORPUS_AUTO_BRANDING_ENABLED=True)`` and mock the
+# external calls.
+CORPUS_AUTO_BRANDING_ENABLED = False
+
 # Embedder settings for tests
 # ------------------------------------------------------------------------------
 # Use fast TestEmbedder by default for all tests. This avoids HTTP calls to
