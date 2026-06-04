@@ -300,6 +300,10 @@ export const Z_INDEX = {
    *  annotations. Must sit above ``PDF_SELECTION_LAYER`` so its
    *  ``pointer-events: auto`` anchors receive clicks first. */
   PDF_NATIVE_LINK_LAYER: 2,
+  /** Mobile floating document-controls pill — overlays the viewer's top-right
+   *  corner inside ViewerArea's local stacking context, above the rendered
+   *  page but below in-page loading overlays. */
+  MOBILE_DOC_TOOLBAR_OVERLAY: 5,
   /** In-page loading overlays (position: absolute within a relative parent) */
   OVERLAY: 10,
   /** Document header — establishes stacking context above content when backdrop-filter is active.

@@ -1,7 +1,8 @@
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { MobileDocToolbar } from "./MobileDocToolbar.harness";
 
-test("renders the three controls", async ({ mount }) => {
+test("renders the three controls", async ({ mount, page }) => {
   const c = await mount(
     <MobileDocToolbar
       zoomPercent={100}
@@ -13,6 +14,7 @@ test("renders the three controls", async ({ mount }) => {
   await expect(c.getByRole("button", { name: /sections/i })).toBeVisible();
   await expect(c.getByRole("button", { name: /find/i })).toBeVisible();
   await expect(c.getByRole("button", { name: /fit width/i })).toBeVisible();
+  await docScreenshot(page, "annotations--mobile-doc-toolbar--floating-pill");
 });
 
 test("buttons fire their callbacks", async ({ mount }) => {

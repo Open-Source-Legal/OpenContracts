@@ -46,3 +46,11 @@ export const FOCUS_RING = "0 0 0 3px rgba(15, 118, 110, 0.16)";
  * white cards and chrome read as layered rather than stark white-on-white.
  */
 export const SURFACE_TINT = "#f5f6f8";
+
+/**
+ * Deeper canvas tint sitting *behind* the document page sheet. A clear step
+ * below {@link SURFACE_TINT} (slate-200-ish) so the white PDF/text "page"
+ * reads as a floating sheet with real figure/ground separation instead of
+ * the washed-out near-white-on-near-white the old `#f7f9f9` backdrop gave.
+ */
+export const VIEWER_CANVAS = "#e4e9f0";
