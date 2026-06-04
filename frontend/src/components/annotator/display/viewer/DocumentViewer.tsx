@@ -1,5 +1,7 @@
 import styled from "styled-components";
 
+import { VIEWER_CANVAS } from "../../../../assets/configurations/designTokens";
+
 export const PDFContainer = styled.div<{ width?: number }>(
   ({ width }) => `
     overflow-y: scroll;
@@ -17,7 +19,10 @@ export const PDFContainer = styled.div<{ width?: number }>(
     -webkit-overflow-scrolling: touch; /* Enable smooth scrolling on iOS */
 
     @media (max-width: 768px) {
-      padding: 0.5rem;
+      /* Deeper backdrop than the desktop near-white so the white page sheet
+         floats with real contrast instead of reading washed-out. */
+      background: ${VIEWER_CANVAS};
+      padding: 0.75rem;
       width: 100%;
       min-width: 100%;
       height: 100%; /* Use full height of parent container on mobile */

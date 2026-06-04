@@ -9,3 +9,13 @@ frontend/src/assets/** linguist-vendored
 #   with merge=ours).
 # Requires one-time local setup: git config merge.ours.driver true
 docs/assets/images/screenshots/auto/** merge=ours -diff -text
+
+# CHANGELOG.md is append-heavy: every PR adds entries to the top of the
+# "## [Unreleased]" section, so concurrent PRs constantly collide on the same
+# lines. `merge=union` is a *built-in* git driver (no `git config` needed,
+# unlike merge=ours above) that resolves such conflicts by keeping the added
+# lines from BOTH sides instead of raising a conflict. Going forward, prefer
+# adding a fragment under changelog.d/ (see changelog.d/README.md) so PRs never
+# touch this file at all; the union driver is a safety net for direct edits and
+# for the existing in-flight PRs.
+CHANGELOG.md merge=union
