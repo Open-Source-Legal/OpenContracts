@@ -146,3 +146,19 @@ SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS = 16_000
 COMPACT_JSON_MAX_RANGE_SPAN = 10_000
 # Maximum total tokens across all pages (safety guard).
 COMPACT_JSON_MAX_TOTAL_TOKENS = 50_000
+
+# ── Annotation count caching (issue #1908) ──
+# The un-scoped "Browse annotations" view shows an exact "Total Annotations"
+# tile backed by ``COUNT(*)`` over the full permission-filtered annotation set
+# (a ``DISTINCT`` across several visibility joins). graphene-django 3.2.3 runs
+# that COUNT eagerly on every page — including each infinite-scroll page — so
+# at hundreds of thousands of rows it dominates latency. ``CachedCountQuerySet``
+# caches the exact value, keyed by the compiled SQL (which inlines the
+# per-user visibility predicate and every active filter), for this long. The
+# tile stays exact; it is stale by at most this window after a create/delete.
+ANNOTATION_COUNT_CACHE_TTL_SECONDS = 60 * 60  # 60 minutes
+
+# Cache-key namespace for the cached annotation count. Bump the trailing
+# version when the visibility predicate or count semantics change so stale
+# entries from the old shape are never served.
+ANNOTATION_COUNT_CACHE_PREFIX = "oc:annotation_count:v1"
