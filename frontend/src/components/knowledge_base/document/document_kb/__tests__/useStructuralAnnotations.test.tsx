@@ -190,6 +190,50 @@ describe("useStructuralAnnotations", () => {
     expect(utils.getByTestId("rels").textContent).toBe("rel-99");
   });
 
+  it("reports loading on the very first render of a pending deep-link, before the targeted fetch is dispatched", async () => {
+    // Cold-cache structural deep-link: an id is selected before anything has
+    // loaded. The targeted fetch is dispatched by an effect that runs *after*
+    // the first render, so on that first render Apollo's lazy-query result is
+    // still `{ called: false, loading: false }`. The hook must nonetheless
+    // report loading immediately, otherwise the consuming not-found guard
+    // (MobileAnnotationDetail) flashes "no longer available" for one frame.
+    selectedAnnotationIds(["ann-77"]);
+
+    const mocks = [
+      makeMock(
+        "doc-C",
+        ["ann-77"],
+        [annotation("ann-77")],
+        [relationship("rel-77")]
+      ),
+    ];
+
+    const loadingByRender: boolean[] = [];
+    const LoadingProbe: React.FC<{ documentId: string }> = ({ documentId }) => {
+      const { loading } = useStructuralAnnotations(documentId);
+      loadingByRender.push(loading);
+      return <span data-testid="loading">{loading ? "1" : "0"}</span>;
+    };
+
+    const utils = render(
+      <MockedProvider mocks={mocks} addTypename={false}>
+        <Provider>
+          <LoadingProbe documentId="doc-C" />
+        </Provider>
+      </MockedProvider>
+    );
+
+    // The discriminating assertion: the first render — captured before any
+    // effect runs — must already report loading.
+    expect(loadingByRender[0]).toBe(true);
+
+    // Once the targeted fetch settles, loading drops back to false so a
+    // genuinely-missing annotation can still surface the not-found state.
+    await waitFor(() =>
+      expect(utils.getByTestId("loading").textContent).toBe("0")
+    );
+  });
+
   it("clears all three atoms when the documentId changes", async () => {
     showStructuralAnnotations(true);
 
