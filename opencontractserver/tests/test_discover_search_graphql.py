@@ -9,7 +9,6 @@ permission filtering deterministically by disabling the semantic arm
 query vector to prove fusion surfaces semantic-only hits.
 """
 
-from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -93,14 +92,34 @@ class DiscoverSearchTextArmTest(TestCase):
             page=0,
             is_public=True,
         )
-        # A private annotation owned by ``other`` must never leak to ``user``.
+        # An annotation owned by ``other`` that must never leak to ``user``.
+        # Annotation visibility is *inherited* from the document + corpus
+        # (regular annotations have no individual privacy field of their own —
+        # see AnnotationQuerySet.visible_to_user), so the only way to hide one
+        # from ``user`` is to place it on a container ``user`` cannot read.
+        # This proves the discover resolver filters on inherited visibility.
+        self.other_private_corpus = Corpus.objects.create(
+            title="Other private corpus",
+            creator=self.other,
+            is_public=False,
+        )
+        self.other_private_doc = Document.objects.create(
+            title="Other private doc",
+            creator=self.other,
+            is_public=False,
+        )
+        _link(
+            self.other_private_doc,
+            self.other_private_corpus,
+            self.other,
+            "/secret.pdf",
+        )
         self.private_other_ann = Annotation.objects.create(
-            document=self.document,
-            corpus=self.corpus,
+            document=self.other_private_doc,
+            corpus=self.other_private_corpus,
             creator=self.other,
             raw_text="indemnify secret confidential",
-            page=1,
-            is_public=False,
+            page=0,
         )
 
         self.note = Note.objects.create(
@@ -161,7 +180,7 @@ class DiscoverSearchTextArmTest(TestCase):
         self.assertIsNone(result.get("errors"), result.get("errors"))
         texts = [n["rawText"] for n in result["data"]["discoverAnnotations"]]
         self.assertIn("The seller shall indemnify the buyer for losses", texts)
-        # Private annotation owned by other user must not appear.
+        # Annotation on an unreadable document/corpus must not appear.
         self.assertNotIn("indemnify secret confidential", texts)
 
     def test_discover_documents_text_match(self):
@@ -178,11 +197,14 @@ class DiscoverSearchTextArmTest(TestCase):
         self.assertIn("Indemnification Schedule", titles)
 
     def test_discover_notes_fts_stemming(self):
-        # "indemnify" only matches "indemnification" via FTS stemming, proving
-        # the new Note.search_vector path works (icontains alone would miss it).
+        # "indemnifications" only matches "indemnification" via FTS stemming
+        # (both share the lexeme "indemnif"), proving the new
+        # Note.search_vector path works — a plain icontains substring match
+        # would miss it, since "indemnifications" is not a substring of the
+        # note's title or content.
         result = self.client.execute(
             "query D($t: String!){ discoverNotes(textSearch:$t){ id title } }",
-            variables={"t": "indemnify"},
+            variables={"t": "indemnifications"},
         )
         self.assertIsNone(result.get("errors"), result.get("errors"))
         titles = [n["title"] for n in result["data"]["discoverNotes"]]
@@ -274,11 +296,14 @@ class DiscoverSemanticArmTest(TestCase):
 
         self.client = Client(schema, context_value=TestContext(self.user))
 
-    @skipUnless(
-        get_default_embedder_path(),
-        "No default embedder configured; semantic arm cannot be exercised.",
-    )
     def test_semantic_only_hit(self):
+        # Resolve the default embedder at runtime — calling
+        # get_default_embedder_path() in a decorator would hit the DB during
+        # pytest collection (before db access is permitted).
+        if not get_default_embedder_path():
+            self.skipTest(
+                "No default embedder configured; semantic arm cannot be exercised."
+            )
         with patch(
             "config.graphql.discover_queries._query_vector",
             return_value=self.vector,
