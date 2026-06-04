@@ -34,10 +34,36 @@ import logging
 from typing import Any
 
 from asgiref.sync import sync_to_async
+from django.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
+from django.db import Error as DatabaseError
 
 from opencontractserver.llms.llm_registry import parse_model_spec
 
 logger = logging.getLogger(__name__)
+
+# Reading DB-configured credentials can legitimately fail when the DB is
+# unavailable (migrations / early startup / app registry not ready). Those
+# are recoverable — fall back to env credentials. A programming bug
+# (TypeError from a wrong signature, etc.) is NOT in this set and is allowed
+# to propagate so it surfaces instead of silently degrading.
+_DB_READ_RECOVERABLE_ERRORS = (
+    DatabaseError,
+    AppRegistryNotReady,
+    ImproperlyConfigured,
+    ImportError,
+    OSError,
+)
+
+# Building a credentialed pydantic-ai model can fail on an API shift (an
+# import that moved, a renamed kwarg) or a bad endpoint value. These degrade
+# to the bare spec string; genuine bugs (e.g. TypeError) still propagate.
+_MODEL_BUILD_RECOVERABLE_ERRORS = (
+    ImportError,
+    AttributeError,
+    ValueError,
+    OSError,
+    RuntimeError,
+)
 
 
 def _provider_class_path(provider_key: str) -> str | None:
@@ -66,7 +92,7 @@ def _get_db_credentials(provider_key: str) -> dict[str, str]:
         from opencontractserver.documents.models import PipelineSettings
 
         stored = PipelineSettings.get_instance().get_full_component_settings(class_path)
-    except Exception:
+    except _DB_READ_RECOVERABLE_ERRORS:
         # DB unavailable (migrations / early startup) — fall back to env.
         logger.debug(
             "Could not read LLM provider settings for %r; using env fallback.",
@@ -99,6 +125,34 @@ def _construct_model(
     """
     api_key = creds.get("api_key")
     base_url = creds.get("base_url")
+
+    if base_url is not None:
+        # Only superusers can write this setting, so the threat model is low,
+        # but a malformed endpoint (missing scheme, a typo'd host) otherwise
+        # fails opaquely deep inside the HTTP client. A scheme check turns it
+        # into an early, clear fallback to env credentials.
+        from urllib.parse import urlparse
+
+        if urlparse(base_url).scheme not in ("http", "https"):
+            logger.warning(
+                "DB-configured base_url for provider %r is not a valid "
+                "http(s) URL (%r); ignoring it and using env credentials.",
+                provider_key,
+                base_url,
+            )
+            return None
+        if api_key is None and provider_key != "ollama":
+            # A custom endpoint with no key set: pydantic-ai will fall back to
+            # the provider-native env var, which a non-standard gateway may not
+            # use. Surface the likely misconfiguration at construction time.
+            # (ollama is intentionally keyless — a placeholder is supplied
+            # below — so it is excluded.)
+            logger.warning(
+                "DB-configured base_url for provider %r has no api_key; the "
+                "request will rely on the provider's env var, which a custom "
+                "gateway may not honour.",
+                provider_key,
+            )
 
     if provider_key in ("openai", "ollama"):
         from pydantic_ai.providers.openai import OpenAIProvider
@@ -180,7 +234,7 @@ def build_agent_model(spec: str) -> Any:
 
     try:
         model = _construct_model(provider_key, model_name, creds)
-    except Exception:
+    except _MODEL_BUILD_RECOVERABLE_ERRORS:
         logger.warning(
             "Failed to build a credentialed model for provider %r; falling "
             "back to environment credentials.",

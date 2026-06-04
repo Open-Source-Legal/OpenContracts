@@ -98,9 +98,12 @@ class TestBuildAgentModelEnvFallback(TestCase):
         )
 
     def test_colonless_spec_returned_unchanged(self):
-        # A spec without a "provider:model" colon can't be parsed, so it is
-        # returned verbatim before any credential lookup — pydantic-ai
-        # resolves it from the environment as before.
+        # A colonless spec is NOT unparseable: parse_model_spec treats a bare
+        # model name as the default ("openai") provider. With no DB credentials
+        # configured for openai in this test, _get_db_credentials returns {},
+        # so build_agent_model returns the spec verbatim — pydantic-ai resolves
+        # it from the environment as before. (This exercises the
+        # no-DB-creds → bare-string path, not a ValueError.)
         self.assertEqual(build_agent_model("gpt-4o"), "gpt-4o")
 
     def test_malformed_spec_returned_unchanged(self):
