@@ -21,6 +21,7 @@ grouping everything by category in Keep-a-Changelog order. It does NOT cut a
 version — renaming ``[Unreleased]`` to ``[X.Y.Z]`` and opening a fresh empty
 ``[Unreleased]`` stays a deliberate manual release step.
 """
+
 from __future__ import annotations
 
 import argparse
