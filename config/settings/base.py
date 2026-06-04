@@ -13,6 +13,7 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import MAX_FILE_UPLOAD_SIZE_BYTES
+from opencontractserver.constants.stats import SYSTEM_STATS_REFRESH_INTERVAL_SECONDS
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # opencontractserver/
@@ -811,6 +812,13 @@ CELERY_BEAT_SCHEDULE = {
     "deep-research-resume-stalled": {
         "task": "opencontractserver.tasks.research_tasks.reap_stalled_research",
         "schedule": 300.0,  # every 5 minutes
+        "options": {"queue": "celery"},
+    },
+    # Materialise install-wide headline counts so dashboards/landing tiles
+    # don't run full-table COUNTs on every page load (issue #1908).
+    "system-stats-refresh": {
+        "task": "opencontractserver.tasks.stats_tasks.refresh_system_stats",
+        "schedule": SYSTEM_STATS_REFRESH_INTERVAL_SECONDS,
         "options": {"queue": "celery"},
     },
 }
