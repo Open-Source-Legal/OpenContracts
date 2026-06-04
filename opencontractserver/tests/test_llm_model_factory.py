@@ -18,6 +18,7 @@ from unittest import mock
 
 from asgiref.sync import async_to_sync
 from django.test import TestCase
+from pydantic_ai.models import Model
 
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.llms.model_factory import (
@@ -89,6 +90,7 @@ class TestBuildAgentModelEnvFallback(TestCase):
         reset_registry()
         self.addCleanup(reset_registry)
         PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
 
     def test_no_db_creds_returns_bare_spec_string(self):
         # A fresh singleton has no provider creds → env fallback (string).
@@ -124,6 +126,7 @@ class TestBuildAgentModelDbWins(TestCase):
         reset_registry()
         self.addCleanup(reset_registry)
         PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
         openai_defn = get_llm_provider_by_key_cached("openai")
         assert openai_defn is not None
         self.openai_path = openai_defn.class_name
@@ -167,8 +170,6 @@ class TestBuildAgentModelDbWins(TestCase):
 
     def test_db_creds_build_real_pydantic_ai_model(self):
         """End-to-end: a non-string credentialed pydantic-ai model is returned."""
-        from pydantic_ai.models import Model
-
         self._configure_openai_creds(
             api_key="sk-db-key", base_url="http://gateway.local/v1"
         )
@@ -191,6 +192,7 @@ class TestProviderSecretStatusSurface(TestCase):
         reset_registry()
         self.addCleanup(reset_registry)
         PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
         anthropic_defn = get_llm_provider_by_key_cached("anthropic")
         assert anthropic_defn is not None
         self.anthropic_path = anthropic_defn.class_name

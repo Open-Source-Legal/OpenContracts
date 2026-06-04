@@ -1327,8 +1327,9 @@ class PipelineSettings(django.db.models.Model):
     def _invalidate_cache(cls) -> None:
         """Backwards-compatible alias for :meth:`clear_cache`.
 
-        Retained for the existing test call sites that predate
-        :meth:`clear_cache`; new code should use the public method.
+        Retained for existing callers (the test suite and ``conftest.py``)
+        that predate :meth:`clear_cache`; new code should use the public
+        method.
         """
         cls.clear_cache()
 
