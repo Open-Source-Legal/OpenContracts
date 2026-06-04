@@ -13,6 +13,7 @@ import {
   Edit,
   Compass,
   LayoutDashboard,
+  Menu,
 } from "lucide-react";
 import styled from "styled-components";
 
@@ -27,7 +28,10 @@ import {
 import { CorpusType } from "../../../types/graphql-api";
 import { parseCaml } from "@os-legal/caml";
 import type { CamlDocument } from "@os-legal/caml";
-import { CAML_ARTICLE_FILENAME } from "../../../assets/configurations/constants";
+import {
+  CAML_ARTICLE_FILENAME,
+  TABLET_BREAKPOINT,
+} from "../../../assets/configurations/constants";
 import { CamlDirectiveRenderer } from "../caml/CamlDirectiveRenderer";
 import {
   registerDirectiveHandler,
@@ -110,16 +114,14 @@ const ToolbarTitle = styled.span`
   color: ${OS_LEGAL_COLORS.textMuted};
   font-weight: 400;
   letter-spacing: 0.01em;
-  /* Allow the title to shrink so the nav controls (incl. the mode toggle)
-     never get pushed off-screen on narrow viewports. */
+  /* Shrink so the nav controls never get pushed off-screen on narrow viewports. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  /* The corpus title is redundant with the article hero on small screens —
-     hide it on mobile to make room for the back button + nav controls. */
-  @media (max-width: 768px) {
+  /* Redundant with the article hero on mobile — hide to make room for nav controls. */
+  @media (max-width: ${TABLET_BREAKPOINT}px) {
     display: none;
   }
 `;
@@ -130,6 +132,48 @@ const ToolbarNav = styled.div`
   gap: 0.5rem;
   margin-left: auto;
   flex-shrink: 0;
+`;
+
+/** Mobile-only control opening the corpus tab menu; the sidebar is always
+ *  present on desktop. This is deliberately NOT the shared `MobileMenuButton`
+ *  from `styles.ts`: that button belongs to the legacy `CORPUS_COLORS` design
+ *  language (a bare, background-less slate icon) used by `CorpusLandingView` /
+ *  `CorpusDetailsView`. `CorpusArticleView` is rendered in the newer os-legal
+ *  design system (`OS_LEGAL_COLORS`) and its toolbar sits beside os-legal
+ *  `PillToggle` controls, so it uses a matching circular, filled button. Reusing
+ *  `MobileMenuButton` here would visually clash with the article toolbar. */
+const ToolbarMenuButton = styled.button`
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9999px;
+  background: ${OS_LEGAL_COLORS.surfaceLight};
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+
+  &:hover {
+    background: ${OS_LEGAL_COLORS.accentSurface};
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${OS_LEGAL_COLORS.accent};
+    outline-offset: 2px;
+  }
+
+  @media (max-width: ${TABLET_BREAKPOINT}px) {
+    display: inline-flex;
+  }
 `;
 
 /** Centered corpus avatar shown above the article body when the CAML does not
@@ -193,6 +237,14 @@ export interface CorpusArticleViewProps {
   onModeToggle?: () => void;
   /** Whether power-user ("Manage") mode is currently active. */
   isPowerUserMode?: boolean;
+  /**
+   * Opens the corpus tab menu (mobile navigation sidebar). When provided, a
+   * mobile-only menu button is rendered in the sticky toolbar so the corpus
+   * tabs stay reachable while the Readme.CAML article is the corpus home. The
+   * sidebar only exists in power-user mode, so the button is gated on
+   * isPowerUserMode to match CorpusLandingView / CorpusDetailsView.
+   */
+  onOpenMobileMenu?: () => void;
   stats?: {
     annotations?: number;
     documents?: number;
@@ -209,6 +261,7 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
   showDocumentsButton,
   onModeToggle,
   isPowerUserMode = false,
+  onOpenMobileMenu,
   stats,
   testId = "corpus-article",
 }) => {
@@ -409,6 +462,16 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
                 Manage
               </PillToggleLabel>
             </PillToggle>
+          )}
+          {/* Mobile entry point to the nav sidebar — not present on desktop. */}
+          {onOpenMobileMenu && isPowerUserMode && (
+            <ToolbarMenuButton
+              onClick={onOpenMobileMenu}
+              aria-label="Open navigation menu"
+              data-testid={`${testId}-mobile-menu`}
+            >
+              <Menu size={16} />
+            </ToolbarMenuButton>
           )}
         </ToolbarNav>
       </ArticleToolbar>

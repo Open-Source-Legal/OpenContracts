@@ -102,6 +102,10 @@ export interface CorpusArticleViewTestWrapperProps {
   showDocumentsButton?: boolean;
   withModeToggle?: boolean;
   isPowerUserMode?: boolean;
+  /** When true, wires an onOpenMobileMenu handler so the mobile menu button
+   *  renders. Clicking it reveals a visible marker the test can assert on
+   *  (CT can't pass spies through mount). */
+  withMobileMenu?: boolean;
 }
 
 export const CorpusArticleViewTestWrapper: React.FC<
@@ -112,8 +116,10 @@ export const CorpusArticleViewTestWrapper: React.FC<
   showDocumentsButton,
   withModeToggle = false,
   isPowerUserMode = false,
+  withMobileMenu = false,
 }) => {
   const mock = hasArticle ? articleExistsMock : noArticleMock;
+  const [menuOpened, setMenuOpened] = React.useState(false);
 
   return (
     <Provider>
@@ -123,15 +129,23 @@ export const CorpusArticleViewTestWrapper: React.FC<
           cache={createTestCache()}
           addTypename
         >
-          <CorpusArticleView
-            corpus={corpus}
-            onBack={() => {}}
-            onEditArticle={() => {}}
-            showDocumentsButton={showDocumentsButton}
-            onModeToggle={withModeToggle ? () => {} : undefined}
-            isPowerUserMode={isPowerUserMode}
-            testId="test-corpus-article"
-          />
+          <>
+            <CorpusArticleView
+              corpus={corpus}
+              onBack={() => {}}
+              onEditArticle={() => {}}
+              showDocumentsButton={showDocumentsButton}
+              onModeToggle={withModeToggle ? () => {} : undefined}
+              isPowerUserMode={isPowerUserMode}
+              onOpenMobileMenu={
+                withMobileMenu ? () => setMenuOpened(true) : undefined
+              }
+              testId="test-corpus-article"
+            />
+            {menuOpened && (
+              <div data-testid="mobile-menu-opened">menu opened</div>
+            )}
+          </>
         </MockedProvider>
       </MemoryRouter>
     </Provider>
