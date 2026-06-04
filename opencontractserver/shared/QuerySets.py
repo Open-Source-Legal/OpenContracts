@@ -32,10 +32,20 @@ class CachedCountQuerySetMixin(_CachedCountBase):
     *eagerly* inside ``DjangoConnectionField.resolve_connection`` — regardless
     of whether the client selected ``totalCount`` — and ``CountableConnection``
     then resolves ``total_count`` with a second ``.count()``. For the un-scoped
-    annotation browse that COUNT runs over the full permission-filtered set (a
-    ``DISTINCT`` across several visibility joins on hundreds of thousands of
-    rows), so it dominates page latency and fires again on every
-    infinite-scroll page.
+    annotation browse that COUNT runs over the full permission-filtered set, so
+    it dominates page latency and fires again on every infinite-scroll page.
+
+    Retained after issue #1906 (justified, not a leftover band-aid): Tier 3
+    de-joined ``AnnotationQuerySet.visible_to_user`` (correlated ``EXISTS``
+    instead of the ``structural_set__documents`` join) and dropped the trailing
+    ``.distinct()``, so the COUNT no longer pays for a fan-out + dedup. But a
+    ``COUNT(*)`` over the permission predicate is an OR across several
+    dimensions (creator / public / structural / analysis / extract / doc /
+    corpus); no single index satisfies that OR, so the count stays an O(n)
+    scan that graphene re-fires on every page. Caching the exact value still
+    earns its keep on hundreds of thousands of rows. Issue #1906's removal was
+    explicitly conditioned on the count becoming "index-cheap"; it does not, so
+    the cache stays.
 
     Casting a queryset to a subclass that mixes this in turns BOTH counts into
     a single cache lookup. The key is the compiled SQL string, which inlines
@@ -487,9 +497,31 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         self, user: Any, perm: Optional[str] = None
     ) -> "AnnotationQuerySet":
         """
-        Override to properly handle annotation privacy model.
-        This ensures that even when AnnotationService isn't used,
-        the privacy model is still respected.
+        Override to properly handle the annotation privacy model, expressed
+        with correlated ``EXISTS`` subqueries so the predicate carries **no
+        multi-valued join** and the queryset never needs a trailing
+        ``.distinct()`` (issue #1906 — Tier 3 of #1908).
+
+        Why EXISTS instead of joins
+        ---------------------------
+        The previous implementation reached structural-set document
+        visibility through the ``structural_set__documents`` reverse-FK
+        relation. That join fans a single annotation out to one row per
+        document in the set, so the queryset had to end in ``.distinct()``.
+        The ``DISTINCT`` in turn knocked the un-scoped "Browse annotations"
+        ``COUNT(*)`` and ``ORDER BY -modified`` page off any single index
+        (a full scan + dedup). Expressing document- and corpus-visibility
+        as correlated ``EXISTS`` subqueries keeps the outer query on the
+        ``annotation`` table alone (no joins, no row fan-out), so:
+
+          * the row set is **identical** to the old join+DISTINCT predicate
+            — pinned by ``test_authorization_invariants`` (the
+            ``visible_to_user ⟺ user_can(READ)`` invariant) and by the
+            de-join regression tests in
+            ``test_annotation_visibility_exists.py``; and
+          * ``COUNT(*)`` and the ``-modified`` page can ride the annotation
+            indexes (migration ``0077`` adds the ``(structural, modified)``
+            composite that backs the structural-filtered browse).
 
         Soft-deleted documents stay in the DB so that "Restore from trash"
         can recover their annotations, but they must NOT surface in
@@ -501,12 +533,15 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         by ``Corpus._get_active_documents()`` and
         ``AnnotationService.get_corpus_annotations()``.
         """
+        from django.apps import apps
         from django.contrib.auth.models import AnonymousUser
 
         from opencontractserver.analyzer.models import (
             Analysis,
             AnalysisUserObjectPermission,
         )
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.documents.models import Document
         from opencontractserver.extracts.models import (
             Extract,
             ExtractUserObjectPermission,
@@ -528,24 +563,39 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         # in trash for the relevant corpus.
         qs = _exclude_soft_deleted_doc_orphans(self.all())
 
-        # For anonymous users, only show public structural annotations
+        # For anonymous users, only show public structural annotations.
         if user.is_anonymous:
-            # Handle both document-attached and structural_set-linked annotations
+            # Document-attached: the annotation's own (public) document.
+            # ``document__isnull`` / ``document__is_public`` are forward-FK
+            # column checks / single joins — they never fan rows out.
             doc_attached_public = Q(document__isnull=False) & Q(
                 document__is_public=True
             )
+            # Structural-set route (document FK NULL): visible when at least
+            # one PUBLIC document references the set. Correlated EXISTS
+            # replaces the old ``structural_set__documents`` reverse-FK join
+            # (the sole reason this branch previously needed ``.distinct()``).
             structural_set_public = (
                 Q(document__isnull=True)
                 & Q(structural_set__isnull=False)
-                & Q(structural_set__documents__is_public=True)
+                & Exists(
+                    Document.objects.filter(
+                        structural_annotation_set_id=OuterRef("structural_set_id"),
+                        is_public=True,
+                    )
+                )
             )
             return qs.filter(
                 Q(structural=True)
                 & (doc_attached_public | structural_set_public)
                 & (Q(corpus__isnull=True) | Q(corpus__is_public=True))
-            ).distinct()
+            )
 
-        # Build visibility filters for analyses
+        # ---- Authenticated users ----
+
+        # Build visibility filters for analyses / extracts. Kept as lazy
+        # querysets so they compile to subqueries (no extra round-trips) and
+        # keep the cached-count SQL deterministic (see CachedCountQuerySetMixin).
         visible_analyses = Analysis.objects.filter(Q(is_public=True) | Q(creator=user))
         analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
             user=user
@@ -554,7 +604,6 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             id__in=analyses_with_permission
         )
 
-        # Build visibility filters for extracts
         visible_extracts = Extract.objects.filter(Q(creator=user))
         extracts_with_permission = ExtractUserObjectPermission.objects.filter(
             user=user
@@ -563,12 +612,10 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             id__in=extracts_with_permission
         )
 
-        # Complex filter for annotation visibility
-        # An annotation is visible if:
-        # 1. It's structural (always visible if doc is visible)
-        # 2. User created it
-        # 3. It's not private to an analysis/extract OR user has access to that analysis/extract
-        # 4. AND user has access to the document and corpus
+        # Privacy gate. An annotation clears it when it is structural, the
+        # user's own, has no analysis/extract privacy source, or its privacy
+        # source is one the user can see. All branches are own-column checks
+        # or ``__in`` subqueries — no joins.
         visibility_filter = (
             # Structural annotations (always visible if doc is readable)
             Q(structural=True)
@@ -586,15 +633,13 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             (Q(created_by_extract__in=visible_extracts))
         )
 
-        # Also need document/corpus visibility.
-        # Query guardian permission tables for documents and corpuses —
-        # both the user-level and group-level object-permission tables.
+        # Guardian READ grants for documents and corpuses — both the
+        # user-level and group-level object-permission tables.
         # ``_default_user_can`` resolves group grants
         # (``include_group_permissions=True``), so omitting the group
         # tables here would drift the annotation filter from the
-        # Document/Corpus ``user_can`` checks (issue #1714).
-        from django.apps import apps
-
+        # Document/Corpus ``user_can`` checks (issue #1714). Lazy
+        # ``values_list`` keeps each a SQL subquery.
         user_group_ids = user.groups.values_list("id", flat=True)
 
         try:
@@ -627,44 +672,52 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             corpus_permitted_ids = []
             corpus_group_permitted_ids = []
 
-        # Handle TWO types of annotations:
-        # 1. Document-attached: have document FK set, check document visibility
-        # 2. Structural via structural_set: have document=NULL, check via structural_set__documents
-        doc_attached_filter = Q(document__isnull=False) & (
-            Q(document__is_public=True)
-            | Q(document__creator=user)
-            | Q(document_id__in=doc_permitted_ids)
-            | Q(document_id__in=doc_group_permitted_ids)
+        # A document is visible when it is public, the user's own, or carries
+        # an explicit (user- or group-level) guardian READ grant. Reused by
+        # both the document-attached and structural-set EXISTS subqueries.
+        doc_visible = (
+            Q(is_public=True)
+            | Q(creator=user)
+            | Q(pk__in=doc_permitted_ids)
+            | Q(pk__in=doc_group_permitted_ids)
+        )
+        corpus_visible = (
+            Q(is_public=True)
+            | Q(creator=user)
+            | Q(pk__in=corpus_permitted_ids)
+            | Q(pk__in=corpus_group_permitted_ids)
         )
 
-        # Structural annotations linked via structural_set (document FK is NULL)
-        # These are visible if ANY document using that structural_set is visible to user
+        # Handle TWO types of annotations:
+        # 1. Document-attached: the row's own document FK must be visible.
+        # 2. Structural via structural_set (document FK NULL): visible if ANY
+        #    document referencing that set is visible. Both checks are
+        #    correlated EXISTS subqueries — no joins, so no row fan-out and no
+        #    ``.distinct()`` (issue #1906).
+        doc_attached_filter = Q(document__isnull=False) & Exists(
+            Document.objects.filter(pk=OuterRef("document_id")).filter(doc_visible)
+        )
         structural_set_filter = (
             Q(document__isnull=True)
             & Q(structural_set__isnull=False)
             & Q(structural=True)
-            & (
-                Q(structural_set__documents__is_public=True)
-                | Q(structural_set__documents__creator=user)
-                | Q(structural_set__documents__id__in=doc_permitted_ids)
-                | Q(structural_set__documents__id__in=doc_group_permitted_ids)
+            & Exists(
+                Document.objects.filter(
+                    structural_annotation_set_id=OuterRef("structural_set_id")
+                ).filter(doc_visible)
             )
         )
 
         doc_visibility_filter = doc_attached_filter | structural_set_filter
 
-        # Corpus visibility (for document-attached annotations with corpus)
-        corpus_filter = (
-            Q(corpus__isnull=True)
-            | Q(corpus__is_public=True)
-            | Q(corpus__creator=user)
-            | Q(corpus_id__in=corpus_permitted_ids)
-            | Q(corpus_id__in=corpus_group_permitted_ids)
+        # Corpus visibility: null corpus (structural / standalone) is allowed,
+        # otherwise the annotation's corpus must be visible — again via a
+        # correlated EXISTS rather than a ``corpus__*`` join.
+        corpus_filter = Q(corpus__isnull=True) | Exists(
+            Corpus.objects.filter(pk=OuterRef("corpus_id")).filter(corpus_visible)
         )
 
-        return qs.filter(
-            visibility_filter & doc_visibility_filter & corpus_filter
-        ).distinct()
+        return qs.filter(visibility_filter & doc_visibility_filter & corpus_filter)
 
     def with_cached_count(self) -> "CachedCountAnnotationQuerySet":
         """Return a clone whose ``.count()`` is cached (issue #1908).
