@@ -18,6 +18,9 @@ import {
 import {
   SMALL_MOBILE_BREAKPOINT,
   TABLET_BREAKPOINT,
+  CHAT_MESSAGE_MAX_WIDTH_REM,
+  CHAT_USER_MESSAGE_BG,
+  CHAT_USER_MESSAGE_BORDER,
 } from "../../../assets/configurations/constants";
 import { agentChipPaletteCss } from "../../chat/agentChipStyles";
 
@@ -28,6 +31,11 @@ export const MessageContainer = styled(motion.div)<{
   display: flex;
   gap: 1rem;
   padding: 0.75rem 1.5rem;
+  /* Cap reading column so wide viewports don't produce hard-to-scan long lines */
+  width: 100%;
+  max-width: ${CHAT_MESSAGE_MAX_WIDTH_REM};
+  margin-left: auto;
+  margin-right: auto;
   transition: all 0.2s ease-in-out;
   position: relative;
   cursor: ${(props) =>
@@ -119,8 +127,9 @@ export const ContentContainer = styled.div`
 `;
 
 export const MessageContent = styled.div<{ $isAssistant: boolean }>`
+  /* Solid neutral so the user bubble reads as a distinct card (prev rgba was near-invisible) */
   background: ${(props) =>
-    props.$isAssistant ? whiteAlpha(0.7) : "rgba(247, 248, 249, 0.5)"};
+    props.$isAssistant ? whiteAlpha(0.7) : CHAT_USER_MESSAGE_BG};
   backdrop-filter: blur(12px);
   border-radius: 1.25rem;
   padding: 1.25rem 1.5rem;
@@ -138,7 +147,7 @@ export const MessageContent = styled.div<{ $isAssistant: boolean }>`
       : "0 1px 4px rgba(23, 25, 35, 0.03)"};
   border: 1px solid
     ${(props) =>
-      props.$isAssistant ? whiteAlpha(0.5) : "rgba(247, 248, 249, 0.3)"};
+      props.$isAssistant ? whiteAlpha(0.5) : CHAT_USER_MESSAGE_BORDER};
   overflow-wrap: break-word;
   word-break: break-word;
 

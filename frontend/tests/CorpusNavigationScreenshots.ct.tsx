@@ -644,7 +644,6 @@ const corpusHomeMocks: MockedResponse[] = [
           title: navCorpus.title,
           description: navCorpus.description,
           descriptionPreview: navCorpus.description,
-          mdDescription: null,
           created: navCorpus.created,
           modified: navCorpus.modified,
           isPublic: navCorpus.isPublic,

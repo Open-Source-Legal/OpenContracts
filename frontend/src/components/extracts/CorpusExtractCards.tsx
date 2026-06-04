@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from "react";
-import { toast } from "react-toastify";
+import { notifyTransientNetworkError } from "../../utils/networkNotifications";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import { useLocation } from "react-router-dom";
 import { ExtractCards } from "./ExtractCards";
@@ -60,7 +60,9 @@ export const CorpusExtractCards: React.FC<CorpusExtractCardsProps> = ({
   });
 
   if (extracts_load_error) {
-    toast.error("ERROR\nCould not fetch extracts for corpus.");
+    notifyTransientNetworkError("ERROR\nCould not fetch extracts for corpus.", {
+      toastId: "fetch-extracts-error",
+    });
   }
 
   useEffect(() => {

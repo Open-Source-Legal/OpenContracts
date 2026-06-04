@@ -51,7 +51,6 @@ export interface ResolveCorpusFullQuery {
     slug: string | null;
     title: string;
     description: string;
-    mdDescription: string | null;
     isPublic: boolean;
     isPersonal?: boolean;
     creator: {

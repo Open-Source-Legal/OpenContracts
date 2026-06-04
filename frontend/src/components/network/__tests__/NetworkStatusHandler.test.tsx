@@ -355,39 +355,18 @@ describe("NetworkStatusHandler", () => {
       consoleErrorSpy.mockRestore();
     });
 
-    it("should show error toast when refetch fails and showToasts is true", async () => {
+    // Behavior change (issue #697 follow-up): a reconnect refetch failing right
+    // after screen-unlock is expected flakiness, not a user-actionable error.
+    // We intentionally NO LONGER throw a red "reload the page" toast here — the
+    // calm "Reconnecting…" indicator covers it and the reconnect grace window
+    // suppresses the per-query error toasts that would otherwise pile up.
+    it("should NOT show an alarming error toast when reconnect refetch fails", async () => {
       const consoleErrorSpy = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
       mockRefetchQueries.mockRejectedValueOnce(new Error("Network error"));
 
       renderComponent({ showToasts: true });
-
-      await act(async () => {
-        mockOnResume();
-        // Wait a tick for the async rejection to be handled
-        await Promise.resolve();
-      });
-
-      expect(toast.error).toHaveBeenCalledWith(
-        "Failed to refresh data. Please reload the page.",
-        {
-          toastId: "network-refetch-error",
-          position: "bottom-right",
-          autoClose: 5000,
-        }
-      );
-
-      consoleErrorSpy.mockRestore();
-    });
-
-    it("should NOT show error toast when refetch fails and showToasts is false", async () => {
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
-      mockRefetchQueries.mockRejectedValueOnce(new Error("Network error"));
-
-      renderComponent({ showToasts: false });
 
       await act(async () => {
         mockOnResume();

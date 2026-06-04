@@ -189,7 +189,6 @@ export const UPDATE_CORPUS_DESCRIPTION = gql`
         id
         title
         description
-        mdDescription
         descriptionRevisions {
           id
           version
@@ -220,7 +219,6 @@ export interface UpdateCorpusDescriptionOutputs {
       id: string;
       title: string;
       description: string;
-      mdDescription?: string;
       descriptionRevisions: Array<{
         id: string;
         version: number;
