@@ -142,6 +142,11 @@ def _construct_model(
         # through (GoogleProvider has no base_url field on this path).
         return GoogleModel(model_name, provider=GoogleProvider(api_key=api_key))
 
+    # When adding a new provider under ``pipeline/llm_providers/``, add a
+    # matching branch above so DB-configured credentials are threaded through
+    # to its pydantic-ai ``Model``. Without a branch the provider still works,
+    # but silently via env credentials only — the warning below is the only
+    # signal that its DB-configured api_key/base_url are being ignored.
     logger.warning(
         "No credentialed-model recipe for provider %r; using environment "
         "credentials (bare model spec).",
