@@ -123,6 +123,13 @@ def _text_ids(
     The text filters also join to-many relations (``chat_messages``, label/doc
     joins), so ``.distinct()`` collapses the resulting row duplicates.
     """
+    # Over-fetch 2× before the application-side ``_dedupe`` + ``[:fetch_k]``
+    # slice. ``order_field`` is a model field (constant per pk), so the
+    # ``DISTINCT (pk, order_field)`` above already collapses pk duplicates and
+    # ``_dedupe`` is normally a no-op — the 2× headroom is a cheap safety margin
+    # so the final list still reaches ``fetch_k`` even if a future filter shape
+    # ever lets a pk slip through DISTINCT. fetch_k is already small (limit ×
+    # oversample), so the extra rows are negligible.
     rows = list(
         visible_qs.filter(text_q)
         .values_list("pk", order_field)
@@ -336,6 +343,16 @@ class DiscoverSearchQueryMixin:
 
         visible = BaseService.filter_visible(Corpus, user, request=info.context)
 
+        # NOTE: this resolver is intentionally heavier than the others (≈4–5
+        # queries vs 2). A corpus is discoverable not just by its own
+        # title/description (Arm 1) but by the documents and annotations it
+        # contains (Arm 2), and each contained model carries its own
+        # permission scope — hence the separate ``filter_visible`` calls for
+        # Corpus, Document and Annotation plus the DocumentPath join. The
+        # annotation arm in particular surfaces collections that the document
+        # arm would miss (a query matching only annotation text), which is the
+        # whole point of "search inside collections", so its cost is deliberate.
+
         # Arm 1: corpus metadata (title/description) match.
         meta_q = Q(title__icontains=text) | Q(description__icontains=text)
         meta_ids = _text_ids(visible, meta_q, "modified", fetch_k)
@@ -422,5 +439,9 @@ class DiscoverSearchQueryMixin:
             "chat_with_corpus",
             "chat_with_corpus__creator",
             "chat_with_document",
+            # DISCOVER_DISCUSSIONS requests lockedBy/pinnedBy; join them here so
+            # a locked/pinned thread doesn't fire a per-object user query (N+1).
+            "locked_by",
+            "pinned_by",
         )
         return _order_by_ids(qs, ids)
