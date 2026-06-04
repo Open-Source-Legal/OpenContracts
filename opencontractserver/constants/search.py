@@ -41,11 +41,25 @@ HYBRID_SEARCH_OVERSAMPLE_FACTOR = 3
 
 # Default number of results returned per category when the caller does not
 # specify a ``limit``. The frontend caps this per tab (preview vs. entity tab).
+#
+# Rate-cost note: the Discover "All" tab fires all FIVE category resolvers
+# (annotations/documents/notes/collections/discussions) simultaneously, each
+# decorated with the ``READ_LIGHT`` tier. So a single "All" search costs
+# ``5 × READ_LIGHT`` tokens, not one. Account for that multiplier when tuning
+# the READ_LIGHT rate in ``config/graphql/ratelimits.py``.
 DISCOVER_DEFAULT_LIMIT = 25
 
 # How many candidates each arm fetches relative to the requested ``limit``
 # before fusion — a small oversample so RRF has room to reorder.
 DISCOVER_OVERSAMPLE = 4
+
+# Size of the per-process LRU that memoises the embedded query vector across
+# the five Discover resolvers. The "All" tab issues one HTTP request per
+# category (the frontend uses a non-batching Apollo link), so without a cache a
+# single user search would embed the *same* query string up to five times. The
+# embedding is deterministic for a given ``(query_text, embedder_path)``, so a
+# small module-level cache lets those requests share one embedding call.
+DISCOVER_QUERY_VECTOR_CACHE_SIZE = 32
 
 # Extra oversample applied to the corpus "content match" pre-filters
 # (documents/annotations whose text matches), on top of ``fetch_k``. A corpus
