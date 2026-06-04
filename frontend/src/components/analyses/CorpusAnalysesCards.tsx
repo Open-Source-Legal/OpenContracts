@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import _ from "lodash";
-import { toast } from "react-toastify";
+import { notifyTransientNetworkError } from "../../utils/networkNotifications";
 import { useQuery, useReactiveVar } from "@apollo/client";
 import { useLocation } from "react-router-dom";
 
@@ -66,7 +66,9 @@ export const CorpusAnalysesCards = () => {
   });
   if (analyses_load_error) {
     console.error("Corpus analysis fetch error", analyses_load_error);
-    toast.error("ERROR\nCould not fetch analyses for corpus.");
+    notifyTransientNetworkError("ERROR\nCould not fetch analyses for corpus.", {
+      toastId: "fetch-analyses-error",
+    });
   }
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

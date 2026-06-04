@@ -47,8 +47,12 @@ class ConversationQueryMixin:
         """
         Resolver to fetch Conversations along with their Messages.
 
-        Anonymous users can see public conversations.
-        Authenticated users see public conversations, their own, or explicitly shared.
+        Visibility is bifurcated by conversation_type (see
+        ``ConversationQuerySet.visible_to_user``): anonymous users can see
+        public THREADs only (never CHATs), including threads on public
+        corpuses/documents. Authenticated users see CHATs that are their own,
+        public, or explicitly shared, plus THREADs they can reach via READ on
+        the linked corpus/document.
 
         Args:
             info: GraphQL execution info.

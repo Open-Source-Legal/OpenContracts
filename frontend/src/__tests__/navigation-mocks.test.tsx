@@ -38,7 +38,6 @@ const mockCorpus = {
   modified: "2024-01-01T00:00:00Z",
   allowComments: false,
   preferredEmbedder: null,
-  mdDescription: "Test corpus description",
   creator: {
     id: "user-456",
     slug: "john-doe",

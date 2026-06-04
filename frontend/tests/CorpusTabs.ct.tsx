@@ -376,7 +376,6 @@ const createBaseMocks = (corpus: CorpusType): MockedResponse[] => [
         corpus: {
           ...corpus,
           slug: "test-corpus",
-          mdDescription: null,
           descriptionRevisions: [],
         },
       },

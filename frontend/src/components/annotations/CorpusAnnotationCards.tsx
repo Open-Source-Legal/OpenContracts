@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import _ from "lodash";
 
 import { toast } from "react-toastify";
+import { notifyTransientNetworkError } from "../../utils/networkNotifications";
 import { useQuery, useLazyQuery, useReactiveVar } from "@apollo/client";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -185,7 +186,10 @@ export const CorpusAnnotationCards = ({
   );
 
   if (annotation_error) {
-    toast.error("ERROR\nCould not fetch annotations for corpus.");
+    notifyTransientNetworkError(
+      "ERROR\nCould not fetch annotations for corpus.",
+      { toastId: "fetch-annotations-error" }
+    );
   }
 
   // Determine if we're in semantic search mode

@@ -18,8 +18,7 @@ interface Props {
  *
  * The component:
  *  - Fires GET_CORPUS_WITH_HISTORY when `isOpen` is true.
- *  - Calls `fetch(corpus.mdDescription)` once data loads – tests must
- *    intercept that URL with `page.route` before mounting.
+ *  - Loads the editor from the inline `corpus.description` markdown source.
  *  - Fires UPDATE_CORPUS_DESCRIPTION on save / reapply, then refetches.
  */
 export const CorpusDescriptionEditorTestWrapper: React.FC<Props> = ({
