@@ -281,3 +281,9 @@ _GUIDE_SEPARATOR = "\u2501"  # heavy horizontal rule opening each section
 CAML_AUTHORING_GUIDE = CAML_ARTICLE_SYSTEM_INSTRUCTIONS[
     CAML_ARTICLE_SYSTEM_INSTRUCTIONS.index(_GUIDE_SEPARATOR) :
 ]
+
+# Fail loudly at import if an edit moves/removes the separator \u2014 otherwise the
+# slice would silently hand callers a wrong (or empty) guide at runtime.
+assert CAML_AUTHORING_GUIDE.startswith(
+    _GUIDE_SEPARATOR
+), "CAML_AUTHORING_GUIDE slice lost its leading section separator"

@@ -407,7 +407,14 @@ class CorpusServiceUpdateIconTests(TestCase):
 
 
 class RunCorpusBrandingAsyncTests(TransactionTestCase):
-    """``run_corpus_branding_async`` — README (mocked agent) + real logo."""
+    """``run_corpus_branding_async`` — README (mocked agent) + real logo.
+
+    The orchestrator re-checks the install-wide kill-switch (off by default in
+    ``test.py``). The feature is opted on per-method, NOT at class level: a
+    class-level override would also wrap ``setUp``, whose ``Corpus.objects
+    .create`` would then dispatch the real branding task eagerly and pre-set
+    the icon, masking the behaviour under test.
+    """
 
     def setUp(self):
         self.creator = User.objects.create_user(
@@ -422,6 +429,7 @@ class RunCorpusBrandingAsyncTests(TransactionTestCase):
         agent.chat = AsyncMock(return_value=MagicMock(content="ok", sources=[]))
         return AsyncMock(return_value=agent)
 
+    @override_settings(CORPUS_AUTO_BRANDING_ENABLED=True)
     def test_generates_readme_and_logo(self):
         from opencontractserver.corpuses.services.branding import (
             run_corpus_branding_async,
@@ -446,6 +454,7 @@ class RunCorpusBrandingAsyncTests(TransactionTestCase):
         self.corpus.refresh_from_db()
         self.assertTrue(self.corpus.icon)
 
+    @override_settings(CORPUS_AUTO_BRANDING_ENABLED=True)
     def test_skips_logo_when_icon_present(self):
         from opencontractserver.corpuses.services.branding import (
             run_corpus_branding_async,
@@ -463,6 +472,7 @@ class RunCorpusBrandingAsyncTests(TransactionTestCase):
 
         self.assertEqual(summary["logo"], "skipped_icon_present")
 
+    @override_settings(CORPUS_AUTO_BRANDING_ENABLED=True)
     def test_skips_when_opted_out(self):
         from opencontractserver.corpuses.services.branding import (
             run_corpus_branding_async,
@@ -478,6 +488,34 @@ class RunCorpusBrandingAsyncTests(TransactionTestCase):
         self.assertEqual(summary["status"], "skipped")
         self.assertEqual(summary["reason"], "opted_out")
         for_corpus.assert_not_awaited()
+
+    @override_settings(CORPUS_AUTO_BRANDING_ENABLED=False)
+    def test_skips_when_globally_disabled_mid_flight(self):
+        """An admin toggling the kill-switch off after enqueue is honoured."""
+        from opencontractserver.corpuses.services.branding import (
+            run_corpus_branding_async,
+        )
+
+        for_corpus = self._mock_agent()
+        with patch("opencontractserver.llms.api.agents.for_corpus", new=for_corpus):
+            summary = async_to_sync(run_corpus_branding_async)(
+                self.corpus.id, self.creator.id
+            )
+
+        self.assertEqual(summary["status"], "skipped")
+        self.assertEqual(summary["reason"], "globally_disabled")
+        for_corpus.assert_not_awaited()
+
+    def test_logo_save_skips_when_corpus_deleted_mid_flight(self):
+        """A hard-delete between image generation and save is swallowed."""
+        from opencontractserver.corpuses.services.branding import _generate_logo
+
+        # An in-memory corpus whose pk is absent from the DB: the logo bytes
+        # generate (real PIL fallback), then ``_save``'s re-fetch raises
+        # DoesNotExist, which must surface as a skip — not a noisy task retry.
+        ghost = Corpus(id=987654, title="Ghost", creator=self.creator)
+        status = async_to_sync(_generate_logo)(ghost, self.creator.id)
+        self.assertEqual(status, "skipped_corpus_missing")
 
     def test_readme_skipped_when_article_exists(self):
         """An existing Readme.CAML (e.g. forked corpus) is not overwritten.
@@ -499,7 +537,11 @@ class RunCorpusBrandingAsyncTests(TransactionTestCase):
 
 
 class GenerateCorpusBrandingTaskTests(TransactionTestCase):
-    """The Celery task wrapper drives the orchestrator end-to-end."""
+    """The Celery task wrapper drives the orchestrator end-to-end.
+
+    Opted on per-method (not class-level) so ``setUp``'s corpus creation does
+    not dispatch the real branding task and pre-set the icon.
+    """
 
     def setUp(self):
         self.creator = User.objects.create_user(
@@ -509,6 +551,7 @@ class GenerateCorpusBrandingTaskTests(TransactionTestCase):
             title="Task Corpus", creator=self.creator, is_public=False
         )
 
+    @override_settings(CORPUS_AUTO_BRANDING_ENABLED=True)
     def test_task_runs_orchestrator_and_returns_summary(self):
         from opencontractserver.tasks.corpus_tasks import generate_corpus_branding
 

@@ -20,6 +20,7 @@ failure in one never blocks the other, and neither aborts corpus creation
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -37,7 +38,15 @@ async def run_corpus_branding_async(corpus_id: int, user_id: int) -> dict:
     re-checks repeat the signal-time guards because the corpus may have
     changed between enqueue and execution.
     """
+    from django.conf import settings
+
     from opencontractserver.corpuses.models import Corpus
+
+    # Re-check the install-wide kill-switch: an admin may have disabled
+    # branding between signal fire and task execution. Mirrors the per-corpus
+    # re-checks below and the signal-time guard.
+    if not getattr(settings, "CORPUS_AUTO_BRANDING_ENABLED", False):
+        return {"status": "skipped", "reason": "globally_disabled"}
 
     try:
         corpus = await Corpus.objects.select_related("creator").aget(id=corpus_id)
@@ -65,8 +74,6 @@ async def _generate_readme(corpus: Corpus, user_id: int) -> str:
     # Don't overwrite an existing article (e.g. a forked/imported corpus).
     if corpus.readme_caml_document_id:
         return "skipped_exists"
-
-    import asyncio
 
     from opencontractserver.constants.corpus_branding import (
         CORPUS_BRANDING_ACTIVATION_MESSAGE,
@@ -143,7 +150,13 @@ async def _generate_logo(corpus: Corpus, user_id: int) -> str:
         from opencontractserver.corpuses.services.corpus_service import CorpusService
 
         # Re-fetch to honour any icon set after enqueue and to write a fresh row.
-        fresh = Corpus.objects.select_related("creator").get(pk=corpus.pk)
+        # The corpus may have been hard-deleted between image generation and
+        # this save; treat that like the orchestrator's top-level guard rather
+        # than letting DoesNotExist bubble into the task's noisy retry loop.
+        try:
+            fresh = Corpus.objects.select_related("creator").get(pk=corpus.pk)
+        except Corpus.DoesNotExist:
+            return "skipped_corpus_missing"
         if fresh.icon:
             return "skipped_icon_present"
         # Honour an opt-out that landed between _generate_logo's check and this

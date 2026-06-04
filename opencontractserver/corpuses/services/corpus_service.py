@@ -150,10 +150,14 @@ class CorpusService(BaseService):
                 "Corpus not found or you do not have permission to update it."
             )
 
+        import uuid
+
         from django.core.files.base import ContentFile
 
         ext = (extension or "png").lstrip(".")
-        filename = f"corpus_logo_{corpus.pk}.{ext}"
+        # Short UUID segment so a Celery retry writes a distinct object rather
+        # than overwriting (S3) or accumulating storage-suffixed orphans (local).
+        filename = f"corpus_logo_{corpus.pk}_{uuid.uuid4().hex[:8]}.{ext}"
         corpus.icon.save(filename, ContentFile(image_bytes), save=True)
         cls.log_action("Updated icon for", corpus, user)
         return ServiceResult.success(None)
