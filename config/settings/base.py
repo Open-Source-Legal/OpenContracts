@@ -809,6 +809,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 3600.0,  # hourly
         "options": {"queue": "celery"},
     },
+    "deep-research-resume-stalled": {
+        "task": "opencontractserver.tasks.research_tasks.reap_stalled_research",
+        "schedule": 300.0,  # every 5 minutes
+        "options": {"queue": "celery"},
+    },
     # Materialise install-wide headline counts so dashboards/landing tiles
     # don't run full-table COUNTs on every page load (issue #1908).
     "system-stats-refresh": {

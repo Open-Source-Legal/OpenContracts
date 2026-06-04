@@ -6,220 +6,179 @@ import { DiscoverSearchResults } from "../src/views/DiscoverSearchResults";
 import { LandingTestWrapper } from "./LandingTestWrapper";
 import { docScreenshot } from "./utils/docScreenshot";
 import {
-  GET_CONVERSATIONS,
-  GET_CORPUSES,
-  SEARCH_ANNOTATIONS_FOR_MENTION,
-  SEARCH_NOTES_FOR_MENTION,
+  DISCOVER_DISCUSSIONS,
+  DISCOVER_ANNOTATIONS,
+  DISCOVER_DOCUMENTS,
+  DISCOVER_CORPUSES,
+  DISCOVER_NOTES,
 } from "../src/graphql/queries";
 
-const buildEmptyMocks = (textSearch: string): MockedResponse[] => [
+// Discover queries return flat, relevance-ranked arrays (no Relay edges) and
+// take { textSearch, limit }. All-tab previews use limit=5; entity tabs use 25.
+
+const buildEmptyMocks = (textSearch: string, limit = 5): MockedResponse[] => [
   {
-    request: {
-      query: GET_CONVERSATIONS,
-      variables: {
-        conversationType: "THREAD",
-        title_Contains: textSearch,
-        limit: 5,
-      },
-    },
-    result: { data: { conversations: { edges: [], totalCount: 0 } } },
+    request: { query: DISCOVER_DISCUSSIONS, variables: { textSearch, limit } },
+    result: { data: { discoverDiscussions: [] } },
   },
   {
-    request: {
-      query: SEARCH_ANNOTATIONS_FOR_MENTION,
-      variables: { textSearch, first: 5 },
-    },
-    result: { data: { searchAnnotationsForMention: { edges: [] } } },
+    request: { query: DISCOVER_ANNOTATIONS, variables: { textSearch, limit } },
+    result: { data: { discoverAnnotations: [] } },
   },
   {
-    request: {
-      query: GET_CORPUSES,
-      variables: { textSearch, limit: 5 },
-    },
-    result: { data: { corpuses: { edges: [] } } },
+    request: { query: DISCOVER_DOCUMENTS, variables: { textSearch, limit } },
+    result: { data: { discoverDocuments: [] } },
   },
   {
-    request: {
-      query: SEARCH_NOTES_FOR_MENTION,
-      variables: { textSearch, first: 5 },
-    },
-    result: { data: { searchNotesForMention: { edges: [] } } },
+    request: { query: DISCOVER_CORPUSES, variables: { textSearch, limit } },
+    result: { data: { discoverCorpuses: [] } },
+  },
+  {
+    request: { query: DISCOVER_NOTES, variables: { textSearch, limit } },
+    result: { data: { discoverNotes: [] } },
   },
 ];
+
+const THREAD_NODE = {
+  id: "Q29udjox",
+  conversationType: "THREAD",
+  title: "Indemnity caps in vendor MSAs",
+  description: "How aggressive are folks getting on caps?",
+  createdAt: "2026-04-01T12:00:00Z",
+  updatedAt: "2026-04-02T12:00:00Z",
+  creator: {
+    id: "VXNlcjox",
+    slug: "alice",
+    username: "alice",
+    email: "alice@example.com",
+  },
+  chatWithCorpus: {
+    id: "Q29ycHVzOjE=",
+    title: "Vendor Agreements",
+    slug: "vendor-agreements",
+    creator: { id: "VXNlcjox", slug: "alice", username: "alice" },
+  },
+  chatWithDocument: null,
+  chatMessages: { totalCount: 12 },
+  isPublic: true,
+  myPermissions: ["READ"],
+  upvoteCount: 3,
+  downvoteCount: 0,
+  userVote: null,
+  isLocked: false,
+  lockedBy: null,
+  lockedAt: null,
+  isPinned: false,
+  pinnedBy: null,
+  pinnedAt: null,
+  deletedAt: null,
+};
 
 const buildPopulatedMocks = (textSearch: string): MockedResponse[] => [
   {
     request: {
-      query: GET_CONVERSATIONS,
-      variables: {
-        conversationType: "THREAD",
-        title_Contains: textSearch,
-        limit: 5,
-      },
+      query: DISCOVER_DISCUSSIONS,
+      variables: { textSearch, limit: 5 },
     },
-    result: {
-      data: {
-        conversations: {
-          edges: [
-            {
-              node: {
-                id: "Q29udjox",
-                conversationType: "THREAD",
-                title: "Indemnity caps in vendor MSAs",
-                description: "How aggressive are folks getting on caps?",
-                createdAt: "2026-04-01T12:00:00Z",
-                updatedAt: "2026-04-02T12:00:00Z",
-                creator: {
-                  id: "VXNlcjox",
-                  username: "alice",
-                  email: "alice@example.com",
-                },
-                chatWithCorpus: {
-                  id: "Q29ycHVzOjE=",
-                  title: "Vendor Agreements",
-                  slug: "vendor-agreements",
-                  creator: { id: "VXNlcjox", slug: "alice", username: "alice" },
-                },
-                chatWithDocument: null,
-                chatMessages: { totalCount: 12 },
-                isPublic: true,
-                myPermissions: ["READ"],
-                upvoteCount: 3,
-                downvoteCount: 0,
-                userVote: null,
-                isLocked: false,
-                lockedBy: null,
-                lockedAt: null,
-                isPinned: false,
-                pinnedBy: null,
-                pinnedAt: null,
-                deletedAt: null,
-              },
-            },
-          ],
-          pageInfo: {
-            hasNextPage: false,
-            hasPreviousPage: false,
-            startCursor: null,
-            endCursor: null,
-          },
-          totalCount: 1,
-        },
-      },
-    },
+    result: { data: { discoverDiscussions: [THREAD_NODE] } },
   },
   {
     request: {
-      query: SEARCH_ANNOTATIONS_FOR_MENTION,
-      variables: { textSearch, first: 5 },
-    },
-    result: {
-      data: {
-        searchAnnotationsForMention: {
-          edges: [
-            {
-              node: {
-                id: "QW5uOjE=",
-                rawText:
-                  "Vendor shall indemnify Customer against any third-party claim…",
-                page: 4,
-                annotationLabel: {
-                  id: "TGFiOjE=",
-                  text: "Indemnification",
-                  color: "#ef4444",
-                },
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                corpus: {
-                  id: "Q29ycHVzOjE=",
-                  title: "Vendor Agreements",
-                  slug: "vendor-agreements",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-              },
-            },
-          ],
-        },
-      },
-    },
-  },
-  {
-    request: {
-      query: GET_CORPUSES,
+      query: DISCOVER_ANNOTATIONS,
       variables: { textSearch, limit: 5 },
     },
     result: {
       data: {
-        corpuses: {
-          edges: [
-            {
-              node: {
-                id: "Q29ycHVzOjE=",
-                slug: "vendor-agreements",
-                icon: null,
-                title: "Vendor Agreements",
-                creator: { email: "alice@example.com", slug: "alice" },
-                description:
-                  "Standard vendor agreements with indemnity carve-outs.",
-                isPublic: true,
-                isPersonal: false,
-                myPermissions: ["READ"],
-                documentCount: 12,
-                parent: null,
-                labelSet: null,
-                categories: [],
-                license: null,
-                licenseLink: null,
-              },
+        discoverAnnotations: [
+          {
+            id: "QW5uOjE=",
+            rawText:
+              "Vendor shall indemnify Customer against any third-party claim…",
+            page: 4,
+            annotationLabel: {
+              id: "TGFiOjE=",
+              text: "Indemnification",
+              color: "#ef4444",
             },
-          ],
-          pageInfo: {
-            hasNextPage: false,
-            hasPreviousPage: false,
-            startCursor: null,
-            endCursor: null,
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+            corpus: {
+              id: "Q29ycHVzOjE=",
+              title: "Vendor Agreements",
+              slug: "vendor-agreements",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
           },
-        },
+        ],
       },
     },
   },
   {
-    request: {
-      query: SEARCH_NOTES_FOR_MENTION,
-      variables: { textSearch, first: 5 },
-    },
+    request: { query: DISCOVER_DOCUMENTS, variables: { textSearch, limit: 5 } },
     result: {
       data: {
-        searchNotesForMention: {
-          edges: [
-            {
-              node: {
-                id: "Tm90ZTox",
-                title: "Indemnity drafting tips",
-                contentPreview:
-                  "Always **cap** indemnification obligations. See `MSA §12.4`.",
-                modified: "2026-04-15T09:00:00Z",
-                creator: { id: "VXNlcjox", username: "alice", slug: "alice" },
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                corpus: {
-                  id: "Q29ycHVzOjE=",
-                  title: "Vendor Agreements",
-                  slug: "vendor-agreements",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-              },
+        discoverDocuments: [
+          {
+            id: "RG9jOjE=",
+            title: "Master Services Agreement",
+            slug: "msa",
+            description: "The canonical vendor MSA with indemnity terms.",
+            fileType: "application/pdf",
+            creator: { id: "VXNlcjox", slug: "alice" },
+          },
+        ],
+      },
+    },
+  },
+  {
+    request: { query: DISCOVER_CORPUSES, variables: { textSearch, limit: 5 } },
+    result: {
+      data: {
+        discoverCorpuses: [
+          {
+            id: "Q29ycHVzOjE=",
+            slug: "vendor-agreements",
+            title: "Vendor Agreements",
+            description:
+              "Standard vendor agreements with indemnity carve-outs.",
+            isPublic: true,
+            documentCount: 12,
+            creator: { id: "VXNlcjox", slug: "alice" },
+          },
+        ],
+      },
+    },
+  },
+  {
+    request: { query: DISCOVER_NOTES, variables: { textSearch, limit: 5 } },
+    result: {
+      data: {
+        discoverNotes: [
+          {
+            id: "Tm90ZTox",
+            title: "Indemnity drafting tips",
+            contentPreview:
+              "Always **cap** indemnification obligations. See `MSA §12.4`.",
+            modified: "2026-04-15T09:00:00Z",
+            creator: { id: "VXNlcjox", username: "alice", slug: "alice" },
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
             },
-          ],
-        },
+            corpus: {
+              id: "Q29ycHVzOjE=",
+              title: "Vendor Agreements",
+              slug: "vendor-agreements",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+          },
+        ],
       },
     },
   },
@@ -245,7 +204,7 @@ test("DiscoverSearchResults — empty prompt is shown before any query is typed"
   await docScreenshot(page, "discover--search-results--empty-prompt");
 });
 
-test("DiscoverSearchResults — typing a query renders all four section headers", async ({
+test("DiscoverSearchResults — typing a query renders all five section headers", async ({
   mount,
   page,
 }) => {
@@ -264,6 +223,7 @@ test("DiscoverSearchResults — typing a query renders all four section headers"
 
   await expect(component.getByText("Discussions").first()).toBeVisible();
   await expect(component.getByText("Annotations").first()).toBeVisible();
+  await expect(component.getByText("Documents").first()).toBeVisible();
   await expect(component.getByText("Collections").first()).toBeVisible();
   await expect(component.getByText("Notes").first()).toBeVisible();
 });
@@ -295,6 +255,11 @@ test("DiscoverSearchResults — populated results render rows for every section"
     component.getByText(/Vendor shall indemnify Customer/)
   ).toBeVisible();
 
+  // Document row — standalone document result (new category)
+  await expect(
+    component.getByText(/canonical vendor MSA with indemnity terms/)
+  ).toBeVisible();
+
   // Collection row — title plus document count meta
   await expect(component.getByText("Vendor Agreements").first()).toBeVisible();
   await expect(component.getByText(/12 docs/)).toBeVisible();
@@ -310,42 +275,35 @@ test("DiscoverSearchResults — populated results render rows for every section"
   await docScreenshot(page, "discover--search-results--with-results");
 });
 
-// Tab-switching mocks: All-tab defaults (first/limit=5) plus the entity-tab
-// notes query (first=25) so the click resolves cleanly.
+// Tab-switching mocks: All-tab defaults (limit=5) plus the entity-tab notes
+// query (limit=25) so the click resolves cleanly.
 const buildNotesEntityTabMocks = (textSearch: string): MockedResponse[] => [
   ...buildEmptyMocks(textSearch),
   {
-    request: {
-      query: SEARCH_NOTES_FOR_MENTION,
-      variables: { textSearch, first: 25 },
-    },
+    request: { query: DISCOVER_NOTES, variables: { textSearch, limit: 25 } },
     result: {
       data: {
-        searchNotesForMention: {
-          edges: [
-            {
-              node: {
-                id: "Tm90ZTox",
-                title: "Indemnity drafting tips",
-                contentPreview: "Plain preview body.",
-                modified: "2026-04-15T09:00:00Z",
-                creator: { id: "VXNlcjox", username: "alice", slug: "alice" },
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                corpus: {
-                  id: "Q29ycHVzOjE=",
-                  title: "Vendor Agreements",
-                  slug: "vendor-agreements",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-              },
+        discoverNotes: [
+          {
+            id: "Tm90ZTox",
+            title: "Indemnity drafting tips",
+            contentPreview: "Plain preview body.",
+            modified: "2026-04-15T09:00:00Z",
+            creator: { id: "VXNlcjox", username: "alice", slug: "alice" },
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
             },
-          ],
-        },
+            corpus: {
+              id: "Q29ycHVzOjE=",
+              title: "Vendor Agreements",
+              slug: "vendor-agreements",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+          },
+        ],
       },
     },
   },
@@ -373,15 +331,16 @@ test("DiscoverSearchResults — selecting the Notes tab hides the other sections
   await component.locator(".oc-filter-tab", { hasText: "Notes" }).click();
   await page.waitForTimeout(700);
 
-  // Only the Notes section header renders; Discussions/Annotations/
-  // Collections section headers must not appear.
+  // Only the Notes section header renders; the other section headers must not.
   await expect(component.locator("text=Indemnity drafting tips")).toBeVisible();
-  // SectionTitle "Notes" lives inside an h2 — assert it's mounted.
   await expect(component.locator("h2", { hasText: "Notes" })).toBeVisible();
   await expect(component.locator("h2", { hasText: "Discussions" })).toHaveCount(
     0
   );
   await expect(component.locator("h2", { hasText: "Annotations" })).toHaveCount(
+    0
+  );
+  await expect(component.locator("h2", { hasText: "Documents" })).toHaveCount(
     0
   );
   await expect(component.locator("h2", { hasText: "Collections" })).toHaveCount(
@@ -398,232 +357,162 @@ const LONG_RAW_TEXT = "a".repeat(180);
 const buildEdgeCaseMocks = (textSearch: string): MockedResponse[] => [
   {
     request: {
-      query: GET_CONVERSATIONS,
-      variables: {
-        conversationType: "THREAD",
-        title_Contains: textSearch,
-        limit: 5,
-      },
-    },
-    result: {
-      data: {
-        conversations: {
-          edges: [
-            // Live thread — must render.
-            {
-              node: {
-                id: "Q29udjpsaXZl",
-                conversationType: "THREAD",
-                title: "Live thread keeps rendering",
-                description: null,
-                createdAt: "2026-04-01T12:00:00Z",
-                updatedAt: "2026-04-02T12:00:00Z",
-                creator: {
-                  id: "VXNlcjox",
-                  username: "alice",
-                  email: "alice@example.com",
-                },
-                chatWithCorpus: null,
-                chatWithDocument: null,
-                chatMessages: { totalCount: 0 },
-                isPublic: true,
-                myPermissions: ["READ"],
-                upvoteCount: 0,
-                downvoteCount: 0,
-                userVote: null,
-                isLocked: false,
-                lockedBy: null,
-                lockedAt: null,
-                isPinned: false,
-                pinnedBy: null,
-                pinnedAt: null,
-                deletedAt: null,
-              },
-            },
-            // Soft-deleted thread — filtered out before render.
-            {
-              node: {
-                id: "Q29udjpkZWxldGVk",
-                conversationType: "THREAD",
-                title: "Tombstoned thread should be hidden",
-                description: null,
-                createdAt: "2026-04-01T12:00:00Z",
-                updatedAt: "2026-04-02T12:00:00Z",
-                creator: {
-                  id: "VXNlcjox",
-                  username: "alice",
-                  email: "alice@example.com",
-                },
-                chatWithCorpus: null,
-                chatWithDocument: null,
-                chatMessages: { totalCount: 0 },
-                isPublic: true,
-                myPermissions: ["READ"],
-                upvoteCount: 0,
-                downvoteCount: 0,
-                userVote: null,
-                isLocked: false,
-                lockedBy: null,
-                lockedAt: null,
-                isPinned: false,
-                pinnedBy: null,
-                pinnedAt: null,
-                deletedAt: "2026-04-15T00:00:00Z",
-              },
-            },
-          ],
-          pageInfo: {
-            hasNextPage: false,
-            hasPreviousPage: false,
-            startCursor: null,
-            endCursor: null,
-          },
-          totalCount: 2,
-        },
-      },
-    },
-  },
-  {
-    request: {
-      query: SEARCH_ANNOTATIONS_FOR_MENTION,
-      variables: { textSearch, first: 5 },
-    },
-    result: {
-      data: {
-        searchAnnotationsForMention: {
-          edges: [
-            // > 140 chars → truncated with ellipsis.
-            {
-              node: {
-                id: "QW5uOmxvbmc=",
-                rawText: LONG_RAW_TEXT,
-                page: 0,
-                annotationLabel: {
-                  id: "TGFiOjE=",
-                  text: "Indemnification",
-                  color: "#ef4444",
-                },
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                // No corpus context — exercises null-corpus meta branch.
-                corpus: null,
-              },
-            },
-            // No rawText → label fallback for title.
-            {
-              node: {
-                id: "QW5uOmxhYmVs",
-                rawText: null,
-                page: null,
-                annotationLabel: {
-                  id: "TGFiOjI=",
-                  text: "Termination",
-                  color: null,
-                },
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                corpus: null,
-              },
-            },
-            // Neither rawText nor label → defaults to "Annotation".
-            {
-              node: {
-                id: "QW5uOmJhcmU=",
-                rawText: null,
-                page: null,
-                annotationLabel: null,
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                corpus: null,
-              },
-            },
-          ],
-        },
-      },
-    },
-  },
-  {
-    request: {
-      query: GET_CORPUSES,
+      query: DISCOVER_DISCUSSIONS,
       variables: { textSearch, limit: 5 },
     },
     result: {
       data: {
-        corpuses: {
-          edges: [
-            // Untitled, no description, no creator.slug, no documentCount,
-            // not public — every meta render branch chooses the null path.
-            {
-              node: {
-                id: "Q29ycHVzOmJhcmU=",
-                slug: "vendor-agreements",
-                icon: null,
-                title: null,
-                creator: { email: "alice@example.com", slug: null },
-                description: null,
-                isPublic: false,
-                isPersonal: false,
-                myPermissions: ["READ"],
-                documentCount: null,
-                parent: null,
-                labelSet: null,
-                categories: [],
-                license: null,
-                licenseLink: null,
-              },
-            },
-          ],
-          pageInfo: {
-            hasNextPage: false,
-            hasPreviousPage: false,
-            startCursor: null,
-            endCursor: null,
+        discoverDiscussions: [
+          // Live thread — must render.
+          {
+            ...THREAD_NODE,
+            id: "Q29udjpsaXZl",
+            title: "Live thread keeps rendering",
+            description: null,
+            chatWithCorpus: null,
+            chatMessages: { totalCount: 0 },
+            upvoteCount: 0,
+            downvoteCount: 0,
           },
-        },
+          // Soft-deleted thread — filtered out before render.
+          {
+            ...THREAD_NODE,
+            id: "Q29udjpkZWxldGVk",
+            title: "Tombstoned thread should be hidden",
+            description: null,
+            chatWithCorpus: null,
+            chatMessages: { totalCount: 0 },
+            upvoteCount: 0,
+            downvoteCount: 0,
+            deletedAt: "2026-04-15T00:00:00Z",
+          },
+        ],
       },
     },
   },
   {
     request: {
-      query: SEARCH_NOTES_FOR_MENTION,
-      variables: { textSearch, first: 5 },
+      query: DISCOVER_ANNOTATIONS,
+      variables: { textSearch, limit: 5 },
     },
     result: {
       data: {
-        searchNotesForMention: {
-          edges: [
-            // No contentPreview → snippet branch resolves to undefined.
-            // No corpus and anonymous creator → meta branches collapse.
-            {
-              node: {
-                id: "Tm90ZTpiYXJl",
-                title: "Note with no preview",
-                contentPreview: null,
-                modified: "2026-04-15T09:00:00Z",
-                creator: { id: "VXNlcjox", username: null, slug: "alice" },
-                document: {
-                  id: "RG9jOjE=",
-                  title: "Master Services Agreement",
-                  slug: "msa",
-                  creator: { id: "VXNlcjox", slug: "alice" },
-                },
-                corpus: null,
-              },
+        discoverAnnotations: [
+          // > 140 chars → truncated with ellipsis.
+          {
+            id: "QW5uOmxvbmc=",
+            rawText: LONG_RAW_TEXT,
+            page: 0,
+            annotationLabel: {
+              id: "TGFiOjE=",
+              text: "Indemnification",
+              color: "#ef4444",
             },
-          ],
-        },
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+            // No corpus context — exercises null-corpus meta branch.
+            corpus: null,
+          },
+          // No rawText → label fallback for title.
+          {
+            id: "QW5uOmxhYmVs",
+            rawText: null,
+            page: null,
+            annotationLabel: {
+              id: "TGFiOjI=",
+              text: "Termination",
+              color: null,
+            },
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+            corpus: null,
+          },
+          // Neither rawText nor label → defaults to "Annotation".
+          {
+            id: "QW5uOmJhcmU=",
+            rawText: null,
+            page: null,
+            annotationLabel: null,
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+            corpus: null,
+          },
+        ],
+      },
+    },
+  },
+  {
+    request: { query: DISCOVER_DOCUMENTS, variables: { textSearch, limit: 5 } },
+    result: {
+      data: {
+        discoverDocuments: [
+          // No description / no fileType → meta branches collapse.
+          {
+            id: "RG9jOmJhcmU=",
+            title: "Bare Document",
+            slug: "bare-doc",
+            description: null,
+            fileType: null,
+            creator: { id: "VXNlcjox", slug: "alice" },
+          },
+        ],
+      },
+    },
+  },
+  {
+    request: { query: DISCOVER_CORPUSES, variables: { textSearch, limit: 5 } },
+    result: {
+      data: {
+        discoverCorpuses: [
+          // Untitled, no description, no creator.slug, no documentCount,
+          // not public — every meta render branch chooses the null path.
+          {
+            id: "Q29ycHVzOmJhcmU=",
+            slug: "vendor-agreements",
+            title: null,
+            description: null,
+            isPublic: false,
+            documentCount: null,
+            creator: { id: "VXNlcjox", slug: null },
+          },
+        ],
+      },
+    },
+  },
+  {
+    request: { query: DISCOVER_NOTES, variables: { textSearch, limit: 5 } },
+    result: {
+      data: {
+        discoverNotes: [
+          // No contentPreview → snippet branch resolves to undefined.
+          // No corpus and anonymous creator → meta branches collapse.
+          {
+            id: "Tm90ZTpiYXJl",
+            title: "Note with no preview",
+            contentPreview: null,
+            modified: "2026-04-15T09:00:00Z",
+            creator: { id: "VXNlcjox", username: null, slug: "alice" },
+            document: {
+              id: "RG9jOjE=",
+              title: "Master Services Agreement",
+              slug: "msa",
+              creator: { id: "VXNlcjox", slug: "alice" },
+            },
+            corpus: null,
+          },
+        ],
       },
     },
   },
@@ -665,6 +554,9 @@ test("DiscoverSearchResults — edge-case mocks exercise fallback render branche
     component.getByText("Annotation", { exact: true })
   ).toBeVisible();
 
+  // Document with no description still renders its title.
+  await expect(component.getByText("Bare Document")).toBeVisible();
+
   // Untitled collection fallback fires.
   await expect(component.getByText("Untitled collection")).toBeVisible();
 
@@ -691,7 +583,6 @@ test("DiscoverSearchResults — clicking each row type navigates to the resolved
   await page.waitForTimeout(700);
 
   // Annotation row → /d/<creator>/<corpus>/<doc>?ann=<id>
-  // Each row is a <button>; click the button containing the rawText title.
   await component
     .getByRole("button")
     .filter({ hasText: /Vendor shall indemnify Customer/ })
@@ -700,6 +591,14 @@ test("DiscoverSearchResults — clicking each row type navigates to the resolved
     .poll(() => page.url())
     .toContain("/d/alice/vendor-agreements/msa");
   await expect.poll(() => page.url()).toContain("ann=QW5uOjE");
+
+  // Document row → standalone /d/<creator>/<doc-slug>
+  await page.evaluate(() => window.history.replaceState(null, "", "/"));
+  await component
+    .getByRole("button")
+    .filter({ hasText: /canonical vendor MSA/ })
+    .click();
+  await expect.poll(() => page.url()).toContain("/d/alice/msa");
 
   // Reset and click the corpus row → /c/<creator>/<corpus>
   // Disambiguate from the annotation/note rows (which mention "Vendor
@@ -770,13 +669,14 @@ test("DiscoverSearchResults — invalid ?type= falls back to the All tab", async
 
   await page.waitForTimeout(700);
 
-  // All four section headers visible → "all" tab is active.
+  // All five section headers visible → "all" tab is active.
   await expect(
     component.locator("h2", { hasText: "Discussions" })
   ).toBeVisible();
   await expect(
     component.locator("h2", { hasText: "Annotations" })
   ).toBeVisible();
+  await expect(component.locator("h2", { hasText: "Documents" })).toBeVisible();
   await expect(
     component.locator("h2", { hasText: "Collections" })
   ).toBeVisible();
@@ -788,50 +688,31 @@ test("DiscoverSearchResults — unrouteable rows render disabled and don't navig
   page,
 }) => {
   // Corpus with no creator slug → getCorpusUrl returns "#".
-  // Replace only the corpus mock — keep the other three sections empty so
-  // we don't conflict with buildEmptyMocks's GET_CORPUSES entry.
+  // Replace only the corpus mock — keep the other four sections empty.
   const emptyExceptCorpuses = buildEmptyMocks("indemnity").filter(
-    (m) => m.request.query !== GET_CORPUSES
+    (m) => m.request.query !== DISCOVER_CORPUSES
   );
   const unrouteableMocks: MockedResponse[] = [
     ...emptyExceptCorpuses,
     {
       request: {
-        query: GET_CORPUSES,
+        query: DISCOVER_CORPUSES,
         variables: { textSearch: "indemnity", limit: 5 },
       },
       result: {
         data: {
-          corpuses: {
-            edges: [
-              {
-                node: {
-                  id: "Q29ycHVzOmJyb2tlbg==",
-                  slug: "vendor-agreements",
-                  icon: null,
-                  title: "Broken Link Collection",
-                  // No creator.slug → getCorpusUrl returns "#".
-                  creator: { email: "alice@example.com", slug: null },
-                  description: null,
-                  isPublic: true,
-                  isPersonal: false,
-                  myPermissions: ["READ"],
-                  documentCount: 0,
-                  parent: null,
-                  labelSet: null,
-                  categories: [],
-                  license: null,
-                  licenseLink: null,
-                },
-              },
-            ],
-            pageInfo: {
-              hasNextPage: false,
-              hasPreviousPage: false,
-              startCursor: null,
-              endCursor: null,
+          discoverCorpuses: [
+            {
+              id: "Q29ycHVzOmJyb2tlbg==",
+              slug: "vendor-agreements",
+              title: "Broken Link Collection",
+              // No creator.slug → getCorpusUrl returns "#".
+              description: null,
+              isPublic: true,
+              documentCount: 0,
+              creator: { id: "VXNlcjox", slug: null },
             },
-          },
+          ],
         },
       },
     },
@@ -872,39 +753,15 @@ test("DiscoverSearchResults — section error renders the recoverable fallback",
   // Erroring mocks for every section so each Section renders its error
   // branch (`error && !data`).
   const errorMocks: MockedResponse[] = [
-    {
-      request: {
-        query: GET_CONVERSATIONS,
-        variables: {
-          conversationType: "THREAD",
-          title_Contains: "boom",
-          limit: 5,
-        },
-      },
-      error: new Error("Conversations service unavailable"),
-    },
-    {
-      request: {
-        query: SEARCH_ANNOTATIONS_FOR_MENTION,
-        variables: { textSearch: "boom", first: 5 },
-      },
-      error: new Error("Annotations service unavailable"),
-    },
-    {
-      request: {
-        query: GET_CORPUSES,
-        variables: { textSearch: "boom", limit: 5 },
-      },
-      error: new Error("Corpuses service unavailable"),
-    },
-    {
-      request: {
-        query: SEARCH_NOTES_FOR_MENTION,
-        variables: { textSearch: "boom", first: 5 },
-      },
-      error: new Error("Notes service unavailable"),
-    },
-  ];
+    DISCOVER_DISCUSSIONS,
+    DISCOVER_ANNOTATIONS,
+    DISCOVER_DOCUMENTS,
+    DISCOVER_CORPUSES,
+    DISCOVER_NOTES,
+  ].map((query) => ({
+    request: { query, variables: { textSearch: "boom", limit: 5 } },
+    error: new Error("Service unavailable"),
+  }));
 
   const component = await mount(
     <LandingTestWrapper mocks={errorMocks}>
@@ -923,6 +780,6 @@ test("DiscoverSearchResults — section error renders the recoverable fallback",
   await expect(errorAlerts.first()).toContainText(
     "We couldn't load these results"
   );
-  // All four sections error simultaneously.
-  await expect(errorAlerts).toHaveCount(4);
+  // All five sections error simultaneously.
+  await expect(errorAlerts).toHaveCount(5);
 });

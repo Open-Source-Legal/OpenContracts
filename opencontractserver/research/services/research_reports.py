@@ -18,7 +18,15 @@ from django.utils import timezone
 
 from opencontractserver.research.constants import (
     DEFAULT_MAX_STEPS_FALLBACK,
+    MAX_RESEARCH_MEMORY_KEY_CHARS,
+    MAX_RESEARCH_MEMORY_KEYS,
+    MAX_RESEARCH_MEMORY_TOTAL_CHARS,
+    MAX_RESEARCH_MEMORY_VALUE_CHARS,
+    MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
+    RESEARCH_MEMORY_PREVIEW_CHARS,
+    RESEARCH_MEMORY_SEARCH_MAX_HITS,
+    RESEARCH_RECOVERY_FINDINGS_DIGEST,
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.shared.services.base import BaseService
@@ -38,6 +46,25 @@ class ResearchCancelled(Exception):
 class ConcurrentResearchInProgress(Exception):
     """Raised when a user tries to start a second concurrent job for the
     same corpus inside the concurrency-guard window."""
+
+
+class ResearchMemoryError(Exception):
+    """Base for anything the memory-write path rejects — both malformed input
+    (empty key, unknown mode) and capacity violations.
+
+    The agent-bound ``write_memory`` closure catches this base class and returns
+    the message to the model as an operational error string (mirroring
+    ``record_finding``'s bad-id handling) so the run continues — the agent is
+    expected to fix the input, prune, or shorten and retry rather than crash the
+    job. Catch the base when you only need "the write was rejected, tell the
+    model"; catch :class:`ResearchMemoryLimitExceeded` specifically to
+    distinguish a genuine cap violation from bad input.
+    """
+
+
+class ResearchMemoryLimitExceeded(ResearchMemoryError):
+    """Raised when a numeric cap (per-key, per-value, total-store, or key-count)
+    would be exceeded — a capacity violation, not malformed input."""
 
 
 class ResearchReportService(BaseService):
@@ -169,10 +196,19 @@ class ResearchReportService(BaseService):
     # Lifecycle transitions
     # ------------------------------------------------------------------
     @classmethod
-    def mark_started(cls, report: ResearchReport) -> None:
+    def mark_started(cls, report: ResearchReport, *, resuming: bool = False) -> None:
+        """Transition a report to RUNNING.
+
+        On a resume (``resuming=True``, i.e. a worker picking up a report that
+        was already RUNNING after a crash) the original ``started_at`` is
+        preserved so wall-clock duration reflects the whole investigation, not
+        just the final leg. ``error_message`` is still cleared — a prior
+        transient error should not shadow a successful resume.
+        """
         now = timezone.now()
         report.status = JobStatus.RUNNING.value
-        report.started_at = now
+        if not (resuming and report.started_at):
+            report.started_at = now
         report.last_progress_at = now
         report.error_message = ""
         report.save(
@@ -284,6 +320,318 @@ class ResearchReportService(BaseService):
         log.append(entry)
         report.tool_call_log = log
         report.save(update_fields=["tool_call_log", "modified"])
+
+    # ------------------------------------------------------------------
+    # Durable context management — plan + memory (called from tool closures)
+    # ------------------------------------------------------------------
+    # WHY a report-scoped store and not the existing Note / corpus-memory
+    # mechanisms (DRY review, 2026-06): OpenContracts already has two durable
+    # text stores — the ``Note`` model (annotations.models) with its
+    # token-budgeted ``get_partial_note_content`` retrieval, and the
+    # auto-curated ``Corpus.memory_document`` (agents.memory). Both are *shared
+    # corpus state*: writing to either is visible to every user with corpus
+    # READ and persists beyond the run. The deep-research agent is, by design,
+    # strictly read-only over corpus state (see ``DEEP_RESEARCH_READ_ONLY_TOOLS``
+    # — every write tool is excluded, and the system prompt forbids mutation).
+    # Routing its half-formed working notes into Notes/corpus-memory would
+    # leak an in-progress agent's scratchpad into shared, user-visible state
+    # before the report is even finalized. So the agent's private working
+    # memory lives here, on the report (creator-only visibility), and is the
+    # one durable store it is allowed to *write*. It deliberately does NOT
+    # reinvent corpus-level memory; it fills the orthogonal gap of private,
+    # run-scoped memory that survives compaction + restart.
+    @classmethod
+    def update_plan(cls, report: ResearchReport, plan: str) -> str:
+        """Replace the living plan, clamped to ``MAX_RESEARCH_PLAN_CHARS``.
+
+        Returns the stored plan (post-clamp) so the caller can echo back what
+        was actually persisted. Bumps ``last_progress_at`` — writing a plan is
+        real forward progress and should reset the stalled-job clock.
+
+        Refreshes the row first (mirroring ``write_memory``) so a concurrent
+        ``cancel_requested`` flip is not stomped. Last-writer-wins semantics
+        are intentional and safe: only one worker owns a report at a time, and
+        the reaper's ``DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS`` guard makes a
+        two-worker plan race vanishingly unlikely — not worth a
+        ``select_for_update`` on the hot write path.
+        """
+        report.refresh_from_db(fields=["cancel_requested"])
+        clamped = _clamp_text(plan or "", MAX_RESEARCH_PLAN_CHARS)
+        now = timezone.now()
+        report.plan = clamped
+        report.last_progress_at = now
+        report.save(update_fields=["plan", "last_progress_at", "modified"])
+        return clamped
+
+    @classmethod
+    def write_memory(
+        cls,
+        report: ResearchReport,
+        key: str,
+        content: str,
+        *,
+        mode: str = "replace",
+    ) -> dict:
+        """Create/overwrite/append a memory entry under ``key``.
+
+        ``mode`` is ``"replace"`` (default) or ``"append"`` (concatenate with a
+        newline onto any existing value). Enforces, in order: key length, value
+        length, key-count, and total-store-size caps. A cap violation raises
+        :class:`ResearchMemoryLimitExceeded`; malformed input (empty key,
+        unknown mode) raises the :class:`ResearchMemoryError` base. The closure
+        catches the base and surfaces the message to the model. Returns
+        ``{key, bytes, keys}`` summarising the store.
+
+        Refreshes the row first so a concurrent ``cancel_requested`` flip (or a
+        memory write from a redelivered task) is not stomped. Last-writer-wins
+        semantics are intentional here — only one worker owns a report at a
+        time in the normal case, and the reaper's stuck-threshold guard makes a
+        genuine two-worker race vanishingly unlikely — so we deliberately do
+        NOT take a ``select_for_update`` on this hot write path.
+        """
+        key = (key or "").strip()
+        if not key:
+            raise ResearchMemoryError("Memory key must be non-empty.")
+        if len(key) > MAX_RESEARCH_MEMORY_KEY_CHARS:
+            raise ResearchMemoryLimitExceeded(
+                f"Memory key too long ({len(key)} chars); max is "
+                f"{MAX_RESEARCH_MEMORY_KEY_CHARS}. Use a short slug like "
+                "'doc-1421-summary'."
+            )
+        if mode not in ("replace", "append"):
+            raise ResearchMemoryError(
+                f"Unknown memory mode {mode!r}; use 'replace' or 'append'."
+            )
+
+        report.refresh_from_db(fields=["memory", "cancel_requested"])
+        store: dict[str, Any] = dict(report.memory or {})
+
+        existing = store.get(key)
+        prior_content = ""
+        if isinstance(existing, dict):
+            prior_content = str(existing.get("content", ""))
+        if mode == "append" and prior_content:
+            new_content = f"{prior_content}\n{content or ''}"
+        else:
+            new_content = content or ""
+
+        if len(new_content) > MAX_RESEARCH_MEMORY_VALUE_CHARS:
+            raise ResearchMemoryLimitExceeded(
+                f"Memory value for '{key}' is {len(new_content)} chars; max per "
+                f"entry is {MAX_RESEARCH_MEMORY_VALUE_CHARS}. Split it across "
+                "several keys or summarise."
+            )
+
+        # Key-count cap only bites when introducing a NEW key.
+        if key not in store and len(store) >= MAX_RESEARCH_MEMORY_KEYS:
+            raise ResearchMemoryLimitExceeded(
+                f"Memory store already holds {len(store)} keys (max "
+                f"{MAX_RESEARCH_MEMORY_KEYS}). Delete or consolidate keys with "
+                "delete_memory before adding more."
+            )
+
+        # Total-store cap, computed against the post-write state.
+        projected_total = sum(
+            len(str(v.get("content", "")))
+            for k, v in store.items()
+            if k != key and isinstance(v, dict)
+        ) + len(new_content)
+        if projected_total > MAX_RESEARCH_MEMORY_TOTAL_CHARS:
+            raise ResearchMemoryLimitExceeded(
+                f"Writing '{key}' would push the memory store to "
+                f"{projected_total} chars (max {MAX_RESEARCH_MEMORY_TOTAL_CHARS}). "
+                "Prune older keys with delete_memory first."
+            )
+
+        # One timestamp for both the entry's ``updated_at`` and the row's
+        # ``last_progress_at`` so they agree exactly (two ``timezone.now()``
+        # calls would drift microseconds apart).
+        now = timezone.now()
+        store[key] = {
+            "content": new_content,
+            "updated_at": now.isoformat(),
+        }
+        report.memory = store
+        report.last_progress_at = now
+        report.save(update_fields=["memory", "last_progress_at", "modified"])
+        return {"key": key, "bytes": len(new_content), "keys": len(store)}
+
+    @classmethod
+    def delete_memory(cls, report: ResearchReport, key: str) -> bool:
+        """Drop a memory entry. Returns True if a key was removed.
+
+        Bumps ``last_progress_at`` on a successful delete: pruning keys to free
+        room under the store caps is real forward progress, so an agent that is
+        only deleting should not look stalled to the reaper.
+        """
+        report.refresh_from_db(fields=["memory"])
+        store = dict(report.memory or {})
+        if key not in store:
+            return False
+        del store[key]
+        report.memory = store
+        report.last_progress_at = timezone.now()
+        report.save(update_fields=["memory", "last_progress_at", "modified"])
+        return True
+
+    @classmethod
+    def read_memory(cls, report: ResearchReport, key: str) -> str | None:
+        """Return the content stored under ``key`` (fresh read), or None."""
+        report.refresh_from_db(fields=["memory"])
+        entry = (report.memory or {}).get(key)
+        if isinstance(entry, dict):
+            return str(entry.get("content", ""))
+        return None
+
+    @classmethod
+    def memory_index(cls, report: ResearchReport) -> list[dict]:
+        """Return ``[{key, bytes, preview}]`` for every memory entry.
+
+        Sorted by key for stable rendering in the prompt index. Does not
+        refresh — callers that need freshness refresh first (the ``list_memory``
+        tool closure satisfies this by calling ``refresh_from_db(["memory"])``
+        immediately before this method).
+        """
+        out: list[dict] = []
+        for key in sorted((report.memory or {}).keys()):
+            entry = report.memory[key]
+            content = str(entry.get("content", "")) if isinstance(entry, dict) else ""
+            preview = content[:RESEARCH_MEMORY_PREVIEW_CHARS].replace("\n", " ")
+            out.append({"key": key, "bytes": len(content), "preview": preview})
+        return out
+
+    @classmethod
+    def search_memory(
+        cls, report: ResearchReport, query: str, *, max_hits: int | None = None
+    ) -> list[dict]:
+        """Grep across memory entries AND recorded findings.
+
+        Case-insensitive substring match, line-oriented (like ``grep``).
+        Returns ``[{source, key, line}]`` where ``source`` is ``"memory"`` or
+        ``"finding"``. Capped at ``max_hits`` (default
+        ``RESEARCH_MEMORY_SEARCH_MAX_HITS``) so a broad query cannot dump the
+        whole store back into context.
+        """
+        report.refresh_from_db(fields=["memory", "findings"])
+        needle = (query or "").strip().lower()
+        limit = max_hits or RESEARCH_MEMORY_SEARCH_MAX_HITS
+        hits: list[dict] = []
+        if not needle:
+            return hits
+
+        for key in sorted((report.memory or {}).keys()):
+            entry = report.memory[key]
+            content = str(entry.get("content", "")) if isinstance(entry, dict) else ""
+            for line in content.splitlines():
+                if needle in line.lower():
+                    hits.append({"source": "memory", "key": key, "line": line.strip()})
+                    if len(hits) >= limit:
+                        return hits
+
+        for idx, finding in enumerate(report.findings or []):
+            claim = str((finding or {}).get("claim", ""))
+            if needle in claim.lower():
+                section = str((finding or {}).get("section", "Findings"))
+                hits.append(
+                    {"source": "finding", "key": section, "line": claim.strip()}
+                )
+                if len(hits) >= limit:
+                    return hits
+        return hits
+
+    # ------------------------------------------------------------------
+    # Recovery — rebuild the durable context surface for a (re)started run
+    # ------------------------------------------------------------------
+    @classmethod
+    def build_recovery_digest(cls, report: ResearchReport) -> dict:
+        """Assemble the plan / findings-digest / memory-index strings used to
+        prime the system prompt at the start of a run.
+
+        Always cheap and bounded: the findings digest is the tail
+        (``RESEARCH_RECOVERY_FINDINGS_DIGEST`` most recent) rendered compactly,
+        and the memory index is keys + sizes + short previews — never full
+        contents. The agent pulls full memory on demand via ``read_memory`` /
+        ``search_memory``.
+
+        Reads from the in-memory ``report`` object and does NOT refresh from the
+        DB. This is intentional for the only caller (task startup, where the row
+        was just loaded). If a future mid-run caller needs freshness, it must
+        call ``report.refresh_from_db()`` first — unlike ``search_memory``,
+        which refreshes itself because it runs from a tool closure.
+        """
+        plan = (report.plan or "").strip()
+
+        findings = list(report.findings or [])
+        recent = findings[-RESEARCH_RECOVERY_FINDINGS_DIGEST:]
+        digest_lines: list[str] = []
+        if len(findings) > len(recent):
+            digest_lines.append(
+                f"_(showing the {len(recent)} most recent of "
+                f"{len(findings)} findings — search_memory for the rest)_"
+            )
+        for finding in recent:
+            section = str((finding or {}).get("section", "Findings"))
+            claim = str((finding or {}).get("claim", "")).strip()
+            cites = (finding or {}).get("citations") or []
+            cite_str = (
+                " [cites: " + ",".join(str(c) for c in cites) + "]" if cites else ""
+            )
+            digest_lines.append(f"- ({section}) {claim}{cite_str}")
+        findings_digest = "\n".join(digest_lines)
+
+        index = cls.memory_index(report)
+        memory_lines = [
+            f"- `{item['key']}` ({item['bytes']} chars): {item['preview']}"
+            for item in index
+        ]
+        memory_index_str = "\n".join(memory_lines)
+
+        return {
+            "plan": plan,
+            "findings_digest": findings_digest,
+            "memory_index": memory_index_str,
+            "is_resume": bool(plan or findings or index),
+        }
+
+    # ------------------------------------------------------------------
+    # Resume — re-enqueue a stalled RUNNING report
+    # ------------------------------------------------------------------
+    @classmethod
+    def list_stalled(cls, *, older_than_seconds: int | None = None) -> list[int]:
+        """Return PKs of RUNNING reports whose ``last_progress_at`` is older
+        than the stuck threshold (a crashed worker leaves the row RUNNING with
+        no further progress). Used by the periodic reaper to resume them.
+        """
+        threshold = older_than_seconds
+        if threshold is None:
+            threshold = getattr(
+                settings,
+                "DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS",
+                getattr(settings, "DEEP_RESEARCH_SOFT_TIME_LIMIT", 1800) * 2,
+            )
+        cutoff = timezone.now() - timedelta(seconds=threshold)
+        qs = ResearchReport.objects.filter(
+            status=JobStatus.RUNNING.value,
+            last_progress_at__lt=cutoff,
+        ).values_list("pk", flat=True)
+        return list(qs)
+
+    @classmethod
+    def resume(cls, report: ResearchReport) -> bool:
+        """Re-enqueue ``run_deep_research`` for a stalled RUNNING report.
+
+        No-op (returns False) for a terminal report. Does NOT mutate status —
+        the task's ``mark_started(resuming=True)`` handles that — so a double
+        resume is harmless: the second pickup sees the durable state and
+        continues. Returns True when a task was enqueued.
+        """
+        if report.is_terminal:
+            return False
+        from opencontractserver.tasks.research_tasks import run_deep_research
+
+        run_deep_research.delay(report.pk)
+        cls.log_action("Resumed", report, report.creator)
+        return True
 
     # ------------------------------------------------------------------
     # Finalize (terminal write from inside the loop)
@@ -431,6 +779,20 @@ class ResearchReportService(BaseService):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _clamp_text(text: str, limit: int) -> str:
+    """Truncate ``text`` to ``limit`` chars, keeping the head.
+
+    The head of a plan is the task restatement + next steps — the part the
+    agent most needs on recovery — so we drop the tail and append a marker
+    rather than truncating from the front.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "\n\n…[truncated]"
+    keep = max(0, limit - len(marker))
+    return text[:keep].rstrip() + marker
 
 
 def _derive_title_from_prompt(prompt: str, limit: int = 80) -> str:

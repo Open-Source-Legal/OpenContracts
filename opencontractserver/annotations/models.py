@@ -1565,6 +1565,11 @@ class Note(BaseOCModel, HasEmbeddingMixin):
     title = django.db.models.CharField(max_length=1024, db_index=True)
     content = django.db.models.TextField(default="", blank=True)
 
+    # Full-text search vector, auto-populated from title + content by a DB
+    # trigger (see migration 0076). Mirrors Annotation.search_vector so Note
+    # discovery search gets stemming + ranking instead of LIKE-only matching.
+    search_vector = SearchVectorField(null=True)
+
     # Vector for vector search - legacy field, will be deprecated
     embedding = VectorField(dimensions=384, null=True, blank=True)
 
@@ -1792,6 +1797,10 @@ class Note(BaseOCModel, HasEmbeddingMixin):
             django.db.models.Index(fields=["modified"]),
             django.db.models.Index(fields=["parent"]),
             django.db.models.Index(fields=["corpus"]),
+            GinIndex(
+                fields=["search_vector"],
+                name="note_search_vector_gin",
+            ),
         ]
         ordering = ("created",)
 

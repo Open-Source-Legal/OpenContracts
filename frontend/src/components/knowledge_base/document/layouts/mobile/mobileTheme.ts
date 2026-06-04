@@ -25,3 +25,20 @@ export const MOBILE_SURFACE_TINT = SURFACE_TINT;
 
 /** Teal-tinted focus ring for inputs. */
 export const MOBILE_FOCUS_RING = FOCUS_RING;
+
+/**
+ * Spacing scale (px) for mobile sheet padding and stacked-element gaps.
+ * Kept here alongside the other mobile-layout tokens so the values are named
+ * (no magic numbers) and tunable in one place. `blockCompact` matches the
+ * existing EmptyState padding; `blockRoomy` gives a loader a touch more room.
+ */
+export const MOBILE_SPACING = {
+  /** Inline (horizontal) padding for sheet text blocks. */
+  inline: 16,
+  /** Vertical padding for a compact text state (EmptyState). */
+  blockCompact: 24,
+  /** Vertical padding for a state needing more breathing room (loader). */
+  blockRoomy: 40,
+  /** Gap between stacked loader elements (spinner ↔ label). */
+  stackGap: 12,
+} as const;
