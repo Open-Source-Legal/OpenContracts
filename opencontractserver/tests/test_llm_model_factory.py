@@ -133,8 +133,9 @@ class TestBuildAgentModelDbWins(TestCase):
         instance.set_secrets({self.openai_path: {"api_key": api_key}})
         if base_url is not None:
             instance.component_settings = {self.openai_path: {"base_url": base_url}}
+        # save() eagerly invalidates the singleton cache, so the subsequent
+        # get_instance() in build_agent_model() re-reads these creds from the DB.
         instance.save()
-        PipelineSettings.clear_cache()
 
     def test_db_creds_route_through_construct_model(self):
         """When DB creds exist, _construct_model is invoked with them."""
