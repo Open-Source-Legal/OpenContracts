@@ -23,6 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ugly white line in PDF annotation highlights when the bounding box is hidden (2026-06).**
+  `SelectionInfo` (the annotation label container) in
+  `frontend/src/components/annotator/display/components/Containers.tsx`
+  is absolutely positioned just above the highlight's top edge and spans the
+  full annotation width. When the bounding box was not displayed
+  (`showBoundingBox === false`) its background fell back to an *opaque* white
+  (`rgba(255, 255, 255, 0.9)`), rendering a full-width white bar across the top
+  of every highlight — even when labels were turned off entirely. The
+  equivalent search-result highlight (`SearchResult.tsx`) already used a
+  transparent fallback (`rgba(255, 255, 255, 0.0)`) and had no such artifact.
+  Fix: when the bounding box is hidden, render the `SelectionInfo` background as
+  `transparent` instead of opaque white, matching the search-result pattern. The
+  colored label "tab" is preserved unchanged when the bounding box *is*
+  displayed, and the label pill itself (`LabelTagContainer`) keeps its own
+  colored background, so labels remain readable.
+
 - **Corpus Chat — "Invalid Date" on every server-loaded message.** `CorpusChat`
   rendered `new Date(msg.createdAt).toLocaleString()`
   (`frontend/src/components/corpuses/CorpusChat.tsx:348`) but `GET_CHAT_MESSAGES`
@@ -103,6 +119,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Mobile DocumentKnowledgeBase layout cleanup (2026-06).** Removed the
+  full-width control band that sat between the header and the page on mobile —
+  it ate vertical space and read as wasteful. The Sections / Find / fit-width
+  controls now float as a single compact frosted pill over the viewer's
+  top-right corner (`frontend/src/components/knowledge_base/document/layouts/mobile/MobileDocToolbar.tsx`,
+  rendered as an overlay inside `ViewerArea` in
+  `frontend/.../layouts/MobileDocumentLayout.tsx`), so the document fills the
+  whole surface. Also deepened the document backdrop on mobile from the
+  near-white `#f7f9f9` to a new `VIEWER_CANVAS` token (`#e4e9f0`,
+  `frontend/src/assets/configurations/designTokens.ts`), applied in the
+  `@media (max-width: 768px)` branch of `PDFContainer`
+  (`frontend/src/components/annotator/display/viewer/DocumentViewer.tsx`), so
+  the white page sheet reads as a floating sheet with real contrast instead of
+  washed-out near-white-on-near-white.
+
 - **Corpus/document chat — message readability.** Capped the message column at
   60rem and centered it (`frontend/src/components/widgets/chat/ChatMessage.styles.ts`,
   `MessageContainer`) so messages no longer span the full width of a wide
@@ -119,7 +150,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bumped `@os-legal/ui` 0.1.16 → 0.1.19** (`frontend/package.json`,
   `frontend/yarn.lock`). The upstream `SearchBox` mobile layout is unchanged in
   0.1.19, so the consumer-side icon/input override above is still required.
-
 - **Scoped admin (superuser) data access — admins are no longer omniscient over user data (2026-06).**
   Previously a `is_superuser` account received a blanket bypass throughout the
   permission layer: it could READ every row of every data model and pass every

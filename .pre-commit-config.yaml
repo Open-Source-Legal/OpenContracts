@@ -10,6 +10,18 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
 
+  - repo: local
+    hooks:
+      # Validate changelog fragments (changelog.d/<slug>.<type>.md). PRs add a
+      # fragment instead of editing CHANGELOG.md directly, so concurrent PRs
+      # never collide on the changelog. See changelog.d/README.md.
+      - id: changelog-fragments
+        name: validate changelog fragments
+        entry: python scripts/collate_changelog.py --check
+        language: system
+        files: ^changelog\.d/
+        pass_filenames: false
+
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.20.0
     hooks:

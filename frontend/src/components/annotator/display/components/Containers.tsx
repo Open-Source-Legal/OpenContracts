@@ -48,7 +48,7 @@ export const SelectionInfo = styled.div<SelectionInfoProps>`
   bottom: calc(100% - 2px);
   border-radius: ${ANNOTATION_BOUNDARY_RADIUS} ${ANNOTATION_BOUNDARY_RADIUS} 0 0;
   background: ${(props) =>
-    props.$showBoundingBox ? props.$color : "rgba(255, 255, 255, 0.9)"};
+    props.$showBoundingBox ? props.$color : "transparent"};
   padding: 1px 8px;
   font-weight: bold;
   font-size: 12px;
