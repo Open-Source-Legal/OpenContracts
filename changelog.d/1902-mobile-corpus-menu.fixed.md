@@ -7,7 +7,8 @@
   to navigate within the corpus. Fix: `CorpusHome.tsx` now forwards
   `onOpenMobileMenu` to both `CorpusArticleView` render sites
   (`frontend/src/components/corpuses/CorpusHome.tsx`), and the article toolbar
-  renders a compact, mobile-only menu button via the shared `MobileMenuButton`
+  renders a compact, mobile-only circular menu button styled in the os-legal
+  design language to match the article toolbar
   (`frontend/src/components/corpuses/CorpusHome/CorpusArticleView.tsx`). The
   button is gated on `isPowerUserMode` to match `CorpusLandingView` /
   `CorpusDetailsView`, since the sidebar only exists in power-user mode

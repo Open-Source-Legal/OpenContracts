@@ -134,7 +134,14 @@ const ToolbarNav = styled.div`
   flex-shrink: 0;
 `;
 
-/** Mobile-only control opening the corpus tab menu; sidebar is always present on desktop. */
+/** Mobile-only control opening the corpus tab menu; the sidebar is always
+ *  present on desktop. This is deliberately NOT the shared `MobileMenuButton`
+ *  from `styles.ts`: that button belongs to the legacy `CORPUS_COLORS` design
+ *  language (a bare, background-less slate icon) used by `CorpusLandingView` /
+ *  `CorpusDetailsView`. `CorpusArticleView` is rendered in the newer os-legal
+ *  design system (`OS_LEGAL_COLORS`) and its toolbar sits beside os-legal
+ *  `PillToggle` controls, so it uses a matching circular, filled button. Reusing
+ *  `MobileMenuButton` here would visually clash with the article toolbar. */
 const ToolbarMenuButton = styled.button`
   display: none;
   align-items: center;
