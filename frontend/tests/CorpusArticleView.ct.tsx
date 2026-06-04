@@ -140,6 +140,74 @@ test.describe("CorpusArticleView - Mode toggle (mobile)", () => {
   });
 });
 
+test.describe("CorpusArticleView - Mobile menu button", () => {
+  // iPhone-class viewport: the corpus tab menu (navigation sidebar) is only
+  // reachable on mobile via this toolbar button. Regression guard for the bug
+  // where a Readme.CAML article left mobile users unable to navigate.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("renders the mobile menu button in power-user mode and fires onOpenMobileMenu", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/media/test/readme.caml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: CAML_BODY,
+      })
+    );
+
+    const component = await mount(
+      <CorpusArticleViewTestWrapper
+        hasArticle={true}
+        isPowerUserMode={true}
+        withMobileMenu={true}
+      />
+    );
+
+    const menuButton = page.getByTestId("test-corpus-article-mobile-menu");
+    await expect(menuButton).toBeVisible({ timeout: 15000 });
+
+    await docScreenshot(page, "corpus--article-toolbar--mobile-menu");
+
+    await menuButton.click();
+    await expect(page.getByTestId("mobile-menu-opened")).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("omits the mobile menu button in explore mode (no sidebar to open)", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/media/test/readme.caml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: CAML_BODY,
+      })
+    );
+
+    const component = await mount(
+      <CorpusArticleViewTestWrapper
+        hasArticle={true}
+        isPowerUserMode={false}
+        withMobileMenu={true}
+      />
+    );
+
+    // Toolbar renders (Back present) but the menu button is gated out: in
+    // explore mode there is no navigation sidebar to open.
+    await expect(page.getByText("Back")).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByTestId("test-corpus-article-mobile-menu")
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
+});
+
 test.describe("CorpusArticleView - Auto corpus image", () => {
   test("renders the corpus cover image when CAML omits corpus://icon", async ({
     mount,

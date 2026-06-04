@@ -13,11 +13,7 @@ from django.utils import timezone
 from config import celery_app
 from config.telemetry import record_event
 from opencontractserver import __version__
-from opencontractserver.annotations.models import Annotation
-from opencontractserver.conversations.models import ChatMessage, Conversation
-from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import DocumentPath
-from opencontractserver.users.models import Installation, User
+from opencontractserver.users.models import Installation, SystemStats
 
 logger = logging.getLogger(__name__)
 
@@ -47,24 +43,14 @@ def send_usage_heartbeat() -> dict | None:
         installation = Installation.get()
         age_days = (timezone.now() - installation.created).days
 
-        # Collect usage statistics
+        # Collect usage statistics. The aggregate counts share a single
+        # definition with the materialised SystemStats snapshot
+        # (``SystemStats.compute_values()``) so telemetry and the in-app
+        # headline tiles can never drift apart.
         stats = {
-            # Usage counts
-            "user_count": User.objects.filter(is_active=True).count(),
-            "document_count": (
-                DocumentPath.objects.filter(is_deleted=False, is_current=True)
-                .values("document_id")
-                .distinct()
-                .count()
-            ),
-            "corpus_count": Corpus.objects.count(),
-            "annotation_count": Annotation.objects.filter(structural=False).count(),
-            "conversation_count": Conversation.objects.filter(
-                deleted_at__isnull=True
-            ).count(),
-            "message_count": ChatMessage.objects.filter(
-                deleted_at__isnull=True
-            ).count(),
+            # Usage counts (user_count, document_count, corpus_count,
+            # annotation_count, conversation_count, message_count)
+            **SystemStats.compute_values(),
             # Installation metadata
             "version": __version__,
             "installation_age_days": age_days,
