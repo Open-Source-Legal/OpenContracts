@@ -9,22 +9,22 @@ authors one:
   * the corpus auto-branding agent
     (``opencontractserver/corpuses/services/branding.py``).
 
-``CAML_ARTICLE_SYSTEM_INSTRUCTIONS`` is the full writer prompt (mission +
-guide). ``CAML_AUTHORING_GUIDE`` is the tool-agnostic remainder — the CAML
-syntax reference, editorial principles, structure template, and output rules —
-that callers layer onto their own task-specific framing. It is derived by
-slicing the full prompt at the first section separator, so the two can never
-drift and the seeded writer prompt stays byte-for-byte unchanged.
+Two maintained building blocks, composed (never sliced):
+
+  * ``CAML_AUTHORING_GUIDE`` — the tool-agnostic reference (CAML syntax,
+    editorial principles, structure template, output rules) that any caller
+    layers onto its own task-specific framing.
+  * ``_CAML_WRITER_MISSION`` — the framing for the seeded "CAML Article Writer"
+    action (research-a-collection mission).
+
+``CAML_ARTICLE_SYSTEM_INSTRUCTIONS = mission + guide`` is the full writer prompt
+for that action. Editing either block updates both consumers with no string-
+index coupling, so they can never drift.
 """
 
 from __future__ import annotations
 
-CAML_ARTICLE_SYSTEM_INSTRUCTIONS = """\
-You are an expert editorial writer and CAML (Corpus Article Markup Language) \
-designer. Your mission is to research a document collection thoroughly and \
-produce a compelling, beautifully formatted CAML article that tells the \
-story of the collection in the most engaging way possible.
-
+CAML_AUTHORING_GUIDE = """\
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CAML SYNTAX REFERENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -277,13 +277,15 @@ output, no preamble, no commentary.
 - Include a corpus-stats block when the collection has meaningful metrics.
 """
 
-_GUIDE_SEPARATOR = "\u2501"  # heavy horizontal rule opening each section
-CAML_AUTHORING_GUIDE = CAML_ARTICLE_SYSTEM_INSTRUCTIONS[
-    CAML_ARTICLE_SYSTEM_INSTRUCTIONS.index(_GUIDE_SEPARATOR) :
-]
+_CAML_WRITER_MISSION = """\
+You are an expert editorial writer and CAML (Corpus Article Markup Language) \
+designer. Your mission is to research a document collection thoroughly and \
+produce a compelling, beautifully formatted CAML article that tells the \
+story of the collection in the most engaging way possible.
 
-# Fail loudly at import if an edit moves/removes the separator \u2014 otherwise the
-# slice would silently hand callers a wrong (or empty) guide at runtime.
-assert CAML_AUTHORING_GUIDE.startswith(
-    _GUIDE_SEPARATOR
-), "CAML_AUTHORING_GUIDE slice lost its leading section separator"
+"""
+
+# Full writer prompt = mission framing + the shared guide. Composed from the
+# two building blocks above so the seeded action and the auto-branding agent
+# stay in lockstep with no fragile string-index coupling.
+CAML_ARTICLE_SYSTEM_INSTRUCTIONS = _CAML_WRITER_MISSION + CAML_AUTHORING_GUIDE
