@@ -3,7 +3,7 @@ import styled, { keyframes } from "styled-components";
 import { Loader2 } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
-import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
+import { MOBILE_RADIUS, MOBILE_SHADOW, MOBILE_SPACING } from "./mobileTheme";
 import {
   HighlightItem,
   HighlightItemCard,
@@ -17,7 +17,7 @@ import {
 import { useAnnotationSelection } from "../../../../annotator/context/UISettingsAtom";
 
 const EmptyState = styled.div`
-  padding: 24px 16px;
+  padding: ${MOBILE_SPACING.blockCompact}px ${MOBILE_SPACING.inline}px;
   font-size: 14px;
   color: ${OS_LEGAL_COLORS.textSecondary};
   text-align: center;
@@ -39,9 +39,9 @@ const LoadingState = styled(EmptyState)`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: ${MOBILE_SPACING.stackGap}px;
   /* A touch more vertical breathing room than EmptyState for the spinner. */
-  padding: 40px 16px;
+  padding: ${MOBILE_SPACING.blockRoomy}px ${MOBILE_SPACING.inline}px;
 
   svg {
     color: ${OS_LEGAL_COLORS.accent};
