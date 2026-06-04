@@ -485,7 +485,7 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
           title="Annotation"
           onClose={() => setSelectedAnnotations([])}
         >
-          <MobileAnnotationDetail readOnly={readOnly} />
+          <MobileAnnotationDetail readOnly={readOnly} loading={loading} />
         </MobileSheet>
       </Root>
     </FullScreenModal>

@@ -34,6 +34,26 @@ RRF_K = 60
 HYBRID_SEARCH_OVERSAMPLE_FACTOR = 3
 
 # =============================================================================
+# Discover Cross-Content Search Parameters
+# =============================================================================
+# Defaults for the unified Discover search resolvers (config/graphql/
+# discover_queries.py), which fuse a text arm and a semantic arm per category.
+
+# Default number of results returned per category when the caller does not
+# specify a ``limit``. The frontend caps this per tab (preview vs. entity tab).
+DISCOVER_DEFAULT_LIMIT = 25
+
+# How many candidates each arm fetches relative to the requested ``limit``
+# before fusion — a small oversample so RRF has room to reorder.
+DISCOVER_OVERSAMPLE = 4
+
+# Extra oversample applied to the corpus "content match" pre-filters
+# (documents/annotations whose text matches), on top of ``fetch_k``. A corpus
+# is reached transitively through many matching documents/annotations, so this
+# arm casts a wider net before collapsing to distinct corpus ids.
+DISCOVER_CORPUS_CONTENT_OVERSAMPLE = 4
+
+# =============================================================================
 # Reranker Parameters
 # =============================================================================
 # When a global reranker is configured (PipelineSettings.default_reranker),

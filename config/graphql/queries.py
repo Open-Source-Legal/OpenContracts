@@ -13,6 +13,7 @@ from config.graphql.action_queries import ActionQueryMixin
 from config.graphql.annotation_queries import AnnotationQueryMixin
 from config.graphql.conversation_queries import ConversationQueryMixin
 from config.graphql.corpus_queries import CorpusQueryMixin
+from config.graphql.discover_queries import DiscoverSearchQueryMixin
 from config.graphql.document_queries import DocumentQueryMixin
 from config.graphql.extract_queries import (
     DocumentMetadataResultType,
@@ -39,6 +40,7 @@ class Query(
     ExtractQueryMixin,
     ConversationQueryMixin,
     SearchQueryMixin,
+    DiscoverSearchQueryMixin,
     SocialQueryMixin,
     ActionQueryMixin,
     PipelineQueryMixin,

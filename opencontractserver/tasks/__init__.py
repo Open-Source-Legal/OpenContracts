@@ -22,7 +22,7 @@ from .memory_tasks import check_conversations_for_curation, curate_corpus_memory
 
 # Materialized view tasks removed - using direct queries instead
 from .permissioning_tasks import make_analysis_public_task, make_corpus_public_task
-from .research_tasks import run_deep_research
+from .research_tasks import reap_stalled_research, run_deep_research
 from .stats_tasks import refresh_system_stats
 from .telemetry_tasks import send_usage_heartbeat
 
@@ -53,6 +53,7 @@ __all__ = [
     "send_usage_heartbeat",
     "refresh_system_stats",
     "run_deep_research",
+    "reap_stalled_research",
     "check_conversations_for_curation",
     "curate_corpus_memory",
 ]

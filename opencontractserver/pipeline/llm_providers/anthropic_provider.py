@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import ClassVar
 
-from opencontractserver.pipeline.base.llm_provider import BaseLLMProvider
+from opencontractserver.pipeline.base.llm_provider import (
+    BaseLLMProvider,
+    llm_api_key_field,
+    llm_base_url_field,
+)
 
 
 class AnthropicProvider(BaseLLMProvider):
@@ -12,10 +17,16 @@ class AnthropicProvider(BaseLLMProvider):
 
     title: str = "Anthropic"
     description: str = (
-        "Anthropic's Claude family (Opus, Sonnet, Haiku). Resolves API "
-        "credentials from ANTHROPIC_API_KEY in the process environment."
+        "Anthropic's Claude family (Opus, Sonnet, Haiku). API credentials and "
+        "endpoint are configurable live in System Settings; when unset they "
+        "fall back to ANTHROPIC_API_KEY in the process environment."
     )
     author: str = "Anthropic"
+
+    @dataclass
+    class Settings:
+        api_key: str = llm_api_key_field("ANTHROPIC_API_KEY")
+        base_url: str = llm_base_url_field()
 
     provider_key: ClassVar[str] = "anthropic"
     supported_models: ClassVar[tuple[str, ...]] = (
