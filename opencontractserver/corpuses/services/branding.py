@@ -21,10 +21,11 @@ failure in one never blocks the other, and neither aborts corpus creation
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.llms.api import ToolType
 
 logger = logging.getLogger(__name__)
 
@@ -65,28 +66,42 @@ async def _generate_readme(corpus: Corpus, user_id: int) -> str:
     if corpus.readme_caml_document_id:
         return "skipped_exists"
 
+    import asyncio
+
     from opencontractserver.constants.corpus_branding import (
         CORPUS_BRANDING_ACTIVATION_MESSAGE,
         CORPUS_BRANDING_AGENT_TOOLS,
+        CORPUS_BRANDING_README_TIMEOUT_SECONDS,
     )
     from opencontractserver.llms import agents
 
-    tools = list(CORPUS_BRANDING_AGENT_TOOLS)
+    tools: list[str] = list(CORPUS_BRANDING_AGENT_TOOLS)
     system_prompt = _build_branding_system_prompt(corpus, tools)
 
     try:
         # ``for_corpus`` + ``skip_approval_gate`` mirrors the agent-corpus-action
         # executor; the agent persists the article itself via the
-        # update_corpus_description tool (creator-gated in the service).
+        # update_corpus_description tool (creator-gated in the service). No
+        # ``model=`` is passed, so the LLM is resolved through the canonical
+        # chain (per-corpus preferred_llm -> PipelineSettings.default_llm
+        # singleton -> settings) with live DB credentials.
         agent = await agents.for_corpus(
             corpus=corpus,
             user_id=user_id,
             system_prompt=system_prompt,
-            tools=cast("list[Any]", tools),
+            # ``tools`` is a list[str] (tool names); cast to the exact element
+            # type ``for_corpus`` expects. ``str`` is a member of ``ToolType``,
+            # so this only works around list's invariance — it does not widen
+            # to ``Any`` (which would hide a genuine mismatch).
+            tools=cast("list[ToolType]", tools),
             streaming=False,
             skip_approval_gate=True,
         )
-        await agent.chat(CORPUS_BRANDING_ACTIVATION_MESSAGE)
+        # Bound the turn so a hung tool call / stalled LLM can't pin the worker.
+        await asyncio.wait_for(
+            agent.chat(CORPUS_BRANDING_ACTIVATION_MESSAGE),
+            timeout=CORPUS_BRANDING_README_TIMEOUT_SECONDS,
+        )
         return "generated"
     except Exception:
         logger.exception(
@@ -121,6 +136,9 @@ async def _generate_logo(corpus: Corpus, user_id: int) -> str:
 
     @database_sync_to_async
     def _save() -> str:
+        # Deferred imports: avoid a circular import at module load
+        # (corpus_service -> branding) and keep the sync ORM access inside the
+        # database_sync_to_async boundary.
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.corpuses.services.corpus_service import CorpusService
 

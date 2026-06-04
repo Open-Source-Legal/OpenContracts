@@ -34,6 +34,17 @@ CORPUS_BRANDING_ACTIVATION_MESSAGE = (
     "Readme.CAML article using the update_corpus_description tool."
 )
 
+# Wall-clock ceiling for the README agent turn. Without it a stalled tool call
+# or hung LLM holds the Celery worker indefinitely (the task's retries don't
+# help a hang). Generous enough for a web_search + write round-trip.
+CORPUS_BRANDING_README_TIMEOUT_SECONDS = 180.0
+
+# Celery task time limits — backstop covering both branding steps so a hang in
+# either (or the broader run) can never pin a worker forever. Soft fires first
+# (raises ``SoftTimeLimitExceeded``, caught and retried); hard is the kill line.
+CORPUS_BRANDING_SOFT_TIME_LIMIT_SECONDS = 300
+CORPUS_BRANDING_HARD_TIME_LIMIT_SECONDS = 360
+
 # ---------------------------------------------------------------------------
 # Logo image generation (OpenAI Images API)
 # ---------------------------------------------------------------------------
