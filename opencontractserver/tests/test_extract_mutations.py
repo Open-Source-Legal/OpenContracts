@@ -25,7 +25,7 @@ class ExtractsMutationTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         self.fieldset = Fieldset.objects.create(
             name="TestFieldset", description="Test description", creator=self.user
@@ -63,7 +63,7 @@ class ExtractsMutationTestCase(TestCase):
             }
         """
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createFieldset"]["ok"])
         self.assertIsNotNone(result["data"]["createFieldset"]["obj"]["id"])
@@ -102,7 +102,7 @@ class ExtractsMutationTestCase(TestCase):
             to_global_id("FieldsetType", fieldset.id),
         )
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createColumn"]["ok"])
         self.assertIsNotNone(result["data"]["createColumn"]["obj"]["id"])
@@ -134,7 +134,7 @@ class ExtractsMutationTestCase(TestCase):
                 # Execute on_commit callbacks immediately in tests
                 mock_on_commit.side_effect = lambda f: f()
 
-                result = self.client.execute(mutation)
+                result = self.graphene_client.execute(mutation)
                 self.assertIsNone(result.get("errors"))
                 self.assertTrue(result["data"]["startExtract"]["ok"])
                 self.assertEqual("STARTED!", result["data"]["startExtract"]["message"])
@@ -160,7 +160,7 @@ class ExtractsMutationTestCase(TestCase):
             to_global_id("DocumentType", self.document2.id),
         )
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["addDocsToExtract"]["ok"])
 
@@ -187,7 +187,7 @@ class ExtractsMutationTestCase(TestCase):
             to_global_id("DocumentType", self.document2.id),
         )
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["removeDocsFromExtract"]["ok"])
 
@@ -228,7 +228,7 @@ class ExtractsMutationTestCase(TestCase):
             }}
         """.format(to_global_id("DatacellType", datacell.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["approveDatacell"]["ok"])
 
@@ -269,7 +269,7 @@ class ExtractsMutationTestCase(TestCase):
             }}
         """.format(to_global_id("DatacellType", datacell.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["rejectDatacell"]["ok"])
 
@@ -310,7 +310,7 @@ class ExtractsMutationTestCase(TestCase):
             }}
         """.format(to_global_id("DatacellType", datacell.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["editDatacell"]["ok"])
 
@@ -335,7 +335,7 @@ class ExtractsMutationTestCase(TestCase):
             }}
         """.format(to_global_id("ExtractType", self.extract.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["deleteExtract"]["ok"])
 

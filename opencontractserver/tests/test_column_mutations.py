@@ -25,7 +25,7 @@ class ColumnMutationTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         self.fieldset = Fieldset.objects.create(
             name="TestFieldset",
@@ -64,7 +64,7 @@ class ColumnMutationTestCase(TestCase):
         )
         logger.info(f"Test mutation: {mutation}")
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["updateColumn"]["ok"])
 
@@ -84,7 +84,7 @@ class ColumnMutationTestCase(TestCase):
             }}
         """.format(to_global_id("ColumnType", self.column.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["deleteColumn"]["ok"])
 
@@ -118,7 +118,7 @@ class ColumnMutationTestCase(TestCase):
             to_global_id("FieldsetType", self.fieldset.id),
         )
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["createColumn"]["ok"])
 
