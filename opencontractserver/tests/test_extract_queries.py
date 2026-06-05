@@ -26,7 +26,7 @@ class ExtractsQueryTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
         self.fieldset = Fieldset.objects.create(
             name="TestFieldset",
             description="Test description",
@@ -86,7 +86,7 @@ class ExtractsQueryTestCase(TestCase):
             }}
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         self.assertEqual(
             result["data"]["fieldset"]["id"],
@@ -107,7 +107,7 @@ class ExtractsQueryTestCase(TestCase):
             }}
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         self.assertEqual(
             result["data"]["column"]["id"], to_global_id("ColumnType", self.column.id)
@@ -126,7 +126,7 @@ class ExtractsQueryTestCase(TestCase):
             }}
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         self.assertEqual(
             result["data"]["extract"]["id"],
@@ -146,7 +146,7 @@ class ExtractsQueryTestCase(TestCase):
             }}
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
         self.assertEqual(
             result["data"]["datacell"]["id"], to_global_id("DatacellType", self.row.id)
@@ -205,7 +205,7 @@ class ExtractsQueryTestCase(TestCase):
         """
 
         # Unbounded fetch should return all 5 cells and datacellCount=5.
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             unbounded_query, variables={"extractId": extract_id}
         )
         self.assertIsNone(result.get("errors"))
@@ -214,7 +214,7 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(len(extract_data["fullDatacellList"]), 5)
 
         # First page: limit=2 → exactly 2 cells, datacellCount still 5.
-        result_page1 = self.client.execute(
+        result_page1 = self.graphene_client.execute(
             paginated_query, variables={"extractId": extract_id, "limit": 2}
         )
         self.assertIsNone(result_page1.get("errors"))
@@ -223,7 +223,7 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(len(page1["fullDatacellList"]), 2)
 
         # Second page: limit=2, offset=2 → next 2 cells, disjoint from page 1.
-        result_page2 = self.client.execute(
+        result_page2 = self.graphene_client.execute(
             paginated_query,
             variables={"extractId": extract_id, "limit": 2, "offset": 2},
         )
@@ -240,7 +240,7 @@ class ExtractsQueryTestCase(TestCase):
         )
 
         # Final page: limit=2, offset=4 → only 1 cell remains.
-        result_page3 = self.client.execute(
+        result_page3 = self.graphene_client.execute(
             paginated_query,
             variables={"extractId": extract_id, "limit": 2, "offset": 4},
         )
@@ -268,7 +268,7 @@ class ExtractsQueryTestCase(TestCase):
                 }
             }
         """
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={"extractId": extract_id, "limit": 10, "offset": -5},
         )
@@ -317,7 +317,7 @@ class ExtractsQueryTestCase(TestCase):
             }
         """
         huge_limit = MAX_FULL_DATACELL_LIST_LIMIT + 9999
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={"extractId": extract_id, "limit": huge_limit},
         )
@@ -377,7 +377,7 @@ class ExtractsQueryTestCase(TestCase):
         """
 
         # No-args fetch: server-capped, but 5 < cap so all 5 are returned.
-        result_all = self.client.execute(
+        result_all = self.graphene_client.execute(
             no_args_query, variables={"extractId": extract_id}
         )
         self.assertIsNone(result_all.get("errors"))
@@ -385,7 +385,7 @@ class ExtractsQueryTestCase(TestCase):
         self.assertEqual(len(all_ids), 5)
 
         # Offset-only: skip the first 2 cells, no limit.
-        result_offset = self.client.execute(
+        result_offset = self.graphene_client.execute(
             offset_query, variables={"extractId": extract_id, "offset": 2}
         )
         self.assertIsNone(result_offset.get("errors"))
@@ -417,7 +417,7 @@ class ExtractsQueryTestCase(TestCase):
                 }
             }
         """
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, variables={"extractId": extract_id, "limit": 0}
         )
         self.assertIsNone(result.get("errors"))
@@ -464,7 +464,9 @@ class ExtractsQueryTestCase(TestCase):
                 }
             }
         """
-        result = self.client.execute(query, variables={"extractId": extract_id})
+        result = self.graphene_client.execute(
+            query, variables={"extractId": extract_id}
+        )
         self.assertIsNone(result.get("errors"))
         returned = len(result["data"]["extract"]["fullDatacellList"])
         self.assertEqual(
@@ -492,7 +494,7 @@ class ExtractsQueryTestCase(TestCase):
                 }
             }
         """
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query, variables={"extractId": extract_id, "limit": -1}
         )
         self.assertIsNone(result.get("errors"))
@@ -555,7 +557,7 @@ class ExtractsQueryTestCase(TestCase):
                 }
             }
         """
-        result = self.client.execute(list_query)
+        result = self.graphene_client.execute(list_query)
         self.assertIsNone(result.get("errors"))
 
         edges = result["data"]["extracts"]["edges"]
