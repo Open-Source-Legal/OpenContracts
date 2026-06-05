@@ -891,6 +891,8 @@ test.describe("Corpus Tabs - Documents", () => {
     await expect(page.locator("text=Test Document 1.pdf")).toBeVisible({
       timeout: 10000,
     });
+
+    await docScreenshot(page, "corpus--documents-tab--card-grid");
   });
 
   test("should show search box for documents", async ({ mount, page }) => {
