@@ -5,6 +5,7 @@ import json
 import logging
 import traceback
 import uuid
+from datetime import timedelta
 from typing import Any, cast
 
 from celery import shared_task
@@ -136,6 +137,132 @@ def _mark_document_failed(
 
     if create_notification:
         _create_document_processing_failed_notification(document, error_msg)
+
+
+@celery_app.task()
+def mark_doc_failed_on_chain_error(*args: Any, doc_id: int) -> dict[str, Any]:
+    """``link_error`` callback for the document-ingest chain.
+
+    Celery halts a chain when a task *raises* (as opposed to returning a
+    failure dict): downstream steps — including ``set_doc_lock_state``, which
+    finalizes the document's status — never run, leaving the document frozen
+    at ``processing_status=PROCESSING`` + ``backend_lock=True``. The frontend
+    then shows it "processing" forever (``ModernDocumentItem`` computes
+    ``isProcessing = status != FAILED && backendLock``).
+
+    ``ingest_doc``'s own handlers already mark FAILED for the failures it
+    catches; this errback covers the ones it can't — an uncaught raise in any
+    chain task (e.g. ``extract_thumbnail``), or a raise from ``ingest_doc``
+    itself (worker OOM/SIGKILL mid-task, a DB error inside
+    ``_mark_document_failed``). It marks the document FAILED so it never
+    appears stuck and the user-facing retry path lights up.
+
+    Celery invokes ``link_error`` callbacks with the failed task's context as
+    positional args ``(request, exc, traceback)``; we accept them as ``*args``
+    and act only on ``doc_id`` (bound at chain-build time).
+    """
+    exc = args[1] if len(args) > 1 else (args[0] if args else "unknown error")
+    traceback_str = str(args[2]) if len(args) > 2 else ""
+
+    try:
+        document = Document.objects.get(pk=doc_id)
+    except Document.DoesNotExist:
+        logger.warning(
+            f"[mark_doc_failed_on_chain_error] doc_id={doc_id} no longer exists."
+        )
+        return {"status": "error", "doc_id": doc_id, "message": "Document not found"}
+
+    # Idempotent: a terminal state means the chain already resolved (the task
+    # marked FAILED before re-raising, or the document actually COMPLETED) —
+    # don't clobber it.
+    if document.processing_status in (
+        DocumentProcessingStatus.FAILED,
+        DocumentProcessingStatus.COMPLETED,
+    ):
+        return {
+            "status": "noop",
+            "doc_id": doc_id,
+            "processing_status": document.processing_status,
+        }
+
+    logger.error(
+        f"[mark_doc_failed_on_chain_error] Ingest chain failed for document "
+        f"{doc_id}; marking FAILED. Error: {exc}"
+    )
+    _mark_document_failed(
+        document,
+        error_msg=f"Document ingest pipeline failed: {exc}",
+        traceback_str=traceback_str,
+    )
+    return {"status": "failed", "doc_id": doc_id}
+
+
+@celery_app.task()
+def reconcile_stuck_documents() -> dict[str, int]:
+    """Mark documents stuck mid-pipeline as FAILED (periodic safety net).
+
+    A document is "stuck" when its ingest chain halted without reaching a
+    terminal state and no error callback fired — e.g. the worker was
+    OOM/SIGKILL'd mid-task (Cloud Run scale-down under load), a broker
+    message was lost, or the visibility timeout elapsed without an ack. Such
+    a document keeps ``processing_status=PROCESSING`` (set at ``ingest_doc``
+    start) and ``backend_lock=True``, so the UI shows it "processing" forever.
+
+    ``ingest_doc``'s controlled paths and ``mark_doc_failed_on_chain_error``
+    cover failures that surface as exceptions; this sweep is the last line of
+    defense for the silent ones. It reclaims any PROCESSING + locked document
+    whose ``processing_started`` is older than
+    ``settings.DOCUMENT_PROCESSING_STALE_MINUTES`` — comfortably beyond the
+    max retry/backoff window so it never races a legitimately-retrying doc —
+    and marks it FAILED via :func:`_mark_document_failed` (which also notifies
+    the creator and lights up the retry path).
+    """
+    from django.conf import settings
+
+    cutoff = timezone.now() - timedelta(
+        minutes=settings.DOCUMENT_PROCESSING_STALE_MINUTES
+    )
+
+    stuck_ids = list(
+        Document.objects.filter(
+            processing_status=DocumentProcessingStatus.PROCESSING,
+            backend_lock=True,
+            processing_started__lt=cutoff,
+        ).values_list("pk", flat=True)
+    )
+
+    count = 0
+    for doc_pk in stuck_ids:
+        # Re-fetch + re-check under the same predicate: a late retry may have
+        # completed (or another beat tick reclaimed it) between the id scan
+        # and now. This is the compare-and-swap guard against double-marking.
+        document = Document.objects.filter(
+            pk=doc_pk,
+            processing_status=DocumentProcessingStatus.PROCESSING,
+            backend_lock=True,
+            processing_started__lt=cutoff,
+        ).first()
+        if document is None:
+            continue
+
+        _mark_document_failed(
+            document,
+            error_msg=(
+                "Processing did not complete and was reclaimed by the "
+                "stuck-document reconciliation sweep "
+                f"(no progress for over {settings.DOCUMENT_PROCESSING_STALE_MINUTES} "
+                "minutes; the ingest pipeline halted without reaching a "
+                "terminal state)."
+            ),
+        )
+        count += 1
+
+    if count:
+        logger.warning(
+            f"[reconcile_stuck_documents] Marked {count} stuck document(s) FAILED."
+        )
+
+    return {"reconciled": count}
 
 
 def _create_document_processing_failed_notification(
@@ -962,12 +1089,15 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
         "triggering reprocessing pipeline"
     )
 
-    # Re-trigger the processing pipeline
+    # Re-trigger the processing pipeline. link_error marks the document FAILED
+    # if any task in the chain raises (halting the chain before
+    # set_doc_lock_state finalizes status), so a failed retry can't strand the
+    # doc back in PROCESSING.
     chain(
         extract_thumbnail.si(doc_id=doc_id),
         ingest_doc.si(user_id=user_id, doc_id=doc_id),
         set_doc_lock_state.si(locked=False, doc_id=doc_id),
-    ).apply_async()
+    ).apply_async(link_error=mark_doc_failed_on_chain_error.s(doc_id=doc_id))
 
     return {
         "status": "queued",

@@ -9,12 +9,15 @@ These tests verify:
 5. GraphQL RetryDocumentProcessing mutation
 """
 
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+import requests
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase
+from django.utils import timezone
 
 from opencontractserver.documents.models import Document, DocumentProcessingStatus
 from opencontractserver.notifications.models import (
@@ -24,6 +27,8 @@ from opencontractserver.notifications.models import (
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.tasks.doc_tasks import (
     _mark_document_failed,
+    mark_doc_failed_on_chain_error,
+    reconcile_stuck_documents,
     retry_document_processing,
 )
 from opencontractserver.types.enums import PermissionTypes
@@ -355,6 +360,218 @@ class TestDoclingParserExceptions(TestCase):
             parser.parse_document(self.user.id, self.doc.id)
 
         self.assertTrue(context.exception.is_transient)
+
+    def _mock_http_error_response(
+        self, mock_post, mock_storage, *, status_code: int, body: str
+    ) -> None:
+        """Wire mock_post so response.raise_for_status() raises an HTTPError
+        carrying a response with the given status code and body."""
+        err_response = MagicMock()
+        err_response.status_code = status_code
+        err_response.text = body
+        http_error = requests.exceptions.HTTPError(f"{status_code} Server Error")
+        http_error.response = err_response
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = http_error
+        mock_post.return_value = mock_response
+
+        mock_storage.open.return_value.__enter__ = MagicMock(
+            return_value=MagicMock(read=MagicMock(return_value=b"%PDF-1.7\n%%EOF\n"))
+        )
+        mock_storage.open.return_value.__exit__ = MagicMock(return_value=False)
+
+    @patch(
+        "opencontractserver.pipeline.base.chunked_parser.get_pdf_page_count",
+        return_value=1,
+    )
+    @patch("opencontractserver.pipeline.parsers.docling_parser_rest.requests.post")
+    @patch("opencontractserver.pipeline.base.chunked_parser.default_storage")
+    def test_500_conversion_failure_is_permanent(
+        self, mock_storage, mock_post, _mock_page_count
+    ):
+        """A 500 whose body is a docling ConversionStatus.FAILURE (malformed
+        PDF) must be classified non-transient so it fails fast instead of
+        storming the parser service with retries."""
+        from opencontractserver.pipeline.parsers.docling_parser_rest import (
+            DoclingParser,
+        )
+
+        self._mock_http_error_response(
+            mock_post,
+            mock_storage,
+            status_code=500,
+            body=(
+                "docling.exceptions.ConversionError: Conversion failed for: "
+                "doc_5252_chunk0.pdf with status: ConversionStatus.FAILURE. "
+                "Errors: Page 1: could not find the page-dimensions"
+            ),
+        )
+
+        parser = DoclingParser()
+        parser.chunk_retry_limit = 3  # would retry if (wrongly) transient
+
+        with self.assertRaises(DocumentParsingError) as context:
+            parser.parse_document(self.user.id, self.doc.id)
+
+        self.assertFalse(context.exception.is_transient)
+
+    @patch(
+        "opencontractserver.pipeline.base.chunked_parser.get_pdf_page_count",
+        return_value=1,
+    )
+    @patch("opencontractserver.pipeline.parsers.docling_parser_rest.requests.post")
+    @patch("opencontractserver.pipeline.base.chunked_parser.default_storage")
+    def test_500_generic_infra_error_stays_transient(
+        self, mock_storage, mock_post, _mock_page_count
+    ):
+        """A plain 5xx with no docling content-failure marker stays transient
+        (infrastructure error -> retry is appropriate)."""
+        from opencontractserver.pipeline.parsers.docling_parser_rest import (
+            DoclingParser,
+        )
+
+        self._mock_http_error_response(
+            mock_post,
+            mock_storage,
+            status_code=503,
+            body="<html>502 Bad Gateway</html>",
+        )
+
+        parser = DoclingParser()
+        parser.chunk_retry_limit = 0
+
+        with self.assertRaises(DocumentParsingError) as context:
+            parser.parse_document(self.user.id, self.doc.id)
+
+        self.assertTrue(context.exception.is_transient)
+
+
+class TestMarkDocFailedOnChainError(TestCase):
+    """Tests for the ingest-chain link_error callback."""
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(
+                username="chainerr", password="12345678"
+            )
+        self.doc = Document.objects.create(
+            title="Chain Error Doc",
+            file_type="application/pdf",
+            creator=self.user,
+            backend_lock=True,
+            processing_status=DocumentProcessingStatus.PROCESSING,
+        )
+
+    def test_marks_processing_document_failed(self):
+        """A raised chain failure marks a PROCESSING doc FAILED (so it can't
+        stay stranded in PROCESSING + locked)."""
+        result = mark_doc_failed_on_chain_error(
+            "request-context",
+            DocumentParsingError("boom", is_transient=True),
+            "traceback-string",
+            doc_id=self.doc.id,
+        )
+
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.processing_status, DocumentProcessingStatus.FAILED)
+        self.assertTrue(self.doc.backend_lock)
+        self.assertEqual(result["status"], "failed")
+
+    def test_noop_when_already_completed(self):
+        """Idempotent: a COMPLETED doc is not clobbered."""
+        self.doc.processing_status = DocumentProcessingStatus.COMPLETED
+        self.doc.backend_lock = False
+        self.doc.save(update_fields=["processing_status", "backend_lock"])
+
+        result = mark_doc_failed_on_chain_error(
+            "r", Exception("x"), "", doc_id=self.doc.id
+        )
+
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.processing_status, DocumentProcessingStatus.COMPLETED)
+        self.assertEqual(result["status"], "noop")
+
+    def test_handles_missing_document(self):
+        result = mark_doc_failed_on_chain_error("r", Exception("x"), "", doc_id=999999)
+        self.assertEqual(result["status"], "error")
+
+
+class TestReconcileStuckDocuments(TestCase):
+    """Tests for the stuck-document reconciliation sweep."""
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(
+                username="stuckuser", password="12345678"
+            )
+
+    def _make_doc(self, *, status, locked, started_minutes_ago):
+        doc = Document.objects.create(
+            title="Doc",
+            file_type="application/pdf",
+            creator=self.user,
+        )
+        # Set the stuck-state fields directly to bypass processing signals and
+        # control processing_started precisely.
+        Document.objects.filter(pk=doc.pk).update(
+            processing_status=status,
+            backend_lock=locked,
+            processing_started=timezone.now() - timedelta(minutes=started_minutes_ago),
+        )
+        return doc
+
+    def test_reclaims_stale_processing_document(self):
+        doc = self._make_doc(
+            status=DocumentProcessingStatus.PROCESSING,
+            locked=True,
+            started_minutes_ago=31,  # > default 30 min
+        )
+
+        result = reconcile_stuck_documents()
+
+        doc.refresh_from_db()
+        self.assertEqual(doc.processing_status, DocumentProcessingStatus.FAILED)
+        self.assertTrue(doc.backend_lock)
+        self.assertEqual(result["reconciled"], 1)
+
+    def test_leaves_recent_processing_document(self):
+        doc = self._make_doc(
+            status=DocumentProcessingStatus.PROCESSING,
+            locked=True,
+            started_minutes_ago=2,  # well within the window
+        )
+
+        result = reconcile_stuck_documents()
+
+        doc.refresh_from_db()
+        self.assertEqual(doc.processing_status, DocumentProcessingStatus.PROCESSING)
+        self.assertEqual(result["reconciled"], 0)
+
+    def test_ignores_completed_and_unlocked_documents(self):
+        completed = self._make_doc(
+            status=DocumentProcessingStatus.COMPLETED,
+            locked=False,
+            started_minutes_ago=120,
+        )
+        # PROCESSING but already unlocked (not actually stuck for the UI).
+        unlocked = self._make_doc(
+            status=DocumentProcessingStatus.PROCESSING,
+            locked=False,
+            started_minutes_ago=120,
+        )
+
+        result = reconcile_stuck_documents()
+
+        completed.refresh_from_db()
+        unlocked.refresh_from_db()
+        self.assertEqual(
+            completed.processing_status, DocumentProcessingStatus.COMPLETED
+        )
+        self.assertEqual(
+            unlocked.processing_status, DocumentProcessingStatus.PROCESSING
+        )
+        self.assertEqual(result["reconciled"], 0)
 
 
 class TestSetDocLockStateWithFailedDocuments(TestCase):

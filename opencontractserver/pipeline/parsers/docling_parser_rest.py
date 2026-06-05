@@ -32,6 +32,23 @@ from opencontractserver.utils.pdf_token_extraction import (
 
 logger = logging.getLogger(__name__)
 
+# Substrings (matched case-insensitively against the microservice's response
+# body) that identify a *permanent* docling content-conversion failure — a
+# malformed / unparseable PDF, e.g. "could not find the page-dimensions" —
+# rather than a transient infrastructure problem (overload, cold start, OOM).
+#
+# The microservice returns HTTP 500 for BOTH classes, so status code alone
+# can't distinguish them. Retrying a content failure is pointless and, at
+# bulk-import scale, produces a retry storm that overloads the parser service
+# (the 503 cascade behind the "stuck in processing" import incident). When the
+# 5xx body carries one of these markers we classify it as non-transient so it
+# fails on the first attempt instead of exhausting retries.
+_DOCLING_PERMANENT_FAILURE_SIGNATURES = (
+    "conversionstatus.failure",
+    "conversionerror",
+    "could not find the page-dimensions",
+)
+
 
 class DoclingParser(BaseChunkedParser):
     """
@@ -374,6 +391,19 @@ class DoclingParser(BaseChunkedParser):
                     # 5xx errors are typically transient (server error, service unavailable)
                     if 400 <= status_code < 500:
                         is_transient = False
+                    elif response_text and any(
+                        sig in response_text.lower()
+                        for sig in _DOCLING_PERMANENT_FAILURE_SIGNATURES
+                    ):
+                        # 5xx whose body is a docling content-conversion
+                        # failure: the PDF itself is unparseable, so retrying
+                        # only storms the service. Fail fast (permanent).
+                        is_transient = False
+                        logger.warning(
+                            f"Docling reported a permanent content-conversion "
+                            f"failure for document {doc_id} ({chunk_label}); "
+                            "treating as non-transient (no retry)."
+                        )
 
                 msg = (
                     f"Request to Docling parser service failed for document {doc_id} "

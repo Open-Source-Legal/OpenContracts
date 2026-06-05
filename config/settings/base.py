@@ -842,6 +842,14 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,  # every 5 minutes
         "options": {"queue": "celery"},
     },
+    # Safety net for documents stranded in PROCESSING when their ingest chain
+    # halted without a terminal state (worker OOM/SIGKILL, lost broker
+    # message). Marks them FAILED so they don't show "processing" forever.
+    "documents-reconcile-stuck-processing": {
+        "task": "opencontractserver.tasks.doc_tasks.reconcile_stuck_documents",
+        "schedule": 300.0,  # every 5 minutes
+        "options": {"queue": "celery"},
+    },
     # Materialise install-wide headline counts so dashboards/landing tiles
     # don't run full-table COUNTs on every page load (issue #1908).
     "system-stats-refresh": {
@@ -864,6 +872,14 @@ MAX_WORKER_UPLOAD_SIZE_BYTES = int(
 
 # Minutes before a PROCESSING upload is considered stalled and reset to PENDING.
 WORKER_UPLOAD_STALE_MINUTES = int(env("WORKER_UPLOAD_STALE_MINUTES", default="15"))
+
+# Minutes a Document may sit in processing_status=PROCESSING (with
+# backend_lock=True) before the reconcile_stuck_documents sweep marks it
+# FAILED. Default 30 min — comfortably beyond ingest_doc's max retry/backoff
+# window (~15 min) so the sweep never races a legitimately-retrying document.
+DOCUMENT_PROCESSING_STALE_MINUTES = int(
+    env("DOCUMENT_PROCESSING_STALE_MINUTES", default="30")
+)
 
 # Maximum file size (in bytes) accepted by the multipart REST import
 # endpoints under /api/imports/. Applied to both single-document and
