@@ -16,6 +16,7 @@ from config.telemetry import record_event
 from opencontractserver.tasks.doc_tasks import (
     extract_thumbnail,
     ingest_doc,
+    remap_pending_annotations,
     set_doc_lock_state,
 )
 from opencontractserver.tasks.embeddings_task import calculate_embedding_for_doc_text
@@ -52,6 +53,19 @@ def process_doc_on_create_atomic(
         instance: The instance being saved.
         created (bool): True if a new record was created.
         **kwargs: Additional keyword arguments.
+
+    Note on the ``not instance.processing_started`` guard: a caller can
+    deliberately suppress this auto-ingest chain by stamping
+    ``processing_started`` at creation time (e.g. when a document's text layer
+    is supplied directly and no parsing is wanted).
+
+    Deferred (dumb-anchor) annotation import does NOT use that suppression. The
+    bulk-ZIP importer (``import_zip_with_folder_structure`` in
+    ``tasks/import_tasks.py``) creates documents normally and relies on this
+    standard chain: ``remap_pending_annotations`` is a built-in step here
+    (between ``ingest_doc`` and ``set_doc_lock_state``), so producer annotations
+    persisted in ``PendingDocumentAnnotations`` are re-anchored after PAWLs /
+    text exist. There is no bespoke importer-owned chain.
     """
     if created and not instance.processing_started:
 
@@ -95,6 +109,11 @@ def process_doc_on_create_atomic(
 
         # Removed embedding calculation from document creation
         # Embeddings will now be calculated only when document is linked to a corpus
+
+        # Apply any deferred (dumb-anchor) annotations now that the parser has
+        # produced PAWLs / text. A cheap indexed no-op when the document has no
+        # pending rows — which is the common case for ordinary uploads.
+        ingest_tasks.append(remap_pending_annotations.si(doc_id=instance.id))
 
         # Add the task to unlock the document
         ingest_tasks.append(set_doc_lock_state.si(locked=False, doc_id=instance.id))

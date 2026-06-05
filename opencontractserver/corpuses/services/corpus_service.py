@@ -124,6 +124,45 @@ class CorpusService(BaseService):
         return ServiceResult.success(doc)
 
     @classmethod
+    def update_icon(
+        cls,
+        user: User,
+        corpus: Corpus,
+        *,
+        image_bytes: bytes,
+        extension: str,
+    ) -> ServiceResult[None]:
+        """Persist a logo image to ``corpus.icon`` (creator-only).
+
+        Mirrors :meth:`update_description`'s creator-only contract so an
+        auto-generated (or agent-generated) logo carries the same write
+        authority as the rest of the corpus row — even a collaborator with a
+        guardian UPDATE grant cannot replace the icon. Callers MUST have
+        already gated corpus READ.
+
+        The bytes are written through the configured storage backend
+        (LOCAL / S3 / GCP) via ``ContentFile``; ``FieldFile.save`` persists the
+        corpus row so the new ``icon`` path is durable. Returns an empty
+        success result, or a permission failure.
+        """
+        if corpus.creator_id != getattr(user, "id", None):
+            return ServiceResult.failure(
+                "Corpus not found or you do not have permission to update it."
+            )
+
+        import uuid
+
+        from django.core.files.base import ContentFile
+
+        ext = (extension or "png").lstrip(".")
+        # Short UUID segment so a Celery retry writes a distinct object rather
+        # than overwriting (S3) or accumulating storage-suffixed orphans (local).
+        filename = f"corpus_logo_{corpus.pk}_{uuid.uuid4().hex[:8]}.{ext}"
+        corpus.icon.save(filename, ContentFile(image_bytes), save=True)
+        cls.log_action("Updated icon for", corpus, user)
+        return ServiceResult.success(None)
+
+    @classmethod
     def delete_corpus(
         cls,
         user: User,

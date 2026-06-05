@@ -12,23 +12,134 @@ celery task is covered separately in ``test_document_imports_rest.py``.
 """
 
 import io
+import json
 import logging
 import zipfile
+from typing import Optional
 
+import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
 from opencontractserver.corpuses.services import FolderCRUDService
 from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
+from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Hermetic in-test parsers for the dumb-anchor remap integration tests.
+#
+# These are referenced by their dotted path from ``PipelineSettings.
+# preferred_parsers`` so the real ``ingest_doc`` chain task resolves them via
+# ``get_component_by_name`` (which importlib-loads any dotted path and finds
+# BaseParser subclasses by ``inspect.getmembers``). They intentionally live in
+# the test module — NOT under ``opencontractserver/pipeline/parsers/`` — and
+# return small, deterministic PAWLs / text so the chain produces a real
+# document layer without the Docling REST microservice or any network call.
+# ---------------------------------------------------------------------------
+
+
+# Page-0 heading the dumb-anchor PDF annotation targets, with a bbox that
+# encloses exactly these two tokens. ``DUMB_ANCHOR_HEADING_TEXT`` is the
+# ``rawText`` the sidecar carries; the parser tokenises it into the two tokens
+# below so geometry + rawText confirmation both succeed during remap.
+DUMB_ANCHOR_HEADING_TEXT = "CHAPTER 1"
+# bbox that fully contains the two heading tokens (100% area overlap >= the
+# 0.5 geometry threshold) and excludes the body token on the same page.
+DUMB_ANCHOR_HEADING_BBOX = {"left": 45.0, "top": 45.0, "right": 145.0, "bottom": 70.0}
+
+
+class _DumbAnchorPdfParser(BaseParser):
+    """Deterministic PDF parser producing PAWLs with a known page-0 heading."""
+
+    title = "Dumb Anchor Test PDF Parser"
+    description = "Returns synthetic PAWLs for the dumb-anchor remap test."
+    author = "Integration Test"
+    dependencies: list[str] = []
+
+    def _parse_document_impl(
+        self, user_id: int, doc_id: int, **kwargs
+    ) -> Optional[OpenContractDocExport]:
+        # v1 PAWLs page: two heading tokens inside the annotation bbox plus a
+        # body token well outside it (so the bbox doesn't accidentally grab it).
+        pawls_page = {
+            "page": {"width": 612.0, "height": 792.0, "index": 0},
+            "tokens": [
+                {
+                    "x": 50.0,
+                    "y": 50.0,
+                    "width": 70.0,
+                    "height": 14.0,
+                    "text": "CHAPTER",
+                },
+                {"x": 125.0, "y": 50.0, "width": 10.0, "height": 14.0, "text": "1"},
+                {
+                    "x": 50.0,
+                    "y": 200.0,
+                    "width": 60.0,
+                    "height": 12.0,
+                    "text": "Body",
+                },
+            ],
+        }
+        return {
+            "title": "Dumb Anchor PDF",
+            "content": "",  # overwritten from PAWLs text layer by save_parsed_data
+            "description": "",
+            "pawls_file_content": [pawls_page],
+            "page_count": 1,
+            "doc_labels": [],
+            "labelled_text": [],
+        }
+
+
+# Deterministic text-layer content for the text-document variant. The span
+# annotation's rawText is a substring re-found by the text anchorer.
+DUMB_ANCHOR_TEXT_CONTENT = (
+    "This Master Agreement governs the relationship between the parties. "
+    "Section 4 sets out the indemnification obligations of each party."
+)
+DUMB_ANCHOR_SPAN_RAWTEXT = "indemnification obligations"
+
+
+class _DumbAnchorTextParser(BaseParser):
+    """Deterministic text parser returning a fixed, PAWLs-free text layer."""
+
+    title = "Dumb Anchor Test Text Parser"
+    description = "Returns a fixed text layer for the dumb-anchor remap test."
+    author = "Integration Test"
+    dependencies: list[str] = []
+
+    def _parse_document_impl(
+        self, user_id: int, doc_id: int, **kwargs
+    ) -> Optional[OpenContractDocExport]:
+        return {
+            "title": "Dumb Anchor Text",
+            "content": DUMB_ANCHOR_TEXT_CONTENT,
+            "description": "",
+            "pawls_file_content": [],
+            "page_count": 1,
+            "doc_labels": [],
+            "labelled_text": [],
+        }
+
+
+_DUMB_ANCHOR_PDF_PARSER_PATH = (
+    "opencontractserver.tests.test_zip_import_integration._DumbAnchorPdfParser"
+)
+_DUMB_ANCHOR_TEXT_PARSER_PATH = (
+    "opencontractserver.tests.test_zip_import_integration._DumbAnchorTextParser"
+)
 
 
 class TestCreateFolderStructureFromPaths(TestCase):
@@ -1903,3 +2014,465 @@ class TestBackendLockBehavior(TestCase):
             f"Standalone document should have backend_lock=True, "
             f"got {doc.backend_lock}",
         )
+
+
+@pytest.mark.usefixtures("enable_doc_processing_signals")
+class TestDumbAnchorRemapThroughChain(TransactionTestCase):
+    """
+    End-to-end coverage for the dumb-anchor sidecar -> remap chain.
+
+    These tests exercise the *real* ingest chain wired by
+    ``import_zip_with_folder_structure`` for a NEW-format sidecar (top-level
+    ``"annotations"`` list):
+
+        extract_thumbnail -> ingest_doc -> remap_pending_annotations
+        -> set_doc_lock_state
+
+    Unlike ``test_sidecar_import.py`` (which captures the on_commit chain
+    *without* executing it and only asserts the PENDING row), these tests let
+    the chain run to completion under eager Celery and prove the document ends
+    up with a real text layer, correctly anchored annotations, a DONE pending
+    row, and an unlocked backend.
+
+    ``TransactionTestCase`` is required so ``transaction.on_commit`` callbacks
+    registered inside the importer actually fire (a plain ``TestCase`` would
+    keep them pending until a rollback that never commits). With
+    ``CELERY_TASK_ALWAYS_EAGER`` (test settings) the dispatched chain runs
+    synchronously when the importer's atomic block commits.
+
+    The pipeline is made hermetic by pointing
+    ``PipelineSettings.preferred_parsers`` at the in-test parsers defined at
+    module scope (``_DumbAnchorPdfParser`` / ``_DumbAnchorTextParser``), which
+    return deterministic PAWLs / text without any external parser service.
+    """
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(
+                username="dumb-anchor-user", password="testpass"
+            )
+
+        with transaction.atomic():
+            self.corpus = Corpus.objects.create(
+                title="Dumb Anchor Corpus",
+                description="Corpus for dumb-anchor remap integration tests",
+                creator=self.user,
+            )
+            set_permissions_for_obj_to_user(
+                self.user, self.corpus, [PermissionTypes.ALL]
+            )
+
+        self.pdf_bytes = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()
+
+    def _set_preferred_parser(self, mimetype: str, dotted_path: str) -> None:
+        """Point the DB pipeline settings at an in-test parser for ``mimetype``."""
+        from opencontractserver.documents.models import PipelineSettings
+
+        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
+        pipeline_settings.preferred_parsers = {
+            **(pipeline_settings.preferred_parsers or {}),
+            mimetype: dotted_path,
+        }
+        pipeline_settings.save()
+        PipelineSettings._invalidate_cache()
+        self.addCleanup(PipelineSettings._invalidate_cache)
+
+    @staticmethod
+    def _create_test_zip(files: dict[str, bytes]) -> io.BytesIO:
+        """Create an in-memory zip file from a {path: bytes} mapping."""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        buffer.seek(0)
+        return buffer
+
+    def _create_temp_file_handle(self, zip_buffer: io.BytesIO) -> TemporaryFileHandle:
+        """Create a ``TemporaryFileHandle`` from a zip buffer."""
+        zip_content = ContentFile(zip_buffer.read(), name="dumb_anchor_import.zip")
+        return TemporaryFileHandle.objects.create(file=zip_content)
+
+    def test_dumb_anchor_pdf_remaps_via_chain(self):
+        """
+        Importing a dumb-anchor PDF sidecar runs the real ingest chain and
+        anchors the annotation onto the pipeline-produced PAWLs.
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import PendingDocumentAnnotations
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+        from opencontractserver.utils.compact_pawls import expand_pawls_pages
+
+        self._set_preferred_parser("application/pdf", _DUMB_ANCHOR_PDF_PARSER_PATH)
+
+        sidecar = {
+            "annotations": [
+                {
+                    "id": 1,
+                    "label": "OC_SECTION",
+                    "rawText": DUMB_ANCHOR_HEADING_TEXT,
+                    "page": 0,
+                    "bbox": DUMB_ANCHOR_HEADING_BBOX,
+                    "parent_id": None,
+                }
+            ],
+            "doc_labels": [],
+        }
+        labels = {
+            "text_labels": {
+                "OC_SECTION": {
+                    "text": "OC_SECTION",
+                    "label_type": "TOKEN_LABEL",
+                    "description": "Section heading",
+                    "color": "#FF0000",
+                    "icon": "tag",
+                }
+            },
+            "doc_labels": {},
+        }
+
+        files = {
+            "chapter.pdf": self.pdf_bytes,
+            "chapter.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(labels).encode("utf-8"),
+        }
+        handle = self._create_temp_file_handle(self._create_test_zip(files))
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "dumb-anchor-pdf",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["files_processed"], 1)
+        self.assertEqual(result["pending_annotation_docs"], 1)
+
+        created_id = int(result["document_ids"][0])
+
+        # (d) Chain ran to completion: set_doc_lock_state(locked=False) last.
+        doc = Document.objects.get(pk=created_id)
+        doc.refresh_from_db()
+        self.assertFalse(doc.backend_lock)
+
+        # (a) Real text layer produced by the pipeline parser.
+        self.assertTrue(doc.txt_extract_file.read().decode("utf-8").strip())
+
+        # (c) Pending row consumed and marked DONE, stamped with a run id.
+        pending = PendingDocumentAnnotations.objects.get(document=doc)
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.DONE)
+        self.assertIsNotNone(pending.ingestion_run_id)
+
+        # (b) Exactly one OC_SECTION annotation, anchored onto the stored PAWLs
+        #     such that the resolved tokens' text matches the sidecar rawText.
+        ann = Annotation.objects.get(document=doc, annotation_label__text="OC_SECTION")
+        pawls = expand_pawls_pages(
+            json.loads(doc.pawls_parse_file.read().decode("utf-8"))
+        )
+        from opencontractserver.annotations.compact_json import decode_token_ranges
+
+        # annotation_json is stored compact v2: {"v":2,"p":{page:{b,t}}}.
+        resolved = " ".join(
+            pawls[int(pk)]["tokens"][i]["text"]
+            for pk, entry in ann.json["p"].items()
+            for i in decode_token_ranges(entry["t"])
+        )
+        self.assertEqual(resolved, DUMB_ANCHOR_HEADING_TEXT)
+        self.assertIn(ann.raw_text.split()[0], resolved)
+
+        # No annotations should have leaked from a second, racing chain.
+        self.assertEqual(
+            Annotation.objects.filter(
+                document=doc, annotation_label__text="OC_SECTION"
+            ).count(),
+            1,
+        )
+
+    def test_legacy_format_pdf_sidecar_remaps_via_chain(self):
+        """
+        A sidecar carrying OLD-format annotations (baked ``annotation_json``
+        with stale ``tokensJsons``) imports through the deferred pipeline: the
+        indices are dropped and re-derived against the freshly-parsed PAWLs.
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import PendingDocumentAnnotations
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+        from opencontractserver.utils.compact_pawls import expand_pawls_pages
+
+        self._set_preferred_parser("application/pdf", _DUMB_ANCHOR_PDF_PARSER_PATH)
+
+        # Old export shape: annotationLabel + annotation_json with WRONG indices.
+        sidecar = {
+            "annotations": [
+                {
+                    "id": 1,
+                    "annotationLabel": "OC_SECTION",
+                    "rawText": DUMB_ANCHOR_HEADING_TEXT,
+                    "page": 0,
+                    "parent_id": None,
+                    "annotation_json": {
+                        "0": {
+                            "bounds": DUMB_ANCHOR_HEADING_BBOX,
+                            "tokensJsons": [{"pageIndex": 0, "tokenIndex": 999}],
+                            "rawText": DUMB_ANCHOR_HEADING_TEXT,
+                        }
+                    },
+                }
+            ],
+            "doc_labels": [],
+        }
+        labels = {
+            "text_labels": {
+                "OC_SECTION": {
+                    "text": "OC_SECTION",
+                    "label_type": "TOKEN_LABEL",
+                    "description": "Section heading",
+                    "color": "#FF0000",
+                    "icon": "tag",
+                }
+            },
+            "doc_labels": {},
+        }
+
+        files = {
+            "chapter.pdf": self.pdf_bytes,
+            "chapter.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(labels).encode("utf-8"),
+        }
+        handle = self._create_temp_file_handle(self._create_test_zip(files))
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "legacy-format-pdf",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["pending_annotation_docs"], 1)
+
+        doc = Document.objects.get(pk=int(result["document_ids"][0]))
+        pending = PendingDocumentAnnotations.objects.get(document=doc)
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.DONE)
+
+        # The stale tokensJsons ([999]) were discarded; indices re-derived so the
+        # resolved tokens' text matches the rawText.
+        ann = Annotation.objects.get(document=doc, annotation_label__text="OC_SECTION")
+        pawls = expand_pawls_pages(
+            json.loads(doc.pawls_parse_file.read().decode("utf-8"))
+        )
+        from opencontractserver.annotations.compact_json import decode_token_ranges
+
+        # annotation_json is stored compact v2: {"v":2,"p":{page:{b,t}}}.
+        resolved = " ".join(
+            pawls[int(pk)]["tokens"][i]["text"]
+            for pk, entry in ann.json["p"].items()
+            for i in decode_token_ranges(entry["t"])
+        )
+        self.assertEqual(resolved, DUMB_ANCHOR_HEADING_TEXT)
+
+    def test_skip_pipeline_labelled_text_sidecar_remaps_via_chain(self):
+        """
+        A legacy ``skip_pipeline`` scrape sidecar (``labelled_text`` +
+        ``content:""`` + embedded ``pawls_file_content``) is force-ingested
+        through the normal parser (ignoring the embedded PAWLs / skip flag),
+        gaining a real text layer, and its producer annotation is re-anchored
+        onto the freshly-parsed PAWLs (stale ``tokensJsons`` discarded).
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import PendingDocumentAnnotations
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+        from opencontractserver.utils.compact_pawls import expand_pawls_pages
+
+        self._set_preferred_parser("application/pdf", _DUMB_ANCHOR_PDF_PARSER_PATH)
+
+        # SC-style sidecar: annotations under ``labelled_text``, empty content,
+        # embedded (to-be-ignored) PAWLs, and the skip_pipeline flag.
+        sidecar = {
+            "title": "Chapter 1",
+            "description": "",
+            "content": "",
+            "page_count": 1,
+            "pawls_file_content": [{"page": {"index": 0}, "tokens": []}],
+            "skip_pipeline": True,
+            "doc_labels": ["regulation"],
+            "labelled_text": [
+                {
+                    "id": 1,
+                    "annotationLabel": "OC_SECTION",
+                    "annotation_type": "TOKEN_LABEL",
+                    "structural": False,
+                    "parent_id": None,
+                    "long_description": None,
+                    "rawText": DUMB_ANCHOR_HEADING_TEXT,
+                    "annotation_json": {
+                        "0": {
+                            "bounds": DUMB_ANCHOR_HEADING_BBOX,
+                            "tokensJsons": [{"pageIndex": 0, "tokenIndex": 999}],
+                            "rawText": DUMB_ANCHOR_HEADING_TEXT,
+                        }
+                    },
+                }
+            ],
+        }
+        labels = {
+            "text_labels": {
+                "OC_SECTION": {
+                    "text": "OC_SECTION",
+                    "label_type": "TOKEN_LABEL",
+                    "description": "Section heading",
+                    "color": "#FF0000",
+                    "icon": "tag",
+                }
+            },
+            "doc_labels": {
+                "regulation": {
+                    "text": "regulation",
+                    "label_type": "DOC_TYPE_LABEL",
+                    "description": "Regulation document",
+                    "color": "#00FF00",
+                    "icon": "tag",
+                }
+            },
+        }
+
+        files = {
+            "chapter.pdf": self.pdf_bytes,
+            "chapter.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(labels).encode("utf-8"),
+        }
+        handle = self._create_temp_file_handle(self._create_test_zip(files))
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "skip-pipeline-labelled-text",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["pending_annotation_docs"], 1)
+
+        doc = Document.objects.get(pk=int(result["document_ids"][0]))
+        # Real text layer produced by the pipeline (the empty embedded content
+        # was ignored — the no-text-layer problem is fixed by force-ingestion).
+        self.assertTrue(doc.txt_extract_file.read().decode("utf-8").strip())
+
+        pending = PendingDocumentAnnotations.objects.get(document=doc)
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.DONE)
+
+        # Producer OC_SECTION annotation re-anchored (stale [999] discarded).
+        ann = Annotation.objects.get(
+            document=doc, annotation_label__text="OC_SECTION", structural=False
+        )
+        pawls = expand_pawls_pages(
+            json.loads(doc.pawls_parse_file.read().decode("utf-8"))
+        )
+        from opencontractserver.annotations.compact_json import decode_token_ranges
+
+        # annotation_json is stored compact v2: {"v":2,"p":{page:{b,t}}}.
+        resolved = " ".join(
+            pawls[int(pk)]["tokens"][i]["text"]
+            for pk, entry in ann.json["p"].items()
+            for i in decode_token_ranges(entry["t"])
+        )
+        self.assertEqual(resolved, DUMB_ANCHOR_HEADING_TEXT)
+
+    def test_dumb_anchor_text_remaps_via_chain(self):
+        """
+        Importing a dumb-anchor text sidecar runs the real ingest chain and
+        re-finds the span annotation against the pipeline-produced text layer.
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import PendingDocumentAnnotations
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        self._set_preferred_parser("text/plain", _DUMB_ANCHOR_TEXT_PARSER_PATH)
+
+        # start hint is approximate on purpose: the anchorer re-finds rawText.
+        approx_start = DUMB_ANCHOR_TEXT_CONTENT.find(DUMB_ANCHOR_SPAN_RAWTEXT) - 3
+        sidecar = {
+            "annotations": [
+                {
+                    "id": 1,
+                    "label": "OC_CLAUSE",
+                    "rawText": DUMB_ANCHOR_SPAN_RAWTEXT,
+                    "start": approx_start,
+                    "end": approx_start + len(DUMB_ANCHOR_SPAN_RAWTEXT),
+                    "parent_id": None,
+                }
+            ],
+            "doc_labels": [],
+        }
+        # labels.json defines the label as a TOKEN_LABEL (one of the import-
+        # valid label types); the anchorer stamps the annotation's own
+        # ``annotation_type`` as SPAN_LABEL for the re-found character span.
+        labels = {
+            "text_labels": {
+                "OC_CLAUSE": {
+                    "text": "OC_CLAUSE",
+                    "label_type": "TOKEN_LABEL",
+                    "description": "Clause span",
+                    "color": "#00FF00",
+                    "icon": "tag",
+                }
+            },
+            "doc_labels": {},
+        }
+
+        files = {
+            "agreement.txt": b"placeholder text document body",
+            "agreement.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(labels).encode("utf-8"),
+        }
+        handle = self._create_temp_file_handle(self._create_test_zip(files))
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "dumb-anchor-text",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["files_processed"], 1)
+        self.assertEqual(result["pending_annotation_docs"], 1)
+
+        created_id = int(result["document_ids"][0])
+        doc = Document.objects.get(pk=created_id)
+        doc.refresh_from_db()
+
+        # Chain ran to completion and unlocked the document.
+        self.assertFalse(doc.backend_lock)
+
+        # Pipeline produced the deterministic text layer.
+        content = doc.txt_extract_file.read().decode("utf-8")
+        self.assertEqual(content, DUMB_ANCHOR_TEXT_CONTENT)
+
+        # Pending row consumed and marked DONE, stamped with a run id.
+        pending = PendingDocumentAnnotations.objects.get(document=doc)
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.DONE)
+        self.assertIsNotNone(pending.ingestion_run_id)
+
+        # SPAN annotation_json text equals the slice of the stored content the
+        # anchorer re-found for the span.
+        ann = Annotation.objects.get(document=doc, annotation_label__text="OC_CLAUSE")
+        span = ann.json
+        self.assertEqual(span["text"], content[span["start"] : span["end"]])
+        self.assertEqual(span["text"], DUMB_ANCHOR_SPAN_RAWTEXT)

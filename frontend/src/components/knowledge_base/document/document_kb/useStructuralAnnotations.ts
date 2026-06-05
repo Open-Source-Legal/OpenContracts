@@ -46,6 +46,14 @@ import { relationToGroup } from "./helpers";
  * The all-structural toggle fetch is deliberately excluded: it only runs when
  * the user turns structural visibility on, and folding it into a shared loading
  * flag would make unrelated surfaces flash loading on that toggle.
+ *
+ * The flag also covers the window *before* the targeted query is dispatched:
+ * its effect runs only after the render that needs it, so for one frame
+ * `targetedStructuralResult` reads `{ called: false, loading: false }`.
+ * Reporting that pending window as loading (by mirroring the effect's own
+ * guard) keeps the loader continuous from the first render until the fetch
+ * settles, closing the one-frame not-found flash entirely rather than merely
+ * shortening it.
  */
 export function useStructuralAnnotations(documentId: string): {
   loading: boolean;
@@ -189,5 +197,23 @@ export function useStructuralAnnotations(documentId: string): {
     setStructuralRelationships,
   ]);
 
-  return { loading: targetedStructuralResult.loading };
+  // The targeted lazy query is dispatched by the effect above, which runs only
+  // *after* this render commits. Until then `targetedStructuralResult` reads
+  // `{ called: false, loading: false }`, so returning its raw `loading` would
+  // leave a one-frame gap where a structural `?ann=<id>` deep-link flashes the
+  // not-found message. Mirror the dispatch effect's own guard to treat that
+  // pending window as loading; once the fetch is dispatched (`called` latches
+  // true) we defer to the query's real `loading`. This can't get stuck: the
+  // targeted path deliberately leaves `structuralAnnotationsLoaded` false, but
+  // `called` stays true, so a genuinely-missing annotation still settles to
+  // `loading: false` and surfaces the not-found state.
+  const targetedFetchPending =
+    deepLinkedAnnotationIds.length > 0 &&
+    !!documentId &&
+    !structuralAnnotationsLoaded &&
+    !targetedStructuralResult.called;
+
+  return {
+    loading: targetedFetchPending || targetedStructuralResult.loading,
+  };
 }

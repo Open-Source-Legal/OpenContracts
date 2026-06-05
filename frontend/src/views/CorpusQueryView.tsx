@@ -266,7 +266,13 @@ export const CorpusQueryView = ({
     // cleanup, so a second source could fire against an unmounted input.
   };
 
+  // ASK -> VIEW entry. Clear the conversation-expanded flag on the way in so a
+  // stale `true` (left by an ASK-flow conversation that was still open when VIEW
+  // is entered) can't suppress the outer "Conversation History" header before
+  // CorpusChat mounts in VIEW and re-reports list mode via onViewModeChange.
+  // Symmetric with backToAskFromView, which clears it on the VIEW -> ASK exit.
   const openHistoryView = () => {
+    setChatExpandedInConversation(false);
     showQueryViewState("VIEW");
   };
 

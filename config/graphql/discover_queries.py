@@ -23,6 +23,7 @@ Design notes:
   the arm simply contributes nothing and the text arm still returns results.
 """
 
+import functools
 import logging
 from typing import Any, Optional
 
@@ -45,6 +46,7 @@ from opencontractserver.constants.search import (
     DISCOVER_CORPUS_CONTENT_OVERSAMPLE,
     DISCOVER_DEFAULT_LIMIT,
     DISCOVER_OVERSAMPLE,
+    DISCOVER_QUERY_VECTOR_CACHE_SIZE,
     FTS_CONFIG,
     RRF_K,
 )
@@ -100,6 +102,19 @@ def _rrf(rankings: list[list[Any]], limit: int) -> list[Any]:
     return ordered[:limit]
 
 
+def _default_embedder_path() -> Optional[str]:
+    """Resolve the install-wide default embedder path.
+
+    The import is deferred to module-call time to avoid a circular import at
+    load (``pipeline.utils`` pulls in models that import this module's
+    siblings). Centralising it here removes the five identical deferred imports
+    that previously lived inside each resolver body.
+    """
+    from opencontractserver.pipeline.utils import get_default_embedder_path
+
+    return get_default_embedder_path()
+
+
 def _query_vector(query_text: str, embedder_path: Optional[str]) -> Optional[list]:
     """Embed ``query_text`` with the default embedder, or ``None`` on failure.
 
@@ -115,6 +130,26 @@ def _query_vector(query_text: str, embedder_path: Optional[str]) -> Optional[lis
         query_text, embedder_path=embedder_path
     )
     return vector
+
+
+@functools.lru_cache(maxsize=DISCOVER_QUERY_VECTOR_CACHE_SIZE)
+def _cached_query_vector(query_text: str, embedder_path: str) -> Optional[list]:
+    """Per-process memoised wrapper around :func:`_query_vector`.
+
+    Discover's "All" tab fires all five category resolvers as five independent
+    HTTP requests (Apollo uses a non-batching link), each of which would embed
+    the *same* query string with the same default embedder. Embedding is
+    deterministic for a given ``(query_text, embedder_path)``, so caching the
+    result lets those requests share one embedding call instead of five.
+
+    Caveats (acceptable for a best-effort arm): there is no TTL, so a vector
+    lives until LRU-evicted — fine, because the same inputs always produce the
+    same vector. A transient embedder failure (``None``) is also cached for the
+    LRU window; the consequence is text-only results for that exact query until
+    eviction, never a wrong result, and the text arm always returns on its own.
+    Tests reset the cache in ``setUp`` (``_cached_query_vector.cache_clear()``).
+    """
+    return _query_vector(query_text, embedder_path)
 
 
 def _text_ids(
@@ -161,7 +196,11 @@ def _semantic_ids(
     ``VectorSearchViaEmbeddingMixin`` (Annotation, Note, Document,
     Conversation). Returns ``[]`` if the query can't be embedded.
     """
-    vector = _query_vector(query_text, embedder_path)
+    if not embedder_path:
+        # No embedder configured → semantic arm is a no-op. Guard here (rather
+        # than relying on the cache) so we never seed the LRU with a null key.
+        return []
+    vector = _cached_query_vector(query_text, embedder_path)
     if not vector:
         return []
     try:
@@ -179,6 +218,11 @@ def _semantic_ids(
 
 def _order_by_ids(qs: QuerySet, ids: list[Any]) -> list[Any]:
     """Fetch ``qs`` rows for ``ids`` and return them in ``ids`` order.
+
+    ``_order_by_ids`` *owns* the ``id__in`` predicate — callers pass the bare
+    visible queryset (already carrying ``select_related`` / ``annotate``) and
+    must NOT pre-filter by ``ids`` themselves, to avoid a redundant double
+    ``id__in`` clause.
 
     Builds the id->object map by iterating ``filter(id__in=...)`` rather than
     ``QuerySet.in_bulk`` because several ``visible_to_user`` querysets apply
@@ -250,8 +294,6 @@ class DiscoverSearchQueryMixin:
         fetch_k = limit * DISCOVER_OVERSAMPLE
         user = info.context.user
 
-        from opencontractserver.pipeline.utils import get_default_embedder_path
-
         visible = BaseService.filter_visible(Annotation, user, request=info.context)
         # Substring (label + raw_text) catches prefixes/fragments; search_vector
         # adds stemmed full-text matching. See resolve_search_annotations_for_mention.
@@ -261,12 +303,11 @@ class DiscoverSearchQueryMixin:
             | Q(search_vector=SearchQuery(text, config=FTS_CONFIG))
         )
         text_ids = _text_ids(visible, text_q, "created", fetch_k)
-        semantic_ids = _semantic_ids(
-            visible, text, get_default_embedder_path(), fetch_k
-        )
+        semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
         ids = _rrf([text_ids, semantic_ids], limit)
 
-        qs = visible.filter(id__in=ids).select_related(
+        # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+        qs = visible.select_related(
             "annotation_label",
             "document",
             "document__creator",
@@ -289,17 +330,14 @@ class DiscoverSearchQueryMixin:
         fetch_k = limit * DISCOVER_OVERSAMPLE
         user = info.context.user
 
-        from opencontractserver.pipeline.utils import get_default_embedder_path
-
         visible = BaseService.filter_visible(Document, user, request=info.context)
         text_q = Q(title__icontains=text) | Q(description__icontains=text)
         text_ids = _text_ids(visible, text_q, "modified", fetch_k)
-        semantic_ids = _semantic_ids(
-            visible, text, get_default_embedder_path(), fetch_k
-        )
+        semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
         ids = _rrf([text_ids, semantic_ids], limit)
 
-        qs = visible.filter(id__in=ids).select_related("creator")
+        # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+        qs = visible.select_related("creator")
         return _order_by_ids(qs, ids)
 
     # ------------------------------------------------------------------ #
@@ -316,8 +354,6 @@ class DiscoverSearchQueryMixin:
         fetch_k = limit * DISCOVER_OVERSAMPLE
         user = info.context.user
 
-        from opencontractserver.pipeline.utils import get_default_embedder_path
-
         visible = BaseService.filter_visible(Note, user, request=info.context)
         # Note now has a trigger-maintained search_vector (migration 0076), so
         # full-text (stemmed) matching joins the substring fallback.
@@ -327,16 +363,13 @@ class DiscoverSearchQueryMixin:
             | Q(search_vector=SearchQuery(text, config=FTS_CONFIG))
         )
         text_ids = _text_ids(visible, text_q, "modified", fetch_k)
-        semantic_ids = _semantic_ids(
-            visible, text, get_default_embedder_path(), fetch_k
-        )
+        semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
         ids = _rrf([text_ids, semantic_ids], limit)
 
-        qs = (
-            visible.filter(id__in=ids)
-            .select_related("document", "document__creator", "corpus", "creator")
-            .annotate(content_preview=Left("content", 400))
-        )
+        # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+        qs = visible.select_related(
+            "document", "document__creator", "corpus", "creator"
+        ).annotate(content_preview=Left("content", 400))
         return _order_by_ids(qs, ids)
 
     # ------------------------------------------------------------------ #
@@ -400,6 +433,14 @@ class DiscoverSearchQueryMixin:
                 : fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE
             ]
         )
+        # Collapse the two content-match id streams to a distinct corpus set.
+        # Size bound: each stream is capped at
+        # ``fetch_k × DISCOVER_CORPUS_CONTENT_OVERSAMPLE`` rows, so this set —
+        # and therefore the ``Q(id__in=...)`` clause below — holds at most
+        # ``2 × fetch_k × DISCOVER_CORPUS_CONTENT_OVERSAMPLE`` ids before the
+        # distinct-corpus collapse (≈800 with today's constants). If
+        # ``DISCOVER_CORPUS_CONTENT_OVERSAMPLE`` is tuned up, this ``IN`` clause
+        # grows linearly — keep it bounded or switch to a subquery join.
         content_corpus_ids = {
             cid
             for cid in list(corpus_ids_from_docs) + list(corpus_ids_from_annots)
@@ -410,7 +451,8 @@ class DiscoverSearchQueryMixin:
         )
 
         ids = _rrf([meta_ids, content_ids], limit)
-        qs = visible.filter(id__in=ids).select_related("creator")
+        # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+        qs = visible.select_related("creator")
         return _order_by_ids(qs, ids)
 
     # ------------------------------------------------------------------ #
@@ -426,8 +468,6 @@ class DiscoverSearchQueryMixin:
         limit = _clamp_limit(limit)
         fetch_k = limit * DISCOVER_OVERSAMPLE
         user = info.context.user
-
-        from opencontractserver.pipeline.utils import get_default_embedder_path
 
         # Discover "Discussions" == collaborative THREADs (never personal CHATs).
         # Exclude soft-deleted threads server-side so deleted thread metadata
@@ -445,12 +485,11 @@ class DiscoverSearchQueryMixin:
         # now findable.
         text_q = Q(title__icontains=text) | Q(chat_messages__content__icontains=text)
         text_ids = _text_ids(visible, text_q, "created", fetch_k)
-        semantic_ids = _semantic_ids(
-            visible, text, get_default_embedder_path(), fetch_k
-        )
+        semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
         ids = _rrf([text_ids, semantic_ids], limit)
 
-        qs = visible.filter(id__in=ids).select_related(
+        # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+        qs = visible.select_related(
             "creator",
             "chat_with_corpus",
             "chat_with_corpus__creator",

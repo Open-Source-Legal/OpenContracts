@@ -28,6 +28,10 @@ test.describe("MobileAnnotationDetail", () => {
       page.getByText("This annotation is no longer available.")
     ).not.toBeVisible();
 
+    // The loader is exposed as an ARIA live region (role="status" →
+    // aria-live="polite") so screen readers announce it on a deep-link.
+    await expect(page.getByRole("status")).toBeVisible();
+
     await docScreenshot(page, "annotations--mobile-annotation-detail--loading");
 
     await component.unmount();

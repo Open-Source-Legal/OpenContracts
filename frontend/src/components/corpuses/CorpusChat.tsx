@@ -381,8 +381,6 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
     lastCombinedMessage.isComplete !== true;
   const showWarmupTicker = isProcessing && !inFlightAssistantPresent;
 
-  // Scroll to bottom helper. Defaults to an instant jump; callers opt into a
-  // smooth scroll for incremental appends only.
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     if (messagesContainerRef.current) {
       const container = messagesContainerRef.current;
@@ -399,6 +397,12 @@ export const CorpusChat: React.FC<CorpusChatProps> = ({
   // mutate the last entry without changing the count) both instant-jump. This
   // removes the long, janky smooth animation that previously played every time
   // a populated conversation opened.
+  //
+  // First mount with a pre-loaded transcript also instant-jumps: the refs start
+  // at undefined/0, so a directly-selected conversation reads as a switch
+  // ("auto"), and server-loaded messages with no selected id read as neither a
+  // switch nor a single +1 append once there are 2+ messages ("auto"). Smooth is
+  // never used for the initial paint.
   const prevConversationKeyRef = useRef<string | undefined>(undefined);
   const prevMessageCountRef = useRef<number>(0);
   useEffect(() => {

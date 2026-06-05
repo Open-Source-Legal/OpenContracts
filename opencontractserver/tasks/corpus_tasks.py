@@ -8,6 +8,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
+from opencontractserver.constants.corpus_branding import (
+    CORPUS_BRANDING_HARD_TIME_LIMIT_SECONDS,
+    CORPUS_BRANDING_SOFT_TIME_LIMIT_SECONDS,
+)
 from opencontractserver.conversations.models import (
     ChatMessage,
     Conversation,
@@ -374,6 +378,53 @@ def process_corpus_action(
         f"process_corpus_action() completed - {summary['actions_processed']} actions, "
         f"{summary['executions_queued']} executions queued"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Corpus auto-branding (logo + Readme.CAML on creation)
+# --------------------------------------------------------------------------- #
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=120,
+    soft_time_limit=CORPUS_BRANDING_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=CORPUS_BRANDING_HARD_TIME_LIMIT_SECONDS,
+)
+def generate_corpus_branding(self, corpus_id: int | str, user_id: int | str) -> dict:
+    """Generate a logo + Readme.CAML article for a newly-created corpus.
+
+    Dispatched by the ``Corpus`` ``post_save`` signal (see
+    ``opencontractserver/corpuses/signals.py``) when auto-branding is enabled
+    and no icon was uploaded. Delegates to the async orchestrator in
+    :mod:`opencontractserver.corpuses.services.branding`.
+
+    Best-effort: the orchestrator already isolates per-step failures; this
+    wrapper retries a couple of times on a hard error. Branding must never
+    block or undo corpus creation, so a permanently failing run just leaves the
+    corpus un-branded. ``async_to_sync`` (not ``asyncio.run``) so the task is
+    safe on Celery worker pools that already run an event loop (gevent/eventlet).
+    """
+    from asgiref.sync import async_to_sync
+
+    from opencontractserver.corpuses.services.branding import (
+        run_corpus_branding_async,
+    )
+
+    logger.info(
+        "[CorpusBranding] task start - corpus_id=%s, user_id=%s", corpus_id, user_id
+    )
+    try:
+        return async_to_sync(run_corpus_branding_async)(int(corpus_id), int(user_id))
+    except Exception as exc:
+        logger.error(
+            "[CorpusBranding] task failed - corpus_id=%s: %s",
+            corpus_id,
+            exc,
+            exc_info=True,
+        )
+        raise self.retry(exc=exc)
 
 
 # --------------------------------------------------------------------------- #

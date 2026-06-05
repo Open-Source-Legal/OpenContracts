@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import base64
-import io
 import json
 import logging
 import pathlib
+import uuid
 import zipfile
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -21,6 +20,7 @@ import filetype
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.db import transaction
 
 from config import celery_app
 from opencontractserver.annotations.models import (
@@ -34,7 +34,10 @@ from opencontractserver.constants.document_processing import (
 )
 from opencontractserver.constants.zip_import import ZIP_MAX_SIDECAR_SIZE_BYTES
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import (
+    Document,
+    PendingDocumentAnnotations,
+)
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.dicts import (
     OpenContractsAnnotatedDocumentImportType,
@@ -43,14 +46,13 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.importing import (
-    create_document_from_export_data,
     import_doc_annotations,
-    import_relationships,
     load_or_create_labels,
     prepare_import_labels,
     validate_labels_data,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.validate_export import validate_dumb_anchor_sidecar
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -594,211 +596,6 @@ def _read_sidecar(
         return json.loads(raw.decode("UTF-8"))
 
 
-# Required keys for each text annotation entry in ``labelled_text``.
-_ANNOTATION_REQUIRED_KEYS = {"annotationLabel", "rawText", "annotation_json"}
-
-# Required keys for each relationship entry in ``relationships``.
-_RELATIONSHIP_REQUIRED_KEYS = {
-    "relationshipLabel",
-    "source_annotation_ids",
-    "target_annotation_ids",
-}
-
-
-def _validate_sidecar_schema(
-    doc_data: Mapping[str, Any],
-    sidecar_path: str | None,
-) -> list[str]:
-    """
-    Validate the top-level structure and required fields of a sidecar JSON
-    document **before** any database work is attempted.
-
-    Returns a list of human-readable error strings.  An empty list means the
-    data passed validation.
-
-    .. note::
-        If any top-level container has the wrong type (e.g. ``labelled_text``
-        is a string instead of a list), the function returns those errors
-        immediately **without** running per-entry checks.  Callers may
-        therefore receive only the container-level errors on a first call and
-        discover per-entry errors only after the container types are fixed.
-    """
-    errors: list[str] = []
-
-    # --- container type checks -------------------------------------------
-    labelled_text = doc_data.get("labelled_text")
-    if labelled_text is not None and not isinstance(labelled_text, list):
-        errors.append(
-            f"Sidecar {sidecar_path}: 'labelled_text' must be a list, "
-            f"got {type(labelled_text).__name__}"
-        )
-
-    doc_labels = doc_data.get("doc_labels")
-    if doc_labels is not None and not isinstance(doc_labels, list):
-        errors.append(
-            f"Sidecar {sidecar_path}: 'doc_labels' must be a list, "
-            f"got {type(doc_labels).__name__}"
-        )
-
-    relationships = doc_data.get("relationships")
-    if relationships is not None and not isinstance(relationships, list):
-        errors.append(
-            f"Sidecar {sidecar_path}: 'relationships' must be a list, "
-            f"got {type(relationships).__name__}"
-        )
-
-    # If any container type is wrong, skip per-entry checks to avoid noise.
-    if errors:
-        return errors
-
-    # --- per-annotation checks -------------------------------------------
-    for idx, entry in enumerate(labelled_text or []):
-        if not isinstance(entry, dict):
-            errors.append(
-                f"Sidecar {sidecar_path}: labelled_text[{idx}] must be a dict, "
-                f"got {type(entry).__name__}"
-            )
-            continue
-        missing = _ANNOTATION_REQUIRED_KEYS - entry.keys()
-        if missing:
-            errors.append(
-                f"Sidecar {sidecar_path}: labelled_text[{idx}] is missing "
-                f"required key(s): {sorted(missing)}"
-            )
-
-    # --- per-doc_label checks ----------------------------------------------
-    for idx, entry in enumerate(doc_labels or []):
-        if not isinstance(entry, str):
-            errors.append(
-                f"Sidecar {sidecar_path}: doc_labels[{idx}] must be a string, "
-                f"got {type(entry).__name__}"
-            )
-
-    # --- per-relationship checks -----------------------------------------
-    for idx, entry in enumerate(relationships or []):
-        if not isinstance(entry, dict):
-            errors.append(
-                f"Sidecar {sidecar_path}: relationships[{idx}] must be a dict, "
-                f"got {type(entry).__name__}"
-            )
-            continue
-        missing = _RELATIONSHIP_REQUIRED_KEYS - entry.keys()
-        if missing:
-            errors.append(
-                f"Sidecar {sidecar_path}: relationships[{idx}] is missing "
-                f"required key(s): {sorted(missing)}"
-            )
-
-    return errors
-
-
-def _apply_sidecar_annotations(
-    doc_data: Mapping[str, Any],
-    sidecar_path: str | None,
-    corpus_doc: Document,
-    corpus_obj: Corpus,
-    user_obj: UserModel,
-    label_lookup: dict[str, AnnotationLabel],
-    doc_label_lookup: dict[str, AnnotationLabel],
-    results: dict[str, Any],
-) -> None:
-    """
-    Import annotations from pre-parsed sidecar data onto a corpus document.
-
-    Args:
-        doc_data: Pre-parsed sidecar JSON data (OpenContractDocExport).
-        sidecar_path: Original sidecar path (for logging/error messages).
-        corpus_doc: The corpus-isolated document to attach annotations to.
-        corpus_obj: The corpus instance.
-        user_obj: The user performing the import.
-        label_lookup: Combined label lookup (text + doc labels) keyed by name.
-        doc_label_lookup: Doc-type label lookup keyed by label text.
-        results: Mutable results dict to update counters.
-    """
-    try:
-        # Validate sidecar schema before any database work.
-        schema_errors = _validate_sidecar_schema(doc_data, sidecar_path)
-        if schema_errors:
-            for err in schema_errors:
-                logger.warning(f"import_zip_with_folder_structure() - {err}")
-                results["errors"].append(err)
-            results["annotation_sidecars_errored"] += 1
-            return
-
-        has_annotations = bool(
-            doc_data.get("labelled_text") or doc_data.get("doc_labels")
-        )
-        has_labels = bool(label_lookup or doc_label_lookup)
-
-        if has_annotations and not has_labels:
-            logger.warning(
-                f"import_zip_with_folder_structure() - Sidecar {sidecar_path} "
-                f"contains annotations but no labels are available "
-                f"(missing or empty labels.json). Skipping annotation import."
-            )
-            results["errors"].append(
-                f"Sidecar {sidecar_path} has annotations but no labels "
-                f"available — annotations skipped"
-            )
-            results["annotation_sidecars_errored"] += 1
-            return
-
-        # Import annotations onto the corpus document
-        expected_text = len(doc_data.get("labelled_text", []))
-        expected_doc = len(doc_data.get("doc_labels", []))
-        annot_id_map, doc_labels_created = import_doc_annotations(
-            doc_data=doc_data,
-            corpus_doc=corpus_doc,
-            corpus_obj=corpus_obj,
-            user_id=user_obj.id,
-            label_lookup=label_lookup,
-            doc_label_lookup=doc_label_lookup,
-        )
-        results["annotations_imported"] += len(annot_id_map) + doc_labels_created
-
-        # Warn if any annotations were skipped (e.g. due to missing labels)
-        actual_total = len(annot_id_map) + doc_labels_created
-        expected_total = expected_text + expected_doc
-        if actual_total < expected_total:
-            skipped = expected_total - actual_total
-            msg = (
-                f"Sidecar {sidecar_path}: {skipped} annotation(s) skipped "
-                f"(likely due to missing labels in labels.json)"
-            )
-            logger.warning(f"import_zip_with_folder_structure() - {msg}")
-            results["errors"].append(msg)
-
-        # Import intra-document relationships from the sidecar
-        relationships_data = doc_data.get("relationships", [])
-        if relationships_data:
-            import_relationships(
-                user_id=user_obj.id,
-                doc_obj=corpus_doc,
-                corpus_obj=corpus_obj,
-                relationships_data=relationships_data,
-                label_lookup=label_lookup,
-                annotation_id_map=annot_id_map,
-            )
-
-        results["annotation_sidecars_processed"] += 1
-        logger.info(
-            f"import_zip_with_folder_structure() - Applied sidecar annotations "
-            f"to document {corpus_doc.id}: {len(annot_id_map)} text, "
-            f"{doc_labels_created} doc-level"
-        )
-
-    except Exception as e:
-        logger.error(
-            f"import_zip_with_folder_structure() - Error applying sidecar "
-            f"annotations for {sidecar_path}: {e}",
-            exc_info=True,
-        )
-        results["annotation_sidecars_errored"] += 1
-        results["errors"].append(
-            f"Sidecar annotation error for {sidecar_path}: {str(e)}"
-        )
-
-
 @celery_app.task()
 def import_zip_with_folder_structure(
     temporary_file_handle_id: str | int,
@@ -819,13 +616,16 @@ def import_zip_with_folder_structure(
     2. Creates the folder structure from the zip in the corpus
     3. If labels.json is present, loads annotation label definitions
     4. Extracts and creates documents with proper folder assignments.
-       If a document has a co-located .json sidecar (OpenContractDocExport):
-       - If the sidecar contains ``"skip_pipeline": true``, the document is
-         created directly from the sidecar's export data (PAWLs, text, etc.)
-         and the parser pipeline is **not** triggered.
-       - Otherwise (default), the document goes through the parser pipeline
-         and sidecar annotations are imported **additively** on top of any
-         pipeline-generated annotations.
+       If a document has a co-located .json sidecar in the dumb-anchor format
+       (a top-level ``"annotations"`` list of label/rawText anchors), the
+       document is created normally (no ``processing_started`` suppression) and
+       the sidecar's producer annotations are persisted in a
+       ``PendingDocumentAnnotations`` row stamped with this import's run id.
+       The standard document post_save ingest chain
+       (``extract_thumbnail -> ingest_doc -> remap_pending_annotations ->
+       set_doc_lock_state``) then anchors them **after** PAWLs / text exist —
+       the importer no longer owns a bespoke chain. Documents without a sidecar
+       go through the parser pipeline unchanged.
     5. If a relationships.csv file is present at the zip root, creates
        document relationships based on its contents
 
@@ -884,10 +684,10 @@ def import_zip_with_folder_structure(
         "labels_file_found": False,
         "labels_loaded": False,
         "annotation_sidecars_found": 0,
-        "annotation_sidecars_processed": 0,
         "annotation_sidecars_errored": 0,
         "annotations_imported": 0,
         "pipeline_skipped": 0,
+        "pending_annotation_docs": 0,
         # Relationship statistics
         "relationships_file_found": False,
         "relationships_created": 0,
@@ -899,6 +699,16 @@ def import_zip_with_folder_structure(
         "skipped_oversized": [],
         "upversioned_paths": [],  # Paths where new versions replaced old ones
     }
+
+    # One ingestion-run token for every deferred annotation set this import
+    # produces, so the rows can be grouped / gated / reported on later.
+    # NOTE (review finding #4): this is minted per task *execution*, so a Celery
+    # retry of a partially-completed import gives documents from the retry a
+    # different ``import_run_id`` than those created on the first attempt. Any
+    # caller using ``run_id`` to gate/aggregate must treat a single logical
+    # import as potentially spanning multiple run ids; ``run_id=None`` (apply
+    # every PENDING row for the document) is unaffected.
+    import_run_id = uuid.uuid4()
 
     try:
         logger.info(
@@ -1052,6 +862,11 @@ def import_zip_with_folder_structure(
             # These are needed when importing annotation sidecars
             label_lookup: dict[str, AnnotationLabel] = {}
             doc_label_lookup: dict[str, AnnotationLabel] = {}
+            # Retained at function scope so the Phase-4 dumb-anchor sidecar
+            # pre-flight (validate_dumb_anchor_sidecar) can check producer
+            # annotations against the same labels.json. ``None`` when no
+            # labels file was loaded.
+            labels_data: dict | None = None
             if manifest.labels_file:
                 results["labels_file_found"] = True
             if manifest.labels_file and manifest.annotation_sidecars:
@@ -1182,26 +997,95 @@ def import_zip_with_folder_structure(
                         doc_path_str = f"/{entry.sanitized_path}"
 
                     # Determine document creation strategy:
-                    # - If a sidecar with skip_pipeline=True exists, create the
-                    #   document directly from export data (no parser pipeline).
-                    # - Otherwise, use import_content (pipeline) and optionally
-                    #   layer sidecar annotations on top additively.
+                    # - If a co-located sidecar in the dumb-anchor format
+                    #   (top-level ``"annotations"`` list) exists, create the
+                    #   document via the normal parser pipeline, persist the
+                    #   producer annotations in a PendingDocumentAnnotations
+                    #   row, and dispatch an explicit
+                    #   ingest -> remap -> unlock chain so the remap runs after
+                    #   PAWLs / text exist.
+                    # - Otherwise, use the normal pipeline path (the document's
+                    #   post_save signal owns the ingest/unlock chain).
                     added_doc = None
                     doc_path = None
                     sidecar_path = manifest.annotation_sidecars.get(
                         entry.sanitized_path
                     )
 
-                    # Pre-read sidecar if present (needed for skip_pipeline
-                    # check and to avoid reading twice)
+                    # Pre-read sidecar if present (to detect the dumb-anchor
+                    # format and to avoid reading twice).
                     sidecar_data: dict | None = None
-                    skip_pipeline = False
+                    has_pending_annotations = False
+                    pending_annotations_list: list | None = None
+                    # True only for the dumb-anchor format (top-level
+                    # ``"annotations"``); the legacy ``"labelled_text"`` format
+                    # has no pre-flight schema and is re-anchored leniently.
+                    sidecar_is_dumb_anchor = False
                     if sidecar_path:
                         try:
                             sidecar_data = _read_sidecar(import_zip, sidecar_path)
-                            skip_pipeline = bool(
-                                sidecar_data.get("skip_pipeline", False)
+                            # Accept BOTH producer formats and route either into
+                            # the deferred remap pipeline:
+                            #   * dumb-anchor: a top-level ``"annotations"`` list
+                            #     of page+bbox / start anchors;
+                            #   * legacy export / ``skip_pipeline`` scrape: a
+                            #     ``"labelled_text"`` list of baked
+                            #     ``annotation_json`` annotations.
+                            # The remap step strips any token indices and
+                            # re-anchors onto the freshly-parsed PAWLs, so the
+                            # embedded ``content`` / ``pawls_file_content`` and
+                            # the ``skip_pipeline`` flag are ignored — the
+                            # document is force-ingested through the normal
+                            # parser (giving it a real text layer + structural
+                            # annotations), then its producer annotations are
+                            # re-anchored.
+                            if isinstance(sidecar_data.get("annotations"), list):
+                                pending_annotations_list = sidecar_data["annotations"]
+                                # Only PURE dumb-anchor entries (``label`` +
+                                # ``page``/``bbox`` or ``start``/``end``) are
+                                # understood by validate_dumb_anchor_sidecar.
+                                # Legacy export entries (``annotationLabel`` +
+                                # baked ``annotation_json``) can also live in an
+                                # "annotations" list; those are normalised by
+                                # anchor_annotations' legacy adapter at remap
+                                # time and must NOT be pre-flighted (they would
+                                # false-fail the dumb-anchor schema).
+                                sidecar_is_dumb_anchor = not any(
+                                    isinstance(a, dict) and "annotation_json" in a
+                                    for a in pending_annotations_list
+                                )
+                            elif isinstance(sidecar_data.get("labelled_text"), list):
+                                pending_annotations_list = sidecar_data["labelled_text"]
+                            has_pending_annotations = (
+                                pending_annotations_list is not None
                             )
+                            # Intra-document annotation relationships are not yet
+                            # wired by the deferred remap pipeline (forward
+                            # investment — see PR description). The old sidecar
+                            # format carried a ``"relationships"`` list; never
+                            # drop it silently. Warn so producers know their
+                            # relationships were ignored on import.
+                            # TODO(deferred-remap): wire relationship import into
+                            # remap_pending_annotations once the dumb-anchor
+                            # id_map is consumed end-to-end, then remove this
+                            # drop-and-warn path.
+                            sidecar_rels = sidecar_data.get("relationships")
+                            if isinstance(sidecar_rels, list) and sidecar_rels:
+                                rel_msg = (
+                                    f"Sidecar {sidecar_path} declares "
+                                    f"{len(sidecar_rels)} intra-document "
+                                    "relationship(s) which the deferred remap "
+                                    "pipeline does not yet import; they were "
+                                    "ignored."
+                                )
+                                logger.warning(
+                                    "import_zip_with_folder_structure() - %s",
+                                    rel_msg,
+                                )
+                                # Surface to the caller, not just the Celery log
+                                # (review finding #3): an import that drops
+                                # relationships must not look like a clean success.
+                                results["errors"].append(rel_msg)
                         except Exception as e:
                             logger.error(
                                 f"import_zip_with_folder_structure() - "
@@ -1216,63 +1100,22 @@ def import_zip_with_folder_structure(
                             sidecar_data = None
 
                     try:
-                        if skip_pipeline and sidecar_data:
-                            # Create document from sidecar export data directly
-                            # — no parser pipeline triggered
-                            doc_obj = create_document_from_export_data(
-                                doc_data=sidecar_data,
-                                pdf_file_handle=io.BytesIO(file_bytes),
-                                doc_filename=entry.filename,
-                                user_obj=user_obj,
-                            )
-                            # Apply meta.csv / task-level overrides that
-                            # create_document_from_export_data doesn't know
-                            # about (it uses sidecar title/description only).
-                            update_fields = ["backend_lock"]
-                            # Title: override when it differs from the bare
-                            # filename (i.e. title_prefix or meta.csv supplied
-                            # a real title).
-                            if doc_title != entry.filename:
-                                doc_obj.title = doc_title
-                                update_fields.append("title")
-                            # Description: only override when an explicit
-                            # source exists (task param or meta.csv).  Without
-                            # this guard the generic "Imported from zip …"
-                            # fallback would overwrite the sidecar's own
-                            # description.
-                            if description or (
-                                doc_metadata and doc_metadata.description
-                            ):
-                                doc_obj.description = doc_description
-                                update_fields.append("description")
-                            if custom_meta:
-                                doc_obj.custom_meta = custom_meta
-                                update_fields.append("custom_meta")
-                            if make_public:
-                                doc_obj.is_public = True
-                                update_fields.append("is_public")
-
-                            added_doc, _status, doc_path = corpus_obj.add_document(
-                                document=doc_obj,
-                                user=user_obj,
-                                path=doc_path_str,
-                                folder=doc_folder,
-                            )
-                            # Unlock the standalone document now that it's added
-                            doc_obj.backend_lock = False
-                            doc_obj.save(update_fields=update_fields)
-                            # Both pipeline_skipped and annotation_sidecars_processed
-                            # increment for the same document — this is intentional:
-                            # pipeline_skipped tracks the creation strategy while
-                            # annotation_sidecars_processed tracks annotation import.
-                            results["pipeline_skipped"] += 1
-                            logger.info(
-                                f"import_zip_with_folder_structure() - "
-                                f"Created document {added_doc.id} in corpus "
-                                f"{corpus_obj.id} (pipeline skipped)"
-                            )
-                        else:
-                            # Create document through the parser pipeline
+                        # No processing_started suppression and no bespoke
+                        # Celery chain here: the standard Document post_save
+                        # chain (extract_thumbnail -> ingest_doc ->
+                        # remap_pending_annotations -> set_doc_lock_state) now
+                        # owns dispatch and applies the deferred annotations.
+                        # Create the document AND its pending-annotation row in
+                        # one atomic block. The Document post_save chain
+                        # (extract_thumbnail -> ingest_doc ->
+                        # remap_pending_annotations -> set_doc_lock_state) is
+                        # dispatched via transaction.on_commit, which Django runs
+                        # at the OUTERMOST atomic commit. Wrapping both writes
+                        # together guarantees the PendingDocumentAnnotations row
+                        # is committed before remap runs — otherwise the chain
+                        # would fire at import_content's inner commit (before the
+                        # row exists) and the remap would no-op.
+                        with transaction.atomic():
                             added_doc, _status, doc_path = corpus_obj.import_content(
                                 content=file_bytes,
                                 path=doc_path_str,
@@ -1292,24 +1135,89 @@ def import_zip_with_folder_structure(
                                 f"{corpus_obj.id} via pipeline"
                             )
 
-                        if added_doc:
-                            # Set permissions for the document
-                            set_permissions_for_obj_to_user(
-                                user_obj, added_doc, [PermissionTypes.CRUD]
-                            )
-
-                            # Apply sidecar annotations if we have parsed data
-                            if sidecar_data:
-                                _apply_sidecar_annotations(
-                                    doc_data=sidecar_data,
-                                    sidecar_path=sidecar_path,
-                                    corpus_doc=added_doc,
-                                    corpus_obj=corpus_obj,
-                                    user_obj=user_obj,
-                                    label_lookup=label_lookup,
-                                    doc_label_lookup=doc_label_lookup,
-                                    results=results,
+                            if added_doc:
+                                # Set permissions for the document
+                                set_permissions_for_obj_to_user(
+                                    user_obj, added_doc, [PermissionTypes.CRUD]
                                 )
+
+                                # Persist dumb-anchor annotations for the
+                                # standard ingest chain's remap step to consume.
+                                # Stamped with this import's run id so the set
+                                # can be grouped / gated / reported on later.
+                                if has_pending_annotations and sidecar_data:
+                                    # Pre-flight validate the dumb-anchor payload
+                                    # against labels.json BEFORE persisting. A
+                                    # malformed sidecar (entry missing label /
+                                    # rawText / anchor, or a label that doesn't
+                                    # resolve in labels.json) otherwise drains
+                                    # through the Celery queue and only surfaces
+                                    # as a remap failure after ingest; validating
+                                    # here co-locates the error with the import
+                                    # and gives faster feedback. Invalid rows are
+                                    # still persisted (never silently dropped) but
+                                    # marked FAILED so remap skips them.
+                                    #
+                                    # Gated on BOTH conditions:
+                                    #   * dumb-anchor format only — the validator
+                                    #     does not understand the legacy
+                                    #     "labelled_text" shape, which stays
+                                    #     PENDING and is re-anchored leniently;
+                                    #   * a labels.json was actually loaded — the
+                                    #     validator's label-resolution check is
+                                    #     defined against labels.json, but in the
+                                    #     import flow labels legitimately resolve
+                                    #     from the corpus labelset when no
+                                    #     labels.json ships. Running it without
+                                    #     labels.json would false-fail every label
+                                    #     as "does not resolve".
+                                    pending_status = (
+                                        PendingDocumentAnnotations.Status.PENDING
+                                    )
+                                    pending_report: list = []
+                                    if (
+                                        sidecar_is_dumb_anchor
+                                        and labels_data is not None
+                                    ):
+                                        vres = validate_dumb_anchor_sidecar(
+                                            sidecar_data, labels_data
+                                        )
+                                        if not vres.ok:
+                                            pending_status = (
+                                                PendingDocumentAnnotations.Status.FAILED
+                                            )
+                                            pending_report = [
+                                                {"error": e} for e in vres.errors
+                                            ]
+                                            results["annotation_sidecars_errored"] += 1
+                                            results["errors"].append(
+                                                f"Sidecar {sidecar_path} failed "
+                                                f"validation ({len(vres.errors)} "
+                                                "error(s)); annotations not "
+                                                "imported."
+                                            )
+                                    PendingDocumentAnnotations.objects.create(
+                                        document=added_doc,
+                                        corpus=corpus_obj,
+                                        creator=user_obj,
+                                        ingestion_run_id=import_run_id,
+                                        payload={
+                                            "annotations": pending_annotations_list
+                                            or [],
+                                            "doc_labels": sidecar_data.get(
+                                                "doc_labels", []
+                                            ),
+                                        },
+                                        status=pending_status,
+                                        report=pending_report,
+                                    )
+                                    results["pending_annotation_docs"] += 1
+                                    logger.info(
+                                        f"import_zip_with_folder_structure() - "
+                                        f"Persisted pending annotations (run "
+                                        f"{import_run_id}) for document "
+                                        f"{added_doc.id}; standard chain will remap"
+                                    )
 
                     except PermissionError as e:
                         logger.warning(
@@ -1438,7 +1346,7 @@ def import_zip_with_folder_structure(
             f"upversioned: {results['files_upversioned']}, "
             f"folders created: {results['folders_created']}, "
             f"metadata applied: {results['metadata_applied']}, "
-            f"sidecars processed: {results['annotation_sidecars_processed']}, "
+            f"pending annotation docs: {results['pending_annotation_docs']}, "
             f"pipeline skipped: {results['pipeline_skipped']}, "
             f"annotations imported: {results['annotations_imported']}, "
             f"relationships created: {results['relationships_created']}"

@@ -1113,6 +1113,20 @@ EMBEDDINGS_MODEL = env.str("EMBEDDINGS_MODEL", default="gpt-4o")
 HF_TOKEN = env.str("HF_TOKEN", default="")
 HF_EMBEDDINGS_ENDPOINT = env.str("HF_EMBEDDINGS_ENDPOINT", default="")
 
+# CORPUS AUTO-BRANDING
+# ------------------------------------------------------------------------------
+# Install-wide kill-switch for auto-generating a logo + Readme.CAML article when
+# a corpus is created (see ``opencontractserver/corpuses/signals.py`` and
+# ``opencontractserver/corpuses/services/branding.py``). Per-corpus opt-out lives
+# on ``Corpus.auto_branding_enabled``; uploading an icon also opts the corpus out.
+CORPUS_AUTO_BRANDING_ENABLED = env.bool("CORPUS_AUTO_BRANDING_ENABLED", default=True)
+# Toggles AI logo generation (OpenAI Images). When False — or when
+# ``OPENAI_API_KEY`` is unset — auto-branding falls back to a deterministic PIL
+# monogram logo, so a logo is still produced.
+CORPUS_LOGO_GENERATION_ENABLED = env.bool(
+    "CORPUS_LOGO_GENERATION_ENABLED", default=True
+)
+
 # CORS
 # ------------------------------------------------------------------------------
 # django-cors-headers v4.x settings
