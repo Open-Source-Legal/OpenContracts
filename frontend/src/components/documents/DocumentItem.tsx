@@ -44,7 +44,11 @@ import { downloadFile } from "../../utils/files";
 import fallback_doc_icon from "../../assets/images/defaults/default_doc_icon.jpg";
 import { getPermissions } from "../../utils/transform";
 import { PermissionTypes } from "../types";
-import { FAILURE_COLORS } from "../../assets/configurations/constants";
+import {
+  FAILURE_COLORS,
+  PDF_MIME_TYPE,
+} from "../../assets/configurations/constants";
+import { useLazyPdfUrl } from "./useLazyPdfUrl";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 
 // Animations
@@ -649,15 +653,21 @@ export const DocumentItem: React.FC<DocumentItemProps> = ({
     editingDocument(item);
   };
 
+  // ``pdfFile`` is no longer fetched per card (see GET_DOCUMENTS); resolve the
+  // signed URL on demand, falling back to an in-hand ``pdfFile`` when a
+  // caller's query still provides one.
+  const resolvePdfUrl = useLazyPdfUrl();
+  const canDownload = !!pdfFile || fileType === PDF_MIME_TYPE;
+
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (pdfFile && !isDownloading) {
-      setIsDownloading(true);
-      try {
-        await downloadFile(pdfFile);
-      } finally {
-        setTimeout(() => setIsDownloading(false), 1000);
-      }
+    if (isDownloading || !canDownload) return;
+    setIsDownloading(true);
+    try {
+      const url = await resolvePdfUrl(id, pdfFile);
+      if (url) await downloadFile(url);
+    } finally {
+      setTimeout(() => setIsDownloading(false), 1000);
     }
   };
 
@@ -820,7 +830,7 @@ export const DocumentItem: React.FC<DocumentItemProps> = ({
             <Eye size={13} />
           </ActionButton>
 
-          {pdfFile && (
+          {canDownload && (
             <ActionButton
               className={`action-button ${isDownloading ? "downloading" : ""}`}
               onClick={handleDownload}

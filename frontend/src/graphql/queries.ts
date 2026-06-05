@@ -95,10 +95,7 @@ export const GET_DOCUMENTS = gql`
           processingStatus
           processingError
           canRetry
-          pdfFile
-          txtExtractFile
           fileType
-          pawlsParseFile
           icon
           isPublic
           myPermissions
@@ -176,12 +173,15 @@ export const GET_DOCUMENT_STATS = gql`
 // metadata workflow tests) and selects a kitchen-sink of fields — including
 // expensive per-row resolvers like ``versionCount`` (an N+1 ``.count()`` per
 // document on the backend), ``canViewHistory`` / ``canRetry`` (per-row
-// ``user_can`` checks), and four file-URL fields the list
-// view never renders. The Documents view only paints id / title / fileType /
-// backendLock / pageCount / icon / created / creator initials, with creator
-// slugs needed for ``navigateToDocument``. Keeping a focused query here lets
-// the list view skip the heavy fan-out without disturbing the other consumers
-// of GET_DOCUMENTS.
+// ``user_can`` checks), and signed file-URL fields (``pdfFile`` for the
+// corpus card's download action, ``icon`` for the thumbnail). Each signed URL
+// is a storage round trip on GCS — ``txtExtractFile`` / ``pawlsParseFile`` were
+// dropped from this query because no list consumer reads them (the
+// document-detail loader fetches them on open via its own query). The
+// Documents view paints even less (id / title / fileType / backendLock /
+// pageCount / icon / created / creator initials, with creator slugs for
+// ``navigateToDocument``), so it uses the slim query below to skip the heavy
+// fan-out without disturbing the other consumers of GET_DOCUMENTS.
 export interface RequestDocumentsForListInputs {
   textSearch?: string;
   inCorpusWithId?: string;
@@ -235,6 +235,31 @@ export const GET_DOCUMENTS_FOR_LIST = gql`
         startCursor
         endCursor
       }
+    }
+  }
+`;
+
+// Lazy fetch of a single document's signed PDF URL, resolved on download-click
+// rather than for every card in the list. Signing a GCS URL is a network round
+// trip, so fetching ``pdfFile`` for an N-document page (when only one might be
+// downloaded) is wasteful — the list query omits it and ``useLazyPdfUrl``
+// fetches it on demand. See frontend/src/components/documents/useLazyPdfUrl.ts.
+export interface GetDocumentPdfUrlInputs {
+  documentId: string;
+}
+
+export interface GetDocumentPdfUrlOutputs {
+  document: {
+    id: string;
+    pdfFile: string | null;
+  } | null;
+}
+
+export const GET_DOCUMENT_PDF_URL = gql`
+  query GetDocumentPdfUrl($documentId: ID!) {
+    document(id: $documentId) {
+      id
+      pdfFile
     }
   }
 `;

@@ -518,6 +518,34 @@ elif STORAGE_BACKEND == "GCP":
     GCS_DOCUMENT_PATH = env("GCS_DOCUMENT_PATH", default="open_contracts")
     MEDIA_ROOT = str(APPS_DIR / "media")
 
+# Cross-request signed-URL cache
+# ------------------------------------------------------------------------------
+# S3/GCS media URLs are signed per object. On GCS with IAM signBlob (Workload
+# Identity, no local signing key) every ``FieldFile.url`` is a network round
+# trip, so a document-list edge selecting pdf/txt/pawls/icon URLs fans out to
+# N×4 signing calls — the source of the multi-second corpus-folder query.
+# ``optimized_file_resolvers`` caches the generated URL strings in the shared
+# (Redis) cache keyed by blob name (a signed URL is not user-specific, so the
+# entry is safely shared across users), signing each blob at most once per TTL
+# window. The TTL is held well under the signed-URL lifetime so a cached URL is
+# always served with ample validity remaining. 0 disables the shared cache
+# (LOCAL storage URLs are relative + free; only the per-request memo applies).
+if STORAGE_BACKEND == "GCP":
+    _signed_url_lifetime_seconds = int(GS_EXPIRATION.total_seconds())
+elif STORAGE_BACKEND == "AWS":
+    _signed_url_lifetime_seconds = _AWS_EXPIRY
+else:
+    _signed_url_lifetime_seconds = 0
+FILE_URL_SHARED_CACHE_TTL = env.int(
+    "FILE_URL_SHARED_CACHE_TTL",
+    default=max(0, min(_signed_url_lifetime_seconds // 2, 6 * 60 * 60)),
+)
+
+# Max concurrent signBlob round trips when ``FileUrlPrewarmMiddleware`` pre-signs
+# a document-list page. Bounded to stay well under IAM signBlob rate limits
+# while collapsing an N-deep serial chain into ~N/concurrency.
+FILE_URL_SIGN_CONCURRENCY = env.int("FILE_URL_SIGN_CONCURRENCY", default=16)
+
 # TEMPLATES
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#templates
@@ -979,6 +1007,10 @@ MODEL_PATH = Path(BASE_PATH, "model")
 # ------------------------------------------------------------------------------
 # Start with the base middleware that we always want
 GRAPHENE_MIDDLEWARE = [
+    # Concurrently pre-signs a Document connection page's file URLs (no-op
+    # unless FILE_URL_SHARED_CACHE_TTL > 0). Outermost so its ``next()`` returns
+    # the fully-resolved connection.
+    "config.graphql.file_url_prewarm.FileUrlPrewarmMiddleware",
     "config.graphql.permissioning.permission_annotator.middleware.PermissionAnnotatingMiddleware",
 ]
 
