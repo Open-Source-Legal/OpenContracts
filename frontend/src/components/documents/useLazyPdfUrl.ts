@@ -33,6 +33,8 @@ export function useLazyPdfUrl(): (
       >({
         query: GET_DOCUMENT_PDF_URL,
         variables: { documentId },
+        // Signed GCS URLs expire, so a cached value can be stale/invalid by
+        // the time the user clicks download — always re-sign on demand.
         fetchPolicy: "network-only",
       });
       return data?.document?.pdfFile ?? null;

@@ -42,6 +42,7 @@ import {
   GET_CORPUS_ARTICLE,
 } from "../src/graphql/queries";
 import { CorpusType } from "../src/types/graphql-api";
+import { DEFAULT_LIST_PAGE_SIZE } from "../src/assets/configurations/constants";
 import { docScreenshot, releaseScreenshot } from "./utils/docScreenshot";
 
 /* -------------------------------------------------------------------------- */
@@ -406,6 +407,9 @@ const createDocumentsMocks = (corpusId: string): MockedResponse[] => {
       request: {
         query: GET_DOCUMENTS,
         variables: {
+          // CorpusDocumentCards bounds the first page (see useLazyPdfUrl /
+          // limit comment in CorpusDocumentCards.tsx).
+          limit: DEFAULT_LIST_PAGE_SIZE,
           inCorpusWithId: corpusId,
           annotateDocLabels: true,
           includeMetadata: true,
@@ -418,6 +422,7 @@ const createDocumentsMocks = (corpusId: string): MockedResponse[] => {
       request: {
         query: GET_DOCUMENTS,
         variables: {
+          limit: DEFAULT_LIST_PAGE_SIZE,
           inCorpusWithId: corpusId,
           inFolderId: "__root__",
           annotateDocLabels: true,
@@ -629,6 +634,7 @@ const createEmptyDocumentsMock = (): MockedResponse => ({
   request: {
     query: GET_DOCUMENTS,
     variables: {
+      limit: DEFAULT_LIST_PAGE_SIZE,
       annotateDocLabels: false,
       includeMetadata: false,
     },

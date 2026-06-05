@@ -16,10 +16,10 @@ from django.test import SimpleTestCase, override_settings
 from graphql import OperationDefinitionNode, parse
 
 from config.graphql.file_url_prewarm import (
-    _FILE_URL_CACHE_PREFIX,
     FileUrlPrewarmMiddleware,
     _requested_document_file_fields,
 )
+from config.graphql.optimized_file_resolvers import _FILE_URL_CACHE_PREFIX
 
 
 class _CountingFieldFile:
