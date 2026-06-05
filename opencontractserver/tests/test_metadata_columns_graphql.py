@@ -23,7 +23,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="testuser", password="testpass")
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create test objects
         self.corpus = Corpus.objects.create(title="Test Corpus", creator=self.user)
@@ -72,7 +72,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             },
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["createMetadataColumn"]
@@ -172,7 +172,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             "helpText": "This field contains the author name",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["updateMetadataColumn"]
@@ -227,7 +227,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             "value": "John Doe",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["setMetadataValue"]
@@ -286,7 +286,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             "value": "2.0",
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["setMetadataValue"]["ok"])
 
@@ -339,7 +339,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             "columnId": to_global_id("ColumnType", column.id),
         }
 
-        result = self.client.execute(mutation, variables=variables)
+        result = self.graphene_client.execute(mutation, variables=variables)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["deleteMetadataValue"]["ok"])
 
@@ -383,7 +383,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
 
         variables = {"corpusId": to_global_id("CorpusType", self.corpus.id)}
 
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["corpusMetadataColumns"]
@@ -454,7 +454,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             "corpusId": to_global_id("CorpusType", self.corpus.id),
         }
 
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["documentMetadataDatacells"]
@@ -517,7 +517,7 @@ class MetadataColumnsGraphQLTestCase(TestCase):
             "corpusId": to_global_id("CorpusType", self.corpus.id),
         }
 
-        result = self.client.execute(query, variables=variables)
+        result = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["metadataCompletionStatusV2"]

@@ -21,7 +21,7 @@ class DatacellMutationTestCase(TestCase):
         self.user = User.objects.create_user(
             username="testuser", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         self.corpus = Corpus.objects.create(title="TestCorpus", creator=self.user)
         self.document = Document.objects.create(
@@ -71,7 +71,7 @@ class DatacellMutationTestCase(TestCase):
             }}
         """.format(to_global_id("DatacellType", self.datacell.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["approveDatacell"]["ok"])
 
@@ -94,7 +94,7 @@ class DatacellMutationTestCase(TestCase):
             }}
         """.format(to_global_id("DatacellType", self.datacell.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["rejectDatacell"]["ok"])
 
@@ -116,7 +116,7 @@ class DatacellMutationTestCase(TestCase):
             }}
         """.format(to_global_id("DatacellType", self.datacell.id))
 
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         self.assertTrue(result["data"]["editDatacell"]["ok"])
 
@@ -132,7 +132,7 @@ class DatacellMutationTestCase(TestCase):
                 approveDatacell(datacellId: "{}") {{ ok message }}
             }}
         """.format(nonexistent_gid)
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         data = result["data"]["approveDatacell"]
         self.assertFalse(data["ok"])
@@ -145,7 +145,7 @@ class DatacellMutationTestCase(TestCase):
                 rejectDatacell(datacellId: "{}") {{ ok message }}
             }}
         """.format(nonexistent_gid)
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         data = result["data"]["rejectDatacell"]
         self.assertFalse(data["ok"])
@@ -160,7 +160,7 @@ class DatacellMutationTestCase(TestCase):
                 }}
             }}
         """.format(nonexistent_gid)
-        result = self.client.execute(mutation)
+        result = self.graphene_client.execute(mutation)
         self.assertIsNone(result.get("errors"))
         data = result["data"]["editDatacell"]
         self.assertFalse(data["ok"])
