@@ -204,3 +204,55 @@ class AnnotationVisibilityDejoinTests(TestCase):
         self.assertIn(public_ann, stranger_qs)
         # Private doc owned by someone else ⇒ invisible.
         self.assertNotIn(private_ann, stranger_qs)
+
+    # ------------------------------------------------------------------
+    # Corpus visibility gates the authenticated-user branch
+    # ------------------------------------------------------------------
+    def test_corpus_visibility_gates_authenticated_user(self):
+        """A corpus-scoped annotation is hidden when its corpus is private.
+
+        Pins the authenticated-user corpus ``EXISTS`` subquery (#1906): the
+        rewrite swapped the ``corpus__*`` join for a correlated ``EXISTS`` over
+        ``Corpus``. Even when the attached document is public, the annotation
+        must stay hidden from a stranger while its corpus is private, and
+        appear once the corpus is published — otherwise the new subquery would
+        silently leak (or hide) corpus-scoped annotations. The document is kept
+        public throughout so the only variable under test is corpus visibility.
+        """
+        from opencontractserver.corpuses.models import Corpus
+
+        public_doc = Document.objects.create(
+            title="Corpus Doc", creator=self.owner, is_public=True
+        )
+        private_corpus = Corpus.objects.create(
+            title="Private Corpus", creator=self.owner, is_public=False
+        )
+        ann = Annotation.objects.create(
+            raw_text="corpus-scoped ann",
+            document=public_doc,
+            corpus=private_corpus,
+            annotation_label=self.label,
+            creator=self.owner,
+        )
+
+        # Owner sees it — creator of the (private) corpus.
+        self.assertIn(ann, Annotation.objects.visible_to_user(self.owner))
+        # Stranger cannot: the document is public but the corpus is private and
+        # not theirs, so the corpus EXISTS subquery excludes the row.
+        self.assertNotIn(ann, Annotation.objects.visible_to_user(self.stranger))
+
+        # Publish the corpus — the stranger now clears the corpus EXISTS gate
+        # and sees the annotation exactly once (no fan-out, no DISTINCT).
+        private_corpus.is_public = True
+        private_corpus.save()
+        stranger_pks = list(
+            Annotation.objects.visible_to_user(self.stranger)
+            .filter(pk=ann.pk)
+            .values_list("pk", flat=True)
+        )
+        self.assertEqual(
+            stranger_pks,
+            [ann.pk],
+            f"after publishing the corpus the stranger should see the "
+            f"corpus-scoped annotation exactly once: saw {stranger_pks}",
+        )
