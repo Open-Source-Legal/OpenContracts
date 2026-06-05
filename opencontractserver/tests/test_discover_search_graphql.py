@@ -153,7 +153,14 @@ class DiscoverSearchTextArmTest(TestCase):
             is_public=True,
         )
 
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
+        # The query-vector LRU is process-global; clear it so a vector cached by
+        # a prior test can't bypass the patch below (and so this test's entries
+        # don't leak into the next). See discover_queries._cached_query_vector.
+        from config.graphql.discover_queries import _cached_query_vector
+
+        _cached_query_vector.cache_clear()
+        self.addCleanup(_cached_query_vector.cache_clear)
         # Disable the semantic arm so these assertions are deterministic.
         p = patch("config.graphql.discover_queries._query_vector", return_value=None)
         p.start()
@@ -161,7 +168,7 @@ class DiscoverSearchTextArmTest(TestCase):
 
     # ------------------------------------------------------------------ #
     def _run(self, field, query="indemnification"):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             """
             query D($t: String!) {
               %s(textSearch: $t) { __typename }
@@ -173,7 +180,7 @@ class DiscoverSearchTextArmTest(TestCase):
         return result["data"][field]
 
     def test_discover_annotations_text_match(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             "query D($t: String!){ discoverAnnotations(textSearch:$t){ id rawText } }",
             variables={"t": "indemnify"},  # FTS stems indemnify==indemnification
         )
@@ -188,7 +195,7 @@ class DiscoverSearchTextArmTest(TestCase):
         self.assertEqual(len(rows), 1)
 
     def test_discover_documents_is_a_new_category(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             "query D($t: String!){ discoverDocuments(textSearch:$t){ id title } }",
             variables={"t": "Indemnification"},
         )
@@ -202,7 +209,7 @@ class DiscoverSearchTextArmTest(TestCase):
         # Note.search_vector path works — a plain icontains substring match
         # would miss it, since "indemnifications" is not a substring of the
         # note's title or content.
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             "query D($t: String!){ discoverNotes(textSearch:$t){ id title } }",
             variables={"t": "indemnifications"},
         )
@@ -211,7 +218,7 @@ class DiscoverSearchTextArmTest(TestCase):
         self.assertIn("Indemnification notes", titles)
 
     def test_discover_corpuses_matches_by_title(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             "query D($t: String!){ discoverCorpuses(textSearch:$t){ id title } }",
             variables={"t": "merger"},
         )
@@ -222,7 +229,7 @@ class DiscoverSearchTextArmTest(TestCase):
     def test_discover_corpuses_matches_by_contained_content(self):
         # The corpus title/description do NOT contain "indemnification"; it is
         # surfaced via its contained document + annotation matching.
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             "query D($t: String!){ discoverCorpuses(textSearch:$t){ id title } }",
             variables={"t": "indemnification"},
         )
@@ -230,8 +237,56 @@ class DiscoverSearchTextArmTest(TestCase):
         titles = [c["title"] for c in result["data"]["discoverCorpuses"]]
         self.assertIn("Merger Agreements", titles)
 
+    def test_discover_corpuses_excludes_unreadable_content_match(self):
+        # "confidential" appears ONLY in ``private_other_ann``, which lives on a
+        # corpus/document ``user`` cannot read. The corpus content-match arm
+        # filters Annotation through ``filter_visible`` before collecting corpus
+        # ids, AND the final fetch re-filters Corpus through ``filter_visible``,
+        # so the unreadable collection must never surface — even though its
+        # contained text matches the query. (Mirrors the annotation-arm leak
+        # assertion in ``test_discover_annotations_text_match``.)
+        result = self.graphene_client.execute(
+            "query D($t: String!){ discoverCorpuses(textSearch:$t){ id title } }",
+            variables={"t": "confidential"},
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        titles = [c["title"] for c in result["data"]["discoverCorpuses"]]
+        self.assertNotIn("Other private corpus", titles)
+
+    def test_discover_limit_caps_results(self):
+        # A second visible annotation that also matches "indemnify", so without
+        # a cap the fused result set would hold more than one row.
+        Annotation.objects.create(
+            document=self.document,
+            corpus=self.corpus,
+            creator=self.user,
+            raw_text="Buyer agrees to indemnify the seller as well",
+            page=1,
+            is_public=True,
+        )
+        # The default limit surfaces both matches...
+        unlimited = self.graphene_client.execute(
+            "query D($t: String!){ discoverAnnotations(textSearch:$t){ id } }",
+            variables={"t": "indemnify"},
+        )
+        self.assertIsNone(unlimited.get("errors"), unlimited.get("errors"))
+        self.assertGreaterEqual(
+            len(unlimited["data"]["discoverAnnotations"]),
+            2,
+            "control: >1 visible annotation should match before the cap",
+        )
+        # ...but limit=1 clamps the fused result set to a single row end-to-end
+        # (_clamp_limit -> _rrf(..., limit)).
+        capped = self.graphene_client.execute(
+            "query D($t: String!, $l: Int){"
+            " discoverAnnotations(textSearch:$t, limit:$l){ id } }",
+            variables={"t": "indemnify", "l": 1},
+        )
+        self.assertIsNone(capped.get("errors"), capped.get("errors"))
+        self.assertEqual(len(capped["data"]["discoverAnnotations"]), 1)
+
     def test_discover_discussions_matches_message_body_not_just_title(self):
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             "query D($t: String!){ discoverDiscussions(textSearch:$t){ id title } }",
             variables={"t": "indemnification"},
         )
@@ -294,7 +349,13 @@ class DiscoverSemanticArmTest(TestCase):
         self.vector = [0.5] * 384
         self.annotation.add_embedding(self.embedder_path, self.vector)
 
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
+        # Clear the process-global query-vector LRU so the in-test patch is hit
+        # on a cache miss (and doesn't leak into other suites).
+        from config.graphql.discover_queries import _cached_query_vector
+
+        _cached_query_vector.cache_clear()
+        self.addCleanup(_cached_query_vector.cache_clear)
 
     def test_semantic_only_hit(self):
         # Resolve the default embedder at runtime — calling
@@ -308,7 +369,7 @@ class DiscoverSemanticArmTest(TestCase):
             "config.graphql.discover_queries._query_vector",
             return_value=self.vector,
         ):
-            result = self.client.execute(
+            result = self.graphene_client.execute(
                 "query D($t: String!){ discoverAnnotations(textSearch:$t){ id rawText } }",
                 variables={"t": "semantic concept with no shared words"},
             )

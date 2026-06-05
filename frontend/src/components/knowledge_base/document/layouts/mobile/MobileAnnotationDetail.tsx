@@ -34,8 +34,13 @@ const spin = keyframes`
  * annotations) are still being fetched — e.g. a deep-link straight to an
  * annotation before anything is cached. A quietly spinning icon over the
  * sheet's white surface, never a heavy full-bleed spinner.
+ *
+ * `role="status"` (implicit `aria-live="polite"`) makes the state audible to
+ * assistive technology: a screen-reader user arriving via deep-link hears
+ * "Loading annotation…" announced when the sheet opens. The spinner icon stays
+ * `aria-hidden` so only the label is read.
  */
-const LoadingState = styled(EmptyState)`
+const LoadingState = styled(EmptyState).attrs({ role: "status" })`
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -98,8 +103,12 @@ interface MobileAnnotationDetailProps {
    * Threaded from the document loader so a deep-link straight to an annotation
    * — before anything is cached — shows a loader instead of prematurely
    * claiming the annotation is gone.
+   *
+   * Optional; defaults to `false` (fall through to the not-found state) so a
+   * future callsite that forgets to thread it degrades safely rather than
+   * breaking at compile time.
    */
-  loading: boolean;
+  loading?: boolean;
 }
 
 /**
@@ -119,7 +128,7 @@ interface MobileAnnotationDetailProps {
  */
 export const MobileAnnotationDetail: React.FC<MobileAnnotationDetailProps> = ({
   readOnly,
-  loading,
+  loading = false,
 }) => {
   const { selectedAnnotations } = useAnnotationSelection();
   const allAnnotations = useAllAnnotations();

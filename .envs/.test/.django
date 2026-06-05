@@ -43,6 +43,14 @@ OPENAI_API_KEY=fake
 OPENAI_MODEL=gpt-4o
 ANTHROPIC_API_KEY=fake
 
+# Corpus auto-branding fires a fire-and-forget agent on corpus creation. In CI
+# (the extract E2E seeds this file into .local + config.settings.local, where
+# branding defaults on) the README agent would make un-cassetted LLM calls with
+# a fake key and long timeouts/retries, starving the Celery worker the pipeline
+# needs. config.settings.test already disables it; mirror that for the env file.
+CORPUS_AUTO_BRANDING_ENABLED=False
+CORPUS_LOGO_GENERATION_ENABLED=False
+
 # Set Proper Settings Module
 # ------------------------------------------------------------------------------
 DJANGO_SETTINGS_MODULE=config.settings.test

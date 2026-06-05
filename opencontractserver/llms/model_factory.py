@@ -109,6 +109,17 @@ def _get_db_credentials(provider_key: str) -> dict[str, str]:
     return creds
 
 
+async def aget_provider_credentials(provider_key: str) -> dict[str, str]:
+    """DB-configured ``api_key`` / ``base_url`` for a provider (empty when unset).
+
+    The async, safe-ORM entry point for non-chat consumers (e.g. corpus-logo
+    image generation) that need the same live-configured provider credentials
+    the chat path threads through :func:`build_agent_model`. Keys are present
+    only when non-empty; callers apply their own env fallback.
+    """
+    return await sync_to_async(_get_db_credentials)(provider_key)
+
+
 def _construct_model(
     provider_key: str, model_name: str, creds: dict[str, str]
 ) -> Any | None:
