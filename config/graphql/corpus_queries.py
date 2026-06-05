@@ -325,9 +325,18 @@ class CorpusQueryMixin:
         corpus_pk = from_global_id(corpus_id)[1]
 
         try:
-            corpuses = BaseService.filter_visible(
-                Corpus, user, request=info.context
-            ).filter(id=corpus_pk)
+            # A malformed / empty global id (e.g. the client sent corpusId="")
+            # decodes to a non-numeric pk. ``filter(id="")`` would raise
+            # "Field 'id' expected a number but got ''" inside this open
+            # transaction, aborting it for the rest of the request. Treat a bad
+            # id like a not-found / not-visible corpus (empty queryset) and fall
+            # through to the zeroed stats below.
+            if str(corpus_pk).isdigit():
+                corpuses = BaseService.filter_visible(
+                    Corpus, user, request=info.context
+                ).filter(id=int(corpus_pk))
+            else:
+                corpuses = Corpus.objects.none()
 
             if corpuses.count() == 1:
                 corpus = corpuses[0]

@@ -14,6 +14,7 @@ from config.graphql.base_types import build_flat_tree
 from config.graphql.filters import AnnotationFilter, LabelFilter
 from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
+    _get_anonymous_user_id,
 )
 from opencontractserver.annotations.models import (
     Annotation,
@@ -24,6 +25,7 @@ from opencontractserver.annotations.models import (
     Relationship,
 )
 from opencontractserver.shared.services.base import BaseService
+from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 
 class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
@@ -288,6 +290,46 @@ class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         model = AnnotationLabel
         interfaces = [relay.Node]
         connection_class = CountableConnection
+
+    def resolve_my_permissions(self, info) -> list[str]:
+        """Inherit permissions from the LabelSet(s) that include this label.
+
+        AnnotationLabels deliberately carry no django-guardian object-permission
+        tables of their own — the LabelSet is the permissioned entity that
+        governs its labels. A label can belong to multiple labelsets; the
+        caller's effective permissions are the union of their permissions
+        across those labelsets, with ``*_labelset`` codenames mapped onto
+        ``*_annotationlabel``. Public / built-in (``read_only``) labels are
+        always readable.
+
+        This override replaces the generic mixin resolver, which assumes the
+        model exposes a ``{model}userobjectpermission_set`` reverse accessor
+        and otherwise raises ``AttributeError`` (caught + error-logged) for
+        every annotation-label node.
+        """
+        permissions: set[str] = set()
+
+        if getattr(self, "is_public", False) or getattr(self, "read_only", False):
+            permissions.add("read_annotationlabel")
+
+        context = getattr(info, "context", None)
+        user = getattr(context, "user", None)
+        anon_id = _get_anonymous_user_id(info)
+        if (
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and user.id != anon_id
+        ):
+            # ``get_users_permissions_for_obj`` returns only the perms the
+            # caller actually holds on each labelset (creator / guardian /
+            # group / is_public), so labelsets they cannot see contribute
+            # nothing. Label membership is small in practice, so the per-label
+            # fan-out across labelsets is acceptable.
+            for labelset in self.included_in_labelsets.all():
+                for perm in get_users_permissions_for_obj(user, labelset):
+                    permissions.add(perm.replace("labelset", "annotationlabel"))
+
+        return list(permissions)
 
 
 class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
