@@ -31,6 +31,7 @@ pipeline registry stays importable during early startup / migrations.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -76,6 +77,49 @@ def _provider_class_path(provider_key: str) -> str | None:
     return definition.class_name if definition else None
 
 
+# Process-local cache of resolved per-provider credentials keyed on
+# ``(class_path, PipelineSettings.modified)`` — the same key the reranker and
+# embedder instance caches use (``opencontractserver/pipeline/utils.py``).
+#
+# ``_get_db_credentials`` runs on *every* agent build — every chat message,
+# every structured-output call, every memory-curation task. ``PipelineSettings``
+# already caches the singleton row (Django cache, 5-min TTL), so this is not a
+# DB round-trip per call, but resolving a provider's secret still decrypts the
+# Fernet store, and that decryption derives its key with a deliberately
+# expensive PBKDF2 KDF (hundreds of thousands of HMAC iterations — see
+# ``PipelineSettings._derive_key``). ``get_full_component_settings`` reads the
+# secret store twice (merged settings + secrets overlay), so two KDF passes ran
+# on every build once any provider key was configured (issue #1921).
+#
+# Caching the *resolved* creds amortises that across calls. Live-rotation is
+# preserved: every credential write in production flows through
+# ``PipelineSettings.save()``, which bumps ``modified`` (auto_now) and clears
+# the singleton cache, so the next lookup misses on the new key and re-decrypts
+# — a rotated or cleared key takes effect within the existing cache-TTL window
+# with no redeploy (the live-configurability guarantee of issue #1897), and the
+# cache adds no staleness beyond ``get_instance``'s own TTL. The same issue
+# #1410 caveat applies: code paths that bypass ``save()`` (``QuerySet.update``,
+# ``bulk_update``, raw migrations) won't bump ``modified``; call
+# :func:`invalidate_credential_cache` explicitly in those cases.
+_CREDENTIAL_CACHE: dict[tuple[str, Any], dict[str, str]] = {}
+# Guards against two concurrent builds paying the decryption cost twice.
+# Lookups after warm-up are read-only, so no lock is held on the hot path.
+_CREDENTIAL_CACHE_LOCK = threading.Lock()
+
+
+def invalidate_credential_cache() -> None:
+    """Drop cached per-provider credentials.
+
+    In normal operation this is unnecessary — the cache key includes
+    ``PipelineSettings.modified`` so any settings write naturally invalidates
+    the cache on the next lookup across all workers. Kept for test isolation
+    and for callers that mutate the singleton out-of-band (a path that bypasses
+    ``save()`` and so leaves ``modified`` unchanged).
+    """
+    with _CREDENTIAL_CACHE_LOCK:
+        _CREDENTIAL_CACHE.clear()
+
+
 def _get_db_credentials(provider_key: str) -> dict[str, str]:
     """Read DB-configured credentials for a provider from ``PipelineSettings``.
 
@@ -83,6 +127,10 @@ def _get_db_credentials(provider_key: str) -> dict[str, str]:
     present when non-empty). Empty when the provider is unknown or has no
     credentials configured. Performs ORM access — invoke from a sync
     context or via :func:`abuild_agent_model`.
+
+    The resolved creds are memoized per ``(class_path, PipelineSettings.modified)``
+    so repeat builds skip the Fernet/PBKDF2 decryption; see the
+    ``_CREDENTIAL_CACHE`` comment for the invalidation contract.
     """
     class_path = _provider_class_path(provider_key)
     if not class_path:
@@ -91,7 +139,29 @@ def _get_db_credentials(provider_key: str) -> dict[str, str]:
     try:
         from opencontractserver.documents.models import PipelineSettings
 
-        stored = PipelineSettings.get_instance().get_full_component_settings(class_path)
+        instance = PipelineSettings.get_instance()
+        cache_key = (class_path, instance.modified)
+
+        # Fast path: a copy so callers can never mutate the cached dict.
+        cached = _CREDENTIAL_CACHE.get(cache_key)
+        if cached is not None:
+            return dict(cached)
+
+        with _CREDENTIAL_CACHE_LOCK:
+            # Double-check — another thread may have populated it while we waited.
+            cached = _CREDENTIAL_CACHE.get(cache_key)
+            if cached is not None:
+                return dict(cached)
+
+            stored = instance.get_full_component_settings(class_path)
+            creds: dict[str, str] = {}
+            for key in ("api_key", "base_url"):
+                value = (stored or {}).get(key)
+                if isinstance(value, str) and value.strip():
+                    creds[key] = value.strip()
+
+            _CREDENTIAL_CACHE[cache_key] = creds
+            return dict(creds)
     except _DB_READ_RECOVERABLE_ERRORS:
         # DB unavailable (migrations / early startup) — fall back to env.
         logger.debug(
@@ -100,13 +170,6 @@ def _get_db_credentials(provider_key: str) -> dict[str, str]:
             exc_info=True,
         )
         return {}
-
-    creds: dict[str, str] = {}
-    for key in ("api_key", "base_url"):
-        value = (stored or {}).get(key)
-        if isinstance(value, str) and value.strip():
-            creds[key] = value.strip()
-    return creds
 
 
 async def aget_provider_credentials(provider_key: str) -> dict[str, str]:

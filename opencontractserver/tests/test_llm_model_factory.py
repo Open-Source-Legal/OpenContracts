@@ -24,6 +24,7 @@ from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.llms.model_factory import (
     abuild_agent_model,
     build_agent_model,
+    invalidate_credential_cache,
 )
 from opencontractserver.pipeline.base.settings_schema import (
     get_secret_settings,
@@ -209,3 +210,85 @@ class TestProviderSecretStatusSurface(TestCase):
         self.assertTrue(schema["api_key"]["has_value"])
         # The value itself is never exposed.
         self.assertIsNone(schema["api_key"]["current_value"])
+
+
+class TestCredentialCache(TestCase):
+    """Resolved provider creds are memoized per ``PipelineSettings.modified``.
+
+    Regression coverage for issue #1921: the per-build credential read must
+    skip repeated Fernet/PBKDF2 decryption, yet a live key rotation (which
+    bumps ``modified`` via ``save()``) must still take effect without a
+    redeploy — preserving the live-configurability guarantee of issue #1897.
+    """
+
+    def setUp(self):
+        reset_registry()
+        self.addCleanup(reset_registry)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+        # The memo is process-local and survives TestCase rollback; clear it
+        # explicitly so the suite is isolated under the unittest runner too
+        # (the conftest autouse fixture only applies under pytest).
+        invalidate_credential_cache()
+        self.addCleanup(invalidate_credential_cache)
+        openai_defn = get_llm_provider_by_key_cached("openai")
+        assert openai_defn is not None
+        self.openai_path = openai_defn.class_name
+
+    def _configure_openai_creds(self, *, api_key):
+        instance = PipelineSettings.get_instance()
+        instance.set_secrets({self.openai_path: {"api_key": api_key}})
+        # save() bumps ``modified`` (auto_now) and clears the singleton cache.
+        instance.save()
+
+    def test_resolution_memoized_across_builds(self):
+        """The second build for a provider reuses creds without re-decrypting."""
+        self._configure_openai_creds(api_key="sk-db-key")
+        with mock.patch.object(
+            PipelineSettings,
+            "get_secrets",
+            autospec=True,
+            side_effect=PipelineSettings.get_secrets,
+        ) as get_secrets_spy:
+            first = build_agent_model("openai:gpt-4o")
+            second = build_agent_model("openai:gpt-4o")
+        # The first build decrypts once — get_full_component_settings reads the
+        # secret store twice (merged settings + secrets overlay) — and the
+        # second build is served from the memo without touching the store.
+        self.assertEqual(get_secrets_spy.call_count, 2)
+        self.assertIsInstance(first, Model)
+        self.assertIsInstance(second, Model)
+
+    def test_rotated_key_takes_effect_without_redeploy(self):
+        """A key rotation via save() busts the memo (preserves #1897)."""
+        self._configure_openai_creds(api_key="sk-old")
+        seen_keys: list[str | None] = []
+
+        def _capture(provider_key, model_name, creds):
+            seen_keys.append(creds.get("api_key"))
+            return object()
+
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_model",
+            side_effect=_capture,
+        ):
+            build_agent_model("openai:gpt-4o")  # warms the memo with sk-old
+            # Rotate exactly as a superuser would: System Settings → save().
+            self._configure_openai_creds(api_key="sk-new")
+            build_agent_model("openai:gpt-4o")
+
+        self.assertEqual(seen_keys, ["sk-old", "sk-new"])
+
+    def test_invalidate_credential_cache_forces_redecrypt(self):
+        """The explicit purge re-decrypts on the next build (out-of-band path)."""
+        self._configure_openai_creds(api_key="sk-db-key")
+        with mock.patch.object(
+            PipelineSettings,
+            "get_secrets",
+            autospec=True,
+            side_effect=PipelineSettings.get_secrets,
+        ) as get_secrets_spy:
+            build_agent_model("openai:gpt-4o")  # 2 decrypt reads, then cached
+            invalidate_credential_cache()
+            build_agent_model("openai:gpt-4o")  # memo purged → 2 more reads
+        self.assertEqual(get_secrets_spy.call_count, 4)
