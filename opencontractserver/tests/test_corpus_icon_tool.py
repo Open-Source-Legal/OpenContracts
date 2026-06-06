@@ -24,7 +24,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from asgiref.sync import async_to_sync
-from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase
 
@@ -43,7 +42,10 @@ from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.image_generation import generate_monogram_logo
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
-User = get_user_model()
+# Import the concrete model class (not get_user_model(), a runtime variable)
+# so it is valid in the ``creator: User`` type annotations below — matches the
+# pattern in test_caml_review_tools.py and keeps mypy happy.
+from opencontractserver.users.models import User
 
 # Patch target for the AI image call. ``aregenerate_corpus_logo`` imports the
 # name locally from this module, so the attribute is resolved here at call time.
@@ -126,8 +128,8 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
     ``_db_sync_to_async`` helpers open (``thread_sensitive=False``).
     """
 
-    creator: "User"
-    other: "User"
+    creator: User
+    other: User
     corpus: Corpus
 
     def setUp(self):
@@ -154,7 +156,7 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
 
         self.corpus.refresh_from_db()
         self.assertTrue(self.corpus.icon)
-        self.assertTrue(self.corpus.icon.name.endswith(".png"))
+        self.assertTrue((self.corpus.icon.name or "").endswith(".png"))
         # The persisted bytes are a valid PNG.
         from PIL import Image
 
@@ -191,6 +193,7 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
 
         self.assertTrue(result["additional_instructions_applied"])
         mock_gen.assert_awaited_once()
+        assert mock_gen.await_args is not None
         prompt = mock_gen.await_args.kwargs["prompt"]
         self.assertIn("Additional style guidance: use a teal gavel", prompt)
 
@@ -200,8 +203,11 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
         mock_gen = AsyncMock(return_value=(_png_bytes(), "png"))
         with patch(_IMAGE_GEN_TARGET, new=mock_gen):
             with self.assertRaises(PermissionError):
+                # user_id=None exercises the anonymous-denial branch; the tool's
+                # signature types it as int, hence the intentional ignore.
                 async_to_sync(aregenerate_corpus_icon)(
-                    corpus_id=self.corpus.id, user_id=None
+                    corpus_id=self.corpus.id,
+                    user_id=None,  # type: ignore[arg-type]
                 )
         mock_gen.assert_not_awaited()
         self.corpus.refresh_from_db()
