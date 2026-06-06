@@ -116,7 +116,7 @@ export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
   corpusId,
   onNavigate,
 }) => {
-  const { data, loading } = useQuery<
+  const { data, loading, error } = useQuery<
     GetDocumentAnnotationIndexOutput,
     GetDocumentAnnotationIndexInput
   >(GET_DOCUMENT_ANNOTATION_INDEX, {
@@ -147,6 +147,16 @@ export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
     );
   }
 
+  // Distinguish a fetch failure from a genuinely section-less document so the
+  // user isn't told "no sections" when the index simply failed to load.
+  if (error && sections.length === 0) {
+    return (
+      <Empty data-testid="mobile-sections-error">
+        Failed to load sections.
+      </Empty>
+    );
+  }
+
   if (sections.length === 0) {
     return (
       <Empty data-testid="mobile-sections-empty">
@@ -167,7 +177,7 @@ export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
             <RowLabel>{label || "Section"}</RowLabel>
             {/* Page value matches the desktop index (DocumentAnnotationIndex)
                 exactly so the same section reads the same page on both. */}
-            <PageBadge>p.{node.page}</PageBadge>
+            <PageBadge>p. {node.page}</PageBadge>
           </Row>
         );
       })}

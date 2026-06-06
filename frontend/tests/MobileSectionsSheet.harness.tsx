@@ -50,8 +50,9 @@ const createTestCache = () =>
 export const MobileSectionsSheetHarness: React.FC<{
   open?: boolean;
   sections?: StubSection[];
+  error?: boolean;
   onNavigate?: (annotationId: string) => void;
-}> = ({ open = true, sections = [], onNavigate = () => {} }) => {
+}> = ({ open = true, sections = [], error = false, onNavigate = () => {} }) => {
   const variables = {
     documentId: TEST_DOCUMENT_ID,
     corpusId: TEST_CORPUS_ID,
@@ -59,33 +60,41 @@ export const MobileSectionsSheetHarness: React.FC<{
     first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
   };
 
-  const mock: MockedResponse = {
-    request: { query: GET_DOCUMENT_ANNOTATION_INDEX, variables },
-    result: {
-      data: {
-        annotations: {
-          totalCount: sections.length,
-          edges: sections.map((s) => ({
-            node: {
-              id: s.id,
-              rawText: s.rawText,
-              longDescription: null,
-              page: s.page,
-              parent: null,
-              __typename: "AnnotationType",
+  const mock: MockedResponse = error
+    ? {
+        request: { query: GET_DOCUMENT_ANNOTATION_INDEX, variables },
+        error: new Error("network failure"),
+      }
+    : {
+        request: { query: GET_DOCUMENT_ANNOTATION_INDEX, variables },
+        result: {
+          data: {
+            annotations: {
+              totalCount: sections.length,
+              edges: sections.map((s) => ({
+                node: {
+                  id: s.id,
+                  rawText: s.rawText,
+                  longDescription: null,
+                  page: s.page,
+                  parent: null,
+                  __typename: "AnnotationType",
+                },
+                __typename: "AnnotationTypeEdge",
+              })),
+              __typename: "AnnotationTypeConnection",
             },
-            __typename: "AnnotationTypeEdge",
-          })),
-          __typename: "AnnotationTypeConnection",
+          },
         },
-      },
-    },
-  };
+      };
 
   return (
     <MemoryRouter>
       <Provider>
         <MockedProvider
+          // Two copies of the mock: the sheet can fire the query twice across
+          // an open / refetch cycle, and each MockedProvider mock is consumed
+          // by a single matching request.
           mocks={[mock, { ...mock }]}
           cache={createTestCache()}
           addTypename

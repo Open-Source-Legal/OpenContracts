@@ -15,6 +15,17 @@ test("shows the empty state when the document has no sections", async ({
   await expect(c).toHaveText("No sections detected in this document.");
 });
 
+test("shows a distinct error state when the index fetch fails", async ({
+  mount,
+}) => {
+  // A network failure must not masquerade as "no sections" — the user should
+  // see that loading failed, not that the document has no index.
+  const c = await mount(<MobileSectionsSheetHarness open error />);
+  // The error Empty state is the component root, so assert on its text
+  // directly (mirrors the no-sections empty-state test above).
+  await expect(c).toHaveText("Failed to load sections.");
+});
+
 test("renders a tappable row per OC_SECTION index entry", async ({
   mount,
   page,
@@ -24,8 +35,9 @@ test("renders a tappable row per OC_SECTION index entry", async ({
   );
   await expect(c.getByText("Introduction")).toBeVisible();
   await expect(c.getByText("Terms and Conditions")).toBeVisible();
-  // Page is rendered verbatim from the index (same as the desktop tab).
-  await expect(c.getByText("p.3")).toBeVisible();
+  // Page is rendered verbatim from the index (same as the desktop tab,
+  // including the "p. " spacing).
+  await expect(c.getByText("p. 3")).toBeVisible();
   await docScreenshot(page, "mobile--sections-sheet--list");
 });
 
