@@ -1,4 +1,5 @@
 import { test, expect } from "../utils/coverage";
+import { docScreenshot } from "../utils/docScreenshot";
 import { FolderTestWrapper } from "./utils/FolderTestWrapper";
 import { ToolbarFixture } from "./utils/testFixtures";
 
@@ -542,6 +543,7 @@ test.describe("FolderToolbar", () => {
   test.describe("Empty Corpus Button", () => {
     test("shows Empty Corpus when onEmptyCorpus provided and documents exist", async ({
       mount,
+      page,
     }) => {
       const component = await mount(
         <FolderTestWrapper>
@@ -554,8 +556,12 @@ test.describe("FolderToolbar", () => {
         </FolderTestWrapper>
       );
 
-      const emptyButton = component.getByRole("button", { name: "Empty Corpus" });
+      const emptyButton = component.getByRole("button", {
+        name: "Empty Corpus",
+      });
       await expect(emptyButton).toBeVisible();
+
+      await docScreenshot(page, "folders--folder-toolbar--empty-corpus-action");
     });
 
     test("hides Empty Corpus when onEmptyCorpus is omitted (no delete permission)", async ({
@@ -571,7 +577,9 @@ test.describe("FolderToolbar", () => {
         </FolderTestWrapper>
       );
 
-      const emptyButtons = component.getByRole("button", { name: "Empty Corpus" });
+      const emptyButtons = component.getByRole("button", {
+        name: "Empty Corpus",
+      });
       await expect(emptyButtons).toHaveCount(0);
     });
 
@@ -588,7 +596,9 @@ test.describe("FolderToolbar", () => {
         </FolderTestWrapper>
       );
 
-      const emptyButtons = component.getByRole("button", { name: "Empty Corpus" });
+      const emptyButtons = component.getByRole("button", {
+        name: "Empty Corpus",
+      });
       await expect(emptyButtons).toHaveCount(0);
     });
 

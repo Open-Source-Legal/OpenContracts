@@ -152,7 +152,7 @@ export interface CorpusDocumentIdsOutputs {
 }
 
 export const GET_CORPUS_DOCUMENT_IDS = gql`
-  query (
+  query GetCorpusDocumentIds(
     $inCorpusWithId: String!
     $inFolderId: String
     $textSearch: String

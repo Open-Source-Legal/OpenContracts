@@ -404,6 +404,10 @@ class DocumentLifecycleService(BaseService):
             )
 
             trashed = 0
+            # TODO: batch this for large corpora — ``remove_document`` issues
+            # several queries per document (history row, signals, path update)
+            # and holds row locks inside this transaction. Fine for typical
+            # corpus sizes; revisit if empty-corpus starts timing out at scale.
             for document in Document.objects.filter(pk__in=doc_ids):
                 if corpus.remove_document(document=document, user=user):
                     trashed += 1

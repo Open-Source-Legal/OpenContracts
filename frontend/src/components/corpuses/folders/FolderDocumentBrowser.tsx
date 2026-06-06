@@ -406,10 +406,9 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
         fetchPolicy: "network-only",
       });
       selectedDocumentIdsReactiveVar(data?.corpusDocumentIds ?? []);
-    } catch (err: any) {
-      toast.error(
-        `Could not select all documents: ${err?.message ?? "unknown error"}`
-      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "unknown error";
+      toast.error(`Could not select all documents: ${message}`);
     } finally {
       setSelectAllLoading(false);
     }

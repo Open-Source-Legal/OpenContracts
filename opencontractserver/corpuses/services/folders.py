@@ -900,6 +900,9 @@ class FolderCRUDService(BaseService):
         # Materialise the descendant folder ids (a small, bounded set) rather
         # than feeding the tree-queries CTE queryset into ``folder_id__in`` as a
         # sub-query — keeps the document lookup a plain ``IN (...)``.
+        # NOTE: ``get_descendant_folders()`` is ``descendants(include_self=True)``,
+        # so ``folder`` itself is in this list — documents sitting directly in the
+        # folder being deleted are trashed too (not just those in sub-folders).
         descendant_folder_ids = list(
             folder.get_descendant_folders().values_list("id", flat=True)
         )
@@ -915,6 +918,10 @@ class FolderCRUDService(BaseService):
         )
 
         trashed = 0
+        # TODO: batch this for large corpora — ``remove_document`` issues several
+        # queries per document (history row, signals, path update) and holds row
+        # locks inside the caller's transaction. Fine for typical folder sizes;
+        # revisit if folder deletes start timing out on very large sub-trees.
         for document in Document.objects.filter(pk__in=doc_ids):
             if corpus.remove_document(document=document, user=user):
                 trashed += 1
