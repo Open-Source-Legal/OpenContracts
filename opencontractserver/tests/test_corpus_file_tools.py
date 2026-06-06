@@ -95,9 +95,7 @@ class TestSearchCorpusDocuments(TestCase):
         )
         self.assertTrue(ok, err)
 
-        active = search_corpus_documents(
-            corpus_id=self.corpus.id, user_id=self.user.id
-        )
+        active = search_corpus_documents(corpus_id=self.corpus.id, user_id=self.user.id)
         self.assertEqual([r["document_id"] for r in active], [self.contract.id])
 
         with_trash = search_corpus_documents(
@@ -380,9 +378,7 @@ class TestCorpusFileToolsAsync(TransactionTestCase):
                 dispatch_uid=DOC_CREATE_UID,
             )
             self.user = User.objects.create_user(username="async_files", password="pw")
-            self.corpus = Corpus.objects.create(
-                title="Async Files", creator=self.user
-            )
+            self.corpus = Corpus.objects.create(title="Async Files", creator=self.user)
             self.doc = _add_doc(self.corpus, self.user, "async.pdf")
         finally:
             post_save.connect(
