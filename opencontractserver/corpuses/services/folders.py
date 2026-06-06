@@ -784,8 +784,10 @@ class FolderCRUDService(BaseService):
                     # deleteContents=True: trash every document in the sub-tree
                     # (this folder + all descendants) BEFORE the cascade delete
                     # below removes the folders. Trashing first keeps the
-                    # documents restorable from the corpus trash.
-                    cls._trash_documents_in_subtree(folder, user)
+                    # documents restorable from the corpus trash. The returned
+                    # trashed-count is intentionally discarded — folder delete
+                    # reports success/failure, not a document tally.
+                    _ = cls._trash_documents_in_subtree(folder, user)
 
                 # Delete folder. With move_children_to_parent=False the
                 # self-referential FK cascade removes the whole sub-tree; with
@@ -918,10 +920,14 @@ class FolderCRUDService(BaseService):
         )
 
         trashed = 0
-        # TODO: batch this for large corpora — ``remove_document`` issues several
-        # queries per document (history row, signals, path update) and holds row
-        # locks inside the caller's transaction. Fine for typical folder sizes;
-        # revisit if folder deletes start timing out on very large sub-trees.
+        # TODO(perf, deferred): batch this for large corpora —
+        # ``remove_document`` issues several queries per document (history row,
+        # signals, path update) and holds row locks inside the caller's
+        # transaction, so a very large sub-tree can hit the DB statement timeout.
+        # Same per-document-loop pattern as ``DocumentLifecycleService.empty_corpus``
+        # and the legacy "empty trash" path; all three want one shared bulk-trash
+        # primitive. Fine for typical folder sizes; file a tracking issue before
+        # raising the sub-tree document-count ceiling.
         for document in Document.objects.filter(pk__in=doc_ids):
             if corpus.remove_document(document=document, user=user):
                 trashed += 1

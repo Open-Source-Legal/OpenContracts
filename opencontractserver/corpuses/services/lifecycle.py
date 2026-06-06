@@ -404,10 +404,16 @@ class DocumentLifecycleService(BaseService):
             )
 
             trashed = 0
-            # TODO: batch this for large corpora — ``remove_document`` issues
-            # several queries per document (history row, signals, path update)
-            # and holds row locks inside this transaction. Fine for typical
-            # corpus sizes; revisit if empty-corpus starts timing out at scale.
+            # TODO(perf, deferred): batch this for large corpora —
+            # ``remove_document`` issues several queries per document (history
+            # row, signals, path update) and holds row locks for the whole loop
+            # inside this single transaction, so a multi-thousand-document
+            # corpus can hit the DB statement/connection timeout. This is the
+            # same per-document-loop pattern as the legacy "empty trash" path
+            # and ``FolderCRUDService._trash_documents_in_subtree`` (folder
+            # cascade-delete); all three want one shared bulk-trash primitive.
+            # Fine for typical corpus sizes; file a tracking issue before
+            # raising the interactive document-count ceiling.
             for document in Document.objects.filter(pk__in=doc_ids):
                 if corpus.remove_document(document=document, user=user):
                     trashed += 1

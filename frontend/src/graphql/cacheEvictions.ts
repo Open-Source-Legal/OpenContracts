@@ -34,6 +34,11 @@ const CORPUS_DOCUMENT_CACHE_FIELDS = [
  */
 export function evictCorpusDocumentCaches(cache: ApolloCache<unknown>): void {
   for (const fieldName of CORPUS_DOCUMENT_CACHE_FIELDS) {
+    // Evict by field NAME only (no args filter), which drops every cached
+    // corpus/filter variant of the field rather than just the current one.
+    // This is intentional: switching corpus without a remount must not serve
+    // another corpus's stale list/counts, so we invalidate them all and let
+    // the active watcher for the current corpus refetch.
     cache.evict({ fieldName });
   }
   cache.gc();

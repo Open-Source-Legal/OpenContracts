@@ -894,6 +894,22 @@ class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
             Document.objects.filter(id__in=[root_doc.id, folder_doc.id]).count(), 2
         )
 
+    def test_empty_corpus_on_already_empty_corpus_is_noop(self):
+        """Emptying a corpus with zero docs and zero folders is a clean no-op."""
+        self.assertFalse(CorpusFolder.objects.filter(corpus=self.corpus).exists())
+        self.assertFalse(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=False
+            ).exists()
+        )
+
+        count, error = DocumentLifecycleService.empty_corpus(
+            user=self.owner, corpus=self.corpus
+        )
+
+        self.assertEqual(error, "")
+        self.assertEqual(count, 0)
+
     def test_empty_corpus_requires_delete_permission(self):
         reader = User.objects.create_user(
             username="empty_reader", email="empty_reader@test.com", password="test"

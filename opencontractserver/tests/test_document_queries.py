@@ -163,6 +163,34 @@ class CorpusDocumentIdsQueryTestCase(TestCase):
         # A stranger to this private corpus sees none of its documents.
         self.assertEqual(result["data"]["corpusDocumentIds"], [])
 
+    def test_exceeding_select_all_cap_raises(self):
+        """Matching more than the cap raises rather than returning an unbounded
+        (and silently-truncated) id list. Patch the cap low instead of creating
+        thousands of documents."""
+        from unittest.mock import patch
+
+        # 4 documents exist (3 root + 1 in folder); a cap of 2 forces the guard.
+        with patch("config.graphql.document_queries.MAX_SELECT_ALL_DOCUMENT_IDS", 2):
+            result = self.graphene_client.execute(
+                self.QUERY,
+                variables={"corpusId": self.corpus_gid, "folderId": "__root__"},
+            )
+        self.assertIsNotNone(result.get("errors"))
+        self.assertIsNone(result["data"]["corpusDocumentIds"])
+        self.assertIn("Select-All limit", result["errors"][0]["message"])
+
+    def test_within_select_all_cap_returns_ids(self):
+        """At/under the cap the full id set is returned (no error)."""
+        from unittest.mock import patch
+
+        with patch("config.graphql.document_queries.MAX_SELECT_ALL_DOCUMENT_IDS", 4):
+            result = self.graphene_client.execute(
+                self.QUERY,
+                variables={"corpusId": self.corpus_gid, "folderId": "__root__"},
+            )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(len(result["data"]["corpusDocumentIds"]), 4)
+
     def test_document_summary_queries_no_summary(self):
         """When no summary exists for the corpus, default values should be returned."""
 

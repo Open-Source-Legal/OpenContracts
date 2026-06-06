@@ -412,6 +412,10 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
     } finally {
       setSelectAllLoading(false);
     }
+    // documentSearchTerm() / filterToLabelId() / selectedMetaAnnotationId() are
+    // Apollo reactive vars read by direct invocation, so they always yield the
+    // latest value at call time — deliberately omitted from the dep array (a
+    // reactive var is not a React value and listing it would be a no-op).
   }, [allSelected, client, corpusId, selectedFolderId]);
 
   // Handler for Clear Selection
