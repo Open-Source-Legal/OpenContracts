@@ -4,12 +4,17 @@ import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { DndContext } from "@dnd-kit/core";
 import { ModernDocumentItem } from "../src/components/documents/ModernDocumentItem";
+import { ToastContainer } from "react-toastify";
 import {
   DocumentType,
   DocumentProcessingStatus,
 } from "../src/types/graphql-api";
 import { openedCorpus } from "../src/graphql/cache";
-import { GET_DOC_RELATIONSHIPS_FOR_DOC } from "../src/graphql/queries";
+import {
+  GET_DOC_RELATIONSHIPS_FOR_DOC,
+  GET_DOCUMENT_PDF_URL,
+} from "../src/graphql/queries";
+import { PDF_MIME_TYPE } from "../src/assets/configurations/constants";
 import { ReactiveVarObserver } from "./utils/ReactiveVarObserver";
 import { docScreenshot } from "./utils/docScreenshot";
 
@@ -46,6 +51,8 @@ function renderWithProviders(
     <MockedProvider mocks={mocks} addTypename={false}>
       <MemoryRouter>
         <DndContext>{ui}</DndContext>
+        {/* react-toastify sink so toast.error(...) in handlers is assertable. */}
+        <ToastContainer />
       </MemoryRouter>
     </MockedProvider>
   );
@@ -712,6 +719,39 @@ test.describe("ModernDocumentItem — action buttons", () => {
     );
 
     await expect(page.locator('button[title="Download"]')).toBeVisible();
+  });
+
+  test("download surfaces a toast when the lazy PDF URL resolves to null", async ({
+    mount,
+    page,
+  }) => {
+    // pdfFile is no longer fetched per card; the button shows for any
+    // PDF-typed doc and the signed URL is resolved on click. When the lazy
+    // query yields no file, the handler must surface a toast instead of a
+    // silent no-op (see DocumentItem/ModernDocumentItem handleDownload).
+    const doc = makeDocument({ pdfFile: undefined, fileType: PDF_MIME_TYPE });
+
+    await renderWithProviders(
+      <ModernDocumentItem item={doc} viewMode="list" />,
+      mount,
+      [
+        {
+          request: {
+            query: GET_DOCUMENT_PDF_URL,
+            variables: { documentId: doc.id },
+          },
+          result: {
+            data: { document: { id: doc.id, pdfFile: null } },
+          },
+        },
+      ]
+    );
+
+    await clickViaReact(page, 'button[title="Download"]');
+
+    await expect(
+      page.getByText("No downloadable file is available for this document.")
+    ).toBeVisible({ timeout: 5000 });
   });
 });
 

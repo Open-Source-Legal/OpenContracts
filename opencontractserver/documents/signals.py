@@ -16,6 +16,7 @@ from config.telemetry import record_event
 from opencontractserver.tasks.doc_tasks import (
     extract_thumbnail,
     ingest_doc,
+    mark_doc_failed_on_chain_error,
     remap_pending_annotations,
     set_doc_lock_state,
 )
@@ -122,8 +123,17 @@ def process_doc_on_create_atomic(
         instance.processing_started = timezone.now()
         instance.save()
 
-        # Send tasks to Celery for asynchronous execution
-        transaction.on_commit(lambda: chain(*ingest_tasks).apply_async())
+        # Send tasks to Celery for asynchronous execution.
+        # link_error guarantees a document is marked FAILED if any task in the
+        # chain *raises* (which halts the chain before set_doc_lock_state can
+        # finalize status) — otherwise the doc is stranded in PROCESSING +
+        # backend_lock and shows "processing" forever.
+        doc_id = instance.id
+        transaction.on_commit(
+            lambda: chain(*ingest_tasks).apply_async(
+                link_error=mark_doc_failed_on_chain_error.s(doc_id=doc_id)
+            )
+        )
 
         record_event(
             "document_uploaded", {"user_id": instance.creator.id, "env": settings.MODE}

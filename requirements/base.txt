@@ -19,7 +19,7 @@ aiohttp>=3.13,<3.14  # transitive via llama-index-core; cap below 3.14 because a
 # ------------------------------------------------------------------------------
 django==5.2.15  # https://www.djangoproject.com/
 django-environ==0.13.0  # https://github.com/joke2k/django-environ
-django-redis==6.0.0  # https://github.com/jazzband/django-redis
+django-redis==7.0.0  # https://github.com/jazzband/django-redis
 django-filter==25.1  # https://github.com/carltongibson/django-filter
 django-storages[boto3,google]==1.14.6  # https://github.com/jschneier/django-storages
 whitenoise==6.12.0
@@ -39,7 +39,7 @@ drf-extra-fields==3.7.0  # https://github.com/Hipo/drf-extra-fields
 
 # Doc Analysis (NLP dependencies, placeholder) - WARNING, these are all in same environment... not ideal.
 # ------------------------------------------------------------------------------
-pypdf>=6.12.2,<7  # https://github.com/py-pdf/pypdf
+pypdf>=6.13.0,<7  # https://github.com/py-pdf/pypdf
 plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image>=1.17.0
 openai>=2.41.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
@@ -58,7 +58,7 @@ openai>=2.41.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x re
 # one of those provider SDKs disappearing from PyPI — as ``mistralai`` did
 # on 2026-05-12, where ``pypi.org/pypi/mistralai/json`` started 404ing —
 # breaks the entire install chain. Narrow extras = stable resolves.
-pydantic-ai-slim[openai,anthropic,google,mcp]>=1.105.0,<2  # see issue #1451 before bumping the upper bound
+pydantic-ai-slim[openai,anthropic,google,mcp]>=1.106.0,<2  # see issue #1451 before bumping the upper bound
 spacy
 pdfplumber>=0.11.9  # https://github.com/jsvine/pdfplumber - PDF token extraction
 shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
@@ -88,7 +88,7 @@ mcp>=1.27.2  # https://github.com/anthropics/python-sdk
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
 twisted>=24.7.0rc1 # not directly required, pinned by Snyk to avoid a vulnerability
-ipython>=9.14.0 # not directly required, pinned by Snyk to avoid a vulnerability
+ipython>=9.14.1 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.5.6 # not directly required, pinned by Snyk to avoid a vulnerability

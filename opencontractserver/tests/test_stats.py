@@ -213,3 +213,44 @@ class CorpusStatsTestCase(TestCase):
                 },
                 result["data"]["corpusStats"],
             )
+
+    def test_empty_corpus_id_stats_query(self):
+        """An empty / blank global id must not raise.
+
+        A client sending ``corpusId: ""`` decodes to a non-numeric pk. Before
+        the guard, ``filter(id="")`` raised ``Field 'id' expected a number but
+        got ''`` inside the open transaction (aborting it for the rest of the
+        request). The resolver now treats a malformed id like a not-found /
+        not-visible corpus and returns zeroed stats with no GraphQL errors.
+        """
+        query = """
+        query($id: ID!) {
+          corpusStats(corpusId: $id) {
+            totalDocs
+            totalAnnotations
+            totalComments
+            totalAnalyses
+            totalExtracts
+          }
+        }
+        """
+        variables = {"id": ""}
+
+        for client in [
+            self.owner_client,
+            self.collaborator_client,
+            self.regular_client,
+            self.anonymous_client,
+        ]:
+            result = client.execute(query, variable_values=variables)
+            self.assertIsNone(result.get("errors"))
+            self.assertEqual(
+                {
+                    "totalDocs": 0,
+                    "totalAnnotations": 0,
+                    "totalComments": 0,
+                    "totalAnalyses": 0,
+                    "totalExtracts": 0,
+                },
+                result["data"]["corpusStats"],
+            )

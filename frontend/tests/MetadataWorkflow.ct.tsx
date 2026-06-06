@@ -10,6 +10,7 @@ import {
   GET_CORPUS_ARTICLE,
 } from "../src/graphql/queries";
 import { GET_CORPUS_FOLDERS } from "../src/graphql/queries/folders";
+import { DEFAULT_LIST_PAGE_SIZE } from "../src/assets/configurations/constants";
 import {
   GET_CORPUS_METADATA_COLUMNS,
   GET_DOCUMENT_METADATA_DATACELLS,
@@ -350,6 +351,9 @@ test.describe("Metadata Workflow Integration", () => {
         request: {
           query: GET_DOCUMENTS,
           variables: {
+            // CorpusDocumentCards bounds the first page (see useLazyPdfUrl /
+            // limit comment in CorpusDocumentCards.tsx).
+            limit: DEFAULT_LIST_PAGE_SIZE,
             inCorpusWithId: corpusId,
             inFolderId: "__root__",
             annotateDocLabels: true,
@@ -389,6 +393,9 @@ test.describe("Metadata Workflow Integration", () => {
         request: {
           query: GET_DOCUMENTS,
           variables: {
+            // CorpusDocumentCards bounds the first page (see useLazyPdfUrl /
+            // limit comment in CorpusDocumentCards.tsx).
+            limit: DEFAULT_LIST_PAGE_SIZE,
             inCorpusWithId: corpusId,
             inFolderId: "__root__",
             annotateDocLabels: true,

@@ -624,6 +624,8 @@ export const LEGACY_TEXT_MIME_TYPE = "application/txt";
 export const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+export const PDF_MIME_TYPE = "application/pdf";
+
 /**
  * Maximum number of DOCX byte arrays to cache in memory.
  * Oldest entry is evicted when the limit is reached.
