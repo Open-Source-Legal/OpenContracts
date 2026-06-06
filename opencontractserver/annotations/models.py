@@ -1344,6 +1344,17 @@ class Annotation(BaseOCModel, HasEmbeddingMixin):
             django.db.models.Index(fields=["creator"]),
             django.db.models.Index(fields=["created"]),
             django.db.models.Index(fields=["modified"]),
+            # Composite backing the structural-filtered "Browse annotations"
+            # page (``structural=<bool>`` + ``ORDER BY -modified``) used by the
+            # anonymous / Discover browse and the ``structural`` connection
+            # filter. Usable only now that ``visible_to_user`` is de-joined and
+            # no longer ends in ``.distinct()`` (issue #1906). The unfiltered
+            # ``-modified`` page keeps using the single-column ``modified``
+            # index above.
+            django.db.models.Index(
+                fields=["structural", "modified"],
+                name="annot_structural_modified_idx",
+            ),
             GinIndex(
                 fields=["search_vector"],
                 name="annotation_search_vector_gin",

@@ -159,10 +159,14 @@ def _text_ids(
 
     ``order_field`` (e.g. ``"created"`` / ``"modified"``) is selected alongside
     ``pk`` and ordered descending. It must appear in the SELECT list because
-    ``visible_to_user`` querysets are ``DISTINCT`` and PostgreSQL rejects an
-    ``ORDER BY`` on a column that isn't selected under ``SELECT DISTINCT``.
-    The text filters also join to-many relations (``chat_messages``, label/doc
-    joins), so ``.distinct()`` collapses the resulting row duplicates.
+    this helper applies its own ``.distinct()`` (below) and PostgreSQL rejects
+    an ``ORDER BY`` on a column that isn't selected under ``SELECT DISTINCT``.
+    That ``.distinct()`` is warranted because the text filters join to-many
+    relations (``chat_messages``, label/doc joins) which would otherwise yield
+    duplicate rows. The helper does NOT rely on the incoming ``visible_qs``
+    being distinct — Annotation's predicate was de-joined in #1906 (no longer
+    distinct), while Note/Document/Conversation remain distinct; either way the
+    explicit ``.distinct()`` here keeps the result correct.
     """
     # Over-fetch 2× before the application-side ``_dedupe`` + ``[:fetch_k]``
     # slice. ``order_field`` is a model field (constant per pk), so the
@@ -221,8 +225,10 @@ def _order_by_ids(qs: QuerySet, ids: list[Any]) -> list[Any]:
     ``id__in`` clause.
 
     Builds the id->object map by iterating ``filter(id__in=...)`` rather than
-    ``QuerySet.in_bulk`` because ``visible_to_user`` querysets apply
-    ``.distinct()`` and ``in_bulk`` refuses to run on a distinct queryset.
+    ``QuerySet.in_bulk`` because several ``visible_to_user`` querysets apply
+    ``.distinct()`` (Note/Document/Conversation; Annotation's was de-joined in
+    #1906) and ``in_bulk`` refuses to run on a distinct queryset. Iterating is
+    equally correct for the non-distinct (de-joined) case.
     """
     by_id = {obj.pk: obj for obj in qs.filter(id__in=ids)}
     return [by_id[i] for i in ids if i in by_id]
