@@ -12,7 +12,7 @@ typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.34.2,<3  # https://requests.readthedocs.io/en/latest/
 httpx>=0.28.1,<1  # https://github.com/encode/httpx - async HTTP for agent tools
 brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI API, VCR cassettes). Floor raised to 1.2.0 to pick up the upstream security fix that bounds decompressor output via Decompressor.output_buffer_limit, preventing memory exhaustion from crafted br-encoded payloads.
-aiohttp>=3.13,<3.14  # transitive via llama-index-core; cap below 3.14 because aiohttp 3.14.0 removed aiohttp.streams.AsyncStreamReaderMixin, which the pinned vcrpy==8.1.1 aiohttp stub imports at module load (AttributeError on import → whole pytest suite fails). Lift this cap together with a vcrpy bump that supports aiohttp 3.14+.
+aiohttp>=3.14.0,<3.15  # transitive via llama-index-core; cap below 3.14 because aiohttp 3.14.0 removed aiohttp.streams.AsyncStreamReaderMixin, which the pinned vcrpy==8.1.1 aiohttp stub imports at module load (AttributeError on import → whole pytest suite fails). Lift this cap together with a vcrpy bump that supports aiohttp 3.14+.
 
 
 # Django
