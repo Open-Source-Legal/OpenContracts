@@ -39,7 +39,7 @@ from graphql_relay import from_global_id
 
 from opencontractserver.constants.zip_import import (
     BULK_UPLOAD_OWNER_CACHE_PREFIX,
-    BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+    get_bulk_upload_owner_cache_ttl_seconds,
 )
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
 from opencontractserver.document_imports.models import (
@@ -447,7 +447,7 @@ def import_documents_zip_for_user(
     cache.set(
         f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
         user.id,
-        BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+        get_bulk_upload_owner_cache_ttl_seconds(),
     )
 
     storage_filename = f"documents_zip_import_{job_id}.zip"
@@ -552,7 +552,7 @@ def import_zip_to_corpus_for_user(
     cache.set(
         f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
         user.id,
-        BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+        get_bulk_upload_owner_cache_ttl_seconds(),
     )
 
     storage_filename = f"zip_import_{job_id}.zip"

@@ -5,7 +5,7 @@ Validates that all constants have the expected types, values, and that
 Django-settings-configurable constants respect overrides.
 """
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from opencontractserver.constants.auth import (
     ADMIN_CLAIMS_CACHE_TTL,
@@ -273,34 +273,77 @@ class TestZipImportConstants(TestCase):
 
     def test_all_positive(self):
         from opencontractserver.constants.zip_import import (
-            ZIP_DOCUMENT_BATCH_SIZE,
-            ZIP_MAX_COMPRESSION_RATIO,
-            ZIP_MAX_FILE_COUNT,
-            ZIP_MAX_FOLDER_COUNT,
-            ZIP_MAX_FOLDER_DEPTH,
-            ZIP_MAX_PATH_COMPONENT_LENGTH,
-            ZIP_MAX_PATH_LENGTH,
-            ZIP_MAX_SINGLE_FILE_SIZE_BYTES,
-            ZIP_MAX_TOTAL_SIZE_BYTES,
+            get_zip_document_batch_size,
+            get_zip_max_compression_ratio,
+            get_zip_max_file_count,
+            get_zip_max_folder_count,
+            get_zip_max_folder_depth,
+            get_zip_max_path_component_length,
+            get_zip_max_path_length,
+            get_zip_max_single_file_size_bytes,
+            get_zip_max_total_size_bytes,
         )
 
-        self.assertGreater(ZIP_MAX_FILE_COUNT, 0)
-        self.assertGreater(ZIP_MAX_TOTAL_SIZE_BYTES, 0)
-        self.assertGreater(ZIP_MAX_SINGLE_FILE_SIZE_BYTES, 0)
-        self.assertGreater(ZIP_MAX_COMPRESSION_RATIO, 0)
-        self.assertGreater(ZIP_MAX_FOLDER_DEPTH, 0)
-        self.assertGreater(ZIP_MAX_FOLDER_COUNT, 0)
-        self.assertGreater(ZIP_MAX_PATH_COMPONENT_LENGTH, 0)
-        self.assertGreater(ZIP_MAX_PATH_LENGTH, 0)
-        self.assertGreater(ZIP_DOCUMENT_BATCH_SIZE, 0)
+        self.assertGreater(get_zip_max_file_count(), 0)
+        self.assertGreater(get_zip_max_total_size_bytes(), 0)
+        self.assertGreater(get_zip_max_single_file_size_bytes(), 0)
+        self.assertGreater(get_zip_max_compression_ratio(), 0)
+        self.assertGreater(get_zip_max_folder_depth(), 0)
+        self.assertGreater(get_zip_max_folder_count(), 0)
+        self.assertGreater(get_zip_max_path_component_length(), 0)
+        self.assertGreater(get_zip_max_path_length(), 0)
+        self.assertGreater(get_zip_document_batch_size(), 0)
 
     def test_single_file_less_than_total(self):
         from opencontractserver.constants.zip_import import (
-            ZIP_MAX_SINGLE_FILE_SIZE_BYTES,
-            ZIP_MAX_TOTAL_SIZE_BYTES,
+            get_zip_max_single_file_size_bytes,
+            get_zip_max_total_size_bytes,
         )
 
-        self.assertLess(ZIP_MAX_SINGLE_FILE_SIZE_BYTES, ZIP_MAX_TOTAL_SIZE_BYTES)
+        self.assertLess(
+            get_zip_max_single_file_size_bytes(), get_zip_max_total_size_bytes()
+        )
+
+    def test_accessors_fall_back_to_defaults_when_unset(self):
+        """With no setting override, each accessor returns its DEFAULT_*."""
+        from opencontractserver.constants import zip_import as zi
+
+        self.assertEqual(zi.get_zip_max_file_count(), zi.DEFAULT_ZIP_MAX_FILE_COUNT)
+        self.assertEqual(
+            zi.get_zip_max_total_size_bytes(), zi.DEFAULT_ZIP_MAX_TOTAL_SIZE_BYTES
+        )
+        self.assertEqual(
+            zi.get_bulk_upload_owner_cache_ttl_seconds(),
+            zi.DEFAULT_BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+        )
+
+    @override_settings(
+        ZIP_MAX_FILE_COUNT=4242,
+        ZIP_MAX_TOTAL_SIZE_BYTES=123,
+        ZIP_MAX_SIDECAR_SIZE_BYTES=456,
+        ZIP_DOCUMENT_BATCH_SIZE=7,
+        BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS=99,
+    )
+    def test_accessors_reflect_settings_overrides(self):
+        """Regression for the import-time freeze bug (see zip_import.py).
+
+        The limits must be read lazily at call time, so a settings override
+        (env/ConfigMap in production, ``@override_settings`` in tests) is
+        honoured — never frozen to the default at import.
+        """
+        from opencontractserver.constants.zip_import import (
+            get_bulk_upload_owner_cache_ttl_seconds,
+            get_zip_document_batch_size,
+            get_zip_max_file_count,
+            get_zip_max_sidecar_size_bytes,
+            get_zip_max_total_size_bytes,
+        )
+
+        self.assertEqual(get_zip_max_file_count(), 4242)
+        self.assertEqual(get_zip_max_total_size_bytes(), 123)
+        self.assertEqual(get_zip_max_sidecar_size_bytes(), 456)
+        self.assertEqual(get_zip_document_batch_size(), 7)
+        self.assertEqual(get_bulk_upload_owner_cache_ttl_seconds(), 99)
 
 
 class TestConstantsBarrelImport(TestCase):
