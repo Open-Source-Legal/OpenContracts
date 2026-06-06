@@ -12,7 +12,7 @@ import io
 import stat
 import zipfile
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from opencontractserver.utils.zip_security import (
     ZipFileEntry,
@@ -310,114 +310,73 @@ class TestValidateZipForImport(TestCase):
         self.assertEqual(len(manifest.skipped_files), 1)
         self.assertIn("traversal", manifest.skipped_files[0].skip_reason.lower())
 
+    @override_settings(ZIP_MAX_FILE_COUNT=5)
     def test_too_many_files_rejected(self):
         """Zip with too many files is rejected."""
-        # Need to reimport to pick up new settings
-        from opencontractserver.utils import zip_security
+        files = {f"file{i}.pdf": b"content" for i in range(10)}
+        with self._create_test_zip(files) as zf:
+            manifest = validate_zip_for_import(zf)
 
-        # Temporarily override the constant
-        original = zip_security.ZIP_MAX_FILE_COUNT
-        zip_security.ZIP_MAX_FILE_COUNT = 5
+        self.assertFalse(manifest.is_valid)
+        self.assertIn("10 files", manifest.error_message)
+        self.assertIn("5", manifest.error_message)
 
-        try:
-            files = {f"file{i}.pdf": b"content" for i in range(10)}
-            with self._create_test_zip(files) as zf:
-                manifest = validate_zip_for_import(zf)
-
-            self.assertFalse(manifest.is_valid)
-            self.assertIn("10 files", manifest.error_message)
-            self.assertIn("5", manifest.error_message)
-        finally:
-            zip_security.ZIP_MAX_FILE_COUNT = original
-
+    @override_settings(ZIP_MAX_SINGLE_FILE_SIZE_BYTES=100)  # 100 bytes
     def test_oversized_files_marked_for_skipping(self):
         """Files exceeding size limit are marked for skipping."""
-        from opencontractserver.utils import zip_security
+        files = {
+            "small.pdf": b"x" * 50,  # Under limit
+            "large.pdf": b"x" * 200,  # Over limit
+        }
+        with self._create_test_zip(files) as zf:
+            manifest = validate_zip_for_import(zf)
 
-        # Temporarily override the constant
-        original = zip_security.ZIP_MAX_SINGLE_FILE_SIZE_BYTES
-        zip_security.ZIP_MAX_SINGLE_FILE_SIZE_BYTES = 100  # 100 bytes
+        self.assertTrue(manifest.is_valid)
+        self.assertEqual(len(manifest.valid_files), 1)
+        self.assertEqual(manifest.valid_files[0].filename, "small.pdf")
+        self.assertEqual(len(manifest.skipped_files), 1)
+        self.assertEqual(manifest.skipped_files[0].filename, "large.pdf")
+        self.assertTrue(manifest.skipped_files[0].is_oversized)
 
-        try:
-            files = {
-                "small.pdf": b"x" * 50,  # Under limit
-                "large.pdf": b"x" * 200,  # Over limit
-            }
-            with self._create_test_zip(files) as zf:
-                manifest = validate_zip_for_import(zf)
-
-            self.assertTrue(manifest.is_valid)
-            self.assertEqual(len(manifest.valid_files), 1)
-            self.assertEqual(manifest.valid_files[0].filename, "small.pdf")
-            self.assertEqual(len(manifest.skipped_files), 1)
-            self.assertEqual(manifest.skipped_files[0].filename, "large.pdf")
-            self.assertTrue(manifest.skipped_files[0].is_oversized)
-        finally:
-            zip_security.ZIP_MAX_SINGLE_FILE_SIZE_BYTES = original
-
+    @override_settings(ZIP_MAX_TOTAL_SIZE_BYTES=500)  # 500 bytes
     def test_total_size_limit_exceeded(self):
         """Zip exceeding total size limit is rejected."""
-        from opencontractserver.utils import zip_security
+        files = {
+            "file1.pdf": b"x" * 200,
+            "file2.pdf": b"x" * 200,
+            "file3.pdf": b"x" * 200,  # This pushes it over
+        }
+        with self._create_test_zip(files) as zf:
+            manifest = validate_zip_for_import(zf)
 
-        # Temporarily override the constant
-        original = zip_security.ZIP_MAX_TOTAL_SIZE_BYTES
-        zip_security.ZIP_MAX_TOTAL_SIZE_BYTES = 500  # 500 bytes
+        self.assertFalse(manifest.is_valid)
+        self.assertIn("size exceeds", manifest.error_message.lower())
 
-        try:
-            files = {
-                "file1.pdf": b"x" * 200,
-                "file2.pdf": b"x" * 200,
-                "file3.pdf": b"x" * 200,  # This pushes it over
-            }
-            with self._create_test_zip(files) as zf:
-                manifest = validate_zip_for_import(zf)
-
-            self.assertFalse(manifest.is_valid)
-            self.assertIn("size exceeds", manifest.error_message.lower())
-        finally:
-            zip_security.ZIP_MAX_TOTAL_SIZE_BYTES = original
-
+    @override_settings(ZIP_MAX_FOLDER_DEPTH=3)
     def test_folder_depth_limit(self):
         """Files in deeply nested folders are skipped."""
-        from opencontractserver.utils import zip_security
+        files = {
+            "a/b/c/file.pdf": b"content",  # Depth 3 - OK
+            "a/b/c/d/e/file.pdf": b"content",  # Depth 5 - Too deep
+        }
+        with self._create_test_zip(files) as zf:
+            manifest = validate_zip_for_import(zf)
 
-        # Temporarily override the constant
-        original = zip_security.ZIP_MAX_FOLDER_DEPTH
-        zip_security.ZIP_MAX_FOLDER_DEPTH = 3
+        self.assertTrue(manifest.is_valid)
+        self.assertEqual(len(manifest.valid_files), 1)
+        self.assertEqual(len(manifest.skipped_files), 1)
+        self.assertIn("depth", manifest.skipped_files[0].skip_reason.lower())
 
-        try:
-            files = {
-                "a/b/c/file.pdf": b"content",  # Depth 3 - OK
-                "a/b/c/d/e/file.pdf": b"content",  # Depth 5 - Too deep
-            }
-            with self._create_test_zip(files) as zf:
-                manifest = validate_zip_for_import(zf)
-
-            self.assertTrue(manifest.is_valid)
-            self.assertEqual(len(manifest.valid_files), 1)
-            self.assertEqual(len(manifest.skipped_files), 1)
-            self.assertIn("depth", manifest.skipped_files[0].skip_reason.lower())
-        finally:
-            zip_security.ZIP_MAX_FOLDER_DEPTH = original
-
+    @override_settings(ZIP_MAX_FOLDER_COUNT=5)
     def test_folder_count_limit(self):
         """Zip with too many folders is rejected."""
-        from opencontractserver.utils import zip_security
+        # Create files in many different folders
+        files = {f"folder{i}/file.pdf": b"content" for i in range(10)}
+        with self._create_test_zip(files) as zf:
+            manifest = validate_zip_for_import(zf)
 
-        # Temporarily override the constant
-        original = zip_security.ZIP_MAX_FOLDER_COUNT
-        zip_security.ZIP_MAX_FOLDER_COUNT = 5
-
-        try:
-            # Create files in many different folders
-            files = {f"folder{i}/file.pdf": b"content" for i in range(10)}
-            with self._create_test_zip(files) as zf:
-                manifest = validate_zip_for_import(zf)
-
-            self.assertFalse(manifest.is_valid)
-            self.assertIn("folders", manifest.error_message.lower())
-        finally:
-            zip_security.ZIP_MAX_FOLDER_COUNT = original
+        self.assertFalse(manifest.is_valid)
+        self.assertIn("folders", manifest.error_message.lower())
 
     def test_directories_skipped(self):
         """Directory entries in zip are skipped."""

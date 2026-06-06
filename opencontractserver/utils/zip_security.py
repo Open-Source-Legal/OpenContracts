@@ -21,14 +21,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from opencontractserver.constants.zip_import import (
-    ZIP_MAX_COMPRESSION_RATIO,
-    ZIP_MAX_FILE_COUNT,
-    ZIP_MAX_FOLDER_COUNT,
-    ZIP_MAX_FOLDER_DEPTH,
-    ZIP_MAX_PATH_COMPONENT_LENGTH,
-    ZIP_MAX_PATH_LENGTH,
-    ZIP_MAX_SINGLE_FILE_SIZE_BYTES,
-    ZIP_MAX_TOTAL_SIZE_BYTES,
+    get_zip_max_compression_ratio,
+    get_zip_max_file_count,
+    get_zip_max_folder_count,
+    get_zip_max_folder_depth,
+    get_zip_max_path_component_length,
+    get_zip_max_path_length,
+    get_zip_max_single_file_size_bytes,
+    get_zip_max_total_size_bytes,
 )
 from opencontractserver.utils.metadata_file_parser import METADATA_FILE_NAMES
 from opencontractserver.utils.relationship_file_parser import RELATIONSHIP_FILE_NAMES
@@ -128,9 +128,14 @@ def sanitize_zip_path(path: str) -> tuple[str | None, str]:
     if not normalized:
         return None, "Path is empty after normalization"
 
+    # Read configurable limits at call time so settings/env overrides are
+    # honoured (never frozen at import — see constants/zip_import.py).
+    max_path_length = get_zip_max_path_length()
+    max_component_length = get_zip_max_path_component_length()
+
     # Check total path length
-    if len(normalized) > ZIP_MAX_PATH_LENGTH:
-        return None, f"Path exceeds maximum length of {ZIP_MAX_PATH_LENGTH} characters"
+    if len(normalized) > max_path_length:
+        return None, f"Path exceeds maximum length of {max_path_length} characters"
 
     # Split into components and validate each
     components = normalized.split("/")
@@ -145,11 +150,11 @@ def sanitize_zip_path(path: str) -> tuple[str | None, str]:
             continue  # Skip empty components from double slashes
 
         # Check component length
-        if len(component) > ZIP_MAX_PATH_COMPONENT_LENGTH:
+        if len(component) > max_component_length:
             return (
                 None,
                 f"Path component '{component[:50]}...' exceeds maximum length "
-                f"of {ZIP_MAX_PATH_COMPONENT_LENGTH} characters",
+                f"of {max_component_length} characters",
             )
 
         # Check for hidden files/folders at any level (starts with .)
@@ -426,6 +431,16 @@ def validate_zip_for_import(
     """
     manifest = ZipManifest(is_valid=True)
 
+    # Read configurable limits once at call time so @override_settings and
+    # env/deployment overrides are honoured (never frozen at import — see
+    # opencontractserver/constants/zip_import.py for why).
+    max_file_count = get_zip_max_file_count()
+    max_total_size_bytes = get_zip_max_total_size_bytes()
+    max_single_file_size_bytes = get_zip_max_single_file_size_bytes()
+    max_compression_ratio = get_zip_max_compression_ratio()
+    max_folder_depth = get_zip_max_folder_depth()
+    max_folder_count = get_zip_max_folder_count()
+
     try:
         info_list = zip_file.infolist()
     except Exception as e:
@@ -435,12 +450,12 @@ def validate_zip_for_import(
     manifest.total_files_in_zip = len(info_list)
 
     # Check total file count
-    if manifest.total_files_in_zip > ZIP_MAX_FILE_COUNT:
+    if manifest.total_files_in_zip > max_file_count:
         return ZipManifest(
             is_valid=False,
             error_message=(
                 f"Zip contains {manifest.total_files_in_zip} files, "
-                f"maximum allowed is {ZIP_MAX_FILE_COUNT}"
+                f"maximum allowed is {max_file_count}"
             ),
             total_files_in_zip=manifest.total_files_in_zip,
         )
@@ -546,7 +561,7 @@ def validate_zip_for_import(
         folder_path = get_folder_path(sanitized_path)
         if folder_path:
             depth = get_folder_depth(folder_path)
-            if depth > ZIP_MAX_FOLDER_DEPTH:
+            if depth > max_folder_depth:
                 manifest.skipped_files.append(
                     ZipFileEntry(
                         original_path=info.filename,
@@ -557,7 +572,7 @@ def validate_zip_for_import(
                         compressed_size=info.compress_size,
                         skip_reason=(
                             f"Folder depth {depth} exceeds maximum of "
-                            f"{ZIP_MAX_FOLDER_DEPTH}"
+                            f"{max_folder_depth}"
                         ),
                     )
                 )
@@ -571,8 +586,8 @@ def validate_zip_for_import(
         total_size += info.file_size
 
         # Check if total size exceeded
-        if total_size > ZIP_MAX_TOTAL_SIZE_BYTES:
-            size_mb = ZIP_MAX_TOTAL_SIZE_BYTES / (1024 * 1024)
+        if total_size > max_total_size_bytes:
+            size_mb = max_total_size_bytes / (1024 * 1024)
             return ZipManifest(
                 is_valid=False,
                 error_message=(
@@ -583,11 +598,11 @@ def validate_zip_for_import(
             )
 
         # Check individual file size
-        is_oversized = info.file_size > ZIP_MAX_SINGLE_FILE_SIZE_BYTES
+        is_oversized = info.file_size > max_single_file_size_bytes
         skip_reason = ""
         if is_oversized:
             size_mb = info.file_size / (1024 * 1024)
-            limit_mb = ZIP_MAX_SINGLE_FILE_SIZE_BYTES / (1024 * 1024)
+            limit_mb = max_single_file_size_bytes / (1024 * 1024)
             skip_reason = (
                 f"File size ({size_mb:.1f}MB) exceeds limit ({limit_mb:.0f}MB)"
             )
@@ -599,7 +614,7 @@ def validate_zip_for_import(
         # 3. Individual file size is bounded by ZIP_MAX_SINGLE_FILE_SIZE_BYTES
         if info.compress_size > 0:
             ratio = info.file_size / info.compress_size
-            if ratio > ZIP_MAX_COMPRESSION_RATIO:
+            if ratio > max_compression_ratio:
                 logger.warning(
                     f"High compression ratio ({ratio:.1f}:1) for file: "
                     f"{sanitized_path} - monitoring for potential zip bomb"
@@ -664,12 +679,12 @@ def validate_zip_for_import(
         manifest.valid_files = remaining_valid
 
     # Check folder count
-    if len(folder_paths_set) > ZIP_MAX_FOLDER_COUNT:
+    if len(folder_paths_set) > max_folder_count:
         return ZipManifest(
             is_valid=False,
             error_message=(
                 f"Zip contains {len(folder_paths_set)} folders, "
-                f"maximum allowed is {ZIP_MAX_FOLDER_COUNT}"
+                f"maximum allowed is {max_folder_count}"
             ),
             total_files_in_zip=manifest.total_files_in_zip,
             total_uncompressed_size=total_size,

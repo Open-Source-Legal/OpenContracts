@@ -36,7 +36,6 @@ import json
 import logging
 from typing import Any
 
-from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 
@@ -67,38 +66,14 @@ from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import JobStatus, PermissionTypes
 from opencontractserver.utils.extract import create_and_setup_extract
 
-from ._helpers import _db_sync_to_async
+from ._helpers import _db_sync_to_async, clamp_limit, get_user_or_none
 
 logger = logging.getLogger(__name__)
 
-User = get_user_model()
-
 
 def _clamp_limit(limit: int | None, default: int) -> int:
-    if limit is None:
-        return default
-    try:
-        value = int(limit)
-    except (TypeError, ValueError):
-        return default
-    if value <= 0:
-        return default
-    return min(value, MAX_LIST_LIMIT)
-
-
-def _get_user_or_none(user_id: int | None):
-    """Return the User row for ``user_id`` or ``None`` if missing / unauth.
-
-    Return type is intentionally inferred — ``User`` here is the result of
-    ``get_user_model()`` (a runtime variable, not a type alias) so a
-    quoted annotation would still trip mypy's ``valid-type`` check.
-    """
-    if user_id is None:
-        return None
-    try:
-        return User.objects.get(pk=user_id)
-    except User.DoesNotExist:
-        return None
+    """Clamp ``limit`` to ``[1, MAX_LIST_LIMIT]`` (see ``clamp_limit``)."""
+    return clamp_limit(limit, default, MAX_LIST_LIMIT)
 
 
 def _resolve_target_document_ids(
@@ -315,7 +290,7 @@ def list_fieldsets(
     sees the same set ``start_extract`` accepts.
     """
 
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     # IDOR: same message whether the corpus is missing or hidden.
     if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
         raise ValueError(f"Corpus with id={corpus_id} does not exist.")
@@ -416,7 +391,7 @@ def start_extract(
 
     if user_id is None:
         raise PermissionError("start_extract requires an authenticated user.")
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if user is None:
         raise PermissionError(f"User {user_id} not found.")
 
@@ -529,7 +504,7 @@ def list_recent_extracts(
 ) -> list[dict[str, Any]]:
     """Return the most recent Extracts on this corpus visible to the user."""
 
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
         raise ValueError(f"Corpus with id={corpus_id} does not exist.")
 
@@ -584,7 +559,7 @@ def list_analyzers(
 ) -> list[dict[str, Any]]:
     """List Analyzers visible to the user that can be applied to this corpus."""
 
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
         raise ValueError(f"Corpus with id={corpus_id} does not exist.")
 
@@ -651,7 +626,7 @@ def start_analysis(
 
     if user_id is None:
         raise PermissionError("start_analysis requires an authenticated user.")
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if user is None:
         raise PermissionError(f"User {user_id} not found.")
 
@@ -770,7 +745,7 @@ def list_recent_analyses(
 ) -> list[dict[str, Any]]:
     """Return the most recent Analyses on this corpus visible to the user."""
 
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if not Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists():
         raise ValueError(f"Corpus with id={corpus_id} does not exist.")
 
