@@ -1393,6 +1393,109 @@ contracts/legal/agreement.pdf,REFERENCES,contracts/financial/report.pdf,
         rel = DocumentRelationship.objects.get(corpus=self.corpus)
         self.assertEqual(rel.annotation_label.text, "REFERENCES")
 
+    def test_cross_batch_relationship_resolves_existing_corpus_documents(self):
+        """A relationship-only ZIP connects documents imported in an EARLIER
+        batch, resolving both endpoints against existing corpus documents."""
+        from opencontractserver.documents.models import DocumentRelationship
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        # --- Batch 1: two documents, no relationships file ---
+        result1 = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": self._create_temp_file_handle(
+                    self._create_test_zip(
+                        {"alpha.pdf": self.pdf_bytes, "beta.pdf": self.pdf_bytes}
+                    )
+                ).id,
+                "user_id": self.user.id,
+                "job_id": "cross-batch-1",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+        self.assertTrue(result1["success"], f"Errors: {result1.get('errors')}")
+        self.assertEqual(result1["files_processed"], 2)
+
+        # --- Batch 2: relationships.csv ONLY, referencing batch-1 docs by their
+        #     corpus path (== zip path when no target folder is used) ---
+        csv_content = b"""source_path,relationship_label,target_path,notes
+alpha.pdf,REFERENCES,beta.pdf,cross-batch edge
+"""
+        result2 = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": self._create_temp_file_handle(
+                    self._create_test_zip({"relationships.csv": csv_content})
+                ).id,
+                "user_id": self.user.id,
+                "job_id": "cross-batch-2",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result2["completed"], f"Errors: {result2.get('errors')}")
+        self.assertTrue(result2["success"], f"Errors: {result2.get('errors')}")
+        self.assertEqual(result2["relationships_created"], 1)
+        self.assertEqual(result2["relationships_skipped"], 0)
+
+        rel = DocumentRelationship.objects.get(corpus=self.corpus)
+        self.assertEqual(rel.annotation_label.text, "REFERENCES")
+        self.assertIsNotNone(rel.source_document)
+        self.assertIsNotNone(rel.target_document)
+        self.assertNotEqual(rel.source_document_id, rel.target_document_id)
+
+    def test_relationship_endpoints_mix_new_and_existing_documents(self):
+        """One endpoint resolves to a same-ZIP document, the other to a document
+        already in the corpus — the in-import and corpus maps are merged."""
+        from opencontractserver.documents.models import DocumentRelationship
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        # --- Batch 1: a single existing document ---
+        result1 = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": self._create_temp_file_handle(
+                    self._create_test_zip({"alpha.pdf": self.pdf_bytes})
+                ).id,
+                "user_id": self.user.id,
+                "job_id": "mix-batch-1",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+        self.assertTrue(result1["success"], f"Errors: {result1.get('errors')}")
+
+        # --- Batch 2: a NEW document + relationships.csv referencing both the
+        #     new (gamma) and the existing (alpha) document ---
+        csv_content = b"""source_path,relationship_label,target_path,notes
+gamma.pdf,DERIVES_FROM,alpha.pdf,
+"""
+        result2 = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": self._create_temp_file_handle(
+                    self._create_test_zip(
+                        {
+                            "gamma.pdf": self.pdf_bytes,
+                            "relationships.csv": csv_content,
+                        }
+                    )
+                ).id,
+                "user_id": self.user.id,
+                "job_id": "mix-batch-2",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result2["success"], f"Errors: {result2.get('errors')}")
+        self.assertEqual(result2["files_processed"], 1)
+        self.assertEqual(result2["relationships_created"], 1)
+        self.assertEqual(result2["relationships_skipped"], 0)
+
+        rel = DocumentRelationship.objects.get(
+            corpus=self.corpus, annotation_label__text="DERIVES_FROM"
+        )
+        self.assertNotEqual(rel.source_document_id, rel.target_document_id)
+
 
 class TestMetadataFileImport(TestCase):
     """Tests for importing ZIP files with meta.csv."""
@@ -2476,3 +2579,117 @@ class TestDumbAnchorRemapThroughChain(TransactionTestCase):
         span = ann.json
         self.assertEqual(span["text"], content[span["start"] : span["end"]])
         self.assertEqual(span["text"], DUMB_ANCHOR_SPAN_RAWTEXT)
+
+    def test_pdf_sidecar_relationships_and_metadata_remap_via_chain(self):
+        """End-to-end: a dumb-anchor PDF sidecar carrying an annotation-to-
+        annotation relationship plus ``link_url`` / ``data`` runs the real
+        chain. The relationship is wired between the two anchored annotations
+        (its RELATIONSHIP_LABEL auto-created) and the metadata lands on the
+        heading annotation.
+        """
+        from opencontractserver.annotations.models import Annotation, Relationship
+        from opencontractserver.documents.models import PendingDocumentAnnotations
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        self._set_preferred_parser("application/pdf", _DUMB_ANCHOR_PDF_PARSER_PATH)
+
+        geo = {"canonical_name": "France", "lat": 46.0, "lng": 2.0, "geocoded": True}
+        sidecar = {
+            "annotations": [
+                {
+                    "id": 1,
+                    "label": "OC_SECTION",
+                    "rawText": DUMB_ANCHOR_HEADING_TEXT,
+                    "page": 0,
+                    "bbox": DUMB_ANCHOR_HEADING_BBOX,
+                    "link_url": "https://example.com/ref",
+                    "data": geo,
+                    "parent_id": None,
+                },
+                {
+                    "id": 2,
+                    "label": "OC_SECTION",
+                    "rawText": "Body",
+                    "page": 0,
+                    # bbox enclosing the page-0 "Body" token (x=50,y=200).
+                    "bbox": {
+                        "left": 45.0,
+                        "top": 195.0,
+                        "right": 115.0,
+                        "bottom": 217.0,
+                    },
+                    "parent_id": None,
+                },
+            ],
+            "doc_labels": [],
+            "relationships": [
+                {
+                    "id": "r1",
+                    "relationshipLabel": "REFERENCES",
+                    "source_annotation_ids": [1],
+                    "target_annotation_ids": [2],
+                }
+            ],
+        }
+        labels = {
+            "text_labels": {
+                "OC_SECTION": {
+                    "text": "OC_SECTION",
+                    "label_type": "TOKEN_LABEL",
+                    "description": "Section heading",
+                    "color": "#FF0000",
+                    "icon": "tag",
+                }
+            },
+            "doc_labels": {},
+        }
+        files = {
+            "chapter.pdf": self.pdf_bytes,
+            "chapter.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(labels).encode("utf-8"),
+        }
+        handle = self._create_temp_file_handle(self._create_test_zip(files))
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "dumb-anchor-rels",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["sidecar_relationships_found"], 1)
+
+        doc = Document.objects.get(pk=int(result["document_ids"][0]))
+        pending = PendingDocumentAnnotations.objects.get(document=doc)
+        self.assertEqual(pending.status, PendingDocumentAnnotations.Status.DONE)
+
+        # Two producer annotations anchored (structural=False filters out any
+        # parser-generated structural annotations).
+        anns = Annotation.objects.filter(
+            document=doc, annotation_label__text="OC_SECTION", structural=False
+        )
+        self.assertEqual(anns.count(), 2)
+
+        # link_url + data landed on the heading annotation.
+        heading = anns.get(raw_text=DUMB_ANCHOR_HEADING_TEXT)
+        self.assertEqual(heading.link_url, "https://example.com/ref")
+        self.assertEqual(heading.data, geo)
+
+        # The annotation-to-annotation relationship was wired, its
+        # RELATIONSHIP_LABEL auto-created, connecting heading -> body.
+        rel = Relationship.objects.get(
+            document=doc, relationship_label__text="REFERENCES"
+        )
+        self.assertEqual(rel.relationship_label.label_type, "RELATIONSHIP_LABEL")
+        self.assertFalse(rel.structural)
+        self.assertEqual(rel.source_annotations.count(), 1)
+        self.assertEqual(rel.target_annotations.count(), 1)
+        self.assertEqual(
+            rel.source_annotations.first().raw_text, DUMB_ANCHOR_HEADING_TEXT
+        )
+        self.assertEqual(rel.target_annotations.first().raw_text, "Body")

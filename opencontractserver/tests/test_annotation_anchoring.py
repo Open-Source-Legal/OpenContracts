@@ -311,3 +311,85 @@ class LegacyFormatAdapterTests(SimpleTestCase):
         self.assertTrue(report[0]["dropped"])
         # Direct adapter call also returns None for structural.
         self.assertIsNone(legacy_annotation_to_dumb_anchor(legacy[0], is_pdf=True))
+
+
+class MetadataPassthroughTests(SimpleTestCase):
+    """``link_url`` (OC_URL target) and ``data`` (e.g. geocoded payload) are
+    not part of the anchor geometry, so the re-anchor must carry them verbatim
+    onto the anchored dict — otherwise bulk import silently strips them."""
+
+    def setUp(self):
+        self.pawls = [_page([_tok(10, "CHAPTER"), _tok(90, "1")])]
+
+    def test_pdf_carries_link_url_and_data(self):
+        geo = {"canonical_name": "France", "lat": 46.0, "lng": 2.0, "geocoded": True}
+        anns = [
+            {
+                "id": "u1",
+                "label": "OC_URL",
+                "rawText": "CHAPTER 1",
+                "page": 0,
+                "bbox": {"left": 8, "top": 8, "right": 130, "bottom": 24},
+                "link_url": "https://example.com/ref",
+                "data": geo,
+                "parent_id": None,
+            }
+        ]
+        out, _ = anchor_annotations(anns, is_pdf=True, pawls=self.pawls, content="")
+        self.assertEqual(out[0]["link_url"], "https://example.com/ref")
+        self.assertEqual(out[0]["data"], geo)
+
+    def test_text_carries_link_url_and_data(self):
+        content = "Intro. PARIS is here. Tail."
+        geo = {"canonical_name": "Paris", "lat": 48.85, "lng": 2.35, "geocoded": True}
+        anns = [
+            {
+                "id": "c1",
+                "label": "OC_CITY",
+                "rawText": "PARIS",
+                "start": 0,
+                "end": 5,
+                "data": geo,
+                "parent_id": None,
+            }
+        ]
+        out, _ = anchor_annotations(anns, is_pdf=False, pawls=[], content=content)
+        self.assertEqual(out[0]["data"], geo)
+        # No link_url supplied -> key is absent (column stays NULL), not None.
+        self.assertNotIn("link_url", out[0])
+
+    def test_absent_metadata_keys_stay_absent(self):
+        anns = [
+            {
+                "id": "a1",
+                "label": "OC_SECTION",
+                "rawText": "CHAPTER 1",
+                "page": 0,
+                "bbox": {"left": 8, "top": 8, "right": 130, "bottom": 24},
+                "parent_id": None,
+            }
+        ]
+        out, _ = anchor_annotations(anns, is_pdf=True, pawls=self.pawls, content="")
+        self.assertNotIn("link_url", out[0])
+        self.assertNotIn("data", out[0])
+
+    def test_legacy_adapter_carries_link_url(self):
+        legacy = [
+            {
+                "id": 7,
+                "annotationLabel": "OC_URL",
+                "rawText": "CHAPTER 1",
+                "page": 0,
+                "parent_id": None,
+                "link_url": "https://example.com/legacy",
+                "annotation_json": {
+                    "0": {
+                        "bounds": {"left": 8, "top": 8, "right": 130, "bottom": 24},
+                        "tokensJsons": [{"pageIndex": 0, "tokenIndex": 99}],
+                        "rawText": "CHAPTER 1",
+                    }
+                },
+            }
+        ]
+        out, _ = anchor_annotations(legacy, is_pdf=True, pawls=self.pawls, content="")
+        self.assertEqual(out[0]["link_url"], "https://example.com/legacy")

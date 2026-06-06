@@ -19,6 +19,7 @@ from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
     LabelSet,
+    Relationship,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, PendingDocumentAnnotations
@@ -291,14 +292,138 @@ class TestRemapPendingAnnotations(TestCase):
         )
 
     def test_id_map_persisted_after_remap(self):
-        """remap stores the old_id -> new_annotation_pk map on the row, so a
-        future relationship-wiring feature has the mapping without a backfill."""
+        """remap stores the old_id -> new_annotation_pk map on the row; the
+        relationship-wiring step (and any later consumer) reads it without a
+        backfill."""
         result = remap_pending_annotations(doc_id=self.doc.id)
         self.assertNotIn("skipped", result)
         self.pending.refresh_from_db()
         ann = Annotation.objects.get(document=self.doc, annotation_label=self.label)
         # _DUMB_ANN carries id "a1"; JSON object keys are strings.
         self.assertEqual(self.pending.id_map, {"a1": ann.id})
+
+    # -- annotation-to-annotation relationship wiring ------------------------
+
+    def test_relationship_between_annotations_is_created(self):
+        """A sidecar ``relationships`` edge is wired between the two anchored
+        annotations using the import id_map, auto-creating its RELATIONSHIP_LABEL.
+        """
+        ann1 = {**_DUMB_ANN, "id": "a1"}
+        ann2 = {**_DUMB_ANN, "id": "a2"}
+        self.pending.payload = {
+            "annotations": [ann1, ann2],
+            "doc_labels": [],
+            "relationships": [
+                {
+                    "id": "r1",
+                    "relationshipLabel": "REFERENCES",
+                    "source_annotation_ids": ["a1"],
+                    "target_annotation_ids": ["a2"],
+                }
+            ],
+        }
+        self.pending.save(update_fields=["payload"])
+
+        result = remap_pending_annotations(doc_id=self.doc.id)
+
+        self.assertEqual(result["status"], PendingDocumentAnnotations.Status.DONE)
+        self.assertEqual(result["relationships"], 1, msg=f"{result}")
+        self.assertEqual(result["relationships_dropped"], 0, msg=f"{result}")
+
+        rels = Relationship.objects.filter(document=self.doc, corpus=self.corpus)
+        self.assertEqual(rels.count(), 1)
+        rel = rels.first()
+        self.assertEqual(rel.relationship_label.text, "REFERENCES")
+        self.assertEqual(rel.relationship_label.label_type, "RELATIONSHIP_LABEL")
+        # Producer relationships are never structural.
+        self.assertFalse(rel.structural)
+
+        src = list(rel.source_annotations.all())
+        tgt = list(rel.target_annotations.all())
+        self.assertEqual(len(src), 1)
+        self.assertEqual(len(tgt), 1)
+        self.assertNotEqual(src[0].id, tgt[0].id)
+
+        # The id_map carries both annotation endpoints (keys stringified).
+        self.pending.refresh_from_db()
+        self.assertEqual(set(self.pending.id_map.keys()), {"a1", "a2"})
+
+    def test_relationship_endpoint_ids_match_across_int_and_str(self):
+        """An int sidecar annotation id and a str relationship endpoint id (or
+        vice versa) still resolve — the wiring accepts both forms."""
+        ann1 = {**_DUMB_ANN, "id": 1}
+        ann2 = {**_DUMB_ANN, "id": 2}
+        self.pending.payload = {
+            "annotations": [ann1, ann2],
+            "doc_labels": [],
+            "relationships": [
+                {
+                    "relationshipLabel": "REFERENCES",
+                    "source_annotation_ids": ["1"],  # str vs int id above
+                    "target_annotation_ids": [2],
+                }
+            ],
+        }
+        self.pending.save(update_fields=["payload"])
+
+        result = remap_pending_annotations(doc_id=self.doc.id)
+        self.assertEqual(result["relationships"], 1, msg=f"{result}")
+        self.assertEqual(Relationship.objects.filter(document=self.doc).count(), 1)
+
+    def test_link_url_and_data_persisted_on_annotations(self):
+        """``link_url`` (OC_URL) and ``data`` (geocoded payload) survive the
+        deferred remap onto the created Annotation."""
+        geo = {"canonical_name": "France", "lat": 46.0, "lng": 2.0, "geocoded": True}
+        ann = {
+            **_DUMB_ANN,
+            "id": "u1",
+            "link_url": "https://example.com/ref",
+            "data": geo,
+        }
+        self.pending.payload = {"annotations": [ann], "doc_labels": []}
+        self.pending.save(update_fields=["payload"])
+
+        result = remap_pending_annotations(doc_id=self.doc.id)
+        self.assertEqual(result["status"], PendingDocumentAnnotations.Status.DONE)
+
+        ann_obj = Annotation.objects.get(document=self.doc, annotation_label=self.label)
+        self.assertEqual(ann_obj.link_url, "https://example.com/ref")
+        self.assertEqual(ann_obj.data, geo)
+
+    def test_relationship_with_dangling_endpoint_dropped_and_reported(self):
+        """A relationship whose target never anchored is dropped (not silently)
+        and counted, while the resolvable annotation still lands (row DONE)."""
+        ann1 = {**_DUMB_ANN, "id": "a1"}
+        self.pending.payload = {
+            "annotations": [ann1],
+            "doc_labels": [],
+            "relationships": [
+                {
+                    "id": "r1",
+                    "relationshipLabel": "REFERENCES",
+                    "source_annotation_ids": ["a1"],
+                    "target_annotation_ids": ["ghost"],  # never declared/anchored
+                }
+            ],
+        }
+        self.pending.save(update_fields=["payload"])
+
+        result = remap_pending_annotations(doc_id=self.doc.id)
+
+        # The annotation landed, so the row is DONE despite the dropped edge.
+        self.assertEqual(result["status"], PendingDocumentAnnotations.Status.DONE)
+        self.assertEqual(result["relationships"], 0, msg=f"{result}")
+        self.assertEqual(result["relationships_dropped"], 1, msg=f"{result}")
+        self.assertEqual(Relationship.objects.filter(document=self.doc).count(), 0)
+
+        self.pending.refresh_from_db()
+        self.assertTrue(
+            any(
+                r.get("dropped") and "target" in (r.get("reason") or "")
+                for r in self.pending.report
+            ),
+            msg=f"Expected a dropped-target report entry: {self.pending.report}",
+        )
 
     def test_skipped_when_no_pending_row(self):
         """Task returns a 'skipped' dict when the document has no pending row."""

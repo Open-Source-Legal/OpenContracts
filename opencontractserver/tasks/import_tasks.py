@@ -473,7 +473,9 @@ def create_relationships_from_parsed(
     Args:
         corpus: The Corpus object to create relationships in
         user: The User creating the relationships
-        document_path_map: Mapping of normalized paths to Document objects
+        document_path_map: Mapping of normalized paths to Document objects. May
+            include documents already in the corpus (not just this import's), so
+            endpoints can resolve across separately-imported batches.
         parsed_relationships: List of ParsedRelationship objects from the parser
         logger: Logger instance for logging
 
@@ -563,6 +565,46 @@ def create_relationships_from_parsed(
     )
 
     return results
+
+
+def build_existing_corpus_path_map(
+    user: UserModel,
+    corpus: Corpus,
+) -> dict[str, Document]:
+    """Map current corpus document paths -> Document for cross-batch relationships.
+
+    A ``relationships.csv`` endpoint that does not match a file in *this* ZIP is
+    resolved against documents already in the corpus, so a relationship can span
+    separately-imported batches (the cross-batch edges a single ZIP otherwise
+    can't express). Only current, non-deleted paths whose document the importing
+    user can access — via ``CorpusDocumentService.get_corpus_documents``, the
+    canonical corpus-scoped accessor — are included, so the map can never resolve
+    an endpoint to a document the user could not already see in the corpus.
+
+    Keys are the document's path within the corpus (``DocumentPath.path``, e.g.
+    ``/contracts/master.pdf``), which equals the ZIP-relative path when no target
+    folder is used, so the common case "Just Works".
+    """
+    from opencontractserver.corpuses.services import CorpusDocumentService
+    from opencontractserver.documents.models import DocumentPath
+
+    accessible_doc_ids = set(
+        CorpusDocumentService.get_corpus_documents(user, corpus).values_list(
+            "id", flat=True
+        )
+    )
+    if not accessible_doc_ids:
+        return {}
+
+    path_map: dict[str, Document] = {}
+    for doc_path in DocumentPath.objects.filter(
+        corpus=corpus,
+        is_current=True,
+        is_deleted=False,
+        document_id__in=accessible_doc_ids,
+    ).select_related("document"):
+        path_map[doc_path.path] = doc_path.document
+    return path_map
 
 
 def _read_sidecar(
@@ -701,6 +743,11 @@ def import_zip_with_folder_structure(
         "annotations_imported": 0,
         "pipeline_skipped": 0,
         "pending_annotation_docs": 0,
+        # Count of intra-document annotation-to-annotation relationships found
+        # across all sidecars and persisted for deferred wiring. The relationships
+        # themselves are created later by ``remap_pending_annotations`` (once the
+        # annotation id_map exists), so this is a "captured", not "created", count.
+        "sidecar_relationships_found": 0,
         # Relationship statistics
         "relationships_file_found": False,
         "relationships_created": 0,
@@ -1030,6 +1077,12 @@ def import_zip_with_folder_structure(
                     sidecar_data: dict | None = None
                     has_pending_annotations = False
                     pending_annotations_list: list | None = None
+                    # Intra-document annotation-to-annotation relationships
+                    # (source/target annotation ids referencing the sidecar's
+                    # own annotations). Carried verbatim into the pending row so
+                    # the deferred remap can wire them once the annotation
+                    # id_map exists.
+                    pending_relationships_list: list | None = None
                     # True only for the dumb-anchor format (top-level
                     # ``"annotations"``); the legacy ``"labelled_text"`` format
                     # has no pre-flight schema and is re-anchored leniently.
@@ -1072,33 +1125,21 @@ def import_zip_with_folder_structure(
                             has_pending_annotations = (
                                 pending_annotations_list is not None
                             )
-                            # Intra-document annotation relationships are not yet
-                            # wired by the deferred remap pipeline (forward
-                            # investment — see PR description). The old sidecar
-                            # format carried a ``"relationships"`` list; never
-                            # drop it silently. Warn so producers know their
-                            # relationships were ignored on import.
-                            # TODO(deferred-remap): wire relationship import into
-                            # remap_pending_annotations once the dumb-anchor
-                            # id_map is consumed end-to-end, then remove this
-                            # drop-and-warn path.
+                            # Intra-document annotation-to-annotation
+                            # relationships ride alongside the annotations in a
+                            # top-level ``"relationships"`` list. They reference
+                            # the sidecar's own annotation ids, so they cannot be
+                            # wired until those annotations have been anchored and
+                            # assigned real pks. We capture them here and persist
+                            # them on the pending row; ``remap_pending_annotations``
+                            # wires them after ``import_annotations`` builds the
+                            # export-id -> new-pk map.
                             sidecar_rels = sidecar_data.get("relationships")
                             if isinstance(sidecar_rels, list) and sidecar_rels:
-                                rel_msg = (
-                                    f"Sidecar {sidecar_path} declares "
-                                    f"{len(sidecar_rels)} intra-document "
-                                    "relationship(s) which the deferred remap "
-                                    "pipeline does not yet import; they were "
-                                    "ignored."
+                                pending_relationships_list = sidecar_rels
+                                results["sidecar_relationships_found"] += len(
+                                    sidecar_rels
                                 )
-                                logger.warning(
-                                    "import_zip_with_folder_structure() - %s",
-                                    rel_msg,
-                                )
-                                # Surface to the caller, not just the Celery log
-                                # (review finding #3): an import that drops
-                                # relationships must not look like a clean success.
-                                results["errors"].append(rel_msg)
                         except Exception as e:
                             logger.error(
                                 f"import_zip_with_folder_structure() - "
@@ -1220,6 +1261,9 @@ def import_zip_with_folder_structure(
                                             "doc_labels": sidecar_data.get(
                                                 "doc_labels", []
                                             ),
+                                            "relationships": (
+                                                pending_relationships_list or []
+                                            ),
                                         },
                                         status=pending_status,
                                         report=pending_report,
@@ -1273,8 +1317,11 @@ def import_zip_with_folder_structure(
                         f"Error processing {entry.sanitized_path}: {str(e)}"
                     )
 
-            # Phase 5: Process relationships file if present
-            if manifest.relationship_file and document_path_map:
+            # Phase 5: Process relationships file if present.
+            # The gate no longer requires ``document_path_map`` to be non-empty:
+            # a relationship-only ZIP (just a relationships.csv wiring documents
+            # already in the corpus) is a valid cross-batch use case.
+            if manifest.relationship_file:
                 from opencontractserver.utils.relationship_file_parser import (
                     parse_relationship_file,
                 )
@@ -1283,6 +1330,16 @@ def import_zip_with_folder_structure(
                     f"import_zip_with_folder_structure() - Processing relationships "
                     f"file: {manifest.relationship_file}"
                 )
+
+                # Resolve endpoints against documents imported in THIS ZIP first,
+                # falling back to documents already in the corpus so a
+                # relationship can span separately-imported batches. The
+                # in-import map is layered on TOP so a path imported now wins over
+                # the same path's prior version.
+                resolution_path_map = {
+                    **build_existing_corpus_path_map(user_obj, corpus_obj),
+                    **document_path_map,
+                }
 
                 # Parse the relationships file
                 parse_result = parse_relationship_file(
@@ -1309,7 +1366,7 @@ def import_zip_with_folder_structure(
                         rel_results = create_relationships_from_parsed(
                             corpus=corpus_obj,
                             user=user_obj,
-                            document_path_map=document_path_map,
+                            document_path_map=resolution_path_map,
                             parsed_relationships=parse_result.relationships,
                             logger=logger,
                         )
@@ -1362,6 +1419,8 @@ def import_zip_with_folder_structure(
             f"pending annotation docs: {results['pending_annotation_docs']}, "
             f"pipeline skipped: {results['pipeline_skipped']}, "
             f"annotations imported: {results['annotations_imported']}, "
+            f"sidecar relationships captured: "
+            f"{results['sidecar_relationships_found']}, "
             f"relationships created: {results['relationships_created']}"
         )
 

@@ -36,6 +36,7 @@ from .caml_article import (  # noqa: F401
     apropose_caml_citation_match,
     aread_corpus_caml_article,
 )
+from .corpus_branding import aregenerate_corpus_icon  # noqa: F401
 from .descriptions import (  # noqa: F401
     aget_corpus_description,
     aget_document_description,
@@ -188,6 +189,8 @@ __all__ = [
     "aapply_caml_article_edit",
     "apropose_caml_citation_match",
     "aread_corpus_caml_article",
+    # Corpus icon (logo) regeneration
+    "aregenerate_corpus_icon",
     # Document indexing
     "IndexEntryItem",
     "acreate_document_index",

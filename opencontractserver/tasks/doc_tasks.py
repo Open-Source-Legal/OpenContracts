@@ -65,9 +65,14 @@ from opencontractserver.types.dicts import (
     LabelLookupPythonType,
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
+    OpenContractsRelationshipPythonType,
     PawlsTokenPythonType,
 )
-from opencontractserver.types.enums import AnnotationFilterMode, PermissionTypes
+from opencontractserver.types.enums import (
+    AnnotationFilterMode,
+    LabelType,
+    PermissionTypes,
+)
 from opencontractserver.utils.annotation_anchoring import (
     anchor_annotations,
     report_rawtext_preview,
@@ -75,7 +80,7 @@ from opencontractserver.utils.annotation_anchoring import (
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.etl import build_document_export, pawls_bbox_to_funsd_box
 from opencontractserver.utils.files import split_pdf_into_images
-from opencontractserver.utils.importing import import_annotations
+from opencontractserver.utils.importing import import_annotations, import_relationships
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.utils.text import truncate
 
@@ -1230,6 +1235,125 @@ def _trigger_corpus_import_finalize(
         _maybe_finalize_corpus_import(run_id)
 
 
+def _wire_pending_relationships(
+    rel_specs: list[dict],
+    annot_id_map: dict[Any, int],
+    doc: Document,
+    corpus: Any,
+    user_id: int,
+    report: list[dict],
+) -> tuple[int, int]:
+    """Wire a pending row's annotation-to-annotation relationships.
+
+    ``rel_specs`` are the verbatim sidecar relationship dicts (each carrying a
+    label plus ``source_annotation_ids`` / ``target_annotation_ids`` that
+    reference the sidecar's own annotation ids). ``annot_id_map`` is the
+    export-local-id -> new-Annotation-pk map returned by ``import_annotations``;
+    only annotations that anchored AND whose label resolved appear in it, so an
+    endpoint can legitimately be missing.
+
+    Each relationship's endpoints are resolved against ``annot_id_map`` and the
+    unresolved ones dropped. A relationship that keeps a usable label and at
+    least one resolved source AND one resolved target is imported — its
+    ``RELATIONSHIP_LABEL`` is auto-created in the corpus labelset if absent,
+    mirroring the document-to-document ``relationships.csv`` path. Everything
+    else is dropped with a ``report`` entry so the loss is never silent.
+
+    Returns ``(created, dropped)``.
+    """
+    if not rel_specs:
+        return 0, 0
+
+    if corpus is None:
+        # No corpus -> no labelset to host the RELATIONSHIP_LABEL (and the
+        # annotations themselves all failed for the same reason). Drop every
+        # relationship with a clear reason rather than raising.
+        for spec in rel_specs:
+            report.append(
+                {
+                    "id": spec.get("id"),
+                    "rawText": "",
+                    "dropped": True,
+                    "reason": "relationship skipped — pending row has no corpus",
+                }
+            )
+        return 0, len(rel_specs)
+
+    # ``import_annotations`` keys the map by the raw export-local id (often an
+    # int); a sidecar relationship may reference the same id as a str. Accept
+    # both forms so an int/str mismatch doesn't spuriously drop an endpoint.
+    resolvable: dict[Any, int] = dict(annot_id_map)
+    for old_id, new_pk in annot_id_map.items():
+        resolvable.setdefault(str(old_id), new_pk)
+
+    rel_label_lookup: dict[str, Any] = {}
+    importable: list[dict] = []
+    dropped = 0
+    for spec in rel_specs:
+        label_name = spec.get("relationshipLabel") or spec.get("label")
+        source_ids = spec.get("source_annotation_ids") or []
+        target_ids = spec.get("target_annotation_ids") or []
+        resolved_sources = [i for i in source_ids if i in resolvable]
+        resolved_targets = [i for i in target_ids if i in resolvable]
+
+        if not label_name or not resolved_sources or not resolved_targets:
+            dropped += 1
+            if not label_name:
+                reason = "relationship missing label"
+            elif not resolved_sources and not resolved_targets:
+                reason = (
+                    "relationship endpoints unresolved — neither source nor "
+                    "target annotation survived anchoring"
+                )
+            elif not resolved_sources:
+                reason = "relationship has no resolvable source annotation"
+            else:
+                reason = "relationship has no resolvable target annotation"
+            report.append(
+                {
+                    "id": spec.get("id"),
+                    "rawText": "",
+                    "dropped": True,
+                    "reason": reason,
+                }
+            )
+            continue
+
+        if label_name not in rel_label_lookup:
+            rel_label_lookup[label_name] = corpus.ensure_label_and_labelset(
+                label_text=label_name,
+                creator_id=user_id,
+                label_type=LabelType.RELATIONSHIP_LABEL,
+            )
+
+        importable.append(
+            {
+                "id": spec.get("id"),
+                "relationshipLabel": label_name,
+                "source_annotation_ids": resolved_sources,
+                "target_annotation_ids": resolved_targets,
+                # Producer relationships are never structural — structural
+                # relationships are regenerated by the parser (the same rule the
+                # anchor step applies to structural annotations).
+                "structural": False,
+            }
+        )
+
+    if importable:
+        import_relationships(
+            user_id=user_id,
+            doc_obj=doc,
+            corpus_obj=corpus,
+            relationships_data=cast(
+                list[OpenContractsRelationshipPythonType], importable
+            ),
+            label_lookup=rel_label_lookup,
+            annotation_id_map=resolvable,
+        )
+
+    return len(importable), dropped
+
+
 def _remap_one_pending_row(
     pending: PendingDocumentAnnotations,
     doc: Document,
@@ -1247,6 +1371,7 @@ def _remap_one_pending_row(
     payload = pending.payload or {}
     dumb_anns = payload.get("annotations", []) or []
     doc_label_names = payload.get("doc_labels", []) or []
+    rel_specs = payload.get("relationships", []) or []
 
     is_pdf = (doc.file_type or "").lower() == "application/pdf"
     pawls: list[dict] = []
@@ -1355,10 +1480,9 @@ def _remap_one_pending_row(
 
         # Creates one Annotation per anchored item whose label resolves (and wires
         # parent relationships + dispatches embeddings as a side effect). The
-        # return map (export-local id -> new Annotation pk) is not used for the
-        # success count (see ``created`` below) but IS persisted on the row's
-        # ``id_map`` so a future relationship-wiring feature can resolve endpoints
-        # without a backfill.
+        # return map (export-local id -> new Annotation pk) drives the
+        # annotation-to-annotation relationship wiring below and is persisted on
+        # the row's ``id_map`` so the mapping survives without a backfill.
         annot_id_map = import_annotations(
             user_id=user_id,
             doc_obj=doc,
@@ -1370,6 +1494,16 @@ def _remap_one_pending_row(
         pending.id_map = {
             str(old_id): new_pk for old_id, new_pk in annot_id_map.items()
         }
+
+        # Wire intra-document annotation-to-annotation relationships now that the
+        # annotation id_map exists. Sharing the annotation import's atomic block
+        # means a relationship failure rolls the annotations back too, and the
+        # concurrent-retry guard above prevents a duplicated task from
+        # double-creating. Endpoints that did not survive anchoring are dropped
+        # and recorded on ``report`` (never silently).
+        relationships_created, relationships_dropped = _wire_pending_relationships(
+            rel_specs, annot_id_map, doc, corpus, user_id, report
+        )
 
         # ------------------------------------------------------------------
         # Close the label-resolution silent-failure gap.
@@ -1463,7 +1597,13 @@ def _remap_one_pending_row(
         #     ``anchored and created == 0`` guard short-circuited to DONE here
         #     and mis-reported a total anchor failure as success.
         # An empty payload (nothing requested, nothing dropped) stays DONE.
-        nothing_landed = created == 0 and doc_labels_created == 0
+        # ``relationships_created`` is folded in so a sidecar that landed only
+        # relationships (no new annotations — e.g. all endpoints already
+        # existed) is not mis-marked FAILED. In practice relationships need
+        # freshly-anchored annotations, so this is belt-and-suspenders.
+        nothing_landed = (
+            created == 0 and doc_labels_created == 0 and relationships_created == 0
+        )
         any_dropped = any(r.get("dropped") for r in report)
         if nothing_landed and any_dropped:
             pending.status = PendingDocumentAnnotations.Status.FAILED
@@ -1479,6 +1619,8 @@ def _remap_one_pending_row(
         "label_unresolved": label_unresolved,
         "doc_labels": doc_labels_created,
         "doc_labels_unresolved": doc_labels_unresolved,
+        "relationships": relationships_created,
+        "relationships_dropped": relationships_dropped,
     }
 
 

@@ -135,6 +135,89 @@ contracts\agreement.pdf
 
 Path traversal (`..`) is rejected for security.
 
+### Cross-batch Relationships
+
+An endpoint that does not match a file inside the current ZIP is resolved
+against documents **already in the corpus** (matched by their path within the
+corpus, which equals the ZIP-relative path when no target folder is used). This
+lets a `relationships.csv` connect documents that were imported in **separate
+batches** — you can upload a ZIP containing *only* a `relationships.csv` to wire
+together documents already present in the corpus.
+
+Resolution order for each endpoint:
+
+1. A document imported in the current ZIP (same archive), then
+2. A current, non-deleted document already in the corpus that you can access.
+
+Only documents you can already see in the corpus are eligible, so cross-batch
+resolution never exposes a document you lacked access to. An endpoint that
+matches neither is skipped (and reported), exactly as before.
+
+## Annotation Sidecars
+
+A document may ship a co-located JSON **sidecar** (same name, `.json`
+extension — e.g. `agreement.pdf` + `agreement.json`) describing producer
+annotations to attach. Each annotation is a *dumb anchor*: a `label` + the
+`rawText` to find, plus a location hint (PDF `page` + `bbox`, or text
+`start`/`end`). The document is parsed normally and the annotations are
+re-anchored onto the freshly-produced text/PAWLs layer after ingest, so the
+anchors survive re-parsing.
+
+### Sidecar Schema
+
+```json
+{
+  "annotations": [
+    {
+      "id": 1,
+      "label": "OC_SECTION",
+      "rawText": "Article 1 — Definitions",
+      "page": 0,
+      "bbox": {"left": 50, "top": 50, "right": 300, "bottom": 70},
+      "link_url": "https://example.com/ref",
+      "data": {"canonical_name": "France", "lat": 46.0, "lng": 2.0}
+    },
+    {
+      "id": 2,
+      "label": "OC_CLAUSE",
+      "rawText": "indemnification obligations",
+      "start": 1234,
+      "end": 1261
+    }
+  ],
+  "doc_labels": ["Contract"],
+  "relationships": [
+    {
+      "id": "r1",
+      "relationshipLabel": "OC_PARENT_CHILD",
+      "source_annotation_ids": [1],
+      "target_annotation_ids": [2]
+    }
+  ]
+}
+```
+
+| Field | Scope | Description |
+|-------|-------|-------------|
+| `annotations[].label` | required | Resolves against `labels.json`/the corpus label set |
+| `annotations[].rawText` | required | The text to (re-)anchor onto — the source of truth |
+| `annotations[].page` + `bbox` | PDF | Location hint for token-based anchoring |
+| `annotations[].start` + `end` | text | Character-offset hint for span anchoring |
+| `annotations[].link_url` | optional | Click-through target for `OC_URL` hyperlink annotations |
+| `annotations[].data` | optional | Structured sidecar persisted to `Annotation.data` (e.g. geocoded `OC_COUNTRY`/`OC_STATE`/`OC_CITY` payloads) |
+| `relationships[]` | optional | Annotation-to-annotation edges (see below) |
+
+### Annotation-to-annotation Relationships
+
+The optional `relationships` list declares edges **between annotations in the
+same sidecar**. Each entry carries a `relationshipLabel` (auto-created as a
+`RELATIONSHIP_LABEL` if it doesn't exist — e.g. `OC_PARENT_CHILD`,
+`OC_SUBTREE_GROUP`) and `source_annotation_ids` / `target_annotation_ids` that
+reference the sidecar annotations' own `id`s. Relationships are wired after the
+annotations are re-anchored, using the producer-id → new-annotation map. An edge
+whose endpoints did not survive anchoring is dropped and recorded on the import
+report, never silently lost.
+
 ## Security Constraints
 
 | Constraint | Default | Description |

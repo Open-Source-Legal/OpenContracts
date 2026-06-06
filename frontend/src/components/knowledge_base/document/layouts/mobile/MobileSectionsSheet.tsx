@@ -1,17 +1,27 @@
-import React, { useEffect } from "react";
+import React, { useMemo } from "react";
 import styled from "styled-components";
-import { useAtomValue } from "jotai";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@apollo/client";
 import { List } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalStyles";
 import { MOBILE_RADIUS, MOBILE_SHADOW } from "./mobileTheme";
-import { structuralAnnotationsAtom } from "../../../../annotator/context/AnnotationAtoms";
-import { updateAnnotationDisplayParams } from "../../../../../utils/navigationUtils";
+import {
+  GET_DOCUMENT_ANNOTATION_INDEX,
+  GetDocumentAnnotationIndexInput,
+  GetDocumentAnnotationIndexOutput,
+} from "../../../../../graphql/queries";
+import {
+  DOCUMENT_ANNOTATION_INDEX_LIMIT,
+  OC_SECTION_LABEL,
+} from "../../../../../assets/configurations/constants";
 
 export interface MobileSectionsSheetProps {
-  /** Whether the sheet is open — gates the structural-annotation fetch. */
+  /** Whether the sheet is open — gates the (lazy) index fetch. */
   open: boolean;
+  /** Document (relay global id) whose section index to load. */
+  documentId: string;
+  /** Optional corpus scope for the index query. */
+  corpusId?: string;
   /** Navigate the viewer to the tapped section, then close the sheet. */
   onNavigate: (annotationId: string) => void;
 }
@@ -86,36 +96,68 @@ const Empty = styled.div`
 /**
  * Body for the Document → Sections sheet.
  *
- * Renders the document's structural annotations (headers / sections) as a flat
- * tappable index. Tapping a row routes the viewer to that annotation via the
- * standard `?ann=` deep-link path. Opening the sheet sets the `structural`
- * URL param so {@link useStructuralAnnotations} (mounted by
- * DocumentKnowledgeBase) lazily fetches the structural set.
+ * Renders the document's **index** — the `OC_SECTION` annotations
+ * (`structural: false`), i.e. the exact same set the desktop "Index" tab
+ * ({@link DocumentAnnotationIndex}) shows — as a flat, document-order tappable
+ * jump list. Tapping a row routes the viewer to that annotation via the
+ * standard `?ann=` deep-link path (`onNavigate`).
+ *
+ * Historically this sheet read the *structural* annotation set
+ * (`structural: true`). That set is disjoint from `OC_SECTION` (the enricher
+ * marks index entries `structural=false` so users can edit them), so for an
+ * OC_SECTION-indexed document the sheet rendered nothing at all while the
+ * desktop index was full — issue: "mobile index loads nothing". Sourcing the
+ * index query directly keeps the two surfaces consistent. The fetch is gated
+ * on `open` so it stays lazy (no work until the user browses sections).
  */
 export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
   open,
+  documentId,
+  corpusId,
   onNavigate,
 }) => {
-  const structuralAnnotations = useAtomValue(structuralAnnotationsAtom);
-  const location = useLocation();
-  const navigate = useNavigate();
+  const { data, loading, error } = useQuery<
+    GetDocumentAnnotationIndexOutput,
+    GetDocumentAnnotationIndexInput
+  >(GET_DOCUMENT_ANNOTATION_INDEX, {
+    variables: {
+      documentId,
+      corpusId,
+      labelText: OC_SECTION_LABEL,
+      first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
+    },
+    skip: !open || !documentId,
+    fetchPolicy: "cache-first",
+  });
 
-  // Opening the sheet is the user signalling intent to browse structure — use
-  // it as the trigger to lazily load the structural annotation set. The
-  // `showStructuralAnnotations` reactive var is URL-driven, so flip it via the
-  // URL (per the routing write-discipline rule) rather than setting it directly.
-  useEffect(() => {
-    if (open) {
-      updateAnnotationDisplayParams(location, navigate, {
-        showStructural: true,
-      });
-    }
-    // location and navigate are stable router refs; this effect must fire
-    // only on the `open` transition, not on every navigation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  // Flat, page-ordered list — the right shape for a mobile "jump to section"
+  // sheet (the desktop tab renders the same nodes as an expandable tree).
+  const sections = useMemo(() => {
+    const nodes = (data?.annotations?.edges ?? []).map((edge) => edge.node);
+    return [...nodes].sort(
+      (a, b) =>
+        (a.page ?? 0) - (b.page ?? 0) ||
+        (a.rawText ?? "").localeCompare(b.rawText ?? "")
+    );
+  }, [data]);
 
-  if (structuralAnnotations.length === 0) {
+  if (loading && sections.length === 0) {
+    return (
+      <Empty data-testid="mobile-sections-loading">Loading sections…</Empty>
+    );
+  }
+
+  // Distinguish a fetch failure from a genuinely section-less document so the
+  // user isn't told "no sections" when the index simply failed to load.
+  if (error && sections.length === 0) {
+    return (
+      <Empty data-testid="mobile-sections-error">
+        Failed to load sections.
+      </Empty>
+    );
+  }
+
+  if (sections.length === 0) {
     return (
       <Empty data-testid="mobile-sections-empty">
         No sections detected in this document.
@@ -125,17 +167,17 @@ export const MobileSectionsSheet: React.FC<MobileSectionsSheetProps> = ({
 
   return (
     <List_ data-testid="mobile-sections-list">
-      {structuralAnnotations.map((ann) => {
-        const label = (ann.rawText || ann.annotationLabel?.text || "Section")
-          .trim()
-          .replace(/\s+/g, " ");
+      {sections.map((node) => {
+        const label = (node.rawText || "Section").trim().replace(/\s+/g, " ");
         return (
-          <Row key={ann.id} onClick={() => onNavigate(ann.id)}>
+          <Row key={node.id} onClick={() => onNavigate(node.id)}>
             <RowIcon>
               <List size={15} color={OS_LEGAL_COLORS.accent} />
             </RowIcon>
             <RowLabel>{label || "Section"}</RowLabel>
-            <PageBadge>p.{ann.page + 1}</PageBadge>
+            {/* Page value matches the desktop index (DocumentAnnotationIndex)
+                exactly so the same section reads the same page on both. */}
+            <PageBadge>p. {node.page}</PageBadge>
           </Row>
         );
       })}

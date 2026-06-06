@@ -388,6 +388,30 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         parameters=(("new_content", "Full markdown content", True),),
     ),
     ToolDefinition(
+        name="regenerate_corpus_icon",
+        description=(
+            "Generate a fresh icon/logo for this corpus and save it, replacing "
+            "any existing icon. Re-runs the same generator used to brand new "
+            "corpora (an AI image model with a deterministic monogram fallback). "
+            "Creator-only and approval-gated. Pass additional_instructions to "
+            "steer the look (e.g. 'use blue tones and a gavel motif'); the "
+            "monogram fallback ignores the hint."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            (
+                "additional_instructions",
+                "Optional free-text styling hint folded into the image prompt "
+                "(e.g. colors, motifs, mood). Leave empty to regenerate from the "
+                "corpus title and description alone.",
+                False,
+            ),
+        ),
+    ),
+    ToolDefinition(
         name="read_corpus_caml_article",
         description=(
             "Read the corpus's Readme.CAML article for citation review. Returns "
@@ -1227,6 +1251,7 @@ class ToolFunctionRegistry:
             amove_document,
             apropose_caml_citation_match,
             aread_corpus_caml_article,
+            aregenerate_corpus_icon,
             ascan_and_annotate_pii,
             asearch_document_notes,
             asearch_exact_text_as_sources,
@@ -1302,6 +1327,10 @@ class ToolFunctionRegistry:
             # Corpus tools
             "get_corpus_description": (aget_corpus_description, ()),
             "update_corpus_description": (aupdate_corpus_description, ()),
+            "regenerate_corpus_icon": (
+                aregenerate_corpus_icon,
+                ("generate_corpus_icon",),
+            ),
             "move_document": (amove_document, ()),
             "create_or_update_text_document": (
                 acreate_or_update_text_document,
