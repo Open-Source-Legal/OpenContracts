@@ -21,7 +21,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from opencontractserver.corpuses.models import Corpus, CorpusFolder, TemporaryFileHandle
 from opencontractserver.corpuses.services import FolderCRUDService
@@ -639,73 +639,57 @@ class TestZipValidationFailures(TestCase):
         self.assertTrue(result["completed"])
         self.assertEqual(result["files_processed"], 1)
 
+    @override_settings(ZIP_MAX_FILE_COUNT=5)
     def test_too_many_files_rejected(self):
         """Zip with too many files is rejected at validation."""
         from opencontractserver.tasks.import_tasks import (
             import_zip_with_folder_structure,
         )
-        from opencontractserver.utils import zip_security
 
-        # Temporarily override the constant
-        original = zip_security.ZIP_MAX_FILE_COUNT
-        zip_security.ZIP_MAX_FILE_COUNT = 5
+        files = {f"file{i}.pdf": self.pdf_bytes for i in range(10)}
+        zip_buffer = self._create_test_zip(files)
+        handle = self._create_temp_file_handle(zip_buffer)
 
-        try:
-            files = {f"file{i}.pdf": self.pdf_bytes for i in range(10)}
-            zip_buffer = self._create_test_zip(files)
-            handle = self._create_temp_file_handle(zip_buffer)
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "test-too-many",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
 
-            result = import_zip_with_folder_structure.apply(
-                kwargs={
-                    "temporary_file_handle_id": handle.id,
-                    "user_id": self.user.id,
-                    "job_id": "test-too-many",
-                    "corpus_id": self.corpus.id,
-                }
-            ).get()
+        self.assertTrue(result["completed"])
+        self.assertFalse(result["validation_passed"])
+        self.assertTrue(any("files" in e.lower() for e in result["validation_errors"]))
 
-            self.assertTrue(result["completed"])
-            self.assertFalse(result["validation_passed"])
-            self.assertTrue(
-                any("files" in e.lower() for e in result["validation_errors"])
-            )
-        finally:
-            zip_security.ZIP_MAX_FILE_COUNT = original
-
+    @override_settings(ZIP_MAX_SINGLE_FILE_SIZE_BYTES=100)  # 100 bytes
     def test_oversized_files_skipped_not_rejected(self):
         """Individual oversized files are skipped, not rejected entirely."""
         from opencontractserver.tasks.import_tasks import (
             import_zip_with_folder_structure,
         )
-        from opencontractserver.utils import zip_security
 
-        # Temporarily set a very small file size limit
-        original = zip_security.ZIP_MAX_SINGLE_FILE_SIZE_BYTES
-        zip_security.ZIP_MAX_SINGLE_FILE_SIZE_BYTES = 100  # 100 bytes
+        files = {
+            "small.txt": b"x" * 50,  # Under limit
+            "large.txt": b"x" * 200,  # Over limit
+        }
+        zip_buffer = self._create_test_zip(files)
+        handle = self._create_temp_file_handle(zip_buffer)
 
-        try:
-            files = {
-                "small.txt": b"x" * 50,  # Under limit
-                "large.txt": b"x" * 200,  # Over limit
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "test-oversized",
+                "corpus_id": self.corpus.id,
             }
-            zip_buffer = self._create_test_zip(files)
-            handle = self._create_temp_file_handle(zip_buffer)
+        ).get()
 
-            result = import_zip_with_folder_structure.apply(
-                kwargs={
-                    "temporary_file_handle_id": handle.id,
-                    "user_id": self.user.id,
-                    "job_id": "test-oversized",
-                    "corpus_id": self.corpus.id,
-                }
-            ).get()
-
-            self.assertTrue(result["completed"])
-            self.assertTrue(result["validation_passed"])
-            self.assertEqual(result["files_skipped_size"], 1)
-            self.assertIn("large.txt", result["skipped_oversized"])
-        finally:
-            zip_security.ZIP_MAX_SINGLE_FILE_SIZE_BYTES = original
+        self.assertTrue(result["completed"])
+        self.assertTrue(result["validation_passed"])
+        self.assertEqual(result["files_skipped_size"], 1)
+        self.assertIn("large.txt", result["skipped_oversized"])
 
 
 class TestDocumentUpversioning(TestCase):

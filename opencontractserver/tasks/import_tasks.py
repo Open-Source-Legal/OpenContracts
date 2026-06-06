@@ -32,7 +32,7 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MAX_FILENAME_LENGTH,
 )
-from opencontractserver.constants.zip_import import ZIP_MAX_SIDECAR_SIZE_BYTES
+from opencontractserver.constants.zip_import import get_zip_max_sidecar_size_bytes
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
     Document,
@@ -634,22 +634,26 @@ def _read_sidecar(
     # name lookup against the zip's central directory — it does NOT touch the
     # filesystem and cannot be used for path-traversal.
 
+    # Read the configurable limit at call time (never frozen at import — see
+    # opencontractserver/constants/zip_import.py).
+    max_sidecar_size_bytes = get_zip_max_sidecar_size_bytes()
+
     # Pre-read size check using the central directory's declared size.
     # This avoids allocating memory for oversized sidecars.  A malicious zip
     # could forge this value, so we keep a post-read assertion as well.
     info = import_zip.getinfo(sidecar_path)
-    if info.file_size > ZIP_MAX_SIDECAR_SIZE_BYTES:
+    if info.file_size > max_sidecar_size_bytes:
         raise ValueError(
             f"Sidecar {sidecar_path} declares {info.file_size} bytes, "
-            f"exceeds limit of {ZIP_MAX_SIDECAR_SIZE_BYTES} bytes"
+            f"exceeds limit of {max_sidecar_size_bytes} bytes"
         )
 
     with import_zip.open(sidecar_path) as sidecar_handle:
         raw = sidecar_handle.read()
-        if len(raw) > ZIP_MAX_SIDECAR_SIZE_BYTES:
+        if len(raw) > max_sidecar_size_bytes:
             raise ValueError(
                 f"Sidecar {sidecar_path} is {len(raw)} bytes, "
-                f"exceeds limit of {ZIP_MAX_SIDECAR_SIZE_BYTES} bytes"
+                f"exceeds limit of {max_sidecar_size_bytes} bytes"
             )
         return json.loads(raw.decode("UTF-8"))
 
@@ -711,10 +715,14 @@ def import_zip_with_folder_structure(
         - Relationship statistics (created, skipped, errors)
         - Document IDs and error messages
     """
-    from opencontractserver.constants.zip_import import ZIP_DOCUMENT_BATCH_SIZE
+    from opencontractserver.constants.zip_import import get_zip_document_batch_size
     from opencontractserver.corpuses.models import Corpus, CorpusFolder
     from opencontractserver.corpuses.services import FolderCRUDService
     from opencontractserver.utils.zip_security import validate_zip_for_import
+
+    # Read the configurable batch size once for this run (never frozen at
+    # import — see opencontractserver/constants/zip_import.py).
+    zip_document_batch_size = get_zip_document_batch_size()
 
     results: dict[str, Any] = {
         "job_id": job_id,
@@ -1304,7 +1312,7 @@ def import_zip_with_folder_structure(
                             results["upversioned_paths"].append(doc_path_str)
 
                         batch_count += 1
-                        if batch_count % ZIP_DOCUMENT_BATCH_SIZE == 0:
+                        if batch_count % zip_document_batch_size == 0:
                             logger.info(
                                 f"import_zip_with_folder_structure() - "
                                 f"Processed {batch_count} documents..."

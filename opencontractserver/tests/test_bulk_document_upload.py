@@ -17,7 +17,7 @@ from graphql_relay import to_global_id
 from config.graphql.schema import schema
 from opencontractserver.constants.zip_import import (
     BULK_UPLOAD_OWNER_CACHE_PREFIX,
-    BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+    get_bulk_upload_owner_cache_ttl_seconds,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -222,7 +222,7 @@ class BulkDocumentUploadTests(TestCase):
         cache.set(
             f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{test_task_id}",
             self.user.id,
-            BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+            get_bulk_upload_owner_cache_ttl_seconds(),
         )
 
         # Use our known task ID to perform the status query
@@ -600,7 +600,7 @@ class BulkDocumentUploadStatusIDORTests(TestCase):
         cache.set(
             f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
             self.owner.id,
-            BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS,
+            get_bulk_upload_owner_cache_ttl_seconds(),
         )
         AsyncResult(job_id).backend.store_result(
             job_id,
