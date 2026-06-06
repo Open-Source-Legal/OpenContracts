@@ -330,7 +330,9 @@ class CorpusQueryMixin:
             # "Field 'id' expected a number but got ''" inside this open
             # transaction, aborting it for the rest of the request. Treat a bad
             # id like a not-found / not-visible corpus (empty queryset) and fall
-            # through to the zeroed stats below.
+            # through to the zeroed stats below. Note ``isdigit()`` also rejects
+            # signed values like "-1", so negative ids are treated as
+            # not-found too (no corpus ever has a negative pk).
             if str(corpus_pk).isdigit():
                 corpuses = BaseService.filter_visible(
                     Corpus, user, request=info.context

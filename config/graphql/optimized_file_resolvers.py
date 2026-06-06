@@ -81,6 +81,12 @@ def create_file_resolver(field_name: str) -> Callable[[Any, Any], str]:
 
         if cached_raw is None and shared_key is not None:
             try:
+                # Blob-keyed, not user-keyed: GCS signBlob URLs are bearer
+                # tokens (valid for any holder, not scoped to a user), so the
+                # raw signed URL is safe to share across users. This is ONLY
+                # safe while signed URLs are not user-scoped — if STORAGE_BACKEND
+                # ever switches to a mechanism that signs per-user URLs, this
+                # cache would leak URLs across users and must be re-keyed.
                 cache.set(shared_key, raw_url, shared_ttl)
             except Exception:
                 pass

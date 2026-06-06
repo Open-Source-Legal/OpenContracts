@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 # (the 503 cascade behind the "stuck in processing" import incident). When the
 # 5xx body carries one of these markers we classify it as non-transient so it
 # fails on the first attempt instead of exhausting retries.
+#
+# Maintenance note: these signatures match the docling microservice's current
+# error-body format (Docling 2.x ``ConversionStatus``/``ConversionError``
+# strings). A docling upgrade that changes the error format would silently
+# regress to the retry storm — re-verify these markers when bumping the
+# docling-parser service image.
 _DOCLING_PERMANENT_FAILURE_SIGNATURES = (
     "conversionstatus.failure",
     "conversionerror",

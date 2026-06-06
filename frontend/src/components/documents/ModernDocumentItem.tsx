@@ -353,7 +353,16 @@ export const ModernDocumentItem: React.FC<ModernDocumentItemProps> = ({
     setIsDownloading(true);
     try {
       const url = await resolvePdfUrl(id, pdfFile);
-      if (url) await downloadFile(url);
+      if (url) {
+        await downloadFile(url);
+      } else {
+        // The card shows the download button for any PDF-typed document, but
+        // the signed URL is resolved lazily — surface a toast instead of a
+        // silent no-op when no downloadable file is available.
+        toast.error("No downloadable file is available for this document.");
+      }
+    } catch {
+      toast.error("Could not download the document. Please try again.");
     } finally {
       setTimeout(() => setIsDownloading(false), 1000);
     }

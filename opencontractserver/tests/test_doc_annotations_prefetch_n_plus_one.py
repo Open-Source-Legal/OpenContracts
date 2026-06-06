@@ -32,7 +32,7 @@ regression vector:
 4. The django-guardian anonymous-user lookup fires at most once per request
    (the ``info.context._anon_user_id`` cache in
    ``AnnotatePermissionsForReadMixin``).
-5. ``_get_anonymous_user_id`` is idempotent after the first call.
+5. ``get_anonymous_user_id`` is idempotent after the first call.
 
 If any of these breaks independently, the corresponding speedup quietly
 disappears — there's no functional symptom, only a slower query. Each test
@@ -56,7 +56,7 @@ from config.graphql.custom_resolvers import (
 )
 from config.graphql.filters import AnnotationFilter
 from config.graphql.permissioning.permission_annotator.mixins import (
-    _get_anonymous_user_id,
+    get_anonymous_user_id,
 )
 from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
@@ -490,23 +490,23 @@ class DocTypeLabelsBadgeNPlusOneTests(BaseFixtureTestCase):
     # ------------------------------------------------------------------ #
 
     def test_get_anonymous_user_id_caches_on_request(self) -> None:
-        """``_get_anonymous_user_id`` memoises on ``info.context``."""
+        """``get_anonymous_user_id`` memoises on ``info.context``."""
 
         class _Ctx:
             pass
 
         info = _FakeInfo(_Ctx())
         with CaptureQueriesContext(connection) as ctx:
-            anon_id_first = _get_anonymous_user_id(info)
+            anon_id_first = get_anonymous_user_id(info)
         first_lookup_queries = len(ctx.captured_queries)
         with CaptureQueriesContext(connection) as ctx2:
-            anon_id_second = _get_anonymous_user_id(info)
+            anon_id_second = get_anonymous_user_id(info)
         self.assertEqual(anon_id_first, anon_id_second)
         self.assertEqual(
             len(ctx2.captured_queries),
             0,
             msg=(
-                "Second call to _get_anonymous_user_id fired "
+                "Second call to get_anonymous_user_id fired "
                 f"{len(ctx2.captured_queries)} queries — expected zero "
                 "(cached on info.context._anon_user_id)."
             ),

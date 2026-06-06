@@ -14,7 +14,7 @@ from config.graphql.base_types import build_flat_tree
 from config.graphql.filters import AnnotationFilter, LabelFilter
 from config.graphql.permissioning.permission_annotator.mixins import (
     AnnotatePermissionsForReadMixin,
-    _get_anonymous_user_id,
+    get_anonymous_user_id,
 )
 from opencontractserver.annotations.models import (
     Annotation,
@@ -314,7 +314,7 @@ class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
 
         context = getattr(info, "context", None)
         user = getattr(context, "user", None)
-        anon_id = _get_anonymous_user_id(info)
+        anon_id = get_anonymous_user_id(info)
         if (
             user is not None
             and getattr(user, "is_authenticated", False)
@@ -323,8 +323,16 @@ class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             # ``get_users_permissions_for_obj`` returns only the perms the
             # caller actually holds on each labelset (creator / guardian /
             # group / is_public), so labelsets they cannot see contribute
-            # nothing. Label membership is small in practice, so the per-label
-            # fan-out across labelsets is acceptable.
+            # nothing.
+            #
+            # Known limitation (accepted): this is a per-label N+1 — each label
+            # node runs ``included_in_labelsets.all()`` plus a permission lookup
+            # per labelset, with no resolver-level ``prefetch_related`` to
+            # collapse it. Acceptable only because label↔labelset membership is
+            # small (typically 1) in practice. If ``AnnotationLabelType`` is ever
+            # rendered inside a large connection that also selects
+            # ``myPermissions``, add ``prefetch_related("included_in_labelsets")``
+            # to the source queryset before this fans out.
             for labelset in self.included_in_labelsets.all():
                 for perm in get_users_permissions_for_obj(user, labelset):
                     permissions.add(perm.replace("labelset", "annotationlabel"))

@@ -223,13 +223,26 @@ def reconcile_stuck_documents() -> dict[str, int]:
         minutes=settings.DOCUMENT_PROCESSING_STALE_MINUTES
     )
 
+    # Cap the per-run batch so a large post-outage backlog can't make a single
+    # sweep run past its beat interval and overlap the next invocation. The
+    # remainder is reclaimed by subsequent sweeps (stuck docs stay stuck until
+    # marked, so nothing is lost). Fetch cap+1 ids only to detect a capped run.
+    batch_cap = settings.DOCUMENT_RECONCILE_BATCH_CAP
     stuck_ids = list(
         Document.objects.filter(
             processing_status=DocumentProcessingStatus.PROCESSING,
             backend_lock=True,
             processing_started__lt=cutoff,
-        ).values_list("pk", flat=True)
+        ).values_list("pk", flat=True)[: batch_cap + 1]
     )
+    capped = len(stuck_ids) > batch_cap
+    if capped:
+        stuck_ids = stuck_ids[:batch_cap]
+        logger.warning(
+            "[reconcile_stuck_documents] Stuck backlog exceeds batch cap "
+            f"({batch_cap}); reclaiming the first {batch_cap} this sweep, "
+            "remainder deferred to the next run."
+        )
 
     count = 0
     for doc_pk in stuck_ids:

@@ -881,6 +881,12 @@ DOCUMENT_PROCESSING_STALE_MINUTES = int(
     env("DOCUMENT_PROCESSING_STALE_MINUTES", default="30")
 )
 
+# Max documents reclaimed per reconcile_stuck_documents sweep. After an
+# extended outage the stuck backlog can be large; capping the per-run batch
+# keeps a single sweep well under its beat interval so runs don't overlap.
+# Any remainder is picked up by the next scheduled sweep.
+DOCUMENT_RECONCILE_BATCH_CAP = int(env("DOCUMENT_RECONCILE_BATCH_CAP", default="200"))
+
 # Maximum file size (in bytes) accepted by the multipart REST import
 # endpoints under /api/imports/. Applied to both single-document and
 # bulk-zip imports. Default: same ceiling as DATA_UPLOAD_MAX_MEMORY_SIZE
