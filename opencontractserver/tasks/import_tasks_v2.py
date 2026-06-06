@@ -16,6 +16,7 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from config import celery_app
 from opencontractserver.annotations.models import (
@@ -75,6 +76,12 @@ User = get_user_model()
 # folder_path" warning. Log aggregators (Datadog, CloudWatch) truncate long
 # lines, which could hide the very keys we want a human to compare against.
 _UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE = 20
+
+# Sentinel the V2 exporter (``etl.py``) writes as the "file" for any document
+# without a real ``pdf_file`` (text/markdown/source-less docs): a single NUL
+# byte. Reingest cannot re-parse it, so such docs fall back to the baked import.
+# Kept as a named constant so it cross-references the exporter side.
+_NUL_SOURCE_PLACEHOLDER = b"\x00"
 
 
 def import_corpus_v2_from_bytes(
@@ -390,12 +397,13 @@ def _import_document_with_annotations(
 def _source_is_reingestable(source_bytes: bytes) -> bool:
     """True when the export preserved a real source file for reingest.
 
-    The V2 exporter writes a single NUL byte (``b"\\x00"``) as the file for any
-    document without a real ``pdf_file`` (text/markdown/source-less docs); their
-    content survives only as baked ``content`` / ``pawls_file_content``. Such a
-    placeholder cannot be re-parsed, so those docs fall back to the baked import.
+    The V2 exporter writes a single NUL byte (``_NUL_SOURCE_PLACEHOLDER``) as the
+    file for any document without a real ``pdf_file`` (text/markdown/source-less
+    docs); their content survives only as baked ``content`` /
+    ``pawls_file_content``. Such a placeholder cannot be re-parsed, so those docs
+    fall back to the baked import.
     """
-    return source_bytes not in (b"", b"\x00")
+    return source_bytes not in (b"", _NUL_SOURCE_PLACEHOLDER)
 
 
 def _reingest_document_with_deferred_remap(
@@ -672,9 +680,13 @@ def _import_corpus(
             expected = PendingDocumentAnnotations.objects.filter(
                 ingestion_run_id=import_run_id
             ).count()
+            # ``updated_at`` is ``auto_now`` but bulk ``.update()`` bypasses it,
+            # so stamp it explicitly — the admin panel is the primary surface for
+            # spotting stuck/recently-armed runs until the sweeper (§9) lands.
             PendingCorpusImport.objects.filter(import_run_id=import_run_id).update(
                 expected_doc_count=expected,
                 status=PendingCorpusImport.Status.READY,
+                updated_at=timezone.now(),
             )
             _maybe_finalize_corpus_import(import_run_id)
 

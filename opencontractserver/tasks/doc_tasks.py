@@ -1715,13 +1715,16 @@ def finalize_corpus_import_relationships(run_id: str) -> dict[str, Any]:
 
             corpus = locked.corpus
 
-            # Aggregate the per-document id_maps recorded by each remap.
+            # Aggregate the per-document id_maps recorded by each remap. Only
+            # ``id_map`` is needed, so pull it with ``values_list`` rather than
+            # hydrating each row's full ``payload`` JSON (cheaper, and matters if
+            # the fan-in is later reused for large bulk-ZIP imports — §9).
             aggregated_id_map: dict[str, int] = {}
-            for pend in PendingDocumentAnnotations.objects.filter(
+            for row_id_map in PendingDocumentAnnotations.objects.filter(
                 ingestion_run_id=run_id,
                 status=PendingDocumentAnnotations.Status.DONE,
-            ):
-                for old_id, new_pk in (pend.id_map or {}).items():
+            ).values_list("id_map", flat=True):
+                for old_id, new_pk in (row_id_map or {}).items():
                     aggregated_id_map[str(old_id)] = new_pk
 
             # Rebuild the (text, label_type)-keyed label lookup from the corpus
@@ -1755,9 +1758,12 @@ def finalize_corpus_import_relationships(run_id: str) -> dict[str, Any]:
             exc,
             exc_info=True,
         )
+        # ``updated_at`` is ``auto_now`` but bulk ``.update()`` bypasses it;
+        # stamp it so the admin panel surfaces recently-failed runs (§9).
         PendingCorpusImport.objects.filter(import_run_id=run_id).update(
             status=PendingCorpusImport.Status.FAILED,
             report={"error": str(exc)},
+            updated_at=timezone.now(),
         )
         return {"run_id": run_id, "failed": str(exc)}
 

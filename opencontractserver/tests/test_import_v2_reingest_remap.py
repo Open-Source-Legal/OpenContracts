@@ -455,6 +455,12 @@ class TestRemapFinalizeTrigger(TestCase):
         self.assertFalse(PendingCorpusImport.objects.exists())
 
 
+# These imports are intentionally module-level-but-late (E402): the
+# coordination-only test classes above need nothing from the heavy zip-import
+# integration module, and importing it eagerly at the top would pull its
+# hermetic-parser machinery into every test in this file. Keeping them here
+# scopes that cost to the end-to-end class below. (Not function-local because
+# the parser-path constants are referenced in class-level decorators/fixtures.)
 from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH  # noqa: E402
 
 # Hermetic in-test PDF parser (shared with test_zip_import_integration) returns
@@ -676,6 +682,148 @@ class TestReingestRemapEndToEnd(TransactionTestCase):
         src = rel.source_annotations.get()
         tgt = rel.target_annotations.get()
         self.assertNotEqual(src.document_id, tgt.document_id)
+
+    def _build_sourceless_corpus_and_stage(self) -> TemporaryFileHandle:
+        """Stage an export of a corpus whose docs have **no preserved source**.
+
+        Two ``text/plain`` documents with no ``pdf_file`` (so the V2 exporter
+        writes the single-NUL placeholder for each) plus a cross-doc
+        relationship between one annotation on each. On reingest import both docs
+        must take the baked fallback (``_source_is_reingestable`` is False), and
+        the fan-in must still wire the relationship from their recorded id_maps.
+        """
+        labelset = LabelSet.objects.create(title="SL-LS", creator=self.user)
+        labelset.annotation_labels.add(self.token_label, self.rel_label)
+        with transaction.atomic():
+            corpus = Corpus.objects.create(
+                title="Source-less Corpus", creator=self.user, label_set=labelset
+            )
+            set_permissions_for_obj_to_user(self.user, corpus, [PermissionTypes.ALL])
+
+        anns: list[Annotation] = []
+        for idx in (1, 2):
+            with transaction.atomic():
+                doc = Document.objects.create(
+                    title=f"Text Doc {idx}",
+                    creator=self.user,
+                    file_type="text/plain",
+                    # No pdf_file -> exporter emits the NUL placeholder, so the
+                    # importer cannot re-parse and must fall back to baked import.
+                    txt_extract_file=ContentFile(
+                        f"body of source-less doc {idx}".encode(), name=f"d{idx}.txt"
+                    ),
+                    page_count=1,
+                    processing_started=timezone.now(),  # suppress source ingest
+                )
+                DocumentPath.objects.create(
+                    document=doc,
+                    corpus=corpus,
+                    path=f"/text{idx}.txt",
+                    version_number=1,
+                    is_current=True,
+                    is_deleted=False,
+                    creator=self.user,
+                )
+                ann = Annotation.objects.create(
+                    document=doc,
+                    corpus=corpus,
+                    annotation_label=self.token_label,
+                    raw_text=f"span {idx}",
+                    page=0,
+                    annotation_type=TOKEN_LABEL,
+                    json={"0": {"bounds": {}, "tokensJsons": [], "rawText": f"s{idx}"}},
+                    creator=self.user,
+                )
+                set_permissions_for_obj_to_user(self.user, ann, [PermissionTypes.ALL])
+            anns.append(ann)
+
+        with transaction.atomic():
+            rel = Relationship.objects.create(
+                corpus=corpus,
+                document=anns[0].document,
+                relationship_label=self.rel_label,
+                structural=False,
+                creator=self.user,
+            )
+            rel.source_annotations.set([anns[0]])
+            rel.target_annotations.set([anns[1]])
+            set_permissions_for_obj_to_user(self.user, rel, [PermissionTypes.ALL])
+
+        export = UserExport.objects.create(backend_lock=True, creator=self.user)
+        package_corpus_export_v2(
+            export_id=export.id, corpus_pk=corpus.id, include_conversations=False
+        )
+        export.refresh_from_db()
+        temp_file = TemporaryFileHandle.objects.create()
+        export.file.open("rb")
+        temp_file.file.save("sourceless_import.zip", export.file)
+        export.file.close()
+        return temp_file
+
+    def test_sourceless_docs_fall_back_to_baked_and_relationship_wires(self):
+        """Reingest of source-less docs: baked fallback + cross-doc fan-in.
+
+        Covers §8 test-case 10 — the path that now fires by default for every
+        text-corpus reimport (reingest is opt-out at the user-facing boundary).
+        """
+        from opencontractserver.tasks.import_tasks_v2 import import_corpus_v2
+
+        temp_file = self._build_sourceless_corpus_and_stage()
+        imported_id = import_corpus_v2(
+            temporary_file_handle_id=temp_file.id,
+            user_id=self.user.id,
+            seed_corpus_id=None,
+            reingest_and_remap=True,
+        )
+        self.assertIsNotNone(imported_id)
+        imported = Corpus.objects.get(id=imported_id)
+
+        imported_docs = list(
+            Document.objects.filter(
+                pk__in=DocumentPath.objects.filter(
+                    corpus=imported, is_current=True, is_deleted=False
+                ).values_list("document_id", flat=True)
+            )
+        )
+        self.assertEqual(len(imported_docs), 2)
+
+        # Both docs imported baked (their text content survives) and unlocked.
+        for doc in imported_docs:
+            doc.refresh_from_db()
+            self.assertFalse(doc.backend_lock, f"doc {doc.id} still locked")
+            self.assertTrue(
+                doc.txt_extract_file
+                and doc.txt_extract_file.read().decode("utf-8").strip()
+            )
+
+        # Each source-less doc recorded a DONE fallback row: empty payload (no
+        # deferred remap) but a populated id_map for the fan-in to aggregate.
+        rows = PendingDocumentAnnotations.objects.filter(document__in=imported_docs)
+        self.assertEqual(rows.count(), 2)
+        for r in rows:
+            self.assertEqual(r.status, PendingDocumentAnnotations.Status.DONE)
+            self.assertEqual(r.payload, {})
+            self.assertTrue(r.id_map, f"fallback row {r.pk} has empty id_map")
+
+        # The annotations imported baked (synchronously), not deferred.
+        self.assertEqual(
+            Annotation.objects.filter(
+                corpus=imported, annotation_label__text="OC_SECTION", structural=False
+            ).count(),
+            2,
+        )
+
+        # Coordination row finalized and the cross-doc relationship wired from
+        # the aggregated fallback id_maps.
+        coord = PendingCorpusImport.objects.get(corpus=imported)
+        self.assertEqual(coord.status, PendingCorpusImport.Status.DONE)
+        rels = Relationship.objects.filter(corpus=imported, structural=False)
+        self.assertEqual(rels.count(), 1)
+        rel = rels.get()
+        self.assertNotEqual(
+            rel.source_annotations.get().document_id,
+            rel.target_annotations.get().document_id,
+        )
 
     def test_default_path_unchanged_no_pending_rows(self):
         """``reingest_and_remap=False`` (import_corpus_v2 default) creates no rows."""
