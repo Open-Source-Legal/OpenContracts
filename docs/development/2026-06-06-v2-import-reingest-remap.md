@@ -266,6 +266,32 @@ A coordination row is created **only when the run has corpus-level relationships
 to wire** — otherwise there is nothing to finalize and reingest mode skips it
 entirely (the run is pure fan-out).
 
+**Pre-existing dependency (no new field migration).**
+`PendingDocumentAnnotations.ingestion_run_id` (`UUIDField(null=True, db_index=True)`)
+and `PendingDocumentAnnotations.id_map` (`JSONField(default=dict)`) **already
+exist** — they were added by #1910 in migration `documents/0041`. This design
+adds **only one** migration, `documents/0042`, for the new `PendingCorpusImport`
+model; it does not touch `PendingDocumentAnnotations`'s schema. The `null=True` on
+`ingestion_run_id` is what lets ordinary single-doc uploads carry no run id and be
+skipped by the finalize trigger (see §6.4 step 2).
+
+**`expected_doc_count` is observability, not the completeness gate.** The
+finalization check in `_maybe_finalize_corpus_import` (§6.4 step 3) is "are there
+still `PENDING` rows for this run?" (`.exists()`), **not** a comparison against
+`expected_doc_count`. The count is deliberately *not* part of the gate: a row may
+end `DONE` or `FAILED`, both of which clear `PENDING`, and using the count would
+race against rows that error during `import_content` and are never created. The
+field exists for (a) the orphaned-row sweeper in §9 (a sanity bound on how many
+rows a healthy run should have produced) and (b) stuck-run debugging. If it earns
+no consumer once the sweeper lands, it should be dropped rather than left dangling.
+
+**`relationships_payload` size.** The payload is the run's corpus-level
+non-structural relationships, stored as one JSON blob on one row. For
+export-sized corpora this is bounded and fine. For a hypothetical very large /
+densely cross-linked corpus the blob could grow large; this is noted as a known
+ceiling, not addressed here. If it becomes a problem, the relationships can be
+chunked across rows keyed by `import_run_id` without changing the fan-in contract.
+
 ### 6.4 Lifecycle & exactly-once finalization
 
 1. **Enumerate (in `_import_corpus`, reingest mode):**
@@ -281,9 +307,25 @@ entirely (the run is pure fan-out).
 2. **Trigger (in `remap_pending_annotations`, `tasks/doc_tasks.py`):** after
    processing a doc's rows, collect the distinct non-null `ingestion_run_id`s of
    the rows it handled and call `_maybe_finalize_corpus_import(run_id)` for each.
-   - Cost on the generic path: one indexed `EXISTS` per *import* remap. Ordinary
-     single-doc uploads have **no** pending rows, so `remap_pending_annotations`
-     bails at its first query and never reaches this check.
+   The guard is explicit and two-staged — the `null` check short-circuits before
+   any extra query, then `_maybe_finalize_corpus_import` itself is a no-op when no
+   coordination row exists for the run (a relationship-free run mints a run id but
+   no `PendingCorpusImport` row):
+   ```python
+   run_ids = {
+       r.ingestion_run_id
+       for r in handled_rows
+       if r.ingestion_run_id is not None     # (a) single-doc uploads skip here
+   }
+   for run_id in run_ids:
+       _maybe_finalize_corpus_import(run_id)  # (b) no PendingCorpusImport row → returns immediately
+   ```
+   - Cost on the generic path: ordinary single-doc uploads have **no** pending
+     rows at all, so `remap_pending_annotations` bails at its first query and
+     never reaches this check; even if a non-import remap produced a row, its
+     `ingestion_run_id` is `NULL` and is filtered out by (a) before any query.
+     Only genuine *import* remaps pay the one indexed lookup inside
+     `_maybe_finalize_corpus_import`.
 
 3. **`_maybe_finalize_corpus_import(run_id)` (atomic, exactly-once):**
    ```python
@@ -307,7 +349,10 @@ entirely (the run is pure fan-out).
    check, the last doc's remap, and any Celery at-least-once retries.
 
 4. **`finalize_corpus_import_relationships(run_id)` (new Celery task):**
-   - Load the `FINALIZING` row.
+   - Load the row and accept it only in a re-runnable state — `FINALIZING` (normal
+     dispatch) **or** `FAILED` (a prior attempt that errored mid-wiring; see retry
+     note below). Any other state (`DONE`, missing) is a no-op return, so a stray
+     redelivery after success never double-wires.
    - Aggregate `id_map`: merge `.id_map` from every
      `PendingDocumentAnnotations.objects.filter(ingestion_run_id=run_id, status=DONE)`.
      Keys are `str(old_export_id)`; values are new pks.
@@ -319,6 +364,24 @@ entirely (the run is pure fan-out).
      the map (annotations that failed to anchor), so partial remaps degrade
      gracefully.
    - Mark `DONE` with a report; on exception mark `FAILED` with the error.
+
+   **Retry / idempotency.** Relationship wiring must be safe to run more than once
+   because Celery delivery is at-least-once. Two layers cover this: (a) the task
+   accepts `FAILED` as a re-entry state (above), so a retried/redelivered task can
+   resume rather than dead-end on `status != FINALIZING`; (b) the wiring itself is
+   made idempotent — wrap the `_import_v2_relationships` call so a re-run does not
+   create duplicate `Relationship` rows (skip relationships already present for the
+   corpus, or run inside a transaction that `DONE` gates). The simplest concrete
+   rule: the finalize body runs in `transaction.atomic()` and flips `FAILED →
+   FINALIZING → DONE`; only a `DONE` flip commits the wired relationships, so a
+   crash before `DONE` rolls back the partial relationship writes and the retry
+   starts clean. This is verified by test case 9 (§8).
+
+   **State machine:**
+   `ENUMERATING → READY → FINALIZING → DONE` on success;
+   `FINALIZING → FAILED → (retry) → FINALIZING → DONE` on a recoverable error.
+   `ENUMERATING`/`READY` can also be terminal-orphaned by an importer crash (§6.5),
+   which the §9 sweeper is responsible for resolving.
 
 ### 6.5 Race & failure analysis
 
@@ -389,6 +452,27 @@ additions to `tests/test_remap_pending_annotations.py`):
    `PendingCorpusImport` rows (regression guard).
 7. **No-relationships run:** reingest mode with no corpus relationships creates
    no `PendingCorpusImport` row and still remaps annotations.
+8. **Doc fails during `import_content`:** one doc in a multi-doc run raises during
+   reingest; assert it produces no pending row, the run still finalizes, and only
+   the surviving docs' relationships are wired (endpoints into the failed doc are
+   dropped, not errored).
+9. **Finalize retry idempotency:** force `finalize_corpus_import_relationships` to
+   error after the row flips to `FINALIZING` (simulate a mid-wiring failure), then
+   re-dispatch; assert relationships end up created **exactly once** (no
+   duplicates) and the row ends `DONE` — exercising the at-least-once + idempotency
+   contract in §6.4 step 4.
+10. **Markdown/CAML carrying annotations (edge case from §6.2):** import a
+    CAML/markdown doc that (unusually) carries `labelled_text` in reingest mode;
+    assert remap reports them un-anchorable on the row's `report` (no PAWLs) and
+    the run does not fail.
+
+In addition to the end-to-end cases above, add a **targeted unit test on
+`anchor_annotations`** feeding it a realistic V2-shaped legacy annotation (baked
+`annotation_json` + `bbox` + `rawText`, no live token indices) and asserting
+`legacy_annotation_to_dumb_anchor` produces a valid anchor. This catches V2-shape
+divergence (e.g. a missing `bbox` key) faster and more precisely than the
+end-to-end remap case 3, since the V2 export annotation shape feeds the remap
+machinery here for the first time.
 
 Run targeted: `docker compose -f test.yml run django pytest opencontractserver/tests/test_import_v2_reingest_remap.py opencontractserver/tests/test_remap_pending_annotations.py -n 4 --dist loadscope --create-db`.
 
@@ -399,7 +483,10 @@ Run targeted: `docker compose -f test.yml run django pytest opencontractserver/t
   (`import_tasks.py`); out of scope here.
 - **Orphaned-coordination sweeper:** a management command or TTL that finalizes
   (or fails) `ENUMERATING`/`READY` rows stuck past a threshold, for the
-  importer-crash case in §6.5.
+  importer-crash case in §6.5. This is the intended consumer of
+  `expected_doc_count` (§6.3): a `READY` row whose `PENDING` count plus `DONE`/
+  `FAILED` count never reaches `expected_doc_count` within the threshold is a
+  stuck run the sweeper can fail explicitly.
 - **REST + frontend surface:** add `reingest_and_remap` to
   `CorpusExportImportSerializer` + a UI toggle once the backend capability is
   proven (intentionally excluded now).
