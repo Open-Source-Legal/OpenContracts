@@ -40,6 +40,7 @@ from opencontractserver.constants.truncation import (
 from opencontractserver.documents.models import (
     Document,
     DocumentProcessingStatus,
+    PendingCorpusImport,
     PendingDocumentAnnotations,
 )
 from opencontractserver.notifications.models import (
@@ -1180,6 +1181,9 @@ def remap_pending_annotations(
                     pending.pk,
                     doc_id,
                 )
+        # The rows are handled (FAILED), so a run gated on them must still get a
+        # chance to finalize for its surviving documents.
+        _trigger_corpus_import_finalize(pending_rows)
         return {"doc_id": doc_id, "failed": "document does not exist"}
 
     # Label lookups are keyed by the corpus' label_set; rows for one document
@@ -1191,6 +1195,15 @@ def remap_pending_annotations(
         _remap_one_pending_row(pending, doc, label_cache) for pending in pending_rows
     ]
 
+    # Relationship fan-in trigger (reingest-import mode). Collect the distinct
+    # non-null ingestion_run_ids of the rows just handled and give each a chance
+    # to finalize its corpus import. Two-stage guard: the ``is not None`` filter
+    # short-circuits ordinary single-doc uploads (run_id is NULL) before any
+    # query, and ``_maybe_finalize_corpus_import`` itself is a no-op when no
+    # ``PendingCorpusImport`` coordination row exists for the run (a
+    # relationship-free reingest run mints a run id but no row).
+    _trigger_corpus_import_finalize(pending_rows)
+
     if len(per_row) == 1:
         return per_row[0]
     # Multiple PENDING rows for one document: aggregate so none is orphaned.
@@ -1199,6 +1212,22 @@ def remap_pending_annotations(
         "rows_processed": len(per_row),
         "results": per_row,
     }
+
+
+def _trigger_corpus_import_finalize(
+    handled_rows: list[PendingDocumentAnnotations],
+) -> None:
+    """Give each handled row's import run a chance to finalize its fan-in.
+
+    See ``_maybe_finalize_corpus_import`` for the exactly-once guarantee. The
+    ``ingestion_run_id is not None`` filter is the first guard stage (ordinary
+    uploads skip here before any query).
+    """
+    run_ids = {
+        row.ingestion_run_id for row in handled_rows if row.ingestion_run_id is not None
+    }
+    for run_id in run_ids:
+        _maybe_finalize_corpus_import(run_id)
 
 
 def _remap_one_pending_row(
@@ -1450,4 +1479,148 @@ def _remap_one_pending_row(
         "label_unresolved": label_unresolved,
         "doc_labels": doc_labels_created,
         "doc_labels_unresolved": doc_labels_unresolved,
+    }
+
+
+def _maybe_finalize_corpus_import(run_id: str | uuid.UUID) -> None:
+    """Exactly-once trigger for a reingest-import's relationship fan-in.
+
+    Called from two observers — the post-loop call in ``_import_corpus`` (once
+    every pending row is enumerated and the coordination row is ``READY``) and
+    from ``remap_pending_annotations`` after each document's remap completes.
+    Whoever both sees the run complete (no ``PENDING`` rows remain) *and* wins
+    the ``select_for_update(skip_locked=True)`` lock on the ``READY`` row flips
+    it to ``FINALIZING`` and dispatches ``finalize_corpus_import_relationships``
+    exactly once — robust to the post-loop / last-remap race and to Celery
+    at-least-once redelivery.
+
+    A no-op when no coordination row exists for ``run_id`` (relationship-free
+    runs mint a run id but no row), when the row is not yet ``READY`` (still
+    enumerating), when another observer already claimed it (status moved past
+    ``READY``), or when ``PENDING`` rows for the run still remain.
+    """
+    with transaction.atomic():
+        row = (
+            PendingCorpusImport.objects.select_for_update(skip_locked=True)
+            .filter(import_run_id=run_id, status=PendingCorpusImport.Status.READY)
+            .first()
+        )
+        if row is None:
+            # Absent, not enumerated yet, or already claimed by another observer.
+            return
+        remaining = PendingDocumentAnnotations.objects.filter(
+            ingestion_run_id=run_id,
+            status=PendingDocumentAnnotations.Status.PENDING,
+        ).exists()
+        if remaining:
+            # Not all docs done; the lock releases on block exit and a later
+            # observer (the last remap) will re-attempt the claim.
+            return
+        row.status = PendingCorpusImport.Status.FINALIZING
+        row.save(update_fields=["status", "updated_at"])
+
+    transaction.on_commit(
+        lambda: finalize_corpus_import_relationships.delay(str(run_id))
+    )
+
+
+@shared_task
+def finalize_corpus_import_relationships(run_id: str) -> dict[str, Any]:
+    """Wire a reingest-import run's corpus-level relationships after all remaps.
+
+    Aggregates every ``DONE`` ``PendingDocumentAnnotations.id_map`` for the run
+    (export-local annotation id -> new Annotation pk), rebuilds the
+    ``(text, label_type)`` label lookup from the corpus labelset, and calls the
+    existing ``_import_v2_relationships`` — which already skips structural
+    relationships and drops endpoints missing from the map, so partial remaps
+    degrade gracefully.
+
+    Idempotent / retry-safe (Celery is at-least-once): accepts the row only in a
+    re-runnable state (``FINALIZING`` from a normal dispatch, or ``FAILED`` from
+    a prior attempt that errored mid-wiring); any other state (``DONE``,
+    missing) is a no-op so a stray redelivery after success never double-wires.
+    The wiring + ``DONE`` flip run in one ``transaction.atomic()`` so a crash
+    before ``DONE`` rolls the partial relationship writes back and the retry
+    starts clean.
+    """
+    # Lazy import to avoid a tasks <-> tasks import cycle at module load.
+    from opencontractserver.tasks.import_tasks_v2 import _import_v2_relationships
+
+    row = PendingCorpusImport.objects.filter(import_run_id=run_id).first()
+    if row is None:
+        return {"run_id": run_id, "skipped": "no coordination row"}
+    if row.status not in (
+        PendingCorpusImport.Status.FINALIZING,
+        PendingCorpusImport.Status.FAILED,
+    ):
+        return {"run_id": run_id, "skipped": f"status {row.status}"}
+
+    try:
+        with transaction.atomic():
+            # Re-claim FOR UPDATE so two concurrent finalizers can't both wire.
+            locked = (
+                PendingCorpusImport.objects.select_for_update()
+                .filter(import_run_id=run_id)
+                .first()
+            )
+            if locked is None or locked.status not in (
+                PendingCorpusImport.Status.FINALIZING,
+                PendingCorpusImport.Status.FAILED,
+            ):
+                return {"run_id": run_id, "skipped": "already finalized"}
+            locked.status = PendingCorpusImport.Status.FINALIZING
+            locked.save(update_fields=["status", "updated_at"])
+
+            corpus = locked.corpus
+
+            # Aggregate the per-document id_maps recorded by each remap.
+            aggregated_id_map: dict[str, int] = {}
+            for pend in PendingDocumentAnnotations.objects.filter(
+                ingestion_run_id=run_id,
+                status=PendingDocumentAnnotations.Status.DONE,
+            ):
+                for old_id, new_pk in (pend.id_map or {}).items():
+                    aggregated_id_map[str(old_id)] = new_pk
+
+            # Rebuild the (text, label_type)-keyed label lookup from the corpus
+            # labelset — relationship labels are present (the export writes
+            # RELATIONSHIP_LABEL into text_labels).
+            label_lookup_by_text: dict[tuple[str, str], AnnotationLabel] = {}
+            if corpus.label_set_id:
+                for lbl in AnnotationLabel.objects.filter(
+                    included_in_labelset=corpus.label_set_id
+                ):
+                    label_lookup_by_text[(lbl.text, lbl.label_type)] = lbl
+
+            _import_v2_relationships(
+                locked.relationships_payload or [],
+                corpus,
+                cast("dict[str | int, int]", aggregated_id_map),
+                label_lookup_by_text,
+                locked.creator,
+            )
+
+            locked.status = PendingCorpusImport.Status.DONE
+            locked.report = {
+                "relationships_in_payload": len(locked.relationships_payload or []),
+                "id_map_size": len(aggregated_id_map),
+            }
+            locked.save(update_fields=["status", "report", "updated_at"])
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "finalize_corpus_import_relationships failed for run %s: %s",
+            run_id,
+            exc,
+            exc_info=True,
+        )
+        PendingCorpusImport.objects.filter(import_run_id=run_id).update(
+            status=PendingCorpusImport.Status.FAILED,
+            report={"error": str(exc)},
+        )
+        return {"run_id": run_id, "failed": str(exc)}
+
+    return {
+        "run_id": run_id,
+        "status": PendingCorpusImport.Status.DONE,
+        "id_map_size": len(aggregated_id_map),
     }

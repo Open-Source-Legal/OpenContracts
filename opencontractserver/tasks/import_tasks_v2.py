@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 import zipfile
 from typing import IO, TYPE_CHECKING, Any, cast
 
@@ -30,6 +31,8 @@ from opencontractserver.documents.models import (
     Document,
     IngestionSource,
     IngestionSourceCategory,
+    PendingCorpusImport,
+    PendingDocumentAnnotations,
 )
 from opencontractserver.types.dicts import (
     CorpusFolderExport,
@@ -78,6 +81,7 @@ def import_corpus_v2_from_bytes(
     zip_source: IO[bytes],
     user_id: int,
     seed_corpus_id: int | None,
+    reingest_and_remap: bool = False,
 ) -> int | None:
     """
     Run the V2 corpus import against an in-memory or file-like ZIP source.
@@ -119,7 +123,12 @@ def import_corpus_v2_from_bytes(
             logger.info("Detected export format version: %s", version)
 
             return _import_corpus(
-                data_json, import_zip, user_obj, seed_corpus_id, version
+                data_json,
+                import_zip,
+                user_obj,
+                seed_corpus_id,
+                version,
+                reingest_and_remap=reingest_and_remap,
             )
 
     except Exception:
@@ -142,6 +151,7 @@ def import_corpus_v2(
     temporary_file_handle_id: str | int,
     user_id: int,
     seed_corpus_id: int | None,
+    reingest_and_remap: bool = False,
 ) -> int | None:
     """
     Import corpus with support for both V1 and V2 export formats.
@@ -170,7 +180,12 @@ def import_corpus_v2(
         )
 
         with temporary_file_handle.file.open("rb") as import_file:
-            return import_corpus_v2_from_bytes(import_file, user_id, seed_corpus_id)
+            return import_corpus_v2_from_bytes(
+                import_file,
+                user_id,
+                seed_corpus_id,
+                reingest_and_remap=reingest_and_remap,
+            )
 
     except Exception as e:
         logger.error("import_corpus_v2() - Exception: %s", e, exc_info=True)
@@ -243,6 +258,8 @@ def _import_document_with_annotations(
     label_lookup: dict[str, AnnotationLabel],
     doc_label_lookup: dict[str, AnnotationLabel],
     structural_sets: dict[str, StructuralAnnotationSet] | None = None,
+    reingest_and_remap: bool = False,
+    import_run_id: uuid.UUID | None = None,
 ) -> tuple[Document | None, dict[str | int, int]]:
     """
     Import a single document into a corpus, handling:
@@ -260,12 +277,32 @@ def _import_document_with_annotations(
         doc_label_lookup: Doc-type label lookup.
         structural_sets: Optional mapping of content_hash -> StructuralAnnotationSet
             (V2 only).
+        reingest_and_remap: When True, take the opt-in reingest path: create the
+            document from the raw source bytes (NOT the baked PAWLs), let the
+            standard pipeline regenerate PAWLs + structural annotations, and
+            defer the surviving non-structural annotations into a
+            ``PendingDocumentAnnotations`` row for ``remap_pending_annotations``
+            to re-anchor. The export's structural layer is dropped.
+        import_run_id: Run id stamped on the deferred row (reingest mode), used
+            by the relationship fan-in to group the run's deferred work.
 
     Returns:
         Tuple of (corpus_doc, annot_id_map) where corpus_doc is the
         corpus-isolated document copy and annot_id_map maps old annotation IDs
-        to new PKs. Returns (None, {}) on failure.
+        to new PKs. In reingest mode annotations are created asynchronously, so
+        the returned map is always empty. Returns (None, {}) on failure.
     """
+    if reingest_and_remap:
+        return _reingest_document_with_deferred_remap(
+            doc_filename,
+            doc_data,
+            import_zip,
+            user_obj,
+            corpus_obj,
+            import_run_id,
+            label_lookup,
+        )
+
     try:
         with import_zip.open(doc_filename) as pdf_file_handle:
             # Check for structural annotation set (V2 feature)
@@ -313,6 +350,99 @@ def _import_document_with_annotations(
         return None, {}
 
 
+def _reingest_document_with_deferred_remap(
+    doc_filename: str,
+    doc_data: dict[str, Any],
+    import_zip: zipfile.ZipFile,
+    user_obj: UserModel,
+    corpus_obj: Corpus,
+    import_run_id: uuid.UUID | None,
+    label_lookup: dict[str, AnnotationLabel],
+) -> tuple[Document | None, dict[str | int, int]]:
+    """Reingest one document and defer its annotations for post-ingest remap.
+
+    Creates the document from the raw source bytes via
+    ``corpus.import_content(..., backend_lock=True)`` (no ``processing_started``
+    suppression), so the standard post_save chain (``extract_thumbnail ->
+    ingest_doc -> remap_pending_annotations -> set_doc_lock_state``) regenerates
+    PAWLs + structural annotations from the *current* parser and then re-anchors
+    the surviving non-structural annotations.
+
+    The exported ``StructuralAnnotationSet`` is intentionally NOT attached
+    (structural annotations are regenerated by the parser). The document and its
+    ``PendingDocumentAnnotations`` row share one ``transaction.atomic()`` so the
+    on_commit ingest chain (dispatched at the outermost commit) sees the
+    committed pending row — the same invariant the bulk-ZIP importer relies on.
+
+    ``pdf_file_hash`` is recomputed from the bytes by ``import_content`` (same
+    bytes as the export → same SHA-256), so DocumentPath reconstruction keyed on
+    the hash still resolves.
+
+    The export writes each ``labelled_text`` entry's ``annotationLabel`` as the
+    label *id* (``etl.py``), but ``remap_pending_annotations`` resolves labels by
+    *text* against the corpus labelset (the dumb-anchor contract). So each
+    deferred annotation's ``annotationLabel`` is rewritten id -> text here before
+    it is persisted, using the import's ``label_lookup`` (keyed by export label
+    id). ``doc_labels`` already ship as label text and need no rewrite.
+    """
+    label_id_to_text = {
+        str(label_id): lbl.text for label_id, lbl in label_lookup.items()
+    }
+    try:
+        with import_zip.open(doc_filename) as fh:
+            file_bytes = fh.read()
+
+        with transaction.atomic():
+            corpus_doc, _status, _path = corpus_obj.import_content(
+                content=file_bytes,
+                user=user_obj,
+                filename=doc_filename,
+                title=doc_data["title"],
+                description=doc_data.get("description", ""),
+                file_type=doc_data.get("file_type"),
+                backend_lock=True,
+            )
+            set_permissions_for_obj_to_user(
+                user_obj, corpus_doc, [PermissionTypes.ALL], is_new=True
+            )
+
+            # Defer surviving non-structural annotations for remap. Filtering
+            # structural entries out here keeps the payload lean and the remap
+            # report clean — ``anchor_annotations`` would drop+report them anyway.
+            # Rewrite annotationLabel id -> text so the text-keyed remap lookup
+            # resolves it.
+            non_structural = [
+                {
+                    **a,
+                    "annotationLabel": label_id_to_text.get(
+                        str(a.get("annotationLabel")), a.get("annotationLabel")
+                    ),
+                }
+                for a in doc_data.get("labelled_text", [])
+                if not a.get("structural")
+            ]
+            doc_labels = doc_data.get("doc_labels", [])
+            if non_structural or doc_labels:
+                PendingDocumentAnnotations.objects.create(
+                    document=corpus_doc,
+                    corpus=corpus_obj,
+                    creator=user_obj,
+                    ingestion_run_id=import_run_id,
+                    payload={
+                        "annotations": non_structural,
+                        "doc_labels": doc_labels,
+                    },
+                    status=PendingDocumentAnnotations.Status.PENDING,
+                )
+
+        # Synchronous id_map is empty in this mode — annotations land async.
+        return corpus_doc, {}
+
+    except Exception as e:
+        logger.error("Error reingesting document %s: %s", doc_filename, e)
+        return None, {}
+
+
 def _import_corpus(
     data_json: (
         OpenContractsExportDataJsonPythonType | OpenContractsExportDataJsonV2Type
@@ -321,6 +451,7 @@ def _import_corpus(
     user_obj: UserModel,
     seed_corpus_id: int | None,
     version: str = "1.0",
+    reingest_and_remap: bool = False,
 ) -> int | None:
     """
     Unified import handler for both V1 and V2 formats.
@@ -371,9 +502,37 @@ def _import_corpus(
             (label.text, label.label_type): label for label in label_lookup.values()
         }
 
+        # ===== Reingest mode: mint the run id + set up the relationship fan-in.
+        # Read corpus-level relationships up front so the coordination row can be
+        # created *before* the doc loop dispatches async remaps (the last remap
+        # may finalize before the post-loop READY flip — the exactly-once claim
+        # in ``_maybe_finalize_corpus_import`` handles either ordering).
+        import_run_id: uuid.UUID | None = None
+        reingest_relationships: list = []
+        if reingest_and_remap:
+            import_run_id = uuid.uuid4()
+            if is_v2:
+                reingest_relationships = (
+                    cast(OpenContractsExportDataJsonV2Type, data_json).get(
+                        "relationships", []
+                    )
+                    or []
+                )
+            if reingest_relationships:
+                PendingCorpusImport.objects.create(
+                    import_run_id=import_run_id,
+                    corpus=corpus_obj,
+                    creator=user_obj,
+                    relationships_payload=reingest_relationships,
+                    expected_doc_count=None,
+                    status=PendingCorpusImport.Status.ENUMERATING,
+                )
+
         # ===== V2 only: Import structural annotation sets =====
+        # Skipped entirely in reingest mode — the parser regenerates structural
+        # annotations from the freshly-produced PAWLs layer.
         structural_sets: dict[str, StructuralAnnotationSet] = {}
-        if is_v2:
+        if is_v2 and not reingest_and_remap:
             v2_struct_data = cast(OpenContractsExportDataJsonV2Type, data_json)
             struct_sets_data = v2_struct_data.get("structural_annotation_sets", {})
             for content_hash, struct_data in struct_sets_data.items():
@@ -413,6 +572,8 @@ def _import_corpus(
                 label_lookup=label_lookup,
                 doc_label_lookup=doc_label_lookup,
                 structural_sets=structural_sets if is_v2 else None,
+                reingest_and_remap=reingest_and_remap,
+                import_run_id=import_run_id,
             )
 
             if corpus_doc:
@@ -425,6 +586,31 @@ def _import_corpus(
                 # document_ref in package_document_paths().
                 doc_hash_to_corpus_doc[doc_filename] = corpus_doc
                 doc_filename_to_corpus_doc[doc_filename] = corpus_doc
+
+        # ===== Reingest mode: arm the relationship fan-in =====
+        # All docs are enumerated; flip the coordination row to READY (recording
+        # the run's actual pending-row count for observability) and attempt
+        # finalization. This covers the case where every doc's async remap
+        # already completed before READY was set (including a relationship-free
+        # run, which has no coordination row — ``_maybe_finalize_corpus_import``
+        # is then a clean no-op). The last remap to finish wins the race
+        # otherwise; the exactly-once claim guarantees a single finalize.
+        if reingest_and_remap and reingest_relationships:
+            from opencontractserver.tasks.doc_tasks import (
+                _maybe_finalize_corpus_import,
+            )
+
+            # ``import_run_id`` is always set when reingest mode created a
+            # coordination row (which only happens when relationships exist).
+            assert import_run_id is not None
+            expected = PendingDocumentAnnotations.objects.filter(
+                ingestion_run_id=import_run_id
+            ).count()
+            PendingCorpusImport.objects.filter(import_run_id=import_run_id).update(
+                expected_doc_count=expected,
+                status=PendingCorpusImport.Status.READY,
+            )
+            _maybe_finalize_corpus_import(import_run_id)
 
         # ===== V2 only: Import additional features =====
         if is_v2:
@@ -456,9 +642,13 @@ def _import_corpus(
                     source_name_map,
                 )
 
-            # Import relationships (corpus-level, non-structural)
+            # Import relationships (corpus-level, non-structural).
+            # In reingest mode these are wired asynchronously by the fan-in
+            # (``finalize_corpus_import_relationships``) once every doc's remap
+            # has recorded its id_map — they CANNOT be wired here because
+            # ``all_annot_id_maps`` is empty (annotations land async).
             relationships_data = v2_data.get("relationships", [])
-            if relationships_data:
+            if relationships_data and not reingest_and_remap:
                 _import_v2_relationships(
                     relationships_data,
                     corpus_obj,

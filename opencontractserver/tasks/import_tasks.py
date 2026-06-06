@@ -62,7 +62,10 @@ User = get_user_model()
 
 @celery_app.task()
 def import_corpus(
-    temporary_file_handle_id: str | int, user_id: int, seed_corpus_id: int | None
+    temporary_file_handle_id: str | int,
+    user_id: int,
+    seed_corpus_id: int | None,
+    reingest_and_remap: bool = False,
 ) -> int | None:
     """
     Import a corpus from a V1-format export ZIP.
@@ -70,10 +73,20 @@ def import_corpus(
     Delegates to import_corpus_v2 which handles both V1 and V2 formats
     using shared helpers for label loading, document creation, and
     annotation import.
+
+    ``reingest_and_remap`` (opt-in, default off) re-parses each document through
+    the current pipeline and re-anchors its non-structural annotations instead
+    of trusting the export's baked PAWLs / structural layer. See
+    ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
     """
     from opencontractserver.tasks.import_tasks_v2 import import_corpus_v2
 
-    return import_corpus_v2(temporary_file_handle_id, user_id, seed_corpus_id)
+    return import_corpus_v2(
+        temporary_file_handle_id,
+        user_id,
+        seed_corpus_id,
+        reingest_and_remap=reingest_and_remap,
+    )
 
 
 @celery_app.task()

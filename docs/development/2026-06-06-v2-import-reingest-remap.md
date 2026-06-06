@@ -1,7 +1,18 @@
 # Design: Opt-in "reingest & remap" for V2 corpus-export import
 
-- **Status:** Proposed (design review)
+- **Status:** Implemented (see `changelog.d/v2-import-reingest-remap.added.md`)
 - **Date:** 2026-06-06
+- **Implementation note:** one gap surfaced during implementation that the
+  design glossed over — the V2/V3 exporter writes PDF `annotation_json` in the
+  **compact-v2** shape (`{"v": 2, "p": {page: {"b": [...], "t": ...}}}`), not the
+  legacy verbose `{page: {"bounds": ...}}` shape `legacy_annotation_to_dumb_anchor`
+  originally understood. Without handling it, every PDF annotation in a real
+  export was silently dropped on remap. `legacy_annotation_to_dumb_anchor`
+  (`utils/annotation_anchoring.py`) now accepts both shapes. Additionally, the
+  deferred payload rewrites each annotation's `annotationLabel` from the export
+  label **id** to the label **text**, because `remap_pending_annotations`
+  resolves labels by text (the dumb-anchor contract) while the V2 export keys
+  them by id.
 - **Scope:** Backend capability only (no REST field, no frontend). Relationships
   wired via the asynchronous `PendingDocumentAnnotations.id_map`.
 - **Builds on:** PR #1910 "Defer annotation import and remap onto final PAWLs

@@ -605,6 +605,7 @@ def import_corpus_export_for_user(
     *,
     user,
     zip_source: File | bytes,
+    reingest_and_remap: bool = False,
 ) -> CorpusImportResult:
     """
     Create a placeholder :class:`Corpus`, stage the OpenContracts export
@@ -663,7 +664,12 @@ def import_corpus_export_for_user(
             error="Failed to stage the corpus export. Please try again.",
         )
 
-    task_signature = import_corpus.s(temporary_file.id, user.id, corpus_obj.id)
+    task_signature = import_corpus.s(
+        temporary_file.id,
+        user.id,
+        corpus_obj.id,
+        reingest_and_remap=reingest_and_remap,
+    )
     if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
         chain(task_signature).apply_async()
     else:

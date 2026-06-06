@@ -2147,3 +2147,58 @@ class PendingDocumentAnnotations(django.db.models.Model):
 
     def __str__(self) -> str:
         return f"PendingDocumentAnnotations(doc={self.document_id}, {self.status})"
+
+
+class PendingCorpusImport(django.db.models.Model):
+    """Coordination row for the relationship fan-in of a reingest-mode import.
+
+    In "reingest & remap" mode a V2 corpus import creates each document's
+    annotations *asynchronously* (one post-save remap chain per document), so
+    the importer cannot wire corpus-level relationships inline — the
+    annotation pks do not exist yet when ``_import_corpus`` returns. This row
+    holds the run's relationships payload and gates the fan-in: once every
+    document's ``PendingDocumentAnnotations`` row for the run has left PENDING,
+    exactly one observer flips this row to ``FINALIZING`` and dispatches
+    ``finalize_corpus_import_relationships``, which aggregates the per-document
+    ``id_map``s and wires the relationships.
+
+    One row per import run *that has corpus-level relationships to wire* — a
+    relationship-free run mints a run id but creates no row (nothing to
+    finalize). See ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
+    """
+
+    class Status(django.db.models.TextChoices):
+        ENUMERATING = "enumerating", "Enumerating"
+        READY = "ready", "Ready"
+        FINALIZING = "finalizing", "Finalizing"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
+
+    # Same value stamped on this run's
+    # ``PendingDocumentAnnotations.ingestion_run_id``.
+    import_run_id = django.db.models.UUIDField(unique=True, db_index=True)
+    corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus", on_delete=django.db.models.CASCADE
+    )
+    creator = django.db.models.ForeignKey(
+        get_user_model(), on_delete=django.db.models.CASCADE
+    )
+    # Corpus-level non-structural relationships to wire once all remaps finish.
+    relationships_payload = django.db.models.JSONField(default=list, blank=True)
+    # Number of pending-annotation docs the run created. NULL while enumerating.
+    # Observability / sweeper sanity-bound only — NOT the completeness gate
+    # (which is the "any PENDING rows left?" EXISTS check in
+    # ``_maybe_finalize_corpus_import``).
+    expected_doc_count = django.db.models.IntegerField(null=True, blank=True)
+    status = django.db.models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.ENUMERATING,
+        db_index=True,
+    )
+    report = django.db.models.JSONField(default=dict, blank=True)
+    created_at = django.db.models.DateTimeField(auto_now_add=True)
+    updated_at = django.db.models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"PendingCorpusImport(run={self.import_run_id}, {self.status})"
