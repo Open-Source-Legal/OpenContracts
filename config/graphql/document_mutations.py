@@ -1091,6 +1091,75 @@ class EmptyTrash(graphene.Mutation):
             )
 
 
+class EmptyCorpus(graphene.Mutation):
+    """
+    Move EVERY document in a corpus to Trash and remove ALL of its folders.
+
+    This is the "empty everything" action. Documents are soft-deleted (they
+    remain in the trash and are restorable until the trash is emptied); the
+    folder tree is removed. Nothing is permanently deleted here — callers can
+    follow up with ``emptyTrash`` to purge.
+
+    Requires DELETE permission on the corpus.
+    """
+
+    class Arguments:
+        corpus_id = graphene.String(
+            required=True, description="Global ID of the corpus to empty"
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    trashed_count = graphene.Int()
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(root, info, corpus_id) -> "EmptyCorpus":
+        from opencontractserver.corpuses.services import DocumentLifecycleService
+
+        user = info.context.user
+
+        try:
+            corpus_pk = from_global_id(corpus_id)[1]
+            # Service-layer fetch guarantees the corpus exists AND is visible
+            # to the caller; the lifecycle service enforces DELETE permission.
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
+
+            trashed_count, error = DocumentLifecycleService.empty_corpus(
+                user=user,
+                corpus=corpus,
+                request=info.context,
+            )
+
+            if error:
+                return EmptyCorpus(
+                    ok=False,
+                    message=error,
+                    trashed_count=trashed_count,
+                )
+
+            return EmptyCorpus(
+                ok=True,
+                message=(
+                    f"Moved {trashed_count} document(s) to trash and removed all "
+                    "folders"
+                ),
+                trashed_count=trashed_count,
+            )
+
+        except Corpus.DoesNotExist:
+            return EmptyCorpus(ok=False, message="Corpus not found", trashed_count=0)
+        except Exception as e:
+            logger.error(f"Failed to empty corpus: {str(e)}")
+            return EmptyCorpus(
+                ok=False, message=f"Failed to empty corpus: {str(e)}", trashed_count=0
+            )
+
+
 class RestoreDocumentToVersion(graphene.Mutation):
     """
     Restore a document to a previous content version.

@@ -538,4 +538,79 @@ test.describe("FolderToolbar", () => {
       await expect(removeButton).toBeVisible();
     });
   });
+
+  test.describe("Empty Corpus Button", () => {
+    test("shows Empty Corpus when onEmptyCorpus provided and documents exist", async ({
+      mount,
+    }) => {
+      const component = await mount(
+        <FolderTestWrapper>
+          <ToolbarFixture
+            totalDocumentCount={10}
+            selectedDocumentCount={0}
+            onSelectAll={() => {}}
+            onEmptyCorpus={() => {}}
+          />
+        </FolderTestWrapper>
+      );
+
+      const emptyButton = component.getByRole("button", { name: "Empty Corpus" });
+      await expect(emptyButton).toBeVisible();
+    });
+
+    test("hides Empty Corpus when onEmptyCorpus is omitted (no delete permission)", async ({
+      mount,
+    }) => {
+      const component = await mount(
+        <FolderTestWrapper>
+          <ToolbarFixture
+            totalDocumentCount={10}
+            selectedDocumentCount={0}
+            onSelectAll={() => {}}
+          />
+        </FolderTestWrapper>
+      );
+
+      const emptyButtons = component.getByRole("button", { name: "Empty Corpus" });
+      await expect(emptyButtons).toHaveCount(0);
+    });
+
+    test("hides Empty Corpus when corpus has no documents", async ({
+      mount,
+    }) => {
+      const component = await mount(
+        <FolderTestWrapper>
+          <ToolbarFixture
+            totalDocumentCount={0}
+            selectedDocumentCount={0}
+            onEmptyCorpus={() => {}}
+          />
+        </FolderTestWrapper>
+      );
+
+      const emptyButtons = component.getByRole("button", { name: "Empty Corpus" });
+      await expect(emptyButtons).toHaveCount(0);
+    });
+
+    test("calls onEmptyCorpus when the button is clicked", async ({
+      mount,
+    }) => {
+      let emptyCalled = false;
+      const component = await mount(
+        <FolderTestWrapper>
+          <ToolbarFixture
+            totalDocumentCount={10}
+            selectedDocumentCount={0}
+            onSelectAll={() => {}}
+            onEmptyCorpus={() => {
+              emptyCalled = true;
+            }}
+          />
+        </FolderTestWrapper>
+      );
+
+      await component.getByRole("button", { name: "Empty Corpus" }).click();
+      expect(emptyCalled).toBe(true);
+    });
+  });
 });

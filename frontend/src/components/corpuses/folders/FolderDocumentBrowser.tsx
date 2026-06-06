@@ -6,7 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import { useSetAtom, useAtom, useAtomValue } from "jotai";
-import { useReactiveVar, useMutation } from "@apollo/client";
+import { useReactiveVar, useMutation, useApolloClient } from "@apollo/client";
 import { useLocation, useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import { X } from "lucide-react";
@@ -27,8 +27,11 @@ import {
   selectedDocumentIds as selectedDocumentIdsReactiveVar,
   linkDocumentsModalState,
   openedCorpus,
-  currentViewDocumentIds,
+  currentViewTotalDocumentCount,
   documentsLoading,
+  documentSearchTerm,
+  filterToLabelId,
+  selectedMetaAnnotationId,
 } from "../../../graphql/cache";
 import { FolderTreeSidebar } from "./FolderTreeSidebar";
 import { FolderToolbar } from "./FolderToolbar";
@@ -39,6 +42,7 @@ import { EditFolderModal } from "./EditFolderModal";
 import { MoveFolderModal } from "./MoveFolderModal";
 import { DeleteFolderModal } from "./DeleteFolderModal";
 import { RemoveDocumentsModal } from "./RemoveDocumentsModal";
+import { EmptyCorpusModal } from "./EmptyCorpusModal";
 import { TrashFolderView } from "./TrashFolderView";
 import {
   folderCorpusIdAtom,
@@ -47,8 +51,15 @@ import {
   openCreateFolderModalAtom,
   folderListAtom,
   corpusPermissionsAtom,
+  canDeleteCorpusAtom,
   openRemoveDocumentsModalAtom,
 } from "../../../atoms/folderAtoms";
+import {
+  GET_CORPUS_DOCUMENT_IDS,
+  CorpusDocumentIdsInputs,
+  CorpusDocumentIdsOutputs,
+} from "../../../graphql/queries";
+import { evictCorpusDocumentCaches } from "../../../graphql/cacheEvictions";
 import {
   MOVE_DOCUMENT_TO_FOLDER,
   MoveDocumentToFolderInputs,
@@ -319,8 +330,14 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
   const openCreateModal = useSetAtom(openCreateFolderModalAtom);
   const openRemoveDocumentsModal = useSetAtom(openRemoveDocumentsModalAtom);
   const folderList = useAtomValue(folderListAtom);
+  const canDeleteCorpus = useAtomValue(canDeleteCorpusAtom);
+  const client = useApolloClient();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // "Empty Corpus" confirmation modal + in-flight guard for "Select All".
+  const [showEmptyCorpusModal, setShowEmptyCorpusModal] = useState(false);
+  const [selectAllLoading, setSelectAllLoading] = useState(false);
 
   // Bridge corpus permissions from Apollo reactive var to Jotai atom
   const corpus = useReactiveVar(openedCorpus);
@@ -343,24 +360,60 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
   // Document relationship modal state (from reactive var for cross-component access)
   const linkModalState = useReactiveVar(linkDocumentsModalState);
   const selectedDocumentIds = useReactiveVar(selectedDocumentIdsReactiveVar);
-  const viewDocumentIds = useReactiveVar(currentViewDocumentIds);
+  // TRUE total for the current view (the connection's totalCount), NOT just the
+  // page the virtualized list has loaded. Set by CorpusDocumentCards.
+  const totalDocumentCount = useReactiveVar(currentViewTotalDocumentCount);
   const isDocumentsLoading = useReactiveVar(documentsLoading);
 
-  // Compute selection state
+  // All-selected means every matching document is selected — compared against
+  // the true total, not the loaded page (otherwise selecting the visible page
+  // would falsely read as "all").
   const allSelected =
-    viewDocumentIds.length > 0 &&
-    viewDocumentIds.every((id) => selectedDocumentIds.includes(id));
+    totalDocumentCount > 0 && selectedDocumentIds.length >= totalDocumentCount;
 
-  // Handler for Select All / Deselect All
-  const handleSelectAll = useCallback(() => {
+  // Handler for Select All / Deselect All.
+  //
+  // Virtual-scroll fix (issue: "delete all only operates on visible docs"):
+  // instead of selecting the loaded page, fetch the FULL set of matching
+  // document ids from the backend (GET_CORPUS_DOCUMENT_IDS, same filters as the
+  // grid, descendant-aware) so a subsequent bulk remove acts on every document.
+  const handleSelectAll = useCallback(async () => {
     if (allSelected) {
-      // Deselect all
       selectedDocumentIdsReactiveVar([]);
-    } else {
-      // Select all visible documents
-      selectedDocumentIdsReactiveVar([...viewDocumentIds]);
+      return;
     }
-  }, [allSelected, viewDocumentIds]);
+    setSelectAllLoading(true);
+    try {
+      const { data } = await client.query<
+        CorpusDocumentIdsOutputs,
+        CorpusDocumentIdsInputs
+      >({
+        query: GET_CORPUS_DOCUMENT_IDS,
+        // Mirror CorpusDocumentCards' filter variables exactly so the selected
+        // set matches the visible list. null folder => "__root__" = every
+        // document in the corpus regardless of nesting.
+        variables: {
+          inCorpusWithId: corpusId,
+          inFolderId:
+            selectedFolderId && selectedFolderId !== "trash"
+              ? selectedFolderId
+              : "__root__",
+          textSearch: documentSearchTerm() || undefined,
+          hasLabelWithId: filterToLabelId() || undefined,
+          hasAnnotationsWithIds: selectedMetaAnnotationId() || undefined,
+          includeCaml: true,
+        },
+        fetchPolicy: "network-only",
+      });
+      selectedDocumentIdsReactiveVar(data?.corpusDocumentIds ?? []);
+    } catch (err: any) {
+      toast.error(
+        `Could not select all documents: ${err?.message ?? "unknown error"}`
+      );
+    } finally {
+      setSelectAllLoading(false);
+    }
+  }, [allSelected, client, corpusId, selectedFolderId]);
 
   // Handler for Clear Selection
   const handleClearSelection = useCallback(() => {
@@ -442,19 +495,20 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
     })
   );
 
-  // Move document to folder mutation
+  // Move document to folder mutation. Evict the corpus document/folder caches so
+  // both the document list and the folder tree (with its sidebar doc counts)
+  // refetch with fresh data.
   const [moveDocumentToFolder] = useMutation<
     MoveDocumentToFolderOutputs,
     MoveDocumentToFolderInputs
   >(MOVE_DOCUMENT_TO_FOLDER, {
-    // Evict documents and folders from cache to force refetch
-    // This ensures both the document list and folder tree (with doc counts) update
-    update(cache) {
-      cache.evict({ fieldName: "documents" });
-      cache.evict({ fieldName: "corpusFolders" });
-      cache.gc();
-    },
+    update: (cache) => evictCorpusDocumentCaches(cache),
   });
+
+  // Handler for "Empty Corpus" (bulk action) - opens confirmation modal.
+  const handleEmptyCorpus = useCallback(() => {
+    setShowEmptyCorpusModal(true);
+  }, []);
 
   // Move folder mutation
   const [moveFolder] = useMutation<
@@ -732,13 +786,14 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
               onUpload={handleUpload}
               onBulkImport={handleBulkImport}
               selectedDocumentCount={selectedDocumentIds.length}
-              totalDocumentCount={viewDocumentIds.length}
+              totalDocumentCount={totalDocumentCount}
               onLinkDocuments={() => openLinkModal(selectedDocumentIds)}
               onSelectAll={handleSelectAll}
               onClearSelection={handleClearSelection}
               onRemoveFromCorpus={handleRemoveFromCorpus}
+              onEmptyCorpus={canDeleteCorpus ? handleEmptyCorpus : undefined}
               allSelected={allSelected}
-              isLoading={isDocumentsLoading}
+              isLoading={isDocumentsLoading || selectAllLoading}
             />
           )}
 
@@ -796,6 +851,11 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
       <MoveFolderModal />
       <DeleteFolderModal />
       <RemoveDocumentsModal />
+      <EmptyCorpusModal
+        open={showEmptyCorpusModal}
+        onClose={() => setShowEmptyCorpusModal(false)}
+        corpusId={corpusId}
+      />
 
       {/* Bulk Import Modal */}
       <BulkImportModal />

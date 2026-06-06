@@ -88,6 +88,81 @@ class DocumentQueryTestCase(TestCase):
         self.assertEqual(revisions[1]["version"], 2)
         self.assertEqual(revisions[1]["snapshot"], "Second summary version.")
 
+
+class CorpusDocumentIdsQueryTestCase(TestCase):
+    """``corpusDocumentIds`` powers the grid's 'Select All' — it must return
+    every matching document id (no pagination), be folder-descendant-aware, and
+    respect document visibility."""
+
+    QUERY = """
+        query ($corpusId: String!, $folderId: String) {
+          corpusDocumentIds(
+            inCorpusWithId: $corpusId
+            inFolderId: $folderId
+            includeCaml: true
+          )
+        }
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="cdi_user", password="secret")
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
+
+        self.corpus = Corpus.objects.create(title="CDI Corpus", creator=self.user)
+        self.corpus_gid = to_global_id("CorpusType", self.corpus.id)
+
+        self.folder = CorpusFolder.objects.create(
+            corpus=self.corpus, name="F", creator=self.user
+        )
+        self.folder_gid = to_global_id("CorpusFolderType", self.folder.id)
+
+        # Three documents at the corpus root.
+        self.root_doc_gids = set()
+        for i in range(3):
+            standalone = Document.objects.create(creator=self.user, title=f"root{i}")
+            corpus_doc, _, _ = self.corpus.add_document(
+                document=standalone, user=self.user
+            )
+            self.root_doc_gids.add(to_global_id("DocumentType", corpus_doc.id))
+
+        # One document inside the folder.
+        standalone = Document.objects.create(creator=self.user, title="infolder")
+        folder_doc, _, _ = self.corpus.add_document(
+            document=standalone, user=self.user, folder=self.folder
+        )
+        self.folder_doc_gid = to_global_id("DocumentType", folder_doc.id)
+
+    def test_returns_all_corpus_documents_at_root(self):
+        result = self.graphene_client.execute(
+            self.QUERY,
+            variables={"corpusId": self.corpus_gid, "folderId": "__root__"},
+        )
+        self.assertIsNone(result.get("errors"))
+        ids = set(result["data"]["corpusDocumentIds"])
+        # "__root__" = every document in the corpus regardless of folder nesting.
+        self.assertEqual(ids, self.root_doc_gids | {self.folder_doc_gid})
+
+    def test_folder_filter_scopes_to_folder_subtree(self):
+        result = self.graphene_client.execute(
+            self.QUERY,
+            variables={"corpusId": self.corpus_gid, "folderId": self.folder_gid},
+        )
+        self.assertIsNone(result.get("errors"))
+        self.assertEqual(
+            set(result["data"]["corpusDocumentIds"]), {self.folder_doc_gid}
+        )
+
+    def test_excludes_documents_not_visible_to_user(self):
+        other = User.objects.create_user(username="cdi_other", password="secret")
+        other_client = Client(schema, context_value=TestContext(other))
+        result = other_client.execute(
+            self.QUERY,
+            variables={"corpusId": self.corpus_gid, "folderId": "__root__"},
+        )
+        self.assertIsNone(result.get("errors"))
+        # A stranger to this private corpus sees none of its documents.
+        self.assertEqual(result["data"]["corpusDocumentIds"], [])
+
     def test_document_summary_queries_no_summary(self):
         """When no summary exists for the corpus, default values should be returned."""
 

@@ -3367,6 +3367,34 @@ export interface EmptyTrashOutput {
   };
 }
 
+/**
+ * EMPTY_CORPUS — "empty everything": move EVERY document in the corpus to Trash
+ * and remove ALL folders in one step. Documents are soft-deleted (recoverable
+ * until the trash is emptied); the folder tree is removed. Requires corpus
+ * DELETE permission.
+ */
+export const EMPTY_CORPUS = gql`
+  mutation EmptyCorpus($corpusId: String!) {
+    emptyCorpus(corpusId: $corpusId) {
+      ok
+      message
+      trashedCount
+    }
+  }
+`;
+
+export interface EmptyCorpusInput {
+  corpusId: string;
+}
+
+export interface EmptyCorpusOutput {
+  emptyCorpus: {
+    ok: boolean;
+    message: string;
+    trashedCount: number;
+  };
+}
+
 // ============================================================================
 // MODERATION MUTATIONS
 // ============================================================================

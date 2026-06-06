@@ -77,7 +77,13 @@ interface FolderToolbarProps {
   onClearSelection?: () => void;
   /** Callback when user clicks Remove from Corpus (bulk action) */
   onRemoveFromCorpus?: () => void;
-  /** Whether all visible documents are selected */
+  /**
+   * Callback when user clicks "Empty Corpus" (move ALL documents to trash and
+   * remove ALL folders). Omitted when the user lacks DELETE permission, which
+   * hides the button entirely.
+   */
+  onEmptyCorpus?: () => void;
+  /** Whether all documents in the current view are selected */
   allSelected?: boolean;
   /** Whether documents are currently loading (disables Select All) */
   isLoading?: boolean;
@@ -630,6 +636,7 @@ export const FolderToolbar: React.FC<FolderToolbarProps> = ({
   onSelectAll,
   onClearSelection,
   onRemoveFromCorpus,
+  onEmptyCorpus,
   allSelected = false,
   isLoading = false,
 }) => {
@@ -816,6 +823,25 @@ export const FolderToolbar: React.FC<FolderToolbarProps> = ({
             <Link2 />
             <span>Link Document{selectedDocumentCount !== 1 ? "s" : ""}</span>
           </ActionButton>
+        )}
+
+        {/* Empty Corpus button - whole-corpus destructive action. Only shown
+            when the user can delete (onEmptyCorpus provided) and there is
+            something to empty. A confirmation modal guards the action. */}
+        {onEmptyCorpus && totalDocumentCount > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            leftIcon={<Trash2 size={16} />}
+            onClick={onEmptyCorpus}
+            title="Move all documents to trash and remove all folders"
+            style={{
+              color: OS_LEGAL_COLORS.danger,
+              borderColor: OS_LEGAL_COLORS.danger,
+            }}
+          >
+            Empty Corpus
+          </Button>
         )}
 
         {/* New Folder button */}
@@ -1007,6 +1033,19 @@ export const FolderToolbar: React.FC<FolderToolbarProps> = ({
           >
             <FolderPlus />
             New Folder
+          </MobileMenuItem>
+        )}
+        {onEmptyCorpus && totalDocumentCount > 0 && (
+          <MobileMenuItem
+            role="menuitem"
+            onClick={() => {
+              onEmptyCorpus();
+              closeMobileMenu();
+            }}
+            style={{ color: OS_LEGAL_COLORS.danger }}
+          >
+            <Trash2 />
+            Empty Corpus
           </MobileMenuItem>
         )}
         <MobileMenuItem

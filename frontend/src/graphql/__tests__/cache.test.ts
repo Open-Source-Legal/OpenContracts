@@ -30,7 +30,7 @@ import {
   selectedDocumentIds,
   viewingDocument,
   editingDocument,
-  currentViewDocumentIds,
+  currentViewTotalDocumentCount,
   documentsLoading,
   linkDocumentsModalState,
   // Extract
@@ -145,6 +145,10 @@ describe("cache.ts — reactive var initial values", () => {
     expect(showSelectedAnnotationOnly()).toBe(true);
   });
 
+  it("currentViewTotalDocumentCount defaults to 0", () => {
+    expect(currentViewTotalDocumentCount()).toBe(0);
+  });
+
   it("showCorpusActionOutputs defaults to true", () => {
     expect(showCorpusActionOutputs()).toBe(true);
   });
@@ -237,7 +241,6 @@ describe("cache.ts — reactive var initial values", () => {
 
   it("collection-typed vars default to [] or {}", () => {
     expect(selectedDocumentIds()).toEqual([]);
-    expect(currentViewDocumentIds()).toEqual([]);
     expect(selectedExtractIds()).toEqual([]);
     expect(selectedCorpusIds()).toEqual([]);
     expect(selectedLabelsetIds()).toEqual([]);
