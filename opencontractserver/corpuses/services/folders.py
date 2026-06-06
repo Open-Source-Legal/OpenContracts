@@ -2,8 +2,12 @@
 
 ``FolderCRUDService`` owns folder create / read / update / move / delete, the
 folder tree, folder search, and bulk folder-structure creation for imports.
-``delete_folder`` relocates any documents it contains to the corpus root via
-:class:`~opencontractserver.corpuses.services.paths.CorpusPathService`.
+``delete_folder`` has two modes: with ``move_children_to_parent=True`` it
+relocates the folder's documents to the corpus root via
+:class:`~opencontractserver.corpuses.services.paths.CorpusPathService` and
+reparents its sub-folders; with ``move_children_to_parent=False`` (the
+``deleteContents=True`` path the UI uses) it cascade-trashes the entire
+sub-tree, moving every document in it to Trash (recoverable).
 
 Document-in-folder placement and queries live in the sibling
 :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`.

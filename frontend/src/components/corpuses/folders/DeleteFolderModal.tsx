@@ -33,10 +33,10 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
  *
  * Features:
  * - Shows warning about subfolder and document counts
- * - Warns that documents will be moved to parent (or corpus root)
+ * - Warns that the sub-tree is removed and its documents move to Trash
  * - Requires explicit confirmation
  * - Clears selection if deleted folder was selected
- * - Optimistic update + refetch
+ * - Cache eviction drives the refetch (no optimistic local-state edit)
  */
 
 const StyledModalWrapper = styled.div`
@@ -129,7 +129,6 @@ export const DeleteFolderModal: React.FC = () => {
   const folderList = useAtomValue(folderListAtom);
   const selectedFolderId = useAtomValue(selectedFolderIdAtom);
   const corpusId = useAtomValue(folderCorpusIdAtom);
-  const setFolderList = useSetAtom(folderListAtom);
   const setSelectedFolderId = useSetAtom(selectedFolderIdAtom);
   const closeAllModals = useSetAtom(closeAllFolderModalsAtom);
 
@@ -146,14 +145,16 @@ export const DeleteFolderModal: React.FC = () => {
     // document grid and trash stale.
     update: (cache) => evictCorpusDocumentCaches(cache),
     onCompleted: () => {
-      // Remove folder from local cache
-      if (folder) {
-        setFolderList(folderList.filter((f) => f.id !== folder.id));
-
-        // If deleted folder was selected, clear selection
-        if (selectedFolderId === folder.id) {
-          setSelectedFolderId(null);
-        }
+      // Deleting a folder now cascade-removes its entire sub-tree, so a local
+      // ``folderList.filter(id !== folder.id)`` would only drop the top folder
+      // and leave its (also-deleted) child folders lingering in the sidebar
+      // until the refetch lands. Drop the optimistic local-state edit entirely
+      // and let the ``corpusFolders`` cache eviction above re-drive the sidebar
+      // from fresh server data.
+      if (folder && selectedFolderId === folder.id) {
+        // The selected folder was just deleted — clear the selection so we
+        // don't keep pointing at a folder that no longer exists.
+        setSelectedFolderId(null);
       }
 
       // Close modal
