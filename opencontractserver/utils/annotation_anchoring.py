@@ -44,6 +44,28 @@ def _norm(s: str) -> str:
     return " ".join((s or "").casefold().split())
 
 
+def _passthrough_annotation_metadata(ann: dict) -> dict:
+    """Optional annotation fields carried verbatim from the dumb-anchor input.
+
+    ``link_url`` (the OC_URL click-through hyperlink target) and ``data`` (a
+    label-specific structured sidecar — most notably the geocoded
+    ``{canonical_name, lat, lng, admin_codes, geocoded}`` payload that
+    OC_COUNTRY / OC_STATE / OC_CITY spans carry) are not part of the anchor
+    geometry, so the re-anchor would otherwise silently strip them. We splice
+    them back onto the anchored dict so ``import_annotations`` can persist them
+    onto ``Annotation.link_url`` / ``Annotation.data``. Only non-None values
+    are emitted, so an absent field stays absent (and the column stays NULL).
+    """
+    out: dict = {}
+    link_url = ann.get("link_url")
+    if link_url is not None:
+        out["link_url"] = link_url
+    data = ann.get("data")
+    if data is not None:
+        out["data"] = data
+    return out
+
+
 def _anchor_pdf_page(
     page_idx: object, bbox: object, raw: str, pawls: list[dict]
 ) -> list[int] | None:
@@ -126,6 +148,7 @@ def _anchor_pdf(ann: dict, pawls: list[dict]) -> dict | None:
         "long_description": ann.get("long_description"),
         "page": first_page,
         "annotation_json": annotation_json,
+        **_passthrough_annotation_metadata(ann),
     }
 
 
@@ -159,6 +182,7 @@ def _anchor_text(ann: dict, content: str) -> dict | None:
         # rather than the misleading 1.
         "page": 0,
         "annotation_json": {"start": chosen, "end": end, "text": content[chosen:end]},
+        **_passthrough_annotation_metadata(ann),
     }
 
 
@@ -190,6 +214,10 @@ def legacy_annotation_to_dumb_anchor(ann: dict, *, is_pdf: bool) -> dict | None:
         "rawText": raw,
         "parent_id": ann.get("parent_id"),
         "long_description": ann.get("long_description"),
+        # Carry the click-through / structured sidecar fields onto the
+        # converted dumb-anchor dict so a legacy export annotation keeps its
+        # OC_URL target and geocoded ``data`` through the re-anchor.
+        **_passthrough_annotation_metadata(ann),
     }
 
     if is_pdf:

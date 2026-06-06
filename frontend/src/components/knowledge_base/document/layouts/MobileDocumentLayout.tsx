@@ -371,6 +371,8 @@ export const MobileDocumentLayout: React.FC<DocumentLayoutProps> = (props) => {
         >
           <MobileSectionsSheet
             open={sectionsSheetOpen}
+            documentId={documentId}
+            corpusId={corpusId}
             onNavigate={(annotationId) => {
               setSelectedAnnotations([annotationId]);
               setSectionsSheetOpen(false);

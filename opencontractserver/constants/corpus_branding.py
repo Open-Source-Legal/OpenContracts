@@ -55,6 +55,13 @@ CORPUS_LOGO_IMAGE_SIZE = "1024x1024"
 CORPUS_LOGO_REQUEST_TIMEOUT_SECONDS = 90.0
 CORPUS_LOGO_CONNECT_TIMEOUT_SECONDS = 10.0
 
+# Upper bound on the free-text styling hint an agent/user may pass to the manual
+# ``regenerate_corpus_icon`` tool. The hint is sanitised
+# (``sanitize_plaintext_for_prompt``) and capped at this length before being
+# appended to the image prompt, so a long crafted value cannot dominate the
+# prompt or break out of it.
+CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS = 500
+
 # ---------------------------------------------------------------------------
 # PIL monogram fallback
 # ---------------------------------------------------------------------------
