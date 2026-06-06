@@ -73,7 +73,10 @@ class TestSearchCorpusDocuments(TestCase):
         self.assertEqual([r["document_id"] for r in results], [self.invoice.id])
 
     def test_search_by_path_substring(self):
-        # The contract's path is /documents/Master_Agreement.pdf
+        # The contract's path is /documents/Master_Agreement.pdf: the space in
+        # the original "Master Agreement.pdf" filename collapses to "_" via
+        # sanitize_corpus_filename, so we search for the sanitised segment. If
+        # that sanitisation rule changes, update this query to match.
         results = search_corpus_documents(
             corpus_id=self.corpus.id, query="Master_Agreement", user_id=self.user.id
         )

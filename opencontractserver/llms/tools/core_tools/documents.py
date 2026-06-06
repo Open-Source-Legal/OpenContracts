@@ -468,7 +468,7 @@ async def adelete_document(
     *,
     document_id: int,
     corpus_id: int,
-    user_id: int,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """Async wrapper around :func:`delete_document`."""
     return await _db_sync_to_async(delete_document)(

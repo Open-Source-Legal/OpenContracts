@@ -593,6 +593,13 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         category=ToolCategory.CORPUS,
         requires_corpus=True,
         requires_approval=True,
+        # The registry only exposes a coarse WRITE gate, but deletion needs the
+        # higher corpus DELETE tier. This flag filters out read-only users at
+        # the framework layer; the authoritative DELETE check lives in
+        # ``DocumentLifecycleService.soft_delete_document`` (defense in depth),
+        # so a WRITE-but-not-DELETE user passes this gate and is then correctly
+        # rejected by the service. If a ``requires_delete_permission`` flag is
+        # ever added, switch this entry to it.
         requires_write_permission=True,
         parameters=(("document_id", "ID of the document to delete", True),),
     ),

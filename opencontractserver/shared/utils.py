@@ -23,6 +23,10 @@ def sanitize_corpus_filename(name: str, *, fallback: str = "untitled") -> str:
     Note: because distinct inputs can collapse to the same output
     (``"My Doc"`` and ``"My_Doc"`` both become ``"My_Doc"``), callers that
     derive a path from this must still disambiguate against existing paths.
+    Runs are **not** collapsed — each disallowed character maps to its own
+    ``_`` (``"My  File"`` -> ``"My__File"``), which is intentional so the
+    mapping stays char-for-char reversible-ish and predictable; do not expect
+    a single separator out of multiple.
     """
     truncated = (name or "")[:MAX_FILENAME_LENGTH]
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in truncated)
