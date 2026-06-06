@@ -125,6 +125,7 @@ class DocumentQueryMixin:
         ),
     )
 
+    @login_required
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
     def resolve_corpus_document_ids(
         self, info: graphene.ResolveInfo, in_corpus_with_id: str, **kwargs: Any
