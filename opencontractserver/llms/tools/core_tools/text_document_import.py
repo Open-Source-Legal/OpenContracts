@@ -16,10 +16,10 @@ from typing import Any
 from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MAX_FILE_UPLOAD_SIZE_BYTES,
-    MAX_FILENAME_LENGTH,
     TEXT_MIMETYPES,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.utils import sanitize_corpus_filename
 
 from ._helpers import _db_sync_to_async
 
@@ -37,13 +37,7 @@ def _derive_path_from_title(title: str) -> str:
     ``/documents/My_Doc`` — calling the tool with either title will
     version-up the other.
     """
-    safe_title = "".join(
-        c if c.isalnum() or c in "-_." else "_" for c in title[:MAX_FILENAME_LENGTH]
-    )
-    if not safe_title:
-        # Fall back to a stable placeholder so the path is still valid.
-        safe_title = "untitled"
-    return f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_title}"
+    return f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{sanitize_corpus_filename(title)}"
 
 
 def create_or_update_text_document(

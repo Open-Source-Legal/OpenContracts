@@ -67,7 +67,7 @@ from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
 from opencontractserver.types.enums import JobStatus, PermissionTypes
 from opencontractserver.utils.extract import create_and_setup_extract
 
-from ._helpers import _db_sync_to_async
+from ._helpers import _db_sync_to_async, clamp_limit
 
 logger = logging.getLogger(__name__)
 
@@ -75,15 +75,8 @@ User = get_user_model()
 
 
 def _clamp_limit(limit: int | None, default: int) -> int:
-    if limit is None:
-        return default
-    try:
-        value = int(limit)
-    except (TypeError, ValueError):
-        return default
-    if value <= 0:
-        return default
-    return min(value, MAX_LIST_LIMIT)
+    """Clamp ``limit`` to ``[1, MAX_LIST_LIMIT]`` (see ``clamp_limit``)."""
+    return clamp_limit(limit, default, MAX_LIST_LIMIT)
 
 
 def _get_user_or_none(user_id: int | None):

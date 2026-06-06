@@ -33,6 +33,25 @@ except ModuleNotFoundError:  # Channels not installed – fall back gracefully
     _db_sync_to_async = partial(_sync_to_async, thread_sensitive=False)
 
 
+def clamp_limit(limit: int | None, default: int, maximum: int) -> int:
+    """Clamp a caller-supplied ``limit`` into ``[1, maximum]``.
+
+    Returns ``default`` when ``limit`` is ``None``, non-positive, or not
+    coercible to ``int``. Shared by the listing / discovery tools so they
+    all treat an LLM-supplied ``limit`` identically (an LLM occasionally
+    passes ``0`` or a string).
+    """
+    if limit is None:
+        return default
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return default
+    return min(value, maximum)
+
+
 def _token_count(text: str) -> int:
     """Naive whitespace-based token counting helper.
 

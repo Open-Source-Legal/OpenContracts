@@ -63,7 +63,16 @@ from .document_summaries import (  # noqa: F401
     get_document_summary_versions,
     update_document_summary,
 )
-from .documents import amove_document, move_document  # noqa: F401
+from .documents import (  # noqa: F401
+    adelete_document,
+    amove_document,
+    arename_document,
+    asearch_corpus_documents,
+    delete_document,
+    move_document,
+    rename_document,
+    search_corpus_documents,
+)
 from .extracts_and_analyzers import (  # noqa: F401
     alist_analyzers,
     alist_fieldsets,
@@ -201,9 +210,15 @@ __all__ = [
     # Markdown links
     "acreate_markdown_link",
     "create_markdown_link",
-    # Document movement
+    # Document / corpus file management (search / move / rename / delete)
+    "adelete_document",
     "amove_document",
+    "arename_document",
+    "asearch_corpus_documents",
+    "delete_document",
     "move_document",
+    "rename_document",
+    "search_corpus_documents",
     # Text document create / version-up
     "acreate_or_update_text_document",
     "aupload_text_document",
