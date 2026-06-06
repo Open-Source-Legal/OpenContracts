@@ -552,7 +552,7 @@ class TestPipelineSettingsToolSecrets(TestCase):
         """
         from opencontractserver.documents.models import PipelineSettings
 
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
     def tearDown(self):
         """Clean up tool settings to avoid leaking state to other tests."""
