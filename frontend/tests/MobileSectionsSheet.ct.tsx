@@ -3,9 +3,9 @@ import { docScreenshot } from "./utils/docScreenshot";
 import { MobileSectionsSheetHarness } from "./MobileSectionsSheet.harness";
 
 const SECTIONS = [
-  { id: "sec-1", rawText: "Introduction", page: 0 },
-  { id: "sec-2", rawText: "Terms and Conditions", page: 2 },
-  { id: "sec-3", rawText: "Signatures", page: 7 },
+  { id: "sec-1", rawText: "Introduction", page: 1 },
+  { id: "sec-2", rawText: "Terms and Conditions", page: 3 },
+  { id: "sec-3", rawText: "Signatures", page: 8 },
 ];
 
 test("shows the empty state when the document has no sections", async ({
@@ -15,7 +15,7 @@ test("shows the empty state when the document has no sections", async ({
   await expect(c).toHaveText("No sections detected in this document.");
 });
 
-test("renders a tappable row per structural annotation", async ({
+test("renders a tappable row per OC_SECTION index entry", async ({
   mount,
   page,
 }) => {
@@ -24,7 +24,7 @@ test("renders a tappable row per structural annotation", async ({
   );
   await expect(c.getByText("Introduction")).toBeVisible();
   await expect(c.getByText("Terms and Conditions")).toBeVisible();
-  // Page badge is 1-indexed (page + 1).
+  // Page is rendered verbatim from the index (same as the desktop tab).
   await expect(c.getByText("p.3")).toBeVisible();
   await docScreenshot(page, "mobile--sections-sheet--list");
 });
