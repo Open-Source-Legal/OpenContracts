@@ -245,6 +245,13 @@ class OpenContractsAnnotationPythonType(TypedDict):
     # round-trip so a corpus full of link annotations doesn't silently lose
     # all its targets through fork / V2-export / V2-import.
     link_url: NotRequired[Optional[str]]
+    # Free-form structured sidecar persisted to ``Annotation.data``. Carries
+    # label-specific state that lives nowhere else in the annotation shape —
+    # most notably the geocoded ``{canonical_name, lat, lng, admin_codes,
+    # geocoded}`` payload that OC_COUNTRY / OC_STATE / OC_CITY spans write so
+    # the map UI can aggregate pins without re-running the geocoder. Optional;
+    # absent / null leaves the column NULL.
+    data: NotRequired[Optional[dict]]
 
 
 class SpanAnnotation(TypedDict):

@@ -154,6 +154,11 @@ def import_annotations(
                 # must survive round-trip through bulk import. Falsy /
                 # missing values stay NULL on the column.
                 link_url=annotation_data.get("link_url") or None,
+                # Label-specific structured sidecar (e.g. the geocoded
+                # OC_COUNTRY/STATE/CITY payload). Persisted verbatim so map /
+                # other data-driven features survive bulk import; missing /
+                # empty stays NULL.
+                data=annotation_data.get("data") or None,
             )
         )
         parallel_old_ids.append(annotation_data.get("id"))
