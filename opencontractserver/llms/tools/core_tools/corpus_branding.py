@@ -79,7 +79,7 @@ def _authorize_icon_regeneration(
 async def aregenerate_corpus_icon(
     *,
     corpus_id: int,
-    user_id: int,
+    user_id: int | None = None,
     additional_instructions: str | None = None,
 ) -> dict[str, Any]:
     """Generate a fresh icon/logo for the corpus and save it.
@@ -109,7 +109,10 @@ async def aregenerate_corpus_icon(
     # Deferred import: the branding service imports from the corpuses package at
     # module load, so importing it at the top of a tool module that is itself
     # imported during tool-registry population risks a cycle.
-    from opencontractserver.corpuses.services.branding import aregenerate_corpus_logo
+    from opencontractserver.corpuses.services.branding import (
+        aregenerate_corpus_logo,
+        sanitize_logo_instruction_hint,
+    )
 
     result = await aregenerate_corpus_logo(
         corpus, user, additional_instructions=additional_instructions
@@ -125,8 +128,11 @@ async def aregenerate_corpus_icon(
     return {
         "corpus_id": corpus.id,
         "status": "updated",
+        # Report from the *sanitised* hint (the same value the prompt builder
+        # appends) so a hint that collapses to empty (e.g. only quotes) is not
+        # falsely reported as applied.
         "additional_instructions_applied": bool(
-            additional_instructions and additional_instructions.strip()
+            sanitize_logo_instruction_hint(additional_instructions)
         ),
         "detail": "A new corpus icon was generated and saved.",
     }

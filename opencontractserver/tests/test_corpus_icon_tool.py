@@ -24,8 +24,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase
+from PIL import Image
 
 from opencontractserver.constants.corpus_branding import (
     CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
@@ -145,6 +147,11 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
 
     def test_creator_regenerates_icon_real_fallback(self):
         """Full real path: monogram fallback is generated and persisted."""
+        # Make the no-live-API assumption explicit: this test runs the real
+        # generator and only stays offline because image generation is disabled
+        # in test settings. A misconfigured env would otherwise hit OpenAI.
+        self.assertFalse(settings.CORPUS_LOGO_GENERATION_ENABLED)
+
         result = async_to_sync(aregenerate_corpus_icon)(
             corpus_id=self.corpus.id, user_id=self.creator.id
         )
@@ -156,8 +163,6 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
         self.assertTrue(self.corpus.icon)
         self.assertTrue((self.corpus.icon.name or "").endswith(".png"))
         # The persisted bytes are a valid PNG.
-        from PIL import Image
-
         with self.corpus.icon.open("rb") as fh:
             self.assertEqual(Image.open(BytesIO(fh.read())).format, "PNG")
 
@@ -201,11 +206,10 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
         mock_gen = AsyncMock(return_value=(_png_bytes(), "png"))
         with patch(_IMAGE_GEN_TARGET, new=mock_gen):
             with self.assertRaises(PermissionError):
-                # user_id=None exercises the anonymous-denial branch; the tool's
-                # signature types it as int, hence the intentional ignore.
+                # user_id=None exercises the anonymous-denial branch.
                 async_to_sync(aregenerate_corpus_icon)(
                     corpus_id=self.corpus.id,
-                    user_id=None,  # type: ignore[arg-type]
+                    user_id=None,
                 )
         mock_gen.assert_not_awaited()
         self.corpus.refresh_from_db()
@@ -237,6 +241,22 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
         self.corpus.refresh_from_db()
         self.assertFalse(self.corpus.icon)
 
+    def test_non_creator_with_update_access_denied(self):
+        """Even a guardian UPDATE grant doesn't bypass the creator-only gate."""
+        set_permissions_for_obj_to_user(
+            self.other, self.corpus, [PermissionTypes.READ, PermissionTypes.UPDATE]
+        )
+        mock_gen = AsyncMock(return_value=(_png_bytes(), "png"))
+        with patch(_IMAGE_GEN_TARGET, new=mock_gen):
+            with self.assertRaises(PermissionError):
+                async_to_sync(aregenerate_corpus_icon)(
+                    corpus_id=self.corpus.id, user_id=self.other.id
+                )
+        # Denied before any image generation is attempted.
+        mock_gen.assert_not_awaited()
+        self.corpus.refresh_from_db()
+        self.assertFalse(self.corpus.icon)
+
     def test_missing_corpus_denied(self):
         with self.assertRaises(PermissionError):
             async_to_sync(aregenerate_corpus_icon)(
@@ -251,7 +271,12 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
 
 @pytest.mark.django_db
 class RegenerateCorpusIconRegistryTests(TransactionTestCase):
-    """The tool is discoverable, flagged correctly, and approval-gated."""
+    """The tool is discoverable, flagged correctly, and approval-gated.
+
+    ``django_db`` + ``asyncio`` markers mirror ``test_image_tools.py``: the
+    async test method runs under pytest-asyncio (outside Django's sync test
+    harness), so the marker is what grants it DB access.
+    """
 
     def test_resolves_with_expected_flags(self):
         registry = ToolFunctionRegistry.get()

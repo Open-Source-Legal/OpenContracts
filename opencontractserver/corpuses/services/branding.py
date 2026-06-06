@@ -335,6 +335,31 @@ def _build_branding_system_prompt(corpus: Corpus, tools: list[str]) -> str:
     return "\n".join(parts)
 
 
+def sanitize_logo_instruction_hint(additional_instructions: str | None) -> str:
+    """Return the sanitised styling hint, or ``""`` if it adds nothing.
+
+    Shared by :func:`_build_logo_prompt` (which only appends the hint when this
+    is non-empty) and the ``regenerate_corpus_icon`` tool (which reports
+    ``additional_instructions_applied`` from it) so the "was a hint applied?"
+    answer is derived from the *sanitised* value in one place. A value that is
+    blank or consists only of stripped characters (e.g. quotes) collapses to
+    ``""`` here, so it never falsely reports as applied.
+    """
+    if not (additional_instructions and additional_instructions.strip()):
+        return ""
+    from opencontractserver.constants.corpus_branding import (
+        CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
+    )
+    from opencontractserver.utils.prompt_sanitization import (
+        sanitize_plaintext_for_prompt,
+    )
+
+    return sanitize_plaintext_for_prompt(
+        additional_instructions.strip(),
+        max_length=CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
+    )
+
+
 def _build_logo_prompt(
     corpus: Corpus, additional_instructions: str | None = None
 ) -> str:
@@ -354,9 +379,6 @@ def _build_logo_prompt(
     This mirrors the prompt-hardening applied to the README agent's system
     prompt.
     """
-    from opencontractserver.constants.corpus_branding import (
-        CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
-    )
     from opencontractserver.utils.prompt_sanitization import (
         sanitize_plaintext_for_prompt,
     )
@@ -374,13 +396,9 @@ def _build_logo_prompt(
     )
     if description:
         prompt += f" The collection is about: {description}."
-    if additional_instructions and additional_instructions.strip():
-        hint = sanitize_plaintext_for_prompt(
-            additional_instructions.strip(),
-            max_length=CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
-        )
-        if hint:
-            prompt += f" Additional style guidance: {hint}."
+    hint = sanitize_logo_instruction_hint(additional_instructions)
+    if hint:
+        prompt += f" Additional style guidance: {hint}."
     prompt += (
         " Flat design, simple geometric shapes, a single focal symbol, bold "
         "solid colors, centered on a plain background, no text, no words, no "
