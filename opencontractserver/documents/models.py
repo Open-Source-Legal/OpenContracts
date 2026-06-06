@@ -2117,7 +2117,8 @@ class PendingDocumentAnnotations(django.db.models.Model):
     creator = django.db.models.ForeignKey(
         get_user_model(), on_delete=django.db.models.CASCADE
     )
-    # {"annotations": [<dumb-anchor dicts>], "doc_labels": [<label names>]}
+    # {"annotations": [<dumb-anchor dicts>], "doc_labels": [<label names>],
+    #  "relationships": [<annotation-to-annotation edge dicts>]}
     payload = django.db.models.JSONField(default=dict)
     status = django.db.models.CharField(
         max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True
@@ -2132,8 +2133,9 @@ class PendingDocumentAnnotations(django.db.models.Model):
     # and gate a run's deferred work without a first-class run model.
     ingestion_run_id = django.db.models.UUIDField(null=True, blank=True, db_index=True)
     # old export-local annotation id -> newly created Annotation pk, recorded by
-    # remap_pending_annotations. Forward-investment so a future relationship-
-    # wiring feature can resolve endpoints without re-deriving the mapping.
+    # remap_pending_annotations. Drives the annotation-to-annotation relationship
+    # wiring in that task (resolving sidecar relationship endpoints) and is
+    # persisted so the mapping survives without re-deriving it.
     id_map = django.db.models.JSONField(default=dict, blank=True)
 
     class Meta:

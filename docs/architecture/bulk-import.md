@@ -80,6 +80,31 @@ if parsed.is_valid:
 
 Relationships are created using `corpus.ensure_label_and_labelset()` for atomic label/labelset creation with `LabelType.RELATIONSHIP_LABEL`.
 
+**Cross-batch resolution**: endpoints first resolve against documents imported
+in the current ZIP (`document_path_map`), then fall back to documents already in
+the corpus via `build_existing_corpus_path_map()` (which is gated by
+`CorpusDocumentService.get_corpus_documents`, so only documents the importing
+user can access are eligible). The two maps are merged with the in-import map on
+top. The phase runs whenever a `relationships.csv` is present — even if the ZIP
+contains no documents — so a relationship-only ZIP can wire existing corpus
+documents.
+
+### Annotation Sidecars (deferred remap)
+
+A document's co-located `.json` sidecar (`{"annotations": [...], "doc_labels":
+[...], "relationships": [...]}`) is persisted verbatim into a
+`PendingDocumentAnnotations` row and applied after ingest by
+`remap_pending_annotations` (`opencontractserver/tasks/doc_tasks.py`):
+
+1. `anchor_annotations()` re-anchors each dumb-anchor annotation onto the
+   freshly-parsed PAWLs/text layer (carrying `link_url` and `data` through).
+2. `import_annotations()` creates the annotations and returns the
+   producer-id → new-pk map (persisted on the row's `id_map`).
+3. `_wire_pending_relationships()` wires the sidecar's annotation-to-annotation
+   `relationships` using that map, auto-creating each `RELATIONSHIP_LABEL`.
+   Edges whose endpoints did not survive anchoring are dropped and recorded on
+   the row's `report`.
+
 ## Task Result Schema
 
 The Celery task returns a detailed result dict:
@@ -103,6 +128,7 @@ The Celery task returns a detailed result dict:
     "folders_reused": 2,
     "metadata_file_found": True,
     "metadata_applied": 12,
+    "sidecar_relationships_found": 3,
     "relationships_file_found": True,
     "relationships_created": 8,
     "relationships_skipped": 1,

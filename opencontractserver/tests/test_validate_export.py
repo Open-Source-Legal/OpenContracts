@@ -1414,3 +1414,133 @@ class TestDumbAnchorSidecarValidation(unittest.TestCase):
         sidecar = {"annotations": [child, parent]}  # forward reference OK
         result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
         self.assertTrue(result.ok, msg=result.summary())
+
+    # --- link_url / data passthrough validation ---
+
+    def test_valid_link_url_and_data(self):
+        ann = self._pdf_ann(
+            label="OC_URL",
+            link_url="https://example.com",
+            data={"canonical_name": "France", "geocoded": True},
+        )
+        result = validate_dumb_anchor_sidecar(
+            {"annotations": [ann]},
+            _labels_json(section_label_types={"OC_URL": "TOKEN_LABEL"}),
+        )
+        self.assertTrue(result.ok, msg=result.summary())
+
+    def test_non_string_link_url_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(link_url=123)]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("'link_url' must be a string" in e for e in result.errors))
+
+    def test_non_object_data_is_error(self):
+        sidecar = {"annotations": [self._pdf_ann(data=["not", "a", "dict"])]}
+        result = validate_dumb_anchor_sidecar(sidecar, _labels_json())
+        self.assertFalse(result.ok)
+        self.assertTrue(any("'data' must be a JSON object" in e for e in result.errors))
+
+    # --- annotation-to-annotation relationship validation ---
+
+    def _rel_labels(self) -> dict:
+        return _labels_json(
+            section_label_types={
+                "OC_SECTION": "TOKEN_LABEL",
+                "OC_PARENT_CHILD": "RELATIONSHIP_LABEL",
+            }
+        )
+
+    def test_valid_relationship(self):
+        sidecar = {
+            "annotations": [
+                self._pdf_ann(id="a1"),
+                self._pdf_ann(id="a2"),
+            ],
+            "relationships": [
+                {
+                    "id": "r1",
+                    "relationshipLabel": "OC_PARENT_CHILD",
+                    "source_annotation_ids": ["a1"],
+                    "target_annotation_ids": ["a2"],
+                }
+            ],
+        }
+        result = validate_dumb_anchor_sidecar(sidecar, self._rel_labels())
+        self.assertTrue(result.ok, msg=result.summary())
+
+    def test_relationships_must_be_list(self):
+        sidecar = {"annotations": [self._pdf_ann()], "relationships": {}}
+        result = validate_dumb_anchor_sidecar(sidecar, self._rel_labels())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("'relationships' must be a JSON list" in e for e in result.errors)
+        )
+
+    def test_relationship_missing_label_is_error(self):
+        sidecar = {
+            "annotations": [self._pdf_ann(id="a1"), self._pdf_ann(id="a2")],
+            "relationships": [
+                {"source_annotation_ids": ["a1"], "target_annotation_ids": ["a2"]}
+            ],
+        }
+        result = validate_dumb_anchor_sidecar(sidecar, self._rel_labels())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("'relationshipLabel' must be a non-empty" in e for e in result.errors)
+        )
+
+    def test_relationship_empty_endpoints_is_error(self):
+        sidecar = {
+            "annotations": [self._pdf_ann(id="a1")],
+            "relationships": [
+                {
+                    "relationshipLabel": "OC_PARENT_CHILD",
+                    "source_annotation_ids": ["a1"],
+                    "target_annotation_ids": [],
+                }
+            ],
+        }
+        result = validate_dumb_anchor_sidecar(sidecar, self._rel_labels())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any(
+                "'target_annotation_ids' must be a non-empty list" in e
+                for e in result.errors
+            )
+        )
+
+    def test_relationship_dangling_endpoint_is_error(self):
+        sidecar = {
+            "annotations": [self._pdf_ann(id="a1")],
+            "relationships": [
+                {
+                    "relationshipLabel": "OC_PARENT_CHILD",
+                    "source_annotation_ids": ["a1"],
+                    "target_annotation_ids": ["ghost"],
+                }
+            ],
+        }
+        result = validate_dumb_anchor_sidecar(sidecar, self._rel_labels())
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any(
+                "references annotation id 'ghost' not present" in e
+                for e in result.errors
+            )
+        )
+
+    def test_relationship_label_alias_accepted(self):
+        """``label`` is accepted as an alias for ``relationshipLabel``."""
+        sidecar = {
+            "annotations": [self._pdf_ann(id="a1"), self._pdf_ann(id="a2")],
+            "relationships": [
+                {
+                    "label": "OC_PARENT_CHILD",
+                    "source_annotation_ids": ["a1"],
+                    "target_annotation_ids": ["a2"],
+                }
+            ],
+        }
+        result = validate_dumb_anchor_sidecar(sidecar, self._rel_labels())
+        self.assertTrue(result.ok, msg=result.summary())
