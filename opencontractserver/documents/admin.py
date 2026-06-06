@@ -7,6 +7,7 @@ from opencontractserver.documents.models import (
     Document,
     DocumentAnalysisRow,
     DocumentRelationship,
+    PendingCorpusImport,
     PendingDocumentAnnotations,
 )
 
@@ -107,5 +108,29 @@ class PendingDocumentAnnotationsAdmin(admin.ModelAdmin):
     list_filter = ("status", "created_at", "updated_at")
     search_fields = ["id", "document__title", "creator__username"]
     raw_id_fields = ("document", "corpus", "creator")
+    readonly_fields = ("created_at", "updated_at")
+    date_hierarchy = "created_at"
+
+
+@admin.register(PendingCorpusImport)
+class PendingCorpusImportAdmin(admin.ModelAdmin):
+    """Operational visibility into reingest-mode relationship fan-in runs.
+
+    Until the orphaned-row sweeper lands, this is the surface for spotting
+    runs stuck in ENUMERATING / READY / FINALIZING after a worker crash.
+    """
+
+    list_display = [
+        "id",
+        "import_run_id",
+        "corpus",
+        "status",
+        "expected_doc_count",
+        "created_at",
+        "updated_at",
+    ]
+    list_filter = ("status", "created_at", "updated_at")
+    search_fields = ["id", "import_run_id", "corpus__title", "creator__username"]
+    raw_id_fields = ("corpus", "creator")
     readonly_fields = ("created_at", "updated_at")
     date_hierarchy = "created_at"

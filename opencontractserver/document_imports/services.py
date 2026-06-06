@@ -605,6 +605,7 @@ def import_corpus_export_for_user(
     *,
     user,
     zip_source: File | bytes,
+    reingest_and_remap: bool = True,
 ) -> CorpusImportResult:
     """
     Create a placeholder :class:`Corpus`, stage the OpenContracts export
@@ -614,6 +615,18 @@ def import_corpus_export_for_user(
     The placeholder corpus is created synchronously (so the caller has
     something to deep-link / show in their corpus list immediately); the
     background task rewrites its title/description/etc. from the import.
+
+    ``reingest_and_remap`` defaults to ``True`` here — this is the opt-out
+    boundary for the **user-facing** corpus-export import (the REST
+    ``CorpusExportImportView`` and the chunked-upload completion path both call
+    this without overriding it). Re-parsing each document through the current
+    pipeline and re-anchoring its non-structural annotations is the default
+    behaviour for a user uploading an export; pass ``False`` to trust the
+    export's baked PAWLs / structural layer instead. The lower-level
+    ``import_corpus`` / ``import_corpus_v2`` tasks keep this **off** by default
+    (explicit opt-in for direct/programmatic callers and fork); this function
+    threads the flag through to them explicitly. See
+    ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
 
     Returns :class:`CorpusImportResult`. On failure, ``corpus`` is
     ``None`` and ``error`` carries a user-safe message. On a permission
@@ -663,7 +676,12 @@ def import_corpus_export_for_user(
             error="Failed to stage the corpus export. Please try again.",
         )
 
-    task_signature = import_corpus.s(temporary_file.id, user.id, corpus_obj.id)
+    task_signature = import_corpus.s(
+        temporary_file.id,
+        user.id,
+        corpus_obj.id,
+        reingest_and_remap=reingest_and_remap,
+    )
     if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
         chain(task_signature).apply_async()
     else:
