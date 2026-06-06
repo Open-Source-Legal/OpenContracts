@@ -118,6 +118,24 @@ class TestAnchorAnnotationsV2Shape(TestCase):
         self.assertFalse(report[0]["dropped"], f"report={report}")
 
 
+class TestSourceReingestability(TestCase):
+    """The placeholder guard that routes source-less docs to the baked path."""
+
+    def test_placeholder_and_empty_are_not_reingestable(self):
+        from opencontractserver.tasks.import_tasks_v2 import _source_is_reingestable
+
+        # The V2 exporter writes a single NUL byte for docs with no real
+        # source file (text/markdown); those must NOT be re-parsed.
+        self.assertFalse(_source_is_reingestable(b"\x00"))
+        self.assertFalse(_source_is_reingestable(b""))
+
+    def test_real_bytes_are_reingestable(self):
+        from opencontractserver.tasks.import_tasks_v2 import _source_is_reingestable
+
+        self.assertTrue(_source_is_reingestable(b"%PDF-1.4 ..."))
+        self.assertTrue(_source_is_reingestable(b"plain text body"))
+
+
 class TestCorpusImportFanIn(TestCase):
     """Coordination-layer unit tests for the relationship fan-in."""
 

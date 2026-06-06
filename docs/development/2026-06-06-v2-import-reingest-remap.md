@@ -12,7 +12,14 @@
   deferred payload rewrites each annotation's `annotationLabel` from the export
   label **id** to the label **text**, because `remap_pending_annotations`
   resolves labels by text (the dumb-anchor contract) while the V2 export keys
-  them by id.
+  them by id. A live smoke test (`docs/test_scripts/smoke_reingest_remap.py`)
+  surfaced a third: the V2 export only preserves the original **source file** for
+  PDFs/binaries — text/markdown docs ship a single-NUL placeholder — so reingest
+  must detect placeholder sources (`_source_is_reingestable`) and fall back to
+  the baked import for them (recording a DONE pending row so their annotation
+  ids still join the relationship fan-in), rather than feeding `\x00` to the
+  parser. Reingest is thus a re-parse for PDF/binary docs and a no-op-baked
+  import for source-less docs.
 - **Scope:** Backend capability only (no REST field, no frontend). Relationships
   wired via the asynchronous `PendingDocumentAnnotations.id_map`.
 - **Builds on:** PR #1910 "Defer annotation import and remap onto final PAWLs

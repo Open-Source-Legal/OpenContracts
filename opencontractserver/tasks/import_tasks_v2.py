@@ -292,15 +292,36 @@ def _import_document_with_annotations(
         to new PKs. In reingest mode annotations are created asynchronously, so
         the returned map is always empty. Returns (None, {}) on failure.
     """
+    # Reingest mode is only meaningful for documents whose *original source
+    # file* the export preserved — i.e. PDFs (and other binaries with a real
+    # ``pdf_file``). For text/markdown/source-less documents the V2 exporter
+    # writes a single-NUL placeholder in place of the file (``etl.py`` —
+    # ``b64encode(b"\\x00")``), because the document's content lives only in the
+    # baked ``content`` / ``pawls_file_content``. Re-parsing that placeholder
+    # would feed ``\\x00`` to the parser. So in reingest mode we peek the source
+    # bytes and fall back to the standard baked import for placeholder docs,
+    # still recording a DONE ``PendingDocumentAnnotations`` row so the
+    # relationship fan-in can resolve this doc's annotation ids.
+    reingest_fallback = False
     if reingest_and_remap:
-        return _reingest_document_with_deferred_remap(
+        with import_zip.open(doc_filename) as fh:
+            source_bytes = fh.read()
+        if _source_is_reingestable(source_bytes):
+            return _reingest_document_with_deferred_remap(
+                doc_filename,
+                doc_data,
+                source_bytes,
+                user_obj,
+                corpus_obj,
+                import_run_id,
+                label_lookup,
+            )
+        reingest_fallback = True
+        logger.info(
+            "Reingest: document %s has no preserved source file (placeholder); "
+            "importing its baked layer instead and recording its id_map for "
+            "the relationship fan-in.",
             doc_filename,
-            doc_data,
-            import_zip,
-            user_obj,
-            corpus_obj,
-            import_run_id,
-            label_lookup,
         )
 
     try:
@@ -343,6 +364,22 @@ def _import_document_with_annotations(
             doc_obj.backend_lock = False
             doc_obj.save(update_fields=["backend_lock"])
 
+            # Reingest fallback: this source-less doc was imported baked rather
+            # than reingested. Record a DONE pending row carrying its id_map so
+            # the relationship fan-in aggregates its annotation ids alongside the
+            # genuinely-reingested docs' maps (otherwise cross-doc relationships
+            # touching this doc would be silently dropped at finalize).
+            if reingest_fallback and import_run_id is not None:
+                PendingDocumentAnnotations.objects.create(
+                    document=corpus_doc,
+                    corpus=corpus_obj,
+                    creator=user_obj,
+                    ingestion_run_id=import_run_id,
+                    payload={},
+                    id_map={str(k): v for k, v in annot_id_map.items()},
+                    status=PendingDocumentAnnotations.Status.DONE,
+                )
+
             return corpus_doc, annot_id_map
 
     except Exception as e:
@@ -350,10 +387,21 @@ def _import_document_with_annotations(
         return None, {}
 
 
+def _source_is_reingestable(source_bytes: bytes) -> bool:
+    """True when the export preserved a real source file for reingest.
+
+    The V2 exporter writes a single NUL byte (``b"\\x00"``) as the file for any
+    document without a real ``pdf_file`` (text/markdown/source-less docs); their
+    content survives only as baked ``content`` / ``pawls_file_content``. Such a
+    placeholder cannot be re-parsed, so those docs fall back to the baked import.
+    """
+    return source_bytes not in (b"", b"\x00")
+
+
 def _reingest_document_with_deferred_remap(
     doc_filename: str,
     doc_data: dict[str, Any],
-    import_zip: zipfile.ZipFile,
+    source_bytes: bytes,
     user_obj: UserModel,
     corpus_obj: Corpus,
     import_run_id: uuid.UUID | None,
@@ -389,12 +437,9 @@ def _reingest_document_with_deferred_remap(
         str(label_id): lbl.text for label_id, lbl in label_lookup.items()
     }
     try:
-        with import_zip.open(doc_filename) as fh:
-            file_bytes = fh.read()
-
         with transaction.atomic():
             corpus_doc, _status, _path = corpus_obj.import_content(
-                content=file_bytes,
+                content=source_bytes,
                 user=user_obj,
                 filename=doc_filename,
                 title=doc_data["title"],

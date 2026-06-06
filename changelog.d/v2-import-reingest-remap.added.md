@@ -26,6 +26,17 @@
   lookup, and calls the existing `_import_v2_relationships`. The task is
   retry-safe (accepts `FINALIZING`/`FAILED` re-entry; wiring + `DONE` flip in
   one transaction so a crash rolls partial writes back).
+- **Source-less documents fall back to the baked import.** Reingest re-parses a
+  document from its original source bytes, but the V2 exporter only preserves
+  those for documents with a real `pdf_file` (PDFs / binaries) — text, markdown
+  and other source-less docs ship a single-NUL placeholder (`etl.py`), with their
+  content carried only in the baked `content` / `pawls_file_content`. In reingest
+  mode `_import_document_with_annotations` now peeks the source bytes
+  (`_source_is_reingestable`) and, for a placeholder, imports the doc's baked
+  layer instead of feeding `\x00` to the parser (which previously stuck the doc
+  in an ingest retry loop). The fallback still records a DONE
+  `PendingDocumentAnnotations` row carrying the doc's `id_map`, so cross-document
+  relationships touching a source-less doc are still wired by the fan-in.
 - **Fixed: compact-v2 PDF annotations are now anchorable on reingest.**
   `legacy_annotation_to_dumb_anchor` (`utils/annotation_anchoring.py`) now
   accepts the compact-v2 `annotation_json` shape (`{"v": 2, "p": {page: {"b":
