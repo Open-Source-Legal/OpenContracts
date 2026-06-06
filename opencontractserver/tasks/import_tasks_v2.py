@@ -556,6 +556,18 @@ def _import_corpus(
         reingest_relationships: list = []
         if reingest_and_remap:
             import_run_id = uuid.uuid4()
+            # The relationship fan-in is async and the orphaned-row sweeper is
+            # still deferred (see the design doc §9). Until it lands, a worker
+            # crash mid-import leaves PendingCorpusImport / PendingDocumentAnnotations
+            # rows stranded with relationships never wired — log the run id so an
+            # operator can find and clean up stuck rows by hand.
+            logger.warning(
+                "[ImportV2] reingest_and_remap enabled for corpus %s "
+                "(import_run_id=%s); coordination rows are swept manually until "
+                "the orphaned-row sweeper lands.",
+                corpus_obj.id,
+                import_run_id,
+            )
             if is_v2:
                 reingest_relationships = (
                     cast(OpenContractsExportDataJsonV2Type, data_json).get(
@@ -641,13 +653,22 @@ def _import_corpus(
         # is then a clean no-op). The last remap to finish wins the race
         # otherwise; the exactly-once claim guarantees a single finalize.
         if reingest_and_remap and reingest_relationships:
+            # Deferred import: ``doc_tasks`` imports from this module, so a
+            # top-level import here would form a circular import at module load.
             from opencontractserver.tasks.doc_tasks import (
                 _maybe_finalize_corpus_import,
             )
 
             # ``import_run_id`` is always set when reingest mode created a
             # coordination row (which only happens when relationships exist).
-            assert import_run_id is not None
+            # Use an explicit guard, not ``assert``: assertions are stripped
+            # under ``python -O`` / a ``-O`` Celery worker, which would let a
+            # ``filter(import_run_id=None)`` silently mis-target rows.
+            if import_run_id is None:
+                raise RuntimeError(
+                    "_import_corpus: import_run_id must be set in reingest mode "
+                    "when relationships exist — this is a bug."
+                )
             expected = PendingDocumentAnnotations.objects.filter(
                 ingestion_run_id=import_run_id
             ).count()

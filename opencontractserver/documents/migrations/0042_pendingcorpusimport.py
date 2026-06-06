@@ -62,5 +62,10 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
+            options={
+                "verbose_name": "Pending Corpus Import",
+                "verbose_name_plural": "Pending Corpus Imports",
+                "ordering": ["-created_at"],
+            },
         ),
     ]

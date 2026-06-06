@@ -2200,5 +2200,12 @@ class PendingCorpusImport(django.db.models.Model):
     created_at = django.db.models.DateTimeField(auto_now_add=True)
     updated_at = django.db.models.DateTimeField(auto_now=True)
 
+    class Meta:
+        verbose_name = "Pending Corpus Import"
+        verbose_name_plural = "Pending Corpus Imports"
+        # Newest first — operators scanning for stuck/recent runs want the
+        # latest at the top (mirrors the rest of the file's coordination rows).
+        ordering = ["-created_at"]
+
     def __str__(self) -> str:
         return f"PendingCorpusImport(run={self.import_run_id}, {self.status})"
