@@ -99,11 +99,12 @@ const mockSectionAnnotations = [
 ];
 
 // Cache configuration.
-// Production cache.ts uses ContextAwareRelayStylePaginationKeyArgsFunction
-// (alias-based keying) for annotations.  Here we use explicit field-argument
-// keyArgs for stricter per-variable cache isolation in tests.  The argument
-// names (documentId, corpusId, annotationLabel_Text) match the GraphQL field
-// arguments in GET_DOCUMENT_ANNOTATION_INDEX, per CLAUDE.md pitfall #15.
+// Production cache.ts keys the `annotations` field by alias + filter
+// arguments (ContextAwareRelayStylePaginationKeyArgsFunction). Here we use the
+// equivalent explicit field-argument keyArgs for per-variable cache isolation
+// in tests. The argument names (documentId, corpusId, annotationLabel_Text)
+// match the GraphQL field arguments in GET_DOCUMENT_ANNOTATION_INDEX, per
+// CLAUDE.md pitfall #15.
 const createTestCache = () =>
   new InMemoryCache({
     typePolicies: {

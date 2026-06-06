@@ -34,7 +34,12 @@ import { GET_DOCUMENT_SUMMARY_VERSIONS } from "../src/components/knowledge_base/
 import {
   GET_CORPUS_VERSIONS,
   GET_DOCUMENT_ANNOTATIONS_ONLY,
+  GET_DOCUMENT_ANNOTATION_INDEX,
 } from "../src/graphql/queries";
+import {
+  DOCUMENT_ANNOTATION_INDEX_LIMIT,
+  OC_SECTION_LABEL,
+} from "../src/assets/configurations/constants";
 
 // 390px-wide phone viewport — below the 768px MobileDocumentLayout breakpoint.
 test.use({ viewport: { width: 390, height: 844 } });
@@ -136,6 +141,34 @@ const annotationsOnlyMock = (): MockedResponse => ({
   },
 });
 
+/**
+ * GET_DOCUMENT_ANNOTATION_INDEX mock for the mobile Sections sheet, which now
+ * loads the document's OC_SECTION index (the same query the desktop "Index"
+ * tab uses). The structural-test fixture carries no OC_SECTION entries, so the
+ * sheet renders its empty state — which the Sections test explicitly accepts.
+ * Registered twice to tolerate the sheet's open/refetch.
+ */
+const documentIndexMock = (): MockedResponse => ({
+  request: {
+    query: GET_DOCUMENT_ANNOTATION_INDEX,
+    variables: {
+      documentId: DOC_ID,
+      corpusId: CORPUS_ID,
+      labelText: OC_SECTION_LABEL,
+      first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
+    },
+  },
+  result: {
+    data: {
+      annotations: {
+        totalCount: 0,
+        edges: [],
+        __typename: "AnnotationTypeConnection",
+      },
+    },
+  },
+});
+
 // Assembled Node-side and threaded into the browser-bundled harness as props
 // (the mocks fixture cannot be imported by the harness — see its header).
 const mobileMocks: MockedResponse[] = [
@@ -147,6 +180,8 @@ const mobileMocks: MockedResponse[] = [
   summaryVersionMock(),
   corpusVersionMock(),
   corpusVersionMock(),
+  documentIndexMock(),
+  documentIndexMock(),
 ];
 
 /** Renders the harness with the assembled mocks. */

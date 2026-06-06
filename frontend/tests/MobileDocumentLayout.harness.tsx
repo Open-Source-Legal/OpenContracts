@@ -1,8 +1,16 @@
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
+import { MockedProvider, MockedResponse } from "@apollo/client/testing";
+import { InMemoryCache } from "@apollo/client";
+import { relayStylePagination } from "@apollo/client/utilities";
 import { MobileDocumentLayout } from "../src/components/knowledge_base/document/layouts/MobileDocumentLayout";
 import type { DesktopDocumentLayoutProps } from "../src/components/knowledge_base/document/layouts/DesktopDocumentLayout";
 import { PdfAnnotations } from "../src/components/annotator/types/annotations";
+import { GET_DOCUMENT_ANNOTATION_INDEX } from "../src/graphql/queries";
+import {
+  DOCUMENT_ANNOTATION_INDEX_LIMIT,
+  OC_SECTION_LABEL,
+} from "../src/assets/configurations/constants";
 
 /**
  * Test harness for {@link MobileDocumentLayout}.
@@ -108,6 +116,47 @@ const stubProps: DesktopDocumentLayoutProps = {
   setChatSourceState: noop,
 };
 
+// The Sections sheet (MobileSectionsSheet) now loads the document's OC_SECTION
+// index via GET_DOCUMENT_ANNOTATION_INDEX, so the layout needs an Apollo
+// client once that sheet mounts. The stub document carries no index entries,
+// so the mock returns an empty connection (the test expects the empty state).
+const indexMock: MockedResponse = {
+  request: {
+    query: GET_DOCUMENT_ANNOTATION_INDEX,
+    variables: {
+      documentId: stubProps.documentId,
+      corpusId: stubProps.corpusId,
+      labelText: OC_SECTION_LABEL,
+      first: DOCUMENT_ANNOTATION_INDEX_LIMIT,
+    },
+  },
+  result: {
+    data: {
+      annotations: {
+        totalCount: 0,
+        edges: [],
+        __typename: "AnnotationTypeConnection",
+      },
+    },
+  },
+};
+
+const createTestCache = () =>
+  new InMemoryCache({
+    typePolicies: {
+      Query: {
+        fields: {
+          annotations: relayStylePagination([
+            "documentId",
+            "corpusId",
+            "annotationLabel_Text",
+          ]),
+        },
+      },
+      AnnotationType: { keyFields: ["id"] },
+    },
+  });
+
 /**
  * @param queryErrorMessage - when set, the layout is rendered with a
  *   `queryError`. The `Error` is constructed here (browser-side) rather than
@@ -118,13 +167,19 @@ export const MobileLayoutHarness: React.FC<{ queryErrorMessage?: string }> = ({
   queryErrorMessage,
 }) => (
   <MemoryRouter>
-    <div style={{ height: 844, width: 390 }}>
-      <MobileDocumentLayout
-        {...stubProps}
-        queryError={
-          queryErrorMessage ? new Error(queryErrorMessage) : undefined
-        }
-      />
-    </div>
+    <MockedProvider
+      mocks={[indexMock, { ...indexMock }]}
+      cache={createTestCache()}
+      addTypename
+    >
+      <div style={{ height: 844, width: 390 }}>
+        <MobileDocumentLayout
+          {...stubProps}
+          queryError={
+            queryErrorMessage ? new Error(queryErrorMessage) : undefined
+          }
+        />
+      </div>
+    </MockedProvider>
   </MemoryRouter>
 );
