@@ -33,6 +33,27 @@ except ModuleNotFoundError:  # Channels not installed – fall back gracefully
     _db_sync_to_async = partial(_sync_to_async, thread_sensitive=False)
 
 
+def get_user_or_none(user_id: int | None):
+    """Return the ``User`` row for ``user_id`` or ``None`` (anonymous / missing).
+
+    Shared by the tool modules so the "resolve the injected ``user_id`` into a
+    user, tolerating ``None`` and stale ids" step is written once.
+
+    Return type is intentionally inferred — ``User`` here is the result of
+    ``get_user_model()`` (a runtime variable, not a type alias) so a quoted
+    annotation would still trip mypy's ``valid-type`` check.
+    """
+    from django.contrib.auth import get_user_model
+
+    user_model = get_user_model()
+    if user_id is None:
+        return None
+    try:
+        return user_model.objects.get(pk=user_id)
+    except user_model.DoesNotExist:
+        return None
+
+
 def clamp_limit(limit: int | None, default: int, maximum: int) -> int:
     """Clamp a caller-supplied ``limit`` into ``[1, maximum]``.
 

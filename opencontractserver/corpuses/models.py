@@ -16,7 +16,6 @@ from tree_queries.models import TreeNode
 from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MARKDOWN_MIME_TYPE,
-    MAX_FILENAME_LENGTH,
     MAX_PROCESSING_ERROR_LENGTH,
     MAX_PROCESSING_TRACEBACK_LENGTH,
     PERSONAL_CORPUS_DESCRIPTION,
@@ -36,7 +35,10 @@ from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
 from opencontractserver.shared.slug_utils import generate_unique_slug, sanitize_slug
 from opencontractserver.shared.user_can_mixin import InstanceUserCanMixin
-from opencontractserver.shared.utils import calc_oc_file_path
+from opencontractserver.shared.utils import (
+    calc_oc_file_path,
+    sanitize_corpus_filename,
+)
 from opencontractserver.utils.embeddings import generate_embeddings_from_text
 from opencontractserver.utils.text import truncate
 
@@ -863,11 +865,10 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         # Generate path if not provided
         if not path:
             if document.title:
-                safe_title = "".join(
-                    c if c.isalnum() or c in "-_." else "_"
-                    for c in document.title[:MAX_FILENAME_LENGTH]
+                safe_title = sanitize_corpus_filename(
+                    document.title, fallback=f"doc_{document.pk}"
                 )
-                path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_title or f'doc_{document.pk}'}"
+                path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_title}"
             else:
                 path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/doc_{document.pk}"
 
@@ -1084,10 +1085,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         if not path:
             if filename:
                 # Use filename to generate path
-                safe_filename = "".join(
-                    c if c.isalnum() or c in "-_." else "_"
-                    for c in filename[:MAX_FILENAME_LENGTH]
-                )
+                safe_filename = sanitize_corpus_filename(filename)
                 path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
             else:
                 path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/doc_{uuid.uuid4().hex[:8]}"

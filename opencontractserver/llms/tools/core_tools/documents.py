@@ -35,7 +35,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from opencontractserver.constants.tools import (
@@ -45,26 +44,9 @@ from opencontractserver.constants.tools import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 
-from ._helpers import _db_sync_to_async, clamp_limit
+from ._helpers import _db_sync_to_async, clamp_limit, get_user_or_none
 
 logger = logging.getLogger(__name__)
-
-User = get_user_model()
-
-
-def _get_user_or_none(user_id: int | None):
-    """Return the User row for ``user_id`` or ``None`` (anonymous / missing).
-
-    Return type is intentionally inferred — ``User`` here is the result of
-    ``get_user_model()`` (a runtime variable, not a type alias) so a quoted
-    annotation would still trip mypy's ``valid-type`` check.
-    """
-    if user_id is None:
-        return None
-    try:
-        return User.objects.get(pk=user_id)
-    except User.DoesNotExist:
-        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -106,7 +88,7 @@ def search_corpus_documents(
         A list of dicts with keys ``document_id``, ``title``, ``path``,
         ``folder_id``, ``folder_name``, ``file_type`` and ``is_deleted``.
     """
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
 
     # IDOR: identical error whether the corpus is missing or merely hidden.
     corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
@@ -118,23 +100,22 @@ def search_corpus_documents(
     from opencontractserver.corpuses.services import CorpusDocumentService
 
     # MIN(document, corpus) visibility — never leak a private document that
-    # merely happens to live in a corpus the user can read.
-    visible_ids = set(
-        CorpusDocumentService.get_corpus_documents_visible_to_user(
-            user, corpus, include_deleted=include_deleted
-        ).values_list("pk", flat=True)
+    # merely happens to live in a corpus the user can read. Keep this lazy: it
+    # feeds the DocumentPath filter below as a SQL subquery rather than being
+    # materialised into a Python set + large IN (...) clause.
+    visible_docs = CorpusDocumentService.get_corpus_documents_visible_to_user(
+        user, corpus, include_deleted=include_deleted
     )
-    if not visible_ids:
-        return []
 
     capped_limit = clamp_limit(
         limit, CORPUS_FILE_SEARCH_DEFAULT_LIMIT, CORPUS_FILE_SEARCH_MAX_LIMIT
     )
 
     # DocumentPath is the source of truth for a file's name/location in the
-    # corpus, so drive the listing off the current paths of the visible docs.
+    # corpus, so drive the listing off the current paths of the visible docs
+    # (an empty visible set simply yields an empty result set).
     path_qs = DocumentPath.objects.filter(
-        corpus=corpus, is_current=True, document_id__in=visible_ids
+        corpus=corpus, is_current=True, document__in=visible_docs
     ).select_related("document", "folder")
     if not include_deleted:
         path_qs = path_qs.filter(is_deleted=False)
@@ -311,7 +292,7 @@ def rename_document(
     document_id: int,
     corpus_id: int,
     new_name: str,
-    user_id: int,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """Rename a document's file within the current corpus.
 
@@ -333,6 +314,9 @@ def rename_document(
     Returns:
         A dict with keys ``status``, ``document_id``, ``corpus_id``, ``path``
         (the resulting path string) and a human-readable ``message``.
+        ``status`` is ``"renamed"`` when the filename actually changed and
+        ``"unchanged"`` for a no-op (the sanitised name matched the current
+        one), so the agent does not retry thinking the write failed.
 
     Raises:
         PermissionError: If there is no authenticated user.
@@ -341,7 +325,7 @@ def rename_document(
     """
     if user_id is None:
         raise PermissionError("rename_document requires an authenticated user.")
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if user is None:
         raise PermissionError(f"User {user_id} not found.")
 
@@ -357,6 +341,16 @@ def rename_document(
             f"Document with id={document_id} does not exist or is not accessible."
         )
 
+    # Snapshot the pre-rename path so we can tell a real rename from a no-op
+    # (the service returns the unchanged path for both — see its docstring).
+    previous_path = (
+        DocumentPath.objects.filter(
+            document=document, corpus=corpus, is_current=True, is_deleted=False
+        )
+        .values_list("path", flat=True)
+        .first()
+    )
+
     from opencontractserver.corpuses.services import FolderDocumentService
 
     success, error, new_path = FolderDocumentService.rename_document(
@@ -368,13 +362,18 @@ def rename_document(
     if not success:
         raise ValueError(f"Rename failed: {error}")
 
+    unchanged = new_path == previous_path
     return {
-        "status": "renamed",
+        "status": "unchanged" if unchanged else "renamed",
         "document_id": document_id,
         "corpus_id": corpus_id,
         "path": new_path,
         "message": (
-            f"Document {document_id} renamed to '{new_path}' in corpus {corpus_id}."
+            f"Document {document_id} already named '{new_path}' in corpus "
+            f"{corpus_id}; no change made."
+            if unchanged
+            else f"Document {document_id} renamed to '{new_path}' in "
+            f"corpus {corpus_id}."
         ),
     }
 
@@ -384,7 +383,7 @@ async def arename_document(
     document_id: int,
     corpus_id: int,
     new_name: str,
-    user_id: int,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """Async wrapper around :func:`rename_document`."""
     return await _db_sync_to_async(rename_document)(
@@ -404,7 +403,7 @@ def delete_document(
     *,
     document_id: int,
     corpus_id: int,
-    user_id: int,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """Soft-delete a document from the current corpus (move it to the trash).
 
@@ -428,7 +427,7 @@ def delete_document(
     """
     if user_id is None:
         raise PermissionError("delete_document requires an authenticated user.")
-    user = _get_user_or_none(user_id)
+    user = get_user_or_none(user_id)
     if user is None:
         raise PermissionError(f"User {user_id} not found.")
 

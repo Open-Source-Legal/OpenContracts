@@ -199,7 +199,9 @@ class TestRenameDocument(TestCase):
             new_name="report",  # extension preserved -> report.pdf == current
             user_id=self.user.id,
         )
-        self.assertEqual(result["status"], "renamed")
+        # A no-op rename reports "unchanged" (not "renamed") so the agent does
+        # not retry believing the write silently failed.
+        self.assertEqual(result["status"], "unchanged")
         self.assertEqual(result["path"], "/documents/report.pdf")
 
     def test_rename_disambiguates_on_conflict(self):
@@ -269,6 +271,32 @@ class TestRenameDocument(TestCase):
                 new_name="x",
                 user_id=999999,
             )
+
+    def test_rename_none_user_raises_permission_error(self):
+        # The None guard is the distinct first branch (no user injected at all),
+        # separate from the "user id not found" branch above.
+        with self.assertRaises(PermissionError):
+            rename_document(
+                document_id=self.doc.id,
+                corpus_id=self.corpus.id,
+                new_name="x",
+                user_id=None,
+            )
+
+    def test_rename_all_special_chars_collapse_to_underscores(self):
+        # Every disallowed char becomes "_" (it is never dropped), so a name
+        # made entirely of special chars never collapses to empty — it yields
+        # underscores, and the original ".pdf" extension is preserved. (The
+        # "untitled" fallback in sanitize_corpus_filename is only reachable for
+        # a truly empty name, which rename_document rejects up front.)
+        result = rename_document(
+            document_id=self.doc.id,
+            corpus_id=self.corpus.id,
+            new_name="!!!!",
+            user_id=self.user.id,
+        )
+        self.assertEqual(result["status"], "renamed")
+        self.assertEqual(result["path"], "/documents/____.pdf")
 
 
 class TestDeleteDocument(TestCase):
@@ -348,6 +376,15 @@ class TestDeleteDocument(TestCase):
                 document_id=self.doc.id,
                 corpus_id=self.corpus.id,
                 user_id=999999,
+            )
+
+    def test_delete_none_user_raises_permission_error(self):
+        # The None guard is the distinct first branch (no user injected at all).
+        with self.assertRaises(PermissionError):
+            delete_document(
+                document_id=self.doc.id,
+                corpus_id=self.corpus.id,
+                user_id=None,
             )
 
 
