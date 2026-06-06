@@ -55,7 +55,13 @@ export const mergeArrayByIdFieldPolicy: FieldPolicy<Reference[]> = {
  * @param context
  * @returns
  */
-const ContextAwareRelayStylePaginationKeyArgsFunction = (
+// Relay connection arguments that page *within* a single logical list. They
+// are deliberately excluded from the cache key so successive infinite-scroll
+// pages of the same filter set merge into one list rather than fragmenting
+// into a separate cache entry per page.
+const RELAY_PAGINATION_ARGS = new Set(["first", "last", "before", "after"]);
+
+export const ContextAwareRelayStylePaginationKeyArgsFunction = (
   args: Record<string, any> | null,
   context: {
     typename: string;
@@ -64,7 +70,30 @@ const ContextAwareRelayStylePaginationKeyArgsFunction = (
     variables?: Record<string, any>;
   }
 ): KeySpecifier | false | ReturnType<IdGetter> => {
-  return `${context.field?.alias || context.fieldName}`;
+  // Base key keeps separately-aliased copies of the same field in distinct
+  // Relay lists — the original reason this function exists (see the
+  // doc-comment above: Apollo can't disambiguate aliased paginated fields).
+  // `field.alias` is a GraphQL `NameNode`, so read its `.value` (the old
+  // `${alias}` interpolation stringified the node to "[object Object]",
+  // collapsing every aliased copy into the same bogus key).
+  const base = `${context.field?.alias?.value || context.fieldName}`;
+
+  // CRITICAL: also fold the *filter* arguments into the key. Without this,
+  // every `annotations(...)` query collapses into a single Relay list
+  // regardless of documentId / corpusId / label / structural flag, so the
+  // top-level `annotations` field returned whichever document was viewed
+  // last. With `fetchPolicy: "cache-first"`, switching documents then served
+  // the previous document's cached sections in the index until the network
+  // response replaced them — the "old doc's OC_SECTION refs show until they
+  // suddenly all load" bug. Excluding the Relay cursors above keeps genuine
+  // pagination merging correctly within a single filter set.
+  if (!args) return base;
+  const filterKey = Object.keys(args)
+    .filter((key) => !RELAY_PAGINATION_ARGS.has(key))
+    .sort()
+    .map((key) => `${key}:${JSON.stringify(args[key] ?? null)}`)
+    .join(",");
+  return filterKey ? `${base}(${filterKey})` : base;
 };
 
 // See proper setup here:

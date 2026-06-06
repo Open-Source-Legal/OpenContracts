@@ -100,6 +100,7 @@ import {
   // Cache & field policies
   cache,
   mergeArrayByIdFieldPolicy,
+  ContextAwareRelayStylePaginationKeyArgsFunction,
   // Persisted
   showKnowledgeBaseModal,
 } from "../cache";
@@ -367,6 +368,82 @@ describe("cache.ts — mergeArrayByIdFieldPolicy", () => {
       mergeObjects,
     });
     expect(merged).toEqual([]);
+  });
+});
+
+describe("cache.ts — ContextAwareRelayStylePaginationKeyArgsFunction", () => {
+  // The `annotations` root field is a single GraphQL field shared by the
+  // corpus annotation list, the card grid, AND the document index. Its Relay
+  // cache list must be keyed by its *filter* arguments, or those queries
+  // collide on one entry and `cache-first` serves the wrong document's
+  // sections until the network response replaces them (the document-index
+  // "stale OC_SECTION refs" bug).
+  const ctx = (fieldName: string) => ({
+    typename: "Query",
+    fieldName,
+    field: null,
+    variables: {},
+  });
+
+  it("derives distinct keys for the same field with different documentIds", () => {
+    const keyA = ContextAwareRelayStylePaginationKeyArgsFunction(
+      {
+        documentId: "DocA",
+        corpusId: "Corpus1",
+        annotationLabel_Text: "OC_SECTION",
+        structural: false,
+        first: 500,
+      },
+      ctx("annotations")
+    );
+    const keyB = ContextAwareRelayStylePaginationKeyArgsFunction(
+      {
+        documentId: "DocB",
+        corpusId: "Corpus1",
+        annotationLabel_Text: "OC_SECTION",
+        structural: false,
+        first: 500,
+      },
+      ctx("annotations")
+    );
+    expect(keyA).not.toEqual(keyB);
+    expect(String(keyA)).toContain("DocA");
+    expect(String(keyB)).toContain("DocB");
+  });
+
+  it("ignores Relay pagination cursors so pages of one filter set share a key", () => {
+    const page1 = ContextAwareRelayStylePaginationKeyArgsFunction(
+      { documentId: "DocA", structural: false, first: 100 },
+      ctx("annotations")
+    );
+    const page2 = ContextAwareRelayStylePaginationKeyArgsFunction(
+      { documentId: "DocA", structural: false, first: 100, after: "cursor-99" },
+      ctx("annotations")
+    );
+    expect(page1).toEqual(page2);
+  });
+
+  it("keeps separately-aliased copies of the field in distinct lists", () => {
+    const sameArgs = { documentId: "DocA", structural: false };
+    const aliasA = ContextAwareRelayStylePaginationKeyArgsFunction(sameArgs, {
+      typename: "Query",
+      fieldName: "annotations",
+      field: { alias: { value: "indexAnnotations" } } as never,
+      variables: {},
+    });
+    const aliasB = ContextAwareRelayStylePaginationKeyArgsFunction(sameArgs, {
+      typename: "Query",
+      fieldName: "annotations",
+      field: { alias: { value: "feedAnnotations" } } as never,
+      variables: {},
+    });
+    expect(aliasA).not.toEqual(aliasB);
+  });
+
+  it("falls back to the bare field name when there are no args", () => {
+    expect(
+      ContextAwareRelayStylePaginationKeyArgsFunction(null, ctx("annotations"))
+    ).toEqual("annotations");
   });
 });
 

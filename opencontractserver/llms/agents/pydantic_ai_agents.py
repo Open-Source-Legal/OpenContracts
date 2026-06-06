@@ -3413,6 +3413,19 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         if config.user_id is not None:
             effective_tools.append(update_corpus_desc_tool_wrapped)
 
+            # Let the creator regenerate the corpus icon on demand — the same
+            # generator the auto-branding flow runs at creation time. Built from
+            # the registry so corpus_id/user_id are injected and the approval
+            # gate + creator-only write are honoured. Sibling of
+            # update_corpus_description (the other creator-only corpus-row write).
+            effective_tools.extend(
+                _build_tools_from_registry(
+                    ["regenerate_corpus_icon"],
+                    corpus_id=context.corpus.id,
+                    user_id=config.user_id,
+                )
+            )
+
             # Deep-research tools: let the chat agent spawn a long-running,
             # autonomous research job over this corpus (``start_deep_research``)
             # and report on its progress (``check_deep_research_status``) so a

@@ -981,6 +981,23 @@ def _check_dumb_anchor_annotation(
         ):
             result.error(f"{prefix}: 'end' must be an integer > 'start'")
 
+    # Optional structured passthrough fields. ``link_url`` (OC_URL target) and
+    # ``data`` (label-specific sidecar, e.g. geocoded OC_COUNTRY/STATE/CITY
+    # payload) are carried verbatim onto the created annotation, so reject an
+    # obviously wrong-typed value here rather than letting it fail at the DB.
+    link_url = ann.get("link_url")
+    if link_url is not None and not isinstance(link_url, str):
+        result.error(
+            f"{prefix}: 'link_url' must be a string when present "
+            f"(got {type(link_url).__name__})"
+        )
+    data = ann.get("data")
+    if data is not None and not isinstance(data, dict):
+        result.error(
+            f"{prefix}: 'data' must be a JSON object when present "
+            f"(got {type(data).__name__})"
+        )
+
     # Label resolution against labels.json
     if label is not None:
         if label not in label_types:
@@ -1003,6 +1020,45 @@ def _check_dumb_anchor_annotation(
                 )
 
 
+def _check_dumb_anchor_relationship(
+    rel: dict,
+    index: int,
+    annotation_ids: set[str],
+    result: ValidationResult,
+) -> None:
+    """Validate one dumb-anchor annotation-to-annotation relationship.
+
+    Each relationship carries a label (``relationshipLabel`` — ``label`` is
+    accepted as an alias for symmetry with annotations) plus
+    ``source_annotation_ids`` / ``target_annotation_ids`` that reference the
+    sidecar's own annotation ``id``s. The relationship *label* is resolved (and
+    auto-created as a ``RELATIONSHIP_LABEL``) at remap time, so it is only
+    checked for presence here. Every endpoint id, however, MUST reference an
+    annotation declared in the same sidecar: a dangling endpoint silently drops
+    the relationship at remap, so it is an error to catch before import.
+    """
+    prefix = f"relationships[{index}]"
+    if not isinstance(rel, dict):
+        result.error(f"{prefix}: must be a JSON object, got {type(rel).__name__}")
+        return
+
+    label = rel.get("relationshipLabel") or rel.get("label")
+    if not isinstance(label, str) or not label.strip():
+        result.error(f"{prefix}: 'relationshipLabel' must be a non-empty string")
+
+    for direction in ("source_annotation_ids", "target_annotation_ids"):
+        ids = rel.get(direction)
+        if not isinstance(ids, list) or not ids:
+            result.error(f"{prefix}: '{direction}' must be a non-empty list")
+            continue
+        for ref in ids:
+            if str(ref) not in annotation_ids:
+                result.error(
+                    f"{prefix}: {direction} references annotation id "
+                    f"'{ref}' not present in this sidecar"
+                )
+
+
 def validate_dumb_anchor_sidecar(
     sidecar: dict, labels_json: dict | None = None
 ) -> ValidationResult:
@@ -1020,7 +1076,14 @@ def validate_dumb_anchor_sidecar(
       present in the same sidecar,
     * span (start/end) annotations whose label is declared ``SPAN_LABEL`` in
       ``labels.json`` are rejected — the importer only accepts
-      ``TOKEN_LABEL`` / ``DOC_TYPE_LABEL`` / ``RELATIONSHIP_LABEL``.
+      ``TOKEN_LABEL`` / ``DOC_TYPE_LABEL`` / ``RELATIONSHIP_LABEL``,
+    * optional ``"link_url"`` (string) and ``"data"`` (object) are type-checked
+      when present.
+
+    An optional top-level ``"relationships"`` list declares annotation-to-
+    annotation edges. Each relationship must have a non-empty label and
+    non-empty ``source_annotation_ids`` / ``target_annotation_ids`` that
+    reference annotation ``"id"``s present in the same sidecar.
 
     Args:
         sidecar: The parsed sidecar JSON (must contain ``"annotations"``).
@@ -1038,8 +1101,8 @@ def validate_dumb_anchor_sidecar(
 
     label_types = _collect_sidecar_label_types(labels_json or {})
 
-    # Collect all annotation ids first so parent_id references can be checked
-    # regardless of declaration order.
+    # Collect all annotation ids first so parent_id and relationship endpoint
+    # references can be checked regardless of declaration order.
     annotation_ids: set[str] = set()
     for ann in annotations:
         if isinstance(ann, dict) and ann.get("id") is not None:
@@ -1055,6 +1118,14 @@ def validate_dumb_anchor_sidecar(
                     f"annotations[{i}]: parent_id '{parent_id}' does not "
                     f"reference any annotation 'id' in this sidecar"
                 )
+
+    relationships = sidecar.get("relationships")
+    if relationships is not None:
+        if not isinstance(relationships, list):
+            result.error("sidecar 'relationships' must be a JSON list")
+        else:
+            for i, rel in enumerate(relationships):
+                _check_dumb_anchor_relationship(rel, i, annotation_ids, result)
 
     return result
 

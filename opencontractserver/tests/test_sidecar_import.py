@@ -43,16 +43,19 @@ logger = logging.getLogger(__name__)
 def _build_sidecar_json(
     annotations: list[dict] | None = None,
     doc_labels: list[str] | None = None,
+    relationships: list[dict] | None = None,
 ) -> dict:
     """
     Build a dumb-anchor sidecar dict in the NEW importer format.
 
     The new sidecar is a flat ``{"annotations": [...], "doc_labels": [...]}``
-    document. Each annotation is a label/rawText anchor with either a
+    document (plus an optional ``"relationships": [...]`` list of annotation-to-
+    annotation edges). Each annotation is a label/rawText anchor with either a
     page+bbox (PDF) or start+end (span) locator — there is no PAWLs content,
     no ``content``, no ``skip_pipeline``, and no ``tokensJsons``. The importer
     persists this payload verbatim into a ``PendingDocumentAnnotations`` row
-    for post-ingest re-anchoring by ``remap_pending_annotations``.
+    for post-ingest re-anchoring (and relationship wiring) by
+    ``remap_pending_annotations``.
     """
     if annotations is None:
         annotations = []
@@ -60,10 +63,13 @@ def _build_sidecar_json(
     if doc_labels is None:
         doc_labels = []
 
-    return {
+    sidecar: dict = {
         "annotations": annotations,
         "doc_labels": doc_labels,
     }
+    if relationships is not None:
+        sidecar["relationships"] = relationships
+    return sidecar
 
 
 def _build_labels_json(
@@ -423,6 +429,61 @@ class TestSidecarImportTask(_SidecarImportTestMixin, TestCase):
         # standard chain's remap step (and later relationship wiring) can group
         # and gate it.
         self.assertIsNotNone(row.ingestion_run_id)
+
+    def test_sidecar_relationships_captured_into_pending_payload(self):
+        """A sidecar's ``relationships`` list is persisted verbatim on the
+        pending row (not dropped/errored) for deferred wiring at remap time."""
+        annotations = [
+            _make_annotation(1, "Master Agreement", "Heading", page=0),
+            _make_annotation(2, "Schedule A", "Heading", page=0),
+        ]
+        relationships = [
+            {
+                "id": "r1",
+                "relationshipLabel": "REFERENCES",
+                "source_annotation_ids": [1],
+                "target_annotation_ids": [2],
+            }
+        ]
+        sidecar = _build_sidecar_json(
+            annotations=annotations, relationships=relationships
+        )
+        files = {
+            "agreement.pdf": self.pdf_bytes,
+            "agreement.json": json.dumps(sidecar).encode("utf-8"),
+        }
+
+        result = self._run_import(files, "test-sidecar-rels")
+
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["pending_annotation_docs"], 1)
+        # Relationships are captured, not dropped — the old drop-and-warn that
+        # appended to results["errors"] is gone.
+        self.assertEqual(result["sidecar_relationships_found"], 1)
+        self.assertEqual(
+            result["errors"], [], msg=f"Unexpected errors: {result['errors']}"
+        )
+
+        row = PendingDocumentAnnotations.objects.get()
+        self.assertEqual(row.payload["relationships"], relationships)
+        self.assertEqual(row.status, PendingDocumentAnnotations.Status.PENDING)
+
+    def test_sidecar_without_relationships_persists_empty_list(self):
+        """A sidecar with no ``relationships`` key still persists an empty list
+        so the remap's ``payload.get('relationships')`` is always well-formed."""
+        annotations = [_make_annotation(1, "Heading", "Heading", page=0)]
+        sidecar = _build_sidecar_json(annotations=annotations)
+        files = {
+            "doc.pdf": self.pdf_bytes,
+            "doc.json": json.dumps(sidecar).encode("utf-8"),
+        }
+
+        result = self._run_import(files, "test-sidecar-no-rels")
+
+        self.assertTrue(result["success"], f"Errors: {result.get('errors')}")
+        self.assertEqual(result["sidecar_relationships_found"], 0)
+        row = PendingDocumentAnnotations.objects.get()
+        self.assertEqual(row.payload["relationships"], [])
 
     def test_sidecar_without_doc_labels_persists_empty_list(self):
         """A sidecar with only span annotations persists doc_labels=[]."""
