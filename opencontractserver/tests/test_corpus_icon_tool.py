@@ -39,13 +39,9 @@ from opencontractserver.llms.tools.pydantic_ai_tools import (
 )
 from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.image_generation import generate_monogram_logo
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-# Import the concrete model class (not get_user_model(), a runtime variable)
-# so it is valid in the ``creator: User`` type annotations below — matches the
-# pattern in test_caml_review_tools.py and keeps mypy happy.
-from opencontractserver.users.models import User
 
 # Patch target for the AI image call. ``aregenerate_corpus_logo`` imports the
 # name locally from this module, so the attribute is resolved here at call time.
@@ -128,6 +124,8 @@ class RegenerateCorpusIconToolTests(TransactionTestCase):
     ``_db_sync_to_async`` helpers open (``thread_sensitive=False``).
     """
 
+    # Annotated with the concrete User model (imported above), not
+    # get_user_model() — the latter is a runtime variable mypy rejects as a type.
     creator: User
     other: User
     corpus: Corpus
