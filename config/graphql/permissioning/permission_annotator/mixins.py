@@ -14,6 +14,7 @@ from opencontractserver.shared.prefetch_attrs import (
     user_group_perm_attr,
     user_perm_attr,
 )
+from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 User = get_user_model()
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 _ANON_USER_LOOKUP_FAILED: int = -1
 
 
-def _get_anonymous_user_id(info: Any) -> int | None:
+def get_anonymous_user_id(info: Any) -> int | None:
     """Return the django-guardian anonymous-user pk, cached on the request.
 
     ``User.get_anonymous()`` (added by django-guardian's ``GuardianUserMixin``)
@@ -95,14 +96,21 @@ class AnnotatePermissionsForReadMixin:
 
         values: list[dict[str, Any]] = []
         # Cached on ``info.context`` so a connection of N nodes hits the
-        # anonymous-user table once, not N times. See ``_get_anonymous_user_id``.
-        anon_id = _get_anonymous_user_id(info)
+        # anonymous-user table once, not N times. See ``get_anonymous_user_id``.
+        anon_id = get_anonymous_user_id(info)
         context = info.context
 
         if context and hasattr(context, "user"):
             user = context.user
             if anon_id is not None and user.id == anon_id:
                 return []
+
+        # Guardian-less models (creator-based, e.g. AnnotationLabel) have no
+        # ``{model}userobjectpermission_set`` table — nothing is shared with
+        # specific users, so the "shared with" list is empty. Guarding here
+        # avoids an AttributeError (caught + error-logged) on every such node.
+        if not hasattr(self, f"{self._meta.model_name}userobjectpermission_set"):
+            return []
 
         try:
 
@@ -164,8 +172,8 @@ class AnnotatePermissionsForReadMixin:
 
         # logger.info(f"resolve_my_permissions() - Start")
         # Cached on ``info.context`` so a connection of N nodes hits the
-        # anonymous-user table once, not N times. See ``_get_anonymous_user_id``.
-        anon_id = _get_anonymous_user_id(info)
+        # anonymous-user table once, not N times. See ``get_anonymous_user_id``.
+        anon_id = get_anonymous_user_id(info)
         # logger.info(f"resolve_my_permissions() - anon_id: {anon_id}")
         context = info.context
         # logger.info(f"resolve_my_permissions() - context: {context}")
@@ -211,6 +219,17 @@ class AnnotatePermissionsForReadMixin:
                 permissions.add(f"publish_{model_name}")
 
             return list(permissions)
+
+        # Guardian-less models (creator-based, e.g. AnnotationLabel) have no
+        # ``{model}userobjectpermission_set`` reverse accessor, so the guardian
+        # lookup below would raise ``AttributeError`` (caught + error-logged)
+        # for every node. Delegate to the canonical helper, which implements
+        # the creator / is_public fallback. Types needing richer inheritance
+        # (e.g. AnnotationLabelType -> labelset) override this resolver.
+        if user is not None and not hasattr(
+            self, f"{model_name}userobjectpermission_set"
+        ):
+            return list(get_users_permissions_for_obj(user, cast(Model, self)))
 
         # Looking up permissions in each resolve call is wasteful and slow. A lot of times,
         # where we're getting the permissions on a list of the same object types, we can look up

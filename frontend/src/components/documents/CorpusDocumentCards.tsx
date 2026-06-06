@@ -5,6 +5,7 @@ import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 
 import { navigateToDocument } from "../../utils/navigationUtils";
+import { DEFAULT_LIST_PAGE_SIZE } from "../../assets/configurations/constants";
 import { DocumentCards } from "../../components/documents/DocumentCards";
 import { DocumentMetadataGrid } from "../../components/documents/DocumentMetadataGrid";
 import { FolderCard } from "../corpuses/folders/FolderCard";
@@ -108,6 +109,12 @@ export const CorpusDocumentCards = ({
   // This component just reads it for context (e.g., file uploads)
 
   const queryVariables = {
+    // Bound the FIRST page (fetchMore already pages at DEFAULT_LIST_PAGE_SIZE).
+    // Without this the initial query is unbounded and graphene returns up to
+    // RELAY_CONNECTION_MAX_LIMIT (100) documents — each signing pdf+icon URLs
+    // on GCS, which is the dominant cost of the first paint. Subsequent pages
+    // load on scroll via fetchMore.
+    limit: DEFAULT_LIST_PAGE_SIZE,
     ...(opened_corpus_id
       ? {
           annotateDocLabels: true,
