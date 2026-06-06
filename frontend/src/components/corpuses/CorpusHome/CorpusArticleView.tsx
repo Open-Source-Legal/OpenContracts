@@ -26,8 +26,8 @@ import {
   GetCorpusArticleOutput,
 } from "../../../graphql/queries";
 import { CorpusType } from "../../../types/graphql-api";
-import { parseCaml } from "@os-legal/caml";
 import type { CamlDocument } from "@os-legal/caml";
+import { parseCamlArticle } from "../caml/normalizeCamlSource";
 import {
   CAML_ARTICLE_FILENAME,
   TABLET_BREAKPOINT,
@@ -326,7 +326,7 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
   const parsedDocument: CamlDocument | null = useMemo(() => {
     if (!camlContent) return null;
     try {
-      return parseCaml(camlContent);
+      return parseCamlArticle(camlContent);
     } catch (err) {
       console.error("Failed to parse CAML:", err);
       return null;
