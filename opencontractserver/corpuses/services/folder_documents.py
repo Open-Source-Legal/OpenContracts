@@ -298,6 +298,165 @@ class FolderDocumentService(BaseService):
             )
             return True, ""
 
+    @staticmethod
+    def _apply_renamed_filename(new_filename: str, current_filename: str) -> str:
+        """Preserve the current file extension when ``new_filename`` omits one.
+
+        ``new_filename`` is already sanitised. If it carries its own extension
+        (a ``.`` after the first character) it is used verbatim; otherwise the
+        extension of ``current_filename`` (if any) is appended, so renaming
+        ``report.pdf`` to ``"Q3 Summary"`` yields ``Q3_Summary.pdf`` instead of
+        silently dropping ``.pdf``. Leading dots are treated as part of a
+        dotfile name rather than an extension separator, mirroring
+        :meth:`CorpusPathService.disambiguate_path`.
+        """
+        if "." in new_filename.lstrip("."):
+            return new_filename
+        bare_current = current_filename.lstrip(".")
+        if "." in bare_current:
+            ext = bare_current.rsplit(".", 1)[1]
+            return f"{new_filename}.{ext}"
+        return new_filename
+
+    @classmethod
+    def rename_document(
+        cls,
+        user: User,
+        document: Document,
+        corpus: Corpus,
+        new_name: str,
+        *,
+        request: Any = None,
+    ) -> tuple[bool, str, str | None]:
+        """Rename a document's file within a corpus (change the filename only).
+
+        Creates a new immutable :class:`DocumentPath` history node whose
+        ``path`` keeps the document in its current folder/directory but swaps
+        the final filename segment for a sanitised version of ``new_name``.
+        The folder placement and content ``version_number`` are unchanged —
+        this is the filesystem analogue of ``mv old.pdf new.pdf`` within the
+        same directory, distinct from :meth:`move_document_to_folder` which
+        changes the directory.
+
+        ``new_name`` is sanitised via
+        :func:`opencontractserver.shared.utils.sanitize_corpus_filename`
+        (path separators collapse to ``_``, so a rename can never traverse
+        into another directory). When the sanitised name carries no extension
+        and the current filename did, the original extension is preserved (see
+        :meth:`_apply_renamed_filename`).
+
+        Uses the same TOCTOU-safe successor-creation machinery as
+        :meth:`move_document_to_folder`
+        (:meth:`CorpusPathService._create_successor_path_with_retry`), so a
+        concurrent claim on the target filename is retried with a fresh
+        disambiguated suffix.
+
+        Args:
+            user: User performing the rename.
+            document: Document to rename.
+            corpus: Corpus context.
+            new_name: Desired new filename (last path segment only).
+
+        Returns:
+            ``(success, error_message, new_path)``. ``new_path`` is the
+            resulting path string on success (possibly disambiguated, e.g.
+            ``/Legal/Q3_Summary_1.pdf``) and ``None`` on failure. A no-op
+            rename (the name is unchanged) returns ``(True, "", <current path>)``.
+
+        Validations:
+            - User has corpus UPDATE permission
+            - Document belongs to corpus
+            - ``new_name`` is non-empty
+        """
+        from opencontractserver.documents.models import DocumentPath
+        from opencontractserver.shared.utils import sanitize_corpus_filename
+
+        # Permission check
+        if not corpus.user_can(user, PermissionTypes.UPDATE, request=request):
+            return (
+                False,
+                "Permission denied: You do not have write access to this corpus",
+                None,
+            )
+
+        # Validate document belongs to corpus
+        if not CorpusDocumentService._check_document_in_corpus(document, corpus):
+            return False, "Document does not belong to this corpus", None
+
+        if not new_name or not new_name.strip():
+            return False, "New name must not be empty", None
+
+        sanitized = sanitize_corpus_filename(new_name.strip())
+
+        # Outer transaction holds the select_for_update lock on `current`
+        # across the inner savepoint (mirrors move_document_to_folder).
+        with transaction.atomic():
+            # select_related("folder") so passing current.folder to the
+            # successor helper below does not trigger a lazy fetch; of=("self",)
+            # keeps the row lock scoped to the DocumentPath row, not the folder.
+            current = (
+                DocumentPath.objects.select_for_update(of=("self",))
+                .select_related("folder")
+                .filter(
+                    document=document,
+                    corpus=corpus,
+                    is_current=True,
+                    is_deleted=False,
+                )
+                .first()
+            )
+
+            if not current:
+                return False, "No active document path found", None
+
+            # Split the current path into "<directory>/" + "<filename>".
+            # Stored paths always start with "/", so rpartition yields a
+            # directory ending in "/" ("/" for a root-level file, "/Legal/"
+            # for a foldered one). Deriving the directory from the *current
+            # path* (not folder.get_path()) keeps the file exactly where it
+            # is — including default "/documents/<title>" paths whose folder
+            # is null.
+            directory, _, current_filename = current.path.rpartition("/")
+            directory = directory + "/"
+
+            new_filename = cls._apply_renamed_filename(sanitized, current_filename)
+
+            # No-op: the file already has this name.
+            if new_filename == current_filename:
+                return True, "", current.path
+
+            base_path = f"{directory}{new_filename}"
+
+            try:
+                _, chosen_path = CorpusPathService._create_successor_path_with_retry(
+                    current=current,
+                    corpus=corpus,
+                    folder=current.folder,
+                    base_path=base_path,
+                    user=user,
+                )
+            except ValueError as exc:
+                return False, str(exc), None
+            except IntegrityError as exc:
+                logger.warning(
+                    "IntegrityError renaming document %s in corpus %s after "
+                    "exhausting retries: %s",
+                    document.id,
+                    corpus.id,
+                    exc,
+                )
+                return False, f"{PATH_CONFLICT_MSG}, please retry: {exc}", None
+
+            logger.info(
+                "Renamed document %s in corpus %s from %r to %r by user %s",
+                document.id,
+                corpus.id,
+                current.path,
+                chosen_path,
+                user.id,
+            )
+            return True, "", chosen_path
+
     @classmethod
     def move_documents_to_folder(
         cls,

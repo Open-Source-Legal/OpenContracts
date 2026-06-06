@@ -529,6 +529,81 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         ),
     ),
     ToolDefinition(
+        name="search_corpus_documents",
+        description=(
+            "Search the documents (files) in the current corpus by name. "
+            "Matches a case-insensitive substring against each document's "
+            "title AND its corpus filesystem path. Returns document_id, title, "
+            "path, folder, file_type and is_deleted for each match — use it to "
+            "find the document_id to pass to move_document / rename_document / "
+            "delete_document, or to answer 'what files are in this corpus?'. "
+            "Omit query to list everything (up to limit)."
+        ),
+        # CORPUS category: read-only discovery over the corpus filesystem.
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        parameters=(
+            (
+                "query",
+                "Case-insensitive substring matched against the document title "
+                "or path. Omit to list all documents.",
+                False,
+            ),
+            (
+                "folder_id",
+                "Optional folder ID to restrict the search to a single folder.",
+                False,
+            ),
+            (
+                "include_deleted",
+                "If True, also include documents currently in the corpus trash "
+                "(default False).",
+                False,
+            ),
+            ("limit", "Max number of results (default 25, capped at 200).", False),
+        ),
+    ),
+    ToolDefinition(
+        name="rename_document",
+        description=(
+            "Rename a document's file within the current corpus, changing only "
+            "the filename (the document stays in its current folder — use "
+            "move_document to change folders). If new_name omits an extension, "
+            "the current one is preserved (renaming 'report.pdf' to 'Q3 Summary' "
+            "yields 'Q3_Summary.pdf'). Names are sanitised: characters other "
+            "than letters/digits/-_. (including slashes) become '_'."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            ("document_id", "ID of the document to rename", True),
+            ("new_name", "New filename for the document", True),
+        ),
+    ),
+    ToolDefinition(
+        name="delete_document",
+        description=(
+            "Soft-delete a document from the current corpus (move it to the "
+            "corpus trash). The document is NOT permanently erased — it keeps "
+            "its history and can be restored from the corpus trash. Requires "
+            "delete permission on the corpus."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        # The registry only exposes a coarse WRITE gate, but deletion needs the
+        # higher corpus DELETE tier. This flag filters out read-only users at
+        # the framework layer; the authoritative DELETE check lives in
+        # ``DocumentLifecycleService.soft_delete_document`` (defense in depth),
+        # so a WRITE-but-not-DELETE user passes this gate and is then correctly
+        # rejected by the service. If a ``requires_delete_permission`` flag is
+        # ever added, switch this entry to it.
+        requires_write_permission=True,
+        parameters=(("document_id", "ID of the document to delete", True),),
+    ),
+    ToolDefinition(
         name="move_document",
         description=(
             "Move a document to a different folder within the current corpus. "
@@ -1232,6 +1307,7 @@ class ToolFunctionRegistry:
             acreate_document_index,
             acreate_markdown_link,
             acreate_or_update_text_document,
+            adelete_document,
             aduplicate_annotations_with_label,
             aget_corpus_description,
             aget_corpus_memory,
@@ -1252,7 +1328,9 @@ class ToolFunctionRegistry:
             apropose_caml_citation_match,
             aread_corpus_caml_article,
             aregenerate_corpus_icon,
+            arename_document,
             ascan_and_annotate_pii,
+            asearch_corpus_documents,
             asearch_document_notes,
             asearch_exact_text_as_sources,
             astart_analysis,
@@ -1331,7 +1409,11 @@ class ToolFunctionRegistry:
                 aregenerate_corpus_icon,
                 ("generate_corpus_icon",),
             ),
+            # Corpus file management (search / move / rename / delete)
+            "search_corpus_documents": (asearch_corpus_documents, ()),
             "move_document": (amove_document, ()),
+            "rename_document": (arename_document, ()),
+            "delete_document": (adelete_document, ()),
             "create_or_update_text_document": (
                 acreate_or_update_text_document,
                 ("upload_text_document",),

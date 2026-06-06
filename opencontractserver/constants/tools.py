@@ -29,6 +29,17 @@ EXTRACT_ANALYZER_TOOL_DEFAULT_RECENT_LIMIT = 10
 
 
 # ---------------------------------------------------------------------------
+# Pagination limits for the corpus file-management search tool
+# ---------------------------------------------------------------------------
+# Default page size when ``search_corpus_documents`` is called without an
+# explicit ``limit`` — enough rows for the agent to pick a file without
+# flooding the context window.
+CORPUS_FILE_SEARCH_DEFAULT_LIMIT = 25
+# Hard cap that callers cannot exceed regardless of requested ``limit``.
+CORPUS_FILE_SEARCH_MAX_LIMIT = 200
+
+
+# ---------------------------------------------------------------------------
 # Extract status strings exposed to agents
 # ---------------------------------------------------------------------------
 # ``Extract`` has three timestamp fields (``started``, ``finished``,
