@@ -27,7 +27,8 @@
 
 ## 1. Summary
 
-Add an **opt-in** mode to the V2/V3 corpus-export importer that, per document:
+Add a **reingest & remap** mode to the V2/V3 corpus-export importer that, per
+document:
 
 1. **Drops all structural annotations** carried by the export (the
    `StructuralAnnotationSet` and any `structural=True` entries in
@@ -38,11 +39,21 @@ Add an **opt-in** mode to the V2/V3 corpus-export importer that, per document:
    fresh layer using the deferred-remap machinery, then wires corpus-level
    relationships once every document's remap has completed.
 
-The default behavior is unchanged: the synchronous V2 import that trusts the
-export's baked PAWLs + structural set stays the default and the only path the
-REST endpoint and `fork_corpus` use. The new behavior is reachable only via a
-`reingest_and_remap: bool = False` parameter plumbed through the task/service
-layer.
+Reingest is **opt-out at the user-facing import boundary**: the service
+`import_corpus_export_for_user` (the REST `CorpusExportImportView` and the
+chunked-upload completion path both call it) defaults
+`reingest_and_remap=True`, so a user uploading a corpus export gets the
+re-parsed/re-anchored layer by default. To trust the export's baked PAWLs +
+structural set instead, the caller passes `reingest_and_remap=False`.
+
+The lower-level tasks (`import_corpus`, `import_corpus_v2`,
+`import_corpus_v2_from_bytes`, `_import_corpus`,
+`_import_document_with_annotations`) keep `reingest_and_remap=False` as their
+default — an explicit opt-in for direct/programmatic callers. This keeps
+`fork_corpus` (which calls `import_corpus_v2_from_bytes` and must not re-parse
+an in-system duplicate) and the existing baked-import test suite unchanged
+without forcing the heavyweight reingest path on them. The service threads the
+flag down to the tasks explicitly, so the user-facing default still wins.
 
 ## 2. Motivation
 
@@ -179,15 +190,18 @@ finalize_corpus_import_relationships(run_id):
 
 ### 6.1 Flag plumbing (backend only)
 
-Add `reingest_and_remap: bool = False` to, in call order:
+Add `reingest_and_remap` to, in call order (the **service** defaults it `True`
+— the opt-out boundary — while every lower-level task defaults it `False`):
 
-- `document_imports/services.py::import_corpus_export_for_user(...)` — appended
-  to the `import_corpus.s(...)` signature (`:666`). The REST view
-  (`CorpusExportImportView`) keeps passing the default; **no serializer field**
-  is added, so the capability is callable from internal code/tests but not the
+- `document_imports/services.py::import_corpus_export_for_user(..., reingest_and_remap=True)`
+  — appended to the `import_corpus.s(...)` signature. The REST view
+  (`CorpusExportImportView`) and the chunked-upload completion path both call
+  this without overriding it, so the user-facing import reingest by default;
+  **no serializer field** is added, so there is no per-request opt-out from the
   public API yet.
-- `tasks/import_tasks.py::import_corpus(...)` (`:63`) — pass-through to
-  `import_corpus_v2`.
+- `tasks/import_tasks.py::import_corpus(..., reingest_and_remap=False)` (`:63`) —
+  pass-through to `import_corpus_v2`; defaults off (the service passes the value
+  through explicitly).
 - `tasks/import_tasks_v2.py::import_corpus_v2(...)`,
   `import_corpus_v2_from_bytes(...)`, `_import_corpus(...)`,
   `_import_document_with_annotations(...)`.
@@ -430,9 +444,9 @@ chunked across rows keyed by `import_run_id` without changing the fan-in contrac
   `_maybe_finalize_corpus_import` helper.
 
 **Changed**
-- `document_imports/services.py`: `import_corpus_export_for_user(reingest_and_remap=False)` → thread into `import_corpus.s(...)`. (Chunked
-  `corpus_export` completion path passes the default.)
-- `tasks/import_tasks.py`: `import_corpus(reingest_and_remap=False)` pass-through.
+- `document_imports/services.py`: `import_corpus_export_for_user(reingest_and_remap=True)` (opt-out boundary) → thread into `import_corpus.s(...)`. (Chunked
+  `corpus_export` completion path inherits the `True` default.)
+- `tasks/import_tasks.py`: `import_corpus(reingest_and_remap=False)` pass-through (low-level default off; the service overrides it).
 - `tasks/import_tasks_v2.py`: flag on `import_corpus_v2`,
   `import_corpus_v2_from_bytes`, `_import_corpus`,
   `_import_document_with_annotations`; reingest branch; coordination-row
@@ -505,9 +519,11 @@ Run targeted: `docker compose -f test.yml run django pytest opencontractserver/t
   `expected_doc_count` (§6.3): a `READY` row whose `PENDING` count plus `DONE`/
   `FAILED` count never reaches `expected_doc_count` within the threshold is a
   stuck run the sweeper can fail explicitly.
-- **REST + frontend surface:** add `reingest_and_remap` to
-  `CorpusExportImportSerializer` + a UI toggle once the backend capability is
-  proven (intentionally excluded now).
+- **REST + frontend surface:** the service now defaults reingest **on**
+  (opt-out), but there is still no per-request override — add `reingest_and_remap`
+  to `CorpusExportImportSerializer` + a UI toggle so a user can opt a specific
+  upload *out* of reingest (intentionally excluded now; the default-on behaviour
+  ships first).
 - **Alternative considered — polling finalizer:** instead of triggering from
   `remap_pending_annotations`, dispatch a self-re-enqueuing finalizer (countdown
   while PENDING rows remain, bounded attempts). Simpler (no change to the generic
@@ -517,6 +533,7 @@ Run targeted: `docker compose -f test.yml run django pytest opencontractserver/t
 
 ## 10. Changelog
 
-On implementation, add `changelog.d/<pr>.added.md` documenting the opt-in
-reingest-&-remap V2 import mode, the `PendingCorpusImport` model + migration, and
-the asynchronous relationship-wiring fan-in.
+On implementation, add `changelog.d/<pr>.added.md` documenting the
+reingest-&-remap V2 import mode (opt-out at the user-facing import service), the
+`PendingCorpusImport` model + migration, and the asynchronous
+relationship-wiring fan-in.

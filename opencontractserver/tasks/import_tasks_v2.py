@@ -277,7 +277,7 @@ def _import_document_with_annotations(
         doc_label_lookup: Doc-type label lookup.
         structural_sets: Optional mapping of content_hash -> StructuralAnnotationSet
             (V2 only).
-        reingest_and_remap: When True, take the opt-in reingest path: create the
+        reingest_and_remap: When True, take the reingest path: create the
             document from the raw source bytes (NOT the baked PAWLs), let the
             standard pipeline regenerate PAWLs + structural annotations, and
             defer the surviving non-structural annotations into a

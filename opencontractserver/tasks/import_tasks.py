@@ -74,9 +74,12 @@ def import_corpus(
     using shared helpers for label loading, document creation, and
     annotation import.
 
-    ``reingest_and_remap`` (opt-in, default off) re-parses each document through
-    the current pipeline and re-anchors its non-structural annotations instead
-    of trusting the export's baked PAWLs / structural layer. See
+    ``reingest_and_remap`` re-parses each document through the current pipeline
+    and re-anchors its non-structural annotations instead of trusting the
+    export's baked PAWLs / structural layer. This low-level task defaults it
+    **off** (explicit opt-in for direct/programmatic callers and fork); the
+    user-facing entry point ``import_corpus_export_for_user`` defaults it **on**
+    (opt-out) and passes it through here. See
     ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
     """
     from opencontractserver.tasks.import_tasks_v2 import import_corpus_v2

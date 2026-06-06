@@ -1,5 +1,5 @@
-- **Opt-in "reingest & remap" mode for V2/V3 corpus-export import.** A new
-  `reingest_and_remap: bool = False` flag, threaded through
+- **"Reingest & remap" is now the default for user-facing V2/V3 corpus-export
+  import (opt-out).** A `reingest_and_remap` flag, threaded through
   `import_corpus_export_for_user` → `import_corpus` → `import_corpus_v2` →
   `import_corpus_v2_from_bytes` → `_import_corpus` →
   `_import_document_with_annotations`, re-parses each imported document through
@@ -10,10 +10,13 @@
   post-save chain regenerates PAWLs + structural annotations, and defers the
   surviving non-structural annotations into a `PendingDocumentAnnotations` row
   for `remap_pending_annotations` to re-anchor (`tasks/import_tasks_v2.py`,
-  `_reingest_document_with_deferred_remap`). Default behavior is unchanged —
-  the synchronous V2 import stays the default and the only path the REST
-  endpoint and `fork_corpus` use (no REST field, no frontend toggle this
-  iteration).
+  `_reingest_document_with_deferred_remap`). The opt-out boundary is the
+  **user-facing service** `import_corpus_export_for_user`, which now defaults
+  `reingest_and_remap=True` — the REST `CorpusExportImportView` and the
+  chunked-upload completion path both reingest by default; pass `False` to trust
+  the export's baked layer. The lower-level tasks keep the flag **off** by
+  default (explicit opt-in), so `fork_corpus` and direct/programmatic callers are
+  unchanged. No per-request REST field or frontend toggle this iteration.
 - **Asynchronous corpus-relationship fan-in.** New `PendingCorpusImport`
   coordination model (`documents/models.py`, migration `documents/0042`) holds
   a reingest run's corpus-level relationships and an `expected_doc_count`. An

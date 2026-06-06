@@ -1,4 +1,5 @@
-"""Tests for the opt-in "reingest & remap" V2 corpus-import mode.
+"""Tests for the "reingest & remap" V2 corpus-import mode (opt-out at the
+user-facing import entry point; explicit opt-in for direct callers).
 
 Two layers:
 
@@ -677,7 +678,7 @@ class TestReingestRemapEndToEnd(TransactionTestCase):
         self.assertNotEqual(src.document_id, tgt.document_id)
 
     def test_default_path_unchanged_no_pending_rows(self):
-        """``reingest_and_remap=False`` (default) creates no coordination rows."""
+        """``reingest_and_remap=False`` (import_corpus_v2 default) creates no rows."""
         from opencontractserver.tasks.import_tasks_v2 import import_corpus_v2
 
         temp_file = self._export_and_stage()
@@ -702,3 +703,48 @@ class TestReingestRemapEndToEnd(TransactionTestCase):
             Relationship.objects.filter(corpus=imported, structural=False).count(),
             1,
         )
+
+
+class TestServiceLevelOptOutDefault(TestCase):
+    """The user-facing import service defaults reingest **on** (opt-out).
+
+    ``import_corpus_export_for_user`` is the boundary where reingest becomes the
+    default for a user uploading an export. The lower-level ``import_corpus``
+    task keeps it off; the service must therefore queue the task with
+    ``reingest_and_remap=True`` unless the caller overrides it.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="opt_out_default_user", password="pw", is_usage_capped=False
+        )
+        # Smallest archive that passes the synchronous ZIP-magic peek. The
+        # queued celery task is mocked, so its contents are never parsed.
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("data.json", "{}")
+        self.zip_bytes = buf.getvalue()
+
+    def _queued_reingest_flag(self, **service_kwargs):
+        """Call the service with the task patched; return the queued flag."""
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports import services
+
+        with patch.object(services, "import_corpus") as mock_task:
+            services.import_corpus_export_for_user(
+                user=self.user,
+                zip_source=self.zip_bytes,
+                **service_kwargs,
+            )
+        mock_task.s.assert_called_once()
+        return mock_task.s.call_args.kwargs.get("reingest_and_remap")
+
+    def test_default_queues_reingest_on(self):
+        self.assertIs(self._queued_reingest_flag(), True)
+
+    def test_explicit_false_opts_out(self):
+        self.assertIs(self._queued_reingest_flag(reingest_and_remap=False), False)
