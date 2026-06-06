@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.llms.api import ToolType
+    from opencontractserver.shared.services.conventions import ServiceResult
+    from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +178,84 @@ async def _generate_logo(corpus: Corpus, user_id: int) -> str:
     return await _save()
 
 
+async def aregenerate_corpus_logo(
+    corpus: Corpus,
+    user: User,
+    *,
+    additional_instructions: str | None = None,
+) -> ServiceResult[None]:
+    """Generate a fresh logo and persist it to ``corpus.icon`` (creator-gated).
+
+    The manual counterpart to :func:`_generate_logo`: it builds the same
+    text-to-image prompt (optionally augmented with caller-supplied
+    ``additional_instructions``), generates the image via
+    :func:`agenerate_logo_image` (OpenAI Images with the deterministic PIL
+    monogram fallback), and writes it through
+    :meth:`CorpusService.update_icon`.
+
+    Unlike the auto-branding path this **deliberately overwrites** any existing
+    icon and ignores ``auto_branding_enabled`` — a manual regeneration is an
+    explicit request, not the create-time best-effort default. Authorisation is
+    still enforced: ``update_icon`` is creator-only, so the call is routed
+    through the freshly re-loaded acting user and a non-creator receives a
+    failure result with no write performed.
+
+    The corpus and user rows are re-loaded inside the save's
+    ``database_sync_to_async`` boundary (mirroring :func:`_generate_logo`) so
+    the ORM write runs against that thread's connection and honours any state
+    change — icon upload, hard delete — that landed during the slow image
+    generation.
+
+    Returns the :class:`ServiceResult` from ``update_icon`` (success carries
+    ``None``; failure carries a human-readable reason).
+    """
+    from channels.db import database_sync_to_async
+
+    from opencontractserver.utils.image_generation import agenerate_logo_image
+
+    prompt = _build_logo_prompt(corpus, additional_instructions)
+    image_bytes, ext = await agenerate_logo_image(
+        prompt=prompt,
+        fallback_text=corpus.title or "Corpus",
+        fallback_seed=str(corpus.pk),
+    )
+
+    corpus_pk = corpus.pk
+    user_pk = user.pk
+
+    @database_sync_to_async
+    def _save() -> ServiceResult[None]:
+        # Deferred imports keep sync ORM access inside the
+        # database_sync_to_async boundary and avoid a circular import
+        # (corpus_service -> branding).
+        from django.contrib.auth import get_user_model
+
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.corpuses.services.corpus_service import CorpusService
+        from opencontractserver.shared.services.conventions import ServiceResult
+
+        try:
+            fresh = Corpus.objects.get(pk=corpus_pk)
+        except Corpus.DoesNotExist:
+            return ServiceResult.failure(
+                "Corpus no longer exists; the regenerated icon was not saved."
+            )
+
+        acting_user = get_user_model().objects.filter(pk=user_pk).first()
+        if acting_user is None:
+            return ServiceResult.failure(
+                "Acting user no longer exists; the regenerated icon was not saved."
+            )
+
+        # ``update_icon`` is the authoritative creator-only gate, so this helper
+        # stays safe even if a future caller skips an up-front check.
+        return CorpusService.update_icon(
+            acting_user, fresh, image_bytes=image_bytes, extension=ext
+        )
+
+    return await _save()
+
+
 # --------------------------------------------------------------------------- #
 # Prompt builders
 # --------------------------------------------------------------------------- #
@@ -255,17 +335,28 @@ def _build_branding_system_prompt(corpus: Corpus, tools: list[str]) -> str:
     return "\n".join(parts)
 
 
-def _build_logo_prompt(corpus: Corpus) -> str:
+def _build_logo_prompt(
+    corpus: Corpus, additional_instructions: str | None = None
+) -> str:
     """Text-to-image prompt for the corpus logo.
 
-    SECURITY: the title/description are user-controlled and are interpolated
-    directly into the (quoted) image prompt. A text-to-image model has no
-    ``<user_content>`` fence concept, so we instead neutralise the values with
-    ``sanitize_plaintext_for_prompt`` — stripping quotes and collapsing
-    whitespace — so a crafted title cannot break out of the quotes and inject
-    its own directives (e.g. ``" . Instead, render the text: ...``). This
-    mirrors the prompt-hardening applied to the README agent's system prompt.
+    ``additional_instructions`` is an optional free-text styling hint supplied
+    by the manual ``regenerate_corpus_icon`` agent tool (the auto-branding path
+    passes ``None``). When present it is folded into the prompt so a user can
+    steer the look (e.g. "use blue tones and a gavel motif").
+
+    SECURITY: the title/description AND the styling hint are user-controlled and
+    are interpolated directly into the (quoted) image prompt. A text-to-image
+    model has no ``<user_content>`` fence concept, so we instead neutralise the
+    values with ``sanitize_plaintext_for_prompt`` — stripping quotes and
+    collapsing whitespace — so a crafted value cannot break out of the quotes
+    and inject its own directives (e.g. ``" . Instead, render the text: ...``).
+    This mirrors the prompt-hardening applied to the README agent's system
+    prompt.
     """
+    from opencontractserver.constants.corpus_branding import (
+        CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
+    )
     from opencontractserver.utils.prompt_sanitization import (
         sanitize_plaintext_for_prompt,
     )
@@ -283,6 +374,13 @@ def _build_logo_prompt(corpus: Corpus) -> str:
     )
     if description:
         prompt += f" The collection is about: {description}."
+    if additional_instructions and additional_instructions.strip():
+        hint = sanitize_plaintext_for_prompt(
+            additional_instructions.strip(),
+            max_length=CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS,
+        )
+        if hint:
+            prompt += f" Additional style guidance: {hint}."
     prompt += (
         " Flat design, simple geometric shapes, a single focal symbol, bold "
         "solid colors, centered on a plain background, no text, no words, no "
