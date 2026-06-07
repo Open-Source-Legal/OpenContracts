@@ -28,6 +28,17 @@ from opencontractserver.shared.services.base import BaseService
 from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 
+def _get_document_type() -> Any:
+    """Lazy ``DocumentType`` accessor.
+
+    ``document_types`` imports ``annotation_types`` at module load, so a
+    top-level import here would be circular. Resolved at schema-build time.
+    """
+    from config.graphql.document_types import DocumentType
+
+    return DocumentType
+
+
 class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = Relationship
@@ -71,9 +82,33 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         graphene.String,
         description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
     )
+    # ``document`` is declared explicitly (rather than relying on graphene-django's
+    # auto-generated FK field) so ``resolve_document`` below is ALWAYS invoked.
+    # graphene-django's FK resolver short-circuits to ``None`` whenever the raw
+    # ``document_id`` column is NULL (``converter.py`` reads ``root.document_id``
+    # then ``get_node(None)`` → ``None``) — which is EVERY structural annotation,
+    # since those carry ``document_id=NULL`` and reach their document only via the
+    # shared ``structural_set``. Without this explicit field the resolver never
+    # runs for structural annotations and the corpus cards render "Unknown
+    # Document". Lazy type ref avoids the annotation_types ↔ document_types
+    # import cycle (document_types imports annotation_types).
+    document = graphene.Field(
+        _get_document_type,
+        description=(
+            "The document this annotation belongs to. Structural annotations "
+            "(document_id=NULL) resolve it via the shared structural set, scoped "
+            "to the queried corpus by AnnotationService.structural_document_prefetch."
+        ),
+    )
 
     def resolve_document(self, info) -> Any:
-        """Return the document, resolving via structural_set for structural annotations."""
+        """Return the document, resolving via structural_set for structural annotations.
+
+        Runs because ``document`` is declared as an explicit ``graphene.Field``
+        above — graphene-django's auto-generated FK field would short-circuit to
+        ``None`` for structural annotations (``document_id=NULL``) before this
+        method ever ran.
+        """
         if self.document_id:
             return self.document
         # Structural annotations have document=NULL; resolve via structural_set
@@ -84,13 +119,25 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 prefetched = list(structural_set.documents.all())
                 if prefetched:
                     return prefetched[0]
-            # Fallback to DB query if not prefetched (avoids circular import
-            # with documents.models at module level)
+            # Fallback when the caller did not apply
+            # ``AnnotationService.structural_document_prefetch`` (deferred import
+            # avoids a module-level cycle with documents.models). Scope to this
+            # annotation's own corpus and order deterministically so we never
+            # reintroduce the original arbitrary ``.documents.first()`` bug;
+            # query-context scoping (which corpus is being viewed) only happens
+            # via the prefetch above, so this is a best-effort degraded path.
             from opencontractserver.documents.models import Document
 
-            return Document.objects.filter(
+            documents = Document.objects.filter(
                 structural_annotation_set_id=self.structural_set_id
-            ).first()
+            )
+            if self.corpus_id:
+                documents = documents.filter(
+                    path_records__corpus_id=self.corpus_id,
+                    path_records__is_current=True,
+                    path_records__is_deleted=False,
+                )
+            return documents.order_by("slug").first()
         return None
 
     def resolve_annotation_type(self, info) -> Any:

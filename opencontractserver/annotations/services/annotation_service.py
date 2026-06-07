@@ -771,3 +771,63 @@ class AnnotationService(BaseService):
             qs = qs.filter(analysis__isnull=analysis_isnull)
 
         return qs.distinct()
+
+    @classmethod
+    def structural_document_prefetch(
+        cls,
+        corpus_id: Optional[int] = None,
+        document_id: Optional[int] = None,
+    ) -> Prefetch:
+        """Build the ``structural_set__documents`` prefetch consumed by
+        ``AnnotationType.resolve_document``.
+
+        Structural annotations carry ``document_id=NULL`` and reach their
+        document only through the shared ``structural_set``. A
+        ``StructuralAnnotationSet`` is deduplicated by content hash and is
+        therefore shared across documents AND corpuses, so an *unscoped*
+        resolution (``structural_set.documents.first()``) returns an
+        arbitrary member of the set — typically the standalone import source
+        (which has no path in any corpus) or a copy living in a different
+        corpus. In the corpus annotation cards that produces a card that
+        either names the wrong document or fails to deep-link into the
+        corpus being viewed.
+
+        Scoping the prefetch to the current context makes
+        ``resolve_document`` return the context-local copy. Mirrors the
+        corpus-scoped structural lookup in
+        ``opencontractserver/mcp/tools.py::search_corpus``.
+
+        ``document_id`` takes precedence over ``corpus_id`` so the
+        document-knowledge-base view (which always passes a document, and
+        often a corpus too) resolves to the *exact* document being viewed,
+        while the corpus annotation cards (document_id=None) fall back to
+        the corpus-local copy.
+
+        Args:
+            corpus_id: When set (and no ``document_id``), restrict the
+                prefetched documents to those with a current, non-deleted
+                path in this corpus.
+            document_id: When set, restrict to exactly this document — the
+                document being viewed.
+
+        Returns:
+            A ``Prefetch`` for ``structural_set__documents`` whose queryset is
+            scoped to the supplied context and ordered deterministically by
+            ``slug`` (the tie-break when a structural set maps to more than
+            one in-scope document, matching ``search_corpus``).
+        """
+        from opencontractserver.documents.models import Document
+
+        documents = Document.objects.select_related("creator")
+        if document_id is not None:
+            documents = documents.filter(id=document_id)
+        elif corpus_id is not None:
+            documents = documents.filter(
+                path_records__corpus_id=corpus_id,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+            )
+        return Prefetch(
+            "structural_set__documents",
+            queryset=documents.order_by("slug").distinct(),
+        )

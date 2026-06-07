@@ -400,32 +400,16 @@ class TestCorpusFileToolsAsync(TransactionTestCase):
     """
 
     def setUp(self):
-        # TransactionTestCase commits data, so document-processing on_commit
-        # callbacks would fire and dispatch celery tasks against media that
-        # does not exist. Disconnect the create signal for setUp (mirrors
-        # test_move_document_tool.TestMoveDocumentAsync).
-        from django.db.models.signals import post_save
-
-        from opencontractserver.documents.signals import (
-            DOC_CREATE_UID,
-            process_doc_on_create_atomic,
-        )
-
-        try:
-            post_save.disconnect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
-            self.user = User.objects.create_user(username="async_files", password="pw")
-            self.corpus = Corpus.objects.create(title="Async Files", creator=self.user)
-            self.doc = _add_doc(self.corpus, self.user, "async.pdf")
-        finally:
-            post_save.connect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
+        # ``disable_document_processing_signals`` (conftest, session-scoped,
+        # autouse) already disconnects ``process_doc_on_create_atomic`` for the
+        # whole run, so committing documents here won't dispatch celery tasks
+        # against absent media. Do NOT disconnect/reconnect locally: a
+        # ``finally: post_save.connect(...)`` leaves the signal CONNECTED for
+        # every later test sharing this xdist worker, breaking unrelated
+        # TransactionTestCase tests (e.g. EmbeddingManagerConcurrentTest).
+        self.user = User.objects.create_user(username="async_files", password="pw")
+        self.corpus = Corpus.objects.create(title="Async Files", creator=self.user)
+        self.doc = _add_doc(self.corpus, self.user, "async.pdf")
 
     def test_async_search_rename_delete(self):
         found = async_to_sync(asearch_corpus_documents)(

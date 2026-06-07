@@ -239,47 +239,31 @@ class TestMoveDocumentAsync(TransactionTestCase):
     """
 
     def setUp(self):
-        # Disconnect the document processing signal for the entire setUp.
-        # TransactionTestCase commits data, so on_commit callbacks fire
-        # synchronously — the celery tasks fail because there's no real
-        # PDF/media to process.  We reconnect in finally.
-        from django.db.models.signals import post_save
-
-        from opencontractserver.documents.signals import (
-            DOC_CREATE_UID,
-            process_doc_on_create_atomic,
+        # ``disable_document_processing_signals`` (conftest, session-scoped,
+        # autouse) already disconnects ``process_doc_on_create_atomic`` for the
+        # whole run, so committing documents here won't dispatch celery tasks
+        # against absent media. Do NOT disconnect/reconnect locally: a
+        # ``finally: post_save.connect(...)`` leaves the signal CONNECTED for
+        # every later test sharing this xdist worker, breaking unrelated
+        # TransactionTestCase tests (e.g. EmbeddingManagerConcurrentTest).
+        self.user = User.objects.create_user(username="async_mover", password="pw")
+        self.corpus = Corpus.objects.create(title="Async Corpus", creator=self.user)
+        self.folder_a = CorpusFolder.objects.create(
+            name="Folder A", corpus=self.corpus, creator=self.user
+        )
+        self.folder_b = CorpusFolder.objects.create(
+            name="Folder B", corpus=self.corpus, creator=self.user
         )
 
-        try:
-            post_save.disconnect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
-            self.user = User.objects.create_user(username="async_mover", password="pw")
-            self.corpus = Corpus.objects.create(title="Async Corpus", creator=self.user)
-            self.folder_a = CorpusFolder.objects.create(
-                name="Folder A", corpus=self.corpus, creator=self.user
-            )
-            self.folder_b = CorpusFolder.objects.create(
-                name="Folder B", corpus=self.corpus, creator=self.user
-            )
+        original_doc = Document.objects.create(
+            title="Async Doc", description="async test", creator=self.user
+        )
+        original_doc.txt_extract_file.save("test.txt", ContentFile(b"content"))
 
-            original_doc = Document.objects.create(
-                title="Async Doc", description="async test", creator=self.user
-            )
-            original_doc.txt_extract_file.save("test.txt", ContentFile(b"content"))
-
-            self.doc, *_ = self.corpus.add_document(
-                document=original_doc, user=self.user, folder=self.folder_a
-            )
-            set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
-        finally:
-            post_save.connect(
-                process_doc_on_create_atomic,
-                sender=Document,
-                dispatch_uid=DOC_CREATE_UID,
-            )
+        self.doc, *_ = self.corpus.add_document(
+            document=original_doc, user=self.user, folder=self.folder_a
+        )
+        set_permissions_for_obj_to_user(self.user, self.doc, [PermissionTypes.CRUD])
 
     def test_amove_document_async_wrapper(self):
         """Smoke test: amove_document (async) produces the same result as the sync version."""

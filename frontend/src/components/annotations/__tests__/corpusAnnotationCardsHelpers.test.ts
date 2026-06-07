@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAnnotationClickQueryParams,
   buildBlockRelationshipIdMap,
+  resolveDeepLinkCorpus,
 } from "../corpusAnnotationCardsHelpers";
 import type { SemanticSearchResult } from "../../../graphql/queries";
 
@@ -84,5 +85,26 @@ describe("buildAnnotationClickQueryParams", () => {
     const map = new Map([["a-1", "rel-42"]]);
     const params = buildAnnotationClickQueryParams({ id: "a-2" }, map);
     expect(params.relationshipId).toBeUndefined();
+  });
+});
+
+describe("resolveDeepLinkCorpus", () => {
+  const annotationCorpus = { slug: "from-annotation" };
+  const openedCorpus = { slug: "from-opened" };
+
+  it("prefers the annotation's own corpus when present", () => {
+    expect(resolveDeepLinkCorpus(annotationCorpus, openedCorpus)).toBe(
+      annotationCorpus
+    );
+  });
+
+  it("falls back to the opened corpus for structural (corpus-null) annotations", () => {
+    expect(resolveDeepLinkCorpus(null, openedCorpus)).toBe(openedCorpus);
+    expect(resolveDeepLinkCorpus(undefined, openedCorpus)).toBe(openedCorpus);
+  });
+
+  it("returns null (never undefined) when neither corpus is available", () => {
+    expect(resolveDeepLinkCorpus(null, null)).toBeNull();
+    expect(resolveDeepLinkCorpus(undefined, undefined)).toBeNull();
   });
 });
