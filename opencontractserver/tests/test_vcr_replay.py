@@ -342,6 +342,16 @@ class EnsureAiohttpVcrCompatTests(TestCase):
         had_real_symbol = hasattr(streams, "AsyncStreamReaderMixin")
         original = getattr(streams, "AsyncStreamReaderMixin", None)
 
+        # Keep the test self-contained: restore the module to whatever state it
+        # was in before this test ran (the shim may add the symbol below).
+        def _restore() -> None:
+            if had_real_symbol:
+                setattr(streams, "AsyncStreamReaderMixin", original)
+            elif hasattr(streams, "AsyncStreamReaderMixin"):
+                delattr(streams, "AsyncStreamReaderMixin")
+
+        self.addCleanup(_restore)
+
         ensure_aiohttp_vcr_compat()
 
         # Whichever aiohttp is installed, the symbol must exist afterward so
