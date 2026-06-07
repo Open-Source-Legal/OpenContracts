@@ -83,7 +83,9 @@ def ensure_aiohttp_vcr_compat() -> None:
         cassettes).
         """
 
-    streams.AsyncStreamReaderMixin = AsyncStreamReaderMixin
+    # setattr (string name) rather than attribute assignment so mypy does not
+    # flag a member aiohttp 3.14 removed from the ``streams`` module.
+    setattr(streams, "AsyncStreamReaderMixin", AsyncStreamReaderMixin)
 
 
 # These hostnames are the LLM provider endpoints VCR should intercept.

@@ -349,7 +349,7 @@ class EnsureAiohttpVcrCompatTests(TestCase):
         self.assertTrue(hasattr(streams, "AsyncStreamReaderMixin"))
         if had_real_symbol:
             # Under aiohttp < 3.14 the real mixin must be left untouched.
-            self.assertIs(streams.AsyncStreamReaderMixin, original)
+            self.assertIs(getattr(streams, "AsyncStreamReaderMixin"), original)
 
     def test_shim_is_idempotent(self):
         # Called twice (conftest + maybe_vcr_cassette both invoke it) must not
@@ -359,9 +359,9 @@ class EnsureAiohttpVcrCompatTests(TestCase):
             from aiohttp import streams
         except ModuleNotFoundError:  # pragma: no cover - aiohttp always present
             self.skipTest("aiohttp not installed")
-        first = streams.AsyncStreamReaderMixin
+        first = getattr(streams, "AsyncStreamReaderMixin")
         ensure_aiohttp_vcr_compat()
-        self.assertIs(streams.AsyncStreamReaderMixin, first)
+        self.assertIs(getattr(streams, "AsyncStreamReaderMixin"), first)
 
     def test_vcr_cassette_entry_works(self):
         # The real contract: vcrpy imports its aiohttp stub lazily when a
