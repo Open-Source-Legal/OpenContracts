@@ -2161,8 +2161,8 @@ class TestDumbAnchorRemapThroughChain(TransactionTestCase):
             mimetype: dotted_path,
         }
         pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
-        self.addCleanup(PipelineSettings._invalidate_cache)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
 
     @staticmethod
     def _create_test_zip(files: dict[str, bytes]) -> io.BytesIO:

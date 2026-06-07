@@ -95,7 +95,7 @@ class TestPipelineComponentBaseSettings(TestCase):
 
         self.pipeline_settings.component_settings = {full_path: expected_settings}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponent()
         result = component.get_component_settings()
@@ -108,7 +108,7 @@ class TestPipelineComponentBaseSettings(TestCase):
             "some.other.Component": {"key": "value"}
         }
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponent()
         self.assertEqual(component.get_component_settings(), {})
@@ -117,7 +117,7 @@ class TestPipelineComponentBaseSettings(TestCase):
         """Returns empty dict when component_settings is empty."""
         self.pipeline_settings.component_settings = {}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponent()
         self.assertEqual(component.get_component_settings(), {})
@@ -133,7 +133,7 @@ class TestPipelineComponentBaseSettings(TestCase):
         }
         self.pipeline_settings.component_settings = {}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         with self.settings(PIPELINE_SETTINGS=pipeline_settings_override):
             component = DummyComponent()
@@ -148,7 +148,7 @@ class TestPipelineComponentBaseSettings(TestCase):
 
         self.pipeline_settings.component_settings = {full_path: db_settings}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         django_settings_override = {
             full_path: {"source": "django", "api_key": "django-key"},
@@ -173,7 +173,7 @@ class TestPipelineComponentBaseSettings(TestCase):
         """Returns empty dict when component_settings DB value is not a dict."""
         self.pipeline_settings.component_settings = {}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponent()
         self.assertEqual(component.get_component_settings(), {})
@@ -185,7 +185,7 @@ class TestPipelineComponentBaseSettings(TestCase):
         # Only store settings under the full path
         self.pipeline_settings.component_settings = {full_path: {"found": True}}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponent()
         result = component.get_component_settings()
@@ -196,7 +196,7 @@ class TestPipelineComponentBaseSettings(TestCase):
             "DummyComponent": {"found_simple": True}
         }
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         result = component.get_component_settings()
         self.assertEqual(result, {})
@@ -222,7 +222,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
             full_path: {"timeout": 60, "debug": True}
         }
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponentWithSettings()
         self.assertIsNotNone(component.settings)
@@ -252,7 +252,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
         # Update DB settings
         self.pipeline_settings.component_settings = {full_path: {"timeout": 120}}
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         # Reload
         component.reload_settings()
@@ -275,7 +275,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
             full_path: {"api_key": "test-key-123", "service_url": "http://localhost"}
         }
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         component = DummyComponentWithSettings()
         is_valid, errors = component.validate_settings()

@@ -99,7 +99,7 @@ class RunEnrichersTests(TestCase):
     """Tests for the run_enrichers chain runner."""
 
     def setUp(self):
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
     def test_empty_list_returns_input_unchanged(self):
         export = cast(OpenContractDocExport, {"labelled_text": []})
@@ -152,7 +152,7 @@ class ProcessDocumentEnrichmentWiringTests(TestCase):
         )
 
     def setUp(self):
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         self.doc = Document.objects.create(
             creator=self.user,
             title="Wiring Doc",

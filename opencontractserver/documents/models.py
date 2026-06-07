@@ -1324,16 +1324,6 @@ class PipelineSettings(django.db.models.Model):
         cache.delete(cls.CACHE_KEY)
 
     @classmethod
-    def _invalidate_cache(cls) -> None:
-        """Backwards-compatible alias for :meth:`clear_cache`.
-
-        Retained for existing callers (the test suite and ``conftest.py``)
-        that predate :meth:`clear_cache`; new code should use the public
-        method.
-        """
-        cls.clear_cache()
-
-    @classmethod
     def get_instance(cls, use_cache: bool = True) -> PipelineSettings:
         """
         Get the singleton PipelineSettings instance.

@@ -93,7 +93,7 @@ class PipelineSettingsModelTestCase(TestCase):
         # and doesn't clear the cached singleton (populated during setUp by
         # personal corpus creation).
         PipelineSettings.objects.all().delete()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         instance = PipelineSettings.get_instance()
 
         # Initial DB values populated from Django settings via get_instance()
@@ -127,7 +127,7 @@ class PipelineSettingsModelTestCase(TestCase):
         # and doesn't clear the cached singleton (populated during setUp by
         # personal corpus creation).
         PipelineSettings.objects.all().delete()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         instance = PipelineSettings.get_instance()
 
         # Initial DB value populated from Django settings via get_instance()
@@ -147,7 +147,7 @@ class PipelineSettingsModelTestCase(TestCase):
     def test_get_default_llm_uses_db(self):
         """get_default_llm returns the stored DB value (empty by default)."""
         PipelineSettings.objects.all().delete()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         instance = PipelineSettings.get_instance()
 
         # Empty by default (no DEFAULT_LLM configured in the test settings).
@@ -688,7 +688,7 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             "anthropic:claude-opus-4-6",
         )
         # Persisted to the singleton.
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         self.assertEqual(
             PipelineSettings.get_instance().get_default_llm(),
             "anthropic:claude-opus-4-6",
@@ -743,7 +743,7 @@ class PipelineSettingsGraphQLTestCase(TestCase):
         instance = PipelineSettings.get_instance()
         instance.default_llm = "anthropic:claude-opus-4-6"
         instance.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         mutation = """
             mutation UpdatePipelineSettings($defaultLlm: String) {
@@ -760,7 +760,7 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             result["data"]["updatePipelineSettings"]["pipelineSettings"]["defaultLlm"],
             "",
         )
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         self.assertEqual(PipelineSettings.get_instance().get_default_llm(), "")
 
     def test_update_default_llm_as_regular_user_fails(self):
@@ -788,7 +788,7 @@ class PipelineSettingsGraphQLTestCase(TestCase):
         instance = PipelineSettings.get_instance()
         instance.default_llm = "anthropic:claude-opus-4-6"
         instance.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         mutation = """
             mutation {
@@ -1879,7 +1879,7 @@ class PipelineSettingsIntegrationTestCase(TestCase):
         instance = PipelineSettings.get_instance()
         instance.preferred_parsers = {"application/pdf": "custom.Parser"}
         instance.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         self.assertEqual(
             PipelineSettings.get_instance(use_cache=False).get_preferred_parser(

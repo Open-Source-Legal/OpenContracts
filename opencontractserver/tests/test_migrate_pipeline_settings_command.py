@@ -594,7 +594,7 @@ class MigrationFlowTestCase(TestCase):
             "application/pdf": "new.parser.Path"
         }
         self.pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
         out = StringIO()
         call_command(

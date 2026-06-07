@@ -629,10 +629,10 @@ class TestPostProcessor(BasePostProcessor):
             "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder"
         )
         pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
         # Ensure cache is cleared after TestCase rolls back the transaction,
         # so stale values don't leak to other tests on the same xdist worker.
-        self.addCleanup(PipelineSettings._invalidate_cache)
+        self.addCleanup(PipelineSettings.clear_cache)
 
         # Get the default embedder for comparison
         default_embedder = get_default_embedder()
@@ -677,8 +677,8 @@ class TestPostProcessor(BasePostProcessor):
             "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder"
         )
         pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
-        self.addCleanup(PipelineSettings._invalidate_cache)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
 
         # When a preferred embedder can't be loaded, the function falls back
         # to the global default embedder
@@ -794,8 +794,8 @@ class TestEmbedderInstanceCache(TestCase):
         # cache key, so the next lookup misses and rebuilds.
         instance = PipelineSettings.get_instance()
         instance.save()
-        PipelineSettings._invalidate_cache()
-        self.addCleanup(PipelineSettings._invalidate_cache)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
 
         second = get_embedder_instance(_CacheProbeEmbedderA, "tests.ProbeA")
         self.assertIsNot(

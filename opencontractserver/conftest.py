@@ -60,7 +60,7 @@ def _invalidate_pipeline_settings_singleton_cache():
         invalidate_reranker_cache,
     )
 
-    PipelineSettings._invalidate_cache()
+    PipelineSettings.clear_cache()
     invalidate_embedder_cache()
     invalidate_reranker_cache()
     invalidate_credential_cache()

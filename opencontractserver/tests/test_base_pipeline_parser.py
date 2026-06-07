@@ -146,8 +146,8 @@ class MockParser(BaseParser):
             },
         }
         pipeline_settings.save()
-        PipelineSettings._invalidate_cache()
-        self.addCleanup(PipelineSettings._invalidate_cache)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
 
         # We'll patch the ephemeral parser's parse_document, verifying that it
         # indeed receives the "test_key" kwarg.
