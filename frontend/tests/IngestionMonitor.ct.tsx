@@ -333,6 +333,80 @@ test.describe("IngestionMonitor", () => {
     ).toBeVisible();
   });
 
+  test("advances the document list offset when Next is clicked", async ({
+    mount,
+    page: pw,
+  }) => {
+    // Two pages of documents (totalCount 60 > page size 50) so Next is enabled.
+    const pageOneDoc = {
+      ...documentItems[0],
+      id: "p1",
+      title: "Doc Page One.pdf",
+    };
+    const pageTwoDoc = {
+      ...documentItems[1],
+      id: "p2",
+      title: "Doc Page Two.pdf",
+    };
+    const docsPage = (offset: number, items: any[]) => ({
+      adminDocumentIngestion: { totalCount: 60, limit: 50, offset, items },
+    });
+    const mocks = [
+      {
+        request: {
+          query: GET_ADMIN_DOCUMENT_INGESTION,
+          variables: INITIAL_VARS,
+        },
+        maxUsageCount: 20,
+        result: { data: docsPage(0, [pageOneDoc]) },
+      },
+      {
+        request: {
+          query: GET_ADMIN_DOCUMENT_INGESTION,
+          variables: { status: null, limit: 50, offset: 50 },
+        },
+        maxUsageCount: 20,
+        result: { data: docsPage(50, [pageTwoDoc]) },
+      },
+      // Worker query still fires on the documents tab.
+      {
+        request: { query: GET_ADMIN_WORKER_UPLOADS, variables: INITIAL_VARS },
+        maxUsageCount: 20,
+        result: { data: page("adminWorkerUploads", workerItems) },
+      },
+    ];
+
+    await mount(<IngestionMonitorTestWrapper mocks={mocks} />);
+
+    await expect(pw.getByText("Doc Page One.pdf")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const docsPagination = pw.getByTestId("documents-pagination");
+    await expect(docsPagination.getByText("1–50 of 60")).toBeVisible();
+    // First page: Prev disabled, Next enabled.
+    await expect(
+      docsPagination.getByRole("button", { name: "Prev" })
+    ).toBeDisabled();
+    const nextButton = docsPagination.getByRole("button", { name: "Next" });
+    await expect(nextButton).toBeEnabled();
+
+    await nextButton.click();
+
+    // Offset advanced → second-page query fired and its row rendered.
+    await expect(pw.getByText("Doc Page Two.pdf")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(docsPagination.getByText("51–60 of 60")).toBeVisible();
+    // Second page: Prev now enabled, Next disabled (last page).
+    await expect(
+      docsPagination.getByRole("button", { name: "Prev" })
+    ).toBeEnabled();
+    await expect(
+      docsPagination.getByRole("button", { name: "Next" })
+    ).toBeDisabled();
+  });
+
   test("keeps the ingestion table horizontally scrollable on mobile", async ({
     mount,
     page: pw,

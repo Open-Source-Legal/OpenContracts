@@ -477,7 +477,8 @@ const Pagination: React.FC<{
   page: PageInfo | undefined;
   offset: number;
   onOffsetChange: (offset: number) => void;
-}> = ({ page, offset, onOffsetChange }) => {
+  testId?: string;
+}> = ({ page, offset, onOffsetChange, testId }) => {
   if (!page) return null;
   const { totalCount, limit } = page;
   const shownStart = totalCount === 0 ? 0 : offset + 1;
@@ -485,7 +486,7 @@ const Pagination: React.FC<{
   const hasPrev = offset > 0;
   const hasNext = offset + limit < totalCount;
   return (
-    <PaginationBar>
+    <PaginationBar data-testid={testId}>
       <span>
         {shownStart}–{shownEnd} of {totalCount}
       </span>
@@ -773,6 +774,7 @@ export const IngestionMonitor: React.FC = () => {
                 page={docPage}
                 offset={docOffset}
                 onOffsetChange={setDocOffset}
+                testId="documents-pagination"
               />
             </StyledSegment>
           </SectionWrapper>
@@ -860,6 +862,7 @@ export const IngestionMonitor: React.FC = () => {
                 page={workerPage}
                 offset={workerOffset}
                 onOffsetChange={setWorkerOffset}
+                testId="worker-uploads-pagination"
               />
             </StyledSegment>
           </SectionWrapper>
@@ -945,6 +948,7 @@ export const IngestionMonitor: React.FC = () => {
                 page={importPage}
                 offset={importOffset}
                 onOffsetChange={setImportOffset}
+                testId="corpus-imports-pagination"
               />
             </StyledSegment>
           </SectionWrapper>
@@ -1032,6 +1036,7 @@ export const IngestionMonitor: React.FC = () => {
                 page={sessionPage}
                 offset={sessionOffset}
                 onOffsetChange={setSessionOffset}
+                testId="bulk-sessions-pagination"
               />
             </StyledSegment>
           </SectionWrapper>
