@@ -70,6 +70,7 @@ class TxtIngestorTestCase(TestCase):
             self.doc.structural_annotation_set,
             "Document should have a structural_annotation_set after ingestion",
         )
+        assert self.doc.structural_annotation_set is not None
 
         # Check if annotations were created in the structural annotation set
         # (structural annotations are no longer linked directly to the document)
@@ -82,6 +83,7 @@ class TxtIngestorTestCase(TestCase):
 
         # Check properties of the first annotation
         first_annotation = annotations.first()
+        assert first_annotation is not None
         self.assertEqual(first_annotation.annotation_label, sentence_label)
         self.assertEqual(first_annotation.annotation_type, "SPAN_LABEL")
         self.assertTrue(first_annotation.structural)
@@ -93,6 +95,7 @@ class TxtIngestorTestCase(TestCase):
 
         # Verify that all annotations have non-empty raw_text
         for annotation in annotations:
+            assert annotation.raw_text is not None
             self.assertTrue(annotation.raw_text.strip())
 
         logger.info(f"Created {annotations.count()} sentence annotations")
@@ -113,6 +116,7 @@ class TxtIngestorTestCase(TestCase):
         )
 
         self.assertIsNotNone(parsed)
+        assert parsed is not None
         labelled = parsed["labelled_text"]
         self.assertGreater(len(labelled), 0, "Paragraph chunker produced no chunks")
         self.assertTrue(
@@ -133,6 +137,7 @@ class TxtIngestorTestCase(TestCase):
         )
 
         self.assertIsNotNone(parsed)
+        assert parsed is not None
         labels = {ann["annotationLabel"] for ann in parsed["labelled_text"]}
         self.assertIn(PARAGRAPH_CHUNK_LABEL, labels)
         self.assertIn(SLIDING_WINDOW_CHUNK_LABEL, labels)

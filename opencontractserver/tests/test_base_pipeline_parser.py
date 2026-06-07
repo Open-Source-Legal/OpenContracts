@@ -1,7 +1,7 @@
 import importlib
 import logging
 import os
-from typing import Optional
+from typing import Optional, cast
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 class TestBasePipelineParser(TestCase):
+    test_files: list[str]
+    parser_code: str
+    parser_path: str
+
     @classmethod
     def setUpClass(cls) -> None:
         """
@@ -191,7 +195,7 @@ class MockParser(BaseParser):
             def _parse_document_impl(
                 self, user_id: int, doc_id: int, **kwargs
             ) -> Optional[OpenContractDocExport]:
-                annotation_data: list[OpenContractsAnnotationPythonType] = [
+                annotation_data = [
                     {
                         "id": "a1",
                         "annotationLabel": "MockLabelA",
@@ -214,7 +218,7 @@ class MockParser(BaseParser):
                     },
                 ]
 
-                relationship_data: list[OpenContractsRelationshipPythonType] = [
+                relationship_data = [
                     {
                         "id": "r1",
                         "relationshipLabel": "MockRelLabelA",
@@ -230,8 +234,12 @@ class MockParser(BaseParser):
                     "pawls_file_content": [],
                     "page_count": 1,
                     "doc_labels": [],
-                    "labelled_text": annotation_data,
-                    "relationships": relationship_data,
+                    "labelled_text": cast(
+                        list[OpenContractsAnnotationPythonType], annotation_data
+                    ),
+                    "relationships": cast(
+                        list[OpenContractsRelationshipPythonType], relationship_data
+                    ),
                 }
                 return export_data
 
@@ -241,6 +249,7 @@ class MockParser(BaseParser):
         self.assertIsNotNone(
             parsed_data, "Parser should return a valid OpenContractDocExport."
         )
+        assert parsed_data is not None
 
         parser.save_parsed_data(
             user_id=self.user.id,
@@ -268,6 +277,8 @@ class MockParser(BaseParser):
 
         self.assertEqual(Relationship.objects.count(), 1)
         relationship = Relationship.objects.first()
+        assert relationship is not None
+        assert relationship.relationship_label is not None
         self.assertEqual(relationship.relationship_label.text, "MockRelLabelA")
 
         label_a = AnnotationLabel.objects.get(text="MockLabelA")
@@ -380,6 +391,7 @@ class MockParser(BaseParser):
 
         # Should reuse the orphaned set from the failed first attempt
         self.doc.refresh_from_db()
+        assert self.doc.structural_annotation_set is not None
         self.assertEqual(self.doc.structural_annotation_set.pk, orphaned_set.pk)
 
     def test_process_document_raises_on_none_return(self):

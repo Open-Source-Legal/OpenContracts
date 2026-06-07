@@ -4,7 +4,7 @@ Tests for the BaseChunkedParser reassembly logic and chunk dispatching.
 
 import threading
 import time
-from typing import Optional
+from typing import Optional, cast
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -22,7 +22,11 @@ from opencontractserver.pipeline.base.chunked_parser import (
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.tests.helpers import make_test_pdf
-from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.types.dicts import (
+    OpenContractDocExport,
+    OpenContractsAnnotationPythonType,
+    OpenContractsRelationshipPythonType,
+)
 
 User = get_user_model()
 
@@ -35,7 +39,7 @@ def _make_chunk_result(
     content: str = "chunk text",
 ) -> OpenContractDocExport:
     """Build a minimal chunk result with local 0-based page indices."""
-    pawls = []
+    pawls: list = []
     for i in range(num_pages):
         pawls.append(
             {
@@ -140,7 +144,7 @@ class TestReassembleChunkResults(TestCase):
         c1 = _make_chunk_result(num_pages=2)
         result = _reassemble_chunk_results([c1], [10])
         ann = result["labelled_text"][0]
-        page_data = ann["annotation_json"]["10"]
+        page_data = cast(dict, ann["annotation_json"])["10"]
         self.assertEqual(page_data["tokensJsons"][0]["pageIndex"], 10)
 
     def test_content_concatenation(self):
@@ -263,7 +267,7 @@ class TestOffsetAnnotation(TestCase):
     """Tests for the _offset_annotation helper."""
 
     def test_basic_offset(self):
-        ann = {
+        ann: dict = {
             "id": "a1",
             "page": 2,
             "parent_id": "a0",
@@ -275,7 +279,7 @@ class TestOffsetAnnotation(TestCase):
                 }
             },
         }
-        _offset_annotation(ann, 10, "c0_")
+        _offset_annotation(cast(OpenContractsAnnotationPythonType, ann), 10, "c0_")
         self.assertEqual(ann["id"], "c0_a1")
         self.assertEqual(ann["page"], 12)
         self.assertEqual(ann["parent_id"], "c0_a0")
@@ -295,7 +299,7 @@ class TestOffsetRelationship(TestCase):
             "source_annotation_ids": ["a1", "a2"],
             "target_annotation_ids": ["a3"],
         }
-        _offset_relationship(rel, "c1_")
+        _offset_relationship(cast(OpenContractsRelationshipPythonType, rel), "c1_")
         self.assertEqual(rel["id"], "c1_r1")
         self.assertEqual(rel["source_annotation_ids"], ["c1_a1", "c1_a2"])
         self.assertEqual(rel["target_annotation_ids"], ["c1_a3"])
@@ -366,6 +370,7 @@ class TestBaseChunkedParserIntegration(TestCase):
 
         result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["page_count"], 2)  # From default _make_chunk_result
         # Even single-chunk documents now get consistent c0_ prefixed IDs
         self.assertEqual(result["labelled_text"][0]["id"], "c0_ann-1")
@@ -385,6 +390,7 @@ class TestBaseChunkedParserIntegration(TestCase):
 
         result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
         self.assertIsNotNone(result)
+        assert result is not None
         # 2 chunks x 2 pages each from _make_chunk_result default
         self.assertEqual(result["page_count"], 4)
         # PAWLs pages should have correct indices
@@ -406,6 +412,7 @@ class TestBaseChunkedParserIntegration(TestCase):
 
         result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["page_count"], 4)
         # Verify PAWLs pages are in correct global order (not completion order)
         indices = [p["page"]["index"] for p in result["pawls_file_content"]]
@@ -455,6 +462,7 @@ class TestBaseChunkedParserIntegration(TestCase):
 
         result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
         self.assertTrue(hook_called["value"])
+        assert result is not None
         self.assertEqual(result["title"], "HOOKED")
 
     @patch("opencontractserver.pipeline.base.chunked_parser.default_storage.open")

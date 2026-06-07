@@ -226,6 +226,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
 
         component = DummyComponentWithSettings()
         self.assertIsNotNone(component.settings)
+        assert component.settings is not None
         self.assertEqual(component.settings.timeout, 60)
         self.assertTrue(component.settings.debug)
 
@@ -238,6 +239,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
         """Settings use defaults from dataclass when no DB values exist."""
         component = DummyComponentWithSettings()
         self.assertIsNotNone(component.settings)
+        assert component.settings is not None
         self.assertEqual(component.settings.api_key, "")
         self.assertEqual(component.settings.timeout, 30)
         self.assertFalse(component.settings.debug)
@@ -247,6 +249,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
         full_path = self._full_path()
 
         component = DummyComponentWithSettings()
+        assert component.settings is not None
         self.assertEqual(component.settings.timeout, 30)
 
         # Update DB settings
@@ -256,6 +259,7 @@ class TestPipelineComponentWithSettingsDataclass(TestCase):
 
         # Reload
         component.reload_settings()
+        assert component.settings is not None
         self.assertEqual(component.settings.timeout, 120)
 
     def test_validate_settings_reports_missing_required(self):
@@ -328,6 +332,7 @@ class TestLoadSettingsErrorPaths(TestCase):
             ]
             result = component._load_settings(strict=False)
             self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result.timeout, 30)
             self.assertEqual(mock_create.call_count, 2)
             # Second call should use strict=False

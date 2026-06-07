@@ -320,6 +320,7 @@ class TestPipelineComponentBaseWithSettingsSchema(TestCase):
             component = ComponentWithSettings()
 
             self.assertIsNotNone(component.settings)
+            assert component.settings is not None
             self.assertEqual(component.settings.api_key, "test-key")
             self.assertEqual(component.settings.service_url, "https://test.com")
 
@@ -551,6 +552,7 @@ class TestGetPipelineSetting(TestCase):
             if f.name == "api_key":
                 result = get_pipeline_setting(f)
                 self.assertIsNotNone(result)
+                assert result is not None
                 self.assertEqual(result.setting_type, SettingType.SECRET)
 
     def test_returns_none_for_no_metadata(self):

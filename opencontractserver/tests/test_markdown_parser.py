@@ -3,17 +3,18 @@
 from io import BytesIO, StringIO
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.parsers.oc_markdown_parser import MarkdownParser
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestMarkdownParser(TestCase):
+    user: User
+    parser: MarkdownParser
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -37,7 +38,7 @@ class TestMarkdownParser(TestCase):
         doc = self._make_document("# My Article\nSome body text.")
         result = self.parser._parse_document_impl(self.user.id, doc.id)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["title"], "test.md")
         self.assertEqual(result["content"], "# My Article\nSome body text.")
         self.assertEqual(result["description"], "A test markdown document")
@@ -71,7 +72,7 @@ class TestMarkdownParser(TestCase):
             mock_open.return_value.__exit__ = lambda s, *a: None
             result = self.parser._parse_document_impl(self.user.id, doc.id)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["content"], "Unicode content: \u00e9\u00e0\u00fc")
 
     def test_parse_handles_string_from_storage(self):
@@ -85,7 +86,7 @@ class TestMarkdownParser(TestCase):
             mock_open.return_value.__exit__ = lambda s, *a: None
             result = self.parser._parse_document_impl(self.user.id, doc.id)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["content"], "Plain string content")
 
     def test_parse_empty_description_defaults_to_empty_string(self):
@@ -101,5 +102,5 @@ class TestMarkdownParser(TestCase):
         doc.save()
 
         result = self.parser._parse_document_impl(self.user.id, doc.id)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["description"], "")

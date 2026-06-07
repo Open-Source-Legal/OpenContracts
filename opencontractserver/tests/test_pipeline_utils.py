@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import unittest
+from typing import Any, ClassVar, cast
 
 from django.test import TestCase, override_settings
 
@@ -31,6 +32,16 @@ logger = logging.getLogger(__name__)
 
 
 class TestPipelineUtils(TestCase):
+    test_files: list[str]
+    parser_code: str
+    embedder_code: str
+    thumbnailer_code: str
+    post_processor_code: str
+    parser_path: str
+    embedder_path: str
+    thumbnailer_path: str
+    post_processor_path: str
+
     @classmethod
     def setUpClass(cls):
         """
@@ -309,20 +320,27 @@ class TestPostProcessor(BasePostProcessor):
         Test get_all_subclasses function to ensure it returns all subclasses of a base class within a module.
         """
         # Test parsers
-        parsers = get_all_subclasses("opencontractserver.pipeline.parsers", BaseParser)
+        parsers = cast(
+            list[type[BaseParser]],
+            get_all_subclasses("opencontractserver.pipeline.parsers", BaseParser),
+        )
         parser_titles = [parser.title for parser in parsers]
         self.assertIn("Test Parser", parser_titles)
 
         # Test embedders
-        embedders = get_all_subclasses(
-            "opencontractserver.pipeline.embedders", BaseEmbedder
+        embedders = cast(
+            list[type[BaseEmbedder]],
+            get_all_subclasses("opencontractserver.pipeline.embedders", BaseEmbedder),
         )
         embedder_titles = [embedder.title for embedder in embedders]
         self.assertIn("Test Embedder", embedder_titles)
 
         # Test thumbnailers
-        thumbnailers = get_all_subclasses(
-            "opencontractserver.pipeline.thumbnailers", BaseThumbnailGenerator
+        thumbnailers = cast(
+            list[type[BaseThumbnailGenerator]],
+            get_all_subclasses(
+                "opencontractserver.pipeline.thumbnailers", BaseThumbnailGenerator
+            ),
         )
         thumbnailer_titles = [thumbnailer.title for thumbnailer in thumbnailers]
         self.assertIn("Test Thumbnailer", thumbnailer_titles)
@@ -391,9 +409,7 @@ class TestPostProcessor(BasePostProcessor):
         """
         Test get_metadata_for_component function to ensure it returns correct metadata for a given component.
         """
-        from opencontractserver.pipeline.parsers.test_parser import (
-            TestParser,  # type: ignore[import-not-found]
-        )
+        from opencontractserver.pipeline.parsers.test_parser import TestParser
 
         metadata = get_metadata_for_component(TestParser)
         self.assertEqual(metadata["title"], "Test Parser")
@@ -419,23 +435,19 @@ class TestPostProcessor(BasePostProcessor):
         """
         # Test parser component
         component = get_component_by_name("test_parser")
-        from opencontractserver.pipeline.parsers.test_parser import (
-            TestParser,  # type: ignore[import-not-found]
-        )
+        from opencontractserver.pipeline.parsers.test_parser import TestParser
 
         self.assertEqual(component, TestParser)
 
         # Test embedder component
         component = get_component_by_name("temp_embedder")
-        from opencontractserver.pipeline.embedders.temp_embedder import (
-            TestEmbedder,  # type: ignore[import-not-found]
-        )
+        from opencontractserver.pipeline.embedders.temp_embedder import TestEmbedder
 
         self.assertEqual(component, TestEmbedder)
 
         # Test thumbnailer component
         component = get_component_by_name("test_thumbnailer")
-        from opencontractserver.pipeline.thumbnailers.test_thumbnailer import (  # type: ignore[import-not-found]
+        from opencontractserver.pipeline.thumbnailers.test_thumbnailer import (
             TestThumbnailer,
         )
 
@@ -443,7 +455,7 @@ class TestPostProcessor(BasePostProcessor):
 
         # Test post-processor component
         component = get_component_by_name("test_post_processor")
-        from opencontractserver.pipeline.post_processors.test_post_processor import (  # type: ignore[import-not-found]
+        from opencontractserver.pipeline.post_processors.test_post_processor import (
             TestPostProcessor,
         )
 
@@ -462,7 +474,7 @@ class TestPostProcessor(BasePostProcessor):
         """
         # Create test data
         test_zip_bytes = b"test zip content"
-        test_export_data: OpenContractsExportDataJsonPythonType = {
+        test_export_data = {
             "annotated_docs": {},
             "corpus": {
                 "title": "Test Corpus",
@@ -505,7 +517,9 @@ class TestPostProcessor(BasePostProcessor):
         logger.info("source:\n%s", inspect.getsource(processor_class))
 
         modified_zip_bytes, modified_export_data = run_post_processors(
-            processor_paths, test_zip_bytes, test_export_data
+            processor_paths,
+            test_zip_bytes,
+            cast(OpenContractsExportDataJsonPythonType, test_export_data),
         )
 
         # Add more debug logging
@@ -521,7 +535,9 @@ class TestPostProcessor(BasePostProcessor):
         # Test with invalid processor path
         with self.assertRaises(ValueError):
             run_post_processors(
-                ["invalid.processor.path"], test_zip_bytes, test_export_data
+                ["invalid.processor.path"],
+                test_zip_bytes,
+                cast(OpenContractsExportDataJsonPythonType, test_export_data),
             )
 
     def test_get_all_post_processors(self):
@@ -542,6 +558,8 @@ class TestPostProcessor(BasePostProcessor):
         temp_embedder_384 = next(
             (e for e in embedders if e.title == "Test Embedder 384"), None
         )
+        assert temp_embedder is not None
+        assert temp_embedder_384 is not None
 
         # Test with class
         self.assertEqual(get_dimension_from_embedder(temp_embedder), 128)
@@ -591,10 +609,12 @@ class TestPostProcessor(BasePostProcessor):
 
             # Test getting embedder for PDF with dimension 384
             embedder = get_default_embedder_for_filetype("application/pdf")
+            assert embedder is not None
             self.assertEqual(embedder.title, "Test Embedder 384")
 
             # Test getting embedder for TXT with dimension 768
             embedder = get_default_embedder_for_filetype("text/plain")
+            assert embedder is not None
             self.assertEqual(embedder.title, "Test Embedder 768")
 
             # Test getting embedder for non-existent mimetype falls back
@@ -636,29 +656,35 @@ class TestPostProcessor(BasePostProcessor):
 
         # Get the default embedder for comparison
         default_embedder = get_default_embedder()
-        self.assertIsNotNone(default_embedder)
+        assert default_embedder is not None
         self.assertEqual(default_embedder.title, "Test Embedder")
 
         # Test with mimetype string
         embedder = find_embedder_for_filetype("application/pdf")
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder 384")
 
         embedder = find_embedder_for_filetype("text/plain")
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder 768")
 
         # Test with FileTypeEnum
         embedder = find_embedder_for_filetype(FileTypeEnum.PDF)
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder 384")
 
         embedder = find_embedder_for_filetype(FileTypeEnum.TXT)
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder 768")
 
         # Test with unknown mimetype — falls back to the global default embedder
         embedder = find_embedder_for_filetype("application/unknown")
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder")
 
         # Test with DOCX FileTypeEnum — falls back to the global default embedder
         embedder = find_embedder_for_filetype(FileTypeEnum.DOCX)
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder")
 
     def test_find_embedder_for_filetype_error_handling(self) -> None:
@@ -683,7 +709,7 @@ class TestPostProcessor(BasePostProcessor):
         # When a preferred embedder can't be loaded, the function falls back
         # to the global default embedder
         embedder = find_embedder_for_filetype("application/pdf")
-        self.assertIsNotNone(embedder)
+        assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder")
 
 
@@ -699,11 +725,11 @@ class _CacheProbeEmbedderA(BaseEmbedder):
     title = "Cache Probe Embedder A"
     description = "Probe embedder A for cache tests."
     author = "Test Author"
-    dependencies: list[str] = []
+    dependencies: ClassVar[list[str]] = []
     vector_size = 16
     supported_file_types = [FileTypeEnum.PDF, FileTypeEnum.TXT]
 
-    def _embed_text_impl(self, text: str) -> list[float] | None:
+    def _embed_text_impl(self, text: str, **kwargs: Any) -> list[float] | None:
         return [0.0] * self.vector_size
 
 
@@ -713,11 +739,11 @@ class _CacheProbeEmbedderB(BaseEmbedder):
     title = "Cache Probe Embedder B"
     description = "Probe embedder B for cache tests."
     author = "Test Author"
-    dependencies: list[str] = []
+    dependencies: ClassVar[list[str]] = []
     vector_size = 32
     supported_file_types = [FileTypeEnum.PDF]
 
-    def _embed_text_impl(self, text: str) -> list[float] | None:
+    def _embed_text_impl(self, text: str, **kwargs: Any) -> list[float] | None:
         return [0.0] * self.vector_size
 
 
@@ -732,14 +758,14 @@ class _FailingProbeEmbedder(BaseEmbedder):
     title = "Failing Probe Embedder"
     description = "Probe embedder that raises on construction."
     author = "Test Author"
-    dependencies: list[str] = []
+    dependencies: ClassVar[list[str]] = []
     vector_size = 16
     supported_file_types = [FileTypeEnum.PDF]
 
     def __init__(self, *args, **kwargs):
         raise RuntimeError("simulated embedder construction failure")
 
-    def _embed_text_impl(self, text: str) -> list[float] | None:
+    def _embed_text_impl(self, text: str, **kwargs: Any) -> list[float] | None:
         return [0.0] * self.vector_size
 
 

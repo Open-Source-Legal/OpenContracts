@@ -958,7 +958,7 @@ def extract_thumbnail(self, doc_id: int) -> None:
         # directly is correct — wrapping with ``FileTypeEnum(file_type)``
         # would raise ``ValueError`` because the enum members are short
         # labels (``"pdf"``, ``"txt"``), not MIME strings.
-        components = get_components_by_mimetype(file_type)  # type: ignore[arg-type]
+        components = get_components_by_mimetype(file_type)
         thumbnailers = components.get("thumbnailers", [])
 
         if not thumbnailers:

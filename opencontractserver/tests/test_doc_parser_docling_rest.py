@@ -10,6 +10,7 @@ from requests.exceptions import ConnectionError, RequestException, Timeout
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.parsers.docling_parser_rest import DoclingParser
+from opencontractserver.types.dicts import BoundingBoxPythonType
 
 User = get_user_model()
 
@@ -122,6 +123,7 @@ class TestDoclingParser(TestCase):
 
         # Check that the result is not None
         self.assertIsNotNone(result)
+        assert result is not None
 
         # Check that the result contains expected keys
         self.assertEqual(result["title"], "Test Document")
@@ -439,7 +441,12 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_overlapping(self):
         """Test that _find_images_in_bounds finds overlapping image tokens."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 300}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 300,
+        }
 
         # Image token that overlaps with bounds
         page_tokens = [
@@ -477,7 +484,12 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_no_overlap(self):
         """Test that _find_images_in_bounds returns empty when no overlap."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
 
         page_tokens = [
             {"x": 0, "y": 0, "width": 50, "height": 12, "text": "Text"},
@@ -503,7 +515,12 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_empty_tokens(self):
         """Test that _find_images_in_bounds handles empty token list."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
         pawls_pages = [{"page": {"width": 612, "height": 792}, "tokens": []}]
 
         result = self.parser._find_images_in_bounds(
@@ -618,7 +635,7 @@ class TestDoclingParserImageExtraction(TestCase):
             "base64_data": "Y3JvcHBlZA==",
         }
 
-        annotation = {
+        annotation: dict = {
             "id": "figure-1",
             "annotationLabel": "Figure",
             "page": 0,
@@ -661,7 +678,7 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_add_image_refs_with_existing_image(self):
         """Test _add_image_refs_to_annotation uses existing overlapping image."""
-        annotation = {
+        annotation: dict = {
             "id": "figure-1",
             "annotationLabel": "Figure",
             "page": 0,
@@ -794,9 +811,14 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_invalid_page_type(self):
         """Test _find_images_in_bounds handles non-dict page data."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
         # Page is not a dict
-        pawls_pages = ["invalid page data"]
+        pawls_pages: list = ["invalid page data"]
 
         result = self.parser._find_images_in_bounds(
             bounds=bounds,
@@ -809,7 +831,12 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_invalid_page_index(self):
         """Test _find_images_in_bounds handles out-of-range page index."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
         pawls_pages = [{"page": {"width": 612, "height": 792}, "tokens": []}]
 
         result = self.parser._find_images_in_bounds(
@@ -823,7 +850,12 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_token_offset_exceeds_length(self):
         """Test _find_images_in_bounds when token_offset exceeds token list."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
         page_tokens = [
             {"x": 0, "y": 0, "width": 50, "height": 12, "text": "Text"},
         ]
@@ -840,7 +872,7 @@ class TestDoclingParserImageExtraction(TestCase):
 
     def test_add_image_refs_to_annotation_empty_bounds(self):
         """Test _add_image_refs_to_annotation returns early when bounds is empty."""
-        annotation = {
+        annotation: dict = {
             "id": "figure-1",
             "annotationLabel": "Figure",
             "page": 0,
