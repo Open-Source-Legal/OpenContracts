@@ -16,7 +16,7 @@ from graphene import relay
 from graphene_django.filter import DjangoFilterConnectionField
 from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
-from graphql_relay import from_global_id
+from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.custom_resolvers import requests_doc_type_labels
 from config.graphql.document_types import INGESTION_SOURCE_GLOBAL_ID_TYPE
@@ -32,6 +32,7 @@ from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dyna
 from opencontractserver.constants.annotations import (
     DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT,
 )
+from opencontractserver.constants.search import MAX_SELECT_ALL_DOCUMENT_IDS
 from opencontractserver.constants.zip_import import BULK_UPLOAD_OWNER_CACHE_PREFIX
 from opencontractserver.documents.models import (
     Document,
@@ -102,6 +103,82 @@ class DocumentQueryMixin:
 
         doc_cache[document_id] = document
         return document
+
+    # CORPUS DOCUMENT IDS (Select All) #####################################
+
+    corpus_document_ids = graphene.List(
+        graphene.NonNull(graphene.ID),
+        in_corpus_with_id=graphene.String(required=True),
+        in_folder_id=graphene.String(required=False),
+        text_search=graphene.String(required=False),
+        has_label_with_id=graphene.String(required=False),
+        has_annotations_with_ids=graphene.String(required=False),
+        include_caml=graphene.Boolean(required=False),
+        description=(
+            "Global IDs of every document matching the given corpus / folder / "
+            "search filters, ignoring pagination. Powers the document grid's "
+            "'Select All' so a bulk remove acts on every matching document, "
+            "not just the page the virtualized list happens to have loaded. "
+            "The folder filter is descendant-aware and the same DocumentFilter "
+            "that backs the paginated ``documents`` connection is applied, so "
+            "the id set always matches the visible list under identical filters."
+        ),
+    )
+
+    @login_required
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_document_ids(
+        self, info: graphene.ResolveInfo, in_corpus_with_id: str, **kwargs: Any
+    ) -> list[str]:
+        # Start from the user's visible documents (service layer = E001-safe),
+        # then reuse DocumentFilter so corpus/folder/search/label scoping is
+        # byte-for-byte identical to ``resolve_documents`` — including the
+        # descendant-aware folder filter and the corpus CAML exclusion.
+        base = BaseService.filter_visible(
+            Document,
+            info.context.user,
+            request=info.context,
+            lightweight=True,
+        )
+        filter_data: dict[str, Any] = {"in_corpus_with_id": in_corpus_with_id}
+        for key in (
+            "in_folder_id",
+            "text_search",
+            "has_label_with_id",
+            "has_annotations_with_ids",
+            "include_caml",
+        ):
+            value = kwargs.get(key)
+            if value is not None:
+                filter_data[key] = value
+
+        filtered = DocumentFilter(
+            data=filter_data, queryset=base, request=info.context
+        ).qs
+
+        # Cap the response so a Select-All on a very large corpus cannot return
+        # an unbounded multi-megabyte id list (the READ_LIGHT limiter throttles
+        # frequency, not payload size). Raise rather than truncate: a truncated
+        # id set would make the follow-up bulk-remove silently miss documents.
+        #
+        # Fetch one row beyond the cap in a SINGLE round-trip: the length of this
+        # slice — not a separate COUNT(*) — decides whether we're over the limit,
+        # so the cap decision comes from one consistent query (no count()/
+        # values_list() TOCTOU drift) and the common under-cap path is one DB hit.
+        pks = list(
+            filtered.values_list("pk", flat=True)[: MAX_SELECT_ALL_DOCUMENT_IDS + 1]
+        )
+        if len(pks) > MAX_SELECT_ALL_DOCUMENT_IDS:
+            # Only the rare over-cap error path pays for an exact count, purely to
+            # make the message actionable ("matches 31,234 documents").
+            matched = filtered.count()
+            raise GraphQLError(
+                f"This selection matches {matched:,} documents, which exceeds "
+                f"the {MAX_SELECT_ALL_DOCUMENT_IDS:,}-document Select-All limit. "
+                "Narrow the filter (folder, search, or label) and try again."
+            )
+
+        return [to_global_id("DocumentType", pk) for pk in pks]
 
     # DOCUMENT STATS RESOLVER ##############################################
 

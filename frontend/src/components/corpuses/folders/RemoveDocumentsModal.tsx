@@ -24,6 +24,7 @@ import {
   RemoveDocumentsFromCorpusOutputs,
 } from "../../../graphql/mutations";
 import { selectedDocumentIds as selectedDocumentIdsReactiveVar } from "../../../graphql/cache";
+import { evictCorpusDocumentCaches } from "../../../graphql/cacheEvictions";
 import { ErrorMessage } from "../../widgets/feedback";
 
 /**
@@ -118,13 +119,9 @@ export const RemoveDocumentsModal: React.FC = () => {
     RemoveDocumentsFromCorpusOutputs,
     RemoveDocumentsFromCorpusInputs
   >(REMOVE_DOCUMENTS_FROM_CORPUS, {
-    // Evict documents and folders from cache to force refetch
-    // This ensures both the document list and folder tree (with doc counts) update
-    update(cache) {
-      cache.evict({ fieldName: "documents" });
-      cache.evict({ fieldName: "corpusFolders" });
-      cache.gc();
-    },
+    // Evict the document list, folder tree (sidebar doc counts), Select-All id
+    // list, and trash view so all of them refetch with fresh data.
+    update: (cache) => evictCorpusDocumentCaches(cache),
     onCompleted: (data) => {
       if (data.removeDocumentsFromCorpus.ok) {
         const count = documentIds.length;

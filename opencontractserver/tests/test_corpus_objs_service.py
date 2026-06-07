@@ -89,6 +89,30 @@ class _CorpusObjsServiceFolderTestBase(TestCase):
             document=doc, corpus=self.corpus, is_current=True, is_deleted=False
         )
 
+    def _make_doc_in_folder(self, title, filename, folder, path):
+        """Create a Document plus its current, active DocumentPath at ``path``
+        within ``self.corpus``' folder tree (``folder=None`` => corpus root).
+
+        Shared by the folder-delete / empty-corpus tests so the fixture isn't
+        duplicated per class. Uses ``self.corpus.creator`` so it works for any
+        subclass regardless of whether it names its user ``owner``/``creator``.
+        """
+        creator = self.corpus.creator
+        document = Document.objects.create(
+            title=title, creator=creator, pdf_file=filename
+        )
+        DocumentPath.objects.create(
+            document=document,
+            corpus=self.corpus,
+            creator=creator,
+            folder=folder,
+            path=path,
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+        return document
+
 
 # =============================================================================
 # 1. PERMISSION SCENARIOS
@@ -723,6 +747,180 @@ class TestFolderDelete_BasicOperations(_CorpusObjsServiceFolderTestBase):
 
         self.assertFalse(success)
         self.assertIn("Permission denied", error)
+
+
+class TestFolderDelete_CascadeToTrash(_CorpusObjsServiceFolderTestBase):
+    """
+    SCENARIO: Deleting a folder with ``move_children_to_parent=False``
+    (``deleteContents=True`` at the GraphQL layer).
+
+    BUSINESS RULE (issue: deleting a folder used to strand its sub-folders at
+    the corpus root): the whole sub-tree is removed and every document in it
+    (this folder + all sub-folders) is moved to Trash — recoverable, not
+    permanently deleted.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="cascade_owner", email="cascade_owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Cascade Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_cascade_trashes_subtree_docs_and_removes_subfolders(self):
+        parent, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Parent"
+        )
+        assert parent is not None
+        child, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Child", parent=parent
+        )
+        assert child is not None
+
+        doc_parent = self._make_doc_in_folder("P", "p.pdf", parent, "/Parent/p.pdf")
+        doc_child = self._make_doc_in_folder("C", "c.pdf", child, "/Parent/Child/c.pdf")
+
+        success, error = FolderCRUDService.delete_folder(
+            user=self.owner, folder=parent, move_children_to_parent=False
+        )
+        self.assertTrue(success, error)
+
+        # Whole sub-tree removed (no orphaned sub-folders at root).
+        self.assertFalse(
+            CorpusFolder.objects.filter(id__in=[parent.id, child.id]).exists()
+        )
+
+        # Both documents are now in trash (current path is_deleted=True) with no
+        # active, non-deleted path remaining.
+        for doc in (doc_parent, doc_child):
+            self.assertFalse(
+                DocumentPath.objects.filter(
+                    document=doc,
+                    corpus=self.corpus,
+                    is_current=True,
+                    is_deleted=False,
+                ).exists()
+            )
+            self.assertTrue(
+                DocumentPath.objects.filter(
+                    document=doc,
+                    corpus=self.corpus,
+                    is_current=True,
+                    is_deleted=True,
+                ).exists()
+            )
+
+        # Documents themselves still exist — recoverable from trash.
+        self.assertEqual(
+            Document.objects.filter(id__in=[doc_parent.id, doc_child.id]).count(), 2
+        )
+
+    def test_cascade_trashed_docs_appear_in_trash_listing(self):
+        folder, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="F"
+        )
+        assert folder is not None
+        doc = self._make_doc_in_folder("D", "d.pdf", folder, "/F/d.pdf")
+
+        FolderCRUDService.delete_folder(
+            user=self.owner, folder=folder, move_children_to_parent=False
+        )
+
+        deleted = DocumentLifecycleService.get_deleted_documents(
+            user=self.owner, corpus_id=self.corpus.id
+        )
+        self.assertIn(doc.id, [path.document_id for path in deleted])
+
+
+class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
+    """
+    SCENARIO: "Empty everything" — move every document in a corpus to Trash and
+    remove all folders in one step.
+
+    BUSINESS RULE: documents are soft-deleted (restorable until the trash is
+    emptied); the folder tree is removed. Requires corpus DELETE permission.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="empty_owner", email="empty_owner@test.com", password="test"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Empty Corpus", creator=self.owner, is_public=False
+        )
+
+    def test_empty_corpus_trashes_all_docs_and_removes_folders(self):
+        folder, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="F"
+        )
+        assert folder is not None
+        root_doc = self._make_doc_in_folder("root", "r.pdf", None, "/r.pdf")
+        folder_doc = self._make_doc_in_folder("infolder", "f.pdf", folder, "/F/f.pdf")
+
+        count, error = DocumentLifecycleService.empty_corpus(
+            user=self.owner, corpus=self.corpus
+        )
+
+        self.assertEqual(error, "")
+        self.assertEqual(count, 2)
+
+        # All folders gone.
+        self.assertFalse(CorpusFolder.objects.filter(corpus=self.corpus).exists())
+
+        # No active documents remain; both are in trash.
+        self.assertFalse(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=False
+            ).exists()
+        )
+        self.assertEqual(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=True
+            ).count(),
+            2,
+        )
+
+        # Documents recoverable.
+        self.assertEqual(
+            Document.objects.filter(id__in=[root_doc.id, folder_doc.id]).count(), 2
+        )
+
+    def test_empty_corpus_on_already_empty_corpus_is_noop(self):
+        """Emptying a corpus with zero docs and zero folders is a clean no-op."""
+        self.assertFalse(CorpusFolder.objects.filter(corpus=self.corpus).exists())
+        self.assertFalse(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=False
+            ).exists()
+        )
+
+        count, error = DocumentLifecycleService.empty_corpus(
+            user=self.owner, corpus=self.corpus
+        )
+
+        self.assertEqual(error, "")
+        self.assertEqual(count, 0)
+
+    def test_empty_corpus_requires_delete_permission(self):
+        reader = User.objects.create_user(
+            username="empty_reader", email="empty_reader@test.com", password="test"
+        )
+        set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+        self._make_doc_in_folder("root", "r.pdf", None, "/r.pdf")
+
+        count, error = DocumentLifecycleService.empty_corpus(
+            user=reader, corpus=self.corpus
+        )
+
+        self.assertEqual(count, 0)
+        self.assertIn("Permission denied", error)
+        # The document is untouched (still active).
+        self.assertTrue(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=False
+            ).exists()
+        )
 
 
 # =============================================================================

@@ -38,8 +38,12 @@ test.describe("DeleteFolderModal", () => {
       page.locator(".oc-modal-header__title", { hasText: "Delete Folder" })
     ).toBeVisible({ timeout: 5000 });
 
-    // Warning text
-    await expect(page.getByText("This action cannot be undone")).toBeVisible();
+    // Warning heading — folder delete now cascades the whole sub-tree and
+    // moves its documents to Trash (recoverable), rather than stranding them
+    // at the corpus root.
+    await expect(
+      page.getByText("Delete folder and move its contents to Trash")
+    ).toBeVisible();
 
     // Folder name in warning (quoted in the warning text)
     await expect(page.getByText('"Contracts"')).toBeVisible();
@@ -85,16 +89,23 @@ test.describe("DeleteFolderModal", () => {
       </FolderTestWrapper>
     );
 
-    // Should show subfolder count
-    await expect(page.getByText("1 subfolder")).toBeVisible({ timeout: 5000 });
-
-    // Should show document count - use locator to target the warning list item
-    await expect(page.locator("li", { hasText: "5 documents" })).toBeVisible();
-
-    // Should mention where items move to (Corpus Root since folder has no parent)
+    // Should show subfolder count in the warning bullet ("…will be removed").
+    // Filter on text unique to the subfolder bullet — "subfolder" alone also
+    // matches the document bullet, which mentions "subfolders".
     await expect(
-      page.locator("li", { hasText: "Corpus Root" }).first()
-    ).toBeVisible();
+      page.locator("li", { hasText: "and any nested below" })
+    ).toContainText("1");
+
+    // Documents now move to Trash (cascade delete), not the corpus root: the
+    // document bullet reports the descendant count (12) and says "Trash".
+    await expect(
+      page.locator("li", { hasText: "will be moved to" })
+    ).toContainText("Trash");
+
+    // The folder-info panel still surfaces the in-folder (5) and
+    // in-subfolder (12) document counts.
+    await expect(page.getByText("Documents in folder:")).toBeVisible();
+    await expect(page.getByText("Documents in subfolders:")).toBeVisible();
   });
 
   test("has Cancel and Delete Folder buttons", async ({ mount, page }) => {

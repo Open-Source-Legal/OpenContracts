@@ -106,6 +106,7 @@ from config.graphql.document_mutations import (
     DeleteDocument,
     DeleteExport,
     DeleteMultipleDocuments,
+    EmptyCorpus,
     EmptyTrash,
     PermanentlyDeleteDocument,
     RestoreDeletedDocument,
@@ -314,6 +315,7 @@ class Mutation(graphene.ObjectType):
     restore_document_to_version = RestoreDocumentToVersion.Field()
     permanently_delete_document = PermanentlyDeleteDocument.Field()
     empty_trash = EmptyTrash.Field()
+    empty_corpus = EmptyCorpus.Field()
 
     # CORPUS MUTATIONS #########################################################
     fork_corpus = StartCorpusFork.Field()
