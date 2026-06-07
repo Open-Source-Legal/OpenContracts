@@ -93,7 +93,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     # Document". Lazy type ref avoids the annotation_types ↔ document_types
     # import cycle (document_types imports annotation_types).
     document = graphene.Field(
-        lambda: _get_document_type(),
+        _get_document_type,
         description=(
             "The document this annotation belongs to. Structural annotations "
             "(document_id=NULL) resolve it via the shared structural set, scoped "
