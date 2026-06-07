@@ -44,7 +44,12 @@ from opencontractserver.constants.tools import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 
-from ._helpers import _db_sync_to_async, clamp_limit, get_user_or_none
+from ._helpers import (
+    _db_sync_to_async,
+    clamp_limit,
+    get_user_or_none,
+    require_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -323,11 +328,7 @@ def rename_document(
         ValueError: If the document/corpus is not accessible or the rename
             fails.
     """
-    if user_id is None:
-        raise PermissionError("rename_document requires an authenticated user.")
-    user = get_user_or_none(user_id)
-    if user is None:
-        raise PermissionError(f"User {user_id} not found.")
+    user = require_user(user_id, "rename_document")
 
     corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
     if corpus is None:
@@ -341,19 +342,13 @@ def rename_document(
             f"Document with id={document_id} does not exist or is not accessible."
         )
 
-    # Snapshot the pre-rename path so we can tell a real rename from a no-op
-    # (the service returns the unchanged path for both — see its docstring).
-    previous_path = (
-        DocumentPath.objects.filter(
-            document=document, corpus=corpus, is_current=True, is_deleted=False
-        )
-        .values_list("path", flat=True)
-        .first()
-    )
-
     from opencontractserver.corpuses.services import FolderDocumentService
 
-    success, error, new_path = FolderDocumentService.rename_document(
+    # The service reports whether the filename actually changed via ``changed``,
+    # so the tool no longer snapshots the pre-rename path to infer a no-op — this
+    # drops an extra query and closes the snapshot/service race that could mislabel
+    # a concurrent rename's status.
+    success, error, new_path, changed = FolderDocumentService.rename_document(
         user=user,
         document=document,
         corpus=corpus,
@@ -362,18 +357,16 @@ def rename_document(
     if not success:
         raise ValueError(f"Rename failed: {error}")
 
-    unchanged = new_path == previous_path
     return {
-        "status": "unchanged" if unchanged else "renamed",
+        "status": "renamed" if changed else "unchanged",
         "document_id": document_id,
         "corpus_id": corpus_id,
         "path": new_path,
         "message": (
-            f"Document {document_id} already named '{new_path}' in corpus "
+            f"Document {document_id} renamed to '{new_path}' in corpus {corpus_id}."
+            if changed
+            else f"Document {document_id} already named '{new_path}' in corpus "
             f"{corpus_id}; no change made."
-            if unchanged
-            else f"Document {document_id} renamed to '{new_path}' in "
-            f"corpus {corpus_id}."
         ),
     }
 
@@ -425,11 +418,7 @@ def delete_document(
         ValueError: If the document/corpus is not accessible or the delete
             fails.
     """
-    if user_id is None:
-        raise PermissionError("delete_document requires an authenticated user.")
-    user = get_user_or_none(user_id)
-    if user is None:
-        raise PermissionError(f"User {user_id} not found.")
+    user = require_user(user_id, "delete_document")
 
     corpus = Corpus.objects.visible_to_user(user).filter(pk=corpus_id).first()
     if corpus is None:
