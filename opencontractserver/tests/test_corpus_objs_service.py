@@ -89,6 +89,30 @@ class _CorpusObjsServiceFolderTestBase(TestCase):
             document=doc, corpus=self.corpus, is_current=True, is_deleted=False
         )
 
+    def _make_doc_in_folder(self, title, filename, folder, path):
+        """Create a Document plus its current, active DocumentPath at ``path``
+        within ``self.corpus``' folder tree (``folder=None`` => corpus root).
+
+        Shared by the folder-delete / empty-corpus tests so the fixture isn't
+        duplicated per class. Uses ``self.corpus.creator`` so it works for any
+        subclass regardless of whether it names its user ``owner``/``creator``.
+        """
+        creator = self.corpus.creator
+        document = Document.objects.create(
+            title=title, creator=creator, pdf_file=filename
+        )
+        DocumentPath.objects.create(
+            document=document,
+            corpus=self.corpus,
+            creator=creator,
+            folder=folder,
+            path=path,
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+        )
+        return document
+
 
 # =============================================================================
 # 1. PERMISSION SCENARIOS
@@ -744,22 +768,6 @@ class TestFolderDelete_CascadeToTrash(_CorpusObjsServiceFolderTestBase):
             title="Cascade Corpus", creator=self.owner, is_public=False
         )
 
-    def _doc_in_folder(self, title, filename, folder, path):
-        document = Document.objects.create(
-            title=title, creator=self.owner, pdf_file=filename
-        )
-        DocumentPath.objects.create(
-            document=document,
-            corpus=self.corpus,
-            creator=self.owner,
-            folder=folder,
-            path=path,
-            version_number=1,
-            is_current=True,
-            is_deleted=False,
-        )
-        return document
-
     def test_cascade_trashes_subtree_docs_and_removes_subfolders(self):
         parent, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="Parent"
@@ -770,8 +778,8 @@ class TestFolderDelete_CascadeToTrash(_CorpusObjsServiceFolderTestBase):
         )
         assert child is not None
 
-        doc_parent = self._doc_in_folder("P", "p.pdf", parent, "/Parent/p.pdf")
-        doc_child = self._doc_in_folder("C", "c.pdf", child, "/Parent/Child/c.pdf")
+        doc_parent = self._make_doc_in_folder("P", "p.pdf", parent, "/Parent/p.pdf")
+        doc_child = self._make_doc_in_folder("C", "c.pdf", child, "/Parent/Child/c.pdf")
 
         success, error = FolderCRUDService.delete_folder(
             user=self.owner, folder=parent, move_children_to_parent=False
@@ -813,7 +821,7 @@ class TestFolderDelete_CascadeToTrash(_CorpusObjsServiceFolderTestBase):
             user=self.owner, corpus=self.corpus, name="F"
         )
         assert folder is not None
-        doc = self._doc_in_folder("D", "d.pdf", folder, "/F/d.pdf")
+        doc = self._make_doc_in_folder("D", "d.pdf", folder, "/F/d.pdf")
 
         FolderCRUDService.delete_folder(
             user=self.owner, folder=folder, move_children_to_parent=False
@@ -842,29 +850,13 @@ class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
             title="Empty Corpus", creator=self.owner, is_public=False
         )
 
-    def _doc(self, title, filename, folder, path):
-        document = Document.objects.create(
-            title=title, creator=self.owner, pdf_file=filename
-        )
-        DocumentPath.objects.create(
-            document=document,
-            corpus=self.corpus,
-            creator=self.owner,
-            folder=folder,
-            path=path,
-            version_number=1,
-            is_current=True,
-            is_deleted=False,
-        )
-        return document
-
     def test_empty_corpus_trashes_all_docs_and_removes_folders(self):
         folder, _ = FolderCRUDService.create_folder(
             user=self.owner, corpus=self.corpus, name="F"
         )
         assert folder is not None
-        root_doc = self._doc("root", "r.pdf", None, "/r.pdf")
-        folder_doc = self._doc("infolder", "f.pdf", folder, "/F/f.pdf")
+        root_doc = self._make_doc_in_folder("root", "r.pdf", None, "/r.pdf")
+        folder_doc = self._make_doc_in_folder("infolder", "f.pdf", folder, "/F/f.pdf")
 
         count, error = DocumentLifecycleService.empty_corpus(
             user=self.owner, corpus=self.corpus
@@ -915,7 +907,7 @@ class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
             username="empty_reader", email="empty_reader@test.com", password="test"
         )
         set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
-        self._doc("root", "r.pdf", None, "/r.pdf")
+        self._make_doc_in_folder("root", "r.pdf", None, "/r.pdf")
 
         count, error = DocumentLifecycleService.empty_corpus(
             user=reader, corpus=self.corpus

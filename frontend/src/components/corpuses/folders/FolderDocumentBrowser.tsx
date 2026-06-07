@@ -338,6 +338,12 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
   // "Empty Corpus" confirmation modal + in-flight guard for "Select All".
   const [showEmptyCorpusModal, setShowEmptyCorpusModal] = useState(false);
   const [selectAllLoading, setSelectAllLoading] = useState(false);
+  // Synchronous in-flight guard for Select All. `selectAllLoading` drives the
+  // loading UI, but a rapid double-click can fire two `handleSelectAll` calls in
+  // the same tick before the state update re-renders — both would issue their own
+  // `client.query` and race to set the selection. A ref is updated synchronously,
+  // so the second call bails immediately.
+  const selectAllInFlightRef = useRef(false);
 
   // Bridge corpus permissions from Apollo reactive var to Jotai atom
   const corpus = useReactiveVar(openedCorpus);
@@ -367,7 +373,10 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
 
   // All-selected means every matching document is selected — compared against
   // the true total, not the loaded page (otherwise selecting the visible page
-  // would falsely read as "all").
+  // would falsely read as "all"). `>=` (not `===`) is deliberate: if another
+  // user deletes documents while we hold a selection, the stale selection length
+  // can briefly exceed the refreshed total; treating that as "all selected" (and
+  // offering Deselect All) is the safe read until the next refetch reconciles it.
   const allSelected =
     totalDocumentCount > 0 && selectedDocumentIds.length >= totalDocumentCount;
 
@@ -382,6 +391,8 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
       selectedDocumentIdsReactiveVar([]);
       return;
     }
+    if (selectAllInFlightRef.current) return;
+    selectAllInFlightRef.current = true;
     setSelectAllLoading(true);
     try {
       const { data } = await client.query<
@@ -410,6 +421,7 @@ export const FolderDocumentBrowser: React.FC<FolderDocumentBrowserProps> = ({
       const message = err instanceof Error ? err.message : "unknown error";
       toast.error(`Could not select all documents: ${message}`);
     } finally {
+      selectAllInFlightRef.current = false;
       setSelectAllLoading(false);
     }
     // documentSearchTerm() / filterToLabelId() / selectedMetaAnnotationId() are

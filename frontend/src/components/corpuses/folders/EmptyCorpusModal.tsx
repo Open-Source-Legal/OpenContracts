@@ -115,6 +115,9 @@ export const EmptyCorpusModal: React.FC<EmptyCorpusModalProps> = ({
     if (!loading) onClose();
   }, [loading, onClose]);
 
+  // Eager unmount when closed (rather than relying solely on `<Modal open>` to
+  // hide it): this tears down the subtree and the useMutation state so each open
+  // starts from a clean slate, with no lingering loading/result from a prior run.
   if (!open) return null;
 
   return (

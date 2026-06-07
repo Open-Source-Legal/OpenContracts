@@ -1154,9 +1154,11 @@ class EmptyCorpus(graphene.Mutation):
         except Corpus.DoesNotExist:
             return EmptyCorpus(ok=False, message="Corpus not found", trashed_count=0)
         except Exception as e:
-            logger.error(f"Failed to empty corpus: {str(e)}")
+            # Keep the full detail (table/constraint names, paths) in the log, but
+            # return a generic message so internal specifics never reach the client.
+            logger.error("Failed to empty corpus %s: %s", corpus_id, e, exc_info=True)
             return EmptyCorpus(
-                ok=False, message=f"Failed to empty corpus: {str(e)}", trashed_count=0
+                ok=False, message="Failed to empty corpus.", trashed_count=0
             )
 
 

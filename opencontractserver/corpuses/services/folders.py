@@ -930,8 +930,9 @@ class FolderCRUDService(BaseService):
         # transaction, so a very large sub-tree can hit the DB statement timeout.
         # Same per-document-loop pattern as ``DocumentLifecycleService.empty_corpus``
         # and the legacy "empty trash" path; all three want one shared bulk-trash
-        # primitive. Fine for typical folder sizes; file a tracking issue before
-        # raising the sub-tree document-count ceiling.
+        # primitive (tracked in issue #1951). Fine for typical folder sizes;
+        # batch via that primitive before raising the sub-tree document-count
+        # ceiling.
         for document in Document.objects.filter(pk__in=doc_ids):
             if corpus.remove_document(document=document, user=user):
                 trashed += 1

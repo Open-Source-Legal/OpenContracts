@@ -160,18 +160,25 @@ class DocumentQueryMixin:
         # an unbounded multi-megabyte id list (the READ_LIGHT limiter throttles
         # frequency, not payload size). Raise rather than truncate: a truncated
         # id set would make the follow-up bulk-remove silently miss documents.
-        matched = filtered.count()
-        if matched > MAX_SELECT_ALL_DOCUMENT_IDS:
+        #
+        # Fetch one row beyond the cap in a SINGLE round-trip: the length of this
+        # slice — not a separate COUNT(*) — decides whether we're over the limit,
+        # so the cap decision comes from one consistent query (no count()/
+        # values_list() TOCTOU drift) and the common under-cap path is one DB hit.
+        pks = list(
+            filtered.values_list("pk", flat=True)[: MAX_SELECT_ALL_DOCUMENT_IDS + 1]
+        )
+        if len(pks) > MAX_SELECT_ALL_DOCUMENT_IDS:
+            # Only the rare over-cap error path pays for an exact count, purely to
+            # make the message actionable ("matches 31,234 documents").
+            matched = filtered.count()
             raise GraphQLError(
                 f"This selection matches {matched:,} documents, which exceeds "
                 f"the {MAX_SELECT_ALL_DOCUMENT_IDS:,}-document Select-All limit. "
                 "Narrow the filter (folder, search, or label) and try again."
             )
 
-        return [
-            to_global_id("DocumentType", pk)
-            for pk in filtered.values_list("pk", flat=True)
-        ]
+        return [to_global_id("DocumentType", pk) for pk in pks]
 
     # DOCUMENT STATS RESOLVER ##############################################
 
