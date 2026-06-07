@@ -588,7 +588,13 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             "Soft-delete a document from the current corpus (move it to the "
             "corpus trash). The document is NOT permanently erased — it keeps "
             "its history and can be restored from the corpus trash. Requires "
-            "delete permission on the corpus."
+            "the corpus DELETE permission, which is a HIGHER tier than the "
+            "write/update permission the other file tools (rename_document, "
+            "move_document) need: a user may be able to rename or move files "
+            "yet still lack delete rights. If this tool fails with a "
+            "'permission denied' error, the user cannot delete in this corpus "
+            "— report that and do NOT retry, as repeating the call will keep "
+            "failing."
         ),
         category=ToolCategory.CORPUS,
         requires_corpus=True,
@@ -598,8 +604,11 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         # the framework layer; the authoritative DELETE check lives in
         # ``DocumentLifecycleService.soft_delete_document`` (defense in depth),
         # so a WRITE-but-not-DELETE user passes this gate and is then correctly
-        # rejected by the service. If a ``requires_delete_permission`` flag is
-        # ever added, switch this entry to it.
+        # rejected by the service. The description above tells the LLM not to
+        # retry-loop on that rejection. Tightening this to a dedicated
+        # ``requires_delete_permission`` flag (so WRITE-only users never see the
+        # tool) is tracked as a near-term follow-up; switch this entry to it
+        # when that flag lands.
         requires_write_permission=True,
         parameters=(("document_id", "ID of the document to delete", True),),
     ),
