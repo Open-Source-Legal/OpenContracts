@@ -54,6 +54,31 @@ def get_user_or_none(user_id: int | None):
         return None
 
 
+def require_user(user_id: int | None, caller: str):
+    """Resolve ``user_id`` to a ``User`` or raise ``PermissionError``.
+
+    The write tools (e.g. ``rename_document`` / ``delete_document``) require an
+    authenticated, existing user. This collapses the two distinct guard
+    branches those tools repeated into one helper, preserving the same
+    ``caller``-specific messages for each failure mode:
+
+    * ``user_id is None`` (no user injected at all) →
+      ``"<caller> requires an authenticated user."``
+    * a stale/unknown id (no matching row) → ``"User <id> not found."``
+
+    Read-only tools that tolerate anonymous access keep using
+    :func:`get_user_or_none` instead (it returns ``None`` rather than raising).
+
+    Return type is intentionally inferred — see :func:`get_user_or_none`.
+    """
+    if user_id is None:
+        raise PermissionError(f"{caller} requires an authenticated user.")
+    user = get_user_or_none(user_id)
+    if user is None:
+        raise PermissionError(f"User {user_id} not found.")
+    return user
+
+
 def clamp_limit(limit: int | None, default: int, maximum: int) -> int:
     """Clamp a caller-supplied ``limit`` into ``[1, maximum]``.
 
