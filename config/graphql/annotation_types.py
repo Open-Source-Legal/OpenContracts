@@ -8,6 +8,7 @@ from graphene import relay
 from graphene.types.generic import GenericScalar
 from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
+from graphene_django.utils import bypass_get_queryset
 
 from config.graphql.base import CountableConnection
 from config.graphql.base_types import build_flat_tree
@@ -72,8 +73,23 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
     )
 
+    @bypass_get_queryset
     def resolve_document(self, info) -> Any:
-        """Return the document, resolving via structural_set for structural annotations."""
+        """Return the document, resolving via structural_set for structural annotations.
+
+        ``@bypass_get_queryset`` is REQUIRED, not cosmetic: ``DocumentType``
+        overrides ``get_queryset`` (for ``visible_to_user`` filtering), which
+        makes graphene-django's foreign-key converter
+        (``convert_field_to_djangomodel``) install its own ``custom_resolver``
+        that resolves the FK purely from ``root.document_id`` and *ignores this
+        method entirely*. Structural annotations carry ``document_id=NULL``, so
+        that converter path returns ``None`` (the frontend's "Unknown
+        Document"). The decorator sets ``_bypass_get_queryset`` so the
+        converter returns the normal resolver and this method actually runs,
+        letting structural annotations resolve their document via
+        ``structural_set``. Annotation visibility already implies document
+        visibility, so skipping ``DocumentType.get_queryset`` here is safe.
+        """
         if self.document_id:
             return self.document
         # Structural annotations have document=NULL; resolve via structural_set
