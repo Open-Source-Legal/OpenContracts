@@ -741,6 +741,9 @@ class SearchQueryMixin:
         # (document_id=NULL) back to the in-scope document instead of an
         # arbitrary member of a content-hash-shared StructuralAnnotationSet.
         if paginated_results:
+            # Deferred to avoid a module-level import cycle
+            # (annotations.services pulls in config.graphql types). Only used in
+            # this block, so the guard does not skip any otherwise-needed setup.
             from opencontractserver.annotations.services import AnnotationService
 
             annotation_ids = [r.annotation.id for r in paginated_results]

@@ -100,13 +100,25 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                 prefetched = list(structural_set.documents.all())
                 if prefetched:
                     return prefetched[0]
-            # Fallback to DB query if not prefetched (avoids circular import
-            # with documents.models at module level)
+            # Fallback when the caller did not apply
+            # ``AnnotationService.structural_document_prefetch`` (deferred import
+            # avoids a module-level cycle with documents.models). Scope to this
+            # annotation's own corpus and order deterministically so we never
+            # reintroduce the original arbitrary ``.documents.first()`` bug;
+            # query-context scoping (which corpus is being viewed) only happens
+            # via the prefetch above, so this is a best-effort degraded path.
             from opencontractserver.documents.models import Document
 
-            return Document.objects.filter(
+            documents = Document.objects.filter(
                 structural_annotation_set_id=self.structural_set_id
-            ).first()
+            )
+            if self.corpus_id:
+                documents = documents.filter(
+                    path_records__corpus_id=self.corpus_id,
+                    path_records__is_current=True,
+                    path_records__is_deleted=False,
+                )
+            return documents.order_by("slug").first()
         return None
 
     def resolve_annotation_type(self, info) -> Any:

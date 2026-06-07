@@ -230,3 +230,30 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
                 foreign_doc_ids,
                 "resolve_document returned a document with no path in corpus A",
             )
+
+    def test_prefetch_document_id_takes_precedence_over_corpus_id(self):
+        """``document_id`` scopes to that exact document, even with a corpus_id.
+
+        The document-knowledge-base view passes both ids; the resolved
+        structural document must be the one being viewed, not an arbitrary
+        corpus-local copy.
+        """
+        from opencontractserver.annotations.services import AnnotationService
+
+        annotations = self._make_structural_annotations(self.corpus_a, "A")
+        # corpus_id points at A, but document_id pins doc_b — document_id wins.
+        prefetch = AnnotationService.structural_document_prefetch(
+            corpus_id=self.corpus_a.id, document_id=self.doc_b.id
+        )
+        fetched = (
+            Annotation.objects.filter(id=annotations[0].id)
+            .select_related("structural_set")
+            .prefetch_related(prefetch)
+            .first()
+        )
+        resolved = list(fetched.structural_set.documents.all())
+        self.assertEqual(
+            [d.id for d in resolved],
+            [self.doc_b.id],
+            "document_id must take precedence over corpus_id in the prefetch",
+        )
