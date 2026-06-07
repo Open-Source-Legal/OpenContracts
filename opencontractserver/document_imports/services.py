@@ -50,6 +50,7 @@ from opencontractserver.document_imports.models import (
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
+from opencontractserver.shared.services.conventions import ServiceResult
 from opencontractserver.tasks import (
     import_corpus,
     import_zip_with_folder_structure,
@@ -1233,22 +1234,24 @@ def list_chunked_sessions_for_admin(
     status: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
-) -> tuple[Any, int, int, int]:
+) -> ServiceResult[tuple[Any, int, int, int]]:
     """Install-wide bulk document-zip import sessions. **Superuser-only.**
 
     Diagnostics listing for the admin ingestion monitor: every
     :class:`ChunkedUploadSession` whose ``kind`` is a bulk document-zip import
     (``DOCUMENTS_ZIP`` / ``ZIP_TO_CORPUS``), across all users, newest first.
-    Annotated with ``_received_size`` / ``_received_parts`` (summed from the
+    Annotated with ``received_size`` / ``received_parts`` (summed from the
     session's stored parts) so the resolver can render upload progress without
     an extra round-trip — note these read 0 once a COMPLETED session's parts
     have been reclaimed.
 
-    The superuser gate is enforced here (defence-in-depth) by raising
-    :class:`PermissionError`; the GraphQL resolver also gates before calling.
-    ``status`` (case-insensitive) filters on ``ChunkedUploadStatus``.
-
-    Returns ``(page_queryset, total_count, effective_limit, effective_offset)``.
+    The superuser gate is enforced here (defence-in-depth) and the GraphQL
+    resolver also gates before calling. ``status`` (case-insensitive) filters
+    on ``ChunkedUploadStatus``. Returns a ``ServiceResult`` wrapping
+    ``(page_queryset, total_count, effective_limit, effective_offset)`` — the
+    same ``ServiceResult`` shape every other admin-ingestion service uses, so
+    the resolver gates uniformly on ``result.ok`` instead of catching an
+    exception.
     """
     from opencontractserver.constants.document_processing import (
         ADMIN_INGESTION_DEFAULT_PAGE_SIZE,
@@ -1257,14 +1260,14 @@ def list_chunked_sessions_for_admin(
     from opencontractserver.shared.services.base import BaseService
 
     if not getattr(user, "is_superuser", False):
-        raise PermissionError("Superuser privileges required.")
+        return ServiceResult.failure("Superuser privileges required.")
 
     qs = (
         ChunkedUploadSession.objects.filter(kind__in=ADMIN_BULK_IMPORT_SESSION_KINDS)
         .select_related("creator")
         .annotate(
-            _received_size=models.Sum("parts__size"),
-            _received_parts=models.Count("parts"),
+            received_size=models.Sum("parts__size"),
+            received_parts=models.Count("parts"),
         )
         .order_by("-created")
     )
@@ -1279,4 +1282,4 @@ def list_chunked_sessions_for_admin(
         maximum=ADMIN_INGESTION_MAX_PAGE_SIZE,
     )
     page = qs[effective_offset : effective_offset + effective_limit]
-    return page, total_count, effective_limit, effective_offset
+    return ServiceResult.success((page, total_count, effective_limit, effective_offset))

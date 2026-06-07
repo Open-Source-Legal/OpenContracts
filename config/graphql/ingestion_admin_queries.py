@@ -173,7 +173,6 @@ class IngestionAdminQueryMixin:
                 size_bytes=_document_size(doc),
                 processing_status=doc.processing_status,
                 processing_error=doc.processing_error or None,
-                backend_lock=doc.backend_lock,
                 created=doc.created,
                 processing_started=doc.processing_started,
                 processing_finished=doc.processing_finished,
@@ -220,9 +219,7 @@ class IngestionAdminQueryMixin:
         for upload in page:
             token = upload.corpus_access_token
             worker_name = (
-                token.worker_account.name
-                if token and token.worker_account_id
-                else None
+                token.worker_account.name if token and token.worker_account_id else None
             )
             items.append(
                 AdminWorkerUploadType(
@@ -315,24 +312,21 @@ class IngestionAdminQueryMixin:
         )
 
         _require_superuser(info)
-        try:
-            (
-                page,
-                total_count,
-                effective_limit,
-                effective_offset,
-            ) = list_chunked_sessions_for_admin(
-                info.context.user,
-                status=status,
-                limit=limit,
-                offset=offset,
-            )
-        except PermissionError as exc:
-            raise GraphQLError(str(exc))
+        result = list_chunked_sessions_for_admin(
+            info.context.user,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        if not result.ok:
+            raise GraphQLError(result.error)
+        page, total_count, effective_limit, effective_offset = cast(
+            "tuple[Any, int, int, int]", result.value
+        )
 
         items: list = []
         for session in page:
-            received = float(session._received_size or 0)
+            received = float(session.received_size or 0)
             if session.status == ChunkedUploadStatus.COMPLETED:
                 percent_complete = 100.0
             elif session.total_size:
@@ -359,7 +353,7 @@ class IngestionAdminQueryMixin:
                         else None
                     ),
                     received_size=received,
-                    received_parts=session._received_parts or 0,
+                    received_parts=session.received_parts or 0,
                     total_chunks=session.total_chunks,
                     percent_complete=percent_complete,
                     target_corpus_id=(

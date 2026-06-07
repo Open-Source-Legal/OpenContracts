@@ -21,7 +21,6 @@ const GET_ADMIN_DOCUMENT_INGESTION = gql`
         sizeBytes
         processingStatus
         processingError
-        backendLock
         created
         processingStarted
         processingFinished
@@ -114,7 +113,7 @@ const GET_ADMIN_BULK_IMPORT_SESSIONS = gql`
 
 const documentItems = [
   {
-    id: 1,
+    id: "1",
     title: "Broken Contract.pdf",
     creatorUsername: "regular",
     creatorEmail: "regular@example.com",
@@ -123,14 +122,13 @@ const documentItems = [
     sizeBytes: 204800,
     processingStatus: "failed",
     processingError: "Parser exploded on page 3",
-    backendLock: true,
     created: "2026-01-01T10:00:00Z",
     processingStarted: "2026-01-01T10:00:00Z",
     processingFinished: "2026-01-01T10:00:05Z",
     elapsedSeconds: 5.0,
   },
   {
-    id: 2,
+    id: "2",
     title: "Good Doc.pdf",
     creatorUsername: "admin",
     creatorEmail: "admin@example.com",
@@ -139,7 +137,6 @@ const documentItems = [
     sizeBytes: 51200,
     processingStatus: "completed",
     processingError: null,
-    backendLock: false,
     created: "2026-01-02T10:00:00Z",
     processingStarted: "2026-01-02T10:00:00Z",
     processingFinished: "2026-01-02T10:00:02Z",
@@ -167,7 +164,7 @@ const workerItems = [
 
 const corpusImportItems = [
   {
-    id: 1,
+    id: "1",
     importRunId: "run-abc",
     corpusId: 1,
     corpusTitle: "Imported Corpus",
@@ -207,7 +204,26 @@ const page = (field: string, items: any[]) => ({
   [field]: { totalCount: items.length, limit: 50, offset: 0, items },
 });
 
-/** Two copies of each list mock so tab toggles / network-only refetches resolve. */
+// The component's initial query shape for every list (status filter "All"
+// maps to null; limit is INGESTION_MONITOR_PAGE_SIZE; first page offset 0).
+const INITIAL_VARS = { status: null, limit: 50, offset: 0 };
+
+/**
+ * One reusable mock per list query.
+ *
+ * Two Playwright-CT serialization constraints drive this shape (see the same
+ * note in Leaderboard.ct.tsx): the `mocks` prop crosses the test/component
+ * boundary as JSON, so a `variableMatcher: () => true` function is stripped to
+ * `{}` and `maxUsageCount: Infinity` collapses to `null`. We therefore key the
+ * mocks to the component's explicit initial `variables` and use a finite
+ * `maxUsageCount` so they survive the trip.
+ *
+ * Reuse is required because the component fetches with
+ * `fetchPolicy: "network-only"` behind `skip: !isSuperuser` (which only flips
+ * true once the wrapper effect sets `backendUserObj`); combined with React
+ * StrictMode's double mount and the Refresh button's `refetch()`, a single
+ * query can fire several times.
+ */
 function buildMocks(opts?: {
   documents?: any[];
   workers?: any[];
@@ -224,17 +240,11 @@ function buildMocks(opts?: {
     [GET_ADMIN_CORPUS_IMPORTS, page("adminCorpusImports", imports)],
     [GET_ADMIN_BULK_IMPORT_SESSIONS, page("adminBulkImportSessions", sessions)],
   ];
-  const mocks: any[] = [];
-  for (const [query, data] of pairs) {
-    for (let i = 0; i < 2; i++) {
-      mocks.push({
-        request: { query },
-        variableMatcher: () => true,
-        result: { data },
-      });
-    }
-  }
-  return mocks;
+  return pairs.map(([query, data]) => ({
+    request: { query, variables: INITIAL_VARS },
+    maxUsageCount: 20,
+    result: { data },
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -256,8 +266,9 @@ test.describe("IngestionMonitor", () => {
     await expect(pw.getByText("Broken Contract.pdf")).toBeVisible();
     await expect(pw.getByText("regular@example.com")).toBeVisible();
     await expect(pw.getByText("Parser exploded on page 3")).toBeVisible();
-    // failed status pill (also appears on the worker row)
-    await expect(pw.getByText("failed").first()).toBeVisible();
+    // failed status pill (also appears on the worker row). exact:true so we
+    // match the lowercase pill text and not the "Failed" status-filter option.
+    await expect(pw.getByText("failed", { exact: true }).first()).toBeVisible();
 
     // Worker queue section
     await expect(pw.getByText("Worker Upload Queue")).toBeVisible();
@@ -298,21 +309,27 @@ test.describe("IngestionMonitor", () => {
     await mount(
       <IngestionMonitorTestWrapper
         mocks={buildMocks({ documents: [], workers: [] })}
-      />,
+      />
     );
 
-    await expect(pw.getByText("No documents")).toBeVisible({ timeout: 10000 });
-    await expect(pw.getByText("No worker uploads")).toBeVisible();
+    // exact:true so the empty-state heading isn't conflated with the longer
+    // "No documents match the selected filter." helper line below it.
+    await expect(pw.getByText("No documents", { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(
+      pw.getByText("No worker uploads", { exact: true })
+    ).toBeVisible();
   });
 
   test("denies access to non-superusers", async ({ mount, page: pw }) => {
     await mount(
-      <IngestionMonitorTestWrapper mocks={buildMocks()} superuser={false} />,
+      <IngestionMonitorTestWrapper mocks={buildMocks()} superuser={false} />
     );
 
     await expect(pw.getByText("Access Denied")).toBeVisible({ timeout: 10000 });
     await expect(
-      pw.getByText("Only administrators can view the ingestion monitor."),
+      pw.getByText("Only administrators can view the ingestion monitor.")
     ).toBeVisible();
   });
 
@@ -323,7 +340,7 @@ test.describe("IngestionMonitor", () => {
     await pw.setViewportSize({ width: 390, height: 844 });
 
     const component = await mount(
-      <IngestionMonitorTestWrapper mocks={buildMocks()} />,
+      <IngestionMonitorTestWrapper mocks={buildMocks()} />
     );
 
     await expect(pw.getByText("Broken Contract.pdf")).toBeVisible({
@@ -333,7 +350,7 @@ test.describe("IngestionMonitor", () => {
     const scroll = pw.getByTestId("documents-table-scroll");
     await expect(scroll).toBeVisible();
     const overflowX = await scroll.evaluate(
-      (el) => getComputedStyle(el).overflowX,
+      (el) => getComputedStyle(el).overflowX
     );
     expect(overflowX).toBe("auto");
 

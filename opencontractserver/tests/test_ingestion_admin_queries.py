@@ -9,11 +9,9 @@ superuser gating, the projected shapes, and the computed fields
 import uuid
 from datetime import timedelta
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
 from django.utils import timezone
-from graphene.test import Client
 
 from config.graphql.schema import schema
 from opencontractserver.corpuses.models import Corpus
@@ -29,14 +27,13 @@ from opencontractserver.documents.models import (
     PendingCorpusImport,
     PendingDocumentAnnotations,
 )
+from opencontractserver.users.models import User
 from opencontractserver.worker_uploads.models import (
     CorpusAccessToken,
     UploadStatus,
     WorkerAccount,
     WorkerDocumentUpload,
 )
-
-User = get_user_model()
 
 
 class TestContext:
@@ -47,6 +44,21 @@ class TestContext:
 
 
 class IngestionAdminQueryTestCase(TestCase):
+    # Class-level annotations for attributes populated in setUpTestData so
+    # mypy resolves the cross-method `self.<attr>` accesses (issue #1479).
+    admin: User
+    regular: User
+    failed_doc: Document
+    completed_doc: Document
+    corpus: Corpus
+    worker_account: WorkerAccount
+    token: CorpusAccessToken
+    worker_upload: WorkerDocumentUpload
+    run_id: uuid.UUID
+    pci: PendingCorpusImport
+    session: ChunkedUploadSession
+    export_session: ChunkedUploadSession
+
     @classmethod
     def setUpTestData(cls):
         cls.admin = User.objects.create_superuser(
@@ -206,9 +218,7 @@ class IngestionAdminQueryTestCase(TestCase):
         self.assertAlmostEqual(item["elapsedSeconds"], 5.0, delta=1.0)
 
     def test_admin_document_ingestion_unfiltered_sees_all(self):
-        result = self._execute(
-            "{ adminDocumentIngestion { totalCount } }", self.admin
-        )
+        result = self._execute("{ adminDocumentIngestion { totalCount } }", self.admin)
         self.assertIsNone(result.errors)
         self.assertEqual(result.data["adminDocumentIngestion"]["totalCount"], 2)
 

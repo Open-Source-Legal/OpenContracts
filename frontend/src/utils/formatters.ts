@@ -18,12 +18,7 @@ export function formatFileSize(bytes?: number | null): string {
   return `${(bytes / FILE_SIZE.BYTES_PER_MB).toFixed(1)} MB`;
 }
 
-/**
- * Formats an elapsed duration (in seconds) into a compact human string.
- * Used by the admin Ingestion Monitor to show how long processing took.
- * @param seconds - Duration in seconds (may be fractional)
- * @returns e.g. "850ms", "4.2s", "3m 5s", "1h 2m", or "—" if null/undefined
- */
+/** Formats an elapsed duration in seconds as e.g. "850ms"/"4.2s"/"3m 5s"/"1h 2m", or "—". */
 export function formatDuration(seconds?: number | null): string {
   if (seconds == null) return "—";
   if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
@@ -144,6 +139,11 @@ export function formatShortDate(dateString?: string | null): string {
   });
 }
 
+/** Formats a date string as a localized date+time, or "—" when empty. */
+export function formatDateTime(value?: string | null): string {
+  return value ? new Date(value).toLocaleString() : "—";
+}
+
 /**
  * Formats a setting name into a human-readable label.
  * Uses the description if provided, otherwise converts snake_case to Title Case.
@@ -153,7 +153,7 @@ export function formatShortDate(dateString?: string | null): string {
  */
 export function formatSettingLabel(
   name: string,
-  description?: string | null,
+  description?: string | null
 ): string {
   if (description && description.trim()) {
     return description.trim();
@@ -199,14 +199,14 @@ export function stripMarkdown(input?: string | null): string {
 }
 
 export function formatCellValue(
-  data: string | number | boolean | Record<string, unknown> | null | undefined,
+  data: string | number | boolean | Record<string, unknown> | null | undefined
 ): string {
   if (data === null || data === undefined) return "\u2014";
   if (typeof data === "boolean") return data ? "Yes" : "No";
   if (typeof data === "object") {
     return truncateAtCodePoint(
       JSON.stringify(data),
-      EXTRACT_GRID_CELL_TRUNCATE_LENGTH,
+      EXTRACT_GRID_CELL_TRUNCATE_LENGTH
     );
   }
   // Apply the same code-point-safe truncation to raw string/number values

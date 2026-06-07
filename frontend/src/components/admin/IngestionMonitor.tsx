@@ -26,7 +26,11 @@ import {
   PageHeader as BasePageHeader,
   ScrollableTableWrapper,
 } from "../layout/SharedSegments";
-import { formatFileSize, formatDuration } from "../../utils/formatters";
+import {
+  formatFileSize,
+  formatDuration,
+  formatDateTime,
+} from "../../utils/formatters";
 import { backendUserObj } from "../../graphql/cache";
 
 // ---------------------------------------------------------------------------
@@ -49,7 +53,6 @@ const GET_ADMIN_DOCUMENT_INGESTION = gql`
         sizeBytes
         processingStatus
         processingError
-        backendLock
         created
         processingStarted
         processingFinished
@@ -147,7 +150,7 @@ interface PageInfo {
 }
 
 interface DocumentRow {
-  id: number;
+  id: string;
   title: string | null;
   creatorUsername: string | null;
   creatorEmail: string | null;
@@ -156,7 +159,6 @@ interface DocumentRow {
   sizeBytes: number | null;
   processingStatus: string | null;
   processingError: string | null;
-  backendLock: boolean | null;
   created: string | null;
   processingStarted: string | null;
   processingFinished: string | null;
@@ -180,7 +182,7 @@ interface WorkerUploadRow {
 }
 
 interface CorpusImportRow {
-  id: number;
+  id: string;
   importRunId: string;
   corpusId: number | null;
   corpusTitle: string | null;
@@ -347,9 +349,7 @@ const TabButton = styled.button<{ $active: boolean }>`
   color: ${({ $active }) =>
     $active ? OS_LEGAL_COLORS.textPrimary : OS_LEGAL_COLORS.textSecondary};
   cursor: pointer;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease;
 
   &:hover {
     color: ${OS_LEGAL_COLORS.textPrimary};
@@ -510,9 +510,6 @@ const Pagination: React.FC<{
     </PaginationBar>
   );
 };
-
-const formatDate = (value: string | null | undefined): string =>
-  value ? new Date(value).toLocaleString() : "—";
 
 // Status option sets (values are what the backend filters on)
 const DOC_STATUS_OPTIONS = [
@@ -742,7 +739,7 @@ export const IngestionMonitor: React.FC = () => {
                           <Table.Cell>
                             {formatDuration(d.elapsedSeconds)}
                           </Table.Cell>
-                          <Table.Cell>{formatDate(d.created)}</Table.Cell>
+                          <Table.Cell>{formatDateTime(d.created)}</Table.Cell>
                           <Table.Cell>
                             {d.processingError ? (
                               <ErrorCell title={d.processingError}>
@@ -829,7 +826,7 @@ export const IngestionMonitor: React.FC = () => {
                           <Table.Cell>
                             {formatDuration(w.elapsedSeconds)}
                           </Table.Cell>
-                          <Table.Cell>{formatDate(w.created)}</Table.Cell>
+                          <Table.Cell>{formatDateTime(w.created)}</Table.Cell>
                           <Table.Cell>
                             {w.errorMessage ? (
                               <ErrorCell title={w.errorMessage}>
@@ -920,8 +917,10 @@ export const IngestionMonitor: React.FC = () => {
                               {(imp.percentFailed ?? 0).toFixed(1)}%
                             </PctFailed>
                           </Table.Cell>
-                          <Table.Cell>{formatDate(imp.created)}</Table.Cell>
-                          <Table.Cell>{formatDate(imp.modified)}</Table.Cell>
+                          <Table.Cell>{formatDateTime(imp.created)}</Table.Cell>
+                          <Table.Cell>
+                            {formatDateTime(imp.modified)}
+                          </Table.Cell>
                         </Table.Row>
                       ))}
                     </Table.Body>
@@ -999,7 +998,7 @@ export const IngestionMonitor: React.FC = () => {
                               </SubText>
                             </StackedCell>
                           </Table.Cell>
-                          <Table.Cell>{formatDate(s.created)}</Table.Cell>
+                          <Table.Cell>{formatDateTime(s.created)}</Table.Cell>
                           <Table.Cell>
                             {s.errorMessage ? (
                               <ErrorCell title={s.errorMessage}>

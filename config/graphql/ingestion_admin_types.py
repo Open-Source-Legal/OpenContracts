@@ -15,7 +15,7 @@ import graphene
 class AdminDocumentIngestionType(graphene.ObjectType):
     """A single document's parsing-pipeline status (content excluded)."""
 
-    id = graphene.Int()
+    id = graphene.ID()
     title = graphene.String()
     creator_username = graphene.String()
     creator_email = graphene.String()
@@ -26,7 +26,6 @@ class AdminDocumentIngestionType(graphene.ObjectType):
         description="pending / processing / completed / failed"
     )
     processing_error = graphene.String(description="Error message if processing failed")
-    backend_lock = graphene.Boolean()
     created = graphene.DateTime()
     processing_started = graphene.DateTime()
     processing_finished = graphene.DateTime()
@@ -56,9 +55,7 @@ class AdminWorkerUploadType(graphene.ObjectType):
     error_message = graphene.String()
     file_name = graphene.String()
     size_bytes = graphene.Float(description="Size of the staged file in bytes")
-    result_document_id = graphene.Int(
-        description="Document created on success, if any"
-    )
+    result_document_id = graphene.Int(description="Document created on success, if any")
     created = graphene.DateTime()
     processing_started = graphene.DateTime()
     processing_finished = graphene.DateTime()
@@ -75,7 +72,7 @@ class AdminWorkerUploadPageType(graphene.ObjectType):
 class AdminCorpusImportType(graphene.ObjectType):
     """A corpus-export ZIP re-import run with per-document failure counts."""
 
-    id = graphene.Int(description="PendingCorpusImport primary key")
+    id = graphene.ID(description="PendingCorpusImport primary key")
     import_run_id = graphene.String(description="UUID correlating the run's documents")
     corpus_id = graphene.Int()
     corpus_title = graphene.String()

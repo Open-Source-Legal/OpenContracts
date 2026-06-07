@@ -135,9 +135,7 @@ class IngestionAdminService(BaseService):
         if run_ids:
             Status = PendingDocumentAnnotations.Status
             agg = (
-                PendingDocumentAnnotations.objects.filter(
-                    ingestion_run_id__in=run_ids
-                )
+                PendingDocumentAnnotations.objects.filter(ingestion_run_id__in=run_ids)
                 .values("ingestion_run_id")
                 .annotate(
                     total=Count("id"),
