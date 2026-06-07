@@ -1,22 +1,26 @@
 """Regression tests for corpus annotation-card deep links.
 
-Structural annotations carry ``document_id=NULL`` and reach their document
-only through the shared ``StructuralAnnotationSet``. Because that set is
-deduplicated by content hash, the SAME set is shared across the standalone
-import source AND every corpus-isolated copy (potentially in different
-corpuses). ``AnnotationType.resolve_document`` previously returned an
-*unscoped*, non-deterministic member of the set
-(``structural_set.documents.first()``), so the corpus "Annotations" tab
-rendered cards pointing at the wrong document (or no navigable document at
-all) and the deep links broke.
+Structural annotations created by the parse-within-corpus pipeline carry
+``corpus_id`` set (so they surface in that corpus's "Annotations" tab) but
+``document_id=NULL`` — they reach their document only through the shared
+``StructuralAnnotationSet`` (``import_annotations`` sets ``corpus`` +
+``structural=True``; ``_create_structural_annotation_set`` then nulls
+``document`` and moves them onto the set, leaving ``corpus`` intact).
 
-The fix scopes the structural-set document resolution to the corpus (or
-document) actually being queried — see
+Because a ``StructuralAnnotationSet`` is deduplicated by content hash, the
+same set is shared across the standalone import source AND every
+corpus-isolated copy (potentially in different corpuses).
+``AnnotationType.resolve_document`` previously resolved these via an
+unscoped, non-deterministic ``structural_set.documents.first()``, so the
+corpus cards named the wrong document ("Unknown Document") and the deep
+links broke. The fix scopes resolution to the corpus being queried — see
 ``AnnotationService.structural_document_prefetch`` and
-``config/graphql/annotation_queries.py::resolve_annotations``. These tests
-prove a structural annotation surfaced in corpus A's cards resolves to
-corpus A's copy, and the same annotation in corpus B's cards resolves to
-corpus B's copy.
+``config/graphql/annotation_queries.py::resolve_annotations``.
+
+These tests prove a structural annotation surfaced in corpus A's cards
+resolves to corpus A's copy, and the same shared set resolves to corpus B's
+copy when queried via corpus B — never to the standalone source or the other
+corpus's copy.
 """
 
 import hashlib
@@ -103,14 +107,22 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
             self.doc_b.structural_annotation_set_id, self.structural_set.id
         )
 
-        # Structural annotations live ONLY on the shared set (document=NULL).
-        label = AnnotationLabel.objects.create(text="text", creator=self.user)
-        self.struct_annotations = [
+        self.label = AnnotationLabel.objects.create(text="text", creator=self.user)
+
+    def _make_structural_annotations(self, corpus, prefix):
+        """Create structural annotations tagged with ``corpus`` (document NULL).
+
+        Mirrors the parse-within-corpus shape: ``corpus`` set, ``document``
+        NULL, linked only through the shared ``structural_set``.
+        """
+        return [
             Annotation.objects.create(
+                corpus=corpus,
+                document=None,
                 structural_set=self.structural_set,
-                annotation_label=label,
+                annotation_label=self.label,
                 creator=self.user,
-                raw_text=f"Section {i}",
+                raw_text=f"{prefix} Section {i}",
                 structural=True,
                 page=1,
             )
@@ -124,13 +136,11 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
 
     _QUERY = """
         query Cards($corpusId: ID!) {
-            annotations(corpusId: $corpusId, structural: true) {
-                totalCount
+            annotations(corpusId: $corpusId, structural: true, first: 100) {
                 edges {
                     node {
                         id
                         structural
-                        corpus { id }
                         document { id slug title }
                     }
                 }
@@ -138,7 +148,13 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
         }
     """
 
-    def _resolved_documents(self, corpus):
+    def _nodes_by_annotation_id(self, corpus):
+        """Run the corpus cards query and return ``{annotation_gid: node}``.
+
+        Keyed by annotation id so the assertions test *document resolution*
+        (the behaviour this fix changes) independently of connection edge
+        cardinality.
+        """
         result = self._client().execute(
             self._QUERY,
             variables={"corpusId": to_global_id("CorpusType", corpus.id)},
@@ -146,20 +162,27 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
         self.assertIsNone(
             result.get("errors"), f"GraphQL errors: {result.get('errors')}"
         )
-        return [edge["node"] for edge in result["data"]["annotations"]["edges"]]
+        return {
+            edge["node"]["id"]: edge["node"]
+            for edge in result["data"]["annotations"]["edges"]
+        }
 
     def test_structural_cards_resolve_to_corpus_local_document(self):
-        """A structural annotation in corpus A's cards resolves to A's copy."""
-        nodes = self._resolved_documents(self.corpus_a)
+        """Each structural annotation in corpus A's cards resolves to A's copy."""
+        annotations = self._make_structural_annotations(self.corpus_a, "A")
+        nodes = self._nodes_by_annotation_id(self.corpus_a)
 
-        # All three structural annotations surface in the corpus cards.
-        self.assertEqual(len(nodes), len(self.struct_annotations))
+        # Every structural annotation surfaces in the corpus cards.
+        self.assertEqual(
+            set(nodes),
+            {to_global_id("AnnotationType", a.id) for a in annotations},
+        )
 
         expected_doc_gid = to_global_id("DocumentType", self.doc_a.id)
-        for node in nodes:
+        for node in nodes.values():
             self.assertTrue(node["structural"])
-            # Structural annotations are corpus-agnostic → corpus is null; the
-            # resolved document must still be present and navigable.
+            # Structural annotations resolve their document only via the shared
+            # set; it must be present and navigable, not "Unknown Document".
             self.assertIsNotNone(
                 node["document"],
                 "Structural annotation resolved to no document (Unknown Document)",
@@ -176,18 +199,25 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
 
     def test_same_structural_set_resolves_per_corpus(self):
         """The same shared set resolves to B's copy when queried via corpus B."""
-        nodes = self._resolved_documents(self.corpus_b)
-        self.assertEqual(len(nodes), len(self.struct_annotations))
+        annotations = self._make_structural_annotations(self.corpus_b, "B")
+        nodes = self._nodes_by_annotation_id(self.corpus_b)
+
+        self.assertEqual(
+            set(nodes),
+            {to_global_id("AnnotationType", a.id) for a in annotations},
+        )
 
         expected_doc_gid = to_global_id("DocumentType", self.doc_b.id)
-        for node in nodes:
+        for node in nodes.values():
             self.assertEqual(node["document"]["id"], expected_doc_gid)
 
     def test_resolved_document_has_path_in_queried_corpus(self):
         """Resolved doc is never the source/other-corpus copy (no path here)."""
-        nodes = self._resolved_documents(self.corpus_a)
+        self._make_structural_annotations(self.corpus_a, "A")
+        nodes = self._nodes_by_annotation_id(self.corpus_a)
+        self.assertTrue(nodes, "expected structural annotations to surface")
         foreign_doc_ids = {self.source_doc.id, self.doc_b.id}
-        for node in nodes:
+        for node in nodes.values():
             resolved_pk = int(from_global_id(node["document"]["id"])[1])
             self.assertNotIn(
                 resolved_pk,
