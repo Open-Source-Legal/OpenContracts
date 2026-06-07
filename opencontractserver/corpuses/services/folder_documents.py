@@ -327,7 +327,7 @@ class FolderDocumentService(BaseService):
         new_name: str,
         *,
         request: Any = None,
-    ) -> tuple[bool, str, str | None]:
+    ) -> tuple[bool, str, str | None, bool]:
         """Rename a document's file within a corpus (change the filename only).
 
         Creates a new immutable :class:`DocumentPath` history node whose
@@ -358,10 +358,14 @@ class FolderDocumentService(BaseService):
             new_name: Desired new filename (last path segment only).
 
         Returns:
-            ``(success, error_message, new_path)``. ``new_path`` is the
+            ``(success, error_message, new_path, changed)``. ``new_path`` is the
             resulting path string on success (possibly disambiguated, e.g.
-            ``/Legal/Q3_Summary_1.pdf``) and ``None`` on failure. A no-op
-            rename (the name is unchanged) returns ``(True, "", <current path>)``.
+            ``/Legal/Q3_Summary_1.pdf``) and ``None`` on failure. ``changed`` is
+            ``True`` only when the filename actually changed and ``False`` for a
+            no-op (the sanitised name already matched the current filename) or
+            any failure — letting callers distinguish a real rename from a no-op
+            without re-reading the pre-rename path. A no-op rename returns
+            ``(True, "", <current path>, False)``.
 
         Validations:
             - User has corpus UPDATE permission
@@ -377,14 +381,15 @@ class FolderDocumentService(BaseService):
                 False,
                 "Permission denied: You do not have write access to this corpus",
                 None,
+                False,
             )
 
         # Validate document belongs to corpus
         if not CorpusDocumentService._check_document_in_corpus(document, corpus):
-            return False, "Document does not belong to this corpus", None
+            return False, "Document does not belong to this corpus", None, False
 
         if not new_name or not new_name.strip():
-            return False, "New name must not be empty", None
+            return False, "New name must not be empty", None, False
 
         sanitized = sanitize_corpus_filename(new_name.strip())
 
@@ -407,7 +412,7 @@ class FolderDocumentService(BaseService):
             )
 
             if not current:
-                return False, "No active document path found", None
+                return False, "No active document path found", None, False
 
             # Split the current path into "<directory>/" + "<filename>".
             # Stored paths always start with "/", so rpartition yields a
@@ -423,7 +428,7 @@ class FolderDocumentService(BaseService):
 
             # No-op: the file already has this name.
             if new_filename == current_filename:
-                return True, "", current.path
+                return True, "", current.path, False
 
             base_path = f"{directory}{new_filename}"
 
@@ -436,7 +441,7 @@ class FolderDocumentService(BaseService):
                     user=user,
                 )
             except ValueError as exc:
-                return False, str(exc), None
+                return False, str(exc), None, False
             except IntegrityError as exc:
                 logger.warning(
                     "IntegrityError renaming document %s in corpus %s after "
@@ -445,7 +450,7 @@ class FolderDocumentService(BaseService):
                     corpus.id,
                     exc,
                 )
-                return False, f"{PATH_CONFLICT_MSG}, please retry: {exc}", None
+                return False, f"{PATH_CONFLICT_MSG}, please retry: {exc}", None, False
 
             logger.info(
                 "Renamed document %s in corpus %s from %r to %r by user %s",
@@ -455,7 +460,7 @@ class FolderDocumentService(BaseService):
                 chosen_path,
                 user.id,
             )
-            return True, "", chosen_path
+            return True, "", chosen_path, True
 
     @classmethod
     def move_documents_to_folder(
