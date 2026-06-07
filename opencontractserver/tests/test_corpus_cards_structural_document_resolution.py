@@ -11,13 +11,12 @@ Because a ``StructuralAnnotationSet`` is deduplicated by content hash, the
 same set is shared across the standalone import source AND every
 corpus-isolated copy (potentially in different corpuses). Two bugs combined
 to break the cards. First, ``AnnotationType.resolve_document`` was never run
-for the ``document`` field at all: because ``DocumentType`` overrides
-``get_queryset``, graphene-django's FK converter installs a resolver that
+for the ``document`` field at all: graphene-django's auto-generated FK field
 reads the FK straight from ``root.document_id`` (NULL for structural
-annotations) and ignores the type's ``resolve_*`` method, so the field
-returned ``None`` ("Unknown Document"). Decorating ``resolve_document`` with
-``@bypass_get_queryset`` makes graphene-django run it. Second, once it runs,
-``resolve_document`` resolved structural annotations via an unscoped,
+annotations) and short-circuits, so the field returned ``None`` ("Unknown
+Document"). Declaring ``document`` as an explicit ``graphene.Field`` on
+``AnnotationType`` makes the custom ``resolve_document`` run. Second, once it
+runs, ``resolve_document`` resolved structural annotations via an unscoped,
 non-deterministic ``structural_set.documents.first()``. The fix scopes
 resolution to the corpus being queried — see
 ``AnnotationService.structural_document_prefetch`` and
