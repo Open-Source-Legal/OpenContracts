@@ -33,6 +33,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile, File
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models, transaction
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from filetype import filetype
 from graphql_relay import from_global_id
@@ -1266,7 +1267,9 @@ def list_chunked_sessions_for_admin(
         ChunkedUploadSession.objects.filter(kind__in=ADMIN_BULK_IMPORT_SESSION_KINDS)
         .select_related("creator")
         .annotate(
-            received_size=models.Sum("parts__size"),
+            # Coalesce so a session with no parts annotates 0, not NULL —
+            # safe-by-default for any caller that does arithmetic on it.
+            received_size=Coalesce(models.Sum("parts__size"), 0),
             received_parts=models.Count("parts"),
         )
         .order_by("-created")

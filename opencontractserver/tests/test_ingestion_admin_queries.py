@@ -173,7 +173,7 @@ class IngestionAdminQueryTestCase(TestCase):
         for field, query in queries.items():
             result = self._execute(query, self.regular)
             self.assertIsNotNone(result.errors, f"{field} should error for non-admin")
-            self.assertIsNone(result.data.get(field))
+            self.assertIsNone((result.data or {}).get(field))
 
     def test_anonymous_denied(self):
         result = self._execute(
@@ -221,6 +221,33 @@ class IngestionAdminQueryTestCase(TestCase):
         result = self._execute("{ adminDocumentIngestion { totalCount } }", self.admin)
         self.assertIsNone(result.errors)
         self.assertEqual(result.data["adminDocumentIngestion"]["totalCount"], 2)
+
+    def test_admin_document_ingestion_elapsed_for_in_flight_doc(self):
+        """In-flight docs (``processing_finished=None``) report ``now - started``."""
+        Document.objects.create(
+            creator=self.regular,
+            title="In Flight.pdf",
+            file_type="application/pdf",
+            processing_status=DocumentProcessingStatus.PROCESSING,
+            processing_started=timezone.now() - timedelta(seconds=10),
+            processing_finished=None,
+        )
+        query = """
+        {
+          adminDocumentIngestion(status: "processing") {
+            totalCount
+            items { title elapsedSeconds }
+          }
+        }
+        """
+        result = self._execute(query, self.admin)
+        self.assertIsNone(result.errors)
+        payload = result.data["adminDocumentIngestion"]
+        self.assertEqual(payload["totalCount"], 1)
+        item = payload["items"][0]
+        self.assertEqual(item["title"], "In Flight.pdf")
+        # Open-ended elapsed measured against "now"; ~10s and still climbing.
+        self.assertGreaterEqual(item["elapsedSeconds"], 9.0)
 
     # ------------------------------------------------------------------ #
     # Worker uploads

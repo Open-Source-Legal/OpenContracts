@@ -99,6 +99,12 @@ class WorkerDocumentUploadService(BaseService):
         Returns ``(page_queryset, total_count, effective_limit,
         effective_offset)``; the resolver projects each row (including the
         per-row ``size_bytes`` storage stat) onto the GraphQL output type.
+
+        ``request`` is accepted for service-layer call-convention consistency
+        (resolvers uniformly pass ``request=info.context``) but is intentionally
+        unused: this superuser-bypass listing does not go through
+        ``visible_to_user`` / ``user_can``, so there is no Tier-2 permission
+        cache to engage.
         """
         from opencontractserver.constants.document_processing import (
             ADMIN_INGESTION_DEFAULT_PAGE_SIZE,

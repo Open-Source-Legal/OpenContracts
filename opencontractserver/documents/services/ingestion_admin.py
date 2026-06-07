@@ -51,6 +51,12 @@ class IngestionAdminService(BaseService):
     ) -> ServiceResult[tuple[QuerySet, int, int, int]]:
         """List documents across all users by parsing-pipeline status.
 
+        ``request`` is accepted for service-layer call-convention consistency
+        (resolvers uniformly pass ``request=info.context``) but is intentionally
+        unused: this is a superuser-bypass listing that does not go through
+        ``visible_to_user`` / ``user_can``, so there is no Tier-2 permission
+        cache to engage.
+
         Ordered newest-activity-first (``-modified``) so recently failed or
         in-flight ingestions surface at the top. ``status`` (case-insensitive)
         filters on ``Document.processing_status``. Returns a 4-tuple
@@ -104,6 +110,9 @@ class IngestionAdminService(BaseService):
         Returns ``(page_list, counts_by_run_id, total_count, limit, offset)``
         where ``counts_by_run_id`` maps ``import_run_id`` (UUID) to a dict with
         ``total``/``failed``/``done``/``pending`` ints.
+
+        ``request`` is accepted for call-convention consistency but unused — see
+        the note on ``list_documents`` (superuser-bypass, no Tier-2 cache).
         """
         from django.db.models import Count, Q
 
