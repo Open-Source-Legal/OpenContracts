@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 import graphene
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from graphene import relay
 from graphene_django.fields import DjangoConnectionField
 from graphene_django.filter import DjangoFilterConnectionField
@@ -86,6 +86,12 @@ class AnnotationQueryMixin:
         document_id = kwargs.get("document_id")
         corpus_id = kwargs.get("corpus_id")
 
+        # Decoded PKs of the requested context, used below to scope the
+        # structural-set document prefetch so structural annotations
+        # (document_id=NULL) resolve to the context-local document.
+        doc_django_pk: int | None = None
+        corpus_django_pk: int | None = None
+
         if document_id:
             # Use document-specific query optimizer
             doc_django_pk = int(from_global_id(document_id)[1])
@@ -136,9 +142,14 @@ class AnnotationQueryMixin:
             "corpus_action",
             "structural_set",
         ).prefetch_related(
-            Prefetch(
-                "structural_set__documents",
-                queryset=Document.objects.select_related("creator"),
+            # Scope the structural-set documents to the requested corpus (or
+            # document) so AnnotationType.resolve_document returns the
+            # context-local copy rather than an arbitrary member of a
+            # content-hash-shared StructuralAnnotationSet. See
+            # AnnotationService.structural_document_prefetch.
+            AnnotationService.structural_document_prefetch(
+                corpus_id=corpus_django_pk,
+                document_id=doc_django_pk,
             ),
         )
 

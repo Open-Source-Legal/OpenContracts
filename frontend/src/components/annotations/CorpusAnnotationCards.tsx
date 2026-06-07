@@ -19,6 +19,7 @@ import {
   filterToLabelId,
   selectedAnalysesIds,
   filterToAnnotationType,
+  openedCorpus,
 } from "../../graphql/cache";
 
 import {
@@ -52,6 +53,7 @@ export const CorpusAnnotationCards = ({
 
   const navigate = useNavigate();
   const auth_token = useReactiveVar(authToken);
+  const opened_corpus = useReactiveVar(openedCorpus);
   const annotation_search_term = useReactiveVar(annotationContentSearchTerm);
   const filter_to_labelset_id = useReactiveVar(filterToLabelsetId);
   const filter_to_label_id = useReactiveVar(filterToLabelId);
@@ -381,9 +383,13 @@ export const CorpusAnnotationCards = ({
         blockRelationshipIdMap
       );
 
+      // Structural annotations are corpus-agnostic (corpus_id=NULL), so
+      // ``annotation.corpus`` is absent for them. Fall back to the corpus
+      // currently being viewed so the deep link opens the document in the
+      // corpus context (/d/<user>/<corpus>/<doc>) rather than standalone.
       const url = getDocumentUrl(
         annotation.document,
-        annotation.corpus ?? null,
+        annotation.corpus ?? opened_corpus ?? null,
         queryParams
       );
 
@@ -395,7 +401,7 @@ export const CorpusAnnotationCards = ({
         );
       }
     },
-    [navigate, blockRelationshipIdMap]
+    [navigate, blockRelationshipIdMap, opened_corpus]
   );
 
   // Handle search input change - triggers debounced semantic search

@@ -735,14 +735,27 @@ class SearchQueryMixin:
             paginated_results = results[offset : offset + limit]
 
         # Defensive select_related: Re-fetch annotations with explicit prefetching
-        # to guard against changes in CoreAnnotationVectorStore implementation
+        # to guard against changes in CoreAnnotationVectorStore implementation.
+        # ``structural_set`` + the context-scoped ``structural_set__documents``
+        # prefetch let AnnotationType.resolve_document map structural hits
+        # (document_id=NULL) back to the in-scope document instead of an
+        # arbitrary member of a content-hash-shared StructuralAnnotationSet.
         if paginated_results:
+            from opencontractserver.annotations.services import AnnotationService
+
             annotation_ids = [r.annotation.id for r in paginated_results]
             annotations_by_id = {
                 a.id: a
-                for a in Annotation.objects.filter(
-                    id__in=annotation_ids
-                ).select_related("annotation_label", "document", "corpus")
+                for a in Annotation.objects.filter(id__in=annotation_ids)
+                .select_related(
+                    "annotation_label", "document", "corpus", "structural_set"
+                )
+                .prefetch_related(
+                    AnnotationService.structural_document_prefetch(
+                        corpus_id=corpus_pk,
+                        document_id=document_pk,
+                    )
+                )
             }
             # Update results with explicitly prefetched annotations
             for result in paginated_results:
