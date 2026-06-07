@@ -1270,6 +1270,7 @@ class EnabledComponentsMutationTestCase(TestCase):
             target_component,
             f"Disabled component {target} should still appear in query results",
         )
+        assert target_component is not None
         self.assertFalse(
             target_component["enabled"],
             f"Component {target} should be disabled after transition",
@@ -1454,6 +1455,7 @@ class PipelineSettingsSecretsTestCase(TestCase):
 
         # The encrypted_secrets field should contain binary data
         self.assertIsNotNone(instance.encrypted_secrets)
+        assert instance.encrypted_secrets is not None
 
         # The secret value should NOT appear in the raw binary
         raw_bytes = bytes(instance.encrypted_secrets)
@@ -1743,9 +1745,11 @@ class PipelineSettingsEdgeCasesTestCase(TestCase):
 
         # Encrypt same data twice
         instance.set_secrets({"test": {"key": "value"}})
+        assert instance.encrypted_secrets is not None
         encrypted1 = bytes(instance.encrypted_secrets)
 
         instance.set_secrets({"test": {"key": "value"}})
+        assert instance.encrypted_secrets is not None
         encrypted2 = bytes(instance.encrypted_secrets)
 
         # Salt is first 16 bytes - should be different each time
@@ -2245,6 +2249,7 @@ class RegistryGetByNameTestCase(TestCase):
             parser = registry.parsers[0]
             result = registry.get_by_name(parser.name)
             self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result.name, parser.name)
 
     def test_get_by_name_returns_none_for_unknown(self):

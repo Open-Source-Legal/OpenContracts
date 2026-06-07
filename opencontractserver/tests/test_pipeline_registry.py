@@ -94,7 +94,7 @@ class TestPipelineComponentDefinition(TestCase):
         )
 
         with self.assertRaises(Exception):
-            defn.name = "ChangedName"
+            defn.name = "ChangedName"  # type: ignore[misc]  # read-only property
 
 
 class TestPipelineComponentRegistry(TestCase):
@@ -143,6 +143,7 @@ class TestPipelineComponentRegistry(TestCase):
             parser_name = registry.parsers[0].name
             result = registry.get_by_name(parser_name)
             self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result.name, parser_name)
 
     def test_get_by_name_not_found(self):
@@ -158,6 +159,7 @@ class TestPipelineComponentRegistry(TestCase):
             class_name = registry.parsers[0].class_name
             result = registry.get_by_class_name(class_name)
             self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result.class_name, class_name)
 
     def test_get_parsers_for_filetype_pdf(self):
@@ -230,6 +232,7 @@ class TestModuleLevelFunctions(TestCase):
             parser_name = parsers[0].name
             result = get_component_by_name_cached(parser_name)
             self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result.name, parser_name)
 
     def test_get_components_by_mimetype_cached_pdf(self):
@@ -299,7 +302,7 @@ class TestRegistryPerformance(TestCase):
         first_access = time.perf_counter() - start
 
         # Multiple subsequent accesses (should be near-instant)
-        total_subsequent = 0
+        total_subsequent = 0.0
         for _ in range(100):
             start = time.perf_counter()
             _ = get_registry()
@@ -635,6 +638,7 @@ class TestEnricherRegistry(TestCase):
         """The enricher is resolvable by class name through the registry."""
         defn = get_registry().get_by_name("PdfOutlineEnricher")
         self.assertIsNotNone(defn)
+        assert defn is not None
         self.assertEqual(defn.component_type, ComponentType.ENRICHER)
 
     def test_components_by_mimetype_includes_enrichers(self):
