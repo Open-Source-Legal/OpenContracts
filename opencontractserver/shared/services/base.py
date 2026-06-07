@@ -210,6 +210,27 @@ class BaseService:
         return f"Permission denied: cannot {action} this {type(instance).__name__}"
 
     @staticmethod
+    def clamp_pagination(
+        limit: int | None,
+        offset: int | None,
+        *,
+        default: int,
+        maximum: int,
+    ) -> tuple[int, int]:
+        """Normalise a caller-supplied ``(limit, offset)`` into safe bounds.
+
+        Returns ``(effective_limit, effective_offset)`` where the limit is
+        clamped to ``1 <= limit <= maximum`` (falling back to ``default`` when
+        ``None`` or non-positive) and the offset is floored at ``0``. Shared by
+        the paginated admin/diagnostics list services so the clamping rule has a
+        single definition instead of being re-derived per resolver.
+        """
+        effective_limit = limit if (limit and limit > 0) else default
+        effective_limit = min(effective_limit, maximum)
+        effective_offset = max(offset or 0, 0)
+        return effective_limit, effective_offset
+
+    @staticmethod
     def log_action(action: str, instance: Any, user: Any, **extra: Any) -> None:
         """Emit a structured who-did-what-to-which-object log line.
 

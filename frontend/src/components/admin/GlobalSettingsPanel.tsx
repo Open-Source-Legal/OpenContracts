@@ -8,6 +8,7 @@ import {
   Users,
   Upload,
   Tag,
+  Activity,
   LucideIcon,
 } from "lucide-react";
 
@@ -112,7 +113,10 @@ const SettingsCard = styled.div<{ $disabled?: boolean }>`
   padding: 1.5rem;
   cursor: ${({ $disabled }) => ($disabled ? "default" : "pointer")};
   opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 
   ${({ $disabled }) =>
     !$disabled &&
@@ -246,6 +250,15 @@ const settingsItems: SettingItem[] = [
     icon: Upload,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.accent} 0%, ${OS_LEGAL_COLORS.accentHover} 100%)`,
     route: "/admin/worker-accounts",
+  },
+  {
+    id: "ingestion-monitor",
+    title: "Ingestion Monitor",
+    description:
+      "Diagnose document ingestion progress and failures, plus bulk and corpus-export import batch stats.",
+    icon: Activity,
+    gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.danger} 0%, ${OS_LEGAL_COLORS.folderIcon} 100%)`,
+    route: "/admin/ingestion",
   },
   {
     id: "corpus-categories",

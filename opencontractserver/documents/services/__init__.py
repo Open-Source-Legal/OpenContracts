@@ -12,6 +12,7 @@ docs/refactor_plans/2026-05-19-service-layer-centralization-design.md.
 """
 
 from opencontractserver.documents.services.actions import DocumentActionsService
+from opencontractserver.documents.services.ingestion_admin import IngestionAdminService
 from opencontractserver.documents.services.relationships import (
     DocumentRelationshipService,
 )
@@ -21,4 +22,5 @@ __all__ = [
     "DocumentActionsService",
     "DocumentRelationshipService",
     "DocumentVersionService",
+    "IngestionAdminService",
 ]

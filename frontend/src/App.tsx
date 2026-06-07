@@ -70,6 +70,7 @@ import {
   GlobalAgentManagement,
   SystemSettings,
   WorkerAccountManagement,
+  IngestionMonitor,
   CorpusCategoryManagement,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
@@ -134,7 +135,7 @@ export const App = () => {
         variables: document_obj as unknown as UpdateDocumentInputs,
       });
     },
-    [tryUpdateDocument]
+    [tryUpdateDocument],
   );
 
   const handleKnowledgeBaseModalClose = useCallback(() => {
@@ -203,7 +204,7 @@ export const App = () => {
     {
       showToast: true,
       showModal: true,
-    }
+    },
   );
 
   // Job notification system (real-time via WebSocket) - Issue #624
@@ -255,7 +256,7 @@ export const App = () => {
           title: file.name,
           description: `Content summary for ${file.name}`,
         },
-      })
+      }),
     );
     showUploadNewDocumentsModal(true);
     uploadModalPreloadedFiles(filePackages);
@@ -415,6 +416,7 @@ export const App = () => {
             path="/admin/worker-accounts"
             element={<WorkerAccountManagement />}
           />
+          <Route path="/admin/ingestion" element={<IngestionMonitor />} />
           <Route
             path="/admin/corpus-categories"
             element={<CorpusCategoryManagement />}

@@ -1213,3 +1213,70 @@ def purge_stale_chunked_uploads(
     if purged:
         logger.info("[CHUNKED] Purged %s stale chunked-upload session(s)", purged)
     return purged
+
+
+# Bulk document-zip import kinds surfaced on the admin ingestion monitor.
+# CORPUS_EXPORT is intentionally excluded: corpus-export ZIP re-imports are
+# tracked (with per-document failure counts) via PendingCorpusImport on the
+# admin dashboard, so listing the upload-phase session here too would
+# double-count that flow. DOCUMENT (single-file) is excluded as it is not a
+# "bulk" import.
+ADMIN_BULK_IMPORT_SESSION_KINDS = (
+    ChunkedUploadKind.DOCUMENTS_ZIP,
+    ChunkedUploadKind.ZIP_TO_CORPUS,
+)
+
+
+def list_chunked_sessions_for_admin(
+    user: Any,
+    *,
+    status: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> tuple[Any, int, int, int]:
+    """Install-wide bulk document-zip import sessions. **Superuser-only.**
+
+    Diagnostics listing for the admin ingestion monitor: every
+    :class:`ChunkedUploadSession` whose ``kind`` is a bulk document-zip import
+    (``DOCUMENTS_ZIP`` / ``ZIP_TO_CORPUS``), across all users, newest first.
+    Annotated with ``_received_size`` / ``_received_parts`` (summed from the
+    session's stored parts) so the resolver can render upload progress without
+    an extra round-trip — note these read 0 once a COMPLETED session's parts
+    have been reclaimed.
+
+    The superuser gate is enforced here (defence-in-depth) by raising
+    :class:`PermissionError`; the GraphQL resolver also gates before calling.
+    ``status`` (case-insensitive) filters on ``ChunkedUploadStatus``.
+
+    Returns ``(page_queryset, total_count, effective_limit, effective_offset)``.
+    """
+    from opencontractserver.constants.document_processing import (
+        ADMIN_INGESTION_DEFAULT_PAGE_SIZE,
+        ADMIN_INGESTION_MAX_PAGE_SIZE,
+    )
+    from opencontractserver.shared.services.base import BaseService
+
+    if not getattr(user, "is_superuser", False):
+        raise PermissionError("Superuser privileges required.")
+
+    qs = (
+        ChunkedUploadSession.objects.filter(kind__in=ADMIN_BULK_IMPORT_SESSION_KINDS)
+        .select_related("creator")
+        .annotate(
+            _received_size=models.Sum("parts__size"),
+            _received_parts=models.Count("parts"),
+        )
+        .order_by("-created")
+    )
+    if status:
+        qs = qs.filter(status=status.upper())
+
+    total_count = qs.count()
+    effective_limit, effective_offset = BaseService.clamp_pagination(
+        limit,
+        offset,
+        default=ADMIN_INGESTION_DEFAULT_PAGE_SIZE,
+        maximum=ADMIN_INGESTION_MAX_PAGE_SIZE,
+    )
+    page = qs[effective_offset : effective_offset + effective_limit]
+    return page, total_count, effective_limit, effective_offset
