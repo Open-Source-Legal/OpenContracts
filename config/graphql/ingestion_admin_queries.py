@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Any
+from typing import Any, cast
 
 import graphene
 from django.utils import timezone
@@ -154,7 +154,13 @@ class IngestionAdminQueryMixin:
         )
         if not result.ok:
             raise GraphQLError(result.error)
-        page, total_count, effective_limit, effective_offset = result.value
+        # ``result.ok`` guarantees a non-None value; ``cast`` narrows the
+        # Optional for mypy (matching config/graphql/worker_queries.py). The
+        # page element is left ``Any`` so iterating rows that carry service
+        # annotations does not trip attribute checks.
+        page, total_count, effective_limit, effective_offset = cast(
+            "tuple[Any, int, int, int]", result.value
+        )
 
         items = [
             AdminDocumentIngestionType(
@@ -202,9 +208,15 @@ class IngestionAdminQueryMixin:
         )
         if not result.ok:
             raise GraphQLError(result.error)
-        page, total_count, effective_limit, effective_offset = result.value
+        # ``result.ok`` guarantees a non-None value; ``cast`` narrows the
+        # Optional for mypy (matching config/graphql/worker_queries.py). The
+        # page element is left ``Any`` so iterating rows that carry service
+        # annotations does not trip attribute checks.
+        page, total_count, effective_limit, effective_offset = cast(
+            "tuple[Any, int, int, int]", result.value
+        )
 
-        items = []
+        items: list = []
         for upload in page:
             token = upload.corpus_access_token
             worker_name = (
@@ -260,9 +272,9 @@ class IngestionAdminQueryMixin:
             total_count,
             effective_limit,
             effective_offset,
-        ) = result.value
+        ) = cast("tuple[Any, dict, int, int, int]", result.value)
 
-        items = []
+        items: list = []
         for pci in page:
             counts = counts_by_run.get(pci.import_run_id, {})
             total_docs = counts.get("total", 0)
@@ -318,7 +330,7 @@ class IngestionAdminQueryMixin:
         except PermissionError as exc:
             raise GraphQLError(str(exc))
 
-        items = []
+        items: list = []
         for session in page:
             received = float(session._received_size or 0)
             if session.status == ChunkedUploadStatus.COMPLETED:

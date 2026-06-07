@@ -225,7 +225,10 @@ class BaseService:
         the paginated admin/diagnostics list services so the clamping rule has a
         single definition instead of being re-derived per resolver.
         """
-        effective_limit = limit if (limit and limit > 0) else default
+        if limit is None or limit <= 0:
+            effective_limit = default
+        else:
+            effective_limit = limit
         effective_limit = min(effective_limit, maximum)
         effective_offset = max(offset or 0, 0)
         return effective_limit, effective_offset
