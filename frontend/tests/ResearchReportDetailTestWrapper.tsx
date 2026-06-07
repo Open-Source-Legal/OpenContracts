@@ -2,7 +2,7 @@ import React from "react";
 import { MockedProvider, MockedResponse } from "@apollo/client/testing";
 import { InMemoryCache } from "@apollo/client";
 import { Provider } from "jotai";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { ResearchReportDetail } from "../src/views/ResearchReportDetail";
 import { openedResearchReport, authToken } from "../src/graphql/cache";
 import { GET_RESEARCH_REPORT } from "../src/graphql/queries";
@@ -83,6 +83,21 @@ export function buildMockReport(
   } as unknown as ResearchReportType;
 }
 
+/**
+ * Hidden probe that mirrors the in-memory router location into the DOM.
+ * MemoryRouter never touches ``window.location``, so client-side navigations
+ * (e.g. clicking a report-body footnote) are invisible to ``page.url()``; this
+ * lets a test assert where ``navigate()`` actually went.
+ */
+const LocationProbe: React.FC = () => {
+  const location = useLocation();
+  return (
+    <div data-testid="router-location" style={{ display: "none" }}>
+      {location.pathname + location.search}
+    </div>
+  );
+};
+
 const createTestCache = () =>
   new InMemoryCache({
     typePolicies: {
@@ -133,6 +148,7 @@ export const ResearchReportDetailTestWrapper: React.FC<{
           addTypename={false}
         >
           <div style={{ height: 800 }}>
+            <LocationProbe />
             <ResearchReportDetail />
           </div>
         </MockedProvider>

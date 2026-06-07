@@ -70,6 +70,41 @@ test.describe("ResearchReportDetail", () => {
     await docScreenshot(page, "research--report-detail--citations");
   });
 
+  test("report-body footnotes deep-link to the cited source", async ({
+    mount,
+    page,
+  }) => {
+    const report = buildMockReport();
+    await mount(<ResearchReportDetailTestWrapper report={report} />);
+
+    await expect(
+      page.locator("text=Indemnification Review").first()
+    ).toBeVisible({ timeout: 15000 });
+
+    // The default Report tab renders the markdown body, whose ``## Sources``
+    // footnote definition (``[^1]: Doc A page 2``) must become a click-to-source
+    // target. Clicking it navigates to the cited document with the cited
+    // annotation selected (``?ann=<canonical global id>``).
+    const footnote = page.locator('li[id="user-content-fn-1"]');
+    await expect(footnote).toBeVisible({ timeout: 10000 });
+    await expect(footnote).toHaveAttribute("role", "link");
+
+    await footnote.click();
+
+    // MemoryRouter doesn't touch window.location, so read the navigated path
+    // from the wrapper's hidden location probe.
+    const probe = page.getByTestId("router-location");
+    await expect
+      .poll(async () => {
+        const loc = (await probe.textContent()) ?? "";
+        return new URL(loc, "http://localhost").pathname;
+      })
+      .toBe("/d/john/cases/doc-a");
+    const loc = (await probe.textContent()) ?? "";
+    const annParam = new URL(loc, "http://localhost").searchParams.get("ann");
+    expect(annParam).toBe(toGlobalId("ServerAnnotationType", 10));
+  });
+
   test("renders a failed report with its error message", async ({
     mount,
     page,

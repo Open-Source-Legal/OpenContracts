@@ -31,9 +31,13 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
+import type { Components } from "react-markdown";
+
 import {
+  CorpusType,
   DocumentType,
   JobStatus,
+  ResearchCitation,
   ResearchReportType,
 } from "../types/graphql-api";
 import { openedResearchReport } from "../graphql/cache";
@@ -287,6 +291,27 @@ const MarkdownWrapper = styled.div`
   }
 `;
 
+// A footnote definition that resolves to a cited annotation. Rendered as a
+// click target (not an ``<a>``) so the inner ``↩`` back-reference anchor stays
+// valid — wrapping the whole ``<li>`` in an anchor would nest anchors.
+const FootnoteItem = styled.li`
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: ${OS_LEGAL_COLORS.surfaceLight};
+    color: ${OS_LEGAL_COLORS.textPrimary};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${OS_LEGAL_COLORS.borderHover};
+    outline-offset: 2px;
+  }
+`;
+
 const List = styled.div`
   display: flex;
   flex-direction: column;
@@ -405,6 +430,39 @@ const TabPanelInner = styled.div`
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * Build the in-app deep-link for a single citation: the cited document, with
+ * the cited annotation selected via ``?ann=<globalId>``.
+ *
+ * The annotation's *canonical* global ID is taken from ``annGlobalIdByPk``
+ * (seeded from the server's ``fullSourceAnnotationList``) rather than
+ * reconstructed from the raw PK — the GraphQL typename is ``ServerAnnotationType``,
+ * so a ``toGlobalId("AnnotationType", pk)`` guess would deep-link to the wrong
+ * (or no) entity. Returns ``null`` when the document is unknown or slugs are
+ * missing (``getDocumentUrl`` yields ``"#"``). Shared by the Citations tab rows
+ * and the report-body ``## Sources`` footnotes so both stay in lock-step.
+ */
+function buildCitationHref(
+  citation: ResearchCitation,
+  docsByPk: Map<number, DocumentType>,
+  annGlobalIdByPk: Map<number, string>,
+  corpus: CorpusType | null | undefined
+): string | null {
+  const docPk =
+    citation.document_id != null ? Number(citation.document_id) : null;
+  const doc = docPk != null ? docsByPk.get(docPk) : undefined;
+  if (!doc || !corpus) return null;
+
+  const annPk =
+    citation.annotation_id != null ? Number(citation.annotation_id) : null;
+  const annGlobalId = annPk != null ? annGlobalIdByPk.get(annPk) : undefined;
+
+  const href = getDocumentUrl(doc, corpus, {
+    annotationIds: annGlobalId ? [annGlobalId] : undefined,
+  });
+  return href && href !== "#" ? href : null;
+}
+
+/**
  * ResearchReportDetail - read-only detail view for a deep-research report at
  * /research/:slug. Reports are creator-only (v1) — no sharing controls.
  *
@@ -517,6 +575,67 @@ export const ResearchReportDetail: React.FC = () => {
     });
     return map;
   }, [report?.fullSourceAnnotationList]);
+
+  // Map footnote number → cited-source deep-link, so the report body's
+  // ``## Sources`` footnotes (rendered markdown) become click-to-source links,
+  // mirroring the Citations tab. Keyed by the ``[^n]`` footnote number the
+  // backend emits (``citation.footnote``), which is what react-markdown surfaces
+  // on each footnote ``<li id="user-content-fn-n">``.
+  const footnoteHrefByNumber = useMemo(() => {
+    const map = new Map<number, string>();
+    (report?.citations ?? []).forEach((c) => {
+      if (c.footnote == null) return;
+      const href = buildCitationHref(
+        c,
+        docsByPk,
+        annGlobalIdByPk,
+        report?.corpus
+      );
+      if (href) map.set(Number(c.footnote), href);
+    });
+    return map;
+  }, [report?.citations, docsByPk, annGlobalIdByPk, report?.corpus]);
+
+  // Footnote definitions in the report body deep-link to their cited source.
+  // Only footnote ``<li>``s (id ``user-content-fn-<n>``) are upgraded; ordinary
+  // list items render untouched. Navigation is client-side (``navigate``) and a
+  // click on the inner ``↩`` back-reference anchor is left to its native scroll.
+  const reportMarkdownComponents = useMemo<Components>(
+    () => ({
+      li: ({ node, children, ...props }) => {
+        const id = typeof props.id === "string" ? props.id : undefined;
+        const match = id ? /^user-content-fn-(\d+)$/.exec(id) : null;
+        const href = match
+          ? footnoteHrefByNumber.get(Number(match[1]))
+          : undefined;
+        if (!href) {
+          return <li {...props}>{children}</li>;
+        }
+        return (
+          <FootnoteItem
+            {...props}
+            role="link"
+            tabIndex={0}
+            title="Open the cited source"
+            onClick={(e) => {
+              // Defer to the back-reference anchor's native ``#fnref`` scroll.
+              if ((e.target as HTMLElement).closest("a")) return;
+              navigate(href);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                navigate(href);
+              }
+            }}
+          >
+            {children}
+          </FootnoteItem>
+        );
+      },
+    }),
+    [footnoteHrefByNumber, navigate]
+  );
 
   const statusProps = report ? getResearchStatus(status) : null;
   const canCancel =
@@ -722,7 +841,9 @@ export const ResearchReportDetail: React.FC = () => {
                     <TabPanelInner>
                       {report.content ? (
                         <MarkdownWrapper>
-                          <SafeMarkdown>{report.content}</SafeMarkdown>
+                          <SafeMarkdown components={reportMarkdownComponents}>
+                            {report.content}
+                          </SafeMarkdown>
                         </MarkdownWrapper>
                       ) : (
                         <EmptyWrapper>
@@ -750,28 +871,12 @@ export const ResearchReportDetail: React.FC = () => {
                       ) : (
                         <List>
                           {citations.map((c, i) => {
-                            const docPk =
-                              c.document_id != null
-                                ? Number(c.document_id)
-                                : null;
-                            const doc =
-                              docPk != null ? docsByPk.get(docPk) : undefined;
-                            const annPk =
-                              c.annotation_id != null
-                                ? Number(c.annotation_id)
-                                : null;
-                            const annGlobalId =
-                              annPk != null
-                                ? annGlobalIdByPk.get(annPk)
-                                : undefined;
-                            const href =
-                              doc && report.corpus
-                                ? getDocumentUrl(doc, report.corpus, {
-                                    annotationIds: annGlobalId
-                                      ? [annGlobalId]
-                                      : undefined,
-                                  })
-                                : null;
+                            const href = buildCitationHref(
+                              c,
+                              docsByPk,
+                              annGlobalIdByPk,
+                              report.corpus
+                            );
                             const text =
                               c.display || c.raw_text || `Source ${c.footnote}`;
                             // Footnotes are unique per report, so they make a
@@ -789,7 +894,7 @@ export const ResearchReportDetail: React.FC = () => {
                                 </RowBody>
                               </>
                             );
-                            return href && href !== "#" ? (
+                            return href ? (
                               <RowLink key={rowKey} to={href}>
                                 {inner}
                               </RowLink>
