@@ -117,6 +117,21 @@ HNSW_INDEXED_DIMS = frozenset({384, 768, 1024, 1536})
 HNSW_MAX_INDEXED_DIM = max(HNSW_INDEXED_DIMS)
 
 # =============================================================================
+# Select-All Document IDs
+# =============================================================================
+# Hard cap on how many document global-ids the ``corpusDocumentIds`` query
+# (document grid "Select All") will return in one response. The resolver returns
+# every matching id ignoring pagination, so without a cap a Select-All on a very
+# large corpus would serialize a multi-megabyte ``List[ID]`` (~40 chars/id) on
+# every call — the READ_LIGHT rate limiter throttles frequency but not payload
+# size. When the match count exceeds this, the resolver raises a GraphQLError
+# rather than silently truncating (a truncated id set would make a subsequent
+# bulk-remove act on only part of the selection — a correctness bug, not just a
+# perf one). 25k ids ≈ ~1 MB, comfortably above any realistic interactive
+# Select-All while bounding the worst case.
+MAX_SELECT_ALL_DOCUMENT_IDS = 25_000
+
+# =============================================================================
 # Full-Text Search Configuration
 # =============================================================================
 # PostgreSQL text search configuration name for tsvector generation.

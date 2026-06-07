@@ -19,6 +19,16 @@ class TestContext:
 
 
 class PipelineComponentQueriesTestCase(TestCase):
+    test_files: list[str]
+    parser_code: str
+    embedder_code: str
+    thumbnailer_code: str
+    post_processor_code: str
+    parser_path: str
+    embedder_path: str
+    thumbnailer_path: str
+    post_processor_path: str
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -233,7 +243,7 @@ class TestPostProcessor(BasePostProcessor):
         self.superuser = User.objects.create_superuser(
             username="adminuser", password="adminpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
         self.superuser_client = Client(
             schema, context_value=TestContext(self.superuser)
         )
@@ -299,7 +309,7 @@ class TestPostProcessor(BasePostProcessor):
         }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["pipelineComponents"]
@@ -350,7 +360,7 @@ class TestPostProcessor(BasePostProcessor):
             }
         }
         """
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
 
         data = result["data"]["pipelineComponents"]
@@ -576,6 +586,7 @@ class TestPostProcessor(BasePostProcessor):
         parsers = data["parsers"]
         test_parser = next((p for p in parsers if p["name"] == "TestParser"), None)
         self.assertIsNotNone(test_parser, "TestParser should be in the results")
+        assert test_parser is not None
         self.assertTrue(
             test_parser["enabled"],
             "TestParser should be enabled since it's in the enabled_components list",
@@ -618,7 +629,7 @@ class TestPostProcessor(BasePostProcessor):
         }
         """
 
-        result = self.client.execute(query)
+        result = self.graphene_client.execute(query)
         self.assertIsNone(result.get("errors"))
 
         mime_types = result["data"]["supportedMimeTypes"]

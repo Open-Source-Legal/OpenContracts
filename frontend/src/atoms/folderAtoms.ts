@@ -215,6 +215,23 @@ export const canCreateFoldersAtom = atom<boolean>((get) => {
   return corpusPermissions.includes("update_corpus");
 });
 
+/**
+ * Whether the user can delete corpus contents (DELETE permission on corpus).
+ * Gates the destructive "Empty Corpus" action. Fail-safe: hidden until
+ * permissions load.
+ */
+export const canDeleteCorpusAtom = atom<boolean>((get) => {
+  const corpusPermissions = get(corpusPermissionsAtom);
+
+  if (!corpusPermissions || corpusPermissions.length === 0) {
+    return false;
+  }
+
+  // Per permission model: deleting corpus contents requires DELETE on corpus,
+  // surfaced as the "remove_corpus" permission string in myPermissions.
+  return corpusPermissions.includes("remove_corpus");
+});
+
 // ============================================================================
 // HELPER ACTIONS (Write-only Atoms)
 // ============================================================================

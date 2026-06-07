@@ -126,6 +126,7 @@ class TestDocxodusServiceParser(TestCase):
         result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["content"], "Hello World")
         self.assertEqual(result["page_count"], 1)
         self.assertEqual(len(result["labelled_text"]), 1)
@@ -288,6 +289,7 @@ class TestDocxThumbnailGenerator(TestCase):
         preview = DocxThumbnailGenerator._extract_text_preview(docx_bytes)
 
         self.assertIsNotNone(preview)
+        assert preview is not None
         self.assertIn("Hello", preview)
         self.assertIn("World", preview)
 
@@ -319,6 +321,7 @@ class TestDocxThumbnailGenerator(TestCase):
         result = DocxThumbnailGenerator._extract_embedded_thumbnail(buf.getvalue())
 
         self.assertIsNotNone(result)
+        assert result is not None
         thumb_bytes, ext = result
         self.assertEqual(ext, "jpeg")
         self.assertTrue(thumb_bytes.startswith(b"\xff\xd8"))
@@ -340,6 +343,7 @@ class TestDocxThumbnailGenerator(TestCase):
         )
 
         self.assertIsNotNone(result)
+        assert result is not None
         thumb_bytes, ext = result
         self.assertEqual(ext, "png")
         self.assertGreater(len(thumb_bytes), 0)
@@ -353,5 +357,5 @@ class TestDocxThumbnailGenerator(TestCase):
         result = DocxThumbnailGenerator._extract_embedded_thumbnail(b"not a valid docx")
         self.assertIsNone(result)
 
-        result = DocxThumbnailGenerator._extract_text_preview(b"not a valid docx")
-        self.assertIsNone(result)
+        preview = DocxThumbnailGenerator._extract_text_preview(b"not a valid docx")
+        self.assertIsNone(preview)

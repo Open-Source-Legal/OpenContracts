@@ -471,11 +471,16 @@ export const selectedDocumentIds = makeVar<string[]>([]);
 export const viewingDocument = makeVar<DocumentType | null>(null);
 export const editingDocument = makeVar<DocumentType | null>(null);
 /**
- * Tracks document IDs currently visible in the folder/corpus view.
- * Used by FolderToolbar to enable Select All functionality.
- * Set by CorpusDocumentCards when documents load.
+ * Total number of documents matching the current folder/corpus view filters
+ * (the connection's ``totalCount`` — NOT just the loaded page). Drives the
+ * toolbar's "Select All" visibility, the "X of N" selection count, and the
+ * all-selected state. Set by CorpusDocumentCards when documents load.
+ *
+ * "Select All" itself fetches the full id set on demand via
+ * GET_CORPUS_DOCUMENT_IDS so a bulk remove acts on every matching document,
+ * not just the page the virtualized list happens to have loaded.
  */
-export const currentViewDocumentIds = makeVar<string[]>([]);
+export const currentViewTotalDocumentCount = makeVar<number>(0);
 
 /**
  * Tracks whether documents are currently loading in the folder/corpus view.

@@ -1703,11 +1703,19 @@ export const Corpuses = () => {
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
-        // The chats tab owns a viewport-bounded layout (input pinned to
-        // bottom, messages scroll internally). CardLayout's default outer
-        // padding would push the chat past the viewport and shrink-wrap
-        // the input area awkwardly, so we drop the padding for this tab.
-        ...(currentView?.id === "chats" ? { padding: 0 } : {}),
+        // The home and chats tabs both own viewport-bounded layouts:
+        // CorpusQueryView (home) and CorpusChat (chats) each size themselves
+        // to calc(100dvh - navbar) with the composer pinned to the bottom and
+        // messages scrolling internally. CardLayout's default outer padding
+        // (~0.75rem per side on desktop) would wrap that full-height container,
+        // pushing the pinned input ~1.5rem below the viewport so it is
+        // partially clipped behind a slight page scroll. Drop the padding for
+        // both tabs so the height math stays exact. (The landing/details views
+        // on the home tab center their own max-width content with internal
+        // padding, so they are unaffected by losing the thin outer frame.)
+        ...(currentView?.id === "home" || currentView?.id === "chats"
+          ? { padding: 0 }
+          : {}),
       }}
       Modals={
         <>

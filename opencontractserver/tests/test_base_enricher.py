@@ -26,7 +26,7 @@ class BaseEnricherTests(TestCase):
     """Verify BaseEnricher merges component settings with direct kwargs."""
 
     def setUp(self):
-        PipelineSettings._invalidate_cache()
+        PipelineSettings.clear_cache()
 
     def test_direct_kwargs_forwarded(self):
         """enrich_document forwards direct kwargs to _enrich_document_impl."""

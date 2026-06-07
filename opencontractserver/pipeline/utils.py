@@ -100,13 +100,15 @@ def get_all_rerankers() -> list[type[BaseReranker]]:
 
 
 def get_components_by_mimetype(
-    file_type: Optional[FileTypeEnum] = None, detailed: bool = False
+    file_type: Optional[Union[str, FileTypeEnum]] = None, detailed: bool = False
 ) -> dict[str, list[Any]]:
     """
-    Given a FileTypeEnum, fetch lists of compatible parsers, embedders, and thumbnailers.
+    Given a mimetype string or FileTypeEnum, fetch lists of compatible parsers,
+    embedders, and thumbnailers.
 
     Args:
-        file_type (Optional[FileTypeEnum]): The file type enum
+        file_type (Optional[Union[str, FileTypeEnum]]): The file type enum or
+            mimetype string (converted via FileTypeEnum.from_mimetype)
         detailed (bool): If True, include title, description, and author details
 
     Returns:

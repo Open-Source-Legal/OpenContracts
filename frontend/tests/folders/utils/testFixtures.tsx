@@ -91,6 +91,7 @@ interface ToolbarFixtureProps {
   onSelectAll?: () => void;
   onClearSelection?: () => void;
   onRemoveFromCorpus?: () => void;
+  onEmptyCorpus?: () => void;
   allSelected?: boolean;
   isLoading?: boolean;
 }
@@ -113,6 +114,7 @@ export function ToolbarFixture({
   onSelectAll,
   onClearSelection,
   onRemoveFromCorpus,
+  onEmptyCorpus,
   allSelected = false,
   isLoading = false,
 }: ToolbarFixtureProps) {
@@ -149,6 +151,7 @@ export function ToolbarFixture({
         onSelectAll={onSelectAll}
         onClearSelection={onClearSelection}
         onRemoveFromCorpus={onRemoveFromCorpus}
+        onEmptyCorpus={onEmptyCorpus}
         allSelected={allSelected}
         isLoading={isLoading}
       />

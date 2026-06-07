@@ -152,6 +152,7 @@ class TestMarkDocumentFailed(TestCase):
         ).first()
 
         self.assertIsNotNone(notification)
+        assert notification is not None
         self.assertEqual(notification.data["document_id"], self.doc.id)
 
     def test_no_notification_when_disabled(self):
