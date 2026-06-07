@@ -94,6 +94,22 @@ Attributes: #id, theme (light|dark), gradient (true), centered (true).
 BLOCKS (inside chapters, use :::: depth-4 fences)
 ------
 
+CRITICAL: every :::: block below MUST live inside a `::: chapter ... :::`. The
+per-block examples that follow show only the block fence for brevity — they are
+NOT standalone documents. A :::: block placed at the top level (outside any
+chapter) will NOT render: the parser cannot close a depth-4 fence outside a
+chapter and leaks the block's body to the page as raw text. Always nest, e.g.:
+
+  ::: chapter {#overview}
+  ## Overview
+
+  :::: corpus-stats
+  - documents | Documents
+  - annotations | Annotations
+  ::::
+
+  :::
+
 PROSE: Not fenced. Standard markdown. Special features:
   - Pullquotes: `>>> "Quoted text renders as styled pullquote."`
 
@@ -272,6 +288,8 @@ OUTPUT RULES
 output, no preamble, no commentary.
 - The article MUST begin with `---` (frontmatter opening).
 - Every opened fence (:::, ::::, :::::) MUST be closed.
+- Every :::: block MUST be nested inside a ::: chapter. A block at the top \
+level (outside a chapter) will not render — its content leaks as raw text.
 - Use only safe href values: https://, http://, #, or / relative paths.
 - Keep the total article concise but substantive. Aim for 3-7 chapters.
 - Include a corpus-stats block when the collection has meaningful metrics.

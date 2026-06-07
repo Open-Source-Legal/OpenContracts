@@ -43,16 +43,18 @@ def _invalidate_pipeline_settings_singleton_cache():
     migration-seeded state on cache miss.
 
     We also drop the process-local embedder/reranker *instance* caches
-    (``opencontractserver/pipeline/utils.py``). Those are keyed by
-    ``(class_path, PipelineSettings.modified)``; because ``modified`` is the
-    stable migration-seeded value across every ``TestCase`` test that doesn't
-    write the singleton, two tests that mock ``get_component_by_name`` to
-    return *different* classes for the *same* path would otherwise collide on
-    the cached instance from whichever test ran first. Clearing before each
-    test restores per-test isolation without every test needing its own
-    teardown.
+    (``opencontractserver/pipeline/utils.py``) and the LLM-provider
+    *credential* cache (``opencontractserver/llms/model_factory.py``). All are
+    keyed by ``(class_path, PipelineSettings.modified)``; because ``modified``
+    is the stable migration-seeded value across every ``TestCase`` test that
+    doesn't write the singleton, two tests that mock ``get_component_by_name``
+    to return *different* classes for the *same* path (or configure *different*
+    provider credentials) would otherwise collide on the cached value from
+    whichever test ran first. Clearing before each test restores per-test
+    isolation without every test needing its own teardown.
     """
     from opencontractserver.documents.models import PipelineSettings
+    from opencontractserver.llms.model_factory import invalidate_credential_cache
     from opencontractserver.pipeline.utils import (
         invalidate_embedder_cache,
         invalidate_reranker_cache,
@@ -61,6 +63,7 @@ def _invalidate_pipeline_settings_singleton_cache():
     PipelineSettings.clear_cache()
     invalidate_embedder_cache()
     invalidate_reranker_cache()
+    invalidate_credential_cache()
     yield
 
 
