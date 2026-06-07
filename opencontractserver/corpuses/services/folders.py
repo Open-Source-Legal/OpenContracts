@@ -2,8 +2,12 @@
 
 ``FolderCRUDService`` owns folder create / read / update / move / delete, the
 folder tree, folder search, and bulk folder-structure creation for imports.
-``delete_folder`` relocates any documents it contains to the corpus root via
-:class:`~opencontractserver.corpuses.services.paths.CorpusPathService`.
+``delete_folder`` has two modes: with ``move_children_to_parent=True`` it
+relocates the folder's documents to the corpus root via
+:class:`~opencontractserver.corpuses.services.paths.CorpusPathService` and
+reparents its sub-folders; with ``move_children_to_parent=False`` (the
+``deleteContents=True`` path the UI uses) it cascade-trashes the entire
+sub-tree, moving every document in it to Trash (recoverable).
 
 Document-in-folder placement and queries live in the sibling
 :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`.
@@ -727,42 +731,45 @@ class FolderCRUDService(BaseService):
         request: Any = None,
     ) -> tuple[bool, str]:
         """
-        Delete folder, atomically relocating all contained documents to root.
+        Delete a folder, atomically handling its contents per ``move_children_to_parent``.
 
-        **Atomicity guarantee**: The entire operation (document relocations,
-        child folder reparenting, and folder deletion) runs inside a single
-        ``transaction.atomic()`` block.  If ANY document cannot be relocated
-        (e.g. path disambiguation exhausted, integrity constraint violation),
-        the entire transaction is rolled back — no documents are moved, no
-        child folders are reparented, and the folder is NOT deleted.  This
-        prevents partial-success states where some documents end up at root
-        while others remain stuck in the folder.
+        Two modes, both fully atomic (single ``transaction.atomic()`` block —
+        if anything fails the whole operation rolls back and is safe to retry):
 
-        **Retry safety**: Because a failed call leaves the database in its
-        original state (full rollback), the caller can safely retry the
-        operation without risk of double-moving already-relocated documents.
+        * ``move_children_to_parent=True`` (default — ``deleteContents=False``
+          at the GraphQL layer): reparent the direct child folders to this
+          folder's parent and relocate the documents *directly* in this folder
+          to the corpus root (history-tracked). Sub-folders survive.
+        * ``move_children_to_parent=False`` (``deleteContents=True``):
+          cascade-delete the ENTIRE sub-tree (this folder + every sub-folder)
+          and move EVERY document in it to Trash (soft-delete), recoverable
+          until the trash is emptied. This is the behaviour the folder-delete
+          UI uses. Previously this branch relocated only the top folder's
+          direct documents to root and let the FK cascade strand the
+          sub-folders' documents — leaving orphaned sub-folders at the root.
 
         Args:
             user: Deleting user
             folder: Folder to delete
-            move_children_to_parent: If True, reparent child folders to this folder's parent
-                                     If False, cascade delete child folders
+            move_children_to_parent: If True, reparent child folders and move
+                                     this folder's direct documents to root.
+                                     If False, cascade-delete the whole sub-tree
+                                     and move all its documents to Trash.
 
         Returns:
-            (success, error_message).  Returns ``(False, ...)`` if any
-            document in the folder cannot be relocated to root — in that
-            case the entire transaction is rolled back and no changes are
-            persisted.
+            (success, error_message).  Returns ``(False, ...)`` if the
+            operation cannot complete — in that case the entire transaction is
+            rolled back and no changes are persisted.
 
         Side Effects:
-            - Documents in folder have their folder assignment removed (moved to root)
-            - Child folders are either reparented or deleted based on flag
+            - move_children_to_parent=True: this folder's documents move to
+              root; child folders are reparented.
+            - move_children_to_parent=False: every document in the sub-tree is
+              soft-deleted (Trash); the whole folder sub-tree is removed.
 
         Permissions:
             Requires corpus DELETE permission
         """
-        from opencontractserver.documents.models import DocumentPath
-
         # Permission check
         if not folder.corpus.user_can(user, PermissionTypes.DELETE, request=request):
             return (
@@ -772,96 +779,23 @@ class FolderCRUDService(BaseService):
 
         try:
             with transaction.atomic():
-                # Handle child folders
                 if move_children_to_parent:
-                    # Reparent children to this folder's parent
+                    # Reparent direct children, then relocate this folder's
+                    # direct documents to the corpus root. Sub-folders survive.
                     folder.children.update(parent=folder.parent)
-                # else: cascade delete will handle children automatically
+                    cls._relocate_folder_documents_to_root(folder, user)
+                else:
+                    # deleteContents=True: trash every document in the sub-tree
+                    # (this folder + all descendants) BEFORE the cascade delete
+                    # below removes the folders. Trashing first keeps the
+                    # documents restorable from the corpus trash. The returned
+                    # trashed-count is intentionally discarded — folder delete
+                    # reports success/failure, not a document tally.
+                    _ = cls._trash_documents_in_subtree(folder, user)
 
-                # Move documents in folder to root with history tracking.
-                # select_related("document") + of=("self",) match the pattern
-                # in move_documents_to_folder — see that method for the
-                # rationale (N+1 avoidance, scoped row locking).
-                affected_paths = list(
-                    DocumentPath.objects.select_for_update(of=("self",))
-                    .select_related("document")
-                    .filter(
-                        folder=folder,
-                        is_current=True,
-                        is_deleted=False,
-                    )
-                    .order_by("pk")
-                )
-
-                if affected_paths:
-                    corpus = folder.corpus
-                    # Pre-fetch all occupied paths at the corpus root with a
-                    # SINGLE query, replacing the previous per-document
-                    # disambiguate_path fetch.  Because we filter to rows
-                    # whose ``folder=folder`` (not root), none of
-                    # ``affected_paths`` live in the root directory, so no
-                    # per-row exclusion is needed — the shared mutable set
-                    # captures within-batch claims on the fly (issue #1199).
-                    #
-                    # ORDERING INVARIANT: this fetch MUST run before the batch
-                    # ``update(is_current=False)`` below.  We rely on the
-                    # superseded rows still being ``is_current=True`` at fetch
-                    # time so they appear in ``occupied_paths``; the shared
-                    # set is then treated as authoritative by
-                    # ``disambiguate_path(occupied_override=...)``, which
-                    # silently ignores ``exclude_pk``.  Reordering these two
-                    # steps (fetch after deactivate) would cause the batch to
-                    # re-claim its own source paths and produce duplicate
-                    # DocumentPath rows.
-                    occupied_paths = (
-                        CorpusPathService._fetch_occupied_paths_in_directory(
-                            corpus, "/"
-                        )
-                    )
-
-                    planned_paths: list[tuple[DocumentPath, str]] = []
-                    for current in affected_paths:
-                        # Note: _compute_moved_path extracts only the filename;
-                        # intermediate directory segments are dropped (the new
-                        # path is derived from the target folder's tree position).
-                        new_path = CorpusPathService._compute_moved_path(
-                            current.path, None
-                        )
-                        new_path = CorpusPathService.disambiguate_path(
-                            new_path,
-                            corpus,
-                            occupied_override=occupied_paths,
-                        )
-                        occupied_paths.add(new_path)
-                        planned_paths.append((current, new_path))
-
-                    # Execute all relocations in exactly TWO queries instead
-                    # of ~2N individual save/create round-trips.
-                    old_path_pks = [current.pk for current, _ in planned_paths]
-                    DocumentPath.objects.filter(pk__in=old_path_pks).update(
-                        is_current=False
-                    )
-
-                    new_path_rows = [
-                        DocumentPath(
-                            document=current.document,
-                            corpus=corpus,
-                            folder=None,  # Moved to root
-                            path=new_path,
-                            version_number=current.version_number,
-                            parent=current,
-                            is_current=True,
-                            is_deleted=False,
-                            creator=user,
-                        )
-                        for current, new_path in planned_paths
-                    ]
-                    created_paths = DocumentPath.objects.bulk_create(new_path_rows)
-                    CorpusPathService._dispatch_document_path_created_signals(
-                        created_paths
-                    )
-
-                # Delete folder — safe because all documents were relocated.
+                # Delete folder. With move_children_to_parent=False the
+                # self-referential FK cascade removes the whole sub-tree; with
+                # True the (already reparented) children are left in place.
                 folder_id = folder.id
                 folder.delete()
 
@@ -881,6 +815,128 @@ class FolderCRUDService(BaseService):
                 "safe to retry: "
                 f"{exc}"
             )
+
+    @classmethod
+    def _relocate_folder_documents_to_root(
+        cls, folder: CorpusFolder, user: User
+    ) -> None:
+        """Relocate the documents directly in ``folder`` to the corpus root.
+
+        History-tracked (every move creates a successor ``DocumentPath``).
+        Extracted verbatim from ``delete_folder``'s reparent branch; documents
+        in sub-folders are NOT touched (that branch keeps the sub-folders, so
+        their documents stay where they are). Runs inside the caller's
+        ``transaction.atomic()``.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        # select_related("document") + of=("self",) match the pattern in
+        # move_documents_to_folder — N+1 avoidance + scoped row locking.
+        affected_paths = list(
+            DocumentPath.objects.select_for_update(of=("self",))
+            .select_related("document")
+            .filter(folder=folder, is_current=True, is_deleted=False)
+            .order_by("pk")
+        )
+        if not affected_paths:
+            return
+
+        corpus = folder.corpus
+        # Pre-fetch all occupied paths at the corpus root with a SINGLE query.
+        # Because we filter to rows whose ``folder=folder`` (not root), none of
+        # ``affected_paths`` live in the root directory, so the shared mutable
+        # set captures within-batch claims on the fly (issue #1199).
+        #
+        # ORDERING INVARIANT: this fetch MUST run before the batch
+        # ``update(is_current=False)`` below so the superseded rows still count
+        # as occupied; reordering would let the batch re-claim its own source
+        # paths and produce duplicate DocumentPath rows.
+        occupied_paths = CorpusPathService._fetch_occupied_paths_in_directory(
+            corpus, "/"
+        )
+
+        planned_paths: list[tuple[DocumentPath, str]] = []
+        for current in affected_paths:
+            # _compute_moved_path extracts only the filename; intermediate
+            # directory segments are dropped (root has no folder prefix).
+            new_path = CorpusPathService._compute_moved_path(current.path, None)
+            new_path = CorpusPathService.disambiguate_path(
+                new_path, corpus, occupied_override=occupied_paths
+            )
+            occupied_paths.add(new_path)
+            planned_paths.append((current, new_path))
+
+        # Execute all relocations in exactly TWO queries.
+        old_path_pks = [current.pk for current, _ in planned_paths]
+        DocumentPath.objects.filter(pk__in=old_path_pks).update(is_current=False)
+
+        new_path_rows = [
+            DocumentPath(
+                document=current.document,
+                corpus=corpus,
+                folder=None,  # Moved to root
+                path=new_path,
+                version_number=current.version_number,
+                parent=current,
+                is_current=True,
+                is_deleted=False,
+                creator=user,
+            )
+            for current, new_path in planned_paths
+        ]
+        created_paths = DocumentPath.objects.bulk_create(new_path_rows)
+        CorpusPathService._dispatch_document_path_created_signals(created_paths)
+
+    @classmethod
+    def _trash_documents_in_subtree(cls, folder: CorpusFolder, user: User) -> int:
+        """Soft-delete (move to Trash) every active document in ``folder`` and
+        all of its descendant folders.
+
+        Reuses ``Corpus.remove_document`` — the same soft-delete primitive the
+        'Remove from corpus' action uses — so each trashed document gets an
+        identical history node + signals and stays restorable. Runs inside the
+        caller's ``transaction.atomic()``; the caller deletes the folder
+        sub-tree afterwards, at which point the soft-deleted paths' ``folder``
+        FK is SET_NULL (matching how a document trashed from the root has no
+        folder). Returns the number of documents trashed.
+        """
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        corpus = folder.corpus
+        # Materialise the descendant folder ids (a small, bounded set) rather
+        # than feeding the tree-queries CTE queryset into ``folder_id__in`` as a
+        # sub-query — keeps the document lookup a plain ``IN (...)``.
+        # NOTE: ``get_descendant_folders()`` is ``descendants(include_self=True)``,
+        # so ``folder`` itself is in this list — documents sitting directly in the
+        # folder being deleted are trashed too (not just those in sub-folders).
+        descendant_folder_ids = list(
+            folder.get_descendant_folders().values_list("id", flat=True)
+        )
+        doc_ids = list(
+            DocumentPath.objects.filter(
+                corpus=corpus,
+                folder_id__in=descendant_folder_ids,
+                is_current=True,
+                is_deleted=False,
+            )
+            .values_list("document_id", flat=True)
+            .distinct()
+        )
+
+        trashed = 0
+        # TODO(perf, deferred): batch this for large corpora —
+        # ``remove_document`` issues several queries per document (history row,
+        # signals, path update) and holds row locks inside the caller's
+        # transaction, so a very large sub-tree can hit the DB statement timeout.
+        # Same per-document-loop pattern as ``DocumentLifecycleService.empty_corpus``
+        # and the legacy "empty trash" path; all three want one shared bulk-trash
+        # primitive (tracked in issue #1951). Fine for typical folder sizes;
+        # batch via that primitive before raising the sub-tree document-count
+        # ceiling.
+        for document in Document.objects.filter(pk__in=doc_ids):
+            if corpus.remove_document(document=document, user=user):
+                trashed += 1
+        return trashed
 
     @classmethod
     def get_folder_path(

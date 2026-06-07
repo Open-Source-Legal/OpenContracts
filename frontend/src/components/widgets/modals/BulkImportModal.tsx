@@ -43,6 +43,7 @@ import {
   showBulkImportModal,
   selectedFolderId as selectedFolderIdVar,
 } from "../../../graphql/cache";
+import { evictCorpusDocumentCaches } from "../../../graphql/cacheEvictions";
 import { folderCorpusIdAtom } from "../../../atoms/folderAtoms";
 import { useAtomValue } from "jotai";
 import { importZipToCorpusMultipart } from "../../../utils/importHttp";
@@ -196,11 +197,9 @@ export const BulkImportModal: React.FC = () => {
       });
 
       if (result.ok) {
-        // Match the previous GraphQL ``update(cache)`` semantics — evict
-        // the document and folder list fields so the next read refetches.
-        apolloClient.cache.evict({ fieldName: "documents" });
-        apolloClient.cache.evict({ fieldName: "corpusFolders" });
-        apolloClient.cache.gc();
+        // Evict the document list, folder tree (sidebar doc counts), Select-All
+        // id list, and trash view so the next read refetches with the imports.
+        evictCorpusDocumentCaches(apolloClient.cache);
 
         setUploadProgress(100);
         toast.success(`Import started! Job ID: ${result.job_id}`);

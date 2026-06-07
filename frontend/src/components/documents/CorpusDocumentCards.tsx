@@ -22,9 +22,10 @@ import {
   openedCorpus,
   selectedFolderId,
   linkDocumentsModalState,
-  currentViewDocumentIds,
+  currentViewTotalDocumentCount,
   documentsLoading as documentsLoadingVar,
 } from "../../graphql/cache";
+import { evictCorpusDocumentCaches } from "../../graphql/cacheEvictions";
 import {
   GET_CORPUS_FOLDERS,
   GetCorpusFoldersInputs,
@@ -139,7 +140,6 @@ export const CorpusDocumentCards = ({
   };
 
   const {
-    refetch: refetchDocuments,
     loading: documents_loading,
     networkStatus: documents_network_status,
     error: documents_error,
@@ -201,9 +201,9 @@ export const CorpusDocumentCards = ({
     RemoveDocumentsFromCorpusOutputs,
     RemoveDocumentsFromCorpusInputs
   >(REMOVE_DOCUMENTS_FROM_CORPUS, {
-    onCompleted: () => {
-      refetchDocuments();
-    },
+    // Evict the document list, folder tree (sidebar doc counts), Select-All id
+    // list, and trash view so all of them refetch after a per-card removal.
+    update: (cache) => evictCorpusDocumentCaches(cache),
   });
 
   // Note: moveDocumentToFolder mutation is now handled by FolderDocumentBrowser
@@ -213,10 +213,7 @@ export const CorpusDocumentCards = ({
   // Query to shape item data
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // Memoize on the stable Apollo edges reference so identity only changes
-  // when the query result itself changes. Without this, .map().filter()
-  // produced a fresh array every render, which made the [document_items]
-  // effect below fire its cleanup-then-set cycle on every render and
-  // thrash the currentViewDocumentIds reactive var.
+  // when the query result itself changes.
   const document_items = useMemo<DocumentType[]>(() => {
     const edges = documents_response?.documents?.edges ?? [];
     return edges
@@ -224,45 +221,25 @@ export const CorpusDocumentCards = ({
       .filter((item): item is DocumentType => !!item);
   }, [documents_response?.documents?.edges]);
 
-  // Memoize the id array on the same input as document_items so we can hand
-  // it to the reactive var without re-deriving on every render.
-  const document_ids = useMemo(
-    () => document_items.map((doc) => doc.id),
-    [document_items]
-  );
-
-  // Stable, primitive key derived from the ids so the effect only re-runs
-  // when the actual id set changes (not just the array reference). We use the
-  // joined string purely as the dep key — the effect body reads the array
-  // directly so we don't have to rely on ids being comma-free.
-  const document_ids_key = useMemo(
-    () => document_ids.join(","),
-    [document_ids]
-  );
-
-  // Update the global reactive var with current view document IDs for toolbar's Select All functionality.
-  // CRITICAL: Do NOT return a cleanup that resets the var here. Returning
-  // `() => currentViewDocumentIds([])` from this effect makes every
-  // dep change fire two writes (cleanup → []  then  body → new ids),
-  // which re-renders every subscriber twice per change. Worse, subscribers
-  // (e.g. FolderDocumentBrowser via useReactiveVar) re-render this
-  // component, and any reference instability in the dep used to feed an
-  // infinite reload loop. Only write when the value actually changed,
-  // and put the unmount-only reset in a separate `[]`-deps effect below.
+  // Publish the TOTAL number of documents matching the current view filters
+  // (the connection's totalCount, NOT just the loaded page) so the toolbar can
+  // show "X of N" and drive the all-selected state. "Select All" itself fetches
+  // the full id set on demand via GET_CORPUS_DOCUMENT_IDS, so the count here is
+  // all the toolbar needs from this component.
+  //
+  // Under cache-and-network Apollo keeps the previous `data` during a refetch,
+  // so totalCount stays stable instead of flickering to 0. Only write when the
+  // value actually changes; reset to 0 on unmount via a separate []-deps effect
+  // (returning a cleanup from the main effect would double-write per change).
+  const total_document_count = documents_response?.documents?.totalCount ?? 0;
   useEffect(() => {
-    const current = currentViewDocumentIds();
-    const next = document_ids;
-    if (
-      current.length !== next.length ||
-      current.some((id, i) => id !== next[i])
-    ) {
-      currentViewDocumentIds(next);
+    if (currentViewTotalDocumentCount() !== total_document_count) {
+      currentViewTotalDocumentCount(total_document_count);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document_ids_key]);
+  }, [total_document_count]);
   useEffect(
     () => () => {
-      currentViewDocumentIds([]);
+      currentViewTotalDocumentCount(0);
     },
     []
   );

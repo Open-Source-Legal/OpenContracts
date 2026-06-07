@@ -496,8 +496,8 @@ class TestReingestRemapEndToEnd(TransactionTestCase):
             "application/pdf": _DUMB_ANCHOR_PDF_PARSER_PATH,
         }
         ps.save()
-        PipelineSettings._invalidate_cache()
-        self.addCleanup(PipelineSettings._invalidate_cache)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
 
     def setUp(self):
         self.pdf_bytes = SAMPLE_PDF_FILE_ONE_PATH.read_bytes()

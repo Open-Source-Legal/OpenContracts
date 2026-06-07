@@ -18,6 +18,7 @@ to create mock Settings for testing.
 """
 
 import sys
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -28,6 +29,7 @@ from django.test import TestCase
 
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.parsers.llamaparse_parser import LlamaParseParser
+from opencontractserver.types.dicts import BoundingBoxPythonType, TokenIdPythonType
 from opencontractserver.utils.pdf_token_extraction import find_image_tokens_in_bounds
 
 User = get_user_model()
@@ -503,7 +505,8 @@ class TestLlamaParseParserBboxConversion(TestCase):
         bbox = [0.1, 0.2, 0.9, 0.3]
         tokens, bounds = self.parser._create_pawls_tokens_from_bbox(
             text="array format test",
-            bbox=bbox,
+            # array format: the parser also accepts list bbox at runtime
+            bbox=bbox,  # type: ignore[arg-type]
             page_width=612,
             page_height=792,
             start_token_idx=0,
@@ -604,7 +607,12 @@ class TestLlamaParseParserAnnotations(TestCase):
 
     def test_create_annotation_structure_without_tokens(self):
         """Test annotation creation has correct structure without token refs."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 150}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 150,
+        }
 
         annotation = self.parser._create_annotation(
             annotation_id="anno-1",
@@ -625,7 +633,7 @@ class TestLlamaParseParserAnnotations(TestCase):
 
         # Check annotation_json structure
         self.assertIn("0", annotation["annotation_json"])
-        page_anno = annotation["annotation_json"]["0"]
+        page_anno = cast(dict, annotation["annotation_json"])["0"]
         self.assertEqual(page_anno["bounds"], bounds)
         self.assertEqual(page_anno["rawText"], "Sample Title")
         # tokensJsons is empty when no token_refs provided
@@ -633,8 +641,13 @@ class TestLlamaParseParserAnnotations(TestCase):
 
     def test_create_annotation_structure_with_tokens(self):
         """Test annotation creation with token references."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 150}
-        token_refs = [
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 150,
+        }
+        token_refs: list[TokenIdPythonType] = [
             {"pageIndex": 0, "tokenIndex": 0},
             {"pageIndex": 0, "tokenIndex": 1},
             {"pageIndex": 0, "tokenIndex": 2},
@@ -650,7 +663,7 @@ class TestLlamaParseParserAnnotations(TestCase):
         )
 
         # Check annotation_json structure includes tokens
-        page_anno = annotation["annotation_json"]["0"]
+        page_anno = cast(dict, annotation["annotation_json"])["0"]
         self.assertEqual(len(page_anno["tokensJsons"]), 3)
         self.assertEqual(page_anno["tokensJsons"][0], {"pageIndex": 0, "tokenIndex": 0})
         self.assertEqual(page_anno["tokensJsons"][2], {"pageIndex": 0, "tokenIndex": 2})
@@ -1082,10 +1095,15 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_overlapping(self):
         """Test that find_image_tokens_in_bounds finds overlapping images."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 300}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 300,
+        }
 
         # Image that overlaps with the bounds
-        page_images = [
+        page_images: list = [
             {"x": 150, "y": 150, "width": 100, "height": 100},  # Overlaps
             {"x": 400, "y": 400, "width": 50, "height": 50},  # No overlap
         ]
@@ -1103,9 +1121,14 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_no_overlap(self):
         """Test that find_image_tokens_in_bounds returns empty when no overlap."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
 
-        page_images = [
+        page_images: list = [
             {"x": 300, "y": 300, "width": 50, "height": 50},  # No overlap
             {"x": 400, "y": 400, "width": 50, "height": 50},  # No overlap
         ]
@@ -1121,7 +1144,12 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_empty_images(self):
         """Test that find_image_tokens_in_bounds handles empty image list."""
-        bounds = {"left": 100, "top": 100, "right": 200, "bottom": 200}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 200,
+            "bottom": 200,
+        }
 
         result = find_image_tokens_in_bounds(
             bounds=bounds,
@@ -1134,9 +1162,14 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_find_images_in_bounds_multiple_overlaps(self):
         """Test that find_image_tokens_in_bounds finds all overlapping images."""
-        bounds = {"left": 50, "top": 50, "right": 400, "bottom": 400}
+        bounds: BoundingBoxPythonType = {
+            "left": 50,
+            "top": 50,
+            "right": 400,
+            "bottom": 400,
+        }
 
-        page_images = [
+        page_images: list = [
             {"x": 100, "y": 100, "width": 100, "height": 100},  # Overlaps
             {"x": 250, "y": 250, "width": 100, "height": 100},  # Overlaps
             {"x": 500, "y": 500, "width": 50, "height": 50},  # No overlap
@@ -1156,8 +1189,13 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_create_annotation_with_image_tokens(self):
         """Test annotation creation with image token references."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 300}
-        token_refs = [
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 300,
+        }
+        token_refs: list[TokenIdPythonType] = [
             {"pageIndex": 0, "tokenIndex": 5},  # Image token
         ]
 
@@ -1179,8 +1217,13 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_create_annotation_with_text_and_image_tokens(self):
         """Test annotation creation with both text and image tokens."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 300}
-        token_refs = [
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 300,
+        }
+        token_refs: list[TokenIdPythonType] = [
             {"pageIndex": 0, "tokenIndex": 0},  # Text token
             {"pageIndex": 0, "tokenIndex": 1},  # Text token
             {"pageIndex": 0, "tokenIndex": 10},  # Image token
@@ -1204,7 +1247,12 @@ class TestLlamaParseParserImageExtraction(TestCase):
 
     def test_create_annotation_without_modalities(self):
         """Test annotation creation without modalities flag."""
-        bounds = {"left": 100, "top": 100, "right": 300, "bottom": 150}
+        bounds: BoundingBoxPythonType = {
+            "left": 100,
+            "top": 100,
+            "right": 300,
+            "bottom": 150,
+        }
 
         annotation = self.parser._create_annotation(
             annotation_id="text-1",

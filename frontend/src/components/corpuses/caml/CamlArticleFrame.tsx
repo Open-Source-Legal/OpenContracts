@@ -65,6 +65,21 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
   article > section {
     max-width: ${CORPUS_BREAKPOINTS.readingMeasure}px;
     margin-inline: auto;
+
+    /* Neutralize the library's full-bleed dark/gradient padding so it cannot
+       collapse the content column. @os-legal/caml-react styles theme:dark /
+       gradient chapters full-bleed via "max-width: 100%" + "padding: 3rem
+       calc((100% - 720px) / 2 + 2rem)", where the percentage resolves against
+       the (wider) article width W, not the section. Capping the section to
+       readingMeasure above leaves that padding intact, so the content box works
+       out to ~(2*readingMeasure - W): for any viewport wider than ~readingMeasure
+       it shrinks, and around W ~ 1300px it collapses to a single word per line
+       (and CTA buttons wrap mid-word, e.g. "Contact" / "Us"). A flat gutter that
+       matches the light-chapter measure keeps dark/gradient chapters as centered
+       boxes instead. The mobile @media block below overrides this with
+       safe-area-aware gutters. */
+    padding-left: ${CORPUS_SPACING[6]};
+    padding-right: ${CORPUS_SPACING[6]};
   }
 
   article > section p {

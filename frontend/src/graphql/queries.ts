@@ -45,6 +45,7 @@ export interface RequestDocumentsOutputs {
   documents: {
     edges: DocumentTypeEdge[];
     pageInfo: PageInfo;
+    totalCount: number;
   };
 }
 
@@ -122,7 +123,51 @@ export const GET_DOCUMENTS = gql`
         startCursor
         endCursor
       }
+      totalCount
     }
+  }
+`;
+
+/**
+ * GET_CORPUS_DOCUMENT_IDS
+ *
+ * Returns the global IDs of EVERY document matching the corpus/folder/search
+ * filters, ignoring pagination. Used by the document grid's "Select All" so a
+ * bulk remove acts on every matching document — not just the page the
+ * virtualized list happens to have loaded. The variables mirror the filter
+ * subset of GET_DOCUMENTS so the id set always matches the visible list under
+ * identical filters (the folder filter is descendant-aware).
+ */
+export interface CorpusDocumentIdsInputs {
+  inCorpusWithId: string;
+  inFolderId?: string;
+  textSearch?: string;
+  hasLabelWithId?: string;
+  hasAnnotationsWithIds?: string;
+  includeCaml?: boolean;
+}
+
+export interface CorpusDocumentIdsOutputs {
+  corpusDocumentIds: string[];
+}
+
+export const GET_CORPUS_DOCUMENT_IDS = gql`
+  query GetCorpusDocumentIds(
+    $inCorpusWithId: String!
+    $inFolderId: String
+    $textSearch: String
+    $hasLabelWithId: String
+    $hasAnnotationsWithIds: String
+    $includeCaml: Boolean
+  ) {
+    corpusDocumentIds(
+      inCorpusWithId: $inCorpusWithId
+      inFolderId: $inFolderId
+      textSearch: $textSearch
+      hasLabelWithId: $hasLabelWithId
+      hasAnnotationsWithIds: $hasAnnotationsWithIds
+      includeCaml: $includeCaml
+    )
   }
 `;
 

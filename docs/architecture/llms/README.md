@@ -2868,6 +2868,8 @@ Resolution is **DB-wins / env-fallback**, applied by [`opencontractserver/llms/m
 
 Any failure to build a credentialed model degrades to the env-fallback string, so a misconfiguration can never take the chat path down. The factory is invoked at every `make_pydantic_ai_agent` call site (document, corpus, and structured-output agents, plus the memory-curation tasks); it performs ORM access, so async call sites use the `abuild_agent_model()` wrapper.
 
+Because the factory runs on every agent build, the resolved per-provider credentials are memoized in-process keyed on `(class_path, PipelineSettings.modified)` — the same cache key the reranker/embedder instance caches use. This skips the Fernet/PBKDF2 secret decryption on repeat builds while keeping rotation live: a superuser key change calls `PipelineSettings.save()`, which bumps `modified` and clears the singleton cache, so the next build misses the memo and re-decrypts (no redeploy, no staleness beyond the existing 5-minute `PipelineSettings` cache TTL). An out-of-band write that bypasses `save()` (e.g. `QuerySet.update`) should call `invalidate_credential_cache()`.
+
 ### Validation
 
 `Corpus.save()` and `AgentConfiguration.save()` both run the resolver's `validate_model_spec()` — a malformed string or a provider with no registered `BaseLLMProvider` subclass raises `ValidationError({"preferred_llm": ...})`. The validator does not gate against `supported_models` so users aren't blocked from passing newly-released model names. Specs are normalised to canonical `"{provider}:{model}"` form on the way into the database.

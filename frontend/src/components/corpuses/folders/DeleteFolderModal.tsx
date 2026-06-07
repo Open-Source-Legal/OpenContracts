@@ -23,8 +23,8 @@ import {
   DELETE_CORPUS_FOLDER,
   DeleteCorpusFolderInputs,
   DeleteCorpusFolderOutputs,
-  GET_CORPUS_FOLDERS,
 } from "../../../graphql/queries/folders";
+import { evictCorpusDocumentCaches } from "../../../graphql/cacheEvictions";
 import { ErrorMessage } from "../../widgets/feedback";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
@@ -33,10 +33,10 @@ import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
  *
  * Features:
  * - Shows warning about subfolder and document counts
- * - Warns that documents will be moved to parent (or corpus root)
+ * - Warns that the sub-tree is removed and its documents move to Trash
  * - Requires explicit confirmation
  * - Clears selection if deleted folder was selected
- * - Optimistic update + refetch
+ * - Cache eviction drives the refetch (no optimistic local-state edit)
  */
 
 const StyledModalWrapper = styled.div`
@@ -129,7 +129,6 @@ export const DeleteFolderModal: React.FC = () => {
   const folderList = useAtomValue(folderListAtom);
   const selectedFolderId = useAtomValue(selectedFolderIdAtom);
   const corpusId = useAtomValue(folderCorpusIdAtom);
-  const setFolderList = useSetAtom(folderListAtom);
   const setSelectedFolderId = useSetAtom(selectedFolderIdAtom);
   const closeAllModals = useSetAtom(closeAllFolderModalsAtom);
 
@@ -139,28 +138,28 @@ export const DeleteFolderModal: React.FC = () => {
     DeleteCorpusFolderOutputs,
     DeleteCorpusFolderInputs
   >(DELETE_CORPUS_FOLDER, {
+    // Deleting a folder now cascades: the whole sub-tree is removed and its
+    // documents move to Trash. Evict the document list, folder tree (sidebar
+    // counts), Select-All id list, and trash view so all refetch with fresh
+    // data. Replaces the old single GET_CORPUS_FOLDERS refetch, which left the
+    // document grid and trash stale.
+    update: (cache) => evictCorpusDocumentCaches(cache),
     onCompleted: () => {
-      // Remove folder from local cache
-      if (folder) {
-        setFolderList(folderList.filter((f) => f.id !== folder.id));
-
-        // If deleted folder was selected, clear selection
-        if (selectedFolderId === folder.id) {
-          setSelectedFolderId(null);
-        }
+      // Deleting a folder now cascade-removes its entire sub-tree, so a local
+      // ``folderList.filter(id !== folder.id)`` would only drop the top folder
+      // and leave its (also-deleted) child folders lingering in the sidebar
+      // until the refetch lands. Drop the optimistic local-state edit entirely
+      // and let the ``corpusFolders`` cache eviction above re-drive the sidebar
+      // from fresh server data.
+      if (folder && selectedFolderId === folder.id) {
+        // The selected folder was just deleted — clear the selection so we
+        // don't keep pointing at a folder that no longer exists.
+        setSelectedFolderId(null);
       }
 
       // Close modal
       handleClose();
     },
-    refetchQueries: corpusId
-      ? [
-          {
-            query: GET_CORPUS_FOLDERS,
-            variables: { corpusId },
-          },
-        ]
-      : [],
   });
 
   const handleClose = useCallback(() => {
@@ -173,6 +172,9 @@ export const DeleteFolderModal: React.FC = () => {
     deleteFolder({
       variables: {
         folderId: folder.id,
+        // Cascade: remove the whole sub-tree and move its documents to Trash
+        // (recoverable) instead of stranding sub-folders at the corpus root.
+        deleteContents: true,
       },
     });
   }, [folder, deleteFolder]);
@@ -185,8 +187,6 @@ export const DeleteFolderModal: React.FC = () => {
   const documentCount = folder.documentCount || 0;
   const descendantDocCount = folder.descendantDocumentCount || 0;
 
-  const parentName = folder.parent ? folder.parent.name : "Corpus Root";
-
   return (
     <StyledModalWrapper>
       <Modal open={showModal} onClose={handleClose} size="sm">
@@ -196,29 +196,30 @@ export const DeleteFolderModal: React.FC = () => {
           <WarningBox>
             <WarningIcon size={24} />
             <WarningContent>
-              <h4>This action cannot be undone</h4>
+              <h4>Delete folder and move its contents to Trash</h4>
               <p>
-                You are about to permanently delete the folder{" "}
-                <strong>"{folder.name}"</strong>.
+                You are about to delete the folder{" "}
+                <strong>"{folder.name}"</strong> and all of its subfolders.
               </p>
-              {(childCount > 0 || documentCount > 0) && (
-                <ul>
-                  {childCount > 0 && (
-                    <li>
-                      <strong>{childCount}</strong> subfolder
-                      {childCount !== 1 ? "s" : ""} will be moved to{" "}
-                      <strong>{parentName}</strong>
-                    </li>
-                  )}
-                  {documentCount > 0 && (
-                    <li>
-                      <strong>{documentCount}</strong> document
-                      {documentCount !== 1 ? "s" : ""} will be moved to{" "}
-                      <strong>{parentName}</strong>
-                    </li>
-                  )}
-                </ul>
-              )}
+              <ul>
+                {childCount > 0 && (
+                  <li>
+                    <strong>{childCount}</strong> subfolder
+                    {childCount !== 1 ? "s" : ""} (and any nested below) will be
+                    removed
+                  </li>
+                )}
+                {descendantDocCount > 0 ? (
+                  <li>
+                    <strong>{descendantDocCount}</strong> document
+                    {descendantDocCount !== 1 ? "s" : ""} in this folder and its
+                    subfolders will be moved to <strong>Trash</strong> — you can
+                    restore them until you empty the trash
+                  </li>
+                ) : (
+                  <li>The folder structure will be removed</li>
+                )}
+              </ul>
             </WarningContent>
           </WarningBox>
 

@@ -33,8 +33,8 @@ import {
   UploadDocumentInputProps,
   UploadDocumentOutputProps,
 } from "../../graphql/mutations";
-import { parseCaml } from "@os-legal/caml";
 import { CamlArticle, CamlThemeProvider } from "@os-legal/caml-react";
+import { parseCamlArticle } from "./caml/normalizeCamlSource";
 import { useCamlComponentRenderer } from "../../hooks/useCamlComponentRenderer";
 import { buildComponentProseFence } from "../../utils/camlComponents";
 import { CAML_COMPONENTS } from "../../utils/camlComponentRegistry";
@@ -466,7 +466,7 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
   // Parse content for preview
   const parsedDocument = useMemo(() => {
     try {
-      return parseCaml(content);
+      return parseCamlArticle(content);
     } catch {
       return null;
     }

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from opencontractserver.constants.document_processing import MAX_FILENAME_LENGTH
 from opencontractserver.shared.db_utils import table_has_column
 from opencontractserver.shared.defaults import (
     create_model_icon_path,
@@ -25,7 +26,10 @@ from opencontractserver.shared.slug_utils import (
     sanitize_slug,
     validate_user_slug_or_raise,
 )
-from opencontractserver.shared.utils import calc_oc_file_path
+from opencontractserver.shared.utils import (
+    calc_oc_file_path,
+    sanitize_corpus_filename,
+)
 
 
 class TestDefaultFunctions(TestCase):
@@ -322,6 +326,65 @@ class TestCalcOcFilePath(TestCase):
         mock_instance = MagicMock()
         result = calc_oc_file_path(mock_instance, "abc-123-def.pdf", "exports")
         self.assertEqual(result, "uploadfiles/exports/abc-123-def.pdf")
+
+
+class TestSanitizeCorpusFilename(TestCase):
+    """Direct unit tests for shared/utils.py sanitize_corpus_filename.
+
+    This is the canonical sanitiser for the filename segment of a
+    ``DocumentPath.path`` (shared by ``Corpus.add_document``, the text-import
+    tool and ``FolderDocumentService.rename_document``). It is exercised
+    indirectly through the rename integration paths, but its invariants —
+    fallback on empty, special-chars-to-underscore, no directory traversal,
+    truncation, and leading-dot preservation — deserve an explicit test.
+    """
+
+    def test_allowed_chars_pass_through(self):
+        # Alphanumerics plus -, _ and . survive unchanged.
+        self.assertEqual(
+            sanitize_corpus_filename("Report-v2_final.pdf"), "Report-v2_final.pdf"
+        )
+
+    def test_empty_input_uses_fallback(self):
+        self.assertEqual(sanitize_corpus_filename(""), "untitled")
+
+    def test_none_input_uses_fallback(self):
+        # ``(name or "")`` coerces None before slicing, so None -> fallback too.
+        self.assertEqual(sanitize_corpus_filename(None), "untitled")
+
+    def test_custom_fallback(self):
+        self.assertEqual(sanitize_corpus_filename("", fallback="doc"), "doc")
+
+    def test_all_special_chars_become_underscores(self):
+        # Disallowed chars are replaced (never dropped), so an all-special name
+        # yields underscores, not the fallback.
+        self.assertEqual(sanitize_corpus_filename("!!!!"), "____")
+
+    def test_path_separators_collapse_to_underscore(self):
+        # Slashes (fwd and back) map to "_" so a sanitised name can never
+        # traverse directories.
+        self.assertEqual(sanitize_corpus_filename("a/b\\c"), "a_b_c")
+
+    def test_runs_are_not_collapsed(self):
+        # Each disallowed char maps to its own underscore (documented: runs are
+        # intentionally NOT collapsed to a single separator).
+        self.assertEqual(sanitize_corpus_filename("My  File"), "My__File")
+
+    def test_leading_dot_preserved(self):
+        # A leading dot is an allowed char, so dotfiles keep their dot.
+        self.assertEqual(sanitize_corpus_filename(".gitignore"), ".gitignore")
+
+    def test_truncated_to_max_length(self):
+        result = sanitize_corpus_filename("a" * (MAX_FILENAME_LENGTH + 50))
+        self.assertEqual(len(result), MAX_FILENAME_LENGTH)
+        self.assertEqual(result, "a" * MAX_FILENAME_LENGTH)
+
+    def test_truncation_happens_before_sanitisation(self):
+        # The raw input is sliced to MAX_FILENAME_LENGTH first, then each
+        # surviving char is mapped — so an over-long all-special string yields
+        # exactly MAX_FILENAME_LENGTH underscores, not more.
+        result = sanitize_corpus_filename("*" * (MAX_FILENAME_LENGTH + 10))
+        self.assertEqual(result, "_" * MAX_FILENAME_LENGTH)
 
 
 class TestVectorSearchMixinDimensionMapping(TestCase):

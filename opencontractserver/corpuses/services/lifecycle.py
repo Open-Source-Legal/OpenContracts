@@ -346,3 +346,88 @@ class DocumentLifecycleService(BaseService):
             return deleted_count, error_msg
 
         return deleted_count, ""
+
+    @classmethod
+    def empty_corpus(
+        cls,
+        user: User,
+        corpus: Corpus,
+        *,
+        request: Any = None,
+    ) -> tuple[int, str]:
+        """
+        Move EVERY document in a corpus to Trash and remove ALL of its folders.
+
+        This is the "empty everything" action: it resets the corpus back to an
+        empty root in a single step. Documents are *soft-deleted* (they land in
+        the trash and stay restorable until the trash is emptied), while the
+        folder tree is hard-removed (folders are not versioned). It does NOT
+        permanently delete anything — call :meth:`empty_trash` afterwards for
+        that.
+
+        Reuses ``Corpus.remove_document`` per document — the same soft-delete
+        primitive 'Remove from corpus' uses — so trashed documents get
+        identical history nodes + signals and remain restorable.
+
+        Args:
+            user: User performing the operation
+            corpus: Corpus to empty
+
+        Returns:
+            (trashed_count, error_message) — ``trashed_count`` is the number of
+            documents moved to trash. ``error_message`` is empty on success.
+
+        Permissions:
+            Requires corpus DELETE permission
+        """
+        from opencontractserver.corpuses.models import CorpusFolder
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        # Permission check
+        if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
+            return (
+                0,
+                "Permission denied: You do not have delete access to this corpus",
+            )
+
+        with transaction.atomic():
+            # Every document with an active, non-deleted path in the corpus
+            # (root or any folder, including CAML articles) is in scope.
+            doc_ids = list(
+                DocumentPath.objects.filter(
+                    corpus=corpus,
+                    is_current=True,
+                    is_deleted=False,
+                )
+                .values_list("document_id", flat=True)
+                .distinct()
+            )
+
+            trashed = 0
+            # TODO(perf, deferred): batch this for large corpora —
+            # ``remove_document`` issues several queries per document (history
+            # row, signals, path update) and holds row locks for the whole loop
+            # inside this single transaction, so a multi-thousand-document
+            # corpus can hit the DB statement/connection timeout. This is the
+            # same per-document-loop pattern as the legacy "empty trash" path
+            # and ``FolderCRUDService._trash_documents_in_subtree`` (folder
+            # cascade-delete); all three want one shared bulk-trash primitive
+            # (tracked in issue #1951). Fine for typical corpus sizes; batch via
+            # that primitive before raising the interactive document-count ceiling.
+            for document in Document.objects.filter(pk__in=doc_ids):
+                if corpus.remove_document(document=document, user=user):
+                    trashed += 1
+
+            # Remove the whole folder tree; the just-trashed paths' folder FK is
+            # SET_NULL by this delete, so the trashed documents simply show no
+            # original folder (consistent with a document trashed from root).
+            CorpusFolder.objects.filter(corpus=corpus).delete()
+
+        logger.info(
+            "Emptied corpus %s: trashed %s document(s) and removed all folders "
+            "by user %s",
+            corpus.id,
+            trashed,
+            user.id,
+        )
+        return trashed, ""
