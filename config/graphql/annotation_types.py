@@ -28,6 +28,17 @@ from opencontractserver.shared.services.base import BaseService
 from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 
+def _get_document_type() -> Any:
+    """Lazy ``DocumentType`` accessor.
+
+    ``document_types`` imports ``annotation_types`` at module load, so a
+    top-level import here would be circular. Resolved at schema-build time.
+    """
+    from config.graphql.document_types import DocumentType
+
+    return DocumentType
+
+
 class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = Relationship
@@ -70,6 +81,24 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     content_modalities = graphene.List(
         graphene.String,
         description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
+    )
+    # ``document`` is declared explicitly (rather than relying on graphene-django's
+    # auto-generated FK field) so ``resolve_document`` below is ALWAYS invoked.
+    # graphene-django's FK resolver short-circuits to ``None`` whenever the raw
+    # ``document_id`` column is NULL (``converter.py`` reads ``root.document_id``
+    # then ``get_node(None)`` → ``None``) — which is EVERY structural annotation,
+    # since those carry ``document_id=NULL`` and reach their document only via the
+    # shared ``structural_set``. Without this explicit field the resolver never
+    # runs for structural annotations and the corpus cards render "Unknown
+    # Document". Lazy type ref avoids the annotation_types ↔ document_types
+    # import cycle (document_types imports annotation_types).
+    document = graphene.Field(
+        lambda: _get_document_type(),
+        description=(
+            "The document this annotation belongs to. Structural annotations "
+            "(document_id=NULL) resolve it via the shared structural set, scoped "
+            "to the queried corpus by AnnotationService.structural_document_prefetch."
+        ),
     )
 
     def resolve_document(self, info) -> Any:
