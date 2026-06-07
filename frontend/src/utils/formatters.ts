@@ -18,6 +18,19 @@ export function formatFileSize(bytes?: number | null): string {
   return `${(bytes / FILE_SIZE.BYTES_PER_MB).toFixed(1)} MB`;
 }
 
+/** Formats an elapsed duration in seconds as e.g. "850ms"/"4.2s"/"3m 5s"/"1h 2m", or "—". */
+export function formatDuration(seconds?: number | null): string {
+  if (seconds == null) return "—";
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const totalMinutes = Math.floor(seconds / 60);
+  const remSeconds = Math.round(seconds % 60);
+  if (totalMinutes < 60) return `${totalMinutes}m ${remSeconds}s`;
+  const hours = Math.floor(totalMinutes / 60);
+  const remMinutes = totalMinutes % 60;
+  return `${hours}h ${remMinutes}m`;
+}
+
 /**
  * Formats a document count with a correctly pluralised noun.
  * @param count - The number of documents
@@ -124,6 +137,11 @@ export function formatShortDate(dateString?: string | null): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+/** Formats a date string as a localized date+time, or "—" when empty. */
+export function formatDateTime(value?: string | null): string {
+  return value ? new Date(value).toLocaleString() : "—";
 }
 
 /**

@@ -25,6 +25,16 @@ export const COOKIE_CONSENT_GRID_BREAKPOINT = 720;
 export const BADGE_TABLE_MIN_WIDTH_PX = 600;
 export const AGENT_TABLE_MIN_WIDTH_PX = 720;
 export const WORKER_TABLE_MIN_WIDTH_PX = 760;
+// Ingestion-monitor (admin) tables: the document/worker-queue table is the
+// widest (creator, title, type, size, pages, status, timings) and the
+// import-batch table a touch narrower.
+export const INGESTION_TABLE_MIN_WIDTH_PX = 920;
+export const IMPORT_BATCH_TABLE_MIN_WIDTH_PX = 860;
+
+// Default page size for the admin Ingestion Monitor list queries. Mirrors the
+// backend ADMIN_INGESTION_DEFAULT_PAGE_SIZE so Prev/Next paging lines up with
+// the server's clamping.
+export const INGESTION_MONITOR_PAGE_SIZE = 50;
 
 // Icon defaults
 /** Default pixel size for DynamicIcon width and height */

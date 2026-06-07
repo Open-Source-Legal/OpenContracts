@@ -8,6 +8,7 @@ import {
   Users,
   Upload,
   Tag,
+  Activity,
   LucideIcon,
 } from "lucide-react";
 
@@ -246,6 +247,15 @@ const settingsItems: SettingItem[] = [
     icon: Upload,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.accent} 0%, ${OS_LEGAL_COLORS.accentHover} 100%)`,
     route: "/admin/worker-accounts",
+  },
+  {
+    id: "ingestion-monitor",
+    title: "Ingestion Monitor",
+    description:
+      "Diagnose document ingestion progress and failures, plus bulk and corpus-export import batch stats.",
+    icon: Activity,
+    gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.danger} 0%, ${OS_LEGAL_COLORS.folderIcon} 100%)`,
+    route: "/admin/ingestion",
   },
   {
     id: "corpus-categories",

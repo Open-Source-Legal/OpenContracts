@@ -33,6 +33,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile, File
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models, transaction
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from filetype import filetype
 from graphql_relay import from_global_id
@@ -50,6 +51,7 @@ from opencontractserver.document_imports.models import (
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
+from opencontractserver.shared.services.conventions import ServiceResult
 from opencontractserver.tasks import (
     import_corpus,
     import_zip_with_folder_structure,
@@ -1213,3 +1215,74 @@ def purge_stale_chunked_uploads(
     if purged:
         logger.info("[CHUNKED] Purged %s stale chunked-upload session(s)", purged)
     return purged
+
+
+# Bulk document-zip import kinds surfaced on the admin ingestion monitor.
+# CORPUS_EXPORT is intentionally excluded: corpus-export ZIP re-imports are
+# tracked (with per-document failure counts) via PendingCorpusImport on the
+# admin dashboard, so listing the upload-phase session here too would
+# double-count that flow. DOCUMENT (single-file) is excluded as it is not a
+# "bulk" import.
+ADMIN_BULK_IMPORT_SESSION_KINDS = (
+    ChunkedUploadKind.DOCUMENTS_ZIP,
+    ChunkedUploadKind.ZIP_TO_CORPUS,
+)
+
+
+def list_chunked_sessions_for_admin(
+    user: Any,
+    *,
+    status: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> ServiceResult[tuple[Any, int, int, int]]:
+    """Install-wide bulk document-zip import sessions. **Superuser-only.**
+
+    Diagnostics listing for the admin ingestion monitor: every
+    :class:`ChunkedUploadSession` whose ``kind`` is a bulk document-zip import
+    (``DOCUMENTS_ZIP`` / ``ZIP_TO_CORPUS``), across all users, newest first.
+    Annotated with ``received_size`` / ``received_parts`` (summed from the
+    session's stored parts) so the resolver can render upload progress without
+    an extra round-trip — note these read 0 once a COMPLETED session's parts
+    have been reclaimed.
+
+    The superuser gate is enforced here (defence-in-depth) and the GraphQL
+    resolver also gates before calling. ``status`` (case-insensitive) filters
+    on ``ChunkedUploadStatus``. Returns a ``ServiceResult`` wrapping
+    ``(page_queryset, total_count, effective_limit, effective_offset)`` — the
+    same ``ServiceResult`` shape every other admin-ingestion service uses, so
+    the resolver gates uniformly on ``result.ok`` instead of catching an
+    exception.
+    """
+    from opencontractserver.constants.document_processing import (
+        ADMIN_INGESTION_DEFAULT_PAGE_SIZE,
+        ADMIN_INGESTION_MAX_PAGE_SIZE,
+    )
+    from opencontractserver.shared.services.base import BaseService
+
+    if not getattr(user, "is_superuser", False):
+        return ServiceResult.failure("Superuser privileges required.")
+
+    qs = (
+        ChunkedUploadSession.objects.filter(kind__in=ADMIN_BULK_IMPORT_SESSION_KINDS)
+        .select_related("creator")
+        .annotate(
+            # Coalesce so a session with no parts annotates 0, not NULL —
+            # safe-by-default for any caller that does arithmetic on it.
+            received_size=Coalesce(models.Sum("parts__size"), 0),
+            received_parts=models.Count("parts"),
+        )
+        .order_by("-created")
+    )
+    if status:
+        qs = qs.filter(status=status.upper())
+
+    total_count = qs.count()
+    effective_limit, effective_offset = BaseService.clamp_pagination(
+        limit,
+        offset,
+        default=ADMIN_INGESTION_DEFAULT_PAGE_SIZE,
+        maximum=ADMIN_INGESTION_MAX_PAGE_SIZE,
+    )
+    page = qs[effective_offset : effective_offset + effective_limit]
+    return ServiceResult.success((page, total_count, effective_limit, effective_offset))

@@ -70,6 +70,7 @@ import {
   GlobalAgentManagement,
   SystemSettings,
   WorkerAccountManagement,
+  IngestionMonitor,
   CorpusCategoryManagement,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
@@ -415,6 +416,7 @@ export const App = () => {
             path="/admin/worker-accounts"
             element={<WorkerAccountManagement />}
           />
+          <Route path="/admin/ingestion" element={<IngestionMonitor />} />
           <Route
             path="/admin/corpus-categories"
             element={<CorpusCategoryManagement />}

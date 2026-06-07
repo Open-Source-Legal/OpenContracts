@@ -122,6 +122,21 @@ MAX_UPLOAD_ERROR_MESSAGE_LENGTH = 2000
 WORKER_UPLOADS_QUERY_LIMIT = 100
 
 # ---------------------------------------------------------------------------
+# Admin ingestion / import diagnostics dashboard (superuser-only)
+# ---------------------------------------------------------------------------
+
+# Default page size for the superuser ingestion-monitor GraphQL queries
+# (document ingestion, worker-upload queue, corpus-export imports, bulk
+# document-zip import sessions).
+ADMIN_INGESTION_DEFAULT_PAGE_SIZE = 50
+
+# Hard cap on the page size an admin caller may request. Kept modest because
+# the document and worker-upload rows each issue a per-row storage stat to
+# resolve ``size_bytes`` (a remote HEAD under S3), so an unbounded page would
+# fan out into hundreds of storage round-trips.
+ADMIN_INGESTION_MAX_PAGE_SIZE = 100
+
+# ---------------------------------------------------------------------------
 # Chunked document processing constants
 # ---------------------------------------------------------------------------
 

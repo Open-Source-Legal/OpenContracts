@@ -20,6 +20,7 @@ from config.graphql.extract_queries import (
     ExtractQueryMixin,
     MetadataCompletionStatusType,
 )
+from config.graphql.ingestion_admin_queries import IngestionAdminQueryMixin
 from config.graphql.og_metadata_queries import OGMetadataQueryMixin
 from config.graphql.pipeline_queries import PipelineQueryMixin
 from config.graphql.research_queries import ResearchQueryMixin
@@ -48,6 +49,7 @@ class Query(
     WorkerQueryMixin,
     ResearchQueryMixin,
     StatsQueryMixin,
+    IngestionAdminQueryMixin,
     graphene.ObjectType,
 ):
     if settings.ALLOW_GRAPHQL_DEBUG:
