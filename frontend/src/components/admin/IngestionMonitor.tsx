@@ -276,6 +276,16 @@ const StatusBadge: React.FC<{ status: string | null | undefined }> = ({
 // ---------------------------------------------------------------------------
 
 const Container = styled.div`
+  /* width: 100% (with box-sizing: border-box from index.css) clamps this page to
+     its parent's width. Without it the page is a flex item of the column-direction
+     #AppContainer, whose default align-items: stretch does NOT shrink an item below
+     the intrinsic width of its content — so a wide ScrollableTableWrapper child
+     blew the page out past the viewport. body has overflow-x: hidden, so that
+     overflow was clipped and unreachable: the inner table scroll never engaged
+     because the wrapper itself had grown wider than the screen. max-width still
+     caps + centres the page on desktop. (min-width: 0 does NOT fix this — the
+     overflow is on the flex cross axis, not the main axis.) */
+  width: 100%;
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
