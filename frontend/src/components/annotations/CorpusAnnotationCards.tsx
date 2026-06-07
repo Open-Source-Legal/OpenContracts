@@ -37,6 +37,7 @@ import { ANNOTATION_PAGINATION } from "../../assets/configurations/constants";
 import {
   buildAnnotationClickQueryParams,
   buildBlockRelationshipIdMap,
+  resolveDeepLinkCorpus,
 } from "./corpusAnnotationCardsHelpers";
 
 export const CorpusAnnotationCards = ({
@@ -383,13 +384,12 @@ export const CorpusAnnotationCards = ({
         blockRelationshipIdMap
       );
 
-      // Structural annotations are corpus-agnostic (corpus_id=NULL), so
-      // ``annotation.corpus`` is absent for them. Fall back to the corpus
-      // currently being viewed so the deep link opens the document in the
-      // corpus context (/d/<user>/<corpus>/<doc>) rather than standalone.
+      // Structural annotations are corpus-agnostic (corpus_id=NULL); fall back
+      // to the opened corpus so the deep link opens in-corpus (see
+      // ``resolveDeepLinkCorpus``).
       const url = getDocumentUrl(
         annotation.document,
-        annotation.corpus ?? opened_corpus ?? null,
+        resolveDeepLinkCorpus(annotation.corpus, opened_corpus),
         queryParams
       );
 

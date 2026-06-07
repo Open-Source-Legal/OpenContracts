@@ -42,6 +42,21 @@ export function buildBlockRelationshipIdMap(
 }
 
 /**
+ * Resolve which corpus a card's deep link should open in. Structural
+ * annotations are corpus-agnostic (``corpus_id=NULL``), so
+ * ``annotation.corpus`` is absent for them; fall back to the corpus
+ * currently being viewed so the link opens the document in-corpus
+ * (``/d/<user>/<corpus>/<doc>``) rather than standalone. Returns ``null``
+ * (never ``undefined``) so it slots directly into ``getDocumentUrl``.
+ */
+export function resolveDeepLinkCorpus<C>(
+  annotationCorpus: C | null | undefined,
+  openedCorpus: C | null | undefined
+): C | null {
+  return annotationCorpus ?? openedCorpus ?? null;
+}
+
+/**
  * Build the query-params object passed to ``getDocumentUrl`` for an
  * annotation card click. Includes the analysis id when the annotation
  * was created by one and the containing-block relationship id when the
