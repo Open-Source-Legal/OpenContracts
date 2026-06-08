@@ -285,6 +285,13 @@ class BaseChunkedParser(BaseParser):
             )
 
         # Reassemble
+        # NOTE (Phase 3 — issue #1961): when this is switched to
+        # calculate_page_chunks_with_overlap, the reassembly offset for each
+        # chunk must be its ``core_start``, NOT its parse-range ``start``. With
+        # overlap, the parse range extends backwards into the previous chunk,
+        # but the offset into global page space is core-based. Today ``chunks``
+        # are (start, end) 2-tuples from calculate_page_chunks where
+        # start == core_start, so using ``start`` here is correct.
         page_offsets = [start for (start, _end) in chunks]
         reassembled = _reassemble_chunk_results(chunk_results, page_offsets)
 
