@@ -21,7 +21,6 @@ from typing import ClassVar, Optional, cast
 from django.core.files.storage import default_storage
 from pypdf import PdfReader
 
-from opencontractserver.annotations.compact_json import offset_annotation_json
 from opencontractserver.constants import (
     DEFAULT_CHUNK_RETRY_LIMIT,
     DEFAULT_MAX_CONCURRENT_CHUNKS,
@@ -30,14 +29,18 @@ from opencontractserver.constants import (
     MAX_CHUNK_RETRY_BACKOFF_SECONDS,
 )
 from opencontractserver.documents.models import Document
+from opencontractserver.pipeline.base.chunk_reassembler import (
+    ChunkReassembler,
+)
+from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  back-compat re-export
+    offset_annotation as _offset_annotation,
+)
+from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  back-compat re-export
+    offset_relationship as _offset_relationship,
+)
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.parser import BaseParser
-from opencontractserver.types.dicts import (
-    OpenContractDocExport,
-    OpenContractsAnnotationPythonType,
-    OpenContractsRelationshipPythonType,
-    PawlsPagePythonType,
-)
+from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.utils.pdf_splitting import (
     calculate_page_chunks,
     get_pdf_page_count,
@@ -490,138 +493,10 @@ def _reassemble_chunk_results(
     chunk_results: list[OpenContractDocExport],
     page_offsets: list[int],
 ) -> OpenContractDocExport:
-    """
-    Merge a list of per-chunk ``OpenContractDocExport`` dicts into one.
-
-    For each chunk the function:
-
-    * Offsets ``pawls_file_content[*].page.index`` by the chunk's page offset
-    * Offsets annotation ``page`` fields and ``annotation_json`` page keys
-    * Prefixes annotation and relationship IDs to keep them unique across chunks
-    * Concatenates text content
-
-    Args:
-        chunk_results: Ordered list of chunk results (chunk-local page indices).
-        page_offsets: Parallel list of page offsets (global start page per chunk).
-
-    Returns:
-        A single ``OpenContractDocExport`` with globally-correct page indices.
-    """
+    """Merge per-chunk results into one. Delegates to ChunkReassembler."""
     if not chunk_results:
         raise ValueError("Cannot reassemble empty chunk_results list")
-
-    first = chunk_results[0]
-
-    combined_pawls: list[PawlsPagePythonType] = []
-    combined_annotations: list[OpenContractsAnnotationPythonType] = []
-    combined_relationships: list[OpenContractsRelationshipPythonType] = []
-    combined_content_parts: list[str] = []
-    combined_doc_labels: list[str] = []
-    total_pages = 0
-
-    seen_doc_labels: set[str] = set()
-
-    for chunk_idx, (chunk, offset) in enumerate(zip(chunk_results, page_offsets)):
-        prefix = f"c{chunk_idx}_"
-
-        # -- PAWLs pages --
-        for page_data in chunk.get("pawls_file_content", []):
-            page_info = page_data.get("page", {})
-            page_info["index"] = page_info.get("index", 0) + offset
-            combined_pawls.append(page_data)
-
-        # -- Text content --
-        content = chunk.get("content", "")
-        if content:
-            combined_content_parts.append(content)
-
-        # -- Page count --
-        total_pages += chunk.get("page_count", 0)
-
-        # -- Document labels (deduplicated) --
-        for label in chunk.get("doc_labels", []):
-            if label not in seen_doc_labels:
-                seen_doc_labels.add(label)
-                combined_doc_labels.append(label)
-
-        # -- Annotations --
-        for annotation in chunk.get("labelled_text", []):
-            _offset_annotation(annotation, offset, prefix)
-            combined_annotations.append(annotation)
-
-        # -- Relationships --
-        for relationship in chunk.get("relationships", []):
-            _offset_relationship(relationship, prefix)
-            combined_relationships.append(relationship)
-
-    result: OpenContractDocExport = {
-        "title": first.get("title", ""),
-        "content": "\n".join(combined_content_parts),
-        "description": first.get("description"),
-        "pawls_file_content": combined_pawls,
-        "page_count": total_pages,
-        "doc_labels": combined_doc_labels,
-        "labelled_text": combined_annotations,
-        "relationships": combined_relationships,
-    }
-
-    # Detect and warn about orphaned cross-chunk parent references
-    all_annotation_ids = {a["id"] for a in combined_annotations if a.get("id")}
-    orphaned_count = 0
-    for ann in combined_annotations:
-        pid = ann.get("parent_id")
-        if pid is not None and pid not in all_annotation_ids:
-            orphaned_count += 1
-
-    if orphaned_count > 0:
-        logger.debug(
-            f"Reassembly produced {orphaned_count} orphaned parent_id "
-            f"reference(s). Cross-chunk parent-child relationships cannot "
-            f"be preserved when chunks are parsed independently."
-        )
-
-    return result
-
-
-def _offset_annotation(
-    annotation: OpenContractsAnnotationPythonType,
-    page_offset: int,
-    id_prefix: str,
-) -> None:
-    """Mutate *annotation* in place: offset pages and prefix IDs."""
-    # Offset the primary page field
-    annotation["page"] = annotation.get("page", 0) + page_offset
-
-    # Prefix the annotation ID
-    old_id = annotation.get("id")
-    if old_id is not None:
-        annotation["id"] = f"{id_prefix}{old_id}"
-
-    # Prefix parent_id
-    parent_id = annotation.get("parent_id")
-    if parent_id is not None:
-        annotation["parent_id"] = f"{id_prefix}{parent_id}"
-
-    # Offset annotation_json page keys and token references
-    annotation_json = annotation.get("annotation_json")
-    if isinstance(annotation_json, dict):
-        annotation["annotation_json"] = offset_annotation_json(
-            annotation_json, page_offset
-        )
-
-
-def _offset_relationship(
-    relationship: OpenContractsRelationshipPythonType,
-    id_prefix: str,
-) -> None:
-    """Mutate *relationship* in place: prefix all IDs."""
-    old_id = relationship.get("id")
-    if old_id is not None:
-        relationship["id"] = f"{id_prefix}{old_id}"
-
-    relationship["source_annotation_ids"] = [
-        f"{id_prefix}{sid}" for sid in relationship.get("source_annotation_ids", [])
-    ]
-    relationship["target_annotation_ids"] = [
-        f"{id_prefix}{tid}" for tid in relationship.get("target_annotation_ids", [])
-    ]
+    reassembler = ChunkReassembler()
+    for idx, (chunk, offset) in enumerate(zip(chunk_results, page_offsets)):
+        reassembler.add_chunk(chunk, page_offset=offset, chunk_index=idx)
+    return reassembler.finalize()
