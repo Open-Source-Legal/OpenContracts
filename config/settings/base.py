@@ -1128,7 +1128,7 @@ DOCLING_PARSER_SERVICE_URL = env(
     "DOCLING_PARSER_SERVICE_URL", default="http://docling-parser:8000/parse/"
 )
 DOCLING_PARSER_TIMEOUT = env.int(
-    "DOCLING_PARSER_TIMEOUT", default=300  # 5 minutes default
+    "DOCLING_PARSER_TIMEOUT", default=600  # 10 minutes default
 )
 use_cloud_run_iam_auth = True
 

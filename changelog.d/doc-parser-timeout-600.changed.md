@@ -1,0 +1,1 @@
+- Bumped the Docling document parser request timeout default from 300s to 600s (`config/settings/base.py` `DOCLING_PARSER_TIMEOUT`, `opencontractserver/pipeline/parsers/docling_parser_rest.py` `request_timeout` field). Large documents were exceeding the previous 5-minute ceiling and failing with `Timeout`. Still overridable via the `DOCLING_PARSER_TIMEOUT` env var.

@@ -90,7 +90,7 @@ class DoclingParser(BaseChunkedParser):
             },
         )
         request_timeout: int = field(
-            default=300,
+            default=600,
             metadata={
                 "pipeline_setting": PipelineSetting(
                     setting_type=SettingType.OPTIONAL,
