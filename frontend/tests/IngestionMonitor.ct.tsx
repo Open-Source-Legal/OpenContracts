@@ -428,6 +428,28 @@ test.describe("IngestionMonitor", () => {
     );
     expect(overflowX).toBe("auto");
 
+    // overflow-x: auto alone is not enough — the regression was that the page
+    // Container (a flex item of the column-direction #AppContainer) grew to its
+    // table's intrinsic width instead of clamping to the viewport, so the scroll
+    // wrapper itself ballooned past the screen and never produced an internal
+    // scroll region. Assert the wrapper is actually narrower than its content and
+    // that it genuinely scrolls horizontally.
+    const metrics = await scroll.evaluate((el) => {
+      el.scrollLeft = 9999;
+      return {
+        clientWidth: el.clientWidth,
+        scrollWidth: el.scrollWidth,
+        viewport: window.innerWidth,
+        scrolledTo: el.scrollLeft,
+      };
+    });
+    // Wrapper fits within the 390px viewport (not blown out to ~920px).
+    expect(metrics.clientWidth).toBeLessThanOrEqual(metrics.viewport);
+    // Content overflows the wrapper, so there is something to scroll to.
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+    // The wrapper actually scrolled horizontally (scrollLeft moved off 0).
+    expect(metrics.scrolledTo).toBeGreaterThan(0);
+
     await component.unmount();
   });
 });
