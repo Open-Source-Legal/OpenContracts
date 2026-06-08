@@ -21,6 +21,10 @@ from opencontractserver.pipeline.base.chunked_parser import (
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.pipeline.base.parser import BaseParser
+from opencontractserver.pipeline.parsers.docling_parser_rest import DoclingParser
+from opencontractserver.pipeline.parsers.oc_text_parser import TxtParser
+from opencontractserver.pipeline.utils import get_all_parsers
 from opencontractserver.tests.helpers import make_test_pdf
 from opencontractserver.types.dicts import (
     OpenContractDocExport,
@@ -32,7 +36,6 @@ User = get_user_model()
 
 
 def _make_chunk_result(
-    page_offset: int = 0,
     num_pages: int = 2,
     annotations: list | None = None,
     relationships: list | None = None,
@@ -626,3 +629,93 @@ class TestBaseChunkedParserIntegration(TestCase):
         slow_chunks_started.wait(timeout=2)
         # Confirm at least one slow chunk was dispatched before the error propagated
         self.assertTrue(slow_chunks_started.is_set())
+
+
+# ======================================================================
+# Reassembly determinism / golden equivalence tests
+# ======================================================================
+
+
+class TestReassemblyGoldenEquivalence(TestCase):
+    """Reassembled multi-chunk output matches a single logical document."""
+
+    def test_global_page_indices_are_contiguous(self):
+        # Three chunks of 2 pages each -> a 6-page document, indices 0..5.
+        # Global page offsets are supplied to _reassemble_chunk_results below;
+        # _make_chunk_result always emits local 0-based pages.
+        chunk_a = _make_chunk_result(num_pages=2)
+        chunk_b = _make_chunk_result(num_pages=2)
+        chunk_c = _make_chunk_result(num_pages=2)
+
+        result = _reassemble_chunk_results(
+            [chunk_a, chunk_b, chunk_c], page_offsets=[0, 2, 4]
+        )
+
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(result["page_count"], 6)
+
+    def test_all_annotations_preserved_with_unique_ids(self):
+        chunk_a = _make_chunk_result(num_pages=2)
+        chunk_b = _make_chunk_result(num_pages=2)
+
+        result = _reassemble_chunk_results([chunk_a, chunk_b], page_offsets=[0, 2])
+
+        anns = result["labelled_text"]
+        # Each synthetic chunk contributes one annotation; both survive.
+        self.assertEqual(len(anns), 2)
+        # IDs are made unique across chunks via the c{idx}_ prefix.
+        ids = [a["id"] for a in anns]
+        self.assertEqual(len(set(ids)), len(ids))
+        # Second chunk's annotation page is offset into global space.
+        self.assertEqual(anns[1]["page"], 2)
+
+    def test_single_chunk_reassembly_is_stable(self):
+        # A below-threshold document routes through reassembly as one chunk;
+        # global indices must equal local indices.
+        chunk = _make_chunk_result(num_pages=3)
+        result = _reassemble_chunk_results([chunk], page_offsets=[0])
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2])
+        self.assertEqual(result["page_count"], 3)
+
+
+# ======================================================================
+# supports_chunking capability flag tests
+# ======================================================================
+
+
+class TestSupportsChunkingFlag(TestCase):
+    """The supports_chunking capability flag is set correctly per parser."""
+
+    def test_base_parser_defaults_to_false(self):
+        self.assertFalse(BaseParser.supports_chunking)
+
+    def test_chunked_base_is_true(self):
+        self.assertTrue(BaseChunkedParser.supports_chunking)
+
+    def test_docling_parser_supports_chunking(self):
+        self.assertTrue(DoclingParser.supports_chunking)
+
+    def test_non_paginated_parser_does_not_support_chunking(self):
+        # TxtParser extends BaseParser directly and must not opt in.
+        self.assertFalse(TxtParser.supports_chunking)
+
+    def test_all_registered_parsers_flag_matches_chunked_lineage(self):
+        # Registry-driven: prove the orchestrator's introspection is correct for
+        # *every* registered parser (current and future), not just the two
+        # enumerated above. The flag must be True iff the parser is a
+        # BaseChunkedParser subclass.
+        parsers = get_all_parsers()
+        self.assertTrue(parsers, "no parsers discovered by get_all_parsers()")
+        for parser_cls in parsers:
+            expected = issubclass(parser_cls, BaseChunkedParser)
+            self.assertEqual(
+                parser_cls.supports_chunking,
+                expected,
+                msg=(
+                    f"{parser_cls.__name__}.supports_chunking="
+                    f"{parser_cls.supports_chunking} but chunked-lineage="
+                    f"{expected}"
+                ),
+            )

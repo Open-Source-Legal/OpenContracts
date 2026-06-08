@@ -38,6 +38,12 @@ class BaseParser(PipelineComponentBase, ABC):
 
     supported_file_types: ClassVar[list[FileTypeEnum]] = []
 
+    # Whether this parser can split paginated input into page-range chunks
+    # (see BaseChunkedParser). Introspected by the ingestion orchestrator to
+    # decide whether the chunked parse path applies. Non-paginated parsers
+    # (TXT, DOCX) and remote parsers that self-batch leave this False.
+    supports_chunking: ClassVar[bool] = False
+
     def __init__(self, **kwargs):
         """
         Initializes the Parser.
