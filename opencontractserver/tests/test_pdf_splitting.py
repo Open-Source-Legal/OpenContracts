@@ -9,7 +9,9 @@ from pypdf import PdfReader
 
 from opencontractserver.tests.helpers import make_test_pdf
 from opencontractserver.utils.pdf_splitting import (
+    PageChunk,
     calculate_page_chunks,
+    calculate_page_chunks_with_overlap,
     get_pdf_page_count,
     split_pdf_by_page_range,
 )
@@ -157,3 +159,76 @@ class TestCalculatePageChunks(TestCase):
     def test_negative_min_pages_for_chunking_raises(self):
         with self.assertRaises(ValueError):
             calculate_page_chunks(100, 50, -1)
+
+
+class TestCalculatePageChunksWithOverlap(TestCase):
+    """Tests for calculate_page_chunks_with_overlap."""
+
+    def test_overlap_zero_equals_legacy_boundaries(self):
+        chunks = calculate_page_chunks_with_overlap(200, 50, 75, overlap=0)
+        self.assertEqual(
+            [(c.start, c.end) for c in chunks],
+            [(0, 50), (50, 100), (100, 150), (150, 200)],
+        )
+        for c in chunks:
+            self.assertEqual((c.start, c.end), (c.core_start, c.core_end))
+
+    def test_below_threshold_single_chunk(self):
+        chunks = calculate_page_chunks_with_overlap(50, 50, 75, overlap=2)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0], PageChunk(0, 50, 0, 50))
+
+    def test_at_threshold_splits(self):
+        chunks = calculate_page_chunks_with_overlap(75, 50, 75, overlap=0)
+        self.assertEqual(
+            [(c.core_start, c.core_end) for c in chunks], [(0, 50), (50, 75)]
+        )
+
+    def test_cores_partition_all_pages_exactly(self):
+        total = 200
+        chunks = calculate_page_chunks_with_overlap(total, 50, 75, overlap=2)
+        covered: list[int] = []
+        for c in chunks:
+            covered.extend(range(c.core_start, c.core_end))
+        self.assertEqual(covered, list(range(total)))
+
+    def test_parse_ranges_extend_by_overlap_on_interior_sides(self):
+        chunks = calculate_page_chunks_with_overlap(200, 50, 75, overlap=2)
+        self.assertEqual(chunks[0], PageChunk(0, 52, 0, 50))
+        self.assertEqual(chunks[1], PageChunk(48, 102, 50, 100))
+        self.assertEqual(chunks[-1], PageChunk(148, 200, 150, 200))
+
+    def test_empty_document_returns_empty(self):
+        self.assertEqual(calculate_page_chunks_with_overlap(0, 50, 75, overlap=2), [])
+
+    def test_negative_overlap_raises(self):
+        with self.assertRaises(ValueError):
+            calculate_page_chunks_with_overlap(200, 50, 75, overlap=-1)
+
+    def test_invalid_max_pages_raises(self):
+        with self.assertRaises(ValueError):
+            calculate_page_chunks_with_overlap(200, 0, 75, overlap=2)
+
+
+class TestCalculatePageChunksGoldenEquivalence(TestCase):
+    """calculate_page_chunks must remain byte-identical after delegating."""
+
+    def test_golden_outputs_unchanged(self):
+        cases = [
+            ((200, 50, 75), [(0, 50), (50, 100), (100, 150), (150, 200)]),
+            ((50, 50, 75), [(0, 50)]),
+            ((75, 50, 75), [(0, 50), (50, 75)]),
+            ((0, 50, 75), []),
+            ((10, 50, 75), [(0, 10)]),
+        ]
+        for (total, mx, mn), expected in cases:
+            self.assertEqual(calculate_page_chunks(total, mx, mn), expected)
+
+    def test_delegation_matches_overlap_zero(self):
+        for total in [0, 1, 49, 74, 75, 100, 201]:
+            legacy = calculate_page_chunks(total, 50, 75)
+            via_overlap = [
+                (c.start, c.end)
+                for c in calculate_page_chunks_with_overlap(total, 50, 75, overlap=0)
+            ]
+            self.assertEqual(legacy, via_overlap)
