@@ -12,7 +12,6 @@ from graphene_django.filter import DjangoFilterConnectionField
 from graphql_relay import from_global_id
 
 from config.graphql.base import OpenContractsNode
-from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
 from config.graphql.corpus_types import (
     CorpusDocumentGraphEdgeType,
     CorpusDocumentGraphNodeType,
@@ -20,6 +19,7 @@ from config.graphql.corpus_types import (
     CorpusIntelligenceAggregatesType,
     LabelDistributionEntryType,
 )
+from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
 from config.graphql.graphene_types import (
     CorpusCategoryType,
     CorpusFilterCountsType,
