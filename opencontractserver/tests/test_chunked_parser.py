@@ -636,6 +636,53 @@ class TestBaseChunkedParserIntegration(TestCase):
 # ======================================================================
 
 
+class TestReassemblyGoldenEquivalence(TestCase):
+    """Reassembled multi-chunk output matches a single logical document."""
+
+    def test_global_page_indices_are_contiguous(self):
+        # Three chunks of 2 pages each -> a 6-page document, indices 0..5.
+        chunk_a = _make_chunk_result(page_offset=0, num_pages=2)
+        chunk_b = _make_chunk_result(page_offset=2, num_pages=2)
+        chunk_c = _make_chunk_result(page_offset=4, num_pages=2)
+
+        result = _reassemble_chunk_results(
+            [chunk_a, chunk_b, chunk_c], page_offsets=[0, 2, 4]
+        )
+
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(result["page_count"], 6)
+
+    def test_all_annotations_preserved_with_unique_ids(self):
+        chunk_a = _make_chunk_result(page_offset=0, num_pages=2)
+        chunk_b = _make_chunk_result(page_offset=2, num_pages=2)
+
+        result = _reassemble_chunk_results([chunk_a, chunk_b], page_offsets=[0, 2])
+
+        anns = result["labelled_text"]
+        # Each synthetic chunk contributes one annotation; both survive.
+        self.assertEqual(len(anns), 2)
+        # IDs are made unique across chunks via the c{idx}_ prefix.
+        ids = [a["id"] for a in anns]
+        self.assertEqual(len(set(ids)), len(ids))
+        # Second chunk's annotation page is offset into global space.
+        self.assertEqual(anns[1]["page"], 2)
+
+    def test_single_chunk_reassembly_is_stable(self):
+        # A below-threshold document routes through reassembly as one chunk;
+        # global indices must equal local indices.
+        chunk = _make_chunk_result(page_offset=0, num_pages=3)
+        result = _reassemble_chunk_results([chunk], page_offsets=[0])
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2])
+        self.assertEqual(result["page_count"], 3)
+
+
+# ======================================================================
+# supports_chunking capability flag tests
+# ======================================================================
+
+
 class TestSupportsChunkingFlag(TestCase):
     """The supports_chunking capability flag is set correctly per parser."""
 
