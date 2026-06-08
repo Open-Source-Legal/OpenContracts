@@ -201,7 +201,11 @@ class TestCalculatePageChunksWithOverlap(TestCase):
     def test_parse_ranges_extend_by_overlap_on_interior_sides(self):
         chunks = calculate_page_chunks_with_overlap(200, 50, 75, overlap=2)
         self.assertEqual(chunks[0], PageChunk(0, 52, 0, 50))
+        # chunks[1] and chunks[2] are both true interior chunks: each extends by
+        # overlap on the left AND right. Assert both so the symmetric interior
+        # case is covered, not only the first interior chunk.
         self.assertEqual(chunks[1], PageChunk(48, 102, 50, 100))
+        self.assertEqual(chunks[2], PageChunk(98, 152, 100, 150))
         self.assertEqual(chunks[-1], PageChunk(148, 200, 150, 200))
 
     def test_empty_document_returns_empty(self):

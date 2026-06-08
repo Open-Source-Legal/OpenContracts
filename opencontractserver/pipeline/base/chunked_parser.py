@@ -83,9 +83,14 @@ class BaseChunkedParser(BaseParser):
     # Chunking configuration (overridable by subclasses / settings)
     # ------------------------------------------------------------------
 
-    # Opt into the chunked parse path (overrides BaseParser default).
+    # Opt into the chunked parse path (overrides BaseParser default). This is a
+    # pure capability flag — never reassigned per instance — so it is ClassVar.
     supports_chunking: ClassVar[bool] = True
 
+    # The numeric knobs below are deliberately NOT ClassVar: subclasses set them
+    # per instance from injected settings (e.g. DoclingParser.__init__ assigns
+    # self.max_pages_per_chunk = settings.max_pages_per_chunk). ClassVar would
+    # make mypy reject those instance assignments.
     max_pages_per_chunk: int = DEFAULT_MAX_PAGES_PER_CHUNK
     min_pages_for_chunking: int = DEFAULT_MIN_PAGES_FOR_CHUNKING
     max_concurrent_chunks: int = DEFAULT_MAX_CONCURRENT_CHUNKS

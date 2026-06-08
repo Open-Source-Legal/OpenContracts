@@ -115,8 +115,10 @@ def calculate_page_chunks_with_overlap(
     parse range equals the core range, reproducing :func:`calculate_page_chunks`.
 
     If the document has *strictly fewer* than ``min_pages_for_chunking`` pages,
-    a single chunk spanning all pages is returned (no splitting). A document
-    with exactly ``min_pages_for_chunking`` pages **will** be split.
+    a single chunk spanning all pages is returned with overlap **not** applied
+    (there are no interior boundaries to extend across, so ``start == core_start``
+    and ``end == core_end``). A document with exactly ``min_pages_for_chunking``
+    pages **will** be split.
 
     Args:
         total_pages: Total number of pages in the document.
@@ -132,7 +134,7 @@ def calculate_page_chunks_with_overlap(
 
     Raises:
         ValueError: If ``max_pages_per_chunk`` or ``min_pages_for_chunking`` is
-            <= 0, or ``overlap`` is < 0.
+            <= 0; if ``overlap`` is < 0; or if ``overlap >= max_pages_per_chunk``.
     """
     if max_pages_per_chunk <= 0:
         raise ValueError(f"max_pages_per_chunk must be > 0, got {max_pages_per_chunk}")
@@ -142,6 +144,11 @@ def calculate_page_chunks_with_overlap(
         )
     if overlap < 0:
         raise ValueError(f"overlap must be >= 0, got {overlap}")
+    # Validated up front regardless of whether the document is below the
+    # chunking threshold. The check is data-independent on purpose: an overlap
+    # >= chunk width is a configuration error in every multi-chunk case, and
+    # making validity depend on total_pages would let a misconfigured caller
+    # pass silently for small docs and only blow up later on a large one.
     if overlap >= max_pages_per_chunk:
         raise ValueError(
             f"overlap ({overlap}) must be < max_pages_per_chunk "

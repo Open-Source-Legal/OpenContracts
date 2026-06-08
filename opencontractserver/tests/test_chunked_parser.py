@@ -24,6 +24,7 @@ from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.parsers.docling_parser_rest import DoclingParser
 from opencontractserver.pipeline.parsers.oc_text_parser import TxtParser
+from opencontractserver.pipeline.utils import get_all_parsers
 from opencontractserver.tests.helpers import make_test_pdf
 from opencontractserver.types.dicts import (
     OpenContractDocExport,
@@ -705,8 +706,6 @@ class TestSupportsChunkingFlag(TestCase):
         # *every* registered parser (current and future), not just the two
         # enumerated above. The flag must be True iff the parser is a
         # BaseChunkedParser subclass.
-        from opencontractserver.pipeline.utils import get_all_parsers
-
         parsers = get_all_parsers()
         self.assertTrue(parsers, "no parsers discovered by get_all_parsers()")
         for parser_cls in parsers:
