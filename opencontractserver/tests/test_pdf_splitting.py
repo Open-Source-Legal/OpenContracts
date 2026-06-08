@@ -185,12 +185,18 @@ class TestCalculatePageChunksWithOverlap(TestCase):
         )
 
     def test_cores_partition_all_pages_exactly(self):
-        total = 200
-        chunks = calculate_page_chunks_with_overlap(total, 50, 75, overlap=2)
-        covered: list[int] = []
-        for c in chunks:
-            covered.extend(range(c.core_start, c.core_end))
-        self.assertEqual(covered, list(range(total)))
+        # The core-partitioning invariant is what the Phase 3-4 dedup logic
+        # relies on, so stress totals straddling the chunk-stride and threshold
+        # boundaries (49/50/51, 74/75/76, 149/150/151, ...) to catch off-by-one
+        # regressions in the loop boundary.
+        for total in [1, 49, 50, 51, 74, 75, 76, 100, 149, 150, 151, 200, 201]:
+            chunks = calculate_page_chunks_with_overlap(total, 50, 75, overlap=2)
+            covered: list[int] = []
+            for c in chunks:
+                covered.extend(range(c.core_start, c.core_end))
+            self.assertEqual(
+                covered, list(range(total)), msg=f"failed for total={total}"
+            )
 
     def test_parse_ranges_extend_by_overlap_on_interior_sides(self):
         chunks = calculate_page_chunks_with_overlap(200, 50, 75, overlap=2)
@@ -212,6 +218,10 @@ class TestCalculatePageChunksWithOverlap(TestCase):
     def test_invalid_max_pages_raises(self):
         with self.assertRaises(ValueError):
             calculate_page_chunks_with_overlap(200, 0, 75, overlap=2)
+
+    def test_invalid_min_pages_raises(self):
+        with self.assertRaises(ValueError):
+            calculate_page_chunks_with_overlap(200, 50, 0, overlap=2)
 
 
 class TestCalculatePageChunksGoldenEquivalence(TestCase):

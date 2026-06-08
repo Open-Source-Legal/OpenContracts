@@ -699,3 +699,24 @@ class TestSupportsChunkingFlag(TestCase):
     def test_non_paginated_parser_does_not_support_chunking(self):
         # TxtParser extends BaseParser directly and must not opt in.
         self.assertFalse(TxtParser.supports_chunking)
+
+    def test_all_registered_parsers_flag_matches_chunked_lineage(self):
+        # Registry-driven: prove the orchestrator's introspection is correct for
+        # *every* registered parser (current and future), not just the two
+        # enumerated above. The flag must be True iff the parser is a
+        # BaseChunkedParser subclass.
+        from opencontractserver.pipeline.utils import get_all_parsers
+
+        parsers = get_all_parsers()
+        self.assertTrue(parsers, "no parsers discovered by get_all_parsers()")
+        for parser_cls in parsers:
+            expected = issubclass(parser_cls, BaseChunkedParser)
+            self.assertEqual(
+                parser_cls.supports_chunking,
+                expected,
+                msg=(
+                    f"{parser_cls.__name__}.supports_chunking="
+                    f"{parser_cls.supports_chunking} but chunked-lineage="
+                    f"{expected}"
+                ),
+            )

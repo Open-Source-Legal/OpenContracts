@@ -115,7 +115,8 @@ def calculate_page_chunks_with_overlap(
     parse range equals the core range, reproducing :func:`calculate_page_chunks`.
 
     If the document has *strictly fewer* than ``min_pages_for_chunking`` pages,
-    a single chunk spanning all pages is returned (no splitting).
+    a single chunk spanning all pages is returned (no splitting). A document
+    with exactly ``min_pages_for_chunking`` pages **will** be split.
 
     Args:
         total_pages: Total number of pages in the document.
