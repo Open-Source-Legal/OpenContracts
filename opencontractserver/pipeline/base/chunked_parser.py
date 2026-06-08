@@ -38,6 +38,11 @@ from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  
 from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  back-compat re-export
     offset_relationship as _offset_relationship,
 )
+from opencontractserver.pipeline.chunk_artifacts import (
+    cleanup_chunk_artifacts,
+    read_chunk_result,
+    write_chunk_pdf,
+)
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.types.dicts import OpenContractDocExport
@@ -157,6 +162,86 @@ class BaseChunkedParser(BaseParser):
         The default implementation returns the result unchanged.
         """
         return reassembled
+
+    # ------------------------------------------------------------------
+    # Celery fan-out seam: prepare inputs / finalize after chord
+    # ------------------------------------------------------------------
+
+    def prepare_chunk_inputs(self, doc_id: int) -> list[dict]:
+        """Decide chunking for *doc_id* and, if chunking, write each chunk PDF
+        to storage. Returns a descriptor per chunk (empty list if no chunking).
+
+        Each descriptor: {chunk_index, page_offset, total_chunks, input_key}.
+        Memory: the source PDF is read once; chunks are split and written one
+        at a time, so peak extra memory is a single chunk PDF.
+        """
+        document = Document.objects.get(pk=doc_id)
+        doc_path = document.pdf_file.name
+        if not doc_path:
+            raise DocumentParsingError(
+                f"Document {doc_id} has no PDF file associated", is_transient=False
+            )
+        with default_storage.open(doc_path, "rb") as fh:
+            pdf_bytes = fh.read()
+
+        page_count = get_pdf_page_count(pdf_bytes)
+        chunks = calculate_page_chunks(
+            page_count, self.max_pages_per_chunk, self.min_pages_for_chunking
+        )
+        if len(chunks) <= 1:
+            return []
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        descriptors: list[dict] = []
+        for idx, (start, end) in enumerate(chunks):
+            chunk_bytes = split_pdf_by_page_range(pdf_bytes, start, end, reader=reader)
+            input_key = write_chunk_pdf(doc_id, idx, chunk_bytes)
+            descriptors.append(
+                {
+                    "chunk_index": idx,
+                    "page_offset": start,
+                    "total_chunks": len(chunks),
+                    "input_key": input_key,
+                }
+            )
+        return descriptors
+
+    def reassemble_and_finalize(
+        self,
+        out_keys: list[str],
+        page_offsets: list[int],
+        doc_id: int,
+        user_id: int,
+        corpus_id: Optional[int] = None,
+        save: bool = True,
+    ) -> OpenContractDocExport:
+        """Stream per-chunk result JSON from storage (one at a time), reassemble,
+        run the post-reassembly hook + enrichment, optionally persist, and clean
+        up scratch artifacts. ``save=False`` is for tests that only want the
+        merged structure.
+        """
+        reassembler = ChunkReassembler()
+        for idx, key in enumerate(out_keys):
+            chunk = read_chunk_result(key)
+            reassembler.add_chunk(
+                chunk, page_offset=page_offsets[idx], chunk_index=idx
+            )
+        combined = reassembler.finalize()
+
+        document = Document.objects.get(pk=doc_id)
+        doc_path = document.pdf_file.name
+        if doc_path:
+            with default_storage.open(doc_path, "rb") as fh:
+                pdf_bytes = fh.read()
+        else:
+            pdf_bytes = b""
+        combined = self._post_reassemble_hook(user_id, doc_id, combined, pdf_bytes)
+        combined = self._run_enrichment_stage(user_id, doc_id, combined)
+
+        if save:
+            self.save_parsed_data(user_id, doc_id, combined, corpus_id=corpus_id)
+        cleanup_chunk_artifacts(doc_id)
+        return combined
 
     # ------------------------------------------------------------------
     # Core implementation – replaces BaseParser._parse_document_impl

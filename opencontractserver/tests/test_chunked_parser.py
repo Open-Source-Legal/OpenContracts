@@ -31,6 +31,7 @@ from opencontractserver.types.dicts import (
     OpenContractsAnnotationPythonType,
     OpenContractsRelationshipPythonType,
 )
+from opencontractserver.utils.pdf_splitting import get_pdf_page_count
 
 User = get_user_model()
 
@@ -88,6 +89,36 @@ def _make_chunk_result(
         "labelled_text": annotations,
         "relationships": relationships or [],
     }
+
+
+class _FakeChunkedParser(BaseChunkedParser):
+    """Minimal concrete chunked parser for orchestration tests."""
+
+    title = "Fake Chunked"
+    description = "test"
+    author = "test"
+    supported_file_types = [FileTypeEnum.PDF]
+    # Force chunking at a low threshold for tests.
+    max_pages_per_chunk = 2
+    min_pages_for_chunking = 2
+
+    def __init__(self, **kwargs):
+        # Skip PipelineComponentBase settings loading during tests
+        self._full_class_path = "test._FakeChunkedParser"
+        self._settings = None
+
+    def _parse_single_chunk_impl(
+        self,
+        user_id,
+        doc_id,
+        chunk_pdf_bytes,
+        chunk_index,
+        total_chunks,
+        page_offset,
+        **all_kwargs,
+    ):
+        n = get_pdf_page_count(chunk_pdf_bytes)
+        return _make_chunk_result(num_pages=n, content=f"chunk{chunk_index}")
 
 
 # ======================================================================
@@ -719,3 +750,65 @@ class TestSupportsChunkingFlag(TestCase):
                     f"{expected}"
                 ),
             )
+
+
+# ======================================================================
+# prepare_chunk_inputs / reassemble_and_finalize orchestration tests
+# ======================================================================
+
+
+class TestPrepareChunkInputs(TestCase):
+    def _make_doc(self, pages: int) -> Document:
+        user = User.objects.create_user(username="cp", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        doc.pdf_file.save(f"doc_{doc.id}.pdf", ContentFile(make_test_pdf(pages)))
+        return doc
+
+    def test_below_threshold_returns_empty(self):
+        doc = self._make_doc(1)  # threshold is 2
+        parser = _FakeChunkedParser()
+        self.assertEqual(parser.prepare_chunk_inputs(doc.id), [])
+
+    def test_large_doc_writes_chunk_pdfs_and_returns_descriptors(self):
+        from opencontractserver.pipeline.chunk_artifacts import (
+            chunk_input_key,
+            read_chunk_pdf,
+        )
+
+        doc = self._make_doc(5)  # max 2/chunk -> chunks (0,2)(2,4)(4,5)
+        parser = _FakeChunkedParser()
+        descriptors = parser.prepare_chunk_inputs(doc.id)
+        self.assertEqual(len(descriptors), 3)
+        self.assertEqual(descriptors[0]["chunk_index"], 0)
+        self.assertEqual(descriptors[0]["page_offset"], 0)
+        self.assertEqual(descriptors[0]["total_chunks"], 3)
+        self.assertEqual(descriptors[0]["input_key"], chunk_input_key(doc.id, 0))
+        self.assertEqual(
+            get_pdf_page_count(read_chunk_pdf(descriptors[0]["input_key"])), 2
+        )
+        self.assertEqual(
+            get_pdf_page_count(read_chunk_pdf(descriptors[2]["input_key"])), 1
+        )
+
+
+class TestReassembleAndFinalize(TestCase):
+    def test_streams_results_and_returns_combined(self):
+        from opencontractserver.pipeline.chunk_artifacts import write_chunk_result
+
+        user = User.objects.create_user(username="rf", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        out0 = write_chunk_result(doc.id, 0, _make_chunk_result(num_pages=2))
+        out1 = write_chunk_result(doc.id, 1, _make_chunk_result(num_pages=2))
+        parser = _FakeChunkedParser()
+        combined = parser.reassemble_and_finalize(
+            out_keys=[out0, out1],
+            page_offsets=[0, 2],
+            doc_id=doc.id,
+            user_id=user.id,
+            corpus_id=None,
+            save=False,
+        )
+        indices = [p["page"]["index"] for p in combined["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2, 3])
