@@ -6,10 +6,16 @@ scratch namespace, so worker tasks exchange small storage keys instead of
 large payloads over the broker. ``cleanup_chunk_artifacts`` removes the whole
 namespace after reassembly.
 """
+
 import json
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+
+if TYPE_CHECKING:
+    from opencontractserver.types.dicts import OpenContractDocExport
 
 _SCRATCH_PREFIX = "chunk_scratch"
 
@@ -43,8 +49,12 @@ def read_chunk_pdf(key: str) -> bytes:
         return fh.read()
 
 
-def write_chunk_result(doc_id: int, chunk_index: int, result: dict) -> str:
-    """Write a chunk's OpenContractDocExport result JSON to storage; return key."""
+def write_chunk_result(doc_id: int, chunk_index: int, result: Mapping[str, Any]) -> str:
+    """Write a chunk's OpenContractDocExport result JSON to storage; return key.
+
+    Accepts any JSON-serializable mapping (``OpenContractDocExport`` is one);
+    typed as ``Mapping`` so both the TypedDict and plain dicts satisfy mypy.
+    """
     key = chunk_output_key(doc_id, chunk_index)
     if default_storage.exists(key):
         default_storage.delete(key)
@@ -52,7 +62,7 @@ def write_chunk_result(doc_id: int, chunk_index: int, result: dict) -> str:
     return key
 
 
-def read_chunk_result(key: str) -> dict:
+def read_chunk_result(key: str) -> "OpenContractDocExport":
     """Read a chunk's OpenContractDocExport result JSON from storage."""
     with default_storage.open(key, "rb") as fh:
         return json.loads(fh.read().decode("utf-8"))

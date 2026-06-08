@@ -1,5 +1,4 @@
 """Tests for chunk-artifact storage helpers."""
-import json
 
 from django.core.files.storage import default_storage
 from django.test import TestCase

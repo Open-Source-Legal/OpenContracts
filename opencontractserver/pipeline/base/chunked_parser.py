@@ -38,13 +38,13 @@ from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  
 from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  back-compat re-export
     offset_relationship as _offset_relationship,
 )
+from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.chunk_artifacts import (
     cleanup_chunk_artifacts,
     read_chunk_result,
     write_chunk_pdf,
 )
-from opencontractserver.pipeline.base.exceptions import DocumentParsingError
-from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.utils.pdf_splitting import (
     calculate_page_chunks,
@@ -223,9 +223,7 @@ class BaseChunkedParser(BaseParser):
         reassembler = ChunkReassembler()
         for idx, key in enumerate(out_keys):
             chunk = read_chunk_result(key)
-            reassembler.add_chunk(
-                chunk, page_offset=page_offsets[idx], chunk_index=idx
-            )
+            reassembler.add_chunk(chunk, page_offset=page_offsets[idx], chunk_index=idx)
         combined = reassembler.finalize()
 
         document = Document.objects.get(pk=doc_id)

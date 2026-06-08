@@ -7,6 +7,7 @@ back, reassembles, and persists. Parsers are re-instantiated from their registry
 name inside each task; DB-backed kwargs/secrets are loaded by the parser itself,
 so no secrets travel over the broker.
 """
+
 import logging
 from typing import Any, cast
 
@@ -79,7 +80,7 @@ def parse_document_chunk(
             f"Chunk {chunk_index} returned None for document {doc_id}",
             is_transient=False,
         )
-    return write_chunk_result(doc_id, chunk_index, cast(dict, result))
+    return write_chunk_result(doc_id, chunk_index, result)
 
 
 @shared_task(bind=True)
@@ -102,7 +103,5 @@ def reassemble_and_save_chunks(
         corpus_id=corpus_id,
         save=True,
     )
-    logger.info(
-        f"[reassemble_and_save_chunks] Document {doc_id} reassembled + saved"
-    )
+    logger.info(f"[reassemble_and_save_chunks] Document {doc_id} reassembled + saved")
     return {"status": "success", "doc_id": doc_id}
