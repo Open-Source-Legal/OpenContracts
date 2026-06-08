@@ -15,12 +15,22 @@ from opencontractserver.tasks.chunk_tasks import (
     reassemble_and_save_chunks,
 )
 from opencontractserver.tests.helpers import make_test_pdf
-from opencontractserver.tests.test_chunked_parser import _make_chunk_result
+from opencontractserver.tests.test_chunked_parser import _FakeChunkedParser, _make_chunk_result
 
 User = get_user_model()
 
 # Registry name (dotted path) of the fake parser.
 _FAKE = "opencontractserver.tests.test_chunked_parser._FakeChunkedParser"
+
+
+class _NoneReturningChunkedParser(_FakeChunkedParser):
+    """Chunked parser whose chunk impl returns None (simulates bad output)."""
+
+    def _parse_single_chunk_impl(self, *args, **kwargs):
+        return None
+
+
+_NONE_PARSER = "opencontractserver.tests.test_chunk_tasks._NoneReturningChunkedParser"
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
@@ -66,3 +76,29 @@ class TestChunkTasks(TestCase):
         ).get()
         doc.refresh_from_db()
         self.assertTrue(doc.pawls_parse_file)
+
+    def test_parse_chunk_raises_on_none_result(self):
+        from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+
+        doc, user = self._doc(2)
+        in_key = write_chunk_pdf(doc.id, 0, make_test_pdf(2))
+        with self.assertRaises(DocumentParsingError):
+            parse_document_chunk.apply(
+                kwargs=dict(
+                    user_id=user.id,
+                    doc_id=doc.id,
+                    parser_name=_NONE_PARSER,
+                    chunk_index=0,
+                    total_chunks=1,
+                    page_offset=0,
+                    input_key=in_key,
+                )
+            ).get()
+
+    def test_load_chunked_parser_rejects_non_chunking_parser(self):
+        from opencontractserver.tasks.chunk_tasks import _load_chunked_parser
+
+        with self.assertRaises(ValueError):
+            _load_chunked_parser(
+                "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser"
+            )

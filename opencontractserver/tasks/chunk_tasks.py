@@ -13,6 +13,7 @@ from typing import Any, cast
 from celery import shared_task
 
 from opencontractserver.pipeline.base.chunked_parser import BaseChunkedParser
+from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.chunk_artifacts import (
     read_chunk_pdf,
     write_chunk_result,
@@ -31,7 +32,6 @@ def _load_chunked_parser(parser_name: str) -> BaseChunkedParser:
 
 @shared_task(
     bind=True,
-    autoretry_for=(Exception,),
     retry_backoff=10,
     retry_backoff_max=120,
     retry_jitter=True,
@@ -47,19 +47,38 @@ def parse_document_chunk(
     page_offset: int,
     input_key: str,
 ) -> str:
-    """Parse one chunk; write its result to storage; return the result key."""
+    """Parse one chunk; write its result to storage; return the result key.
+
+    Retry design: this task makes a single parse attempt and delegates all
+    retry/back-off to Celery (non-blocking, unlike the in-process
+    ``_parse_chunk_with_retry`` used by the synchronous path). Only *transient*
+    ``DocumentParsingError`` triggers a retry (up to ``max_retries``); permanent
+    errors and ``None`` results propagate immediately so the chord fails fast and
+    the ingest chain's ``link_error`` marks the document FAILED.
+    """
     parser = _load_chunked_parser(parser_name)
     chunk_pdf_bytes = read_chunk_pdf(input_key)
-    result = parser._parse_chunk_with_retry(
-        user_id=user_id,
-        doc_id=doc_id,
-        chunk_pdf_bytes=chunk_pdf_bytes,
-        chunk_index=chunk_index,
-        total_chunks=total_chunks,
-        page_offset=page_offset,
-    )
+    try:
+        result = parser._parse_single_chunk_impl(
+            user_id=user_id,
+            doc_id=doc_id,
+            chunk_pdf_bytes=chunk_pdf_bytes,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+            page_offset=page_offset,
+        )
+    except DocumentParsingError as exc:
+        if exc.is_transient:
+            # Non-blocking Celery retry with back-off; the chord fails when
+            # retries are exhausted.
+            raise self.retry(exc=exc)
+        raise  # permanent → propagate immediately (no retry)
     if result is None:
-        raise ValueError(f"Chunk {chunk_index} returned None for document {doc_id}")
+        # Structural failure; treat as permanent so we don't retry a doomed chunk.
+        raise DocumentParsingError(
+            f"Chunk {chunk_index} returned None for document {doc_id}",
+            is_transient=False,
+        )
     return write_chunk_result(doc_id, chunk_index, cast(dict, result))
 
 
