@@ -1,4 +1,5 @@
 """Tests for the chunked-parse Celery tasks (run eager)."""
+
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
@@ -15,7 +16,10 @@ from opencontractserver.tasks.chunk_tasks import (
     reassemble_and_save_chunks,
 )
 from opencontractserver.tests.helpers import make_test_pdf
-from opencontractserver.tests.test_chunked_parser import _FakeChunkedParser, _make_chunk_result
+from opencontractserver.tests.test_chunked_parser import (
+    _FakeChunkedParser,
+    _make_chunk_result,
+)
 
 User = get_user_model()
 
@@ -102,3 +106,32 @@ class TestChunkTasks(TestCase):
             _load_chunked_parser(
                 "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser"
             )
+
+    def test_ingest_doc_large_pdf_replaces_with_chord_when_not_eager(self):
+        """For a large doc with a chunked parser and eager=False, ingest_doc must
+        dispatch via self.replace(chord(...)) and NOT call process_document."""
+        from unittest.mock import patch
+
+        from opencontractserver.tasks import doc_tasks
+
+        doc, user = self._doc(6)  # max_pages_per_chunk=2, min=2 → 3 chunks
+        with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+            with patch.object(
+                doc_tasks,
+                "_resolve_parser_for_ingest",
+                return_value=(
+                    "opencontractserver.tests.test_chunked_parser._FakeChunkedParser",
+                    _FakeChunkedParser(),
+                    {},
+                ),
+            ), patch(
+                "opencontractserver.pipeline.base.parser.BaseParser.process_document"
+            ) as inline_parse, patch.object(
+                doc_tasks.ingest_doc, "replace", side_effect=RuntimeError("replaced")
+            ) as replace_mock:
+                with self.assertRaises(RuntimeError):
+                    doc_tasks.ingest_doc.apply(
+                        kwargs=dict(user_id=user.id, doc_id=doc.id)
+                    ).get()
+                replace_mock.assert_called_once()
+                inline_parse.assert_not_called()
