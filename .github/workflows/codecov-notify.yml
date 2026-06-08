@@ -90,7 +90,7 @@ jobs:
 
       - name: Send notifications to Codecov
         if: steps.check.outputs.all_done == 'true'
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           run_command: send-notifications
