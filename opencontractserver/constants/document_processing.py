@@ -159,6 +159,10 @@ DEFAULT_CHUNK_RETRY_LIMIT = 1
 # chunk_retry_limit doesn't block Celery workers excessively.
 MAX_CHUNK_RETRY_BACKOFF_SECONDS = 30
 
+# Storage namespace prefix for transient per-document chunk-parse artifacts
+# (input chunk PDFs and output result JSON exchanged across the Celery fan-out).
+CHUNK_SCRATCH_PREFIX = "chunk_scratch"
+
 # ---------------------------------------------------------------------------
 # Path disambiguation constants
 # ---------------------------------------------------------------------------
