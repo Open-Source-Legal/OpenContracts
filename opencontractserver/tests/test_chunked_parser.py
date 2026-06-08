@@ -21,6 +21,9 @@ from opencontractserver.pipeline.base.chunked_parser import (
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.pipeline.base.parser import BaseParser
+from opencontractserver.pipeline.parsers.docling_parser_rest import DoclingParser
+from opencontractserver.pipeline.parsers.oc_text_parser import TxtParser
 from opencontractserver.tests.helpers import make_test_pdf
 from opencontractserver.types.dicts import (
     OpenContractDocExport,
@@ -626,3 +629,25 @@ class TestBaseChunkedParserIntegration(TestCase):
         slow_chunks_started.wait(timeout=2)
         # Confirm at least one slow chunk was dispatched before the error propagated
         self.assertTrue(slow_chunks_started.is_set())
+
+
+# ======================================================================
+# supports_chunking capability flag tests
+# ======================================================================
+
+
+class TestSupportsChunkingFlag(TestCase):
+    """The supports_chunking capability flag is set correctly per parser."""
+
+    def test_base_parser_defaults_to_false(self):
+        self.assertFalse(BaseParser.supports_chunking)
+
+    def test_chunked_base_is_true(self):
+        self.assertTrue(BaseChunkedParser.supports_chunking)
+
+    def test_docling_parser_supports_chunking(self):
+        self.assertTrue(DoclingParser.supports_chunking)
+
+    def test_non_paginated_parser_does_not_support_chunking(self):
+        # TxtParser extends BaseParser directly and must not opt in.
+        self.assertFalse(TxtParser.supports_chunking)

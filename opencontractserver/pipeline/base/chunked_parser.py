@@ -82,6 +82,10 @@ class BaseChunkedParser(BaseParser):
     # ------------------------------------------------------------------
     # Chunking configuration (overridable by subclasses / settings)
     # ------------------------------------------------------------------
+
+    # Opt into the chunked parse path (overrides BaseParser default).
+    supports_chunking: bool = True
+
     max_pages_per_chunk: int = DEFAULT_MAX_PAGES_PER_CHUNK
     min_pages_for_chunking: int = DEFAULT_MIN_PAGES_FOR_CHUNKING
     max_concurrent_chunks: int = DEFAULT_MAX_CONCURRENT_CHUNKS
