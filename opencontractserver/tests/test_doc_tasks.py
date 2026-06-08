@@ -635,7 +635,7 @@ class RetryDocumentProcessingTestCase(TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("not in failed state", result["message"])
 
-    @patch("celery.chain")
+    @patch("opencontractserver.tasks.doc_tasks.chain")
     def test_retry_failed_document_success(self, mock_chain):
         """Test retry_document_processing queues reprocessing for failed doc."""
         mock_chain.return_value.apply_async = MagicMock()
