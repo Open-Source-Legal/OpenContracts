@@ -205,6 +205,10 @@ class TestCalculatePageChunksWithOverlap(TestCase):
         with self.assertRaises(ValueError):
             calculate_page_chunks_with_overlap(200, 50, 75, overlap=-1)
 
+    def test_overlap_ge_max_pages_raises(self):
+        with self.assertRaises(ValueError):
+            calculate_page_chunks_with_overlap(200, 50, 75, overlap=50)
+
     def test_invalid_max_pages_raises(self):
         with self.assertRaises(ValueError):
             calculate_page_chunks_with_overlap(200, 0, 75, overlap=2)

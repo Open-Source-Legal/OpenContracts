@@ -141,6 +141,11 @@ def calculate_page_chunks_with_overlap(
         )
     if overlap < 0:
         raise ValueError(f"overlap must be >= 0, got {overlap}")
+    if overlap >= max_pages_per_chunk:
+        raise ValueError(
+            f"overlap ({overlap}) must be < max_pages_per_chunk "
+            f"({max_pages_per_chunk})"
+        )
 
     if total_pages <= 0:
         return []
@@ -167,6 +172,10 @@ def calculate_page_chunks(
 ) -> list[tuple[int, int]]:
     """
     Calculate page-range chunks for a document.
+
+    This is a thin wrapper around :func:`calculate_page_chunks_with_overlap` with
+    ``overlap=0``; it preserves the original ``list[tuple[int, int]]`` return type
+    for backward compatibility.
 
     If the document has *strictly fewer* pages than ``min_pages_for_chunking``,
     returns a single chunk spanning all pages (no splitting).  A document with
