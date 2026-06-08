@@ -16,7 +16,7 @@ import logging
 import time
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional, cast
+from typing import ClassVar, Optional, cast
 
 from django.core.files.storage import default_storage
 from pypdf import PdfReader
@@ -84,7 +84,7 @@ class BaseChunkedParser(BaseParser):
     # ------------------------------------------------------------------
 
     # Opt into the chunked parse path (overrides BaseParser default).
-    supports_chunking: bool = True
+    supports_chunking: ClassVar[bool] = True
 
     max_pages_per_chunk: int = DEFAULT_MAX_PAGES_PER_CHUNK
     min_pages_for_chunking: int = DEFAULT_MIN_PAGES_FOR_CHUNKING
