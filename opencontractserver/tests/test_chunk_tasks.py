@@ -167,6 +167,12 @@ class TestChunkTasks(TestCase):
         from opencontractserver.tasks import doc_tasks
 
         doc, user = self._doc(6)  # max_pages_per_chunk=2, min=2 → 3 chunks
+        # ingest_doc gates the chord path on current_app.conf.task_always_eager.
+        # override_settings IS the correct lever here: Celery loads its conf via
+        # config_from_object("django.conf:settings", namespace="CELERY") and reads
+        # task_always_eager lazily, so CELERY_TASK_ALWAYS_EAGER=False propagates to
+        # current_app.conf at access time. (Patching conf.task_always_eager directly
+        # does NOT work — it reads through the lazy Django-settings loader.)
         with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
             with patch.object(
                 doc_tasks,

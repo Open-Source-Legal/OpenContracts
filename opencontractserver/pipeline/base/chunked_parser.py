@@ -29,15 +29,7 @@ from opencontractserver.constants import (
     MAX_CHUNK_RETRY_BACKOFF_SECONDS,
 )
 from opencontractserver.documents.models import Document
-from opencontractserver.pipeline.base.chunk_reassembler import (
-    ChunkReassembler,
-)
-from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  back-compat re-export
-    offset_annotation as _offset_annotation,
-)
-from opencontractserver.pipeline.base.chunk_reassembler import (  # noqa: F401  back-compat re-export
-    offset_relationship as _offset_relationship,
-)
+from opencontractserver.pipeline.base.chunk_reassembler import ChunkReassembler
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.chunk_artifacts import (
@@ -172,8 +164,9 @@ class BaseChunkedParser(BaseParser):
         to storage. Returns a descriptor per chunk (empty list if no chunking).
 
         Each descriptor: {chunk_index, page_offset, total_chunks, input_key}.
-        Memory: the source PDF is read once; chunks are split and written one
-        at a time, so peak extra memory is a single chunk PDF.
+        Memory: the source PDF is read once and held in ``pdf_bytes``; chunks
+        are split and written one at a time, so the honest peak bound is the
+        source PDF plus one chunk PDF (not a single chunk alone).
         """
         document = Document.objects.get(pk=doc_id)
         doc_path = document.pdf_file.name
@@ -236,9 +229,15 @@ class BaseChunkedParser(BaseParser):
         combined = self._post_reassemble_hook(user_id, doc_id, combined, pdf_bytes)
         combined = self._run_enrichment_stage(user_id, doc_id, combined)
 
-        if save:
-            self.save_parsed_data(user_id, doc_id, combined, corpus_id=corpus_id)
-        cleanup_chunk_artifacts(doc_id)
+        # Always clean up scratch artifacts, even if save_parsed_data raises —
+        # otherwise a storage/ORM failure orphans the chunk files under
+        # chunk_scratch/doc_{id}/ (the chord link_error marks the doc FAILED
+        # but never returns here to clean up).
+        try:
+            if save:
+                self.save_parsed_data(user_id, doc_id, combined, corpus_id=corpus_id)
+        finally:
+            cleanup_chunk_artifacts(doc_id)
         return combined
 
     # ------------------------------------------------------------------

@@ -639,8 +639,11 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         isinstance(parser_instance, BaseChunkedParser)
         and not current_app.conf.task_always_eager
     ):
+        # prepare_chunk_inputs returns [] when the doc is below the chunking
+        # threshold (single request) and >= 2 descriptors otherwise — there is
+        # no one-element case — so a truthiness check expresses the contract.
         chunk_inputs = parser_instance.prepare_chunk_inputs(doc_id)
-        if len(chunk_inputs) > 1:
+        if chunk_inputs:
             from opencontractserver.tasks.chunk_tasks import (
                 parse_document_chunk,
                 reassemble_and_save_chunks,

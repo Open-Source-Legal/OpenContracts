@@ -13,10 +13,14 @@ from django.db import transaction
 from django.test import TestCase
 
 from opencontractserver.documents.models import Document
+from opencontractserver.pipeline.base.chunk_reassembler import (
+    offset_annotation as _offset_annotation,
+)
+from opencontractserver.pipeline.base.chunk_reassembler import (
+    offset_relationship as _offset_relationship,
+)
 from opencontractserver.pipeline.base.chunked_parser import (
     BaseChunkedParser,
-    _offset_annotation,
-    _offset_relationship,
     _reassemble_chunk_results,
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
@@ -812,3 +816,36 @@ class TestReassembleAndFinalize(TestCase):
         )
         indices = [p["page"]["index"] for p in combined["pawls_file_content"]]
         self.assertEqual(indices, [0, 1, 2, 3])
+
+    def test_cleans_up_scratch_artifacts_even_when_save_raises(self):
+        """A storage/ORM failure in save_parsed_data must not orphan the chunk
+        scratch artifacts — cleanup runs in a finally block (review bug 2)."""
+        from unittest.mock import patch
+
+        from django.core.files.storage import default_storage
+
+        from opencontractserver.pipeline.chunk_artifacts import write_chunk_result
+
+        user = User.objects.create_user(username="rf_save_fail", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        out0 = write_chunk_result(doc.id, 0, _make_chunk_result(num_pages=2))
+        out1 = write_chunk_result(doc.id, 1, _make_chunk_result(num_pages=2))
+        self.assertTrue(default_storage.exists(out0))
+        self.assertTrue(default_storage.exists(out1))
+
+        parser = _FakeChunkedParser()
+        with patch.object(parser, "save_parsed_data", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                parser.reassemble_and_finalize(
+                    out_keys=[out0, out1],
+                    page_offsets=[0, 2],
+                    doc_id=doc.id,
+                    user_id=user.id,
+                    corpus_id=None,
+                    save=True,
+                )
+
+        # Despite the save failure, no scratch artifacts are left behind.
+        self.assertFalse(default_storage.exists(out0))
+        self.assertFalse(default_storage.exists(out1))
