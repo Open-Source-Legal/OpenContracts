@@ -20,6 +20,7 @@ from opencontractserver.tests.test_chunked_parser import (
     _FakeChunkedParser,
     _make_chunk_result,
 )
+from opencontractserver.utils.pdf_splitting import get_pdf_page_count
 
 User = get_user_model()
 
@@ -35,6 +36,27 @@ class _NoneReturningChunkedParser(_FakeChunkedParser):
 
 
 _NONE_PARSER = "opencontractserver.tests.test_chunk_tasks._NoneReturningChunkedParser"
+
+# Module-level dict populated by _KwargRecordingChunkedParser so the test can
+# inspect which kwargs were forwarded to _parse_single_chunk_impl.
+_RECORDED_KWARGS: dict = {}
+
+
+class _KwargRecordingChunkedParser(_FakeChunkedParser):
+    """Records the kwargs passed to its chunk impl, for kwargs-threading tests."""
+
+    def _parse_single_chunk_impl(self, *args, **kwargs):
+        _RECORDED_KWARGS.clear()
+        _RECORDED_KWARGS.update(kwargs)
+        # Inline minimal body so we can pass *args positionally the same way
+        # the base fake does, without relying on super() positional-arg forwarding.
+        chunk_pdf_bytes = kwargs.get("chunk_pdf_bytes") or (
+            args[2] if len(args) > 2 else b""
+        )
+        return _make_chunk_result(num_pages=get_pdf_page_count(chunk_pdf_bytes))
+
+
+_KWREC_PARSER = "opencontractserver.tests.test_chunk_tasks._KwargRecordingChunkedParser"
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
@@ -106,6 +128,36 @@ class TestChunkTasks(TestCase):
             _load_chunked_parser(
                 "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser"
             )
+
+    def test_parse_chunk_threads_parser_kwargs(self):
+        """parse_document_chunk must forward get_parser_kwargs to _parse_single_chunk_impl.
+
+        The synchronous ingest path loads per-request flags (e.g. force_ocr) from
+        PipelineSettings.get_parser_kwargs and passes them through process_document →
+        parse_document → _parse_document_impl → _parse_single_chunk_impl.  The chord
+        path must replicate this so large (chunked) documents honour the same
+        admin-configured flags.
+        """
+        from unittest.mock import patch
+
+        doc, user = self._doc(2)
+        in_key = write_chunk_pdf(doc.id, 0, make_test_pdf(2))
+        with patch(
+            "opencontractserver.documents.models.PipelineSettings.get_parser_kwargs",
+            return_value={"force_ocr": True},
+        ):
+            parse_document_chunk.apply(
+                kwargs=dict(
+                    user_id=user.id,
+                    doc_id=doc.id,
+                    parser_name=_KWREC_PARSER,
+                    chunk_index=0,
+                    total_chunks=1,
+                    page_offset=0,
+                    input_key=in_key,
+                )
+            ).get()
+        self.assertEqual(_RECORDED_KWARGS.get("force_ocr"), True)
 
     def test_ingest_doc_large_pdf_replaces_with_chord_when_not_eager(self):
         """For a large doc with a chunked parser and eager=False, ingest_doc must

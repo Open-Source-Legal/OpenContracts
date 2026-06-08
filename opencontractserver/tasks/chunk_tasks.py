@@ -24,6 +24,18 @@ from opencontractserver.pipeline.utils import get_component_by_name
 logger = logging.getLogger(__name__)
 
 
+def _get_parser_kwargs(parser_name: str) -> dict:
+    """Load per-request parser kwargs (incl. decrypted secrets) worker-side.
+
+    Mirrors the synchronous ingest path so chunked parsing honours the same
+    admin-configured flags (e.g. ``force_ocr``, ``roll_up_groups``).  Loaded
+    here — not passed as task args — so secrets never travel over the broker.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+
+    return PipelineSettings.get_instance().get_parser_kwargs(parser_name)
+
+
 def _load_chunked_parser(parser_name: str) -> BaseChunkedParser:
     parser = cast(BaseChunkedParser, get_component_by_name(parser_name)())
     if not getattr(parser, "supports_chunking", False):
@@ -58,6 +70,7 @@ def parse_document_chunk(
     the ingest chain's ``link_error`` marks the document FAILED.
     """
     parser = _load_chunked_parser(parser_name)
+    parser_kwargs = _get_parser_kwargs(parser_name)
     chunk_pdf_bytes = read_chunk_pdf(input_key)
     try:
         result = parser._parse_single_chunk_impl(
@@ -67,6 +80,7 @@ def parse_document_chunk(
             chunk_index=chunk_index,
             total_chunks=total_chunks,
             page_offset=page_offset,
+            **parser_kwargs,
         )
     except DocumentParsingError as exc:
         if exc.is_transient:
