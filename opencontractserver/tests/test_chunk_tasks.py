@@ -1,0 +1,68 @@
+"""Tests for the chunked-parse Celery tasks (run eager)."""
+from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
+from django.test import TestCase, override_settings
+
+from opencontractserver.documents.models import Document
+from opencontractserver.pipeline.chunk_artifacts import (
+    chunk_output_key,
+    read_chunk_result,
+    write_chunk_pdf,
+    write_chunk_result,
+)
+from opencontractserver.tasks.chunk_tasks import (
+    parse_document_chunk,
+    reassemble_and_save_chunks,
+)
+from opencontractserver.tests.helpers import make_test_pdf
+from opencontractserver.tests.test_chunked_parser import _make_chunk_result
+
+User = get_user_model()
+
+# Registry name (dotted path) of the fake parser.
+_FAKE = "opencontractserver.tests.test_chunked_parser._FakeChunkedParser"
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class TestChunkTasks(TestCase):
+    def _doc(self, pages: int):
+        user = User.objects.create_user(username="ct", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        doc.pdf_file.save(f"doc_{doc.id}.pdf", ContentFile(make_test_pdf(pages)))
+        return doc, user
+
+    def test_parse_document_chunk_writes_result_and_returns_key(self):
+        doc, user = self._doc(2)
+        in_key = write_chunk_pdf(doc.id, 0, make_test_pdf(2))
+        out_key = parse_document_chunk.apply(
+            kwargs=dict(
+                user_id=user.id,
+                doc_id=doc.id,
+                parser_name=_FAKE,
+                chunk_index=0,
+                total_chunks=1,
+                page_offset=0,
+                input_key=in_key,
+            )
+        ).get()
+        self.assertEqual(out_key, chunk_output_key(doc.id, 0))
+        result = read_chunk_result(out_key)
+        self.assertEqual(result["page_count"], 2)
+
+    def test_reassemble_and_save_persists_document(self):
+        doc, user = self._doc(4)
+        out0 = write_chunk_result(doc.id, 0, _make_chunk_result(num_pages=2))
+        out1 = write_chunk_result(doc.id, 1, _make_chunk_result(num_pages=2))
+        reassemble_and_save_chunks.apply(
+            args=([out0, out1],),
+            kwargs=dict(
+                doc_id=doc.id,
+                user_id=user.id,
+                parser_name=_FAKE,
+                corpus_id=None,
+                page_offsets=[0, 2],
+            ),
+        ).get()
+        doc.refresh_from_db()
+        self.assertTrue(doc.pawls_parse_file)
