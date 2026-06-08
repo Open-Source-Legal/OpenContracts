@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 /**
@@ -33,10 +34,23 @@ function urlTransform(url: string): string {
   return SAFE_PROTOCOLS.test(url) ? url : "";
 }
 
-export const SafeMarkdown: React.FC<{ children: string }> = ({ children }) => {
+export const SafeMarkdown: React.FC<{
+  children: string;
+  /**
+   * Optional element renderer overrides forwarded to ReactMarkdown. Lets a
+   * caller customise specific nodes (e.g. make research-report footnote
+   * definitions deep-link to their cited annotation) without weakening the
+   * shared safety contract — `urlTransform` still gates every URL.
+   */
+  components?: Components;
+}> = ({ children, components }) => {
   try {
     return (
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={urlTransform}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={urlTransform}
+        components={components}
+      >
         {children}
       </ReactMarkdown>
     );
@@ -46,7 +60,9 @@ export const SafeMarkdown: React.FC<{ children: string }> = ({ children }) => {
       error
     );
     return (
-      <ReactMarkdown urlTransform={urlTransform}>{children}</ReactMarkdown>
+      <ReactMarkdown urlTransform={urlTransform} components={components}>
+        {children}
+      </ReactMarkdown>
     );
   }
 };
