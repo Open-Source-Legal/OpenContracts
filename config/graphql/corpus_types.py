@@ -763,6 +763,84 @@ class CorpusStatsType(graphene.ObjectType):
     total_relationships = graphene.Int()
 
 
+class CorpusDocumentGraphNodeType(graphene.ObjectType):
+    """A single document node in the corpus document-relationship graph.
+
+    Powers the ``DocumentGraphGlimpse`` on the Corpus Intelligence home — a
+    node is a document, sized by ``degree`` (its visible relationship count).
+    """
+
+    id = graphene.ID(required=True, description="Global DocumentType id (navigable).")
+    title = graphene.String()
+    file_type = graphene.String()
+    degree = graphene.Int(
+        required=True,
+        description="Number of visible relationships touching this document.",
+    )
+
+
+class CorpusDocumentGraphEdgeType(graphene.ObjectType):
+    """A labeled directed edge between two document nodes."""
+
+    id = graphene.ID(required=True)
+    source = graphene.ID(required=True, description="Global id of the source document.")
+    target = graphene.ID(required=True, description="Global id of the target document.")
+    label = graphene.String(description="Relationship label text (null for NOTES).")
+    relationship_type = graphene.String()
+
+
+class CorpusDocumentGraphType(graphene.ObjectType):
+    """The corpus document-relationship graph (node-link form).
+
+    Built entirely from permission-filtered ``DocumentRelationship`` rows via
+    ``DocumentRelationshipService`` — documents that participate in at least
+    one visible relationship, ranked by degree and capped for the glimpse.
+    """
+
+    nodes = graphene.List(graphene.NonNull(CorpusDocumentGraphNodeType), required=True)
+    edges = graphene.List(graphene.NonNull(CorpusDocumentGraphEdgeType), required=True)
+    total_node_count = graphene.Int(
+        required=True,
+        description="Distinct documents participating in any visible relationship.",
+    )
+    total_edge_count = graphene.Int(
+        required=True, description="Total visible relationships in the corpus."
+    )
+    truncated = graphene.Boolean(
+        required=True,
+        description="True when nodes/edges were dropped to honor the limit.",
+    )
+
+
+class LabelDistributionEntryType(graphene.ObjectType):
+    """One label and how often it appears across the corpus's visible annotations."""
+
+    label = graphene.String(required=True)
+    color = graphene.String()
+    count = graphene.Int(required=True)
+
+
+class CorpusIntelligenceAggregatesType(graphene.ObjectType):
+    """At-a-glance corpus intelligence framed as insight, not raw counts.
+
+    Feeds the ``IntelligencePanel`` on the Corpus Intelligence home. Counts
+    respect the permission model (visible documents only).
+    """
+
+    label_distribution = graphene.List(
+        graphene.NonNull(LabelDistributionEntryType),
+        required=True,
+        description="Top annotation labels by frequency across visible documents.",
+    )
+    documents_with_summary = graphene.Int(
+        required=True, description="Visible documents that have a markdown summary."
+    )
+    total_documents = graphene.Int(
+        required=True,
+        description="Visible documents with an active path in the corpus.",
+    )
+
+
 class CorpusFilterCountsType(graphene.ObjectType):
     """Counts of corpuses visible to the user, broken down by tab filter.
 

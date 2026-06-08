@@ -1,0 +1,266 @@
+import React, { useMemo } from "react";
+import { useQuery } from "@apollo/client";
+import styled from "styled-components";
+import { FileText, Share2, BookOpenCheck, Tags } from "lucide-react";
+
+import { StatisticWithAnimation } from "../../CorpusDashboard";
+import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import {
+  GET_CORPUS_STATS,
+  GetCorpusStatsInputType,
+  GetCorpusStatsOutputType,
+  GET_CORPUS_INTELLIGENCE_AGGREGATES,
+  GetCorpusIntelligenceAggregatesInputType,
+  GetCorpusIntelligenceAggregatesOutputType,
+} from "../../../../graphql/queries";
+
+/**
+ * IntelligencePanel — the insight-framed "at a glance" panel of the Corpus
+ * Intelligence home. It reuses the existing ``corpus_stats`` query and the
+ * shared ``StatisticWithAnimation`` card, and adds a label-distribution
+ * mini-chart + summary-coverage bar from the new
+ * ``corpus_intelligence_aggregates`` resolver. The framing is deliberately
+ * "what's in here and how dense it is", not raw counts.
+ */
+
+interface IntelligencePanelProps {
+  corpusId: string;
+  testId?: string;
+}
+
+const PanelContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+`;
+
+const StatsRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+
+  @media (min-width: 768px) {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+  }
+`;
+
+const SubCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  background: ${OS_LEGAL_COLORS.surfaceLight};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 14px;
+`;
+
+const SubCardTitle = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+
+  svg {
+    width: 15px;
+    height: 15px;
+    color: ${OS_LEGAL_COLORS.primaryBlue};
+  }
+`;
+
+const CoverageBarTrack = styled.div`
+  width: 100%;
+  height: 8px;
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  border-radius: 999px;
+  overflow: hidden;
+`;
+
+const CoverageBarFill = styled.div<{ $pct: number }>`
+  height: 100%;
+  width: ${(p) => p.$pct}%;
+  background: ${OS_LEGAL_COLORS.primaryBlue};
+  border-radius: 999px;
+  transition: width 0.6s ease;
+`;
+
+const CoverageCaption = styled.div`
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  font-variant-numeric: tabular-nums;
+`;
+
+const LabelList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+`;
+
+const LabelRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+`;
+
+const LabelSwatch = styled.span<{ $color: string }>`
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: ${(p) => p.$color};
+  flex-shrink: 0;
+`;
+
+const LabelName = styled.span`
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const LabelBarTrack = styled.div`
+  flex: 1.5;
+  height: 6px;
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  border-radius: 999px;
+  overflow: hidden;
+`;
+
+const LabelBarFill = styled.div<{ $pct: number; $color: string }>`
+  height: 100%;
+  width: ${(p) => p.$pct}%;
+  background: ${(p) => p.$color};
+  border-radius: 999px;
+`;
+
+const LabelCount = styled.span`
+  font-variant-numeric: tabular-nums;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  min-width: 2ch;
+  text-align: right;
+`;
+
+const InsightGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+
+  @media (min-width: 768px) {
+    grid-template-columns: 1fr 1fr;
+  }
+`;
+
+const EmptyHint = styled.div`
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
+export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
+  corpusId,
+  testId = "corpus-intelligence-panel",
+}) => {
+  const variables = useMemo(() => ({ corpusId }), [corpusId]);
+
+  const { data: statsData } = useQuery<
+    GetCorpusStatsOutputType,
+    GetCorpusStatsInputType
+  >(GET_CORPUS_STATS, { variables });
+
+  const { data: aggData } = useQuery<
+    GetCorpusIntelligenceAggregatesOutputType,
+    GetCorpusIntelligenceAggregatesInputType
+  >(GET_CORPUS_INTELLIGENCE_AGGREGATES, { variables });
+
+  const stats = statsData?.corpusStats;
+  const agg = aggData?.corpusIntelligenceAggregates;
+
+  const totalDocs = stats?.totalDocs ?? 0;
+  const totalRelationships = stats?.totalRelationships ?? 0;
+  const totalAnnotations = stats?.totalAnnotations ?? 0;
+  const totalExtracts = stats?.totalExtracts ?? 0;
+
+  const docsWithSummary = agg?.documentsWithSummary ?? 0;
+  const summaryDenominator = agg?.totalDocuments ?? totalDocs;
+  const coveragePct =
+    summaryDenominator > 0
+      ? Math.round((docsWithSummary / summaryDenominator) * 100)
+      : 0;
+
+  const labels = agg?.labelDistribution ?? [];
+  const maxLabelCount = labels.reduce((m, l) => Math.max(m, l.count), 1);
+
+  return (
+    <PanelContainer data-testid={testId}>
+      <StatsRow>
+        <StatisticWithAnimation
+          value={totalDocs}
+          label="Documents"
+          icon={FileText}
+        />
+        <StatisticWithAnimation
+          value={totalRelationships}
+          label="Connections"
+          icon={Share2}
+        />
+        <StatisticWithAnimation
+          value={totalAnnotations}
+          label="Annotations"
+          icon={Tags}
+        />
+        <StatisticWithAnimation
+          value={totalExtracts}
+          label="Extracts"
+          icon={BookOpenCheck}
+        />
+      </StatsRow>
+
+      <InsightGrid>
+        <SubCard data-testid={`${testId}-coverage`}>
+          <SubCardTitle>
+            <BookOpenCheck />
+            Summary coverage
+          </SubCardTitle>
+          <CoverageBarTrack>
+            <CoverageBarFill $pct={coveragePct} />
+          </CoverageBarTrack>
+          <CoverageCaption>
+            {docsWithSummary} of {summaryDenominator}{" "}
+            {summaryDenominator === 1 ? "document" : "documents"} summarized (
+            {coveragePct}%)
+          </CoverageCaption>
+        </SubCard>
+
+        <SubCard data-testid={`${testId}-labels`}>
+          <SubCardTitle>
+            <Tags />
+            Dominant labels
+          </SubCardTitle>
+          {labels.length === 0 ? (
+            <EmptyHint>No labeled annotations yet.</EmptyHint>
+          ) : (
+            <LabelList>
+              {labels.map((entry) => {
+                const color = entry.color || OS_LEGAL_COLORS.primaryBlue;
+                const pct = Math.round((entry.count / maxLabelCount) * 100);
+                return (
+                  <LabelRow key={entry.label}>
+                    <LabelSwatch $color={color} />
+                    <LabelName title={entry.label}>{entry.label}</LabelName>
+                    <LabelBarTrack>
+                      <LabelBarFill $pct={pct} $color={color} />
+                    </LabelBarTrack>
+                    <LabelCount>{entry.count}</LabelCount>
+                  </LabelRow>
+                );
+              })}
+            </LabelList>
+          )}
+        </SubCard>
+      </InsightGrid>
+    </PanelContainer>
+  );
+};
