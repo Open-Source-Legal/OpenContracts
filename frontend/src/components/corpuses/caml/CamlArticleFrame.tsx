@@ -82,17 +82,19 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
     padding-right: ${CORPUS_SPACING[6]};
   }
 
+  /* The reading layer sets NO text color: caml-react already colors prose
+     theme-aware and dark chapters set a light section color. Hardcoding dark
+     slate here outranks those (extra element vs the library's hashed class) and
+     renders dark-on-dark on dark chapters. We own only rhythm + hierarchy. */
   article > section p {
     margin: 0 0 1.1em;
     line-height: 1.72;
     font-size: 1.0625rem;
-    color: ${CORPUS_COLORS.slate[800]};
   }
 
   article > section li {
     margin: 0.35em 0;
     line-height: 1.65;
-    color: ${CORPUS_COLORS.slate[800]};
   }
 
   article > section ul,
@@ -103,7 +105,6 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
 
   article > section h2,
   article > section h3 {
-    color: ${CORPUS_COLORS.slate[900]};
     letter-spacing: -0.01em;
     line-height: 1.25;
     font-weight: 600;
@@ -125,12 +126,12 @@ export const CamlArticleFrame = styled.div<{ $bottomInset?: string }>`
     margin: 1.75em 0 0.4em;
   }
 
-  /* Fallthrough for deeper headings (h4-h6) so #### and beyond stay legible
-     instead of inheriting browser defaults inside the scoped section. */
+  /* Fallthrough for deeper headings (h4-h6) so #### and beyond stay sized
+     instead of inheriting browser defaults inside the scoped section. Color is
+     left to the library / section inheritance (see the prose note above). */
   article > section h4,
   article > section h5,
   article > section h6 {
-    color: ${CORPUS_COLORS.slate[800]};
     font-size: ${CORPUS_FONT_SIZES.lg};
     font-weight: 600;
     line-height: 1.3;
