@@ -22,6 +22,7 @@ from django.core.files.storage import default_storage
 from pypdf import PdfReader
 
 from opencontractserver.constants import (
+    DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_RETRY_LIMIT,
     DEFAULT_MAX_CONCURRENT_CHUNKS,
     DEFAULT_MAX_PAGES_PER_CHUNK,
@@ -39,7 +40,8 @@ from opencontractserver.pipeline.chunk_artifacts import (
 )
 from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.utils.pdf_splitting import (
-    calculate_page_chunks,
+    PageChunk,
+    calculate_page_chunks_with_overlap,
     get_pdf_page_count,
     split_pdf_by_page_range,
 )
@@ -66,17 +68,16 @@ class BaseChunkedParser(BaseParser):
     All results consistently receive chunk-prefixed IDs (``c0_``), including
     single-chunk documents, to ensure downstream consumers see a uniform format.
 
-    **Limitation -- cross-chunk parent-child relationships:**
-    Each chunk is parsed independently, so parent-child annotation references
-    that span chunk boundaries will be orphaned after reassembly.  For example,
-    a paragraph in chunk 1 whose section header is in chunk 0 will have a
-    ``parent_id`` that does not match any annotation ID in the final result.
-    A debug-level message is emitted during reassembly when orphaned references
-    are detected.
-
-    A future improvement could snap chunk boundaries to section headers rather
-    than arbitrary page limits, reducing orphaned references in hierarchical
-    documents.  See GitHub issue #914 item 4 for discussion.
+    **Cross-chunk structure via overlap (issue #1961):**
+    Each chunk's parse range is extended ``chunk_overlap`` pages beyond its core
+    boundary on every interior side (see
+    :func:`calculate_page_chunks_with_overlap`), so a structure that spans a
+    chunk boundary is captured *whole* in at least one chunk. Reassembly then
+    dedupes the duplicated overlap pages/annotations and re-links relationships
+    and ``parent_id`` references across boundaries using the deduped global IDs
+    (see :class:`ChunkReassembler`). Overlap must exceed the largest expected
+    boundary-spanning structure; any residual orphans (a reference whose target
+    fell outside every chunk's parse range) are logged + metered but never fatal.
     """
 
     # ------------------------------------------------------------------
@@ -94,6 +95,10 @@ class BaseChunkedParser(BaseParser):
     max_pages_per_chunk: int = DEFAULT_MAX_PAGES_PER_CHUNK
     min_pages_for_chunking: int = DEFAULT_MIN_PAGES_FOR_CHUNKING
     max_concurrent_chunks: int = DEFAULT_MAX_CONCURRENT_CHUNKS
+    # Pages each chunk's parse range extends past its core boundary on every
+    # interior side, so boundary-spanning structure survives in at least one
+    # chunk. Reassembly dedupes the overlap and re-links cross-boundary refs.
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     # Intentionally low: per-chunk retries handle transient blips, while the
     # outer Celery task provides a second tier of retries for broader failures.
     chunk_retry_limit: int = DEFAULT_CHUNK_RETRY_LIMIT
@@ -178,21 +183,31 @@ class BaseChunkedParser(BaseParser):
             pdf_bytes = fh.read()
 
         page_count = get_pdf_page_count(pdf_bytes)
-        chunks = calculate_page_chunks(
-            page_count, self.max_pages_per_chunk, self.min_pages_for_chunking
+        chunks = calculate_page_chunks_with_overlap(
+            page_count,
+            self.max_pages_per_chunk,
+            self.min_pages_for_chunking,
+            overlap=self.chunk_overlap,
         )
         if len(chunks) <= 1:
             return []
 
         reader = PdfReader(io.BytesIO(pdf_bytes))
         descriptors: list[dict] = []
-        for idx, (start, end) in enumerate(chunks):
-            chunk_bytes = split_pdf_by_page_range(pdf_bytes, start, end, reader=reader)
+        for idx, chunk in enumerate(chunks):
+            # Split the overlap-extended parse range. ``page_offset`` is the parse
+            # ``start`` (not ``core_start``): the chunk PDF's local page i is the
+            # original document's page ``start + i``, so ``start`` is the only
+            # offset that maps local pages back into global space. Reassembly
+            # dedupes the overlapping pages by global index.
+            chunk_bytes = split_pdf_by_page_range(
+                pdf_bytes, chunk.start, chunk.end, reader=reader
+            )
             input_key = write_chunk_pdf(doc_id, idx, chunk_bytes)
             descriptors.append(
                 {
                     "chunk_index": idx,
-                    "page_offset": start,
+                    "page_offset": chunk.start,
                     "total_chunks": len(chunks),
                     "input_key": input_key,
                 }
@@ -292,8 +307,11 @@ class BaseChunkedParser(BaseParser):
             )
 
         try:
-            chunks = calculate_page_chunks(
-                page_count, self.max_pages_per_chunk, self.min_pages_for_chunking
+            chunks = calculate_page_chunks_with_overlap(
+                page_count,
+                self.max_pages_per_chunk,
+                self.min_pages_for_chunking,
+                overlap=self.chunk_overlap,
             )
         except ValueError as e:
             raise DocumentParsingError(str(e), is_transient=False)
@@ -348,18 +366,19 @@ class BaseChunkedParser(BaseParser):
             # Create a single PdfReader to avoid re-parsing the PDF per chunk.
             shared_reader = PdfReader(io.BytesIO(pdf_bytes))
             chunk_data: list[tuple[int, bytes, int]] = []
-            for idx, (start, end) in enumerate(chunks):
+            for idx, chunk in enumerate(chunks):
                 try:
                     chunk_bytes = split_pdf_by_page_range(
-                        pdf_bytes, start, end, reader=shared_reader
+                        pdf_bytes, chunk.start, chunk.end, reader=shared_reader
                     )
                 except ValueError as e:
                     raise DocumentParsingError(
                         f"Failed to split PDF for document {doc_id}, "
-                        f"chunk {idx} (pages {start}-{end}): {e}",
+                        f"chunk {idx} (pages {chunk.start}-{chunk.end}): {e}",
                         is_transient=False,
                     )
-                chunk_data.append((idx, chunk_bytes, start))
+                # page_offset is the parse ``start`` (see prepare_chunk_inputs).
+                chunk_data.append((idx, chunk_bytes, chunk.start))
 
             chunk_results = self._dispatch_concurrent(
                 user_id=user_id,
@@ -369,15 +388,18 @@ class BaseChunkedParser(BaseParser):
                 **all_kwargs,
             )
 
-        # Reassemble
-        # NOTE (Phase 3 — issue #1961): when this is switched to
-        # calculate_page_chunks_with_overlap, the reassembly offset for each
-        # chunk must be its ``core_start``, NOT its parse-range ``start``. With
-        # overlap, the parse range extends backwards into the previous chunk,
-        # but the offset into global page space is core-based. Today ``chunks``
-        # are (start, end) 2-tuples from calculate_page_chunks where
-        # start == core_start, so using ``start`` here is correct.
-        page_offsets = [start for (start, _end) in chunks]
+        # Reassemble.
+        # The reassembly offset for each chunk is its parse-range ``start`` —
+        # NOT its ``core_start``. A chunk PDF split from the parse range
+        # [start, end) has its local page i drawn from the original document's
+        # page ``start + i``, so ``start`` is the only offset that maps local
+        # pages back into global space (using ``core_start`` would misplace the
+        # leading overlap pages by ``core_start - start``). The duplicate pages
+        # and annotations that overlap introduces are removed in reassembly:
+        # ChunkReassembler dedupes pages by global index and annotations by
+        # signature, then re-links cross-boundary references. (This supersedes
+        # the Phase-1 placeholder note that suggested offsetting by core_start.)
+        page_offsets = [c.start for c in chunks]
         reassembled = _reassemble_chunk_results(chunk_results, page_offsets)
 
         logger.info(
@@ -401,7 +423,7 @@ class BaseChunkedParser(BaseParser):
         self,
         user_id: int,
         doc_id: int,
-        chunks: list[tuple[int, int]],
+        chunks: list[PageChunk],
         pdf_bytes: bytes,
         total_chunks: int,
         **all_kwargs,
@@ -411,13 +433,13 @@ class BaseChunkedParser(BaseParser):
         to avoid holding all chunk PDFs in memory simultaneously.
         """
         results: list[OpenContractDocExport] = []
-        for chunk_index, (start, end) in enumerate(chunks):
+        for chunk_index, chunk in enumerate(chunks):
             try:
-                chunk_bytes = split_pdf_by_page_range(pdf_bytes, start, end)
+                chunk_bytes = split_pdf_by_page_range(pdf_bytes, chunk.start, chunk.end)
             except ValueError as e:
                 raise DocumentParsingError(
                     f"Failed to split PDF for document {doc_id}, "
-                    f"chunk {chunk_index} (pages {start}-{end}): {e}",
+                    f"chunk {chunk_index} (pages {chunk.start}-{chunk.end}): {e}",
                     is_transient=False,
                 )
 
@@ -427,7 +449,7 @@ class BaseChunkedParser(BaseParser):
                 chunk_pdf_bytes=chunk_bytes,
                 chunk_index=chunk_index,
                 total_chunks=total_chunks,
-                page_offset=start,
+                page_offset=chunk.start,
                 **all_kwargs,
             )
             if result is None:
