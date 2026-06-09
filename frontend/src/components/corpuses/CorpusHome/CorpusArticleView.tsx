@@ -33,6 +33,7 @@ import {
   TABLET_BREAKPOINT,
 } from "../../../assets/configurations/constants";
 import { CamlDirectiveRenderer } from "../caml/CamlDirectiveRenderer";
+import { CamlEmbedProvider } from "../caml/CamlEmbedContext";
 import {
   registerDirectiveHandler,
   unregisterDirectiveHandler,
@@ -245,6 +246,14 @@ export interface CorpusArticleViewProps {
    * isPowerUserMode to match CorpusLandingView / CorpusDetailsView.
    */
   onOpenMobileMenu?: () => void;
+  /**
+   * Submit a cross-document question to the corpus agent. Provided to embedded
+   * ``ask-across-docs`` CAML components via ``CamlEmbedContext`` so their chips
+   * feed the article's existing floating chat (no second chat affordance).
+   */
+  onAskQuestion?: (query: string) => void;
+  /** Escape hatch from an embedded document graph to the documents view. */
+  onExploreGraph?: () => void;
   stats?: {
     annotations?: number;
     documents?: number;
@@ -262,6 +271,8 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
   onModeToggle,
   isPowerUserMode = false,
   onOpenMobileMenu,
+  onAskQuestion,
+  onExploreGraph,
   stats,
   testId = "corpus-article",
 }) => {
@@ -495,14 +506,22 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
         </HeroAvatarRow>
       )}
 
-      <CamlDirectiveRenderer
-        document={parsedDocument}
-        handlerContext={handlerContext}
-        stats={stats}
-        resolveImageSrc={resolveImageSrc}
-        componentRegistry={CAML_COMPONENTS}
-        bottomInset="var(--oc-article-bottom-clearance, 0px)"
-      />
+      <CamlEmbedProvider
+        value={{
+          corpusId: corpus.id,
+          onAskQuestion,
+          onExploreGraph,
+        }}
+      >
+        <CamlDirectiveRenderer
+          document={parsedDocument}
+          handlerContext={handlerContext}
+          stats={stats}
+          resolveImageSrc={resolveImageSrc}
+          componentRegistry={CAML_COMPONENTS}
+          bottomInset="var(--oc-article-bottom-clearance, 0px)"
+        />
+      </CamlEmbedProvider>
     </ArticleViewContainer>
   );
 };
