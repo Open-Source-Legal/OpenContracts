@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from opencontractserver.pipeline.base.chunk_reassembler import ChunkReassembler
 from opencontractserver.tests.test_chunked_parser import _make_chunk_result
+from opencontractserver.types.dicts import OpenContractDocExport
 
 
 class TestChunkReassembler(TestCase):
@@ -83,14 +84,15 @@ def _ann(
 
 def _chunk(
     num_pages: int,
-    annotations: list[dict],
-    relationships: Optional[list[dict]] = None,
-) -> dict:
+    annotations: list,
+    relationships: Optional[list] = None,
+) -> OpenContractDocExport:
+    pawls: list = [_page(i) for i in range(num_pages)]
     return {
         "title": "Doc",
         "content": "c",
         "description": "d",
-        "pawls_file_content": [_page(i) for i in range(num_pages)],
+        "pawls_file_content": pawls,
         "page_count": num_pages,
         "doc_labels": [],
         "labelled_text": annotations,
