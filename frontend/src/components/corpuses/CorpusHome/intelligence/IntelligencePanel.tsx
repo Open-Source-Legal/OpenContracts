@@ -6,6 +6,7 @@ import { FileText, Share2, BookOpenCheck, Tags } from "lucide-react";
 import { StatisticWithAnimation } from "../../CorpusDashboard";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { safeCssColor } from "../../../../utils/colorUtils";
+import { humanizeLabel } from "../../../../utils/formatters";
 import {
   GET_CORPUS_STATS,
   GetCorpusStatsInputType,
@@ -38,11 +39,10 @@ const PanelContainer = styled.div`
 
 const StatsRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.75rem;
 
   @media (min-width: 768px) {
-    grid-template-columns: repeat(4, 1fr);
     gap: 1rem;
   }
 `;
@@ -131,10 +131,15 @@ const LabelBarTrack = styled.div`
   overflow: hidden;
 `;
 
-const LabelBarFill = styled.div<{ $pct: number; $color: string }>`
+const LabelBarFill = styled.div<{ $pct: number }>`
   height: 100%;
   width: ${(p) => p.$pct}%;
-  background: ${(p) => p.$color};
+  /* A single restrained fill keeps the panel calm; per-label hue lives in the
+     swatch. Earlier the bars used each label's raw colour, so a saturated tag
+     (e.g. a bright orange) became the loudest element on the page and pulled
+     focus from the document graph it sits beside. */
+  background: ${OS_LEGAL_COLORS.primaryBlue};
+  opacity: 0.55;
   border-radius: 999px;
 `;
 
@@ -214,6 +219,16 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   const labels = agg?.labelDistribution ?? [];
   const maxLabelCount = labels.reduce((m, l) => Math.max(m, l.count), 1);
 
+  // Only surface metrics that are actually present. A prominent "0 Extracts"
+  // card (or an empty connections count) reads as "this collection is empty"
+  // and undercuts the at-a-glance intent — show what's here, not what isn't.
+  const statCards = [
+    { value: totalDocs, label: "Documents", icon: FileText },
+    { value: totalRelationships, label: "Connections", icon: Share2 },
+    { value: totalAnnotations, label: "Annotations", icon: Tags },
+    { value: totalExtracts, label: "Extracts", icon: BookOpenCheck },
+  ].filter((stat) => stat.value > 0);
+
   return (
     <PanelContainer data-testid={testId}>
       <StatsRow>
@@ -225,28 +240,14 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
             <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
           </>
         ) : (
-          <>
+          statCards.map((stat) => (
             <StatisticWithAnimation
-              value={totalDocs}
-              label="Documents"
-              icon={FileText}
+              key={stat.label}
+              value={stat.value}
+              label={stat.label}
+              icon={stat.icon}
             />
-            <StatisticWithAnimation
-              value={totalRelationships}
-              label="Connections"
-              icon={Share2}
-            />
-            <StatisticWithAnimation
-              value={totalAnnotations}
-              label="Annotations"
-              icon={Tags}
-            />
-            <StatisticWithAnimation
-              value={totalExtracts}
-              label="Extracts"
-              icon={BookOpenCheck}
-            />
-          </>
+          ))
         )}
       </StatsRow>
 
@@ -283,12 +284,13 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
                   OS_LEGAL_COLORS.primaryBlue
                 );
                 const pct = Math.round((entry.count / maxLabelCount) * 100);
+                const display = humanizeLabel(entry.label);
                 return (
                   <LabelRow key={entry.label}>
                     <LabelSwatch $color={color} />
-                    <LabelName title={entry.label}>{entry.label}</LabelName>
+                    <LabelName title={display}>{display}</LabelName>
                     <LabelBarTrack>
-                      <LabelBarFill $pct={pct} $color={color} />
+                      <LabelBarFill $pct={pct} />
                     </LabelBarTrack>
                     <LabelCount>{entry.count}</LabelCount>
                   </LabelRow>

@@ -29,6 +29,7 @@ from config.graphql.graphene_types import (
     DocumentPathType,
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
+from opencontractserver.constants.annotations import OC_RESERVED_LABEL_PREFIX
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import (
@@ -623,12 +624,21 @@ class CorpusQueryMixin:
         # is required because the structural_set M2M join multiplies a structural
         # annotation by the number of visible docs in its set, which would
         # otherwise inflate the per-label count.
+        #
+        # OC_-prefixed labels are platform scaffolding (OC_SECTION, OC_URL,
+        # OC_EXTRACT_SOURCE, …) — pipeline internals that drive built-in
+        # features, not human-meaningful tags. Surfacing them in a user-facing
+        # "dominant labels" insight reads as jargon and crowds out real labels,
+        # so exclude the reserved namespace here. Provider/custom labels (even
+        # structural ones a parser emits) are intentionally kept — see
+        # ``test_aggregates_structural_label_counted_once_across_shared_docs``.
         label_rows = (
             corpus.annotations.filter(
                 Q(document_id__in=visible_doc_ids)
                 | Q(structural_set__documents__in=visible_doc_ids, structural=True)
             )
             .exclude(annotation_label__isnull=True)
+            .exclude(annotation_label__text__startswith=OC_RESERVED_LABEL_PREFIX)
             .values("annotation_label__text", "annotation_label__color")
             .annotate(count=Count("id", distinct=True))
             .order_by("-count")[:CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N]

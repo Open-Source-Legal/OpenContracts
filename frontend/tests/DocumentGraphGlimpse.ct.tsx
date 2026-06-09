@@ -72,6 +72,58 @@ test.describe("DocumentGraphGlimpse", () => {
     await component.unmount();
   });
 
+  test("renders a legend explaining edge styles and node size", async ({
+    mount,
+    page,
+  }) => {
+    // EDGES contains one RELATIONSHIP and one NOTES edge, so all three legend
+    // entries should appear.
+    const component = await mount(
+      <DocumentGraphGlimpse
+        nodes={NODES}
+        edges={EDGES}
+        totalNodeCount={3}
+        totalEdgeCount={2}
+        truncated={false}
+      />
+    );
+
+    const legend = page.locator(
+      '[data-testid="document-graph-glimpse-legend"]'
+    );
+    await expect(legend).toBeVisible({ timeout: 10000 });
+    await expect(legend).toContainText("Citation / exhibit");
+    await expect(legend).toContainText("Related filing");
+    await expect(legend).toContainText("Larger = more connections");
+
+    await component.unmount();
+  });
+
+  test("omits the 'related filing' legend entry when no notes edges exist", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <DocumentGraphGlimpse
+        nodes={NODES.slice(0, 2)}
+        edges={[EDGES[0]]} // RELATIONSHIP only
+        totalNodeCount={2}
+        totalEdgeCount={1}
+        truncated={false}
+      />
+    );
+
+    const legend = page.locator(
+      '[data-testid="document-graph-glimpse-legend"]'
+    );
+    await expect(legend).toContainText("Citation / exhibit", {
+      timeout: 10000,
+    });
+    await expect(legend).not.toContainText("Related filing");
+
+    await component.unmount();
+  });
+
   test("notes the most-connected subset when truncated", async ({
     mount,
     page,

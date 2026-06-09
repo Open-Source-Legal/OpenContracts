@@ -129,6 +129,25 @@ const EmptyState = styled.div`
   color: ${OS_LEGAL_COLORS.textMuted};
 `;
 
+// Legend — without it the graph is just blue dots and lines: a first-time
+// viewer can't tell what an edge or a big node means. Entries are rendered
+// conditionally on the edge types actually present so we never explain a
+// dashed style the data doesn't use.
+const Legend = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
+const LegendItem = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+`;
+
 /**
  * Compute a deterministic force-directed layout. Initial positions are seeded
  * on a circle (no RNG), then the simulation is run synchronously for a fixed
@@ -212,6 +231,15 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
   const { simNodes, nodeById } = useMemo(
     () => computeLayout(nodes, edges),
     [nodes, edges]
+  );
+
+  // Which edge styles are actually on screen — drives a legend that only
+  // explains what's present (no dashed-line entry when there are no notes).
+  const hasCitationEdge = edges.some(
+    (e) => e.relationshipType !== DOCUMENT_RELATIONSHIP_TYPES.NOTES
+  );
+  const hasNoteEdge = edges.some(
+    (e) => e.relationshipType === DOCUMENT_RELATIONSHIP_TYPES.NOTES
   );
 
   if (nodes.length === 0) {
@@ -304,6 +332,59 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
           </g>
         </svg>
       </SvgWrapper>
+
+      <Legend data-testid={`${testId}-legend`}>
+        {hasCitationEdge && (
+          <LegendItem>
+            <svg width="22" height="8" aria-hidden="true">
+              <line
+                x1="1"
+                y1="4"
+                x2="21"
+                y2="4"
+                stroke={OS_LEGAL_COLORS.primaryBlue}
+                strokeWidth="1.5"
+              />
+            </svg>
+            Citation / exhibit
+          </LegendItem>
+        )}
+        {hasNoteEdge && (
+          <LegendItem>
+            <svg width="22" height="8" aria-hidden="true">
+              <line
+                x1="1"
+                y1="4"
+                x2="21"
+                y2="4"
+                stroke={OS_LEGAL_COLORS.border}
+                strokeWidth="1"
+                strokeDasharray="3 3"
+              />
+            </svg>
+            Related filing
+          </LegendItem>
+        )}
+        <LegendItem>
+          <svg width="26" height="12" aria-hidden="true">
+            <circle
+              cx="5"
+              cy="6"
+              r="2.5"
+              fill={OS_LEGAL_COLORS.primaryBlue}
+              fillOpacity="0.85"
+            />
+            <circle
+              cx="18"
+              cy="6"
+              r="5"
+              fill={OS_LEGAL_COLORS.primaryBlue}
+              fillOpacity="0.85"
+            />
+          </svg>
+          Larger = more connections
+        </LegendItem>
+      </Legend>
 
       {onExplore && (
         <ExploreLink onClick={onExplore} data-testid={`${testId}-explore`}>

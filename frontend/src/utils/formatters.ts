@@ -213,3 +213,46 @@ export function formatCellValue(
   // so that unexpectedly long cell contents don't blow out the table layout.
   return truncateAtCodePoint(String(data), EXTRACT_GRID_CELL_TRUNCATE_LENGTH);
 }
+
+/**
+ * Acronyms that should stay fully upper-cased when humanizing a SCREAMING_SNAKE
+ * label token (e.g. "SEC_HEADER" -> "SEC Header", not "Sec Header").
+ */
+const LABEL_ACRONYMS = new Set([
+  "SEC",
+  "OC",
+  "IPO",
+  "SPAC",
+  "LLC",
+  "AI",
+  "API",
+  "URL",
+  "ID",
+  "PII",
+  "US",
+  "EU",
+  "FTS",
+]);
+
+/**
+ * Humanize a machine-style annotation-label name for display in user-facing
+ * "insight" surfaces. SCREAMING_SNAKE_CASE provider/pipeline tokens
+ * ("SEC_HEADER", "EXHIBIT_REFERENCE") read as jargon; this splits on
+ * underscores and Title-Cases each word while preserving known acronyms.
+ *
+ * Labels that already look human are left untouched: anything without an
+ * underscore — "S-1", "10-K", "Exhibit", "Risk Factor", "Contract Clause" —
+ * is returned verbatim, so we only rewrite the genuinely machine-shaped tokens.
+ */
+export function humanizeLabel(label: string): string {
+  if (!label || !label.includes("_")) return label;
+  return label
+    .split("_")
+    .filter((word) => word.length > 0)
+    .map((word) =>
+      LABEL_ACRONYMS.has(word.toUpperCase())
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    )
+    .join(" ");
+}

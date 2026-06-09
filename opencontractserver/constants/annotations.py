@@ -11,6 +11,7 @@ MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 # --------------------------------------------------------------------------- #
 # Labels prefixed with OC_ are reserved for platform-generated annotations.
 # They drive built-in features such as the document index.
+OC_RESERVED_LABEL_PREFIX = "OC_"
 OC_SECTION_LABEL = "OC_SECTION"
 OC_EXTRACT_SOURCE_LABEL = "OC_EXTRACT_SOURCE"
 # OC_URL annotations carry a target URL in ``Annotation.link_url`` that the

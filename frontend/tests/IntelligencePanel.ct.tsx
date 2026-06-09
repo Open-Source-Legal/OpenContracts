@@ -122,6 +122,71 @@ test.describe("IntelligencePanel", () => {
     await component.unmount();
   });
 
+  test("hides zero-value stat cards and humanizes machine label names", async ({
+    mount,
+    page,
+  }) => {
+    const zeroExtractsStats = {
+      request: { query: GET_CORPUS_STATS, variables: { corpusId: CORPUS_ID } },
+      result: {
+        data: {
+          corpusStats: {
+            totalDocs: 12,
+            totalComments: 0,
+            totalAnalyses: 0,
+            totalExtracts: 0, // → the Extracts card must be suppressed
+            totalAnnotations: 87,
+            totalThreads: 0,
+            totalChats: 0,
+            totalRelationships: 9,
+          },
+        },
+      },
+    };
+    const jargonAgg = {
+      request: {
+        query: GET_CORPUS_INTELLIGENCE_AGGREGATES,
+        variables: { corpusId: CORPUS_ID },
+      },
+      result: {
+        data: {
+          corpusIntelligenceAggregates: {
+            labelDistribution: [
+              { label: "SEC_HEADER", color: "#0ea5e9", count: 19 },
+              { label: "Exhibit", color: "#16a34a", count: 18 },
+            ],
+            documentsWithSummary: 6,
+            totalDocuments: 12,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <MockedProvider
+        mocks={[zeroExtractsStats, jargonAgg]}
+        addTypename={false}
+      >
+        <IntelligencePanel corpusId={CORPUS_ID} />
+      </MockedProvider>
+    );
+
+    // Non-zero stats render; the zero-valued Extracts card is dropped entirely.
+    await expect(page.getByText("Documents", { exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Extracts", { exact: true })).toHaveCount(0);
+
+    // The machine label name is humanized for display.
+    const labelsCard = page.locator(
+      '[data-testid="corpus-intelligence-panel-labels"]'
+    );
+    await expect(labelsCard).toContainText("SEC Header");
+    await expect(labelsCard).not.toContainText("SEC_HEADER");
+
+    await component.unmount();
+  });
+
   test("shows skeletons while loading and an empty hint with no labels", async ({
     mount,
     page,

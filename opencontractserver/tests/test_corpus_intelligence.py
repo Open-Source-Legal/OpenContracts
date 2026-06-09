@@ -279,3 +279,33 @@ class CorpusIntelligenceResolverTestCase(TestCase):
         labels = {row["label"]: row["count"] for row in agg["labelDistribution"]}
         self.assertIn("Section Header", labels)
         self.assertEqual(labels["Section Header"], 1)
+
+    def test_aggregates_excludes_oc_reserved_labels(self):
+        """OC_-prefixed platform labels are scaffolding, not user insight.
+
+        Labels in the reserved OC_ namespace (OC_SECTION, OC_URL, …) are
+        emitted by the pipeline to drive built-in features; surfacing them in
+        the user-facing "dominant labels" insight reads as jargon. They must be
+        excluded, while ordinary (and even non-OC structural) labels remain.
+        """
+        oc_label = AnnotationLabel.objects.create(
+            text="OC_SECTION", label_type="TOKEN_LABEL", creator=self.owner
+        )
+        for doc in self.docs:
+            Annotation.objects.create(
+                document=doc,
+                corpus=self.corpus,
+                annotation_label=oc_label,
+                raw_text="section",
+                creator=self.owner,
+            )
+
+        result = self.owner_client.execute(
+            self.AGG_QUERY, variables={"corpusId": self.corpus_gid}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        agg = result["data"]["corpusIntelligenceAggregates"]
+        labels = {row["label"] for row in agg["labelDistribution"]}
+        self.assertNotIn("OC_SECTION", labels)
+        # The ordinary label created in setUp is unaffected.
+        self.assertIn("Risk Factor", labels)
