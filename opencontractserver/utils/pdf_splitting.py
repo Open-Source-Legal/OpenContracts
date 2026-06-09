@@ -152,7 +152,9 @@ def calculate_page_chunks_with_overlap(
     if overlap >= max_pages_per_chunk:
         raise ValueError(
             f"overlap ({overlap}) must be < max_pages_per_chunk "
-            f"({max_pages_per_chunk})"
+            f"({max_pages_per_chunk}). If this is a BaseChunkedParser subclass "
+            f"with a small max_pages_per_chunk, pin chunk_overlap = 0 (or raise "
+            f"max_pages_per_chunk above the overlap)."
         )
 
     if total_pages <= 0:
