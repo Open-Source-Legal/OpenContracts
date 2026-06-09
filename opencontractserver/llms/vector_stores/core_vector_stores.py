@@ -2,7 +2,10 @@
 
 import asyncio
 import logging
+import operator
+import re
 from dataclasses import dataclass, field
+from functools import reduce
 from typing import Any, Literal, Optional, Union
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -1096,7 +1099,24 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         """
         from django.contrib.postgres.search import SearchQuery, SearchRank
 
-        search_query = SearchQuery(query_text, config=FTS_CONFIG)
+        # plainto_tsquery (SearchQuery's default) ANDs every lexeme, so a
+        # multi-concept natural-language question ("risks AND obligations AND
+        # documents ...") matches no single annotation and the FTS arm returns
+        # nothing — leaving a corpus without embeddings at zero recall. OR-
+        # combine per-token plainto queries instead: any term match qualifies,
+        # while SearchRank still ranks annotations matching more terms higher.
+        # Per-token plainto safely elides stopwords without raising a tsquery
+        # syntax error, so no manual stopword list (or raw-tsquery escaping) is
+        # needed. This is the single entry point for every FTS arm (hybrid,
+        # fts-only, and global_search), so the recall fix applies everywhere.
+        tokens = re.findall(r"\w+", query_text)
+        if tokens:
+            search_query = reduce(
+                operator.or_,
+                (SearchQuery(token, config=FTS_CONFIG) for token in tokens),
+            )
+        else:
+            search_query = SearchQuery(query_text, config=FTS_CONFIG)
         text_qs = (
             queryset.filter(search_vector=search_query)
             .annotate(text_rank=SearchRank("search_vector", search_query))
