@@ -78,6 +78,13 @@ class BaseChunkedParser(BaseParser):
     (see :class:`ChunkReassembler`). Overlap must exceed the largest expected
     boundary-spanning structure; any residual orphans (a reference whose target
     fell outside every chunk's parse range) are logged + metered but never fatal.
+
+    **Subclass note:** ``chunk_overlap`` defaults to ``DEFAULT_CHUNK_OVERLAP``
+    (2). ``calculate_page_chunks_with_overlap`` requires
+    ``chunk_overlap < max_pages_per_chunk``, so a subclass that sets
+    ``max_pages_per_chunk`` <= ``DEFAULT_CHUNK_OVERLAP`` MUST pin
+    ``chunk_overlap = 0`` (or raise ``max_pages_per_chunk``) or it will raise
+    ``ValueError`` at parse time on the chunked path.
     """
 
     # ------------------------------------------------------------------

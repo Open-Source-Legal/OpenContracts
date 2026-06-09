@@ -41,7 +41,12 @@ def _annotation_signature(annotation: OpenContractsAnnotationPythonType) -> tupl
     ``id`` — so it is stable across the ``c{idx}_`` prefixing applied per chunk.
     """
     label = annotation.get("annotationLabel")
-    raw_text = annotation.get("rawText", "") or ""
+    # Collapse internal/trailing whitespace so two copies of the same span that
+    # differ only in incidental whitespace (e.g. a trailing newline emitted by
+    # one chunk parse but not the other) still hash to the same signature and
+    # dedupe. Geometry + label already discriminate distinct structures; this
+    # only hardens the supplementary raw_text component against parse noise.
+    raw_text = " ".join((annotation.get("rawText", "") or "").split())
     annotation_json: Any = annotation.get("annotation_json")
 
     # Span annotations (text documents) key on their character offsets.
@@ -140,6 +145,7 @@ class ChunkReassembler:
         self._doc_labels: list[str] = []
         self._seen_doc_labels: set[str] = set()
         self._total_pages = 0
+        self._finalized = False
 
     def add_chunk(
         self,
@@ -184,6 +190,13 @@ class ChunkReassembler:
     def finalize(self) -> OpenContractDocExport:
         if self._first is None:
             raise ValueError("Cannot finalize an empty ChunkReassembler")
+        # finalize() mutates the accumulated annotation/relationship dicts in
+        # place (id_remap rewrites). A second call would re-apply the remap to
+        # already-remapped IDs and corrupt the output, so the class is strictly
+        # single-use — make that invariant explicit rather than implicit.
+        if self._finalized:
+            raise RuntimeError("ChunkReassembler.finalize() called more than once")
+        self._finalized = True
 
         pawls = self._dedupe_pages()
         annotations, id_remap = self._dedupe_annotations()
@@ -217,7 +230,17 @@ class ChunkReassembler:
         seen: set[int] = set()
         deduped: list[PawlsPagePythonType] = []
         for page_data in self._pawls:
-            idx = page_data.get("page", {}).get("index", 0)
+            page_info = page_data.get("page", {})
+            if "index" not in page_info:
+                # A page without a global index collapses to 0 below, so all but
+                # the first such page would be silently dropped as "duplicates".
+                # Surface it: this signals a malformed PAWLs page upstream.
+                logger.warning(
+                    "PAWLs page missing 'index' during reassembly dedup; "
+                    "defaulting to 0 (malformed page?)",
+                    extra={"metric": "chunk_reassembly_page_missing_index"},
+                )
+            idx = page_info.get("index", 0)
             if idx in seen:
                 continue
             seen.add(idx)
