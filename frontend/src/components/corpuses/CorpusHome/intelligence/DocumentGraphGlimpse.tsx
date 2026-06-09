@@ -4,6 +4,7 @@ import * as d3 from "d3";
 import { Share2, ArrowRight } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import { DOCUMENT_RELATIONSHIP_TYPES } from "../../../../assets/configurations/constants";
 import {
   CorpusDocumentGraphNode,
   CorpusDocumentGraphEdge,
@@ -131,7 +132,9 @@ const EmptyState = styled.div`
 /**
  * Compute a deterministic force-directed layout. Initial positions are seeded
  * on a circle (no RNG), then the simulation is run synchronously for a fixed
- * number of ticks with its internal alpha schedule.
+ * number of ticks with its internal alpha schedule. Sized for the ~60-node
+ * cap (CORPUS_DOCUMENT_GRAPH_MAX_NODES) — the synchronous tick loop is cheap at
+ * that scale; revisit for the Phase 2 interactive explorer if the cap grows.
  */
 function computeLayout(
   nodes: CorpusDocumentGraphNode[],
@@ -256,7 +259,8 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
               const s = nodeById.get(edge.source);
               const t = nodeById.get(edge.target);
               if (!s || !t) return null;
-              const isNote = edge.relationshipType === "NOTES";
+              const isNote =
+                edge.relationshipType === DOCUMENT_RELATIONSHIP_TYPES.NOTES;
               return (
                 <line
                   key={edge.id}

@@ -56,6 +56,38 @@ export function normalizeHexColor(hex: string): string {
 }
 
 /**
+ * Returns a CSS-color value that is safe to interpolate directly into a CSS
+ * property (e.g. ``background: ${color}``). Only a bare hex color (#RGB,
+ * #RRGGBB, #RRGGBBAA) or a plain alphabetic named color (``red``, ``blue``) is
+ * allowed through; anything else — including values with ``;``, ``{``, ``(`` or
+ * whitespace that could break out of the property — collapses to ``fallback``.
+ * Guards against (self-)XSS when the color originates from user-controlled data
+ * such as annotation-label colors.
+ *
+ * @param value - Candidate color string, or null/undefined
+ * @param fallback - Color returned when ``value`` is missing/unsafe
+ * @returns A safe CSS color string
+ *
+ * @example
+ * safeCssColor("#4A90E2", "#000")              // "#4A90E2"
+ * safeCssColor("red", "#000")                  // "red"
+ * safeCssColor("red; } body { x:y", "#000")    // "#000"
+ * safeCssColor(null, "#000")                   // "#000"
+ */
+export function safeCssColor(
+  value: string | null | undefined,
+  fallback: string
+): string {
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  const isHex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(
+    trimmed
+  );
+  const isNamed = /^[a-zA-Z]+$/.test(trimmed);
+  return isHex || isNamed ? trimmed : fallback;
+}
+
+/**
  * Converts a hex color string to an RGB object.
  *
  * @param hex - The hex color string (e.g., "#FF0000" or "#F00")

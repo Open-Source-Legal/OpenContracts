@@ -914,3 +914,13 @@ export const PANEL_SNAP_THRESHOLD_PCT = 3;
 // Prevents the next mousedown / touchstart from being treated as a fresh
 // selection while the menu is still dismissing.
 export const SELECTION_MENU_COOLDOWN_MS = 300;
+
+// Document-relationship ``relationship_type`` values, mirroring
+// ``DocumentRelationship.RELATIONSHIP_TYPE_CHOICES`` in
+// ``opencontractserver/documents/models.py``. Used by the document graph to
+// style note edges distinctly from semantic relationship edges — keep in sync
+// with the backend choices if they ever change.
+export const DOCUMENT_RELATIONSHIP_TYPES = {
+  NOTES: "NOTES",
+  RELATIONSHIP: "RELATIONSHIP",
+} as const;

@@ -21,6 +21,19 @@
   live in `config/graphql/corpus_types.py`; new constants in
   `opencontractserver/constants/stats.py`. Tests:
   `opencontractserver/tests/test_corpus_intelligence.py` (resolvers, limit
-  truncation, permission filtering) and
-  `frontend/tests/DocumentGraphGlimpse.ct.tsx` (graph rendering, truncation,
-  empty state).
+  truncation, permission filtering, malformed-id handling, and structural-label
+  distinct counting) and component tests
+  `frontend/tests/DocumentGraphGlimpse.ct.tsx`,
+  `frontend/tests/IntelligencePanel.ct.tsx`,
+  `frontend/tests/CorpusIntelligenceOverview.ct.tsx`.
+  Review hardening: the label-distribution query now counts with
+  `distinct=True` (the `structural_set` M2M join otherwise inflates structural
+  labels by the number of docs sharing a set) and keeps `visible_docs` as a
+  queryset subquery instead of materialising every id; both resolvers resolve
+  the corpus with a single `.first()` query. The `IntelligencePanel` gates its
+  first load behind shimmer skeletons (no flash of zeros) and sanitises
+  user-supplied annotation-label colors before interpolating them into CSS via
+  the new `safeCssColor` (`frontend/src/utils/colorUtils.ts`); the document
+  graph's `NOTES`/`RELATIONSHIP` strings move to
+  `DOCUMENT_RELATIONSHIP_TYPES` in
+  `frontend/src/assets/configurations/constants.ts`.

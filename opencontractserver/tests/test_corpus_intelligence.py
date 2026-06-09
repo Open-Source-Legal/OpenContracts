@@ -10,6 +10,9 @@ Both must respect the permission model (a user without corpus/document access
 sees an empty graph and empty aggregates).
 """
 
+import hashlib
+import uuid
+
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
@@ -17,7 +20,11 @@ from graphene.test import Client
 from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.schema import schema
-from opencontractserver.annotations.models import Annotation, AnnotationLabel
+from opencontractserver.annotations.models import (
+    Annotation,
+    AnnotationLabel,
+    StructuralAnnotationSet,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentRelationship
 
@@ -164,6 +171,20 @@ class CorpusIntelligenceResolverTestCase(TestCase):
         self.assertEqual(graph["totalNodeCount"], 0)
         self.assertEqual(graph["totalEdgeCount"], 0)
 
+    def test_graph_returns_empty_for_malformed_corpus_id(self):
+        # A non-numeric/garbage global id must decode to an empty graph rather
+        # than raising (the resolver guards on ``isdigit()``).
+        result = self.owner_client.execute(
+            self.GRAPH_QUERY, variables={"corpusId": "not-a-valid-id"}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        graph = result["data"]["corpusDocumentGraph"]
+        self.assertEqual(graph["nodes"], [])
+        self.assertEqual(graph["edges"], [])
+        self.assertEqual(graph["totalNodeCount"], 0)
+        self.assertEqual(graph["totalEdgeCount"], 0)
+        self.assertFalse(graph["truncated"])
+
     # --------------------------- aggregates --------------------------
 
     AGG_QUERY = """
@@ -200,3 +221,61 @@ class CorpusIntelligenceResolverTestCase(TestCase):
         self.assertEqual(agg["labelDistribution"], [])
         self.assertEqual(agg["documentsWithSummary"], 0)
         self.assertEqual(agg["totalDocuments"], 0)
+
+    def test_aggregates_returns_empty_for_malformed_corpus_id(self):
+        result = self.owner_client.execute(
+            self.AGG_QUERY, variables={"corpusId": "not-a-valid-id"}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        agg = result["data"]["corpusIntelligenceAggregates"]
+        self.assertEqual(agg["labelDistribution"], [])
+        self.assertEqual(agg["documentsWithSummary"], 0)
+        self.assertEqual(agg["totalDocuments"], 0)
+
+    def test_aggregates_structural_label_counted_once_across_shared_docs(self):
+        """A structural annotation shared by N visible docs counts once.
+
+        The label-distribution query OR-joins structural annotations via
+        ``structural_set__documents`` (an annotation has no ``document`` of its
+        own). That reverse-FK join fans the annotation out to one row per
+        referencing document, so the count MUST use ``distinct=True`` — without
+        it a structural label would be inflated by the number of docs sharing
+        the set. Here two corpus docs share one structural set holding a single
+        structural annotation, so the expected count is 1, not 2.
+        """
+        struct_set = StructuralAnnotationSet.objects.create(
+            content_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
+            parser_name="TestParser",
+            creator=self.owner,
+        )
+        for i in range(2):
+            shared = Document.objects.create(
+                title=f"Shared structural doc {i}",
+                creator=self.owner,
+                structural_annotation_set=struct_set,
+            )
+            self.corpus.add_document(document=shared, user=self.owner)
+
+        structural_label = AnnotationLabel.objects.create(
+            text="Section Header",
+            label_type="TOKEN_LABEL",
+            color="#00ff00",
+            creator=self.owner,
+        )
+        Annotation.objects.create(
+            corpus=self.corpus,
+            structural_set=struct_set,
+            structural=True,
+            annotation_label=structural_label,
+            raw_text="header",
+            creator=self.owner,
+        )
+
+        result = self.owner_client.execute(
+            self.AGG_QUERY, variables={"corpusId": self.corpus_gid}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        agg = result["data"]["corpusIntelligenceAggregates"]
+        labels = {row["label"]: row["count"] for row in agg["labelDistribution"]}
+        self.assertIn("Section Header", labels)
+        self.assertEqual(labels["Section Header"], 1)

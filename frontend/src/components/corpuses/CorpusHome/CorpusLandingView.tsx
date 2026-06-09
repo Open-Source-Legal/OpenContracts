@@ -402,10 +402,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
           />
         </ChatSection>
 
-        {/* Corpus Intelligence overview — the composed "God's-eye view":
-            insight-framed metrics, the document-relationship graph, and
-            one-click cross-document questions. Reuses the existing chat
-            (onChatSubmit) and details (onViewDetails) callbacks. */}
+        {/* Composed corpus-intelligence overview; reuses the chat + details callbacks. */}
         <CorpusIntelligenceOverview
           corpusId={corpus.id}
           onAskQuestion={onChatSubmit}

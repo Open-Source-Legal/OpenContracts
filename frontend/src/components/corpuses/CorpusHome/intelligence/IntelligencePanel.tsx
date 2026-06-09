@@ -1,10 +1,11 @@
 import React, { useMemo } from "react";
 import { useQuery } from "@apollo/client";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { FileText, Share2, BookOpenCheck, Tags } from "lucide-react";
 
 import { StatisticWithAnimation } from "../../CorpusDashboard";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
+import { safeCssColor } from "../../../../utils/colorUtils";
 import {
   GET_CORPUS_STATS,
   GetCorpusStatsInputType,
@@ -159,24 +160,44 @@ const EmptyHint = styled.div`
   color: ${OS_LEGAL_COLORS.textMuted};
 `;
 
+const shimmer = keyframes`
+  0% { opacity: 0.45; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.45; }
+`;
+
+const StatSkeleton = styled.div`
+  height: 84px;
+  border-radius: 14px;
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  animation: ${shimmer} 1.2s ease-in-out infinite;
+`;
+
 export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   corpusId,
   testId = "corpus-intelligence-panel",
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
 
-  const { data: statsData } = useQuery<
+  const { data: statsData, loading: statsLoading } = useQuery<
     GetCorpusStatsOutputType,
     GetCorpusStatsInputType
   >(GET_CORPUS_STATS, { variables });
 
-  const { data: aggData } = useQuery<
+  const { data: aggData, loading: aggLoading } = useQuery<
     GetCorpusIntelligenceAggregatesOutputType,
     GetCorpusIntelligenceAggregatesInputType
   >(GET_CORPUS_INTELLIGENCE_AGGREGATES, { variables });
 
   const stats = statsData?.corpusStats;
   const agg = aggData?.corpusIntelligenceAggregates;
+
+  // First-load gating: without this every metric reads ``0`` while in flight,
+  // which is indistinguishable from a genuinely empty corpus. Once data has
+  // arrived a background refetch keeps the prior values rather than flashing
+  // skeletons.
+  const statsInitialLoading = statsLoading && !stats;
+  const aggInitialLoading = aggLoading && !agg;
 
   const totalDocs = stats?.totalDocs ?? 0;
   const totalRelationships = stats?.totalRelationships ?? 0;
@@ -196,26 +217,37 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   return (
     <PanelContainer data-testid={testId}>
       <StatsRow>
-        <StatisticWithAnimation
-          value={totalDocs}
-          label="Documents"
-          icon={FileText}
-        />
-        <StatisticWithAnimation
-          value={totalRelationships}
-          label="Connections"
-          icon={Share2}
-        />
-        <StatisticWithAnimation
-          value={totalAnnotations}
-          label="Annotations"
-          icon={Tags}
-        />
-        <StatisticWithAnimation
-          value={totalExtracts}
-          label="Extracts"
-          icon={BookOpenCheck}
-        />
+        {statsInitialLoading ? (
+          <>
+            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
+            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
+            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
+            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
+          </>
+        ) : (
+          <>
+            <StatisticWithAnimation
+              value={totalDocs}
+              label="Documents"
+              icon={FileText}
+            />
+            <StatisticWithAnimation
+              value={totalRelationships}
+              label="Connections"
+              icon={Share2}
+            />
+            <StatisticWithAnimation
+              value={totalAnnotations}
+              label="Annotations"
+              icon={Tags}
+            />
+            <StatisticWithAnimation
+              value={totalExtracts}
+              label="Extracts"
+              icon={BookOpenCheck}
+            />
+          </>
+        )}
       </StatsRow>
 
       <InsightGrid>
@@ -239,12 +271,17 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
             <Tags />
             Dominant labels
           </SubCardTitle>
-          {labels.length === 0 ? (
+          {aggInitialLoading ? (
+            <EmptyHint>Loading labels…</EmptyHint>
+          ) : labels.length === 0 ? (
             <EmptyHint>No labeled annotations yet.</EmptyHint>
           ) : (
             <LabelList>
               {labels.map((entry) => {
-                const color = entry.color || OS_LEGAL_COLORS.primaryBlue;
+                const color = safeCssColor(
+                  entry.color,
+                  OS_LEGAL_COLORS.primaryBlue
+                );
                 const pct = Math.round((entry.count / maxLabelCount) * 100);
                 return (
                   <LabelRow key={entry.label}>

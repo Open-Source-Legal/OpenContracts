@@ -468,12 +468,13 @@ class CorpusQueryMixin:
         if not str(corpus_pk).isdigit():
             return empty
 
-        corpuses = BaseService.filter_visible(
-            Corpus, user, request=info.context
-        ).filter(id=int(corpus_pk))
-        if corpuses.count() != 1:
+        corpus = (
+            BaseService.filter_visible(Corpus, user, request=info.context)
+            .filter(id=int(corpus_pk))
+            .first()
+        )
+        if corpus is None:
             return empty
-        corpus = corpuses[0]
 
         # Permission-filtered relationships (both endpoints visible) + degree.
         relationships = DocumentRelationshipService.get_visible_relationships(
@@ -589,15 +590,18 @@ class CorpusQueryMixin:
         if not str(corpus_pk).isdigit():
             return empty
 
-        corpuses = BaseService.filter_visible(
-            Corpus, user, request=info.context
-        ).filter(id=int(corpus_pk))
-        if corpuses.count() != 1:
+        corpus = (
+            BaseService.filter_visible(Corpus, user, request=info.context)
+            .filter(id=int(corpus_pk))
+            .first()
+        )
+        if corpus is None:
             return empty
-        corpus = corpuses[0]
 
         # Visible documents with an active path in this corpus (mirrors
-        # resolve_corpus_stats so the numbers agree).
+        # resolve_corpus_stats so the numbers agree). Kept as a queryset so the
+        # ``__in`` clauses below push a subquery to SQL rather than materialising
+        # every id into a Python ``IN (1,2,...,N)`` literal (matters at 1k+ docs).
         visible_docs = BaseService.filter_visible(
             Document, user, request=info.context
         ).filter(
@@ -605,8 +609,8 @@ class CorpusQueryMixin:
             path_records__is_current=True,
             path_records__is_deleted=False,
         )
-        visible_doc_ids = list(visible_docs.values_list("id", flat=True))
-        total_documents = len(visible_doc_ids)
+        visible_doc_ids = visible_docs.values_list("id", flat=True)
+        total_documents = visible_doc_ids.count()
 
         # Summary coverage: visible docs that carry a markdown summary file.
         documents_with_summary = (
@@ -615,7 +619,10 @@ class CorpusQueryMixin:
             .count()
         )
 
-        # Label distribution across the corpus's visible annotations.
+        # Label distribution across the corpus's visible annotations. ``distinct``
+        # is required because the structural_set M2M join multiplies a structural
+        # annotation by the number of visible docs in its set, which would
+        # otherwise inflate the per-label count.
         label_rows = (
             corpus.annotations.filter(
                 Q(document_id__in=visible_doc_ids)
@@ -623,7 +630,7 @@ class CorpusQueryMixin:
             )
             .exclude(annotation_label__isnull=True)
             .values("annotation_label__text", "annotation_label__color")
-            .annotate(count=Count("id"))
+            .annotate(count=Count("id", distinct=True))
             .order_by("-count")[:CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N]
         )
         label_distribution = [
