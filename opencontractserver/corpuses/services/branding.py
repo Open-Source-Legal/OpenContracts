@@ -33,6 +33,47 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def corpus_readme_will_be_auto_branded(corpus: Corpus) -> bool:
+    """Return ``True`` iff the LLM auto-branding agent will write this corpus's
+    ``Readme.CAML`` on creation.
+
+    Single source of truth for the create-time branding gate, shared by the
+    ``post_save`` trigger in ``corpuses/signals.py`` and the deterministic
+    default-README path in ``CreateCorpusMutation``. The two must agree: the
+    mutation writes the structural default **only when this returns False**, so
+    a branding-eligible corpus is left for the LLM agent (whose result is then
+    post-processed through ``ensure_intelligence_block``) and a branding-
+    ineligible corpus still gets a structural article. Mirrors the per-corpus
+    re-checks in :func:`run_corpus_branding_async`.
+
+    Scope: this is a pure *branding-eligibility* predicate (kill-switch,
+    personal-corpus, opt-out, creator). It intentionally omits two conditions
+    that callers apply themselves:
+
+    * The signal's ``created`` / ``_skip_signals`` guards — signal-lifecycle
+      concerns, not properties of the corpus.
+    * The uploaded-icon check — the signal skips the *entire* branding task
+      (logo + README) when an icon is present, and the mutation mirrors that by
+      writing the deterministic structural default whenever
+      ``corpus_readme_will_be_auto_branded(corpus) and not corpus.icon`` is
+      False. So an icon-uploaded corpus gets the structural default (no LLM
+      README); a no-icon eligible corpus gets the LLM README (post-processed
+      through ``ensure_intelligence_block``). The two callers never both write,
+      and every corpus ends up with exactly one README.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, "CORPUS_AUTO_BRANDING_ENABLED", False):
+        return False
+    if corpus.is_personal:
+        return False
+    if not corpus.auto_branding_enabled:
+        return False
+    if corpus.creator_id is None:
+        return False
+    return True
+
+
 async def run_corpus_branding_async(corpus_id: int, user_id: int) -> dict:
     """Generate a README and logo for a newly-created corpus.
 
@@ -111,12 +152,55 @@ async def _generate_readme(corpus: Corpus, user_id: int) -> str:
             agent.chat(CORPUS_BRANDING_ACTIVATION_MESSAGE),
             timeout=CORPUS_BRANDING_README_TIMEOUT_SECONDS,
         )
+        # Post-process: guarantee the live corpus-intelligence overview is
+        # composed by the article even if the agent omitted the embed markers.
+        # ``ensure_readme_caml_default`` appends the block only when absent
+        # (idempotent, narrative-preserving) and falls back to the structural
+        # default if the agent failed to save any article at all. Best-effort,
+        # mirroring this step's swallow-and-record contract.
+        await _ensure_readme_intelligence_block(corpus, user_id)
         return "generated"
     except Exception:
         logger.exception(
             "[CorpusBranding] README generation failed for corpus %s", corpus.id
         )
         return "error"
+
+
+async def _ensure_readme_intelligence_block(corpus: Corpus, user_id: int) -> None:
+    """Append the intelligence block to the agent's Readme.CAML if missing.
+
+    Runs after the branding agent's turn. Re-loads the acting user inside the
+    ``database_sync_to_async`` boundary (the agent persists as the corpus
+    creator via the creator-gated ``update_corpus_description`` tool, so the
+    creator is the right actor for the follow-up write). Failures are logged,
+    not raised — the agent's article already saved successfully, so a follow-up
+    hiccup must not flip the README step to ``error``.
+    """
+    from channels.db import database_sync_to_async
+
+    corpus_pk = corpus.pk
+
+    @database_sync_to_async
+    def _ensure() -> None:
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.corpuses.services.corpus_service import CorpusService
+
+        try:
+            fresh = Corpus.objects.select_related("creator").get(pk=corpus_pk)
+        except Corpus.DoesNotExist:
+            return
+        if fresh.creator is None:
+            return
+        CorpusService.ensure_readme_caml_default(fresh.creator, fresh)
+
+    try:
+        await _ensure()
+    except Exception:
+        logger.exception(
+            "[CorpusBranding] Failed to ensure intelligence block for corpus %s",
+            corpus.id,
+        )
 
 
 async def _generate_logo(corpus: Corpus, user_id: int) -> str:

@@ -246,22 +246,24 @@ def trigger_corpus_branding_on_creation(
     **kwargs: Any,
 ) -> None:
     """Queue logo + Readme.CAML generation for a newly-created corpus."""
-    from django.conf import settings
+    from opencontractserver.corpuses.services.branding import (
+        corpus_readme_will_be_auto_branded,
+    )
 
     if not created:
         return
     if hasattr(instance, "_skip_signals"):
         return
-    if not getattr(settings, "CORPUS_AUTO_BRANDING_ENABLED", False):
-        return
-    if instance.is_personal:
-        return
-    if not instance.auto_branding_enabled:
+    # Shared create-time gate (kill-switch, personal-corpus, opt-out, creator).
+    # The mutation's deterministic-default path keys off the same predicate so
+    # the two never both fire on the same corpus.
+    if not corpus_readme_will_be_auto_branded(instance):
         return
     if instance.icon:
-        # User uploaded their own image — opt out of auto-branding entirely.
-        return
-    if instance.creator_id is None:
+        # User uploaded their own image — opt out of auto-branding entirely
+        # (the README step still runs; this only gates the logo step, but the
+        # historical signal behaviour skipped the whole task when an icon was
+        # present, so preserve that to avoid generating a logo over an upload).
         return
 
     corpus_id = instance.pk

@@ -124,6 +124,55 @@ class CorpusService(BaseService):
         return ServiceResult.success(doc)
 
     @classmethod
+    def ensure_readme_caml_default(
+        cls,
+        user: User,
+        corpus: Corpus,
+    ) -> ServiceResult[Document | None]:
+        """Ensure the corpus has a structural ``Readme.CAML`` (idempotent).
+
+        The deterministic, non-LLM default path. A corpus's article should
+        compose the live corpus-intelligence overview by default, but until now
+        the only thing that wrote a ``Readme.CAML`` was the LLM auto-branding
+        agent — a corpus created with branding disabled (or opted out) had no
+        article at all. This method closes that gap:
+
+        * **No article yet** → write the deterministic structural default
+          (title + optional description + intelligence block) via
+          :meth:`update_description`.
+        * **Article exists** → append the intelligence block only if absent
+          (via ``ensure_intelligence_block`` below). When the article already
+          embeds the overview, the result is byte-identical to the current
+          body, so :meth:`update_description` dedupes it to a ``None`` no-op
+          (no new version is written).
+
+        Creator-gated through :meth:`update_description`; safe to call on every
+        corpus creation and from the idempotent backfill command.
+        """
+        from opencontractserver.corpuses.caml_intelligence import (
+            build_default_readme_caml,
+            ensure_intelligence_block,
+        )
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
+
+        existing = CorpusDocumentService.get_corpus_caml_articles(user, corpus).first()
+        if existing is None:
+            new_content = build_default_readme_caml(corpus.title, corpus.description)
+        else:
+            # Preserve the author's article; append the block only when it is
+            # missing. ``ensure_intelligence_block`` is idempotent, so an
+            # article that already embeds the overview yields byte-identical
+            # content and ``update_description`` returns a ``None`` no-op.
+            new_content = ensure_intelligence_block(read_caml_body(existing))
+
+        return cls.update_description(user, corpus, new_content)
+
+    @classmethod
     def update_icon(
         cls,
         user: User,
