@@ -32,7 +32,7 @@ const SUGGESTED_QUESTIONS: string[] = [
   "What are the key themes across these documents?",
   "Summarize the most important findings in this collection.",
   "How do these documents relate to one another?",
-  "What are the main risks or obligations described here?",
+  "What are the main risks or obligations across these documents?",
   "What's notable or unusual across these documents?",
 ];
 
