@@ -924,3 +924,26 @@ export const DOCUMENT_RELATIONSHIP_TYPES = {
   NOTES: "NOTES",
   RELATIONSHIP: "RELATIONSHIP",
 } as const;
+
+// Human-facing legend labels for the document-graph edge styles. In the
+// legal-filing framing of the corpus graph, a NOTES edge most commonly ties
+// related filings together (cover letter ↔ exhibit, amendment ↔ original),
+// hence "Related filing"; a deployment using NOTES for something
+// domain-specific (e.g. analyst commentary) should rename it here — this is
+// the single source for the display strings.
+export const DOCUMENT_RELATIONSHIP_TYPE_LABELS = {
+  [DOCUMENT_RELATIONSHIP_TYPES.NOTES]: "Related filing",
+  [DOCUMENT_RELATIONSHIP_TYPES.RELATIONSHIP]: "Citation / exhibit",
+} as const;
+
+// DocumentGraphGlimpse layout geometry. The viewBox is fixed (the SVG scales
+// to its container) and the d3-force simulation is stepped a fixed number of
+// synchronous ticks so the layout stays deterministic and test-friendly.
+// Sized for the ~60-node CORPUS_DOCUMENT_GRAPH_MAX_NODES cap.
+export const DOCUMENT_GRAPH_LAYOUT = {
+  VIEW_WIDTH: 640,
+  VIEW_HEIGHT: 360,
+  SIMULATION_TICKS: 160,
+  MIN_NODE_RADIUS: 5,
+  MAX_NODE_RADIUS: 16,
+} as const;

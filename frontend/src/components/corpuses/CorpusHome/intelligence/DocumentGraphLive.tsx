@@ -27,7 +27,7 @@ export const DocumentGraphLive: React.FC<DocumentGraphLiveProps> = ({
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
 
-  const { data } = useQuery<
+  const { data, loading } = useQuery<
     GetCorpusDocumentGraphOutputType,
     GetCorpusDocumentGraphInputType
   >(GET_CORPUS_DOCUMENT_GRAPH, { variables });
@@ -41,6 +41,7 @@ export const DocumentGraphLive: React.FC<DocumentGraphLiveProps> = ({
       totalNodeCount={graph?.totalNodeCount ?? 0}
       totalEdgeCount={graph?.totalEdgeCount ?? 0}
       truncated={graph?.truncated ?? false}
+      loading={loading && !graph}
       onExplore={onExplore}
       testId={testId}
     />

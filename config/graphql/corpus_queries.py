@@ -497,9 +497,16 @@ class CorpusQueryMixin:
         total_node_count = len(ranked_doc_ids)
         kept_doc_ids = set(ranked_doc_ids[:node_cap])
 
-        # Materialise the rows once; build nodes + edges among kept documents.
+        # Count the full edge set with a single COUNT(*), then materialise only
+        # the edges among kept documents — the node cap exists to keep the
+        # payload small, so the edge fetch must be scoped to it rather than
+        # pulling every relationship row into Python and discarding most.
+        total_edge_count = relationships.count()
         rel_rows = list(
-            relationships.values(
+            relationships.filter(
+                source_document_id__in=kept_doc_ids,
+                target_document_id__in=kept_doc_ids,
+            ).values(
                 "id",
                 "source_document_id",
                 "source_document__title",
@@ -511,15 +518,12 @@ class CorpusQueryMixin:
                 "annotation_label__text",
             )
         )
-        total_edge_count = len(rel_rows)
 
         node_meta: dict[int, dict] = {}
         edges = []
         for row in rel_rows:
             src = row["source_document_id"]
             tgt = row["target_document_id"]
-            if src not in kept_doc_ids or tgt not in kept_doc_ids:
-                continue
             node_meta.setdefault(
                 src,
                 {
@@ -544,14 +548,17 @@ class CorpusQueryMixin:
                 )
             )
 
+        # Emit nodes in degree-rank order (the API contract) rather than the
+        # incidental edge-traversal order node_meta was built in.
         nodes = [
             CorpusDocumentGraphNodeType(
                 id=to_global_id("DocumentType", doc_id),
-                title=meta["title"],
-                file_type=meta["file_type"],
+                title=node_meta[doc_id]["title"],
+                file_type=node_meta[doc_id]["file_type"],
                 degree=degree_by_doc.get(doc_id, 0),
             )
-            for doc_id, meta in node_meta.items()
+            for doc_id in ranked_doc_ids
+            if doc_id in node_meta
         ]
 
         truncated = total_node_count > len(nodes) or total_edge_count > len(edges)
@@ -575,6 +582,7 @@ class CorpusQueryMixin:
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
     def resolve_corpus_intelligence_aggregates(self, info, corpus_id) -> Any:
+        from opencontractserver.annotations.services import AnnotationService
         from opencontractserver.constants.stats import (
             CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
         )
@@ -620,10 +628,8 @@ class CorpusQueryMixin:
             .count()
         )
 
-        # Label distribution across the corpus's visible annotations. ``distinct``
-        # is required because the structural_set M2M join multiplies a structural
-        # annotation by the number of visible docs in its set, which would
-        # otherwise inflate the per-label count.
+        # Label distribution across the corpus's visible annotations, via the
+        # service layer (config/graphql code never touches the ORM directly).
         #
         # OC_-prefixed labels are platform scaffolding (OC_SECTION, OC_URL,
         # OC_EXTRACT_SOURCE, …) — pipeline internals that drive built-in
@@ -632,16 +638,11 @@ class CorpusQueryMixin:
         # so exclude the reserved namespace here. Provider/custom labels (even
         # structural ones a parser emits) are intentionally kept — see
         # ``test_aggregates_structural_label_counted_once_across_shared_docs``.
-        label_rows = (
-            corpus.annotations.filter(
-                Q(document_id__in=visible_doc_ids)
-                | Q(structural_set__documents__in=visible_doc_ids, structural=True)
-            )
-            .exclude(annotation_label__isnull=True)
-            .exclude(annotation_label__text__startswith=OC_RESERVED_LABEL_PREFIX)
-            .values("annotation_label__text", "annotation_label__color")
-            .annotate(count=Count("id", distinct=True))
-            .order_by("-count")[:CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N]
+        label_rows = AnnotationService.get_label_distribution_for_corpus(
+            corpus=corpus,
+            visible_doc_ids=visible_doc_ids,
+            top_n=CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
+            exclude_label_prefix=OC_RESERVED_LABEL_PREFIX,
         )
         label_distribution = [
             LabelDistributionEntryType(

@@ -217,6 +217,10 @@ export function formatCellValue(
 /**
  * Acronyms that should stay fully upper-cased when humanizing a SCREAMING_SNAKE
  * label token (e.g. "SEC_HEADER" -> "SEC Header", not "Sec Header").
+ *
+ * Deliberately a starting set, not an exhaustive one — extend it here as new
+ * pipeline label prefixes emerge (an unlisted acronym degrades gracefully to
+ * Title Case, e.g. "Gdpr", so misses are cosmetic).
  */
 const LABEL_ACRONYMS = new Set([
   "SEC",

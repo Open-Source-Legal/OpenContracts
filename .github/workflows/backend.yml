@@ -258,7 +258,7 @@ jobs:
           ls -la coverage.xml
 
       - name: Upload Coverage Reports to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
