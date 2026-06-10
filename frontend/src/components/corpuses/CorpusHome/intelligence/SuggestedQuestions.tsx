@@ -57,8 +57,9 @@ const SuggestionChip = styled.button`
   display: inline-flex;
   align-items: center;
   padding: 0.5rem 0.85rem;
-  background: white;
+  background: ${OS_LEGAL_COLORS.surface};
   border: 1px solid ${OS_LEGAL_COLORS.border};
+  /* 999px is the project-wide pill idiom (see IntelligencePanel bars/track). */
   border-radius: 999px;
   font-size: 0.8125rem;
   color: ${OS_LEGAL_COLORS.textSecondary};

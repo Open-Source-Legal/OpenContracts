@@ -38,6 +38,21 @@ from opencontractserver.corpuses.services.corpus_service import CorpusService
 from opencontractserver.corpuses.services.description_cache import read_caml_body
 from opencontractserver.users.models import User
 
+
+def _readme_body(user: User, corpus: Corpus) -> str:
+    """Return the corpus's current Readme.CAML body, or ``""`` if it has none.
+
+    Shared across the DB-backed test classes below so the read-back logic isn't
+    re-declared per class.
+    """
+    from opencontractserver.corpuses.services.corpus_documents import (
+        CorpusDocumentService,
+    )
+
+    doc = CorpusDocumentService.get_corpus_caml_articles(user, corpus).first()
+    return read_caml_body(doc) if doc is not None else ""
+
+
 # =============================================================================
 # Pure string helpers (no DB)
 # =============================================================================
@@ -153,14 +168,6 @@ class EnsureReadmeCamlDefaultTests(TestCase):
     def setUpTestData(cls):
         cls.user = User.objects.create_user(username="caml-intel-user", password="x")
 
-    def _readme_body(self, corpus: Corpus) -> str:
-        from opencontractserver.corpuses.services.corpus_documents import (
-            CorpusDocumentService,
-        )
-
-        doc = CorpusDocumentService.get_corpus_caml_articles(self.user, corpus).first()
-        return read_caml_body(doc) if doc is not None else ""
-
     def test_creates_structural_default_when_no_article(self):
         # ``_skip_signals`` keeps the branding post_save signal from queuing a
         # Celery task during the fixture create; we drive the default directly.
@@ -174,7 +181,7 @@ class EnsureReadmeCamlDefaultTests(TestCase):
             result = CorpusService.ensure_readme_caml_default(self.user, corpus)
         self.assertTrue(result.ok)
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         self.assertTrue(body.startswith("# Newco"))
         self.assertIn("A fresh collection.", body)
         self.assertTrue(has_intelligence_block(body))
@@ -188,12 +195,12 @@ class EnsureReadmeCamlDefaultTests(TestCase):
             CorpusService.update_description(
                 self.user, corpus, "# Existing\n\nAuthor prose, no embeds."
             )
-        self.assertFalse(has_intelligence_block(self._readme_body(corpus)))
+        self.assertFalse(has_intelligence_block(_readme_body(self.user, corpus)))
 
         with self.captureOnCommitCallbacks(execute=True):
             CorpusService.ensure_readme_caml_default(self.user, corpus)
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         self.assertIn("Author prose, no embeds.", body)
         self.assertTrue(has_intelligence_block(body))
 
@@ -210,7 +217,7 @@ class EnsureReadmeCamlDefaultTests(TestCase):
         self.assertTrue(second.ok)
         self.assertIsNone(second.value)
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         for marker in CAML_INTELLIGENCE_MARKERS:
             self.assertEqual(body.count(marker), 1)
 
@@ -235,14 +242,6 @@ class BrandingPostProcessTests(TestCase):
     def setUpTestData(cls):
         cls.user = User.objects.create_user(username="branding-pp-user", password="x")
 
-    def _readme_body(self, corpus: Corpus) -> str:
-        from opencontractserver.corpuses.services.corpus_documents import (
-            CorpusDocumentService,
-        )
-
-        doc = CorpusDocumentService.get_corpus_caml_articles(self.user, corpus).first()
-        return read_caml_body(doc) if doc is not None else ""
-
     def test_agent_caml_without_block_gains_it(self):
         corpus = Corpus(title="Branded", creator=self.user)
         corpus._skip_signals = True
@@ -252,13 +251,13 @@ class BrandingPostProcessTests(TestCase):
         agent_caml = '---\nversion: "1.0"\n---\n\n# Branded\n\nResearched narrative.'
         with self.captureOnCommitCallbacks(execute=True):
             CorpusService.update_description(self.user, corpus, agent_caml)
-        self.assertFalse(has_intelligence_block(self._readme_body(corpus)))
+        self.assertFalse(has_intelligence_block(_readme_body(self.user, corpus)))
 
         # The post-process step the branding flow runs after the agent turn.
         with self.captureOnCommitCallbacks(execute=True):
             CorpusService.ensure_readme_caml_default(self.user, corpus)
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         self.assertIn("Researched narrative.", body)
         self.assertTrue(has_intelligence_block(body))
 
@@ -281,23 +280,15 @@ class BackfillIntelligenceBlockCommandTests(TestCase):
         corpus.save()
         return corpus
 
-    def _readme_body(self, corpus: Corpus) -> str:
-        from opencontractserver.corpuses.services.corpus_documents import (
-            CorpusDocumentService,
-        )
-
-        doc = CorpusDocumentService.get_corpus_caml_articles(self.user, corpus).first()
-        return read_caml_body(doc) if doc is not None else ""
-
     def test_creates_structural_readme_where_none_exists(self):
         corpus = self._make_corpus("NoReadme")
-        self.assertEqual(self._readme_body(corpus), "")
+        self.assertEqual(_readme_body(self.user, corpus), "")
 
         out = StringIO()
         with self.captureOnCommitCallbacks(execute=True):
             call_command("backfill_intelligence_block", stdout=out)
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         self.assertTrue(body.startswith("# NoReadme"))
         self.assertTrue(has_intelligence_block(body))
         self.assertIn("created", out.getvalue())
@@ -310,7 +301,7 @@ class BackfillIntelligenceBlockCommandTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             call_command("backfill_intelligence_block", stdout=StringIO())
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         for marker in CAML_INTELLIGENCE_MARKERS:
             self.assertEqual(body.count(marker), 1)
 
@@ -324,7 +315,7 @@ class BackfillIntelligenceBlockCommandTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             call_command("backfill_intelligence_block", stdout=StringIO())
 
-        body = self._readme_body(corpus)
+        body = _readme_body(self.user, corpus)
         self.assertIn("Keep this prose.", body)
         self.assertTrue(has_intelligence_block(body))
 
@@ -336,5 +327,5 @@ class BackfillIntelligenceBlockCommandTests(TestCase):
             call_command("backfill_intelligence_block", "--dry-run", stdout=out)
 
         # No README written under dry-run.
-        self.assertEqual(self._readme_body(corpus), "")
+        self.assertEqual(_readme_body(self.user, corpus), "")
         self.assertIn("would create", out.getvalue())

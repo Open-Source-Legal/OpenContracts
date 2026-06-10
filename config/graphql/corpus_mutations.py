@@ -32,6 +32,9 @@ from opencontractserver.corpuses.services import (
     CorpusActionService,
     CorpusService,
 )
+from opencontractserver.corpuses.services.branding import (
+    corpus_readme_will_be_auto_branded,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.documents.versioning import calculate_content_version
 from opencontractserver.extracts.models import Fieldset
@@ -171,10 +174,6 @@ class CreateCorpusMutation(DRFMutation):
             # README agent runs only when branding is eligible AND no icon was
             # uploaded (the signal skips the whole task on an uploaded icon), so
             # mirror that exact condition here. Creator-gated inside the service.
-            from opencontractserver.corpuses.services.branding import (
-                corpus_readme_will_be_auto_branded,
-            )
-
             readme_agent_will_run = (
                 corpus_readme_will_be_auto_branded(corpus) and not corpus.icon
             )

@@ -160,10 +160,26 @@ class CorpusService(BaseService):
             read_caml_body,
         )
 
-        existing = CorpusDocumentService.get_corpus_caml_articles(user, corpus).first()
+        articles = CorpusDocumentService.get_corpus_caml_articles(user, corpus)
+        existing = articles.first()
         if existing is None:
             new_content = build_default_readme_caml(corpus.title, corpus.description)
         else:
+            # Known limitation: a corpus may carry more than one ``Readme.CAML``
+            # (e.g. a fork that imported one alongside a generated one). We
+            # deterministically target ``.first()``; log when there's ambiguity
+            # so multi-README corpora are visible in backfill output for the
+            # follow-up dedup work rather than being silently single-targeted.
+            extra = articles.count() - 1
+            if extra > 0:
+                logger.warning(
+                    "Corpus %s has %d Readme.CAML articles; targeting the first "
+                    "(id=%s) and leaving %d untouched.",
+                    corpus.id,
+                    extra + 1,
+                    existing.id,
+                    extra,
+                )
             # Preserve the author's article; append the block only when it is
             # missing. ``ensure_intelligence_block`` is idempotent, so an
             # article that already embeds the overview yields byte-identical

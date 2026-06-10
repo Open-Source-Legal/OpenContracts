@@ -13,6 +13,9 @@ import React from "react";
 import { SuggestedQuestions } from "../SuggestedQuestions";
 import { useCamlEmbedContext } from "../../../caml/CamlEmbedContext";
 
+// Props are the untyped CAML marker attributes (all strings); this embed
+// consumes none of them (it reads everything from context). The broad record
+// type is intentional, not an under-specified signature.
 export const AskAcrossDocsEmbed: React.FC<
   Record<string, string | undefined>
 > = () => {

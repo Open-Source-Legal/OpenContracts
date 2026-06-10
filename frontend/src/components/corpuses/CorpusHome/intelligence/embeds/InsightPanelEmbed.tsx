@@ -10,6 +10,9 @@ import React from "react";
 import { IntelligencePanel } from "../IntelligencePanel";
 import { useCamlEmbedContext } from "../../../caml/CamlEmbedContext";
 
+// Props are the untyped CAML marker attributes (all strings); ``corpusId`` is
+// the only one this embed consumes. The broad record type is intentional, not
+// an under-specified signature.
 export const InsightPanelEmbed: React.FC<
   Record<string, string | undefined>
 > = ({ corpusId: corpusIdProp }) => {

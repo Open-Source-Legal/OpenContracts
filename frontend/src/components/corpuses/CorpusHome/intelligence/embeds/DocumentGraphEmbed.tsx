@@ -10,6 +10,9 @@ import React from "react";
 import { DocumentGraphLive } from "../DocumentGraphLive";
 import { useCamlEmbedContext } from "../../../caml/CamlEmbedContext";
 
+// Props are the untyped CAML marker attributes (all strings); ``corpusId`` is
+// the only one this embed consumes. The broad record type is intentional, not
+// an under-specified signature.
 export const DocumentGraphEmbed: React.FC<
   Record<string, string | undefined>
 > = ({ corpusId: corpusIdProp }) => {
