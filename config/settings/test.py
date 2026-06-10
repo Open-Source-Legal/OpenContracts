@@ -117,6 +117,13 @@ STORAGES = {
     },
 }
 
+# Media files stored on the local filesystem (above) are served by Django
+# itself in this environment — there's no S3/GCS/nginx in front, and DEBUG is
+# False so the ``static()`` helper in config/urls.py no-ops. Without this the
+# E2E browser can never fetch any /media/ URL (document files, thumbnails,
+# the Readme.CAML article body), it just 404s. See config/urls.py.
+SERVE_MEDIA_WITHOUT_DEBUG = True
+
 # Telemetry
 # ------------------------------------------------------------------------------
 # Explicitly disable telemetry in tests to prevent polluting PostHog with test data

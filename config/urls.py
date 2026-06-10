@@ -114,3 +114,22 @@ urlpatterns = [
         ]
     ),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# ``static()`` silently no-ops when DEBUG is False, which leaves the E2E/test
+# environment (config.settings.test, DEBUG off, local file storage, no
+# S3/GCS/nginx in front) with NO media serving at all — every
+# ``/media/...`` fetch 404s, so flows that load file-backed content in the
+# browser (e.g. the corpus Readme.CAML article body) can never succeed.
+# ``SERVE_MEDIA_WITHOUT_DEBUG`` is set ONLY by the test settings; production
+# serves media from object storage and never enables it.
+if getattr(settings, "SERVE_MEDIA_WITHOUT_DEBUG", False) and not settings.DEBUG:
+    from django.urls import re_path
+    from django.views.static import serve as media_serve
+
+    urlpatterns += [
+        re_path(
+            rf"^{settings.MEDIA_URL.lstrip('/')}(?P<path>.*)$",
+            media_serve,
+            {"document_root": settings.MEDIA_ROOT},
+        ),
+    ]
