@@ -12,7 +12,10 @@ from opencontractserver.constants.agent_memory import (
     MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
-from opencontractserver.constants.document_processing import MAX_FILE_UPLOAD_SIZE_BYTES
+from opencontractserver.constants.document_processing import (
+    DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+    MAX_FILE_UPLOAD_SIZE_BYTES,
+)
 from opencontractserver.constants.stats import SYSTEM_STATS_REFRESH_INTERVAL_SECONDS
 
 ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
@@ -1137,7 +1140,7 @@ DOCLING_PARSER_SERVICE_URL = env(
     "DOCLING_PARSER_SERVICE_URL", default="http://docling-parser:8000/parse/"
 )
 DOCLING_PARSER_TIMEOUT = env.int(
-    "DOCLING_PARSER_TIMEOUT", default=600  # 10 minutes default
+    "DOCLING_PARSER_TIMEOUT", default=DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS
 )
 use_cloud_run_iam_auth = True
 

@@ -88,6 +88,17 @@ OPENAI_EMBEDDER_MAX_INPUT_CHARS = 30_000
 # first-stage ordering on reranker failure.
 RERANKER_REQUEST_TIMEOUT_SECONDS = 30
 
+# HTTP request timeout (seconds) for the Docling document-parser microservice.
+# Substantially larger than the embedder/reranker timeouts because parsing a
+# large PDF (ML layout + OCR) is the slowest microservice call in the pipeline;
+# the previous 5-minute ceiling caused large documents to fail with ``Timeout``.
+# Single source of truth for both the Django setting default
+# (``DOCLING_PARSER_TIMEOUT`` in ``config/settings/base.py``, used to seed the DB
+# pipeline settings) and the ``DoclingParser`` dataclass field default (the
+# ultimate runtime fallback) — keep them from drifting apart. Still overridable
+# per-deployment via the ``DOCLING_PARSER_TIMEOUT`` env var.
+DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS = 600
+
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the
 # Celery queue. Remaining annotations will be logged but not queued; re-running

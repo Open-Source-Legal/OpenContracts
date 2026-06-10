@@ -12,6 +12,9 @@ from opencontractserver.constants import (
     DEFAULT_MAX_PAGES_PER_CHUNK,
     DEFAULT_MIN_PAGES_FOR_CHUNKING,
 )
+from opencontractserver.constants.document_processing import (
+    DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+)
 from opencontractserver.pipeline.base.chunked_parser import BaseChunkedParser
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
@@ -91,7 +94,7 @@ class DoclingParser(BaseChunkedParser):
             },
         )
         request_timeout: int = field(
-            default=600,
+            default=DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
             metadata={
                 "pipeline_setting": PipelineSetting(
                     setting_type=SettingType.OPTIONAL,

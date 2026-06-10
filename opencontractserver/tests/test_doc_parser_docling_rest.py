@@ -1081,3 +1081,24 @@ class TestDoclingParser4xxErrors(TestCase):
 
         # 5xx errors should be transient
         self.assertTrue(ctx.exception.is_transient)
+
+
+class TestDoclingParserTimeoutDefault(TestCase):
+    """The parser timeout default must agree with the shared constant.
+
+    The timeout lives in one place — ``DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS``
+    in ``constants/document_processing.py`` — and is referenced by both the
+    Django setting default and the ``DoclingParser`` dataclass field. This guards
+    against a future edit re-introducing a hardcoded literal in one site that
+    silently diverges from the other (the split-brain this consolidation fixed).
+    """
+
+    def test_settings_request_timeout_matches_constant(self):
+        from opencontractserver.constants.document_processing import (
+            DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+        )
+
+        self.assertEqual(
+            DoclingParser.Settings().request_timeout,
+            DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+        )
