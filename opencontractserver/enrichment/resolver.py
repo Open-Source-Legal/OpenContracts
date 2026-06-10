@@ -42,7 +42,7 @@ class Resolution:
 
 
 @dataclass
-class _SectionAnno:
+class SectionAnno:
     """Minimal view of an OC_SECTION annotation for matching."""
 
     id: int
@@ -92,7 +92,7 @@ class ReferenceResolver:
         cand: Candidate,
         source_doc_id: int,
         doc_text: str,
-        sections: list[_SectionAnno] | None = None,
+        sections: list[SectionAnno] | None = None,
     ) -> Resolution:
         heading = (cand.normalized_data.get("heading") or "").strip()
         res = Resolution(
@@ -125,7 +125,7 @@ class ReferenceResolver:
         cand: Candidate,
         source_doc_id: int,
         doc_text: str,
-        sections: list[_SectionAnno] | None = None,
+        sections: list[SectionAnno] | None = None,
     ) -> Resolution:
         if cand.reference_type == C.REF_LAW:
             res = self.resolve_law(cand)

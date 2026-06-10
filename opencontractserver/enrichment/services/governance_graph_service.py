@@ -136,9 +136,9 @@ class GovernanceGraphService:
 
         docs = {
             d.id: d
-            for d in Document.objects.filter(id__in=node_doc_ids).only(
-                "id", "title", "custom_meta"
-            )
+            for d in BaseService.filter_visible(Document, user, request=request)
+            .filter(id__in=node_doc_ids)
+            .only("id", "title", "custom_meta")
         }
 
         # Corpora the graph reaches: the queried corpus plus READ-visible

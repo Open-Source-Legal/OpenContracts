@@ -68,9 +68,13 @@ class AnnotationQueryMixin:
         Visibility is enforced by ``CorpusReferenceService`` (corpus-derived);
         no inline Tier-0 permission fusion here.
         """
+        from opencontractserver.annotations.models import CorpusReference
         from opencontractserver.enrichment.services import CorpusReferenceService
 
-        pk = int(from_global_id(corpus_id)[1])
+        pk_str = from_global_id(corpus_id)[1]
+        if not str(pk_str).isdigit():
+            return CorpusReference.objects.none()
+        pk = int(pk_str)
         qs = CorpusReferenceService.for_corpus(info.context.user, pk)
         if kwargs.get("reference_type"):
             qs = qs.filter(reference_type=kwargs["reference_type"])

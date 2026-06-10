@@ -3,7 +3,9 @@
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
+from graphene.test import Client
 
+from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
     SPAN_LABEL,
     Annotation,
@@ -19,6 +21,14 @@ from opencontractserver.enrichment.services import (
 )
 
 User = get_user_model()
+
+
+class _GQLContext:
+    """Minimal info.context stand-in for graphene.test.Client."""
+
+    def __init__(self, user):
+        self.user = user
+
 
 PRIMARY_TEXT = (
     "We are subject to Section 203 of the Delaware General Corporation Law. "
@@ -262,3 +272,45 @@ class EnrichmentWriterTests(TestCase):
         assert visible.count() == 0
         mine = CorpusReferenceService.for_corpus(self.user, self.corpus.id)
         assert mine.count() > 0
+
+
+class CorpusReferencesResolverGuardTests(TestCase):
+    """Fix 1: malformed relay-ID guard in resolve_corpus_references.
+
+    A non-relay / non-numeric corpus_id must return an empty result set
+    (not raise a 500 / ValueError).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="gql-guard", password="p")
+
+    def _execute(self, corpus_id_value: str):
+        client = Client(schema)
+        query = """
+            query CorpusRefs($corpusId: ID!) {
+              corpusReferences(corpusId: $corpusId) {
+                edges { node { id } }
+              }
+            }
+        """
+        return client.execute(
+            query,
+            variable_values={"corpusId": corpus_id_value},
+            context_value=_GQLContext(self.user),
+        )
+
+    def test_malformed_relay_id_returns_empty_no_error(self):
+        """A non-relay string must not raise a 500 — should return empty edges."""
+        result = self._execute("not-a-real-id")
+        self.assertNotIn("errors", result)
+        self.assertEqual(result["data"]["corpusReferences"]["edges"], [])
+
+    def test_non_numeric_decoded_pk_returns_empty_no_error(self):
+        """A base64-encoded type:pk where pk is non-numeric must return empty."""
+        import base64
+
+        # Encodes to CorpusType:abc — decodes fine but pk "abc" is not a digit.
+        relay_id = base64.b64encode(b"CorpusType:abc").decode()
+        result = self._execute(relay_id)
+        self.assertNotIn("errors", result)
+        self.assertEqual(result["data"]["corpusReferences"]["edges"], [])

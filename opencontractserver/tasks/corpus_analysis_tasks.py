@@ -51,7 +51,10 @@ def corpus_reference_enrichment(
     from opencontractserver.enrichment.services import EnrichmentService
 
     analysis = Analysis.objects.get(id=analysis_id)
-    assert analysis.creator_id is not None  # non-null FK; narrows for mypy
+    if analysis.creator_id is None:
+        raise ValueError(
+            f"Analysis {analysis_id} has no creator; cannot run enrichment"
+        )
     return EnrichmentService().apply(
         corpus_id=corpus_id,
         creator_id=analysis.creator_id,

@@ -28,7 +28,7 @@ from opencontractserver.enrichment.extractor import ReferenceExtractor
 from opencontractserver.enrichment.resolver import (
     ReferenceResolver,
     Resolution,
-    _SectionAnno,
+    SectionAnno,
 )
 from opencontractserver.enrichment.writer import EnrichmentWriter
 from opencontractserver.types.enums import JobStatus
@@ -55,16 +55,16 @@ class EnrichmentService:
         )
         return user, corpus, documents
 
-    def _sections_by_doc(self, documents) -> dict[int, list[_SectionAnno]]:
+    def _sections_by_doc(self, documents) -> dict[int, list[SectionAnno]]:
         """OC_SECTION annotations grouped by document — one query per corpus."""
-        sections: dict[int, list[_SectionAnno]] = {}
+        sections: dict[int, list[SectionAnno]] = {}
         rows = Annotation.objects.filter(
             document_id__in=[d.id for d in documents],
             annotation_label__text=OC_SECTION_LABEL,
         ).values_list("id", "raw_text", "document_id")
         for pk, txt, doc_id in rows:
             sections.setdefault(doc_id, []).append(
-                _SectionAnno(id=pk, raw_text=txt or "")
+                SectionAnno(id=pk, raw_text=txt or "")
             )
         return sections
 
@@ -163,13 +163,13 @@ class EnrichmentService:
         # (Celery), the @corpus_analyzer_task wrapper owns the Analysis and
         # drives RUNNING -> COMPLETED/FAILED. This branch serves the direct
         # agent-tool / service call, which runs synchronously inside ``apply``
-        # — the Analysis is created already COMPLETED because there is no
-        # observable in-between state to report.
+        # — the Analysis starts RUNNING and is set to COMPLETED on success or
+        # FAILED on exception by ``apply()``.
         return Analysis.objects.create(
             analyzer=analyzer,
             analyzed_corpus=corpus,
             creator_id=creator_id,
-            status=JobStatus.COMPLETED.value,
+            status=JobStatus.RUNNING.value,
         )
 
     def apply(
@@ -191,7 +191,14 @@ class EnrichmentService:
         if analysis is None:
             analysis = self._get_analysis(corpus, creator_id)
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
-        res = writer.write(resolutions)
+        try:
+            res = writer.write(resolutions)
+        except Exception:
+            analysis.status = JobStatus.FAILED.value
+            analysis.save(update_fields=["status"])
+            raise
+        analysis.status = JobStatus.COMPLETED.value
+        analysis.save(update_fields=["status"])
         link = self._link_external(user, corpus)
         return {
             "corpus_id": corpus_id,
@@ -221,7 +228,7 @@ class EnrichmentService:
         return self._link_external(user, corpus)
 
     def _link_external(self, user, corpus) -> dict:
-        from opencontractserver.documents.models import Document
+        from opencontractserver.documents.models import Document, DocumentPath
         from opencontractserver.enrichment.authorities import find_authority_target
 
         refs = (
@@ -238,20 +245,31 @@ class EnrichmentService:
         now = timezone.now()
         updated_refs: list[CorpusReference] = []
         updated_mentions: list[Annotation] = []
+        # First pass: build target_cache (deduped by canonical key).
+        for ref in refs:
+            key = ref.canonical_key
+            if not key:
+                continue
+            if key not in target_cache:
+                target_cache[key] = find_authority_target(key, user)
+        # Batch-fetch corpus membership for all resolved targets in one query
+        # instead of one per target (avoids N+1 on large corpora).
+        resolved_target_ids = {t.id for t in target_cache.values() if t is not None}
+        path_corpus_cache: dict[int, int | None] = dict(
+            DocumentPath.objects.filter(
+                document_id__in=resolved_target_ids,
+                is_current=True,
+                is_deleted=False,
+            ).values_list("document_id", "corpus_id")
+        )
         for ref in refs:
             key = ref.canonical_key
             if not key:  # queryset excludes None; guard for type-narrowing
                 continue
-            if key not in target_cache:
-                target_cache[key] = find_authority_target(key, user)
-            target = target_cache[key]
+            target = target_cache.get(key)
             if target is None:
                 continue
-            target_corpus_id = (
-                target.path_records.filter(is_current=True, is_deleted=False)
-                .values_list("corpus_id", flat=True)
-                .first()
-            )
+            target_corpus_id = path_corpus_cache.get(target.id)
             ref.target_document = target
             ref.target_corpus_id = target_corpus_id
             ref.resolution_status = C.STATUS_RESOLVED
