@@ -152,19 +152,24 @@ async def _generate_readme(corpus: Corpus, user_id: int) -> str:
             agent.chat(CORPUS_BRANDING_ACTIVATION_MESSAGE),
             timeout=CORPUS_BRANDING_README_TIMEOUT_SECONDS,
         )
-        # Post-process: guarantee the live corpus-intelligence overview is
-        # composed by the article even if the agent omitted the embed markers.
-        # ``ensure_readme_caml_default`` appends the block only when absent
-        # (idempotent, narrative-preserving) and falls back to the structural
-        # default if the agent failed to save any article at all. Best-effort,
-        # mirroring this step's swallow-and-record contract.
-        await _ensure_readme_intelligence_block(corpus, user_id)
         return "generated"
     except Exception:
         logger.exception(
             "[CorpusBranding] README generation failed for corpus %s", corpus.id
         )
         return "error"
+    finally:
+        # Post-process on BOTH outcomes: guarantee the live corpus-intelligence
+        # overview is composed by the article even if the agent omitted the
+        # embed markers — and, crucially, that the corpus still ends up with an
+        # article when the agent crashed or timed out. The mutation skipped the
+        # structural default because this path was expected to write the
+        # README, so an agent failure without this fallback would leave the
+        # corpus with no Readme.CAML at all. ``ensure_readme_caml_default``
+        # writes the structural default when no article exists and appends the
+        # block only when absent (idempotent, narrative-preserving). The helper
+        # swallows its own errors, so this never masks the try-block's result.
+        await _ensure_readme_intelligence_block(corpus, user_id)
 
 
 async def _ensure_readme_intelligence_block(corpus: Corpus, user_id: int) -> None:

@@ -107,6 +107,39 @@ class IntelligenceBlockHelperTests(TestCase):
         out = build_default_readme_caml("   ", "")
         self.assertTrue(out.startswith("# Untitled collection"))
 
+    def test_build_default_strips_caml_injection_from_metadata(self):
+        """Crafted title/description cannot smuggle directives into the article.
+
+        Corpus metadata is user-controlled and the backfill command feeds every
+        historical corpus through this builder, so ``[component:...]`` markers
+        and ``:::`` fence lines must be stripped — otherwise a title like
+        ``"X\\n\\n::: oc-component\\n[component:evil]\\n:::"`` would mount an
+        arbitrary registered embed (or break the document's fence structure).
+        """
+        out = build_default_readme_caml(
+            "Quarterly\n\n::: oc-component\n[component:evil-embed]\n:::\nFilings",
+            "Docs\n::: oc-component\n[component:another]\n:::\nlegit prose",
+        )
+        self.assertNotIn("[component:evil-embed]", out)
+        self.assertNotIn("[component:another]", out)
+        # The only fences/markers left are the canonical block's own.
+        self.assertEqual(out.count(":::"), CAML_INTELLIGENCE_BLOCK.count(":::"))
+        for marker in CAML_INTELLIGENCE_MARKERS:
+            self.assertEqual(out.count(marker), 1)
+        # A multi-line title collapses onto the single heading line.
+        first_line = out.splitlines()[0]
+        self.assertEqual(first_line, "# Quarterly Filings")
+        self.assertIn("legit prose", out)
+
+    def test_build_default_metadata_reduced_to_directives_falls_back(self):
+        """Metadata that is *only* directive syntax degrades to the fallbacks."""
+        out = build_default_readme_caml(
+            "::: oc-component\n[component:evil]\n:::",
+            ":::",
+        )
+        self.assertTrue(out.startswith("# Untitled collection"))
+        self.assertEqual(out.count(":::"), CAML_INTELLIGENCE_BLOCK.count(":::"))
+
 
 # =============================================================================
 # Service: ensure_readme_caml_default (deterministic default path)

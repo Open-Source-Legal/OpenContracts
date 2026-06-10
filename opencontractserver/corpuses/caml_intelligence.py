@@ -19,6 +19,8 @@ string helpers in ``corpuses/services/description_cache.py``.
 
 from __future__ import annotations
 
+import re
+
 # The three component markers the frontend registry recognises. Used both to
 # build the block and to detect (in ``ensure_intelligence_block``) whether an
 # existing CAML source already embeds the overview. Kept as a tuple so the
@@ -92,6 +94,29 @@ def ensure_intelligence_block(caml_source: str | None) -> str:
     return f"{existing.rstrip()}\n\n{CAML_INTELLIGENCE_BLOCK}"
 
 
+# Directive syntax that must never survive metadata interpolation:
+# ``[component:...]`` markers (the renderer would mount the named component)
+# and ``:::``-prefixed lines (CAML/remark directive fences, which could open
+# or close a container and re-scope everything after them).
+_COMPONENT_MARKER_RE = re.compile(r"\[component:[^\]]*\]", re.IGNORECASE)
+_DIRECTIVE_FENCE_LINE_RE = re.compile(r"^[ \t]*:{3,}.*$", re.MULTILINE)
+
+
+def _strip_caml_directives(value: str) -> str:
+    """Strip CAML directive syntax from interpolated corpus metadata.
+
+    Corpus title/description are user-controlled. Interpolating them verbatim
+    into the generated article would let a crafted value (e.g. a title
+    containing ``::: oc-component\\n[component:...]\\n:::``) smuggle arbitrary
+    component embeds or break the document's fence structure — and the backfill
+    command feeds *every historical corpus* through this builder. The metadata
+    is prose, never markup, so directive tokens are simply removed.
+    """
+    value = _COMPONENT_MARKER_RE.sub("", value)
+    value = _DIRECTIVE_FENCE_LINE_RE.sub("", value)
+    return value.strip()
+
+
 def build_default_readme_caml(
     title: str | None,
     description: str | None = None,
@@ -103,13 +128,15 @@ def build_default_readme_caml(
     LLM auto-branding (or as the structural seed a backfill writes where no
     article exists) so every corpus composes the overview out of the box.
 
-    *title* / *description* are corpus metadata. They are interpolated as plain
-    markdown — callers that surface untrusted content should sanitise upstream;
-    here they originate from the corpus row's own fields.
+    *title* / *description* are corpus metadata — user-controlled, so CAML
+    directive syntax is stripped via :func:`_strip_caml_directives` before
+    interpolation. The title is additionally collapsed to a single line so a
+    multi-line value cannot break out of the ``#`` heading.
     """
-    heading = (title or "Untitled collection").strip() or "Untitled collection"
+    heading = " ".join(_strip_caml_directives(title or "").split())
+    heading = heading or "Untitled collection"
     parts = [f"# {heading}"]
-    desc = (description or "").strip()
+    desc = _strip_caml_directives(description or "")
     if desc:
         parts.append(desc)
     parts.append(CAML_INTELLIGENCE_BLOCK)

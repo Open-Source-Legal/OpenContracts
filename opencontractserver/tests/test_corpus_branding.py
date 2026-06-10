@@ -535,6 +535,39 @@ class RunCorpusBrandingAsyncTests(TransactionTestCase):
         self.assertEqual(status, "skipped_exists")
         for_corpus.assert_not_awaited()
 
+    def test_readme_agent_failure_still_writes_structural_default(self):
+        """An agent crash must not leave the corpus with no article at all.
+
+        The create mutation skips the deterministic structural default when the
+        branding agent is expected to run, so ``_generate_readme``'s ``finally``
+        post-process is the only thing standing between an agent failure and a
+        README-less corpus. The step must report ``error`` AND the structural
+        default (with the intelligence block) must still land.
+        """
+        from opencontractserver.corpuses.caml_intelligence import (
+            has_intelligence_block,
+        )
+        from opencontractserver.corpuses.services.branding import _generate_readme
+        from opencontractserver.corpuses.services.description_cache import (
+            read_caml_body,
+        )
+        from opencontractserver.documents.models import Document
+
+        agent = MagicMock()
+        agent.chat = AsyncMock(side_effect=RuntimeError("LLM exploded"))
+        for_corpus = AsyncMock(return_value=agent)
+
+        with patch("opencontractserver.llms.api.agents.for_corpus", new=for_corpus):
+            status = async_to_sync(_generate_readme)(self.corpus, self.creator.id)
+
+        self.assertEqual(status, "error")
+        self.corpus.refresh_from_db()
+        self.assertIsNotNone(self.corpus.readme_caml_document_id)
+        body = read_caml_body(
+            Document.objects.get(pk=self.corpus.readme_caml_document_id)
+        )
+        self.assertTrue(has_intelligence_block(body))
+
 
 class GenerateCorpusBrandingTaskTests(TransactionTestCase):
     """The Celery task wrapper drives the orchestrator end-to-end.

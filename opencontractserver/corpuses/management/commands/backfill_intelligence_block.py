@@ -62,6 +62,9 @@ class Command(BaseCommand):
 
         # ``iterator()`` keeps memory flat over large installs; each corpus is a
         # single independent unit of work so there is no cross-row state.
+        # ``.all()`` is deliberate: Corpus has no soft-delete semantics
+        # (``is_deleted`` lives on DocumentPath, not Corpus), so every row is a
+        # live corpus.
         corpora = Corpus.objects.select_related("creator").all()
         total = corpora.count()
 

@@ -260,10 +260,10 @@ def trigger_corpus_branding_on_creation(
     if not corpus_readme_will_be_auto_branded(instance):
         return
     if instance.icon:
-        # User uploaded their own image — opt out of auto-branding entirely
-        # (the README step still runs; this only gates the logo step, but the
-        # historical signal behaviour skipped the whole task when an icon was
-        # present, so preserve that to avoid generating a logo over an upload).
+        # User uploaded their own image — skip the whole branding task (logo
+        # AND LLM README). The corpus still gets an article: the mutation's
+        # ensure_readme_caml_default writes the structural default whenever
+        # this task won't run (it mirrors this exact icon condition).
         return
 
     corpus_id = instance.pk

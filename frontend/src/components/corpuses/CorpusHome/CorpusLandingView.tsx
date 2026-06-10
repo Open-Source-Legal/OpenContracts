@@ -402,15 +402,8 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
           />
         </ChatSection>
 
-        {/*
-          Composed corpus-intelligence overview — the **no-CAML fallback**.
-          Corpora with a Readme.CAML render CorpusArticleView instead, which
-          composes the same panel/graph/ask pieces as CAML embeds (see
-          intelligence/embeds). Every corpus now gets a structural Readme.CAML
-          by default (CorpusService.ensure_readme_caml_default), so this path
-          serves corpora whose article hasn't been generated/backfilled yet.
-          Reuses the landing's chat + details callbacks.
-        */}
+        {/* No-CAML fallback — ensure_readme_caml_default gives every corpus an
+            article by default, so this only serves not-yet-backfilled corpora. */}
         <CorpusIntelligenceOverview
           corpusId={corpus.id}
           onAskQuestion={onChatSubmit}
