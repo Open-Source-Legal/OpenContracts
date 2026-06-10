@@ -33,6 +33,7 @@ import {
   TABLET_BREAKPOINT,
 } from "../../../assets/configurations/constants";
 import { CamlDirectiveRenderer } from "../caml/CamlDirectiveRenderer";
+import { CamlEmbedProvider } from "../caml/CamlEmbedContext";
 import {
   registerDirectiveHandler,
   unregisterDirectiveHandler,
@@ -245,6 +246,14 @@ export interface CorpusArticleViewProps {
    * isPowerUserMode to match CorpusLandingView / CorpusDetailsView.
    */
   onOpenMobileMenu?: () => void;
+  /**
+   * Submit a cross-document question to the corpus agent. Provided to embedded
+   * ``ask-across-docs`` CAML components via ``CamlEmbedContext`` so their chips
+   * feed the article's existing floating chat (no second chat affordance).
+   */
+  onAskQuestion?: (query: string) => void;
+  /** Escape hatch from an embedded document graph to the documents view. */
+  onExploreGraph?: () => void;
   stats?: {
     annotations?: number;
     documents?: number;
@@ -262,6 +271,8 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
   onModeToggle,
   isPowerUserMode = false,
   onOpenMobileMenu,
+  onAskQuestion,
+  onExploreGraph,
   stats,
   testId = "corpus-article",
 }) => {
@@ -363,64 +374,13 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
 
   const showCorpusImage = Boolean(corpus.icon) && !camlReferencesCorpusIcon;
 
-  if (loading) {
-    return (
-      <ArticleViewContainer data-testid={testId}>
-        <ArticleToolbar>
-          <BackButtonStyled onClick={onBack}>
-            <ArrowLeft size={14} />
-            Back
-          </BackButtonStyled>
-        </ArticleToolbar>
-        <LoadingContainer>
-          <p>Loading article...</p>
-        </LoadingContainer>
-      </ArticleViewContainer>
-    );
-  }
-
-  if (!articleDoc || fetchError) {
-    return (
-      <ArticleViewContainer data-testid={testId}>
-        <ArticleToolbar>
-          <BackButtonStyled onClick={onBack}>
-            <ArrowLeft size={14} />
-            Back
-          </BackButtonStyled>
-        </ArticleToolbar>
-        <EmptyState>
-          <EmptyIcon>
-            <FileText size={28} />
-          </EmptyIcon>
-          <p>No article found for this corpus.</p>
-          <p
-            style={{ fontSize: "0.8125rem", color: OS_LEGAL_COLORS.textMuted }}
-          >
-            Upload a <code>Readme.CAML</code> document to create one.
-          </p>
-        </EmptyState>
-      </ArticleViewContainer>
-    );
-  }
-
-  if (!parsedDocument) {
-    return (
-      <ArticleViewContainer data-testid={testId}>
-        <ArticleToolbar>
-          <BackButtonStyled onClick={onBack}>
-            <ArrowLeft size={14} />
-            Back
-          </BackButtonStyled>
-        </ArticleToolbar>
-        <LoadingContainer>
-          <p>Parsing article...</p>
-        </LoadingContainer>
-      </ArticleViewContainer>
-    );
-  }
-
-  return (
-    <ArticleViewContainer data-testid={testId}>
+  // Shared toolbar + documents drawer chrome. Every render state (loading,
+  // error/empty, parsing, happy path) MUST keep the full toolbar — corpus
+  // title, Documents drawer, Edit, and the Explore/Manage toggle. A corpus
+  // whose article content fails to fetch would otherwise lose all navigation
+  // (the user lands on a dead "No article" page with only a Back button).
+  const toolbarChrome = (
+    <>
       <ArticleToolbar>
         <BackButtonStyled onClick={onBack}>
           <ArrowLeft size={14} />
@@ -482,6 +442,63 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
           onClose={() => setDocsDrawerOpen(false)}
         />
       )}
+    </>
+  );
+
+  if (loading) {
+    return (
+      <ArticleViewContainer data-testid={testId}>
+        {toolbarChrome}
+        <LoadingContainer>
+          <p>Loading article...</p>
+        </LoadingContainer>
+      </ArticleViewContainer>
+    );
+  }
+
+  if (!articleDoc || fetchError) {
+    return (
+      <ArticleViewContainer data-testid={testId}>
+        {toolbarChrome}
+        <EmptyState>
+          <EmptyIcon>
+            <FileText size={28} />
+          </EmptyIcon>
+          {fetchError ? (
+            <p>The article couldn't be loaded.</p>
+          ) : (
+            <p>No article found for this corpus.</p>
+          )}
+          <p
+            style={{ fontSize: "0.8125rem", color: OS_LEGAL_COLORS.textMuted }}
+          >
+            {fetchError ? (
+              <>Try again later, or browse the documents directly.</>
+            ) : (
+              <>
+                Upload a <code>Readme.CAML</code> document to create one.
+              </>
+            )}
+          </p>
+        </EmptyState>
+      </ArticleViewContainer>
+    );
+  }
+
+  if (!parsedDocument) {
+    return (
+      <ArticleViewContainer data-testid={testId}>
+        {toolbarChrome}
+        <LoadingContainer>
+          <p>Parsing article...</p>
+        </LoadingContainer>
+      </ArticleViewContainer>
+    );
+  }
+
+  return (
+    <ArticleViewContainer data-testid={testId}>
+      {toolbarChrome}
 
       {showCorpusImage && corpus.icon && (
         <HeroAvatarRow data-testid={`${testId}-hero-image`}>
@@ -495,14 +512,22 @@ export const CorpusArticleView: React.FC<CorpusArticleViewProps> = ({
         </HeroAvatarRow>
       )}
 
-      <CamlDirectiveRenderer
-        document={parsedDocument}
-        handlerContext={handlerContext}
-        stats={stats}
-        resolveImageSrc={resolveImageSrc}
-        componentRegistry={CAML_COMPONENTS}
-        bottomInset="var(--oc-article-bottom-clearance, 0px)"
-      />
+      <CamlEmbedProvider
+        value={{
+          corpusId: corpus.id,
+          onAskQuestion,
+          onExploreGraph,
+        }}
+      >
+        <CamlDirectiveRenderer
+          document={parsedDocument}
+          handlerContext={handlerContext}
+          stats={stats}
+          resolveImageSrc={resolveImageSrc}
+          componentRegistry={CAML_COMPONENTS}
+          bottomInset="var(--oc-article-bottom-clearance, 0px)"
+        />
+      </CamlEmbedProvider>
     </ArticleViewContainer>
   );
 };

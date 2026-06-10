@@ -184,6 +184,41 @@ class TestHybridSearch(TestCase):
         # Text-only arm should still find annotations via search_vector
         self.assertIsInstance(results, list)
 
+    def test_fts_matches_natural_language_query_spanning_annotations(self):
+        """FTS arm must match a natural-language query whose content terms are
+        spread across several annotations.
+
+        The three fixture annotations each carry a *different* concept
+        ("indemnification", "termination", "force majeure ... obligations").
+        A real user question references more than one of them at once. With
+        ``plainto_tsquery`` (AND of every lexeme) no single annotation
+        contains them all, so the FTS arm returns nothing and a corpus with
+        no embeddings answers "I found nothing". OR-ing the content lexemes
+        keeps recall: each annotation that matches *any* term is returned,
+        and ``SearchRank`` still favours annotations matching more terms.
+
+        Isolated to ``mode="fts"`` so this asserts the full-text arm alone,
+        independent of the vector arm / embeddings.
+        """
+        store = self._make_store()
+        query = VectorSearchQuery(
+            query_text=(
+                "What indemnification, termination, and force majeure "
+                "obligations apply?"
+            ),
+            similarity_top_k=10,
+            mode="fts",
+        )
+        results = store.search(query)
+        matched = {r.annotation.id for r in results}
+        self.assertEqual(
+            matched,
+            {self.anno_alpha.id, self.anno_beta.id, self.anno_gamma.id},
+            "FTS should return every annotation whose terms collectively "
+            "satisfy the natural-language query (OR semantics), not zero "
+            "(AND semantics from plainto_tsquery).",
+        )
+
     @patch(
         "opencontractserver.llms.vector_stores.base_vector_store"
         ".agenerate_embeddings_from_text"

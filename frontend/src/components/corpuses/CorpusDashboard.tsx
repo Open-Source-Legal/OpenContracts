@@ -25,7 +25,7 @@ interface NewQuerySearchProps {
   corpus: CorpusType;
 }
 
-const StatisticWithAnimation = ({
+export const StatisticWithAnimation = ({
   value,
   label,
   icon: IconComponent,

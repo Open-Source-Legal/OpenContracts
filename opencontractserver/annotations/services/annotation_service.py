@@ -623,6 +623,50 @@ class AnnotationService(BaseService):
         return summary
 
     @classmethod
+    def get_label_distribution_for_corpus(
+        cls,
+        corpus,
+        visible_doc_ids,
+        top_n: int,
+        exclude_label_prefix: Optional[str] = None,
+    ) -> list[dict]:
+        """Top-N annotation-label distribution across a corpus's visible docs.
+
+        Powers the ``corpusIntelligenceAggregates`` resolver's label panel.
+        Callers supply ``visible_doc_ids`` (a values queryset from a
+        permission-filtered Document queryset) so the visibility decision is
+        made once at the call site and the ``__in`` clauses below push
+        subqueries to SQL rather than materialising ids into Python.
+
+        ``distinct=True`` on the count is required: structural annotations are
+        joined via the ``structural_set__documents`` reverse FK, which fans a
+        single annotation out to one row per referencing visible document and
+        would otherwise inflate that label's count.
+
+        Args:
+            corpus: The (already permission-checked) Corpus instance.
+            visible_doc_ids: Queryset of visible document ids in the corpus.
+            top_n: Number of labels to return, most frequent first.
+            exclude_label_prefix: When set, labels whose text starts with this
+                prefix are excluded (e.g. the reserved ``OC_`` namespace).
+
+        Returns:
+            List of ``{"annotation_label__text", "annotation_label__color",
+            "count"}`` dicts ordered by descending count.
+        """
+        qs = corpus.annotations.filter(
+            Q(document_id__in=visible_doc_ids)
+            | Q(structural_set__documents__in=visible_doc_ids, structural=True)
+        ).exclude(annotation_label__isnull=True)
+        if exclude_label_prefix:
+            qs = qs.exclude(annotation_label__text__startswith=exclude_label_prefix)
+        return list(
+            qs.values("annotation_label__text", "annotation_label__color")
+            .annotate(count=Count("id", distinct=True))
+            .order_by("-count")[:top_n]
+        )
+
+    @classmethod
     def get_corpus_annotations(
         cls,
         corpus_id: int,

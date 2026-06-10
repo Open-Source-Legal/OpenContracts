@@ -9,9 +9,16 @@ import graphene
 from django.db.models import Count, Q, Subquery
 from django.db.models.functions import Coalesce
 from graphene_django.filter import DjangoFilterConnectionField
-from graphql_relay import from_global_id
+from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import OpenContractsNode
+from config.graphql.corpus_types import (
+    CorpusDocumentGraphEdgeType,
+    CorpusDocumentGraphNodeType,
+    CorpusDocumentGraphType,
+    CorpusIntelligenceAggregatesType,
+    LabelDistributionEntryType,
+)
 from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
 from config.graphql.graphene_types import (
     CorpusCategoryType,
@@ -22,7 +29,12 @@ from config.graphql.graphene_types import (
     DocumentPathType,
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
+from opencontractserver.constants.annotations import OC_RESERVED_LABEL_PREFIX
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+from opencontractserver.constants.stats import (
+    CORPUS_DOCUMENT_GRAPH_MAX_NODES,
+    CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
@@ -415,6 +427,247 @@ class CorpusQueryMixin:
             total_threads=total_threads,
             total_chats=total_chats,
             total_relationships=total_relationships,
+        )
+
+    # CORPUS INTELLIGENCE RESOLVERS #####################################
+    # Power the "Corpus Intelligence" home: a document-relationship graph and
+    # an insight-framed aggregates panel. Both go through the service layer
+    # (DocumentRelationshipService / BaseService.filter_visible) so they honor
+    # the permission model and the config/graphql Tier-0 invariant (E001).
+
+    corpus_document_graph = graphene.Field(
+        CorpusDocumentGraphType,
+        corpus_id=graphene.ID(required=True),
+        limit=graphene.Int(required=False),
+        description=(
+            "Document-relationship graph (nodes = documents, edges = "
+            "DocumentRelationships) for a corpus, ranked by degree and capped "
+            "for the landing-page glimpse."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_corpus_document_graph(self, info, corpus_id, limit=None) -> Any:
+        # Service imports stay function-local: the ``services`` packages import
+        # GraphQL types transitively, so importing them at module load time
+        # would create an import cycle. Constants / relay helpers are safe at
+        # module level and are hoisted there.
+        from opencontractserver.documents.services import DocumentRelationshipService
+
+        user = info.context.user
+        corpus_pk = from_global_id(corpus_id)[1]
+
+        empty = CorpusDocumentGraphType(
+            nodes=[], edges=[], total_node_count=0, total_edge_count=0, truncated=False
+        )
+
+        # Bound the node cap to the configured maximum (defensive against a
+        # client requesting an unbounded payload).
+        node_cap = CORPUS_DOCUMENT_GRAPH_MAX_NODES
+        if limit is not None and 0 < limit < node_cap:
+            node_cap = limit
+
+        # A malformed/empty global id decodes to a non-numeric pk; treat it as
+        # a not-found corpus (empty graph) rather than aborting the transaction.
+        if not str(corpus_pk).isdigit():
+            return empty
+
+        corpus = (
+            BaseService.filter_visible(Corpus, user, request=info.context)
+            .filter(id=int(corpus_pk))
+            .first()
+        )
+        if corpus is None:
+            return empty
+
+        # Permission-filtered relationships (both endpoints visible) + degree.
+        relationships = DocumentRelationshipService.get_visible_relationships(
+            user, corpus_id=corpus.id, request=info.context
+        )
+        degree_by_doc = DocumentRelationshipService.get_relationship_counts_by_document(
+            user, corpus_id=corpus.id, request=info.context
+        )
+
+        # Rank documents by degree and keep the top ``node_cap``. A document
+        # with no edges never appears here (it isn't in degree_by_doc), which is
+        # exactly what we want for a "how docs interact" glimpse.
+        ranked_doc_ids = [
+            doc_id
+            for doc_id, _ in sorted(
+                degree_by_doc.items(), key=lambda kv: kv[1], reverse=True
+            )
+        ]
+        total_node_count = len(ranked_doc_ids)
+        kept_doc_ids = set(ranked_doc_ids[:node_cap])
+
+        # Count the full edge set with a single COUNT(*), then materialise only
+        # the edges among kept documents — the node cap exists to keep the
+        # payload small, so the edge fetch must be scoped to it rather than
+        # pulling every relationship row into Python and discarding most.
+        total_edge_count = relationships.count()
+        rel_rows = list(
+            relationships.filter(
+                source_document_id__in=kept_doc_ids,
+                target_document_id__in=kept_doc_ids,
+            ).values(
+                "id",
+                "source_document_id",
+                "source_document__title",
+                "source_document__file_type",
+                "target_document_id",
+                "target_document__title",
+                "target_document__file_type",
+                "relationship_type",
+                "annotation_label__text",
+            )
+        )
+
+        node_meta: dict[int, dict] = {}
+        edges = []
+        for row in rel_rows:
+            src = row["source_document_id"]
+            tgt = row["target_document_id"]
+            node_meta.setdefault(
+                src,
+                {
+                    "title": row["source_document__title"],
+                    "file_type": row["source_document__file_type"],
+                },
+            )
+            node_meta.setdefault(
+                tgt,
+                {
+                    "title": row["target_document__title"],
+                    "file_type": row["target_document__file_type"],
+                },
+            )
+            edges.append(
+                CorpusDocumentGraphEdgeType(
+                    id=str(row["id"]),
+                    source=to_global_id("DocumentType", src),
+                    target=to_global_id("DocumentType", tgt),
+                    label=row["annotation_label__text"],
+                    relationship_type=row["relationship_type"],
+                )
+            )
+
+        # Emit nodes in degree-rank order (the API contract) rather than the
+        # incidental edge-traversal order node_meta was built in.
+        #
+        # ``if doc_id in node_meta`` deliberately drops a top-ranked document
+        # whose every edge lands on a partner outside ``kept_doc_ids``: such a
+        # document has no *kept* edge, so it would render as an unconnected dot
+        # with no line — visual noise that contradicts a "how these documents
+        # interconnect" glimpse. It still counts toward ``total_node_count``
+        # (so ``truncated`` stays true and the meta line stays honest); the user
+        # follows "Explore the full graph" to see it. See the regression test
+        # ``test_graph_top_ranked_node_dropped_when_edges_are_capped_out``.
+        nodes = [
+            CorpusDocumentGraphNodeType(
+                id=to_global_id("DocumentType", doc_id),
+                title=node_meta[doc_id]["title"],
+                file_type=node_meta[doc_id]["file_type"],
+                degree=degree_by_doc.get(doc_id, 0),
+            )
+            for doc_id in ranked_doc_ids
+            if doc_id in node_meta
+        ]
+
+        truncated = total_node_count > len(nodes) or total_edge_count > len(edges)
+
+        return CorpusDocumentGraphType(
+            nodes=nodes,
+            edges=edges,
+            total_node_count=total_node_count,
+            total_edge_count=total_edge_count,
+            truncated=truncated,
+        )
+
+    corpus_intelligence_aggregates = graphene.Field(
+        CorpusIntelligenceAggregatesType,
+        corpus_id=graphene.ID(required=True),
+        description=(
+            "Insight-framed corpus aggregates (label distribution, summary "
+            "coverage) for the Corpus Intelligence home."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_corpus_intelligence_aggregates(self, info, corpus_id) -> Any:
+        # Service import stays function-local to avoid an import cycle (see
+        # resolve_corpus_document_graph); the constant is hoisted to module top.
+        from opencontractserver.annotations.services import AnnotationService
+
+        user = info.context.user
+        corpus_pk = from_global_id(corpus_id)[1]
+
+        empty = CorpusIntelligenceAggregatesType(
+            label_distribution=[],
+            documents_with_summary=0,
+            total_documents=0,
+        )
+
+        if not str(corpus_pk).isdigit():
+            return empty
+
+        corpus = (
+            BaseService.filter_visible(Corpus, user, request=info.context)
+            .filter(id=int(corpus_pk))
+            .first()
+        )
+        if corpus is None:
+            return empty
+
+        # Visible documents with an active path in this corpus (mirrors
+        # resolve_corpus_stats so the numbers agree). Kept as a queryset so the
+        # ``__in`` clauses below push a subquery to SQL rather than materialising
+        # every id into a Python ``IN (1,2,...,N)`` literal (matters at 1k+ docs).
+        visible_docs = BaseService.filter_visible(
+            Document, user, request=info.context
+        ).filter(
+            path_records__corpus=corpus,
+            path_records__is_current=True,
+            path_records__is_deleted=False,
+        )
+        visible_doc_ids = visible_docs.values_list("id", flat=True)
+        total_documents = visible_doc_ids.count()
+
+        # Summary coverage: visible docs that carry a markdown summary file.
+        documents_with_summary = (
+            visible_docs.exclude(md_summary_file="")
+            .exclude(md_summary_file__isnull=True)
+            .count()
+        )
+
+        # Label distribution across the corpus's visible annotations, via the
+        # service layer (config/graphql code never touches the ORM directly).
+        #
+        # OC_-prefixed labels are platform scaffolding (OC_SECTION, OC_URL,
+        # OC_EXTRACT_SOURCE, …) — pipeline internals that drive built-in
+        # features, not human-meaningful tags. Surfacing them in a user-facing
+        # "dominant labels" insight reads as jargon and crowds out real labels,
+        # so exclude the reserved namespace here. Provider/custom labels (even
+        # structural ones a parser emits) are intentionally kept — see
+        # ``test_aggregates_structural_label_counted_once_across_shared_docs``.
+        label_rows = AnnotationService.get_label_distribution_for_corpus(
+            corpus=corpus,
+            visible_doc_ids=visible_doc_ids,
+            top_n=CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
+            exclude_label_prefix=OC_RESERVED_LABEL_PREFIX,
+        )
+        label_distribution = [
+            LabelDistributionEntryType(
+                label=row["annotation_label__text"],
+                color=row["annotation_label__color"],
+                count=row["count"],
+            )
+            for row in label_rows
+        ]
+
+        return CorpusIntelligenceAggregatesType(
+            label_distribution=label_distribution,
+            documents_with_summary=documents_with_summary,
+            total_documents=total_documents,
         )
 
     # CORPUS METADATA COLUMNS RESOLVERS #####################################

@@ -249,7 +249,7 @@ const getMessage = (type?: string, customMessage?: string) => {
     case "auth":
       return "Securing Your Session";
     default:
-      return "Loading cite";
+      return "Loading OpenContracts";
   }
 };
 

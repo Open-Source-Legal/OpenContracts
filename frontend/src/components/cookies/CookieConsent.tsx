@@ -541,8 +541,9 @@ export const CookieConsentDialog = () => {
               Cookie usage
             </SectionLabel>
             <LeadBody>
-              <em>cite</em> uses cookies to enhance your experience and help us
-              improve the platform. We do not sell or share user information.
+              <em>OpenContracts</em> uses cookies to enhance your experience and
+              help us improve the platform. We do not sell or share user
+              information.
             </LeadBody>
           </LeadSection>
 
@@ -614,9 +615,10 @@ export const CookieConsentDialog = () => {
                 </DataListItem>
               </DataList>
               <AnalyticsNote>
-                Analytics data is used solely to improve <em>cite</em> and is
-                never sold or shared with third parties. You can opt out at any
-                time through your browser settings or by using Do Not Track.
+                Analytics data is used solely to improve <em>OpenContracts</em>{" "}
+                and is never sold or shared with third parties. You can opt out
+                at any time through your browser settings or by using Do Not
+                Track.
               </AnalyticsNote>
             </DataCard>
           )}

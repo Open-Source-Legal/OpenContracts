@@ -914,3 +914,36 @@ export const PANEL_SNAP_THRESHOLD_PCT = 3;
 // Prevents the next mousedown / touchstart from being treated as a fresh
 // selection while the menu is still dismissing.
 export const SELECTION_MENU_COOLDOWN_MS = 300;
+
+// Document-relationship ``relationship_type`` values, mirroring
+// ``DocumentRelationship.RELATIONSHIP_TYPE_CHOICES`` in
+// ``opencontractserver/documents/models.py``. Used by the document graph to
+// style note edges distinctly from semantic relationship edges — keep in sync
+// with the backend choices if they ever change.
+export const DOCUMENT_RELATIONSHIP_TYPES = {
+  NOTES: "NOTES",
+  RELATIONSHIP: "RELATIONSHIP",
+} as const;
+
+// Human-facing legend labels for the document-graph edge styles. In the
+// legal-filing framing of the corpus graph, a NOTES edge most commonly ties
+// related filings together (cover letter ↔ exhibit, amendment ↔ original),
+// hence "Related filing"; a deployment using NOTES for something
+// domain-specific (e.g. analyst commentary) should rename it here — this is
+// the single source for the display strings.
+export const DOCUMENT_RELATIONSHIP_TYPE_LABELS = {
+  [DOCUMENT_RELATIONSHIP_TYPES.NOTES]: "Related filing",
+  [DOCUMENT_RELATIONSHIP_TYPES.RELATIONSHIP]: "Citation / exhibit",
+} as const;
+
+// DocumentGraphGlimpse layout geometry. The viewBox is fixed (the SVG scales
+// to its container) and the d3-force simulation is stepped a fixed number of
+// synchronous ticks so the layout stays deterministic and test-friendly.
+// Sized for the ~60-node CORPUS_DOCUMENT_GRAPH_MAX_NODES cap.
+export const DOCUMENT_GRAPH_LAYOUT = {
+  VIEW_WIDTH: 640,
+  VIEW_HEIGHT: 360,
+  SIMULATION_TICKS: 160,
+  MIN_NODE_RADIUS: 5,
+  MAX_NODE_RADIUS: 16,
+} as const;

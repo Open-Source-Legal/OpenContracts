@@ -32,6 +32,9 @@ from opencontractserver.corpuses.services import (
     CorpusActionService,
     CorpusService,
 )
+from opencontractserver.corpuses.services.branding import (
+    corpus_readme_will_be_auto_branded,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.documents.versioning import calculate_content_version
 from opencontractserver.extracts.models import Fieldset
@@ -161,6 +164,21 @@ class CreateCorpusMutation(DRFMutation):
             CorpusService.grant_creator_permissions(
                 info.context.user, corpus, request=info.context
             )
+
+            # Deterministic structural Readme.CAML so the corpus composes the
+            # live intelligence overview by default. The LLM auto-branding agent
+            # (queued by the post_save signal) writes its own README when it
+            # runs, so only seed the structural default when branding will NOT
+            # produce one — otherwise the default would pre-empt the agent (its
+            # ``readme_caml_document_id`` guard skips if an article exists). The
+            # README agent runs only when branding is eligible AND no icon was
+            # uploaded (the signal skips the whole task on an uploaded icon), so
+            # mirror that exact condition here. Creator-gated inside the service.
+            readme_agent_will_run = (
+                corpus_readme_will_be_auto_branded(corpus) and not corpus.icon
+            )
+            if not readme_agent_will_run:
+                CorpusService.ensure_readme_caml_default(info.context.user, corpus)
 
         return result
 
