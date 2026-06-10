@@ -442,6 +442,16 @@ def corpus_analyzer_task(
                 analysis.save()
                 return result
 
+            except Retry:
+                # ``Retry`` extends ``Exception`` — re-raise untouched
+                # (mirroring doc_analyzer_task) so a transient retry does not
+                # permanently stamp the Analysis FAILED before the retry runs.
+                logger.info(
+                    f"Retry in corpus_analyzer_task {func.__name__} for "
+                    f"analysis {analysis_id}"
+                )
+                raise
+
             except Exception as e:
                 logger.error(
                     f"corpus_analyzer_task {func.__name__} failed for analysis "

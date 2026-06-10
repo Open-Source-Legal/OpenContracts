@@ -16,6 +16,7 @@ import logging
 from collections import Counter
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import Annotation, CorpusReference
@@ -32,6 +33,7 @@ from opencontractserver.enrichment.resolver import (
 from opencontractserver.enrichment.writer import EnrichmentWriter
 from opencontractserver.types.enums import JobStatus
 from opencontractserver.utils.files import read_field_file_text
+from opencontractserver.utils.frontend_paths import document_in_corpus_path
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -53,11 +55,18 @@ class EnrichmentService:
         )
         return user, corpus, documents
 
-    def _sections_for(self, doc_id: int) -> list[_SectionAnno]:
+    def _sections_by_doc(self, documents) -> dict[int, list[_SectionAnno]]:
+        """OC_SECTION annotations grouped by document — one query per corpus."""
+        sections: dict[int, list[_SectionAnno]] = {}
         rows = Annotation.objects.filter(
-            document_id=doc_id, annotation_label__text=OC_SECTION_LABEL
-        ).values_list("id", "raw_text")
-        return [_SectionAnno(id=pk, raw_text=txt or "") for pk, txt in rows]
+            document_id__in=[d.id for d in documents],
+            annotation_label__text=OC_SECTION_LABEL,
+        ).values_list("id", "raw_text", "document_id")
+        for pk, txt, doc_id in rows:
+            sections.setdefault(doc_id, []).append(
+                _SectionAnno(id=pk, raw_text=txt or "")
+            )
+        return sections
 
     def _resolutions(self, corpus, documents, types, user) -> list[Resolution]:
         from opencontractserver.enrichment.authorities import authority_alias_registry
@@ -67,6 +76,7 @@ class EnrichmentService:
         # The alias registry is corpus-data-driven (authority corpora declare
         # their own aliases) and visibility-scoped to the run user.
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
+        sections_by_doc = self._sections_by_doc(documents)
         resolutions: list[Resolution] = []
         for doc in documents:
             try:
@@ -78,7 +88,7 @@ class EnrichmentService:
                 continue
             if not text:
                 continue
-            sections = self._sections_for(doc.id)
+            sections = sections_by_doc.get(doc.id, [])
             # Authority documents know their own body of law — that context
             # keys relative citations ("§ 251 of this title") in statute text.
             meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
@@ -149,6 +159,12 @@ class EnrichmentService:
                     "creator_id": creator_id,
                 },
             )
+        # Two provenance paths: when ``apply`` runs via the analyzer framework
+        # (Celery), the @corpus_analyzer_task wrapper owns the Analysis and
+        # drives RUNNING -> COMPLETED/FAILED. This branch serves the direct
+        # agent-tool / service call, which runs synchronously inside ``apply``
+        # — the Analysis is created already COMPLETED because there is no
+        # observable in-between state to report.
         return Analysis.objects.create(
             analyzer=analyzer,
             analyzed_corpus=corpus,
@@ -218,7 +234,10 @@ class EnrichmentService:
             .select_related("source_annotation")
         )
         target_cache: dict[str, Document | None] = {}
-        linked = 0
+        corpus_cache: dict[int, Corpus] = {}
+        now = timezone.now()
+        updated_refs: list[CorpusReference] = []
+        updated_mentions: list[Annotation] = []
         for ref in refs:
             key = ref.canonical_key
             if not key:  # queryset excludes None; guard for type-narrowing
@@ -236,17 +255,35 @@ class EnrichmentService:
             ref.target_document = target
             ref.target_corpus_id = target_corpus_id
             ref.resolution_status = C.STATUS_RESOLVED
-            ref.save(
-                update_fields=[
-                    "target_document",
-                    "target_corpus",
-                    "resolution_status",
-                    "modified",
-                ]
-            )
+            # bulk_update bypasses auto_now — stamp ``modified`` explicitly.
+            ref.modified = now
+            updated_refs.append(ref)
             if target_corpus_id is not None:
-                mention = ref.source_annotation
-                mention.link_url = f"/corpus/{target_corpus_id}/document/{target.id}"
-                mention.save(update_fields=["link_url", "modified"])
-            linked += 1
-        return {"corpus_id": corpus.id, "law_references_linked": linked}
+                if target_corpus_id not in corpus_cache:
+                    corpus_cache[target_corpus_id] = Corpus.objects.select_related(
+                        "creator"
+                    ).get(pk=target_corpus_id)
+                target_corpus = corpus_cache[target_corpus_id]
+                # Canonical slug path into the authority corpus — the only
+                # shape the frontend router serves (anything else 404s).
+                link_url = document_in_corpus_path(
+                    corpus_creator_slug=target_corpus.creator.slug,
+                    corpus_slug=target_corpus.slug,
+                    document_slug=target.slug,
+                )
+                if link_url:
+                    mention = ref.source_annotation
+                    mention.link_url = link_url
+                    mention.modified = now
+                    updated_mentions.append(mention)
+
+        # Two queries instead of O(N) row-by-row saves (corpora carry
+        # hundreds-to-thousands of law references at demo scale).
+        if updated_refs:
+            CorpusReference.objects.bulk_update(
+                updated_refs,
+                ["target_document", "target_corpus", "resolution_status", "modified"],
+            )
+        if updated_mentions:
+            Annotation.objects.bulk_update(updated_mentions, ["link_url", "modified"])
+        return {"corpus_id": corpus.id, "law_references_linked": len(updated_refs)}

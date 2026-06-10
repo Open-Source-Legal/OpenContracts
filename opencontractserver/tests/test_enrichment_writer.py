@@ -82,9 +82,14 @@ class EnrichmentWriterTests(TestCase):
         ).first()
         assert doc_ref is not None
         assert doc_ref.target_document_id == self.exhibit_in_corpus.id
-        # The mention annotation carries an in-app site-relative link.
+        # The mention annotation carries the canonical in-app document path
+        # (the slug shape the frontend router actually serves — see
+        # frontend/src/App.tsx /d/:userIdent/:corpusIdent/:docIdent).
+        self.corpus.refresh_from_db()
+        self.exhibit_in_corpus.refresh_from_db()
         assert doc_ref.source_annotation.link_url == (
-            f"/corpus/{self.corpus.id}/document/{self.exhibit_in_corpus.id}"
+            f"/d/{self.corpus.creator.slug}/{self.corpus.slug}"
+            f"/{self.exhibit_in_corpus.slug}"
         )
 
     def test_section_reference_creates_relationship_or_external_ref(self):

@@ -114,6 +114,26 @@ class CorpusAnalyzerTaskTests(TestCase):
         assert analysis.status == JobStatus.FAILED.value
         assert "boom" in (analysis.error_message or "")
 
+    def test_celery_retry_does_not_mark_analysis_failed(self):
+        # ``Retry`` extends ``Exception`` — the wrapper must re-raise it
+        # untouched (mirroring doc_analyzer_task) so a transient retry does
+        # not permanently stamp the Analysis FAILED before the retry runs.
+        from celery.exceptions import Retry
+
+        analysis = _make_analysis(self.user, self.corpus)
+        with patch(
+            "opencontractserver.enrichment.services.enrichment_service.EnrichmentService.apply",
+            side_effect=Retry("requeued"),
+        ):
+            with self.assertRaises(Retry):
+                corpus_reference_enrichment(
+                    corpus_id=self.corpus.id, analysis_id=analysis.id
+                )
+
+        analysis.refresh_from_db()
+        assert analysis.status == JobStatus.RUNNING.value
+        assert analysis.error_message is None
+
     def test_auto_sync_recognizes_adapter_without_duplicating(self):
         # Service-created row exists (friendly id, real task_name)...
         _make_analysis(self.user, self.corpus)

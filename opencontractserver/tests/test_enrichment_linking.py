@@ -55,8 +55,12 @@ class CrossCorpusLinkingTests(TestCase):
         assert ref.resolution_status == C.STATUS_RESOLVED
         assert ref.target_corpus_id == auth["corpus_id"]
         assert ref.target_document is not None
+        # Canonical in-app document path INTO THE AUTHORITY CORPUS (the slug
+        # shape the frontend router serves: /d/:userIdent/:corpusIdent/:docIdent).
+        auth_corpus = Corpus.objects.select_related("creator").get(pk=auth["corpus_id"])
         assert ref.source_annotation.link_url == (
-            f"/corpus/{auth['corpus_id']}/document/{ref.target_document_id}"
+            f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
+            f"/{ref.target_document.slug}"
         )
         # No DGCL doc for the Securities Act citation -> still external.
         sa = CorpusReference.objects.get(

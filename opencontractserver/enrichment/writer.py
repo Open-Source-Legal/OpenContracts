@@ -9,7 +9,7 @@ rows by their unique (source_annotation, reference_type, canonical_key) guard).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.db import transaction
 
@@ -20,9 +20,10 @@ from opencontractserver.annotations.models import (
     CorpusReference,
     Relationship,
 )
-from opencontractserver.documents.models import DocumentRelationship
+from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.resolver import Resolution
+from opencontractserver.utils.frontend_paths import document_in_corpus_path
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +34,8 @@ class WriteResult:
     relationships_created: int = 0
     references_created: int = 0
     document_relationships_created: int = 0
-    annotation_ids: list[int] = None  # type: ignore[assignment]
-    reference_ids: list[int] = None  # type: ignore[assignment]
-
-    def __post_init__(self):
-        if self.annotation_ids is None:
-            self.annotation_ids = []
-        if self.reference_ids is None:
-            self.reference_ids = []
+    annotation_ids: list[int] = field(default_factory=list)
+    reference_ids: list[int] = field(default_factory=list)
 
 
 class EnrichmentWriter:
@@ -51,6 +46,9 @@ class EnrichmentWriter:
         self.creator_id = creator_id
         self.analysis = analysis
         self._label_cache: dict[tuple[str, str], object] = {}
+        # Target-document slugs, prefetched once per write() so mention links
+        # can carry the canonical /d/ path without a per-mention query.
+        self._doc_slugs: dict[int, str | None] = {}
 
     def _label(self, text: str, label_type: str):
         key = (text, label_type)
@@ -81,7 +79,13 @@ class EnrichmentWriter:
             data["canonical_key"] = res.canonical_key
         link_url = None
         if res.target_document_id:
-            link_url = f"/corpus/{self.corpus.id}/document/{res.target_document_id}"
+            # Canonical slug path — the only shape the frontend router serves
+            # (any other form falls into the catch-all 404).
+            link_url = document_in_corpus_path(
+                corpus_creator_slug=self.corpus.creator.slug,
+                corpus_slug=self.corpus.slug,
+                document_slug=self._doc_slugs.get(res.target_document_id),
+            )
 
         ann = Annotation(
             raw_text=cand.raw_text,
@@ -103,6 +107,11 @@ class EnrichmentWriter:
     def write(self, resolutions: list[Resolution]) -> WriteResult:
         result = WriteResult()
         rel_label = self._label(C.LABEL_RELATIONSHIP, RELATIONSHIP_LABEL)
+
+        target_ids = {r.target_document_id for r in resolutions if r.target_document_id}
+        self._doc_slugs = dict(
+            Document.objects.filter(id__in=target_ids).values_list("id", "slug")
+        )
 
         with transaction.atomic():
             for res in resolutions:

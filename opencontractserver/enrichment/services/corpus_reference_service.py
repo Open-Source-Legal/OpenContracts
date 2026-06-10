@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
 
 
-class CorpusReferenceService:
+class CorpusReferenceService(BaseService):
     """Read surface for CorpusReference rows."""
 
     @staticmethod
