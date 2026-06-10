@@ -5,18 +5,21 @@ import { Compass } from "lucide-react";
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { DocumentGraphLive } from "./DocumentGraphLive";
+import { GovernanceGraphLive } from "./GovernanceGraphLive";
 import { SuggestedQuestions } from "./SuggestedQuestions";
 
 /**
  * CorpusIntelligenceOverview — the composed "God's-eye view" block. It fuses
- * three already-existing capabilities into one coherent surface:
+ * four already-existing capabilities into one coherent surface:
  *
- *   1. IntelligencePanel    — insight-framed at-a-glance metrics.
- *   2. DocumentGraphLive     — a visual of how the documents interconnect.
- *   3. SuggestedQuestions   — one-click cross-document Q&A via the corpus agent.
+ *   1. IntelligencePanel     — insight-framed at-a-glance metrics.
+ *   2. GovernanceGraphLive   — the reference web: how the collection is wired
+ *                              to the law (with a bootstrap CTA when unmapped).
+ *   3. DocumentGraphLive     — a visual of how the documents interconnect.
+ *   4. SuggestedQuestions    — one-click cross-document Q&A via the corpus agent.
  *
  * It is the **no-CAML fallback**: corpora without a Readme.CAML article render
- * this on the landing. Corpora with an article compose the same three pieces as
+ * this on the landing. Corpora with an article compose the same pieces as
  * individual CAML embeds (see ``intelligence/embeds``), so the building blocks
  * are shared rather than duplicated.
  */
@@ -73,6 +76,8 @@ export const CorpusIntelligenceOverview: React.FC<
       </div>
 
       <IntelligencePanel corpusId={corpusId} />
+
+      <GovernanceGraphLive corpusId={corpusId} onExplore={onExploreGraph} />
 
       <DocumentGraphLive corpusId={corpusId} onExplore={onExploreGraph} />
 

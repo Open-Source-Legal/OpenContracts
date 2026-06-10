@@ -110,6 +110,85 @@ class EnrichmentGraphQLTests(TestCase):
         assert result["data"]["corpusReferences"]["edges"] == []
 
 
+class CorpusReferenceDocumentFilterTests(TestCase):
+    """``corpusReferences(documentId:)`` returns refs touching EITHER side.
+
+    The document References side-panel fetches one document's inbound +
+    outbound references in a single query and splits client-side.
+    """
+
+    DOC_TEXT = (
+        "Indemnification under Section 145 of the Delaware General Corporation "
+        "Law. The underwriting agreement is filed as Exhibit 1.1 hereto."
+    )
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="owner", password="p")
+        self.corpus = Corpus.objects.create(title="C", creator=self.user)
+        primary = Document.objects.create(title="Acme S-1 primary", creator=self.user)
+        primary.txt_extract_file.save(
+            "p.txt", ContentFile(self.DOC_TEXT.encode("utf-8"))
+        )
+        exhibit = Document.objects.create(
+            title="Acme S-1 - Exhibit 1.1: EX-1.1", creator=self.user
+        )
+        exhibit.txt_extract_file.save("e.txt", ContentFile(b"Underwriting."))
+        self.primary_in_corpus, _, _ = self.corpus.add_document(
+            document=primary, user=self.user
+        )
+        self.exhibit_in_corpus, _, _ = self.corpus.add_document(
+            document=exhibit, user=self.user
+        )
+        apply_corpus_reference_enrichment(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+    def _run(self, document_pk):
+        from graphene.test import Client
+        from graphql_relay import to_global_id
+
+        from config.graphql.schema import schema
+
+        query = """
+            query ($cid: ID!, $did: ID) {
+              corpusReferences(corpusId: $cid, documentId: $did) {
+                edges { node { referenceType canonicalKey } }
+              }
+            }
+        """
+        return Client(schema, context_value=_Ctx(self.user)).execute(
+            query,
+            variables={
+                "cid": to_global_id("CorpusType", self.corpus.id),
+                "did": to_global_id("DocumentType", document_pk),
+            },
+        )
+
+    def test_source_document_returns_its_outbound_references(self):
+        result = self._run(self.primary_in_corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        types = {
+            e["node"]["referenceType"]
+            for e in result["data"]["corpusReferences"]["edges"]
+        }
+        assert "LAW" in types
+        assert "DOCUMENT" in types
+
+    def test_target_document_returns_its_inbound_references(self):
+        # The exhibit is only ever a TARGET (the primary cites it).
+        result = self._run(self.exhibit_in_corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        edges = result["data"]["corpusReferences"]["edges"]
+        assert edges, "expected the inbound DOCUMENT reference"
+        assert {e["node"]["referenceType"] for e in edges} == {"DOCUMENT"}
+
+    def test_unrelated_document_returns_nothing(self):
+        other = Document.objects.create(title="Unrelated", creator=self.user)
+        result = self._run(other.id)
+        assert result.get("errors") is None, result.get("errors")
+        assert result["data"]["corpusReferences"]["edges"] == []
+
+
 class CorpusReferenceTraversalVisibilityTests(TestCase):
     """Nested FK traversal on ``CorpusReferenceType`` must not leak documents.
 

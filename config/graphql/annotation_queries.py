@@ -60,6 +60,13 @@ class AnnotationQueryMixin:
         corpus_id=graphene.ID(required=True),
         reference_type=graphene.String(),
         canonical_key=graphene.String(),
+        document_id=graphene.ID(
+            description=(
+                "Restrict to references touching this document on EITHER side "
+                "(source mention's document or resolved target document) — the "
+                "single-fetch shape the document References panel needs."
+            )
+        ),
     )
 
     def resolve_corpus_references(self, info, corpus_id, **kwargs) -> Any:
@@ -80,6 +87,14 @@ class AnnotationQueryMixin:
             qs = qs.filter(reference_type=kwargs["reference_type"])
         if kwargs.get("canonical_key"):
             qs = qs.filter(canonical_key=kwargs["canonical_key"])
+        if kwargs.get("document_id"):
+            doc_pk_str = from_global_id(kwargs["document_id"])[1]
+            if not str(doc_pk_str).isdigit():
+                return CorpusReference.objects.none()
+            doc_pk = int(doc_pk_str)
+            qs = qs.filter(
+                Q(source_annotation__document_id=doc_pk) | Q(target_document_id=doc_pk)
+            )
         return qs
 
     governance_graph = graphene.Field(

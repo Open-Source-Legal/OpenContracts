@@ -6,6 +6,7 @@ import {
   BookOpen,
   ChevronsUpDown,
   ChevronsDownUp,
+  Link2,
 } from "lucide-react";
 import {
   AnalysisType,
@@ -44,6 +45,7 @@ import { SafeMarkdown } from "../../markdown/SafeMarkdown";
 import { SingleDocumentExtractResults } from "../../../annotator/sidebar/SingleDocumentExtractResults";
 import { DocumentDiscussionsContent } from "../../../discussions/DocumentDiscussionsContent";
 import { DocumentAnnotationIndex } from "../../../corpuses/DocumentAnnotationIndex";
+import { DocumentReferencesPanel } from "../DocumentReferencesPanel";
 
 export interface RightPanelContentProps {
   /** Whether the right panel is currently shown */
@@ -281,6 +283,29 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
             }
           }}
         />
+      </FlexColumnPanel>
+    );
+  }
+
+  // Handle references mode — this document's slice of the reference web.
+  if (sidebarViewMode === "references") {
+    return (
+      <FlexColumnPanel>
+        <SidebarHeader>
+          <Link2 size={20} style={{ color: OS_LEGAL_COLORS.primaryBlue }} />
+          <SidebarHeaderContent>
+            <SidebarHeaderTitle>References</SidebarHeaderTitle>
+            <SidebarHeaderSubtitle>
+              What this document cites — and what cites it
+            </SidebarHeaderSubtitle>
+          </SidebarHeaderContent>
+        </SidebarHeader>
+        <ScrollableFillPanel>
+          <DocumentReferencesPanel
+            documentId={documentId}
+            corpusId={corpusId}
+          />
+        </ScrollableFillPanel>
       </FlexColumnPanel>
     );
   }
