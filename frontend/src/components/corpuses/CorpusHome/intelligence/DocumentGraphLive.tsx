@@ -5,8 +5,18 @@ import {
   GET_CORPUS_DOCUMENT_GRAPH,
   GetCorpusDocumentGraphInputType,
   GetCorpusDocumentGraphOutputType,
+  CorpusDocumentGraphNode,
+  CorpusDocumentGraphEdge,
 } from "../../../../graphql/queries";
 import { DocumentGraphGlimpse } from "./DocumentGraphGlimpse";
+
+// Stable empty-array references. ``graph?.nodes ?? []`` would mint a fresh ``[]``
+// on every render while the query is in flight, defeating DocumentGraphGlimpse's
+// ``useMemo([nodes])`` / ``useMemo([nodes, edges])`` (the layout would recompute
+// on every render until data arrives). Module-level constants are referentially
+// stable, so the memos stay cached.
+const EMPTY_NODES: CorpusDocumentGraphNode[] = [];
+const EMPTY_EDGES: CorpusDocumentGraphEdge[] = [];
 
 /**
  * DocumentGraphLive — fetches the corpus document-relationship graph and feeds
@@ -27,7 +37,7 @@ export const DocumentGraphLive: React.FC<DocumentGraphLiveProps> = ({
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
 
-  const { data, loading } = useQuery<
+  const { data, loading, error } = useQuery<
     GetCorpusDocumentGraphOutputType,
     GetCorpusDocumentGraphInputType
   >(GET_CORPUS_DOCUMENT_GRAPH, { variables });
@@ -36,12 +46,13 @@ export const DocumentGraphLive: React.FC<DocumentGraphLiveProps> = ({
 
   return (
     <DocumentGraphGlimpse
-      nodes={graph?.nodes ?? []}
-      edges={graph?.edges ?? []}
+      nodes={graph?.nodes ?? EMPTY_NODES}
+      edges={graph?.edges ?? EMPTY_EDGES}
       totalNodeCount={graph?.totalNodeCount ?? 0}
       totalEdgeCount={graph?.totalEdgeCount ?? 0}
       truncated={graph?.truncated ?? false}
       loading={loading && !graph}
+      error={!!error && !graph}
       onExplore={onExplore}
       testId={testId}
     />

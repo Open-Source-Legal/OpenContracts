@@ -8,42 +8,17 @@
  */
 import React from "react";
 import { test, expect } from "./utils/coverage";
-import { gql } from "@apollo/client";
 import { MockedProvider } from "@apollo/client/testing";
 import { IntelligencePanel } from "../src/components/corpuses/CorpusHome/intelligence/IntelligencePanel";
 import { docScreenshot } from "./utils/docScreenshot";
+// Import the real query documents the component runs, so the mocks below stay
+// in lock-step with any future field additions (no hand-copied gql to drift).
+import {
+  GET_CORPUS_STATS,
+  GET_CORPUS_INTELLIGENCE_AGGREGATES,
+} from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
-
-// Matched exactly against the queries IntelligencePanel imports from queries.ts.
-const GET_CORPUS_STATS = gql`
-  query corpusStats($corpusId: ID!) {
-    corpusStats(corpusId: $corpusId) {
-      totalDocs
-      totalComments
-      totalAnalyses
-      totalExtracts
-      totalAnnotations
-      totalThreads
-      totalChats
-      totalRelationships
-    }
-  }
-`;
-
-const GET_CORPUS_INTELLIGENCE_AGGREGATES = gql`
-  query corpusIntelligenceAggregates($corpusId: ID!) {
-    corpusIntelligenceAggregates(corpusId: $corpusId) {
-      labelDistribution {
-        label
-        color
-        count
-      }
-      documentsWithSummary
-      totalDocuments
-    }
-  }
-`;
 
 const statsMock = {
   request: { query: GET_CORPUS_STATS, variables: { corpusId: CORPUS_ID } },
@@ -220,13 +195,47 @@ test.describe("IntelligencePanel", () => {
     // Before the queries resolve the stat row shows shimmer skeletons rather
     // than a misleading row of zeros.
     await expect(
-      page.locator('[data-testid="corpus-intelligence-panel-stat-skeleton"]')
+      page.locator('[data-testid^="corpus-intelligence-panel-stat-skeleton-"]')
     ).toHaveCount(4);
 
     // Once the empty aggregates resolve, the labels card shows the empty hint.
     await expect(
       page.locator('[data-testid="corpus-intelligence-panel-labels"]')
     ).toContainText("No labeled annotations yet", { timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("surfaces error hints instead of a misleading empty state on fetch failure", async ({
+    mount,
+    page,
+  }) => {
+    const statsError = {
+      request: { query: GET_CORPUS_STATS, variables: { corpusId: CORPUS_ID } },
+      error: new Error("stats boom"),
+    };
+    const aggError = {
+      request: {
+        query: GET_CORPUS_INTELLIGENCE_AGGREGATES,
+        variables: { corpusId: CORPUS_ID },
+      },
+      error: new Error("agg boom"),
+    };
+
+    const component = await mount(
+      <MockedProvider mocks={[statsError, aggError]} addTypename={false}>
+        <IntelligencePanel corpusId={CORPUS_ID} />
+      </MockedProvider>
+    );
+
+    // A failed fetch must not masquerade as an empty collection (all-zero
+    // stats / "no labels") — each card shows a distinct error hint.
+    await expect(
+      page.locator('[data-testid="corpus-intelligence-panel-stats-error"]')
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('[data-testid="corpus-intelligence-panel-labels-error"]')
+    ).toBeVisible({ timeout: 10000 });
 
     await component.unmount();
   });

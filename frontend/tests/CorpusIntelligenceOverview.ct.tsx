@@ -10,64 +10,18 @@
  */
 import React from "react";
 import { test, expect } from "./utils/coverage";
-import { gql } from "@apollo/client";
 import { MockedProvider } from "@apollo/client/testing";
 import { CorpusIntelligenceOverview } from "../src/components/corpuses/CorpusHome/intelligence/CorpusIntelligenceOverview";
 import { docScreenshot } from "./utils/docScreenshot";
+// Import the real query documents the component runs, so the mocks below stay
+// in lock-step with any future field additions (no hand-copied gql to drift).
+import {
+  GET_CORPUS_STATS,
+  GET_CORPUS_INTELLIGENCE_AGGREGATES,
+  GET_CORPUS_DOCUMENT_GRAPH,
+} from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
-
-const GET_CORPUS_STATS = gql`
-  query corpusStats($corpusId: ID!) {
-    corpusStats(corpusId: $corpusId) {
-      totalDocs
-      totalComments
-      totalAnalyses
-      totalExtracts
-      totalAnnotations
-      totalThreads
-      totalChats
-      totalRelationships
-    }
-  }
-`;
-
-const GET_CORPUS_INTELLIGENCE_AGGREGATES = gql`
-  query corpusIntelligenceAggregates($corpusId: ID!) {
-    corpusIntelligenceAggregates(corpusId: $corpusId) {
-      labelDistribution {
-        label
-        color
-        count
-      }
-      documentsWithSummary
-      totalDocuments
-    }
-  }
-`;
-
-const GET_CORPUS_DOCUMENT_GRAPH = gql`
-  query corpusDocumentGraph($corpusId: ID!, $limit: Int) {
-    corpusDocumentGraph(corpusId: $corpusId, limit: $limit) {
-      nodes {
-        id
-        title
-        fileType
-        degree
-      }
-      edges {
-        id
-        source
-        target
-        label
-        relationshipType
-      }
-      totalNodeCount
-      totalEdgeCount
-      truncated
-    }
-  }
-`;
 
 const statsMock = {
   request: { query: GET_CORPUS_STATS, variables: { corpusId: CORPUS_ID } },

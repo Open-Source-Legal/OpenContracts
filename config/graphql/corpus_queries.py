@@ -9,7 +9,7 @@ import graphene
 from django.db.models import Count, Q, Subquery
 from django.db.models.functions import Coalesce
 from graphene_django.filter import DjangoFilterConnectionField
-from graphql_relay import from_global_id
+from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import OpenContractsNode
 from config.graphql.corpus_types import (
@@ -31,6 +31,10 @@ from config.graphql.graphene_types import (
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.constants.annotations import OC_RESERVED_LABEL_PREFIX
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+from opencontractserver.constants.stats import (
+    CORPUS_DOCUMENT_GRAPH_MAX_NODES,
+    CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
@@ -444,11 +448,10 @@ class CorpusQueryMixin:
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
     def resolve_corpus_document_graph(self, info, corpus_id, limit=None) -> Any:
-        from graphql_relay import to_global_id
-
-        from opencontractserver.constants.stats import (
-            CORPUS_DOCUMENT_GRAPH_MAX_NODES,
-        )
+        # Service imports stay function-local: the ``services`` packages import
+        # GraphQL types transitively, so importing them at module load time
+        # would create an import cycle. Constants / relay helpers are safe at
+        # module level and are hoisted there.
         from opencontractserver.documents.services import DocumentRelationshipService
 
         user = info.context.user
@@ -550,6 +553,15 @@ class CorpusQueryMixin:
 
         # Emit nodes in degree-rank order (the API contract) rather than the
         # incidental edge-traversal order node_meta was built in.
+        #
+        # ``if doc_id in node_meta`` deliberately drops a top-ranked document
+        # whose every edge lands on a partner outside ``kept_doc_ids``: such a
+        # document has no *kept* edge, so it would render as an unconnected dot
+        # with no line — visual noise that contradicts a "how these documents
+        # interconnect" glimpse. It still counts toward ``total_node_count``
+        # (so ``truncated`` stays true and the meta line stays honest); the user
+        # follows "Explore the full graph" to see it. See the regression test
+        # ``test_graph_top_ranked_node_dropped_when_edges_are_capped_out``.
         nodes = [
             CorpusDocumentGraphNodeType(
                 id=to_global_id("DocumentType", doc_id),
@@ -582,10 +594,9 @@ class CorpusQueryMixin:
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
     def resolve_corpus_intelligence_aggregates(self, info, corpus_id) -> Any:
+        # Service import stays function-local to avoid an import cycle (see
+        # resolve_corpus_document_graph); the constant is hoisted to module top.
         from opencontractserver.annotations.services import AnnotationService
-        from opencontractserver.constants.stats import (
-            CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
-        )
 
         user = info.context.user
         corpus_pk = from_global_id(corpus_id)[1]

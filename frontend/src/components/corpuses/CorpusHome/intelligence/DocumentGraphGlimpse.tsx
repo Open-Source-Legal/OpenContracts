@@ -57,6 +57,12 @@ interface DocumentGraphGlimpseProps {
    * "No relationships yet" before the data arrives.
    */
   loading?: boolean;
+  /**
+   * Graph query failed (and no data is available). Surfaces a distinct error
+   * hint instead of the "no relationships yet" empty state, so a fetch failure
+   * doesn't masquerade as a genuinely empty corpus.
+   */
+  error?: boolean;
   /** Escape hatch to the fuller documents/relationships view. */
   onExplore?: () => void;
   testId?: string;
@@ -246,6 +252,7 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
   totalEdgeCount,
   truncated,
   loading = false,
+  error = false,
   onExplore,
   testId = "document-graph-glimpse",
 }) => {
@@ -286,6 +293,23 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
             </GraphTitle>
           </GraphHeader>
           <GraphSkeleton data-testid={`${testId}-skeleton`} />
+        </GraphCard>
+      );
+    }
+    // A fetch failure is not an empty corpus — say so explicitly rather than
+    // implying there are no relationships.
+    if (error) {
+      return (
+        <GraphCard data-testid={testId}>
+          <GraphHeader>
+            <GraphTitle>
+              <Share2 size={16} />
+              Document graph
+            </GraphTitle>
+          </GraphHeader>
+          <EmptyState data-testid={`${testId}-error`}>
+            Couldn't load the document graph. Please try again.
+          </EmptyState>
         </GraphCard>
       );
     }

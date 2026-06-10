@@ -199,6 +199,140 @@ class CorpusIntelligenceResolverTestCase(TestCase):
         self.assertEqual(graph["totalEdgeCount"], 0)
         self.assertFalse(graph["truncated"])
 
+    def test_graph_corpus_read_gates_document_visibility(self):
+        """The graph's document visibility is corpus-gated, not per-document MIN.
+
+        A code review raised the question of whether a user who can read the
+        corpus but lacks document-level READ on one endpoint of a relationship
+        should see that edge. Under OpenContracts' model that scenario is
+        structurally impossible to express as "corpus visible, in-corpus
+        document hidden":
+
+          * ``DocumentRelationship`` validation requires BOTH endpoints to be
+            members of the relationship's corpus.
+          * ``Document.objects.visible_to_user`` is corpus-gated — a document
+            with an active path in a corpus the user can READ is itself visible
+            (the documented "corpus-as-gate" default).
+
+        So corpus READ unlocks every in-corpus document, and the only real
+        permission boundary for the graph is corpus visibility itself (covered
+        by ``test_graph_hidden_from_unauthorized_user``). This test pins that
+        semantic down: a stranger who can read a PUBLIC corpus sees an edge to a
+        non-public document that lives in it — because adding a document to a
+        readable corpus is what exposes it. If the visibility model ever changes
+        to per-document MIN, this test flips and flags the behavior change.
+        """
+        public_corpus = Corpus.objects.create(
+            title="Public Corpus", creator=self.owner, is_public=True
+        )
+        public_corpus_gid = to_global_id("CorpusType", public_corpus.id)
+
+        # ``add_document`` returns the canonical in-corpus instance — bind to it
+        # (mirrors setUp) so the relationship references documents the corpus
+        # actually contains.
+        visible_doc = Document.objects.create(
+            title="Visible Doc", creator=self.owner, is_public=True
+        )
+        non_public_doc = Document.objects.create(
+            title="Non-public Doc", creator=self.owner, is_public=False
+        )
+        visible_doc, _, _ = public_corpus.add_document(
+            document=visible_doc, user=self.owner
+        )
+        non_public_doc, _, _ = public_corpus.add_document(
+            document=non_public_doc, user=self.owner
+        )
+
+        # ``NOTES`` needs no annotation_label (unlike ``RELATIONSHIP``).
+        DocumentRelationship.objects.create(
+            source_document=visible_doc,
+            target_document=non_public_doc,
+            relationship_type="NOTES",
+            corpus=public_corpus,
+            creator=self.owner,
+        )
+
+        result = self.stranger_client.execute(
+            self.GRAPH_QUERY, variables={"corpusId": public_corpus_gid}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        graph = result["data"]["corpusDocumentGraph"]
+
+        # Corpus-as-gate: the stranger reads the corpus, so BOTH in-corpus
+        # documents (including the non-public one) and the edge between them
+        # are visible.
+        node_pks = {int(from_global_id(n["id"])[1]) for n in graph["nodes"]}
+        self.assertEqual(node_pks, {visible_doc.id, non_public_doc.id})
+        self.assertEqual(len(graph["edges"]), 1)
+
+    def test_graph_top_ranked_node_dropped_when_edges_are_capped_out(self):
+        """A top-ranked document with no *kept* edge is dropped from the canvas.
+
+        Documents the cap keeps are the highest-degree ones, but an edge is only
+        rendered when BOTH its endpoints survive the cap. So a kept document
+        whose every partner ranks below the cap contributes no drawable edge and
+        is intentionally omitted from ``nodes`` (it would otherwise be a lone,
+        line-less dot). It still counts toward ``totalNodeCount`` and forces
+        ``truncated`` — the meta line stays honest and "Explore the full graph"
+        surfaces it. This locks in the comment in ``resolve_corpus_document_graph``.
+
+        Construction (disjoint leaves → distinct degrees, deterministic cap):
+          hub —{leaf0..leaf3}    → hub degree 4
+          mid —{leaf4, leaf5}    → mid degree 2  (leaves stay degree 1)
+        With ``limit=2`` the two kept nodes are ``hub`` and ``mid`` (4 > 2 > 1),
+        but neither hub↔mid nor any of their edges has both endpoints kept, so
+        no edge is drawn and both kept nodes drop out → ``nodes == []``.
+        """
+        corpus = Corpus.objects.create(
+            title="Cap Corpus", creator=self.owner, is_public=False
+        )
+        corpus_gid = to_global_id("CorpusType", corpus.id)
+
+        def _doc(title: str) -> Document:
+            doc = Document.objects.create(title=title, creator=self.owner)
+            doc, _, _ = corpus.add_document(document=doc, user=self.owner)
+            return doc
+
+        hub = _doc("Hub")
+        mid = _doc("Mid")
+        # Six *disjoint* leaves so hub and mid never share a partner — otherwise
+        # a shared leaf would itself reach degree 2 and tie with ``mid``.
+        leaves = [_doc(f"Leaf {i}") for i in range(6)]
+
+        # hub → leaf0..leaf3  (hub degree 4; each leaf degree 1)
+        # ``NOTES`` needs no annotation_label (unlike ``RELATIONSHIP``).
+        for leaf in leaves[:4]:
+            DocumentRelationship.objects.create(
+                source_document=hub,
+                target_document=leaf,
+                relationship_type="NOTES",
+                corpus=corpus,
+                creator=self.owner,
+            )
+        # mid → leaf4, leaf5  (mid degree 2; strict order hub(4) > mid(2) > 1)
+        for leaf in leaves[4:6]:
+            DocumentRelationship.objects.create(
+                source_document=mid,
+                target_document=leaf,
+                relationship_type="NOTES",
+                corpus=corpus,
+                creator=self.owner,
+            )
+
+        result = self.owner_client.execute(
+            self.GRAPH_QUERY, variables={"corpusId": corpus_gid, "limit": 2}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        graph = result["data"]["corpusDocumentGraph"]
+
+        # All 8 documents (hub + mid + 6 leaves) have edges → 8 nodes total…
+        self.assertEqual(graph["totalNodeCount"], 8)
+        self.assertTrue(graph["truncated"])
+        # …but the two kept (highest-degree) documents share no kept edge, so the
+        # rendered canvas is empty rather than two unconnected dots.
+        self.assertEqual(graph["nodes"], [])
+        self.assertEqual(graph["edges"], [])
+
     # --------------------------- aggregates --------------------------
 
     AGG_QUERY = """

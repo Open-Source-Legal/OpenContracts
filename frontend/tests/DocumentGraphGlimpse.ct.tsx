@@ -195,4 +195,30 @@ test.describe("DocumentGraphGlimpse", () => {
 
     await component.unmount();
   });
+
+  test("shows a distinct error hint (not the empty state) on fetch failure", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <DocumentGraphGlimpse
+        nodes={[]}
+        edges={[]}
+        totalNodeCount={0}
+        totalEdgeCount={0}
+        truncated={false}
+        error
+      />
+    );
+
+    // A fetch failure must read as an error, not as a genuinely empty corpus.
+    await expect(
+      page.locator('[data-testid="document-graph-glimpse-error"]')
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('[data-testid="document-graph-glimpse-empty"]')
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
 });
