@@ -8,6 +8,7 @@
  * any helper/constant imports, per the Playwright CT split-import rule.
  */
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { DocumentGraphGlimpse } from "../src/components/corpuses/CorpusHome/intelligence/DocumentGraphGlimpse";
 
 const NODES = [
@@ -70,6 +71,8 @@ test.describe("DocumentGraphGlimpse", () => {
     await expect(
       page.locator('[data-testid="document-graph-glimpse-meta"]')
     ).toContainText("2 total connections");
+
+    await docScreenshot(page, "corpus--document-graph-glimpse--with-data");
 
     await component.unmount();
   });
