@@ -13,3 +13,18 @@ the pre-computed row in a single indexed PK lookup.
 # database with full-table COUNTs. Kept as a constant so the beat schedule in
 # ``config/settings/base.py`` and any docs/tests reference one source of truth.
 SYSTEM_STATS_REFRESH_INTERVAL_SECONDS = 60 * 60  # 60 minutes
+
+# ---------------------------------------------------------------------------
+# Corpus Intelligence home (document-relationship graph + insight panel)
+# ---------------------------------------------------------------------------
+
+# Node cap for the corpus document-relationship graph *glimpse* on the corpus
+# landing page. Documents are ranked by degree (relationship count) and the
+# top-N are returned; the rest are summarised via ``truncated`` + the
+# total counts, and the user follows the "Explore the full graph" escape hatch.
+# 60 keeps a force-directed SVG readable and the payload small.
+CORPUS_DOCUMENT_GRAPH_MAX_NODES = 60
+
+# How many distinct annotation labels to surface in the IntelligencePanel's
+# label-distribution mini-chart before collapsing the long tail.
+CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N = 8

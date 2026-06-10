@@ -30,6 +30,7 @@ import { InlineChatBar } from "../CorpusHero/InlineChatBar";
 import { MCPShareButton } from "../../common/MCPShareButton";
 import { RecentDiscussions } from "./RecentDiscussions";
 import { CorpusMapToggle } from "./CorpusMapToggle";
+import { CorpusIntelligenceOverview } from "./intelligence/CorpusIntelligenceOverview";
 
 import {
   LandingContainer,
@@ -400,6 +401,13 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
             corpusId={corpus.id}
           />
         </ChatSection>
+
+        {/* Composed corpus-intelligence overview; reuses the chat + details callbacks. */}
+        <CorpusIntelligenceOverview
+          corpusId={corpus.id}
+          onAskQuestion={onChatSubmit}
+          onExploreGraph={onViewDetails}
+        />
 
         {/* Read article — shown when Readme.CAML exists */}
         {hasArticle && onViewArticle && (

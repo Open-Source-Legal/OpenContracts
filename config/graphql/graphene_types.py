@@ -52,9 +52,11 @@ from config.graphql.conversation_types import (  # noqa: F401
 from config.graphql.corpus_types import (  # noqa: F401
     CorpusCategoryType,
     CorpusDescriptionRevisionType,
+    CorpusDocumentGraphType,
     CorpusEngagementMetricsType,
     CorpusFilterCountsType,
     CorpusFolderType,
+    CorpusIntelligenceAggregatesType,
     CorpusStatsType,
     CorpusType,
 )

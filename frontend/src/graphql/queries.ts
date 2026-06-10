@@ -727,6 +727,100 @@ export const GET_CORPUS_STATS = gql`
   }
 `;
 
+// ---------------- Corpus Intelligence home ----------------
+// The document-relationship graph (nodes = documents, edges =
+// DocumentRelationships) that powers the DocumentGraphGlimpse, and the
+// insight-framed aggregates that power the IntelligencePanel.
+
+export interface CorpusDocumentGraphNode {
+  id: string;
+  title?: string | null;
+  fileType?: string | null;
+  degree: number;
+}
+
+export interface CorpusDocumentGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string | null;
+  relationshipType?: string | null;
+}
+
+export interface CorpusDocumentGraph {
+  nodes: CorpusDocumentGraphNode[];
+  edges: CorpusDocumentGraphEdge[];
+  totalNodeCount: number;
+  totalEdgeCount: number;
+  truncated: boolean;
+}
+
+export interface GetCorpusDocumentGraphInputType {
+  corpusId: string;
+  limit?: number;
+}
+
+export interface GetCorpusDocumentGraphOutputType {
+  corpusDocumentGraph: CorpusDocumentGraph;
+}
+
+export const GET_CORPUS_DOCUMENT_GRAPH = gql`
+  query corpusDocumentGraph($corpusId: ID!, $limit: Int) {
+    corpusDocumentGraph(corpusId: $corpusId, limit: $limit) {
+      nodes {
+        id
+        title
+        fileType
+        degree
+      }
+      edges {
+        id
+        source
+        target
+        label
+        relationshipType
+      }
+      totalNodeCount
+      totalEdgeCount
+      truncated
+    }
+  }
+`;
+
+export interface LabelDistributionEntry {
+  label: string;
+  color?: string | null;
+  count: number;
+}
+
+export interface CorpusIntelligenceAggregates {
+  labelDistribution: LabelDistributionEntry[];
+  documentsWithSummary: number;
+  totalDocuments: number;
+}
+
+export interface GetCorpusIntelligenceAggregatesInputType {
+  corpusId: string;
+}
+
+export interface GetCorpusIntelligenceAggregatesOutputType {
+  corpusIntelligenceAggregates: CorpusIntelligenceAggregates;
+}
+
+export const GET_CORPUS_INTELLIGENCE_AGGREGATES = gql`
+  query corpusIntelligenceAggregates($corpusId: ID!) {
+    corpusIntelligenceAggregates(corpusId: $corpusId) {
+      labelDistribution {
+        label
+        color
+        count
+      }
+      documentsWithSummary
+      totalDocuments
+    }
+  }
+`;
+
 export interface GetCorpusLabelsetAndLabelsInputs {
   labelId?: string;
   corpusId?: string;

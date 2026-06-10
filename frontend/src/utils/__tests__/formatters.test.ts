@@ -8,6 +8,7 @@ import {
   formatSettingLabel,
   formatCellValue,
   stripMarkdown,
+  humanizeLabel,
 } from "../formatters";
 import { EXTRACT_GRID_CELL_TRUNCATE_LENGTH } from "../../assets/configurations/constants";
 
@@ -245,6 +246,30 @@ describe("formatters", () => {
 
     it("collapses whitespace", () => {
       expect(stripMarkdown("  too   many\n\nspaces  ")).toBe("too many spaces");
+    });
+  });
+
+  describe("humanizeLabel", () => {
+    it("leaves already-human labels untouched (no underscore)", () => {
+      expect(humanizeLabel("S-1")).toBe("S-1");
+      expect(humanizeLabel("10-K")).toBe("10-K");
+      expect(humanizeLabel("Exhibit")).toBe("Exhibit");
+      expect(humanizeLabel("Risk Factor")).toBe("Risk Factor");
+    });
+
+    it("title-cases SCREAMING_SNAKE_CASE tokens", () => {
+      expect(humanizeLabel("EXHIBIT_REFERENCE")).toBe("Exhibit Reference");
+      expect(humanizeLabel("contract_clause")).toBe("Contract Clause");
+    });
+
+    it("preserves known acronyms", () => {
+      expect(humanizeLabel("SEC_HEADER")).toBe("SEC Header");
+      expect(humanizeLabel("OC_SECTION")).toBe("OC Section");
+    });
+
+    it("is robust to empty and malformed input", () => {
+      expect(humanizeLabel("")).toBe("");
+      expect(humanizeLabel("__")).toBe("");
     });
   });
 });
