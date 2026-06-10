@@ -205,32 +205,41 @@ class ReferenceExtractor:
         """Defined-term DEFINITION sites, deduped by slug, capped per document.
 
         Opt-in (not in the default reference-type set) and capped at
-        ``MAX_DEFINED_TERMS`` to keep precision/volume in check. Each definition
-        becomes a cross-corpus-trackable stub keyed ``term:<slug>`` — the same
+        ``MAX_DEFINED_TERMS`` to keep precision/volume in check. The cap is a
+        TOTAL per document across both grammar forms: matches are merged in
+        document order before capping, so a document heavy in parenthetical
+        definitions cannot starve the "means" form — the first N definition
+        sites win regardless of form. Each definition becomes a
+        cross-corpus-trackable stub keyed ``term:<slug>`` — the same
         philosophy as law citations.
         """
+        matches = [
+            (m, kind)
+            for regex, kind in (
+                (_TERM_PAREN_RE, "parenthetical"),
+                (_TERM_MEANS_RE, "means"),
+            )
+            for m in regex.finditer(text)
+        ]
+        matches.sort(key=lambda pair: pair[0].start())
         seen: set[str] = set()
         emitted = 0
-        for regex, kind in (
-            (_TERM_PAREN_RE, "parenthetical"),
-            (_TERM_MEANS_RE, "means"),
-        ):
-            for m in regex.finditer(text):
-                if emitted >= C.MAX_DEFINED_TERMS:
-                    return
-                # Trim trailing punctuation captured inside the quotes
-                # (e.g. (the "Notes," ...) -> "Notes").
-                term = m.group("term").strip().rstrip(",.;:")
-                slug = _slugify_term(term)
-                if not slug or slug in seen:
-                    continue
-                seen.add(slug)
-                emitted += 1
-                yield Candidate(
-                    reference_type=C.REF_DEFINED_TERM,
-                    start=m.start("term") - 1,
-                    end=m.end("term") + 1,
-                    raw_text=term,
-                    canonical_key=f"term:{slug}",
-                    normalized_data={"term": term, "slug": slug, "kind": kind},
-                )
+        for m, kind in matches:
+            if emitted >= C.MAX_DEFINED_TERMS:
+                return
+            # Trim trailing punctuation captured inside the quotes
+            # (e.g. (the "Notes," ...) -> "Notes").
+            term = m.group("term").strip().rstrip(",.;:")
+            slug = _slugify_term(term)
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            emitted += 1
+            yield Candidate(
+                reference_type=C.REF_DEFINED_TERM,
+                start=m.start("term") - 1,
+                end=m.end("term") + 1,
+                raw_text=term,
+                canonical_key=f"term:{slug}",
+                normalized_data={"term": term, "slug": slug, "kind": kind},
+            )

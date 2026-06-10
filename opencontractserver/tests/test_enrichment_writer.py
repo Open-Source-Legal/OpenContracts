@@ -13,7 +13,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.enrichment import constants as C
-from opencontractserver.enrichment.service import (
+from opencontractserver.enrichment.services import (
     CorpusReferenceService,
     EnrichmentService,
 )

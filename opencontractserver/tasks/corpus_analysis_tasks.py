@@ -48,7 +48,7 @@ def corpus_reference_enrichment(
     references.
     """
     from opencontractserver.analyzer.models import Analysis
-    from opencontractserver.enrichment.service import EnrichmentService
+    from opencontractserver.enrichment.services import EnrichmentService
 
     analysis = Analysis.objects.get(id=analysis_id)
     assert analysis.creator_id is not None  # non-null FK; narrows for mypy

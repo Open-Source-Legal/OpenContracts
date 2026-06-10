@@ -1,4 +1,4 @@
-"""Orchestration + query services for corpus reference enrichment.
+"""Orchestration service for corpus reference enrichment.
 
 ``EnrichmentService`` is the single entry point the agent tools call:
 
@@ -6,8 +6,8 @@
 * ``apply`` — scan, then persist under an ``Analysis`` (approval-gated at the
   tool layer).
 
-``CorpusReferenceService`` is the read surface (visibility derives from corpus
-visibility — no per-object guardian rows in v1).
+The read surface lives in
+:mod:`opencontractserver.enrichment.services.corpus_reference_service`.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from django.contrib.auth import get_user_model
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import Annotation, CorpusReference
+from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import CorpusDocumentService
 from opencontractserver.enrichment import constants as C
@@ -35,23 +36,6 @@ from opencontractserver.utils.files import read_field_file_text
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-# OC_SECTION is the built-in structural section label.
-OC_SECTION_LABEL = "OC_SECTION"
-
-
-class CorpusReferenceService:
-    """Read surface for CorpusReference rows."""
-
-    @staticmethod
-    def visible_to_user(user):
-        return CorpusReference.objects.filter(
-            corpus__in=Corpus.objects.visible_to_user(user)
-        )
-
-    @classmethod
-    def for_corpus(cls, user, corpus_id: int):
-        return cls.visible_to_user(user).filter(corpus_id=corpus_id)
-
 
 class EnrichmentService:
     """Scan and apply reference enrichment for a corpus."""
@@ -60,7 +44,10 @@ class EnrichmentService:
 
     def _load(self, corpus_id: int, creator_id: int):
         user = User.objects.get(pk=creator_id)
-        corpus = Corpus.objects.get(pk=corpus_id)
+        # Visibility-scoped fetch: invisible and nonexistent corpora raise the
+        # same ``Corpus.DoesNotExist`` (no existence oracle for callers that
+        # pass arbitrary PKs).
+        corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
         documents = list(
             CorpusDocumentService.get_corpus_documents(user, corpus, include_caml=False)
         )
@@ -212,7 +199,9 @@ class EnrichmentService:
         visible authority document.
         """
         user = User.objects.get(pk=creator_id)
-        corpus = Corpus.objects.get(pk=corpus_id)
+        # Same visibility-scoped semantics as ``_load`` (uniform DoesNotExist
+        # for invisible vs nonexistent).
+        corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
         return self._link_external(user, corpus)
 
     def _link_external(self, user, corpus) -> dict:

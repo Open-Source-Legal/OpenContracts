@@ -30,6 +30,7 @@ from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 from pgvector.django import HnswIndex, VectorField
 
 from opencontractserver.constants.search import HNSW_EF_CONSTRUCTION, HNSW_M
+from opencontractserver.enrichment import constants as enrichment_constants
 from opencontractserver.shared.defaults import (
     jsonfield_default_value,
 )
@@ -1881,16 +1882,19 @@ class NoteRevision(django.db.models.Model):
 # --------------------------------------------------------------------------- #
 # Cross-document / cross-corpus reference substrate (enrichment)              #
 # --------------------------------------------------------------------------- #
+# Discriminator values are single-sourced from the enrichment engine's
+# constants (`enrichment/constants.py` is pure — no model imports — so this
+# cannot cycle); only the human-readable labels live here.
 REFERENCE_TYPE_CHOICES = [
-    ("LAW", "Law citation"),
-    ("DOCUMENT", "Document reference"),
-    ("SECTION", "Internal section reference"),
-    ("DEFINED_TERM", "Defined term"),
+    (enrichment_constants.REF_LAW, "Law citation"),
+    (enrichment_constants.REF_DOCUMENT, "Document reference"),
+    (enrichment_constants.REF_SECTION, "Internal section reference"),
+    (enrichment_constants.REF_DEFINED_TERM, "Defined term"),
 ]
 RESOLUTION_STATUS_CHOICES = [
-    ("RESOLVED", "Resolved"),
-    ("UNRESOLVED", "Unresolved"),
-    ("EXTERNAL", "External (no internal target)"),
+    (enrichment_constants.STATUS_RESOLVED, "Resolved"),
+    (enrichment_constants.STATUS_UNRESOLVED, "Unresolved"),
+    (enrichment_constants.STATUS_EXTERNAL, "External (no internal target)"),
 ]
 
 

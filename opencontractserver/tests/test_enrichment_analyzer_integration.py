@@ -102,7 +102,7 @@ class CorpusAnalyzerTaskTests(TestCase):
     def test_failure_inside_function_records_error(self):
         analysis = _make_analysis(self.user, self.corpus)
         with patch(
-            "opencontractserver.enrichment.service.EnrichmentService.apply",
+            "opencontractserver.enrichment.services.enrichment_service.EnrichmentService.apply",
             side_effect=RuntimeError("boom"),
         ):
             with self.assertRaises(RuntimeError):

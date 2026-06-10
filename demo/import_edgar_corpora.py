@@ -22,7 +22,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
-from opencontractserver.enrichment.service import EnrichmentService
+from opencontractserver.enrichment.services import EnrichmentService
 from opencontractserver.tasks.import_tasks import import_corpus
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user

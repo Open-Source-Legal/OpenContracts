@@ -143,6 +143,36 @@ class ReferenceExtractorTests(SimpleTestCase):
         ]
         assert len(company) == 1  # deduped across both patterns
 
+    def test_defined_term_cap_is_total_in_document_order(self):
+        # The MAX_DEFINED_TERMS cap is a TOTAL per document, applied after
+        # merging both grammar forms in document order — a wall of
+        # parenthetical definitions must not starve an earlier "means"-form
+        # definition (review finding: the old per-regex loop returned before
+        # the means regex ever ran).
+        means_first = '"Change of Control" means any transfer of control. ' + " ".join(
+            f'(the "Term{chr(65 + i // 26)}{chr(65 + i % 26)} Item")'
+            for i in range(C.MAX_DEFINED_TERMS)
+        )
+        cands = self.extractor.extract(means_first)
+        terms = [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
+        assert len(terms) == C.MAX_DEFINED_TERMS  # cap holds
+        assert any(c.canonical_key == "term:change-of-control" for c in terms)
+
+    def test_defined_term_cap_drops_matches_beyond_position_cap(self):
+        # Conversely, a "means"-form definition AFTER the cap-filling
+        # parentheticals is dropped: first N definition sites by position win.
+        means_last = (
+            " ".join(
+                f'(the "Term{chr(65 + i // 26)}{chr(65 + i % 26)} Item")'
+                for i in range(C.MAX_DEFINED_TERMS)
+            )
+            + ' "Change of Control" means any transfer of control.'
+        )
+        cands = self.extractor.extract(means_last)
+        terms = [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
+        assert len(terms) == C.MAX_DEFINED_TERMS
+        assert not any(c.canonical_key == "term:change-of-control" for c in terms)
+
     def test_defined_terms_not_in_default_reference_types(self):
         # Opt-in: DEFINED_TERM is detected by the extractor but excluded from the
         # default scan/apply set.

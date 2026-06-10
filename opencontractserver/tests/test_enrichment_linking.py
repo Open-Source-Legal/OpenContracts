@@ -12,7 +12,7 @@ from opencontractserver.enrichment.authorities import (
     AuthorityCorpusBootstrapper,
     AuthoritySection,
 )
-from opencontractserver.enrichment.service import EnrichmentService
+from opencontractserver.enrichment.services import EnrichmentService
 
 User = get_user_model()
 
@@ -120,6 +120,33 @@ class CrossCorpusLinkingTests(TestCase):
         assert ref.target_document is not None
         assert (ref.target_document.custom_meta or {})["canonical_key"] == "dgcl:222"
         assert (ref.normalized_data or {})["relative"] is True
+
+    def test_link_raises_doesnotexist_for_missing_and_invisible_corpus(self):
+        # Visibility-scoped corpus fetch: a nonexistent corpus and a corpus
+        # the caller cannot see raise the SAME ``Corpus.DoesNotExist`` — no
+        # existence oracle for callers passing arbitrary PKs.
+        stranger = User.objects.create_user(username="stranger", password="p")
+
+        with self.assertRaises(Corpus.DoesNotExist):
+            EnrichmentService().link_external_references(
+                corpus_id=999_999, creator_id=self.user.id
+            )
+        with self.assertRaises(Corpus.DoesNotExist):
+            EnrichmentService().link_external_references(
+                corpus_id=self.corpus.id, creator_id=stranger.id
+            )
+
+    def test_bootstrap_raises_doesnotexist_for_invisible_corpus_id(self):
+        # Same visibility-scoped semantics for the bootstrapper's explicit
+        # ``corpus_id`` path.
+        stranger = User.objects.create_user(username="stranger2", password="p")
+        with self.assertRaises(Corpus.DoesNotExist):
+            AuthorityCorpusBootstrapper().bootstrap(
+                creator_id=stranger.id,
+                corpus_title="ignored",
+                sections=[],
+                corpus_id=self.corpus.id,
+            )
 
     def test_link_respects_authority_visibility(self):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)

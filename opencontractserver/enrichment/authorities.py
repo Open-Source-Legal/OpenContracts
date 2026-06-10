@@ -136,7 +136,9 @@ class AuthorityCorpusBootstrapper:
 
         user = User.objects.get(pk=creator_id)
         if corpus_id is not None:
-            corpus = Corpus.objects.get(pk=corpus_id)
+            # Visibility-scoped: invisible and nonexistent corpora raise the
+            # same ``Corpus.DoesNotExist`` (no existence oracle).
+            corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
             corpus_created = False
         else:
             corpus, corpus_created = Corpus.objects.get_or_create(

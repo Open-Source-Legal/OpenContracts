@@ -407,7 +407,18 @@ def corpus_analyzer_task(
                     "corpus_analyzer_task requires a corpus: pass corpus_id or "
                     "link the Analysis to a corpus"
                 )
-            if not Corpus.objects.filter(id=corpus_id).exists():
+            # Defensive depth: the corpus must be visible to the analysis
+            # creator, not merely exist — a task must not operate on a corpus
+            # the analysis owner couldn't see. Same error either way (no
+            # existence oracle).
+            from opencontractserver.shared.services.base import BaseService
+
+            corpus_visible = (
+                BaseService.filter_visible(Corpus, analysis.creator)
+                .filter(id=corpus_id)
+                .exists()
+            )
+            if not corpus_visible:
                 raise ValueError(f"Corpus with id {corpus_id} does not exist")
             kwargs["corpus_id"] = corpus_id
 

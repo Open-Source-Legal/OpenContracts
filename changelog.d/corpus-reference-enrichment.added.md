@@ -2,7 +2,7 @@
   crawls a corpus, inventories explicit references, and persists them — proven
   on a real 55-document S-1 corpus (348 references created).
   - New deterministic engine in `opencontractserver/enrichment/`
-    (`extractor.py`, `resolver.py`, `writer.py`, `service.py`): regex/grammar
+    (`extractor.py`, `resolver.py`, `writer.py`, `services/`): regex/grammar
     extraction of law citations (`Section 145 of the Delaware General
     Corporation Law` → canonical key `dgcl:145`), document/exhibit references,
     internal section references, and defined-term definition sites
