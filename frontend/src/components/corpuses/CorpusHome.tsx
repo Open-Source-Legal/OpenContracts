@@ -229,6 +229,8 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         onModeToggle={onModeToggle}
         isPowerUserMode={isPowerUserMode}
         onOpenMobileMenu={onOpenMobileMenu}
+        onAskQuestion={onChatSubmit}
+        onExploreGraph={handleViewDetails}
         stats={{
           documents: stats.totalDocs,
           annotations: stats.totalAnnotations,
@@ -271,6 +273,8 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
           onModeToggle={onModeToggle}
           isPowerUserMode={isPowerUserMode}
           onOpenMobileMenu={onOpenMobileMenu}
+          onAskQuestion={onChatSubmit}
+          onExploreGraph={handleViewDetails}
           stats={{
             documents: stats.totalDocs,
             annotations: stats.totalAnnotations,

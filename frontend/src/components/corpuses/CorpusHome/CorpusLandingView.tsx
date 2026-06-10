@@ -402,7 +402,8 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
           />
         </ChatSection>
 
-        {/* Composed corpus-intelligence overview; reuses the chat + details callbacks. */}
+        {/* No-CAML fallback — ensure_readme_caml_default gives every corpus an
+            article by default, so this only serves not-yet-backfilled corpora. */}
         <CorpusIntelligenceOverview
           corpusId={corpus.id}
           onAskQuestion={onChatSubmit}

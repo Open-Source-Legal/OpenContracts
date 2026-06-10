@@ -39,6 +39,7 @@ import { useCamlComponentRenderer } from "../../hooks/useCamlComponentRenderer";
 import { buildComponentProseFence } from "../../utils/camlComponents";
 import { CAML_COMPONENTS } from "../../utils/camlComponentRegistry";
 import { CamlArticleFrame } from "./caml/CamlArticleFrame";
+import { CamlEmbedProvider } from "./caml/CamlEmbedContext";
 
 // ---------------------------------------------------------------------------
 // Styled components
@@ -826,11 +827,13 @@ export const CamlArticleEditor: React.FC<CamlArticleEditorProps> = ({
             {parsedDocument && (
               <CamlArticleFrame>
                 <CamlThemeProvider>
-                  <CamlArticle
-                    document={parsedDocument}
-                    renderMarkdown={renderMarkdownPreview}
-                    customBlocks={previewCustomBlocks}
-                  />
+                  <CamlEmbedProvider value={{ corpusId }}>
+                    <CamlArticle
+                      document={parsedDocument}
+                      renderMarkdown={renderMarkdownPreview}
+                      customBlocks={previewCustomBlocks}
+                    />
+                  </CamlEmbedProvider>
                 </CamlThemeProvider>
               </CamlArticleFrame>
             )}
