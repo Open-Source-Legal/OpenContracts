@@ -94,7 +94,7 @@ jobs:
       # cross-workflow lcov merging on our side.
       - name: Upload CT Coverage to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/ct/lcov.info
@@ -149,7 +149,7 @@ jobs:
       # See the CT upload above for why the `frontend` flag is listed here too.
       - name: Upload Unit Coverage to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: frontend/coverage/unit/lcov.info

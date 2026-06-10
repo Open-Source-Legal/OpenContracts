@@ -199,7 +199,7 @@ class TestRetryDocumentProcessing(TestCase):
         pdf_content = b"%PDF-1.7\n%%EOF\n"
         self.doc.pdf_file.save("test.pdf", ContentFile(pdf_content))
 
-    @patch("celery.chain")
+    @patch("opencontractserver.tasks.doc_tasks.chain")
     def test_resets_failed_document_state(self, mock_chain):
         """Test that retry_document_processing resets the document state."""
         mock_chain_instance = MagicMock()
@@ -216,7 +216,7 @@ class TestRetryDocumentProcessing(TestCase):
         self.assertIsNotNone(self.doc.processing_started)
         self.assertIsNone(self.doc.processing_finished)
 
-    @patch("celery.chain")
+    @patch("opencontractserver.tasks.doc_tasks.chain")
     def test_triggers_pipeline_chain(self, mock_chain):
         """Test that retry_document_processing triggers the processing pipeline."""
         mock_chain_instance = MagicMock()

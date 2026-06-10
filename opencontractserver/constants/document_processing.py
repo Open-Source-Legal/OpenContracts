@@ -147,6 +147,14 @@ DEFAULT_MAX_PAGES_PER_CHUNK = 50
 # Documents with fewer pages than this threshold are parsed as a single request.
 DEFAULT_MIN_PAGES_FOR_CHUNKING = 75
 
+# Number of pages each chunk's parse range is extended beyond its core boundary
+# on every interior side. Overlap lets structure (paragraphs, sections,
+# relationships) that spans a chunk boundary be captured *whole* in at least one
+# chunk, so reassembly can dedupe the duplicates and re-link cross-boundary
+# references instead of orphaning them. Must be < DEFAULT_MAX_PAGES_PER_CHUNK and
+# should exceed the largest expected boundary-spanning structure (in pages).
+DEFAULT_CHUNK_OVERLAP = 2
+
 # Maximum number of chunks to process concurrently via thread pool.
 # Controls parallelism of HTTP requests to the parsing microservice.
 DEFAULT_MAX_CONCURRENT_CHUNKS = 3
@@ -158,6 +166,10 @@ DEFAULT_CHUNK_RETRY_LIMIT = 1
 # Caps the exponential backoff (5s * 2^attempt) so that increasing
 # chunk_retry_limit doesn't block Celery workers excessively.
 MAX_CHUNK_RETRY_BACKOFF_SECONDS = 30
+
+# Storage namespace prefix for transient per-document chunk-parse artifacts
+# (input chunk PDFs and output result JSON exchanged across the Celery fan-out).
+CHUNK_SCRATCH_PREFIX = "chunk_scratch"
 
 # ---------------------------------------------------------------------------
 # Path disambiguation constants

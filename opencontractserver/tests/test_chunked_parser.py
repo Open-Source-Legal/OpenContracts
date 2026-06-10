@@ -13,26 +13,34 @@ from django.db import transaction
 from django.test import TestCase
 
 from opencontractserver.documents.models import Document
+from opencontractserver.pipeline.base.chunk_reassembler import (
+    offset_annotation as _offset_annotation,
+)
+from opencontractserver.pipeline.base.chunk_reassembler import (
+    offset_relationship as _offset_relationship,
+)
 from opencontractserver.pipeline.base.chunked_parser import (
     BaseChunkedParser,
-    _offset_annotation,
-    _offset_relationship,
     _reassemble_chunk_results,
 )
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
+from opencontractserver.pipeline.base.parser import BaseParser
+from opencontractserver.pipeline.parsers.docling_parser_rest import DoclingParser
+from opencontractserver.pipeline.parsers.oc_text_parser import TxtParser
+from opencontractserver.pipeline.utils import get_all_parsers
 from opencontractserver.tests.helpers import make_test_pdf
 from opencontractserver.types.dicts import (
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
     OpenContractsRelationshipPythonType,
 )
+from opencontractserver.utils.pdf_splitting import get_pdf_page_count
 
 User = get_user_model()
 
 
 def _make_chunk_result(
-    page_offset: int = 0,
     num_pages: int = 2,
     annotations: list | None = None,
     relationships: list | None = None,
@@ -85,6 +93,41 @@ def _make_chunk_result(
         "labelled_text": annotations,
         "relationships": relationships or [],
     }
+
+
+class _FakeChunkedParser(BaseChunkedParser):
+    """Minimal concrete chunked parser for orchestration tests."""
+
+    title = "Fake Chunked"
+    description = "test"
+    author = "test"
+    supported_file_types = [FileTypeEnum.PDF]
+    # Force chunking at a low threshold for tests.
+    max_pages_per_chunk = 2
+    min_pages_for_chunking = 2
+    # This double returns a fixed-size fake result that does not model overlap
+    # pages, so it exercises the offset/dispatch mechanics with overlap disabled
+    # (overlap=2 would also be invalid against max_pages_per_chunk=2). Overlap
+    # dedup/re-linking is covered by the overlap-aware doubles further below.
+    chunk_overlap = 0
+
+    def __init__(self, **kwargs):
+        # Skip PipelineComponentBase settings loading during tests
+        self._full_class_path = "test._FakeChunkedParser"
+        self._settings = None
+
+    def _parse_single_chunk_impl(
+        self,
+        user_id,
+        doc_id,
+        chunk_pdf_bytes,
+        chunk_index,
+        total_chunks,
+        page_offset,
+        **all_kwargs,
+    ):
+        n = get_pdf_page_count(chunk_pdf_bytes)
+        return _make_chunk_result(num_pages=n, content=f"chunk{chunk_index}")
 
 
 # ======================================================================
@@ -316,6 +359,11 @@ class ConcreteChunkedParser(BaseChunkedParser):
     title = "Test Chunked Parser"
     description = "Testing only"
     supported_file_types = [FileTypeEnum.PDF]
+    # Returns a fixed-size fake result independent of the real (overlap-extended)
+    # chunk page count, so it tests offset/dispatch mechanics with overlap off.
+    # Realistic overlap dedup is covered by TestOverlapReassembly /
+    # TestChunkedOverlapGoldenEquivalence below.
+    chunk_overlap = 0
 
     def __init__(self, chunk_results=None, **kwargs):
         # Skip PipelineComponentBase settings loading during tests
@@ -626,3 +674,413 @@ class TestBaseChunkedParserIntegration(TestCase):
         slow_chunks_started.wait(timeout=2)
         # Confirm at least one slow chunk was dispatched before the error propagated
         self.assertTrue(slow_chunks_started.is_set())
+
+
+# ======================================================================
+# Reassembly determinism / golden equivalence tests
+# ======================================================================
+
+
+class TestReassemblyGoldenEquivalence(TestCase):
+    """Reassembled multi-chunk output matches a single logical document."""
+
+    def test_global_page_indices_are_contiguous(self):
+        # Three chunks of 2 pages each -> a 6-page document, indices 0..5.
+        # Global page offsets are supplied to _reassemble_chunk_results below;
+        # _make_chunk_result always emits local 0-based pages.
+        chunk_a = _make_chunk_result(num_pages=2)
+        chunk_b = _make_chunk_result(num_pages=2)
+        chunk_c = _make_chunk_result(num_pages=2)
+
+        result = _reassemble_chunk_results(
+            [chunk_a, chunk_b, chunk_c], page_offsets=[0, 2, 4]
+        )
+
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(result["page_count"], 6)
+
+    def test_all_annotations_preserved_with_unique_ids(self):
+        chunk_a = _make_chunk_result(num_pages=2)
+        chunk_b = _make_chunk_result(num_pages=2)
+
+        result = _reassemble_chunk_results([chunk_a, chunk_b], page_offsets=[0, 2])
+
+        anns = result["labelled_text"]
+        # Each synthetic chunk contributes one annotation; both survive.
+        self.assertEqual(len(anns), 2)
+        # IDs are made unique across chunks via the c{idx}_ prefix.
+        ids = [a["id"] for a in anns]
+        self.assertEqual(len(set(ids)), len(ids))
+        # Second chunk's annotation page is offset into global space.
+        self.assertEqual(anns[1]["page"], 2)
+
+    def test_single_chunk_reassembly_is_stable(self):
+        # A below-threshold document routes through reassembly as one chunk;
+        # global indices must equal local indices.
+        chunk = _make_chunk_result(num_pages=3)
+        result = _reassemble_chunk_results([chunk], page_offsets=[0])
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2])
+        self.assertEqual(result["page_count"], 3)
+
+
+# ======================================================================
+# supports_chunking capability flag tests
+# ======================================================================
+
+
+class TestSupportsChunkingFlag(TestCase):
+    """The supports_chunking capability flag is set correctly per parser."""
+
+    def test_base_parser_defaults_to_false(self):
+        self.assertFalse(BaseParser.supports_chunking)
+
+    def test_chunked_base_is_true(self):
+        self.assertTrue(BaseChunkedParser.supports_chunking)
+
+    def test_docling_parser_supports_chunking(self):
+        self.assertTrue(DoclingParser.supports_chunking)
+
+    def test_non_paginated_parser_does_not_support_chunking(self):
+        # TxtParser extends BaseParser directly and must not opt in.
+        self.assertFalse(TxtParser.supports_chunking)
+
+    def test_all_registered_parsers_flag_matches_chunked_lineage(self):
+        # Registry-driven: prove the orchestrator's introspection is correct for
+        # *every* registered parser (current and future), not just the two
+        # enumerated above. The flag must be True iff the parser is a
+        # BaseChunkedParser subclass.
+        parsers = get_all_parsers()
+        self.assertTrue(parsers, "no parsers discovered by get_all_parsers()")
+        for parser_cls in parsers:
+            expected = issubclass(parser_cls, BaseChunkedParser)
+            self.assertEqual(
+                parser_cls.supports_chunking,
+                expected,
+                msg=(
+                    f"{parser_cls.__name__}.supports_chunking="
+                    f"{parser_cls.supports_chunking} but chunked-lineage="
+                    f"{expected}"
+                ),
+            )
+
+
+# ======================================================================
+# prepare_chunk_inputs / reassemble_and_finalize orchestration tests
+# ======================================================================
+
+
+class TestPrepareChunkInputs(TestCase):
+    def _make_doc(self, pages: int) -> Document:
+        user = User.objects.create_user(username="cp", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        doc.pdf_file.save(f"doc_{doc.id}.pdf", ContentFile(make_test_pdf(pages)))
+        return doc
+
+    def test_below_threshold_returns_empty(self):
+        doc = self._make_doc(1)  # threshold is 2
+        parser = _FakeChunkedParser()
+        self.assertEqual(parser.prepare_chunk_inputs(doc.id), [])
+
+    def test_large_doc_writes_chunk_pdfs_and_returns_descriptors(self):
+        from opencontractserver.pipeline.chunk_artifacts import (
+            chunk_input_key,
+            read_chunk_pdf,
+        )
+
+        doc = self._make_doc(5)  # max 2/chunk -> chunks (0,2)(2,4)(4,5)
+        parser = _FakeChunkedParser()
+        descriptors = parser.prepare_chunk_inputs(doc.id)
+        self.assertEqual(len(descriptors), 3)
+        self.assertEqual(descriptors[0]["chunk_index"], 0)
+        self.assertEqual(descriptors[0]["page_offset"], 0)
+        self.assertEqual(descriptors[0]["total_chunks"], 3)
+        self.assertEqual(descriptors[0]["input_key"], chunk_input_key(doc.id, 0))
+        self.assertEqual(
+            get_pdf_page_count(read_chunk_pdf(descriptors[0]["input_key"])), 2
+        )
+        self.assertEqual(
+            get_pdf_page_count(read_chunk_pdf(descriptors[2]["input_key"])), 1
+        )
+
+
+class TestReassembleAndFinalize(TestCase):
+    def test_streams_results_and_returns_combined(self):
+        from opencontractserver.pipeline.chunk_artifacts import write_chunk_result
+
+        user = User.objects.create_user(username="rf", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        out0 = write_chunk_result(doc.id, 0, _make_chunk_result(num_pages=2))
+        out1 = write_chunk_result(doc.id, 1, _make_chunk_result(num_pages=2))
+        parser = _FakeChunkedParser()
+        combined = parser.reassemble_and_finalize(
+            out_keys=[out0, out1],
+            page_offsets=[0, 2],
+            doc_id=doc.id,
+            user_id=user.id,
+            corpus_id=None,
+            save=False,
+        )
+        indices = [p["page"]["index"] for p in combined["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 2, 3])
+
+    def test_cleans_up_scratch_artifacts_even_when_save_raises(self):
+        """A storage/ORM failure in save_parsed_data must not orphan the chunk
+        scratch artifacts — cleanup runs in a finally block (review bug 2)."""
+        from unittest.mock import patch
+
+        from django.core.files.storage import default_storage
+
+        from opencontractserver.pipeline.chunk_artifacts import write_chunk_result
+
+        user = User.objects.create_user(username="rf_save_fail", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        out0 = write_chunk_result(doc.id, 0, _make_chunk_result(num_pages=2))
+        out1 = write_chunk_result(doc.id, 1, _make_chunk_result(num_pages=2))
+        self.assertTrue(default_storage.exists(out0))
+        self.assertTrue(default_storage.exists(out1))
+
+        parser = _FakeChunkedParser()
+        with patch.object(parser, "save_parsed_data", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                parser.reassemble_and_finalize(
+                    out_keys=[out0, out1],
+                    page_offsets=[0, 2],
+                    doc_id=doc.id,
+                    user_id=user.id,
+                    corpus_id=None,
+                    save=True,
+                )
+
+        # Despite the save failure, no scratch artifacts are left behind.
+        self.assertFalse(default_storage.exists(out0))
+        self.assertFalse(default_storage.exists(out1))
+
+
+# ======================================================================
+# Overlap wiring + golden equivalence (issue #1961)
+# ======================================================================
+
+
+class _OverlapGoldenParser(BaseChunkedParser):
+    """Deterministic parser whose per-chunk output depends only on GLOBAL page.
+
+    Each parsed page ``g`` (= ``page_offset + local_index``) always yields the
+    same token, annotation (``p{g}``, with a linear ``parent_id`` chain to
+    ``p{g-1}``) and forward relationship (``rel{g}``: ``p{g}`` -> ``p{g+1}``).
+    Because the output is a pure function of the global page, a chunked +
+    overlap parse must reduce — after dedup and cross-boundary re-linking — to
+    exactly the same logical document as a single-shot parse, modulo the
+    ``c{idx}_`` ID prefixing. That is the Phase 3 correctness gate.
+    """
+
+    title = "Overlap Golden"
+    description = "deterministic"
+    author = "test"
+    supported_file_types = [FileTypeEnum.PDF]
+
+    def __init__(self, **kwargs):
+        self._full_class_path = "test._OverlapGoldenParser"
+        self._settings = None
+
+    def _parse_single_chunk_impl(
+        self,
+        user_id,
+        doc_id,
+        chunk_pdf_bytes,
+        chunk_index,
+        total_chunks,
+        page_offset,
+        **all_kwargs,
+    ) -> Optional[OpenContractDocExport]:
+        n = get_pdf_page_count(chunk_pdf_bytes)
+        pawls: list = []
+        annotations: list = []
+        relationships: list = []
+        for i in range(n):
+            g = page_offset + i
+            pawls.append(
+                {
+                    "page": {"width": 612, "height": 792, "index": i},
+                    "tokens": [
+                        {"x": 1, "y": 1, "width": 5, "height": 5, "text": f"w{g}"}
+                    ],
+                }
+            )
+            annotations.append(
+                {
+                    "id": f"p{g}",
+                    "annotationLabel": "Para",
+                    "rawText": f"t{g}",
+                    "page": i,
+                    "annotation_json": {
+                        str(i): {
+                            "bounds": {
+                                "top": g,
+                                "left": 0,
+                                "right": 10,
+                                "bottom": g + 1,
+                            },
+                            "tokensJsons": [{"pageIndex": i, "tokenIndex": 0}],
+                            "rawText": f"t{g}",
+                        }
+                    },
+                    "parent_id": (f"p{g - 1}" if g > 0 else None),
+                    "annotation_type": "TOKEN_LABEL",
+                    "structural": True,
+                }
+            )
+            # Forward edge, emitted only when both endpoints are in this chunk's
+            # parse range. Cross-boundary edges therefore appear in both adjacent
+            # chunks and must collapse after re-linking.
+            if i + 1 < n:
+                relationships.append(
+                    {
+                        "id": f"rel{g}",
+                        "relationshipLabel": "next",
+                        "source_annotation_ids": [f"p{g}"],
+                        "target_annotation_ids": [f"p{g + 1}"],
+                        "structural": True,
+                    }
+                )
+        return {
+            "title": "Golden Doc",
+            "content": " ".join(f"w{page_offset + i}" for i in range(n)),
+            "description": "d",
+            "pawls_file_content": pawls,
+            "page_count": n,
+            "doc_labels": ["Contract"],
+            "labelled_text": annotations,
+            "relationships": relationships,
+        }
+
+
+class TestOverlapWiring(TestCase):
+    """The parse range fed to each chunk is overlap-extended, and page_offset
+    is the parse ``start`` (so reassembly can dedupe by global index)."""
+
+    def _make_doc(self, pages: int) -> Document:
+        user = User.objects.create_user(username="ow", password="x")
+        doc = Document(creator=user, title="t")
+        doc.save()
+        doc.pdf_file.save(f"doc_{doc.id}.pdf", ContentFile(make_test_pdf(pages)))
+        return doc
+
+    def test_prepare_chunk_inputs_uses_overlap_extended_ranges(self):
+        from opencontractserver.pipeline.chunk_artifacts import read_chunk_pdf
+
+        doc = self._make_doc(10)
+        parser = _OverlapGoldenParser()
+        parser.max_pages_per_chunk = 4
+        parser.min_pages_for_chunking = 4
+        parser.chunk_overlap = 2
+
+        descriptors = parser.prepare_chunk_inputs(doc.id)
+        # cores tile (0,4)(4,8)(8,10) -> parse ranges (0,6)(2,10)(6,10).
+        self.assertEqual([d["page_offset"] for d in descriptors], [0, 2, 6])
+        self.assertEqual([d["total_chunks"] for d in descriptors], [3, 3, 3])
+        page_counts = [
+            get_pdf_page_count(read_chunk_pdf(d["input_key"])) for d in descriptors
+        ]
+        self.assertEqual(page_counts, [6, 8, 4])
+
+    def test_chunk_overlap_defaults_to_constant(self):
+        from opencontractserver.constants import DEFAULT_CHUNK_OVERLAP
+
+        self.assertEqual(BaseChunkedParser.chunk_overlap, DEFAULT_CHUNK_OVERLAP)
+
+
+def _annotation_signatures_by_id(result: OpenContractDocExport) -> dict:
+    """Map each surviving annotation ID to its chunk-independent signature."""
+    from opencontractserver.pipeline.base.chunk_reassembler import (
+        _annotation_signature,
+    )
+
+    return {a["id"]: _annotation_signature(a) for a in result["labelled_text"]}
+
+
+class TestChunkedOverlapGoldenEquivalence(TestCase):
+    """Service-level golden gate: chunked-with-overlap == single-shot."""
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(username="golden", password="x")
+        self.pages = 10
+        self.doc = Document.objects.create(
+            title="Golden", file_type="application/pdf", creator=self.user
+        )
+        self.doc.pdf_file.save("golden.pdf", ContentFile(make_test_pdf(self.pages)))
+
+    def _single_shot(self) -> OpenContractDocExport:
+        parser = _OverlapGoldenParser()
+        parser.min_pages_for_chunking = self.pages + 1  # never chunk
+        result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
+        assert result is not None
+        return result
+
+    def _chunked_with_overlap(self) -> OpenContractDocExport:
+        parser = _OverlapGoldenParser()
+        parser.max_pages_per_chunk = 4
+        parser.min_pages_for_chunking = 4
+        parser.chunk_overlap = 2
+        parser.max_concurrent_chunks = 1  # deterministic ordering
+        result = parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
+        assert result is not None
+        return result
+
+    def test_pawls_pages_identical(self):
+        single = self._single_shot()
+        chunked = self._chunked_with_overlap()
+        for result in (single, chunked):
+            indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+            self.assertEqual(indices, list(range(self.pages)))
+            texts = [p["tokens"][0]["text"] for p in result["pawls_file_content"]]
+            self.assertEqual(texts, [f"w{i}" for i in range(self.pages)])
+        self.assertEqual(single["page_count"], chunked["page_count"])
+
+    def test_annotation_set_identical_modulo_ids(self):
+        single = self._single_shot()
+        chunked = self._chunked_with_overlap()
+        single_sigs = sorted(_annotation_signatures_by_id(single).values())
+        chunked_sigs = sorted(_annotation_signatures_by_id(chunked).values())
+        # One annotation per page, no duplicates, identical logical set.
+        self.assertEqual(len(chunked_sigs), self.pages)
+        self.assertEqual(single_sigs, chunked_sigs)
+
+    def test_relationships_identical_modulo_ids(self):
+        single = self._single_shot()
+        chunked = self._chunked_with_overlap()
+
+        def rel_sigs(result):
+            id_to_sig = _annotation_signatures_by_id(result)
+            sigs = []
+            for rel in result["relationships"]:
+                src = frozenset(id_to_sig[s] for s in rel["source_annotation_ids"])
+                tgt = frozenset(id_to_sig[t] for t in rel["target_annotation_ids"])
+                sigs.append((rel["relationshipLabel"], src, tgt))
+            return sorted(sigs)
+
+        single_rels = rel_sigs(single)
+        chunked_rels = rel_sigs(chunked)
+        # One forward edge per adjacent page pair, deduped across boundaries.
+        self.assertEqual(len(chunked_rels), self.pages - 1)
+        self.assertEqual(single_rels, chunked_rels)
+
+    def test_parent_chain_relinked_with_no_orphans(self):
+        chunked = self._chunked_with_overlap()
+        id_to_sig = _annotation_signatures_by_id(chunked)
+        parented = 0
+        for ann in chunked["labelled_text"]:
+            pid = ann.get("parent_id")
+            if pid is None:
+                continue
+            parented += 1
+            # Every parent reference resolves to a surviving annotation: the
+            # cross-boundary chain was re-linked, not orphaned.
+            self.assertIn(pid, id_to_sig)
+        # p1..p9 each have a parent -> 9 resolved references across 3 chunks.
+        self.assertEqual(parented, self.pages - 1)

@@ -776,6 +776,15 @@ CELERY_RESULT_BACKEND_MAX_RETRIES = 10
 CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 
+# Chord error callbacks must attach to the chord BODY (not the header) so the
+# document-ingest chain's link_error (mark_doc_failed_on_chain_error) fires when
+# a chunk-parse task fails — marking the document FAILED instead of leaving it
+# locked in PROCESSING.  Celery is deprecating this False default; pin it
+# explicitly so the chunked-parse failure guarantee cannot regress silently on a
+# Celery upgrade.
+# https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-allow-error-cb-on-chord-header
+CELERY_TASK_ALLOW_ERROR_CB_ON_CHORD_HEADER = False
+
 # Redis broker visibility timeout (Issue #1493).
 # OpenContracts uses Redis as the Celery broker. Unlike RabbitMQ, Redis tracks
 # unacknowledged messages with a *visibility timeout*: once a worker pulls a

@@ -8,7 +8,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
-from celery import shared_task
+from celery import chain, chord, current_app, group, shared_task
 from celery.utils.log import get_task_logger
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
@@ -143,6 +143,39 @@ def _mark_document_failed(
 
     if create_notification:
         _create_document_processing_failed_notification(document, error_msg)
+
+
+def _resolve_parser_for_ingest(document: Document) -> tuple[str, BaseParser, dict]:
+    """Resolve ``(parser_name, parser_instance, parser_kwargs)`` for *document*.
+
+    Encapsulates the database-settings lookup, component resolution, and
+    instantiation that ``ingest_doc`` needs so the logic can be patched
+    independently in tests and reused by the chord-dispatch branch.
+
+    Raises:
+        ValueError: if no parser is configured for the document's MIME type, or
+            if :func:`get_component_by_name` fails to load the class.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+    from opencontractserver.utils.logging import redact_sensitive_kwargs
+
+    pipeline_settings = PipelineSettings.get_instance()
+    parser_name: str | None = pipeline_settings.get_preferred_parser(document.file_type)
+    if not parser_name:
+        raise ValueError(f"No parser defined for MIME type '{document.file_type}'")
+
+    parser_kwargs = pipeline_settings.get_parser_kwargs(parser_name)
+    if parser_kwargs:
+        logger.debug(
+            f"Resolved parser kwargs for '{parser_name}': "
+            f"{redact_sensitive_kwargs(parser_kwargs)}"
+        )
+
+    try:
+        parser_class = cast(type[BaseParser], get_component_by_name(parser_name))
+        return parser_name, parser_class(), parser_kwargs
+    except ValueError as e:
+        raise ValueError(f"Failed to load parser '{parser_name}': {e}") from e
 
 
 @celery_app.task()
@@ -586,38 +619,65 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     if corpus_id:
         logger.info(f"[ingest_doc] Document {doc_id} is in corpus {corpus_id}")
 
-    # Get preferred parser from database settings (with fallback to Django settings)
-    from opencontractserver.documents.models import PipelineSettings
-
-    pipeline_settings = PipelineSettings.get_instance()
-    parser_name: str | None = pipeline_settings.get_preferred_parser(document.file_type)
-
-    if not parser_name:
-        error_msg = f"No parser defined for MIME type '{document.file_type}'"
-        _mark_document_failed(document, error_msg)
-        return {"status": "failed", "doc_id": doc_id, "error": error_msg}
-
-    # Attempt to load parser kwargs from database settings (with fallback)
-    from opencontractserver.utils.logging import redact_sensitive_kwargs
-
-    parser_kwargs = pipeline_settings.get_parser_kwargs(parser_name)
-    if parser_kwargs:
-        logger.debug(
-            f"Resolved parser kwargs for '{parser_name}': "
-            f"{redact_sensitive_kwargs(parser_kwargs)}"
-        )
-
-    # Get the parser class using get_component_by_name
+    # Resolve parser name, instance, and kwargs from database settings.
     try:
-        parser_class = cast(type[BaseParser], get_component_by_name(parser_name))
-        parser_instance = parser_class()
+        parser_name, parser_instance, parser_kwargs = _resolve_parser_for_ingest(
+            document
+        )
     except ValueError as e:
-        error_msg = f"Failed to load parser '{parser_name}': {e}"
+        error_msg = str(e)
         logger.error(error_msg)
         _mark_document_failed(document, error_msg, traceback.format_exc())
         return {"status": "failed", "doc_id": doc_id, "error": error_msg}
 
-    # Call the parser's process_document method
+    # Large-document chunked path: fan chunks out across workers and reassemble
+    # via a chord callback. Skipped in eager mode (tests) and for parsers that
+    # don't support chunking — those fall through to the synchronous path below.
+    from opencontractserver.pipeline.base.chunked_parser import BaseChunkedParser
+
+    if (
+        isinstance(parser_instance, BaseChunkedParser)
+        and not current_app.conf.task_always_eager
+    ):
+        # prepare_chunk_inputs returns [] when the doc is below the chunking
+        # threshold (single request) and >= 2 descriptors otherwise — there is
+        # no one-element case — so a truthiness check expresses the contract.
+        chunk_inputs = parser_instance.prepare_chunk_inputs(doc_id)
+        if chunk_inputs:
+            from opencontractserver.tasks.chunk_tasks import (
+                parse_document_chunk,
+                reassemble_and_save_chunks,
+            )
+
+            header = group(
+                parse_document_chunk.s(
+                    user_id=user_id,
+                    doc_id=doc_id,
+                    parser_name=parser_name,
+                    chunk_index=ci["chunk_index"],
+                    total_chunks=ci["total_chunks"],
+                    page_offset=ci["page_offset"],
+                    input_key=ci["input_key"],
+                )
+                for ci in chunk_inputs
+            )
+            callback = reassemble_and_save_chunks.s(
+                doc_id=doc_id,
+                user_id=user_id,
+                parser_name=parser_name,
+                corpus_id=corpus_id,
+                page_offsets=[ci["page_offset"] for ci in chunk_inputs],
+            )
+            logger.info(
+                f"[ingest_doc] Document {doc_id}: dispatching "
+                f"{len(chunk_inputs)} chunks via chord"
+            )
+            # Replaces this task with the chord; Celery appends the remaining
+            # ingest chain (remap, unlock) after the callback, and the chain's
+            # link_error errback still rescues failures.
+            return self.replace(chord(header, callback))
+
+    # Call the parser's process_document method (synchronous / non-chunked path)
     try:
         parser_instance.process_document(
             user_id, doc_id, corpus_id=corpus_id, **parser_kwargs
@@ -1015,8 +1075,6 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
             - doc_id: The document ID
             - message: Status message
     """
-    from celery import chain
-
     from opencontractserver.types.enums import PermissionTypes
 
     logger.info(

@@ -16,13 +16,13 @@ import logging
 import time
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional, cast
+from typing import ClassVar, Optional, cast
 
 from django.core.files.storage import default_storage
 from pypdf import PdfReader
 
-from opencontractserver.annotations.compact_json import offset_annotation_json
 from opencontractserver.constants import (
+    DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_RETRY_LIMIT,
     DEFAULT_MAX_CONCURRENT_CHUNKS,
     DEFAULT_MAX_PAGES_PER_CHUNK,
@@ -30,16 +30,18 @@ from opencontractserver.constants import (
     MAX_CHUNK_RETRY_BACKOFF_SECONDS,
 )
 from opencontractserver.documents.models import Document
+from opencontractserver.pipeline.base.chunk_reassembler import ChunkReassembler
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.parser import BaseParser
-from opencontractserver.types.dicts import (
-    OpenContractDocExport,
-    OpenContractsAnnotationPythonType,
-    OpenContractsRelationshipPythonType,
-    PawlsPagePythonType,
+from opencontractserver.pipeline.chunk_artifacts import (
+    cleanup_chunk_artifacts,
+    read_chunk_result,
+    write_chunk_pdf,
 )
+from opencontractserver.types.dicts import OpenContractDocExport
 from opencontractserver.utils.pdf_splitting import (
-    calculate_page_chunks,
+    PageChunk,
+    calculate_page_chunks_with_overlap,
     get_pdf_page_count,
     split_pdf_by_page_range,
 )
@@ -66,25 +68,44 @@ class BaseChunkedParser(BaseParser):
     All results consistently receive chunk-prefixed IDs (``c0_``), including
     single-chunk documents, to ensure downstream consumers see a uniform format.
 
-    **Limitation -- cross-chunk parent-child relationships:**
-    Each chunk is parsed independently, so parent-child annotation references
-    that span chunk boundaries will be orphaned after reassembly.  For example,
-    a paragraph in chunk 1 whose section header is in chunk 0 will have a
-    ``parent_id`` that does not match any annotation ID in the final result.
-    A debug-level message is emitted during reassembly when orphaned references
-    are detected.
+    **Cross-chunk structure via overlap (issue #1961):**
+    Each chunk's parse range is extended ``chunk_overlap`` pages beyond its core
+    boundary on every interior side (see
+    :func:`calculate_page_chunks_with_overlap`), so a structure that spans a
+    chunk boundary is captured *whole* in at least one chunk. Reassembly then
+    dedupes the duplicated overlap pages/annotations and re-links relationships
+    and ``parent_id`` references across boundaries using the deduped global IDs
+    (see :class:`ChunkReassembler`). Overlap must exceed the largest expected
+    boundary-spanning structure; any residual orphans (a reference whose target
+    fell outside every chunk's parse range) are logged + metered but never fatal.
 
-    A future improvement could snap chunk boundaries to section headers rather
-    than arbitrary page limits, reducing orphaned references in hierarchical
-    documents.  See GitHub issue #914 item 4 for discussion.
+    **Subclass note:** ``chunk_overlap`` defaults to ``DEFAULT_CHUNK_OVERLAP``
+    (2). ``calculate_page_chunks_with_overlap`` requires
+    ``chunk_overlap < max_pages_per_chunk``, so a subclass that sets
+    ``max_pages_per_chunk`` <= ``DEFAULT_CHUNK_OVERLAP`` MUST pin
+    ``chunk_overlap = 0`` (or raise ``max_pages_per_chunk``) or it will raise
+    ``ValueError`` at parse time on the chunked path.
     """
 
     # ------------------------------------------------------------------
     # Chunking configuration (overridable by subclasses / settings)
     # ------------------------------------------------------------------
+
+    # Opt into the chunked parse path (overrides BaseParser default). This is a
+    # pure capability flag — never reassigned per instance — so it is ClassVar.
+    supports_chunking: ClassVar[bool] = True
+
+    # The numeric knobs below are deliberately NOT ClassVar: subclasses set them
+    # per instance from injected settings (e.g. DoclingParser.__init__ assigns
+    # self.max_pages_per_chunk = settings.max_pages_per_chunk). ClassVar would
+    # make mypy reject those instance assignments.
     max_pages_per_chunk: int = DEFAULT_MAX_PAGES_PER_CHUNK
     min_pages_for_chunking: int = DEFAULT_MIN_PAGES_FOR_CHUNKING
     max_concurrent_chunks: int = DEFAULT_MAX_CONCURRENT_CHUNKS
+    # Pages each chunk's parse range extends past its core boundary on every
+    # interior side, so boundary-spanning structure survives in at least one
+    # chunk. Reassembly dedupes the overlap and re-links cross-boundary refs.
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     # Intentionally low: per-chunk retries handle transient blips, while the
     # outer Celery task provides a second tier of retries for broader failures.
     chunk_retry_limit: int = DEFAULT_CHUNK_RETRY_LIMIT
@@ -147,6 +168,101 @@ class BaseChunkedParser(BaseParser):
         return reassembled
 
     # ------------------------------------------------------------------
+    # Celery fan-out seam: prepare inputs / finalize after chord
+    # ------------------------------------------------------------------
+
+    def prepare_chunk_inputs(self, doc_id: int) -> list[dict]:
+        """Decide chunking for *doc_id* and, if chunking, write each chunk PDF
+        to storage. Returns a descriptor per chunk (empty list if no chunking).
+
+        Each descriptor: {chunk_index, page_offset, total_chunks, input_key}.
+        Memory: the source PDF is read once and held in ``pdf_bytes``; chunks
+        are split and written one at a time, so the honest peak bound is the
+        source PDF plus one chunk PDF (not a single chunk alone).
+        """
+        document = Document.objects.get(pk=doc_id)
+        doc_path = document.pdf_file.name
+        if not doc_path:
+            raise DocumentParsingError(
+                f"Document {doc_id} has no PDF file associated", is_transient=False
+            )
+        with default_storage.open(doc_path, "rb") as fh:
+            pdf_bytes = fh.read()
+
+        page_count = get_pdf_page_count(pdf_bytes)
+        chunks = calculate_page_chunks_with_overlap(
+            page_count,
+            self.max_pages_per_chunk,
+            self.min_pages_for_chunking,
+            overlap=self.chunk_overlap,
+        )
+        if len(chunks) <= 1:
+            return []
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        descriptors: list[dict] = []
+        for idx, chunk in enumerate(chunks):
+            # Split the overlap-extended parse range. ``page_offset`` is the parse
+            # ``start`` (not ``core_start``): the chunk PDF's local page i is the
+            # original document's page ``start + i``, so ``start`` is the only
+            # offset that maps local pages back into global space. Reassembly
+            # dedupes the overlapping pages by global index.
+            chunk_bytes = split_pdf_by_page_range(
+                pdf_bytes, chunk.start, chunk.end, reader=reader
+            )
+            input_key = write_chunk_pdf(doc_id, idx, chunk_bytes)
+            descriptors.append(
+                {
+                    "chunk_index": idx,
+                    "page_offset": chunk.start,
+                    "total_chunks": len(chunks),
+                    "input_key": input_key,
+                }
+            )
+        return descriptors
+
+    def reassemble_and_finalize(
+        self,
+        out_keys: list[str],
+        page_offsets: list[int],
+        doc_id: int,
+        user_id: int,
+        corpus_id: Optional[int] = None,
+        save: bool = True,
+    ) -> OpenContractDocExport:
+        """Stream per-chunk result JSON from storage (one at a time), reassemble,
+        run the post-reassembly hook + enrichment, optionally persist, and clean
+        up scratch artifacts. ``save=False`` is for tests that only want the
+        merged structure.
+        """
+        reassembler = ChunkReassembler()
+        for idx, key in enumerate(out_keys):
+            chunk = read_chunk_result(key)
+            reassembler.add_chunk(chunk, page_offset=page_offsets[idx], chunk_index=idx)
+        combined = reassembler.finalize()
+
+        document = Document.objects.get(pk=doc_id)
+        doc_path = document.pdf_file.name
+        if doc_path:
+            with default_storage.open(doc_path, "rb") as fh:
+                pdf_bytes = fh.read()
+        else:
+            pdf_bytes = b""
+        combined = self._post_reassemble_hook(user_id, doc_id, combined, pdf_bytes)
+        combined = self._run_enrichment_stage(user_id, doc_id, combined)
+
+        # Always clean up scratch artifacts, even if save_parsed_data raises —
+        # otherwise a storage/ORM failure orphans the chunk files under
+        # chunk_scratch/doc_{id}/ (the chord link_error marks the doc FAILED
+        # but never returns here to clean up).
+        try:
+            if save:
+                self.save_parsed_data(user_id, doc_id, combined, corpus_id=corpus_id)
+        finally:
+            cleanup_chunk_artifacts(doc_id)
+        return combined
+
+    # ------------------------------------------------------------------
     # Core implementation – replaces BaseParser._parse_document_impl
     # ------------------------------------------------------------------
 
@@ -198,8 +314,11 @@ class BaseChunkedParser(BaseParser):
             )
 
         try:
-            chunks = calculate_page_chunks(
-                page_count, self.max_pages_per_chunk, self.min_pages_for_chunking
+            chunks = calculate_page_chunks_with_overlap(
+                page_count,
+                self.max_pages_per_chunk,
+                self.min_pages_for_chunking,
+                overlap=self.chunk_overlap,
             )
         except ValueError as e:
             raise DocumentParsingError(str(e), is_transient=False)
@@ -254,18 +373,19 @@ class BaseChunkedParser(BaseParser):
             # Create a single PdfReader to avoid re-parsing the PDF per chunk.
             shared_reader = PdfReader(io.BytesIO(pdf_bytes))
             chunk_data: list[tuple[int, bytes, int]] = []
-            for idx, (start, end) in enumerate(chunks):
+            for idx, chunk in enumerate(chunks):
                 try:
                     chunk_bytes = split_pdf_by_page_range(
-                        pdf_bytes, start, end, reader=shared_reader
+                        pdf_bytes, chunk.start, chunk.end, reader=shared_reader
                     )
                 except ValueError as e:
                     raise DocumentParsingError(
                         f"Failed to split PDF for document {doc_id}, "
-                        f"chunk {idx} (pages {start}-{end}): {e}",
+                        f"chunk {idx} (pages {chunk.start}-{chunk.end}): {e}",
                         is_transient=False,
                     )
-                chunk_data.append((idx, chunk_bytes, start))
+                # page_offset is the parse ``start`` (see prepare_chunk_inputs).
+                chunk_data.append((idx, chunk_bytes, chunk.start))
 
             chunk_results = self._dispatch_concurrent(
                 user_id=user_id,
@@ -275,8 +395,18 @@ class BaseChunkedParser(BaseParser):
                 **all_kwargs,
             )
 
-        # Reassemble
-        page_offsets = [start for (start, _end) in chunks]
+        # Reassemble.
+        # The reassembly offset for each chunk is its parse-range ``start`` —
+        # NOT its ``core_start``. A chunk PDF split from the parse range
+        # [start, end) has its local page i drawn from the original document's
+        # page ``start + i``, so ``start`` is the only offset that maps local
+        # pages back into global space (using ``core_start`` would misplace the
+        # leading overlap pages by ``core_start - start``). The duplicate pages
+        # and annotations that overlap introduces are removed in reassembly:
+        # ChunkReassembler dedupes pages by global index and annotations by
+        # signature, then re-links cross-boundary references. (This supersedes
+        # the Phase-1 placeholder note that suggested offsetting by core_start.)
+        page_offsets = [c.start for c in chunks]
         reassembled = _reassemble_chunk_results(chunk_results, page_offsets)
 
         logger.info(
@@ -300,7 +430,7 @@ class BaseChunkedParser(BaseParser):
         self,
         user_id: int,
         doc_id: int,
-        chunks: list[tuple[int, int]],
+        chunks: list[PageChunk],
         pdf_bytes: bytes,
         total_chunks: int,
         **all_kwargs,
@@ -310,13 +440,13 @@ class BaseChunkedParser(BaseParser):
         to avoid holding all chunk PDFs in memory simultaneously.
         """
         results: list[OpenContractDocExport] = []
-        for chunk_index, (start, end) in enumerate(chunks):
+        for chunk_index, chunk in enumerate(chunks):
             try:
-                chunk_bytes = split_pdf_by_page_range(pdf_bytes, start, end)
+                chunk_bytes = split_pdf_by_page_range(pdf_bytes, chunk.start, chunk.end)
             except ValueError as e:
                 raise DocumentParsingError(
                     f"Failed to split PDF for document {doc_id}, "
-                    f"chunk {chunk_index} (pages {start}-{end}): {e}",
+                    f"chunk {chunk_index} (pages {chunk.start}-{chunk.end}): {e}",
                     is_transient=False,
                 )
 
@@ -326,7 +456,7 @@ class BaseChunkedParser(BaseParser):
                 chunk_pdf_bytes=chunk_bytes,
                 chunk_index=chunk_index,
                 total_chunks=total_chunks,
-                page_offset=start,
+                page_offset=chunk.start,
                 **all_kwargs,
             )
             if result is None:
@@ -474,138 +604,10 @@ def _reassemble_chunk_results(
     chunk_results: list[OpenContractDocExport],
     page_offsets: list[int],
 ) -> OpenContractDocExport:
-    """
-    Merge a list of per-chunk ``OpenContractDocExport`` dicts into one.
-
-    For each chunk the function:
-
-    * Offsets ``pawls_file_content[*].page.index`` by the chunk's page offset
-    * Offsets annotation ``page`` fields and ``annotation_json`` page keys
-    * Prefixes annotation and relationship IDs to keep them unique across chunks
-    * Concatenates text content
-
-    Args:
-        chunk_results: Ordered list of chunk results (chunk-local page indices).
-        page_offsets: Parallel list of page offsets (global start page per chunk).
-
-    Returns:
-        A single ``OpenContractDocExport`` with globally-correct page indices.
-    """
+    """Merge per-chunk results into one. Delegates to ChunkReassembler."""
     if not chunk_results:
         raise ValueError("Cannot reassemble empty chunk_results list")
-
-    first = chunk_results[0]
-
-    combined_pawls: list[PawlsPagePythonType] = []
-    combined_annotations: list[OpenContractsAnnotationPythonType] = []
-    combined_relationships: list[OpenContractsRelationshipPythonType] = []
-    combined_content_parts: list[str] = []
-    combined_doc_labels: list[str] = []
-    total_pages = 0
-
-    seen_doc_labels: set[str] = set()
-
-    for chunk_idx, (chunk, offset) in enumerate(zip(chunk_results, page_offsets)):
-        prefix = f"c{chunk_idx}_"
-
-        # -- PAWLs pages --
-        for page_data in chunk.get("pawls_file_content", []):
-            page_info = page_data.get("page", {})
-            page_info["index"] = page_info.get("index", 0) + offset
-            combined_pawls.append(page_data)
-
-        # -- Text content --
-        content = chunk.get("content", "")
-        if content:
-            combined_content_parts.append(content)
-
-        # -- Page count --
-        total_pages += chunk.get("page_count", 0)
-
-        # -- Document labels (deduplicated) --
-        for label in chunk.get("doc_labels", []):
-            if label not in seen_doc_labels:
-                seen_doc_labels.add(label)
-                combined_doc_labels.append(label)
-
-        # -- Annotations --
-        for annotation in chunk.get("labelled_text", []):
-            _offset_annotation(annotation, offset, prefix)
-            combined_annotations.append(annotation)
-
-        # -- Relationships --
-        for relationship in chunk.get("relationships", []):
-            _offset_relationship(relationship, prefix)
-            combined_relationships.append(relationship)
-
-    result: OpenContractDocExport = {
-        "title": first.get("title", ""),
-        "content": "\n".join(combined_content_parts),
-        "description": first.get("description"),
-        "pawls_file_content": combined_pawls,
-        "page_count": total_pages,
-        "doc_labels": combined_doc_labels,
-        "labelled_text": combined_annotations,
-        "relationships": combined_relationships,
-    }
-
-    # Detect and warn about orphaned cross-chunk parent references
-    all_annotation_ids = {a["id"] for a in combined_annotations if a.get("id")}
-    orphaned_count = 0
-    for ann in combined_annotations:
-        pid = ann.get("parent_id")
-        if pid is not None and pid not in all_annotation_ids:
-            orphaned_count += 1
-
-    if orphaned_count > 0:
-        logger.debug(
-            f"Reassembly produced {orphaned_count} orphaned parent_id "
-            f"reference(s). Cross-chunk parent-child relationships cannot "
-            f"be preserved when chunks are parsed independently."
-        )
-
-    return result
-
-
-def _offset_annotation(
-    annotation: OpenContractsAnnotationPythonType,
-    page_offset: int,
-    id_prefix: str,
-) -> None:
-    """Mutate *annotation* in place: offset pages and prefix IDs."""
-    # Offset the primary page field
-    annotation["page"] = annotation.get("page", 0) + page_offset
-
-    # Prefix the annotation ID
-    old_id = annotation.get("id")
-    if old_id is not None:
-        annotation["id"] = f"{id_prefix}{old_id}"
-
-    # Prefix parent_id
-    parent_id = annotation.get("parent_id")
-    if parent_id is not None:
-        annotation["parent_id"] = f"{id_prefix}{parent_id}"
-
-    # Offset annotation_json page keys and token references
-    annotation_json = annotation.get("annotation_json")
-    if isinstance(annotation_json, dict):
-        annotation["annotation_json"] = offset_annotation_json(
-            annotation_json, page_offset
-        )
-
-
-def _offset_relationship(
-    relationship: OpenContractsRelationshipPythonType,
-    id_prefix: str,
-) -> None:
-    """Mutate *relationship* in place: prefix all IDs."""
-    old_id = relationship.get("id")
-    if old_id is not None:
-        relationship["id"] = f"{id_prefix}{old_id}"
-
-    relationship["source_annotation_ids"] = [
-        f"{id_prefix}{sid}" for sid in relationship.get("source_annotation_ids", [])
-    ]
-    relationship["target_annotation_ids"] = [
-        f"{id_prefix}{tid}" for tid in relationship.get("target_annotation_ids", [])
-    ]
+    reassembler = ChunkReassembler()
+    for idx, (chunk, offset) in enumerate(zip(chunk_results, page_offsets)):
+        reassembler.add_chunk(chunk, page_offset=offset, chunk_index=idx)
+    return reassembler.finalize()
