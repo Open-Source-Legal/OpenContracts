@@ -10,9 +10,9 @@
 | --- | --- |
 | Backend coverage | [![backend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=backend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=backend) |
 | Frontend coverage | [![frontend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=frontend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=frontend) |
-| Meta | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - MIT](https://img.shields.io/badge/license-MIT-green)](https://opensource.org/licenses/MIT) |
+| Meta | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue)](https://www.gnu.org/licenses/agpl-3.0) |
 
-OpenContracts is an MIT-licensed, self-hosted document analytics platform. Teams build knowledge bases from their documents and AI agents work alongside humans to search, analyze, and extend that knowledge.
+OpenContracts is an AGPL-3.0-licensed, self-hosted document analytics platform. Teams build knowledge bases from their documents and AI agents work alongside humans to search, analyze, and extend that knowledge.
 
 ## What Does it Do?
 
@@ -59,7 +59,7 @@ The modular pipeline supports custom parsers, embedders, and thumbnail generator
 
 ## License
 
-OpenContracts is released under the [MIT License](https://github.com/Open-Source-Legal/OpenContracts/blob/main/LICENSE). Build proprietary products on it, embed it in commercial offerings, fork it, ship it — no copyleft strings attached.
+OpenContracts is released under the [GNU Affero General Public License v3.0](https://github.com/Open-Source-Legal/OpenContracts/blob/main/LICENSE). Fork it, self-host it, and build on it — but anything you distribute or run as a networked service must remain open under the same AGPL-3.0 terms, complete corresponding source included.
 
 ## Acknowledgements
 

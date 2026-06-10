@@ -50,7 +50,7 @@ import { CiteMark } from "../brand/CiteMark";
  * The modal retains every piece of information from the OpenContracts-era
  * version (demo-system caveat, cookie usage explainer, "data we collect",
  * "data you agree to share", analytics breakdown when PostHog is wired
- * up, MIT-style disclaimer). The visual language was rewritten against
+ * up, warranty disclaimer). The visual language was rewritten against
  * the cite brand system: Source Serif 4 for display copy, slate/teal/
  * warm-paper palette only, sentence-case titles, the [•] icon mark
  * instead of decorative badges, no warning-yellow demo banner, and a
@@ -441,8 +441,7 @@ const Disclaimer = styled.p`
   margin: 0;
   /* 12px keeps the legal disclaimer at the WCAG-recommended minimum.
      ALL CAPS is preserved here — it's a legal-text convention used in
-     the MIT-style warranty disclaimer the project ships under, not
-     emphatic marketing copy. */
+     standard "AS IS" warranty disclaimers, not emphatic marketing copy. */
   font-size: 0.75rem;
   line-height: 1.6;
   letter-spacing: 0.02em;

@@ -1,5 +1,5 @@
 #  Copyright (C) 2022  John Scrudato
-#  License: MIT
+#  License: AGPL-3.0-only
 
 from __future__ import annotations
 

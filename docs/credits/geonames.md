@@ -3,7 +3,7 @@
 The offline geocoding utility in `opencontractserver/utils/geocoding/`
 ships a curated reference dataset bundled inside the repository so that
 parser-time geocoding is fully deterministic, network-free, and
-redistributable under the project's MIT licence.
+redistributable under the project's AGPL-3.0 licence.
 
 ## Sources
 
@@ -89,6 +89,6 @@ centroid, and any aliases.
   tolerate a rate-limited external API.
 - **Normalization is free**: "USA" / "United States" / "U.S." all
   canonicalize to the same row in the dataset via the bundled aliases.
-- **MIT-friendly**: ISO 3166 is public domain; GeoNames is CC BY 4.0,
+- **AGPL-compatible**: ISO 3166 is public domain; GeoNames is CC BY 4.0,
   which is redistributable inside the repository under the attribution
   carried in `_meta.source` and this credits page.

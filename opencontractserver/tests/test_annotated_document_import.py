@@ -1,7 +1,7 @@
 #  Copyright (C) 2026  John Scrudato
 #
-#  Licensed under the MIT License. See the LICENSE file in the project root for
-#  the full license text.
+#  Licensed under the GNU Affero General Public License v3.0. See the LICENSE
+#  file in the project root for the full license text.
 import base64
 import json
 
