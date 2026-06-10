@@ -23,7 +23,11 @@ import RadialButtonCloud, {
 import { SelectionTokenGroup } from "./SelectionTokenGroup";
 import { EditLabelModal } from "../../components/modals/EditLabelModal";
 import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
-import { isUrlAnnotation, openAnnotationUrl } from "../../utils/urlAnnotation";
+import {
+  annotationChipLabel,
+  isUrlAnnotation,
+  openAnnotationUrl,
+} from "../../utils/urlAnnotation";
 import { useUpdateAnnotation } from "../../hooks/AnnotationHooks";
 import { OC_URL_LABEL } from "../../../../assets/configurations/constants";
 import { useReactiveVar } from "@apollo/client";
@@ -360,7 +364,7 @@ export const Selection: React.FC<SelectionProps> = ({
                           aria-label="External link annotation"
                         />
                       )}
-                      <span>{label.text}</span>
+                      <span>{annotationChipLabel(annotation)}</span>
                     </div>
                     {annotation.myPermissions.includes(
                       PermissionTypes.CAN_UPDATE

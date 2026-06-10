@@ -7,6 +7,7 @@ from graphene.test import Client
 
 from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
+    RELATIONSHIP_LABEL,
     SPAN_LABEL,
     Annotation,
     CorpusReference,
@@ -161,6 +162,88 @@ class EnrichmentWriterTests(TestCase):
         assert rel is not None
         assert rel.relationship_type == C.DOC_REL_RELATIONSHIP
 
+    def test_orphan_enrichment_rollup_is_pruned_on_rerun(self):
+        """DocumentRelationship rollups are a derived projection of
+        CorpusReference — an enrichment-owned edge (data.analysis_id marker)
+        with no backing resolved doc reference must be pruned by the next
+        apply(), while legitimate rollups survive."""
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        rel_label = self.corpus.ensure_label_and_labelset(
+            label_text=C.LABEL_RELATIONSHIP,
+            creator_id=self.user.id,
+            label_type=RELATIONSHIP_LABEL,
+        )
+        orphan = DocumentRelationship.objects.create(
+            source_document_id=self.exhibit_in_corpus.id,
+            target_document_id=self.primary_in_corpus.id,
+            annotation_label=rel_label,
+            relationship_type=C.DOC_REL_RELATIONSHIP,
+            corpus=self.corpus,
+            creator=self.user,
+            data={"analysis_id": 424242},  # enrichment-owned, no backing ref
+        )
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        assert not DocumentRelationship.objects.filter(pk=orphan.pk).exists()
+        # The legitimate primary -> exhibit rollup is still there.
+        assert DocumentRelationship.objects.filter(
+            corpus=self.corpus,
+            source_document_id=self.primary_in_corpus.id,
+            target_document_id=self.exhibit_in_corpus.id,
+        ).exists()
+
+    def test_user_created_document_relationships_never_pruned(self):
+        """Rows without the data.analysis_id marker are user-authored — the
+        reconcile pass must not delete or duplicate them."""
+        rel_label = self.corpus.ensure_label_and_labelset(
+            label_text=C.LABEL_RELATIONSHIP,
+            creator_id=self.user.id,
+            label_type=RELATIONSHIP_LABEL,
+        )
+        user_rel = DocumentRelationship.objects.create(
+            source_document_id=self.exhibit_in_corpus.id,
+            target_document_id=self.primary_in_corpus.id,
+            annotation_label=rel_label,
+            relationship_type=C.DOC_REL_RELATIONSHIP,
+            corpus=self.corpus,
+            creator=self.user,
+            data={},  # no marker -> user-authored
+        )
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        assert DocumentRelationship.objects.filter(pk=user_rel.pk).exists()
+
+    def test_user_row_for_same_pair_not_duplicated_by_rollup(self):
+        """A user-authored edge for the same (source, target, label) pair
+        satisfies the projection — reconcile must not add a second row."""
+        rel_label = self.corpus.ensure_label_and_labelset(
+            label_text=C.LABEL_RELATIONSHIP,
+            creator_id=self.user.id,
+            label_type=RELATIONSHIP_LABEL,
+        )
+        DocumentRelationship.objects.create(
+            source_document_id=self.primary_in_corpus.id,
+            target_document_id=self.exhibit_in_corpus.id,
+            annotation_label=rel_label,
+            relationship_type=C.DOC_REL_RELATIONSHIP,
+            corpus=self.corpus,
+            creator=self.user,
+            data={},
+        )
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        assert (
+            DocumentRelationship.objects.filter(
+                corpus=self.corpus,
+                source_document_id=self.primary_in_corpus.id,
+                target_document_id=self.exhibit_in_corpus.id,
+            ).count()
+            == 1
+        )
+
     def test_document_relationship_rollup_is_idempotent(self):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
         count = DocumentRelationship.objects.filter(corpus=self.corpus).count()
@@ -172,17 +255,42 @@ class EnrichmentWriterTests(TestCase):
         assert DocumentRelationship.objects.filter(corpus=self.corpus).count() == count
         assert out["document_relationships_created"] == 0
 
+    def test_link_pass_repairs_stale_exhibit_link_urls(self):
+        """Same-corpus DOCUMENT (exhibit) mention links are repaired by the
+        linking pass when the corpus slug changes after stamping."""
+        from opencontractserver.annotations.models import CorpusReference as CR
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        self.corpus.refresh_from_db()
+        self.corpus.slug = "renamed-s1-corpus"
+        self.corpus.save()
+
+        EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+        doc_ref = CR.objects.get(corpus=self.corpus, reference_type=C.REF_DOCUMENT)
+        self.exhibit_in_corpus.refresh_from_db()
+        assert doc_ref.source_annotation.link_url == (
+            f"/d/{self.corpus.creator.slug}/renamed-s1-corpus"
+            f"/{self.exhibit_in_corpus.slug}"
+        )
+
     def test_defined_terms_opt_in_only(self):
         # Default apply excludes DEFINED_TERM.
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
         assert (
-            CorpusReference.objects.filter(
-                corpus=self.corpus, reference_type=C.REF_DEFINED_TERM
+            Annotation.objects.filter(
+                corpus=self.corpus, annotation_label__text=C.LABEL_REF_TERM
             ).count()
             == 0
         )
 
-    def test_defined_terms_when_requested(self):
+    def test_defined_terms_create_mentions_only(self):
+        """Definition sites are mention-only: the OC_REF_TERM annotation
+        already carries ``term:<slug>`` in its data, so no CorpusReference
+        row is written until usage->definition linking exists (a definition
+        site has no target — it IS the target)."""
         # PRIMARY_TEXT has no parenthetical definition; add a doc that does.
         doc = Document.objects.create(title="Defs", creator=self.user)
         doc.txt_extract_file.save(
@@ -198,18 +306,18 @@ class EnrichmentWriterTests(TestCase):
             creator_id=self.user.id,
             types=list(C.ALL_REFERENCE_TYPES),
         )
-        keys = set(
-            CorpusReference.objects.filter(
-                corpus=self.corpus, reference_type=C.REF_DEFINED_TERM
-            ).values_list("canonical_key", flat=True)
+        term_anns = Annotation.objects.filter(
+            corpus=self.corpus, annotation_label__text=C.LABEL_REF_TERM
         )
+        keys = {a.data.get("canonical_key") for a in term_anns if a.data}
         assert "term:company" in keys
         assert "term:change-of-control" in keys
-        ref = CorpusReference.objects.filter(
-            corpus=self.corpus, canonical_key="term:company"
-        ).first()
-        assert ref is not None
-        assert ref.resolution_status == C.STATUS_RESOLVED
+        assert (
+            CorpusReference.objects.filter(
+                corpus=self.corpus, reference_type=C.REF_DEFINED_TERM
+            ).count()
+            == 0
+        )
 
     def test_longer_alias_match_does_not_duplicate_mention(self):
         """Growing the alias registry lengthens law-citation spans; the

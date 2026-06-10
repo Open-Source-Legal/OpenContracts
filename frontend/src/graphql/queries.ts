@@ -929,6 +929,40 @@ export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
   }
 `;
 
+// Lean analysis listing used to discover a corpus's reference-enrichment
+// Analysis (matched client-side on analyzer.taskName) so the document viewer
+// can auto-merge its reference-mention annotations into the annotation layer.
+export interface EnrichmentAnalysisNode {
+  id: string;
+  analyzer?: { id: string; taskName?: string | null } | null;
+}
+
+export interface GetAnalysesForCorpusEnrichmentInputType {
+  corpusId: string;
+}
+
+export interface GetAnalysesForCorpusEnrichmentOutputType {
+  analyses: {
+    edges: { node: EnrichmentAnalysisNode }[];
+  };
+}
+
+export const GET_ANALYSES_FOR_CORPUS_ENRICHMENT = gql`
+  query analysesForCorpusEnrichment($corpusId: ID) {
+    analyses(corpusId: $corpusId) {
+      edges {
+        node {
+          id
+          analyzer {
+            id
+            taskName
+          }
+        }
+      }
+    }
+  }
+`;
+
 // Lean analyzer listing used to discover the corpus-reference-enrichment
 // analyzer (matched client-side on taskName) for the "Map the reference web"
 // bootstrap CTA. The analyzer table is small; no server-side filter needed.

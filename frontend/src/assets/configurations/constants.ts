@@ -455,6 +455,26 @@ export const PENDING_OC_URL_LABEL_ID = "__pending_oc_url__";
 // styling, and the auto-created server-side label all agree.
 export const OC_URL_LABEL_COLOR = "#2563EB";
 
+// Reference-mention label texts emitted by the enrichment engine. Keep in
+// sync with opencontractserver/enrichment/constants.py (LABEL_REF_*). These
+// are machine-readable label codes, not display strings — the viewers render
+// the friendly name from REFERENCE_MENTION_DISPLAY_NAMES instead of showing
+// the raw code on the hover chip.
+export const OC_REF_LAW_LABEL = "OC_REF_LAW";
+export const OC_REF_DOC_LABEL = "OC_REF_DOC";
+export const OC_REF_SECTION_LABEL = "OC_REF_SECTION";
+export const OC_REF_TERM_LABEL = "OC_REF_TERM";
+
+// Human-facing chip labels for reference mentions. A reference span reads as
+// a hyperlink (amber underline + external-link icon); the chip names the
+// *kind* of reference in plain language rather than the internal label code.
+export const REFERENCE_MENTION_DISPLAY_NAMES: Record<string, string> = {
+  [OC_REF_LAW_LABEL]: "Law",
+  [OC_REF_DOC_LABEL]: "Exhibit",
+  [OC_REF_SECTION_LABEL]: "Section",
+  [OC_REF_TERM_LABEL]: "Defined term",
+};
+
 // Geographic annotation conventions — issue #1819.
 // Annotations carrying these labels are auto-created by the geocoding
 // pipeline (``opencontractserver/utils/geocoding``) and store the resolved

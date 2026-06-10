@@ -29,6 +29,8 @@ from config.graphql.annotation_types import (  # noqa: F401
     NoteType,
     RelationInputType,
     RelationshipType,
+    WantedAuthorityKeyType,
+    WantedAuthorityType,
 )
 from config.graphql.base_types import (  # noqa: F401
     AgentTypeEnum,

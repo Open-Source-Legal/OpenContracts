@@ -256,3 +256,77 @@ class CorpusReferenceTraversalVisibilityTests(TestCase):
         assert edges
         # ...but the private target document nulls out for the reader.
         assert all(e["node"]["targetDocument"] is None for e in edges)
+
+
+class BackfillToolRegistryTests(TestCase):
+    def test_backfill_tools_are_registered(self):
+        names = {t.name for t in AVAILABLE_TOOLS}
+        assert "list_wanted_authorities" in names
+        assert "bootstrap_authority_corpus" in names
+
+    def test_bootstrap_tool_requires_approval_and_write(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "bootstrap_authority_corpus")
+        assert td.requires_approval is True
+        assert td.requires_write_permission is True
+
+    def test_list_wanted_tool_is_corpus_scoped_read_only(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "list_wanted_authorities")
+        assert td.requires_corpus is True
+        assert td.requires_approval is False
+        assert td.requires_write_permission is False
+
+
+class BackfillToolFunctionTests(TestCase):
+    def setUp(self):
+        from opencontractserver.llms.tools.core_tools import (
+            apply_corpus_reference_enrichment,
+        )
+
+        self.user = User.objects.create_user(username="owner2", password="p")
+        self.corpus = Corpus.objects.create(title="C2", creator=self.user)
+        doc = Document.objects.create(title="S-1 primary document", creator=self.user)
+        doc.txt_extract_file.save("d.txt", ContentFile(TEXT.encode("utf-8")))
+        self.corpus.add_document(document=doc, user=self.user)
+        apply_corpus_reference_enrichment(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+    def test_list_wanted_authorities_reports_queue(self):
+        from opencontractserver.llms.tools.core_tools import list_wanted_authorities
+
+        out = list_wanted_authorities(corpus_id=self.corpus.id, creator_id=self.user.id)
+        auths = {w["authority"] for w in out["authorities"]}
+        assert "dgcl" in auths
+
+    def test_bootstrap_tool_creates_authority_and_relinks(self):
+        from opencontractserver.llms.tools.core_tools import (
+            bootstrap_authority_corpus,
+        )
+
+        out = bootstrap_authority_corpus(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law",
+            sections=[
+                {"key": "dgcl:145", "heading": "DGCL § 145", "text": "..145.."},
+            ],
+        )
+        assert out["documents_created"] == 1
+        assert out["relink"]["law_references_linked"] == 1
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == "RESOLVED"
+
+    def test_bootstrap_tool_rejects_malformed_sections(self):
+        from opencontractserver.llms.tools.core_tools import (
+            bootstrap_authority_corpus,
+        )
+
+        with self.assertRaises(ValueError):
+            bootstrap_authority_corpus(
+                creator_id=self.user.id,
+                corpus_title="Broken",
+                sections=[{"heading": "missing key and text"}],
+            )
+        with self.assertRaises(ValueError):
+            bootstrap_authority_corpus(
+                creator_id=self.user.id, corpus_title="Empty", sections=[]
+            )

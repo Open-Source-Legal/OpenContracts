@@ -3,7 +3,10 @@
 All writes for one run happen inside a single transaction under one ``Analysis``
 (provenance). Creation is idempotent: re-running enriches only newly-found
 references (mentions are deduped by (document, span, label); ``CorpusReference``
-rows by their unique (source_annotation, reference_type, canonical_key) guard).
+rows by their unique (source_annotation, reference_type, canonical_key) guard
+plus a partial constraint covering keyless rows). ``DocumentRelationship``
+rollups are a derived projection of the resolved doc->doc references and are
+reconciled — created AND pruned — on every run.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ class WriteResult:
     relationships_created: int = 0
     references_created: int = 0
     document_relationships_created: int = 0
+    document_relationships_pruned: int = 0
     annotation_ids: list[int] = field(default_factory=list)
     reference_ids: list[int] = field(default_factory=list)
 
@@ -65,12 +69,18 @@ class EnrichmentWriter:
         # Dedup by (document, label, span START): the span END can legitimately
         # move when the alias registry grows (a longer authority alias wins
         # longest-first matching), and that must not duplicate the mention.
-        existing = Annotation.objects.filter(
-            document_id=res.source_document_id,
-            corpus=self.corpus,
-            annotation_label=label,
-            json__start=cand.start,
-        ).first()
+        # select_related keeps CorpusReference's save-time type<->label
+        # agreement check query-free for deduped mentions.
+        existing = (
+            Annotation.objects.filter(
+                document_id=res.source_document_id,
+                corpus=self.corpus,
+                annotation_label=label,
+                json__start=cand.start,
+            )
+            .select_related("annotation_label")
+            .first()
+        )
         if existing is not None:
             return existing, False
 
@@ -120,6 +130,14 @@ class EnrichmentWriter:
                     result.annotations_created += 1
                     result.annotation_ids.append(mention.pk)
 
+                # Defined-term definition sites are mention-only: the
+                # OC_REF_TERM annotation carries ``term:<slug>`` in its data
+                # and the site has no target (it IS the target). A
+                # CorpusReference row adds nothing until usage->definition
+                # linking exists.
+                if res.reference_type == C.REF_DEFINED_TERM:
+                    continue
+
                 # Within-document section link -> Relationship.
                 if (
                     res.reference_type == C.REF_SECTION
@@ -133,30 +151,65 @@ class EnrichmentWriter:
                 # the resolved target offset is recorded.)
                 self._ensure_corpus_reference(mention, res, result)
 
-                # Resolved doc->doc refs additionally roll up to a document-
-                # level edge: DocumentRelationship is what the corpus document
-                # graph renders (documents = nodes, relationships = edges).
-                if (
-                    res.reference_type == C.REF_DOCUMENT
-                    and res.target_document_id is not None
-                ):
-                    self._ensure_document_relationship(res, rel_label, result)
+            # Resolved doc->doc refs roll up to document-level edges:
+            # DocumentRelationship is what the corpus document graph renders
+            # (documents = nodes, relationships = edges).
+            self._reconcile_document_graph(rel_label, result)
 
         return result
 
-    def _ensure_document_relationship(self, res, rel_label, result):
-        _, created = DocumentRelationship.objects.get_or_create(
-            source_document_id=res.source_document_id,
-            target_document_id=res.target_document_id,
-            annotation_label=rel_label,
-            relationship_type=C.DOC_REL_RELATIONSHIP,
-            defaults={
-                "corpus": self.corpus,
-                "creator_id": self.creator_id,
-                "data": {"analysis_id": self.analysis.id if self.analysis else None},
-            },
+    def _reconcile_document_graph(self, rel_label, result):
+        """Sync the doc-graph projection with the durable reference truth.
+
+        ``DocumentRelationship`` rollups are a *derived projection* of the
+        resolved doc->doc ``CorpusReference`` rows — never a second source of
+        truth. Each run rebuilds the projection for this corpus: edges whose
+        backing reference disappeared are pruned, missing edges are created.
+        Enrichment-owned rows are recognized by the ``analysis_id`` key in
+        ``data``; user-authored rows are never deleted, and a user-authored
+        row for the same (source, target, label) pair already satisfies the
+        projection (no duplicate is added).
+        """
+        expected = set(
+            CorpusReference.objects.filter(
+                corpus=self.corpus,
+                reference_type=C.REF_DOCUMENT,
+                target_document__isnull=False,
+            ).values_list("source_annotation__document_id", "target_document_id")
         )
-        if created:
+
+        projection_rows = DocumentRelationship.objects.filter(
+            corpus=self.corpus,
+            relationship_type=C.DOC_REL_RELATIONSHIP,
+            annotation_label=rel_label,
+        )
+        stale_ids = [
+            pk
+            for pk, src, tgt, data in projection_rows.values_list(
+                "id", "source_document_id", "target_document_id", "data"
+            )
+            if isinstance(data, dict)
+            and "analysis_id" in data  # enrichment-owned only
+            and (src, tgt) not in expected
+        ]
+        if stale_ids:
+            DocumentRelationship.objects.filter(id__in=stale_ids).delete()
+            result.document_relationships_pruned += len(stale_ids)
+
+        # User-authored rows count toward coverage: don't shadow them.
+        covered = set(
+            projection_rows.values_list("source_document_id", "target_document_id")
+        )
+        for src, tgt in sorted(expected - covered):
+            DocumentRelationship.objects.create(
+                source_document_id=src,
+                target_document_id=tgt,
+                annotation_label=rel_label,
+                relationship_type=C.DOC_REL_RELATIONSHIP,
+                corpus=self.corpus,
+                creator_id=self.creator_id,
+                data={"analysis_id": self.analysis.id if self.analysis else None},
+            )
             result.document_relationships_created += 1
 
     def _ensure_section_relationship(self, mention, res, rel_label, result):

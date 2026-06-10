@@ -29,6 +29,7 @@ from config.graphql.graphene_types import (
     PageAwareAnnotationType,
     PdfPageInfoType,
     RelationshipType,
+    WantedAuthorityType,
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.annotations.models import (
@@ -206,6 +207,36 @@ class AnnotationQueryMixin:
             edge_count=data["edge_count"],
             mention_count=data["mention_count"],
             truncated=data["truncated"],
+        )
+
+    wanted_authorities = graphene.List(
+        graphene.NonNull(WantedAuthorityType),
+        corpus_id=graphene.ID(
+            required=False,
+            description="Restrict the backlog to one corpus; omit for all visible.",
+        ),
+        required=True,
+        description=(
+            "The missing-authority backlog: EXTERNAL law citations visible to "
+            "the user, aggregated by authority prefix and ranked by mention "
+            "volume — what to bootstrap next to resolve the most references."
+        ),
+    )
+
+    def resolve_wanted_authorities(self, info, corpus_id=None) -> Any:
+        """Aggregate through ``CorpusReferenceService`` (visibility-scoped);
+        the service returns plain dicts that graphene's default resolver maps
+        onto ``WantedAuthorityType`` fields."""
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        pk: int | None = None
+        if corpus_id:
+            pk_str = from_global_id(corpus_id)[1]
+            if not str(pk_str).isdigit():
+                return []
+            pk = int(pk_str)
+        return CorpusReferenceService.wanted_authorities(
+            info.context.user, corpus_id=pk
         )
 
     # ANNOTATION RESOLVERS #####################################

@@ -42,14 +42,14 @@ def _make_corpus(user):
 
 
 def _make_analysis(user, corpus):
-    analyzer, _ = Analyzer.objects.get_or_create(
-        id=C.ENRICHMENT_ANALYZER_ID,
-        defaults={
-            "task_name": C.ENRICHMENT_ANALYZER_TASK,
-            "description": C.ENRICHMENT_ANALYZER_TITLE,
-            "creator": user,
-        },
-    )
+    # Reuse the service's converge logic: the analyzer/0009+0013 data
+    # migrations auto-sync analyzer rows during ``migrate``, so a freshly
+    # migrated test DB ALREADY contains the enrichment Analyzer under
+    # ``id == task_name`` — creating by friendly id here would violate the
+    # task_name unique constraint.
+    from opencontractserver.enrichment.services import EnrichmentService
+
+    analyzer = EnrichmentService.get_or_create_analyzer(user.id)
     return Analysis.objects.create(
         analyzer=analyzer, analyzed_corpus=corpus, creator=user
     )
@@ -148,6 +148,10 @@ class CorpusAnalyzerTaskTests(TestCase):
         )
 
     def test_auto_sync_creates_analyzer_row_when_absent(self):
+        # The analyzer/0009+0013 data migrations pre-sync the row into any
+        # freshly migrated DB — clear it to exercise the absent branch
+        # hermetically (TestCase rolls the delete back afterwards).
+        Analyzer.objects.filter(task_name=C.ENRICHMENT_ANALYZER_TASK).delete()
         assert not Analyzer.objects.filter(
             task_name=C.ENRICHMENT_ANALYZER_TASK
         ).exists()

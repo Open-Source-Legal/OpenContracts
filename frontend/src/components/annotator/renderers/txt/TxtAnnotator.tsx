@@ -43,7 +43,11 @@ import {
   X,
   AlertCircle,
 } from "lucide-react";
-import { isUrlAnnotation, openAnnotationUrl } from "../../utils/urlAnnotation";
+import {
+  annotationChipLabel,
+  isUrlAnnotation,
+  openAnnotationUrl,
+} from "../../utils/urlAnnotation";
 import { CreateUrlAnnotationModal } from "../../components/modals/CreateUrlAnnotationModal";
 import {
   encodeTextBlock,
@@ -1273,7 +1277,7 @@ const TxtAnnotator: React.FC<TxtAnnotatorProps> = ({
                       aria-label="External link annotation"
                     />
                   )}
-                  {annotation.annotationLabel.text}
+                  {annotationChipLabel(annotation)}
                 </Label>
                 <RadialButtonCloud
                   parentBackgroundColor={

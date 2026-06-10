@@ -76,6 +76,31 @@ class CrossCorpusLinkingTests(TestCase):
         )
         assert out["law_references_linked"] == 2
 
+    def test_link_pass_repairs_stale_link_urls(self):
+        """``link_url`` is a cached projection of the resolved target's slug
+        path — slug drift (corpus rename) must be repaired by the next
+        linking pass, not 404 forever."""
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        auth = self._bootstrap_dgcl()
+        EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+        auth_corpus = Corpus.objects.select_related("creator").get(pk=auth["corpus_id"])
+        auth_corpus.slug = "renamed-dgcl"
+        auth_corpus.save()
+
+        out = EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        assert out["links_restamped"] >= 2  # dgcl:145 and dgcl:203 mentions
+
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.target_document is not None
+        assert ref.source_annotation.link_url == (
+            f"/d/{auth_corpus.creator.slug}/renamed-dgcl/{ref.target_document.slug}"
+        )
+
     def test_link_is_idempotent(self):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
         self._bootstrap_dgcl()
