@@ -1,0 +1,210 @@
+"""Tests for the corpus-scoped governanceGraph GraphQL query.
+
+The governance graph is the in-app surface of the reference web: nodes are
+documents (filing primaries, exhibits, statute sections) plus "ghost" nodes
+for still-EXTERNAL law citations; edges are resolved LAW links (possibly
+cross-corpus), EXTERNAL law citations, and ``DocumentRelationship`` rows —
+weighted by mention count. Mirrors ``demo/export_governance_graph.py``,
+visibility-enforced through the service layer.
+"""
+
+from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
+from django.test import TestCase
+from graphql_relay import to_global_id
+
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
+from opencontractserver.enrichment.authorities import (
+    AuthorityCorpusBootstrapper,
+    AuthoritySection,
+)
+from opencontractserver.enrichment.services import EnrichmentService
+
+User = get_user_model()
+
+S1_TEXT = (
+    "Indemnification is provided under Section 145 of the Delaware General "
+    "Corporation Law. As permitted by Section 145 of the Delaware General "
+    "Corporation Law, our charter limits liability. We are also governed by "
+    "Section 203 of the Delaware General Corporation Law. The form of "
+    "underwriting agreement is filed as Exhibit 1.1 hereto."
+)
+
+GRAPH_QUERY = """
+    query ($cid: ID!) {
+      governanceGraph(corpusId: $cid) {
+        corpora { id title kind }
+        nodes { id documentId title kind corpusId authority degree }
+        edges { source target edgeType weight }
+        documentCount
+        externalKeyCount
+        edgeCount
+        mentionCount
+        truncated
+      }
+    }
+"""
+
+
+class _Ctx:
+    def __init__(self, user):
+        self.user = user
+
+
+def _run_graph(user, corpus_pk):
+    from graphene.test import Client
+
+    from config.graphql.schema import schema
+
+    return Client(schema, context_value=_Ctx(user)).execute(
+        GRAPH_QUERY, variables={"cid": to_global_id("CorpusType", corpus_pk)}
+    )
+
+
+class GovernanceGraphTests(TestCase):
+    """Happy-path graph composition for a filing corpus with a linked authority."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="owner", password="p")
+        self.corpus = Corpus.objects.create(title="S-1 Corpus", creator=self.user)
+        self.primary = Document.objects.create(
+            title="Acme Inc. S-1 (2026-01-01)", creator=self.user
+        )
+        self.primary.txt_extract_file.save(
+            "s1.txt", ContentFile(S1_TEXT.encode("utf-8"))
+        )
+        self.exhibit = Document.objects.create(
+            title="Acme Inc. S-1 (2026-01-01) - Exhibit 1.1: EX-1.1",
+            creator=self.user,
+        )
+        self.exhibit.txt_extract_file.save("ex.txt", ContentFile(b"Underwriting."))
+        self.corpus.add_document(document=self.primary, user=self.user)
+        self.corpus.add_document(document=self.exhibit, user=self.user)
+        # `add_document` creates corpus-local copies — enrichment resolves to
+        # those, so the graph must be asserted against the in-corpus ids.
+        self.primary_id, self.exhibit_id = (
+            self.corpus.document_paths.filter(
+                is_current=True, document__title=t
+            ).values_list("document_id", flat=True)[0]
+            for t in (self.primary.title, self.exhibit.title)
+        )
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        # Authority covers § 145 only — § 203 stays an EXTERNAL ghost.
+        auth = AuthorityCorpusBootstrapper().bootstrap(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law",
+            sections=[
+                AuthoritySection(
+                    key="dgcl:145", heading="DGCL § 145", text="Indemnification."
+                ),
+            ],
+        )
+        self.auth_corpus_id = auth["corpus_id"]
+        EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        self.statute_id = (
+            Corpus.objects.get(pk=self.auth_corpus_id)
+            .document_paths.filter(is_current=True)
+            .values_list("document_id", flat=True)[0]
+        )
+
+    def _graph(self):
+        result = _run_graph(self.user, self.corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        return result["data"]["governanceGraph"]
+
+    def _node_by_id(self, graph, node_id):
+        return next(n for n in graph["nodes"] if n["id"] == node_id)
+
+    def test_nodes_cover_documents_and_external_ghosts(self):
+        graph = self._graph()
+        primary_gid = to_global_id("DocumentType", self.primary_id)
+        exhibit_gid = to_global_id("DocumentType", self.exhibit_id)
+        statute_gid = to_global_id("DocumentType", self.statute_id)
+
+        primary = self._node_by_id(graph, primary_gid)
+        assert primary["kind"] == "primary"
+        assert primary["documentId"] == primary_gid
+        assert primary["corpusId"] == to_global_id("CorpusType", self.corpus.id)
+
+        assert self._node_by_id(graph, exhibit_gid)["kind"] == "exhibit"
+
+        statute = self._node_by_id(graph, statute_gid)
+        assert statute["kind"] == "statute"
+        assert statute["authority"] == "dgcl"
+        assert statute["corpusId"] == to_global_id("CorpusType", self.auth_corpus_id)
+
+        ghost = self._node_by_id(graph, "key:dgcl:203")
+        assert ghost["kind"] == "external"
+        assert ghost["documentId"] is None
+        assert ghost["authority"] == "dgcl"
+        assert ghost["title"] == "dgcl:203"
+
+    def test_edges_weighted_by_mention_count(self):
+        graph = self._graph()
+        primary_gid = to_global_id("DocumentType", self.primary_id)
+        statute_gid = to_global_id("DocumentType", self.statute_id)
+        exhibit_gid = to_global_id("DocumentType", self.exhibit_id)
+
+        by_key = {(e["source"], e["target"], e["edgeType"]): e for e in graph["edges"]}
+        law = by_key[(primary_gid, statute_gid, "LAW")]
+        assert law["weight"] == 2  # § 145 cited twice
+        external = by_key[(primary_gid, "key:dgcl:203", "LAW_EXTERNAL")]
+        assert external["weight"] == 1
+        assert (primary_gid, exhibit_gid, "DOCUMENT") in by_key
+
+        # Degree = sum of weights touching the node.
+        primary = self._node_by_id(graph, primary_gid)
+        doc_weight = by_key[(primary_gid, exhibit_gid, "DOCUMENT")]["weight"]
+        assert primary["degree"] == 2 + 1 + doc_weight
+
+    def test_corpora_classified_filing_vs_authority(self):
+        graph = self._graph()
+        kinds = {c["id"]: c["kind"] for c in graph["corpora"]}
+        assert kinds[to_global_id("CorpusType", self.corpus.id)] == "filing"
+        assert kinds[to_global_id("CorpusType", self.auth_corpus_id)] == "authority"
+
+    def test_stats(self):
+        graph = self._graph()
+        assert graph["documentCount"] == 3  # primary, exhibit, statute
+        assert graph["externalKeyCount"] == 1  # dgcl:203
+        assert graph["edgeCount"] == len(graph["edges"])
+        assert graph["mentionCount"] == sum(e["weight"] for e in graph["edges"])
+        assert graph["truncated"] is False
+
+    def test_invisible_corpus_returns_empty_graph(self):
+        stranger = User.objects.create_user(username="stranger", password="p")
+        result = _run_graph(stranger, self.corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        graph = result["data"]["governanceGraph"]
+        assert graph["nodes"] == []
+        assert graph["edges"] == []
+        assert graph["documentCount"] == 0
+
+    def test_invisible_authority_target_degrades_to_external_ghost(self):
+        # A reader of the (public) filing corpus who cannot see the private
+        # authority corpus must get a ghost node — not the statute document.
+        reader = User.objects.create_user(username="reader", password="p")
+        self.corpus.is_public = True
+        self.corpus.save()
+        Document.objects.filter(id__in=[self.primary_id, self.exhibit_id]).update(
+            is_public=True
+        )
+
+        result = _run_graph(reader, self.corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        graph = result["data"]["governanceGraph"]
+
+        statute_gid = to_global_id("DocumentType", self.statute_id)
+        node_ids = {n["id"] for n in graph["nodes"]}
+        assert statute_gid not in node_ids
+        assert "key:dgcl:145" in node_ids  # degraded to ghost, rolled to root
+        edge_types = {(e["source"], e["target"]): e["edgeType"] for e in graph["edges"]}
+        primary_gid = to_global_id("DocumentType", self.primary_id)
+        assert edge_types[(primary_gid, "key:dgcl:145")] == "LAW_EXTERNAL"
+        # The private authority corpus must not be listed.
+        corpus_ids = {c["id"] for c in graph["corpora"]}
+        assert to_global_id("CorpusType", self.auth_corpus_id) not in corpus_ids

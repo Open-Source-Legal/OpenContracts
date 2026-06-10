@@ -61,6 +61,19 @@ ENRICHMENT_ANALYZER_TASK = (
 ENRICHMENT_ANALYZER_ID = "corpus-reference-enrichment"
 ENRICHMENT_ANALYZER_TITLE = "Corpus Reference Enrichment"
 
+# Governance-graph vocabulary (node kinds / edge types / corpus roles) — the
+# contract between GovernanceGraphService, the GraphQL types, and the frontend
+# panel. Mirrors demo/export_governance_graph.py.
+GRAPH_EDGE_LAW = "LAW"  # resolved law citation -> statute document
+GRAPH_EDGE_LAW_EXTERNAL = "LAW_EXTERNAL"  # citation with no visible target doc
+GRAPH_EDGE_DOCUMENT = "DOCUMENT"  # DocumentRelationship rollup (doc -> doc)
+GRAPH_NODE_PRIMARY = "primary"
+GRAPH_NODE_EXHIBIT = "exhibit"
+GRAPH_NODE_STATUTE = "statute"
+GRAPH_NODE_EXTERNAL = "external"  # ghost node for an unresolved canonical key
+GRAPH_CORPUS_FILING = "filing"
+GRAPH_CORPUS_AUTHORITY = "authority"
+
 # Defaults / thresholds.
 DEFAULT_SAMPLE_N = 10
 MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1

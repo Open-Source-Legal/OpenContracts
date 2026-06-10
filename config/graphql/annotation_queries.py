@@ -13,13 +13,17 @@ from graphene_django.fields import DjangoConnectionField
 from graphene_django.filter import DjangoFilterConnectionField
 from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
-from graphql_relay import from_global_id
+from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.filters import LabelFilter, LabelsetFilter, RelationshipFilter
 from config.graphql.graphene_types import (
     AnnotationLabelType,
     AnnotationType,
     CorpusReferenceType,
+    GovernanceGraphCorpusType,
+    GovernanceGraphEdgeType,
+    GovernanceGraphNodeType,
+    GovernanceGraphType,
     LabelSetType,
     NoteType,
     PageAwareAnnotationType,
@@ -38,7 +42,9 @@ from opencontractserver.constants.annotations import (
     DOCUMENT_ANNOTATION_INDEX_LIMIT,
     MANUAL_ANNOTATION_SENTINEL,
 )
+from opencontractserver.constants.stats import GOVERNANCE_GRAPH_MAX_NODES
 from opencontractserver.documents.models import Document
+from opencontractserver.enrichment import constants as enrichment_constants
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import LabelType
 
@@ -71,6 +77,117 @@ class AnnotationQueryMixin:
         if kwargs.get("canonical_key"):
             qs = qs.filter(canonical_key=kwargs["canonical_key"])
         return qs
+
+    governance_graph = graphene.Field(
+        GovernanceGraphType,
+        corpus_id=graphene.ID(required=True),
+        limit=graphene.Int(required=False),
+        description=(
+            "The corpus-scoped reference web in node-link form: documents, "
+            "statute sections, and external-citation ghost nodes, with "
+            "mention-weighted LAW / LAW_EXTERNAL / DOCUMENT edges. Powers the "
+            "Governance Graph panel on the Corpus Intelligence home."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_governance_graph(self, info, corpus_id, limit=None) -> Any:
+        """Build the governance graph through ``GovernanceGraphService``.
+
+        All visibility decisions (corpus READ gate, per-document READ checks,
+        ghost degradation for invisible targets) live in the service; this
+        resolver only translates raw PKs / canonical keys into relay ids.
+        """
+        # Function-local service import (services import GraphQL types
+        # transitively — module-level import would cycle).
+        from opencontractserver.enrichment.services import GovernanceGraphService
+
+        empty = GovernanceGraphType(
+            corpora=[],
+            nodes=[],
+            edges=[],
+            document_count=0,
+            external_key_count=0,
+            edge_count=0,
+            mention_count=0,
+            truncated=False,
+        )
+
+        corpus_pk = from_global_id(corpus_id)[1]
+        # Malformed/empty global ids decode to a non-numeric pk; treat as
+        # not-found (empty graph) rather than erroring.
+        if not str(corpus_pk).isdigit():
+            return empty
+
+        node_cap = GOVERNANCE_GRAPH_MAX_NODES
+        if limit is not None and 0 < limit < node_cap:
+            node_cap = limit
+
+        data = GovernanceGraphService.build(
+            info.context.user, int(corpus_pk), node_cap, request=info.context
+        )
+        if data is None:
+            return empty
+
+        def _node_id(endpoint) -> str:
+            kind, val = endpoint
+            if kind == "doc":
+                return to_global_id("DocumentType", val)
+            return f"key:{val}"
+
+        nodes = [
+            GovernanceGraphNodeType(
+                id=to_global_id("DocumentType", n["doc_pk"]),
+                document_id=to_global_id("DocumentType", n["doc_pk"]),
+                title=n["title"],
+                kind=n["kind"],
+                corpus_id=(
+                    to_global_id("CorpusType", n["corpus_pk"])
+                    if n["corpus_pk"]
+                    else None
+                ),
+                authority=n["authority"],
+                degree=n["degree"],
+            )
+            for n in data["doc_nodes"]
+        ] + [
+            GovernanceGraphNodeType(
+                id=f"key:{g['key']}",
+                document_id=None,
+                title=g["key"],
+                kind=enrichment_constants.GRAPH_NODE_EXTERNAL,
+                corpus_id=None,
+                authority=g["authority"],
+                degree=g["degree"],
+            )
+            for g in data["ghost_nodes"]
+        ]
+
+        return GovernanceGraphType(
+            corpora=[
+                GovernanceGraphCorpusType(
+                    id=to_global_id("CorpusType", c["corpus_pk"]),
+                    title=c["title"],
+                    kind=c["kind"],
+                )
+                for c in data["corpora"]
+            ],
+            nodes=nodes,
+            edges=[
+                GovernanceGraphEdgeType(
+                    source=_node_id(e["source"]),
+                    target=_node_id(e["target"]),
+                    edge_type=e["edge_type"],
+                    weight=e["weight"],
+                )
+                for e in data["edges"]
+            ],
+            document_count=data["document_count"],
+            external_key_count=data["external_key_count"],
+            edge_count=data["edge_count"],
+            mention_count=data["mention_count"],
+            truncated=data["truncated"],
+        )
 
     # ANNOTATION RESOLVERS #####################################
     annotations = DjangoConnectionField(
