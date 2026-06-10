@@ -365,7 +365,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     return (
       <ModernLoadingDisplay
         type="auth"
-        message="Initializing cite"
+        message="Initializing OpenContracts"
         size="large"
       />
     );
