@@ -64,7 +64,7 @@
   },
   "about": {
     "eyebrow": "About",
-    "title": "The citation layer that agents and humans can both read.",
+    "title": "Open document intelligence that agents and humans can both read.",
     "lede": "*OpenContracts* is an open citation graph for document repositories of every kind. Humans curate the ground truth, agents reason over it, and the graph compounds. This page is the long version — the one collaborators read before they decide to commit.",
     "sections": [
       {

@@ -15,7 +15,8 @@ from pydantic import BaseModel
 class Findings(BaseModel):
     unusual_terms: list[str]
 
-# Point an agent at a whole corpus — grounded in real annotations + citations
+# Run inside an async context (an async function, a notebook, or `ipython --asyncio`).
+# `my_contracts` is a Corpus — pass its integer PK or an ORM instance.
 agent = await agents.for_corpus(corpus=my_contracts)
 findings = await agent.structured_response(
     prompt="Flag any unusual payment terms across these contracts.",
