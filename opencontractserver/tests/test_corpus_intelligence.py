@@ -160,6 +160,20 @@ class CorpusIntelligenceResolverTestCase(TestCase):
         kept_pks = {int(from_global_id(n["id"])[1]) for n in graph["nodes"]}
         self.assertIn(self.docs[1].id, kept_pks)
 
+    def test_graph_nodes_ordered_by_degree(self):
+        """Nodes arrive degree-ranked (the documented API contract).
+
+        The highest-degree document must come first; ties may arrive in any
+        order, so only the descending-degree invariant is asserted.
+        """
+        result = self.owner_client.execute(
+            self.GRAPH_QUERY, variables={"corpusId": self.corpus_gid}
+        )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        degrees = [n["degree"] for n in result["data"]["corpusDocumentGraph"]["nodes"]]
+        self.assertEqual(degrees, sorted(degrees, reverse=True))
+        self.assertEqual(degrees[0], 2)  # doc1 leads
+
     def test_graph_hidden_from_unauthorized_user(self):
         result = self.stranger_client.execute(
             self.GRAPH_QUERY, variables={"corpusId": self.corpus_gid}

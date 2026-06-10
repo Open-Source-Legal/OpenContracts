@@ -129,7 +129,7 @@ export const CorpusIntelligenceOverview: React.FC<
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
 
-  const { data: graphData } = useQuery<
+  const { data: graphData, loading: graphLoading } = useQuery<
     GetCorpusDocumentGraphOutputType,
     GetCorpusDocumentGraphInputType
   >(GET_CORPUS_DOCUMENT_GRAPH, { variables });
@@ -153,6 +153,7 @@ export const CorpusIntelligenceOverview: React.FC<
         totalNodeCount={graph?.totalNodeCount ?? 0}
         totalEdgeCount={graph?.totalEdgeCount ?? 0}
         truncated={graph?.truncated ?? false}
+        loading={graphLoading && !graph}
         onExplore={onExploreGraph}
       />
 

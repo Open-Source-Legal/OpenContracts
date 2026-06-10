@@ -1,10 +1,14 @@
 import React, { useMemo } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import * as d3 from "d3";
 import { Share2, ArrowRight } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-import { DOCUMENT_RELATIONSHIP_TYPES } from "../../../../assets/configurations/constants";
+import {
+  DOCUMENT_RELATIONSHIP_TYPES,
+  DOCUMENT_RELATIONSHIP_TYPE_LABELS,
+  DOCUMENT_GRAPH_LAYOUT,
+} from "../../../../assets/configurations/constants";
 import {
   CorpusDocumentGraphNode,
   CorpusDocumentGraphEdge,
@@ -23,12 +27,15 @@ import {
  * stepped a fixed number of ticks). This keeps it cheap and test-friendly.
  */
 
-// Layout geometry. The viewBox is fixed; the SVG scales to its container.
-const VIEW_WIDTH = 640;
-const VIEW_HEIGHT = 360;
-const SIMULATION_TICKS = 160;
-const MIN_NODE_RADIUS = 5;
-const MAX_NODE_RADIUS = 16;
+// Layout geometry lives in the shared constants file (no magic numbers);
+// destructured here so the layout math below stays terse.
+const {
+  VIEW_WIDTH,
+  VIEW_HEIGHT,
+  SIMULATION_TICKS,
+  MIN_NODE_RADIUS,
+  MAX_NODE_RADIUS,
+} = DOCUMENT_GRAPH_LAYOUT;
 
 interface SimNode extends CorpusDocumentGraphNode {
   x: number;
@@ -44,6 +51,12 @@ interface DocumentGraphGlimpseProps {
   totalNodeCount: number;
   totalEdgeCount: number;
   truncated: boolean;
+  /**
+   * Graph query in flight. While loading with no data yet, a skeleton is
+   * shown instead of the empty state — otherwise every page load flashes
+   * "No relationships yet" before the data arrives.
+   */
+  loading?: boolean;
   /** Escape hatch to the fuller documents/relationships view. */
   onExplore?: () => void;
   testId?: string;
@@ -127,6 +140,22 @@ const EmptyState = styled.div`
   text-align: center;
   font-size: 0.8125rem;
   color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
+const shimmer = keyframes`
+  0% { opacity: 0.45; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.45; }
+`;
+
+// First-load placeholder matching the SVG's aspect ratio so the card doesn't
+// reflow when the graph arrives. Mirrors IntelligencePanel's StatSkeleton.
+const GraphSkeleton = styled.div`
+  width: 100%;
+  aspect-ratio: ${VIEW_WIDTH} / ${VIEW_HEIGHT};
+  border-radius: 10px;
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  animation: ${shimmer} 1.2s ease-in-out infinite;
 `;
 
 // Legend — without it the graph is just blue dots and lines: a first-time
@@ -216,6 +245,7 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
   totalNodeCount,
   totalEdgeCount,
   truncated,
+  loading = false,
   onExplore,
   testId = "document-graph-glimpse",
 }) => {
@@ -243,6 +273,22 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
   );
 
   if (nodes.length === 0) {
+    // While the query is in flight an empty node list means "unknown", not
+    // "no relationships" — show a skeleton so first load doesn't flash the
+    // misleading empty message.
+    if (loading) {
+      return (
+        <GraphCard data-testid={testId}>
+          <GraphHeader>
+            <GraphTitle>
+              <Share2 size={16} />
+              Document graph
+            </GraphTitle>
+          </GraphHeader>
+          <GraphSkeleton data-testid={`${testId}-skeleton`} />
+        </GraphCard>
+      );
+    }
     return (
       <GraphCard data-testid={testId}>
         <GraphHeader>
@@ -267,10 +313,14 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
           How these documents interconnect
         </GraphTitle>
         <GraphMeta data-testid={`${testId}-meta`}>
+          {/* "total" matters: when truncated, totalEdgeCount includes edges
+              between documents that didn't make the node cap and therefore
+              aren't drawn — without the qualifier the count looks wrong. */}
           {totalNodeCount} linked{" "}
           {totalNodeCount === 1 ? "document" : "documents"}
           {" · "}
-          {totalEdgeCount} {totalEdgeCount === 1 ? "connection" : "connections"}
+          {totalEdgeCount} total{" "}
+          {totalEdgeCount === 1 ? "connection" : "connections"}
           {truncated ? " (showing the most connected)" : ""}
         </GraphMeta>
       </GraphHeader>
@@ -346,7 +396,7 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
                 strokeWidth="1.5"
               />
             </svg>
-            Citation / exhibit
+            {DOCUMENT_RELATIONSHIP_TYPE_LABELS.RELATIONSHIP}
           </LegendItem>
         )}
         {hasNoteEdge && (
@@ -362,7 +412,7 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
                 strokeDasharray="3 3"
               />
             </svg>
-            Related filing
+            {DOCUMENT_RELATIONSHIP_TYPE_LABELS.NOTES}
           </LegendItem>
         )}
         <LegendItem>

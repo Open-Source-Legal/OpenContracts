@@ -197,6 +197,11 @@ test.describe("CorpusIntelligenceOverview", () => {
       page.locator('[data-testid="corpus-intelligence-overview-suggestion"]')
     ).not.toHaveCount(0);
 
+    // The explore escape hatch renders when onExploreGraph is provided.
+    await expect(
+      page.locator('[data-testid="document-graph-glimpse-explore"]')
+    ).toBeVisible();
+
     await docScreenshot(page, "corpus--intelligence-overview--with-data");
 
     await component.unmount();
@@ -229,6 +234,11 @@ test.describe("CorpusIntelligenceOverview", () => {
     await chip.click();
 
     await expect.poll(() => submitted.length).toBeGreaterThan(0);
+
+    // No onExploreGraph prop on this mount → no explore escape hatch.
+    await expect(
+      page.locator('[data-testid="document-graph-glimpse-explore"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });

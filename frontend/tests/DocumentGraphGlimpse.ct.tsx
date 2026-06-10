@@ -65,9 +65,36 @@ test.describe("DocumentGraphGlimpse", () => {
     await expect(
       page.locator('[data-testid="document-graph-glimpse-meta"]')
     ).toContainText("3 linked documents");
+    // "total" qualifier: when truncated, the count includes edges that are
+    // not drawn, so the copy must not imply every connection is on screen.
     await expect(
       page.locator('[data-testid="document-graph-glimpse-meta"]')
-    ).toContainText("2 connections");
+    ).toContainText("2 total connections");
+
+    await component.unmount();
+  });
+
+  test("shows a skeleton (not the empty state) while loading", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <DocumentGraphGlimpse
+        nodes={[]}
+        edges={[]}
+        totalNodeCount={0}
+        totalEdgeCount={0}
+        truncated={false}
+        loading={true}
+      />
+    );
+
+    await expect(
+      page.locator('[data-testid="document-graph-glimpse-skeleton"]')
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('[data-testid="document-graph-glimpse-empty"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });
