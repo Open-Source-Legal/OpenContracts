@@ -57,12 +57,19 @@ export function normalizeHexColor(hex: string): string {
 
 /**
  * Returns a CSS-color value that is safe to interpolate directly into a CSS
- * property (e.g. ``background: ${color}``). Only a bare hex color (#RGB,
- * #RRGGBB, #RRGGBBAA) or a plain alphabetic named color (``red``, ``blue``) is
- * allowed through; anything else — including values with ``;``, ``{``, ``(`` or
- * whitespace that could break out of the property — collapses to ``fallback``.
- * Guards against (self-)XSS when the color originates from user-controlled data
- * such as annotation-label colors.
+ * property (e.g. ``background: ${color}``). A bare hex color (#RGB, #RRGGBB,
+ * #RRGGBBAA), a plain alphabetic named color (``red``, ``blue``), or a
+ * functional ``rgb()/rgba()/hsl()/hsla()`` notation whose body contains ONLY
+ * numerics and separators is allowed through; anything else — including values
+ * with ``;``, ``{``, ``(`` (outside the allowed functions) or whitespace that
+ * could break out of the property — collapses to ``fallback``. Guards against
+ * (self-)XSS when the color originates from user-controlled data such as
+ * annotation-label colors.
+ *
+ * The functional form is intentionally permissive about *which* numbers appear
+ * (it does not range-check channels) but strict about *what characters* may
+ * appear inside the parens (digits, ``.``, ``,``, ``%``, ``/`` and spaces only),
+ * which is what makes it injection-safe.
  *
  * @param value - Candidate color string, or null/undefined
  * @param fallback - Color returned when ``value`` is missing/unsafe
@@ -71,7 +78,10 @@ export function normalizeHexColor(hex: string): string {
  * @example
  * safeCssColor("#4A90E2", "#000")              // "#4A90E2"
  * safeCssColor("red", "#000")                  // "red"
+ * safeCssColor("rgb(255, 0, 0)", "#000")       // "rgb(255, 0, 0)"
+ * safeCssColor("rgba(0,0,0,.5)", "#000")       // "rgba(0,0,0,.5)"
  * safeCssColor("red; } body { x:y", "#000")    // "#000"
+ * safeCssColor("rgb(1); evil", "#000")         // "#000"
  * safeCssColor(null, "#000")                   // "#000"
  */
 export function safeCssColor(
@@ -84,7 +94,10 @@ export function safeCssColor(
     trimmed
   );
   const isNamed = /^[a-zA-Z]+$/.test(trimmed);
-  return isHex || isNamed ? trimmed : fallback;
+  // Functional notation: only the four color functions, and only numeric /
+  // separator characters between the parens — no letters, ``;``, ``{`` etc.
+  const isFunctional = /^(?:rgb|rgba|hsl|hsla)\([0-9.,%/\s]+\)$/i.test(trimmed);
+  return isHex || isNamed || isFunctional ? trimmed : fallback;
 }
 
 /**

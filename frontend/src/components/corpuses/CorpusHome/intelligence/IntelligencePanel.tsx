@@ -184,12 +184,20 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
 
-  const { data: statsData, loading: statsLoading } = useQuery<
-    GetCorpusStatsOutputType,
-    GetCorpusStatsInputType
-  >(GET_CORPUS_STATS, { variables });
+  const {
+    data: statsData,
+    loading: statsLoading,
+    error: statsError,
+  } = useQuery<GetCorpusStatsOutputType, GetCorpusStatsInputType>(
+    GET_CORPUS_STATS,
+    { variables }
+  );
 
-  const { data: aggData, loading: aggLoading } = useQuery<
+  const {
+    data: aggData,
+    loading: aggLoading,
+    error: aggError,
+  } = useQuery<
     GetCorpusIntelligenceAggregatesOutputType,
     GetCorpusIntelligenceAggregatesInputType
   >(GET_CORPUS_INTELLIGENCE_AGGREGATES, { variables });
@@ -203,6 +211,11 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   // skeletons.
   const statsInitialLoading = statsLoading && !stats;
   const aggInitialLoading = aggLoading && !agg;
+
+  // A fetch failure with no cached data must not silently read as an empty
+  // collection (all-zero stats / "no labels"). Surface a distinct hint.
+  const statsErrored = !!statsError && !stats;
+  const aggErrored = !!aggError && !agg;
 
   const totalDocs = stats?.totalDocs ?? 0;
   const totalRelationships = stats?.totalRelationships ?? 0;
@@ -234,11 +247,17 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
       <StatsRow>
         {statsInitialLoading ? (
           <>
-            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
-            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
-            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
-            <StatSkeleton data-testid={`${testId}-stat-skeleton`} />
+            {[0, 1, 2, 3].map((i) => (
+              <StatSkeleton
+                key={i}
+                data-testid={`${testId}-stat-skeleton-${i}`}
+              />
+            ))}
           </>
+        ) : statsErrored ? (
+          <EmptyHint data-testid={`${testId}-stats-error`}>
+            Couldn't load collection stats. Please try again.
+          </EmptyHint>
         ) : (
           statCards.map((stat) => (
             <StatisticWithAnimation
@@ -274,6 +293,10 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
           </SubCardTitle>
           {aggInitialLoading ? (
             <EmptyHint>Loading labels…</EmptyHint>
+          ) : aggErrored ? (
+            <EmptyHint data-testid={`${testId}-labels-error`}>
+              Couldn't load labels. Please try again.
+            </EmptyHint>
           ) : labels.length === 0 ? (
             <EmptyHint>No labeled annotations yet.</EmptyHint>
           ) : (

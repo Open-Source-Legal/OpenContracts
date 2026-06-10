@@ -8,9 +8,19 @@ import {
   GET_CORPUS_DOCUMENT_GRAPH,
   GetCorpusDocumentGraphInputType,
   GetCorpusDocumentGraphOutputType,
+  CorpusDocumentGraphNode,
+  CorpusDocumentGraphEdge,
 } from "../../../../graphql/queries";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { DocumentGraphGlimpse } from "./DocumentGraphGlimpse";
+
+// Stable empty-array references. ``graph?.nodes ?? []`` would mint a fresh ``[]``
+// on every render while the query is in flight, defeating DocumentGraphGlimpse's
+// ``useMemo([nodes])`` / ``useMemo([nodes, edges])`` (the layout would recompute
+// on every parent re-render until data arrives). Module-level constants are
+// referentially stable, so the memos stay cached.
+const EMPTY_NODES: CorpusDocumentGraphNode[] = [];
+const EMPTY_EDGES: CorpusDocumentGraphEdge[] = [];
 
 /**
  * CorpusIntelligenceOverview — the composed "God's-eye view" block injected
@@ -129,7 +139,11 @@ export const CorpusIntelligenceOverview: React.FC<
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
 
-  const { data: graphData, loading: graphLoading } = useQuery<
+  const {
+    data: graphData,
+    loading: graphLoading,
+    error: graphError,
+  } = useQuery<
     GetCorpusDocumentGraphOutputType,
     GetCorpusDocumentGraphInputType
   >(GET_CORPUS_DOCUMENT_GRAPH, { variables });
@@ -148,12 +162,13 @@ export const CorpusIntelligenceOverview: React.FC<
       <IntelligencePanel corpusId={corpusId} />
 
       <DocumentGraphGlimpse
-        nodes={graph?.nodes ?? []}
-        edges={graph?.edges ?? []}
+        nodes={graph?.nodes ?? EMPTY_NODES}
+        edges={graph?.edges ?? EMPTY_EDGES}
         totalNodeCount={graph?.totalNodeCount ?? 0}
         totalEdgeCount={graph?.totalEdgeCount ?? 0}
         truncated={graph?.truncated ?? false}
         loading={graphLoading && !graph}
+        error={!!graphError && !graph}
         onExplore={onExploreGraph}
       />
 
