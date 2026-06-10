@@ -1,0 +1,8092 @@
+{
+ "corpora": [
+  {
+   "id": 25,
+   "title": "Select 2026 IPO S-1 Filings (SpaceX, Fervo Energy)",
+   "kind": "filing"
+  },
+  {
+   "id": 31,
+   "title": "Cerebras Systems Inc. \u2014 Form S-1 IPO Registration Statement",
+   "kind": "filing"
+  },
+  {
+   "id": 32,
+   "title": "Quantinuum Inc. \u2014 Form S-1 IPO Registration Statement",
+   "kind": "filing"
+  },
+  {
+   "id": 33,
+   "title": "Anthropic-named Form D Issuers \u2014 Secondary-Market SPVs",
+   "kind": "filing"
+  },
+  {
+   "id": 34,
+   "title": "Cerebras Systems Inc. \u2014 Form S-1 IPO Registration Statement",
+   "kind": "filing"
+  },
+  {
+   "id": 35,
+   "title": "Quantinuum Inc. \u2014 Form S-1 IPO Registration Statement",
+   "kind": "filing"
+  },
+  {
+   "id": 26,
+   "title": "Delaware General Corporation Law (Title 8, Ch. 1)",
+   "kind": "authority"
+  },
+  {
+   "id": 27,
+   "title": "Securities Exchange Act of 1934",
+   "kind": "authority"
+  },
+  {
+   "id": 28,
+   "title": "Internal Revenue Code",
+   "kind": "authority"
+  },
+  {
+   "id": 29,
+   "title": "Securities Act of 1933",
+   "kind": "authority"
+  },
+  {
+   "id": 36,
+   "title": "Investment Company Act of 1940",
+   "kind": "authority"
+  },
+  {
+   "id": 37,
+   "title": "SEC Rules \u2014 Securities Offering & Trading (17 C.F.R.)",
+   "kind": "authority"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "doc:744",
+   "label": "SPACE EXPLORATION TECHNOLOGIES CORP S-1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - primary document",
+   "kind": "primary",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 62
+  },
+  {
+   "id": "doc:746",
+   "label": "SPACE EXPLORATION TECHNOLOGIES CORP S-1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit FILING FEES",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:748",
+   "label": "SPACE Exhibit 2.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 2.1: EX-2.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:750",
+   "label": "SPACE Exhibit 3.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:752",
+   "label": "SPACE Exhibit 3.2",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 3.2: EX-3.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 19
+  },
+  {
+   "id": "doc:754",
+   "label": "SPACE Exhibit 4.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 4.1: EX-4.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:756",
+   "label": "SPACE Exhibit 4.2",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 4.2: EX-4.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 15
+  },
+  {
+   "id": "doc:758",
+   "label": "SPACE Exhibit 5.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 5.1: EX-5.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:760",
+   "label": "SPACE Exhibit 10.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.1: EX-10.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:762",
+   "label": "SPACE Exhibit 10.2",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.2: EX-10.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:764",
+   "label": "SPACE Exhibit 10.3",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.3: EX-10.3",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 14
+  },
+  {
+   "id": "doc:766",
+   "label": "SPACE Exhibit 10.4",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.4: EX-10.4",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 10
+  },
+  {
+   "id": "doc:768",
+   "label": "SPACE Exhibit 10.5",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.5: EX-10.5",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 18
+  },
+  {
+   "id": "doc:770",
+   "label": "SPACE Exhibit 10.6",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.6: EX-10.6",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:772",
+   "label": "SPACE Exhibit 10.7",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.7: EX-10.7",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:774",
+   "label": "SPACE Exhibit 10.8",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.8: EX-10.8",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 7
+  },
+  {
+   "id": "doc:776",
+   "label": "SPACE Exhibit 10.9",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 10.9: EX-10.9",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:778",
+   "label": "SPACE Exhibit 21.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 21.1: EX-21.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:780",
+   "label": "SPACE Exhibit 23.1",
+   "title": "SPACE EXPLORATION TECHNOLOGIES CORP S-1 (2026-05-20) - Exhibit 23.1: EX-23.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "SPACE EXPLORATION TECHNOLOGIES CORP",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:784",
+   "label": "Fervo Energy Co S-1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - primary document",
+   "kind": "primary",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 93
+  },
+  {
+   "id": "doc:786",
+   "label": "Fervo Energy Co S-1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit FILING FEES",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:788",
+   "label": "Fervo Exhibit 3.1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:790",
+   "label": "Fervo Exhibit 3.2",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 3.2: EX-3.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 6
+  },
+  {
+   "id": "doc:792",
+   "label": "Fervo Exhibit 3.3",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 3.3: EX-3.3",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:794",
+   "label": "Fervo Exhibit 3.4",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 3.4: EX-3.4",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 30
+  },
+  {
+   "id": "doc:796",
+   "label": "Fervo Exhibit 4.1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 4.1: EX-4.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:798",
+   "label": "Fervo Exhibit 10.(2)(A)",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.(2)(A): EX-10.(2)(A)",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 10
+  },
+  {
+   "id": "doc:800",
+   "label": "Fervo Exhibit 10.(2)(B)",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.(2)(B): EX-10.(2)(B)",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 10
+  },
+  {
+   "id": "doc:802",
+   "label": "Fervo Exhibit 10.1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.1: EX-10.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 6
+  },
+  {
+   "id": "doc:804",
+   "label": "Fervo Exhibit 10.2",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.2: EX-10.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 10
+  },
+  {
+   "id": "doc:806",
+   "label": "Fervo Exhibit 10.3",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.3: EX-10.3",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:808",
+   "label": "Fervo Exhibit 10.4",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.4: EX-10.4",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:810",
+   "label": "Fervo Exhibit 10.5",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.5: EX-10.5",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:812",
+   "label": "Fervo Exhibit 10.6",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.6: EX-10.6",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:814",
+   "label": "Fervo Exhibit 10.9",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.9: EX-10.9",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:816",
+   "label": "Fervo Exhibit 10.10",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.10: EX-10.10",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:818",
+   "label": "Fervo Exhibit 10.11",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.11: EX-10.11",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:820",
+   "label": "Fervo Exhibit 10.12",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.12: EX-10.12",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:822",
+   "label": "Fervo Exhibit 10.13",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.13: EX-10.13",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:824",
+   "label": "Fervo Exhibit 10.14",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.14: EX-10.14",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:826",
+   "label": "Fervo Exhibit 10.15",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.15: EX-10.15",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:828",
+   "label": "Fervo Exhibit 10.16",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 10.16: EX-10.16",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 6
+  },
+  {
+   "id": "doc:830",
+   "label": "Fervo Exhibit 21.1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 21.1: EX-21.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:832",
+   "label": "Fervo Exhibit 23.1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 23.1: EX-23.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:834",
+   "label": "Fervo Exhibit 23.2",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 23.2: EX-23.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:836",
+   "label": "Fervo Exhibit 99.1",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.1: EX-99.1",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:838",
+   "label": "Fervo Exhibit 99.2",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.2: EX-99.2",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:840",
+   "label": "Fervo Exhibit 99.3",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.3: EX-99.3",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:842",
+   "label": "Fervo Exhibit 99.4",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.4: EX-99.4",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:844",
+   "label": "Fervo Exhibit 99.5",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.5: EX-99.5",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:846",
+   "label": "Fervo Exhibit 99.6",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.6: EX-99.6",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:848",
+   "label": "Fervo Exhibit 99.7",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.7: EX-99.7",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:850",
+   "label": "Fervo Exhibit 99.8",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.8: EX-99.8",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:852",
+   "label": "Fervo Exhibit 99.9",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.9: EX-99.9",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:854",
+   "label": "Fervo Exhibit 99.10",
+   "title": "Fervo Energy Co S-1 (2026-04-17) - Exhibit 99.10: EX-99.10",
+   "kind": "exhibit",
+   "corpus_id": 25,
+   "company": "Fervo Energy Co",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:857",
+   "label": "DGCL \u00a7 116",
+   "title": "DGCL \u00a7 116 \u2014 Document form, signature and delivery",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 10
+  },
+  {
+   "id": "doc:858",
+   "label": "DGCL \u00a7 122",
+   "title": "DGCL \u00a7 122 \u2014 Specific powers",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 5
+  },
+  {
+   "id": "doc:859",
+   "label": "DGCL \u00a7 145",
+   "title": "DGCL \u00a7 145 \u2014 Indemnification of officers, directors, employees and agents; insurance",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 12
+  },
+  {
+   "id": "doc:860",
+   "label": "DGCL \u00a7 151",
+   "title": "DGCL \u00a7 151 \u2014 Classes and series of stock; redemption; rights",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 14
+  },
+  {
+   "id": "doc:861",
+   "label": "DGCL \u00a7 202",
+   "title": "DGCL \u00a7 202 \u2014 Restrictions on transfer and ownership of securities",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 7
+  },
+  {
+   "id": "doc:862",
+   "label": "DGCL \u00a7 203",
+   "title": "DGCL \u00a7 203 \u2014 Business combinations with interested stockholders",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 27
+  },
+  {
+   "id": "doc:863",
+   "label": "DGCL \u00a7 212",
+   "title": "DGCL \u00a7 212 \u2014 Voting rights of stockholders; proxies; limitations",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 6
+  },
+  {
+   "id": "doc:864",
+   "label": "DGCL \u00a7 224",
+   "title": "DGCL \u00a7 224 \u2014 Form of records",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 6
+  },
+  {
+   "id": "doc:865",
+   "label": "DGCL \u00a7 228",
+   "title": "DGCL \u00a7 228 \u2014 Consent of stockholders or members in lieu of meeting",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 12
+  },
+  {
+   "id": "doc:866",
+   "label": "DGCL \u00a7 242",
+   "title": "DGCL \u00a7 242 \u2014 Amendment of certificate of incorporation after receipt of payment for stock; nonstock corporations",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 16
+  },
+  {
+   "id": "doc:867",
+   "label": "Exchange Act \u00a7 10",
+   "title": "Exchange Act \u00a7 10 \u2014 Manipulative and deceptive devices (15 U.S.C. \u00a7 78j)",
+   "kind": "statute",
+   "corpus_id": 27,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 2
+  },
+  {
+   "id": "doc:868",
+   "label": "Exchange Act \u00a7 12",
+   "title": "Exchange Act \u00a7 12 \u2014 Registration requirements for securities (15 U.S.C. \u00a7 78l)",
+   "kind": "statute",
+   "corpus_id": 27,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 3
+  },
+  {
+   "id": "doc:869",
+   "label": "Exchange Act \u00a7 13",
+   "title": "Exchange Act \u00a7 13 \u2014 Periodical and other reports (15 U.S.C. \u00a7 78m)",
+   "kind": "statute",
+   "corpus_id": 27,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 15
+  },
+  {
+   "id": "doc:870",
+   "label": "IRC \u00a7 451",
+   "title": "IRC \u00a7 451 \u2014 General rule for taxable year of inclusion (26 U.S.C. \u00a7 451)",
+   "kind": "statute",
+   "corpus_id": 28,
+   "company": null,
+   "authority": "irc",
+   "degree": 1
+  },
+  {
+   "id": "doc:871",
+   "label": "Securities Act \u00a7 4",
+   "title": "Securities Act \u00a7 4 \u2014 Exempted transactions (15 U.S.C. \u00a7 77d)",
+   "kind": "statute",
+   "corpus_id": 29,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 94
+  },
+  {
+   "id": "doc:872",
+   "label": "Securities Act \u00a7 7",
+   "title": "Securities Act \u00a7 7 \u2014 Information required in registration statement (15 U.S.C. \u00a7 77g)",
+   "kind": "statute",
+   "corpus_id": 29,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 10
+  },
+  {
+   "id": "doc:873",
+   "label": "Securities Act \u00a7 8",
+   "title": "Securities Act \u00a7 8 \u2014 Taking effect of registration statements and amendments thereto (15 U.S.C. \u00a7 77h)",
+   "kind": "statute",
+   "corpus_id": 29,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 7
+  },
+  {
+   "id": "doc:877",
+   "label": "Exchange Act \u00a7 14",
+   "title": "Exchange Act \u00a7 14 \u2014 Proxies (15 U.S.C. \u00a7 78n)",
+   "kind": "statute",
+   "corpus_id": 27,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 14
+  },
+  {
+   "id": "doc:878",
+   "label": "Exchange Act \u00a7 16",
+   "title": "Exchange Act \u00a7 16 \u2014 Directors, officers, and principal stockholders (15 U.S.C. \u00a7 78p)",
+   "kind": "statute",
+   "corpus_id": 27,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 58
+  },
+  {
+   "id": "doc:879",
+   "label": "IRC \u00a7 368",
+   "title": "IRC \u00a7 368 \u2014 Definitions relating to corporate reorganizations (26 U.S.C. \u00a7 368)",
+   "kind": "statute",
+   "corpus_id": 28,
+   "company": null,
+   "authority": "irc",
+   "degree": 1
+  },
+  {
+   "id": "doc:880",
+   "label": "IRC \u00a7 501",
+   "title": "IRC \u00a7 501 \u2014 Exemption from tax on corporations, certain trusts, etc. (26 U.S.C. \u00a7 501)",
+   "kind": "statute",
+   "corpus_id": 28,
+   "company": null,
+   "authority": "irc",
+   "degree": 1
+  },
+  {
+   "id": "doc:881",
+   "label": "IRC \u00a7 1202",
+   "title": "IRC \u00a7 1202 \u2014 Partial exclusion for gain from certain small business stock (26 U.S.C. \u00a7 1202)",
+   "kind": "statute",
+   "corpus_id": 28,
+   "company": null,
+   "authority": "irc",
+   "degree": 1
+  },
+  {
+   "id": "doc:882",
+   "label": "Securities Act \u00a7 2",
+   "title": "Securities Act \u00a7 2 \u2014 Definitions; promotion of efficiency, competition, and capital formation (15 U.S.C. \u00a7 77b)",
+   "kind": "statute",
+   "corpus_id": 29,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 1
+  },
+  {
+   "id": "doc:883",
+   "label": "Securities Act \u00a7 11",
+   "title": "Securities Act \u00a7 11 \u2014 Civil liabilities on account of false registration statement (15 U.S.C. \u00a7 77k)",
+   "kind": "statute",
+   "corpus_id": 29,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 5
+  },
+  {
+   "id": "doc:884",
+   "label": "Securities Act \u00a7 22",
+   "title": "Securities Act \u00a7 22 \u2014 Jurisdiction of offenses and suits (15 U.S.C. \u00a7 77v)",
+   "kind": "statute",
+   "corpus_id": 29,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 4
+  },
+  {
+   "id": "doc:886",
+   "label": "DGCL \u00a7 103",
+   "title": "DGCL \u00a7 103 \u2014 Execution, acknowledgment, filing, recording and effective date of original certificate of incorporation and other instruments; exceptions",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 24
+  },
+  {
+   "id": "doc:887",
+   "label": "DGCL \u00a7 109",
+   "title": "DGCL \u00a7 109 \u2014 Bylaws",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "doc:888",
+   "label": "DGCL \u00a7 115",
+   "title": "DGCL \u00a7 115 \u2014 Forum selection provisions",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "doc:889",
+   "label": "DGCL \u00a7 141",
+   "title": "DGCL \u00a7 141 \u2014 Board of directors; powers; number, qualifications, terms and quorum; committees; classes of directors; nonstock corporations; reliance upon books; action without meeting; removal",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 6
+  },
+  {
+   "id": "doc:890",
+   "label": "DGCL \u00a7 213",
+   "title": "DGCL \u00a7 213 \u2014 Fixing date for determination of stockholders of record",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 4
+  },
+  {
+   "id": "doc:891",
+   "label": "DGCL \u00a7 222",
+   "title": "DGCL \u00a7 222 \u2014 Notice of meetings and adjourned meetings",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 3
+  },
+  {
+   "id": "doc:892",
+   "label": "DGCL \u00a7 245",
+   "title": "DGCL \u00a7 245 \u2014 Restated certificate of incorporation",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 9
+  },
+  {
+   "id": "doc:893",
+   "label": "DGCL \u00a7 251",
+   "title": "DGCL \u00a7 251 \u2014 Merger or consolidation of domestic corporations",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 16
+  },
+  {
+   "id": "doc:894",
+   "label": "DGCL \u00a7 280",
+   "title": "DGCL \u00a7 280 \u2014 Notice to claimants; filing of claims",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 9
+  },
+  {
+   "id": "doc:895",
+   "label": "DGCL \u00a7 364",
+   "title": "DGCL \u00a7 364 \u2014 Stock certificates; notices regarding uncertificated stock",
+   "kind": "statute",
+   "corpus_id": 26,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "doc:899",
+   "label": "Cerebras Systems Inc. S-1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - primary document",
+   "kind": "primary",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 15
+  },
+  {
+   "id": "doc:903",
+   "label": "Cerebras Exhibit 3.1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:905",
+   "label": "Cerebras Exhibit 3.2",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.2: EX-3.2",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:907",
+   "label": "Cerebras Exhibit 3.3",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.3: EX-3.3",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:909",
+   "label": "Cerebras Exhibit 3.4",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.4: EX-3.4",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 7
+  },
+  {
+   "id": "doc:913",
+   "label": "Cerebras Exhibit 4.3",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 4.3: EX-4.3",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:923",
+   "label": "Cerebras Exhibit 10.2(B)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.2(B): EX-10.2(B)",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:927",
+   "label": "Cerebras Exhibit 10.3(A)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.3(A): EX-10.3(A)",
+   "kind": "exhibit",
+   "corpus_id": 31,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 5
+  },
+  {
+   "id": "doc:929",
+   "label": "7GC & Co. Opportunity Partners, Anthropi",
+   "title": "7GC & Co. Opportunity Partners, Anthropic LLC D (2024-06-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:931",
+   "label": "ANTHROPIC - A SERIES OF AURUM VP FUND LL",
+   "title": "ANTHROPIC - A SERIES OF AURUM VP FUND LLC D (2024-08-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:933",
+   "label": "ANTHROPIC - MYASIAVC ALTERNATE FUND I D ",
+   "title": "ANTHROPIC - MYASIAVC ALTERNATE FUND I D (2023-08-25) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:935",
+   "label": "AUGUREY VENTURES I, LLC - ANTHROPIC A D ",
+   "title": "AUGUREY VENTURES I, LLC - ANTHROPIC A D (2024-04-01) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:937",
+   "label": "AUGUREY VENTURES I, LLC - ANTHROPIC A D/",
+   "title": "AUGUREY VENTURES I, LLC - ANTHROPIC A D/A (2025-10-24) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:939",
+   "label": "AUGUREY VENTURES I, LLC - SERIES ANTHROP",
+   "title": "AUGUREY VENTURES I, LLC - SERIES ANTHROPIC B D (2024-09-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:941",
+   "label": "AUGUREY VENTURES I, LLC - SERIES ANTHROP",
+   "title": "AUGUREY VENTURES I, LLC - SERIES ANTHROPIC B D/A (2025-10-21) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:943",
+   "label": "AUGUREY VENTURES II, LLC - ANTHROPIC A D",
+   "title": "AUGUREY VENTURES II, LLC - ANTHROPIC A D (2024-04-01) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:945",
+   "label": "AUGUREY VENTURES II, LLC - ANTHROPIC A D",
+   "title": "AUGUREY VENTURES II, LLC - ANTHROPIC A D/A (2025-10-24) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:947",
+   "label": "AUGUREY VENTURES II, LLC - SERIES ANTHRO",
+   "title": "AUGUREY VENTURES II, LLC - SERIES ANTHROPIC B D (2024-09-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:949",
+   "label": "AUGUREY VENTURES II, LLC - SERIES ANTHRO",
+   "title": "AUGUREY VENTURES II, LLC - SERIES ANTHROPIC B D/A (2025-10-21) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:951",
+   "label": "AUGUREY VENTURES III, LLC - SERIES ANTHR",
+   "title": "AUGUREY VENTURES III, LLC - SERIES ANTHROPIC A D (2024-06-03) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:953",
+   "label": "AUGUREY VENTURES III, LLC - SERIES ANTHR",
+   "title": "AUGUREY VENTURES III, LLC - SERIES ANTHROPIC A D/A (2025-10-24) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:955",
+   "label": "AUGUREY VENTURES III, LLC - SERIES ANTHR",
+   "title": "AUGUREY VENTURES III, LLC - SERIES ANTHROPIC B D (2024-09-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:957",
+   "label": "AUGUREY VENTURES III, LLC - SERIES ANTHR",
+   "title": "AUGUREY VENTURES III, LLC - SERIES ANTHROPIC B D/A (2025-10-21) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:959",
+   "label": "AUGUREY VENTURES QP FUND, LLC - SERIES A",
+   "title": "AUGUREY VENTURES QP FUND, LLC - SERIES ANTHROPIC SP-1 D (2026-04-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:961",
+   "label": "AUGUREY VENTURES QP FUND, LLC - SERIES A",
+   "title": "AUGUREY VENTURES QP FUND, LLC - SERIES ANTHROPIC SP-3 D (2026-04-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:963",
+   "label": "AUGUREY VENTURES QP FUND, LLC - SERIES A",
+   "title": "AUGUREY VENTURES QP FUND, LLC - SERIES ANTHROPIC SP-4 D (2026-04-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:965",
+   "label": "Anthropic - Incepto AGI Funds LLC D (202",
+   "title": "Anthropic - Incepto AGI Funds LLC D (2023-06-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:967",
+   "label": "Anthropic - Iron Pine GoldenArc Co-Inves",
+   "title": "Anthropic - Iron Pine GoldenArc Co-Invest, LLC D (2023-04-28) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:969",
+   "label": "Anthropic Alternate Fund II, a series of",
+   "title": "Anthropic Alternate Fund II, a series of MAV Alternate Investments, LP D (2024-09-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:971",
+   "label": "Anthropic Apr 2025 a Series of Ventionee",
+   "title": "Anthropic Apr 2025 a Series of Ventioneers Partners LLC D (2025-06-23) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:973",
+   "label": "Anthropic Apr 2026 a Series of CGF2021 L",
+   "title": "Anthropic Apr 2026 a Series of CGF2021 LLC D (2026-04-29) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:975",
+   "label": "Anthropic Capital Fund, LP D (2023-01-09",
+   "title": "Anthropic Capital Fund, LP D (2023-01-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:977",
+   "label": "Anthropic Capital Fund, LP D/A (2025-12-",
+   "title": "Anthropic Capital Fund, LP D/A (2025-12-18) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:979",
+   "label": "Anthropic Capital Fund, LP D/A (2025-01-",
+   "title": "Anthropic Capital Fund, LP D/A (2025-01-02) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:981",
+   "label": "Anthropic Capital Fund, LP D/A (2024-01-",
+   "title": "Anthropic Capital Fund, LP D/A (2024-01-04) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:983",
+   "label": "Anthropic February 2024 a Series of CGF2",
+   "title": "Anthropic February 2024 a Series of CGF2021 LLC D (2024-03-14) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:985",
+   "label": "Anthropic Fund II Jan 2026 a Series of C",
+   "title": "Anthropic Fund II Jan 2026 a Series of CGF2021 LLC D (2026-04-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:987",
+   "label": "Anthropic Fund III Feb 2026 a Series of ",
+   "title": "Anthropic Fund III Feb 2026 a Series of CGF2021 LLC D (2026-02-23) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:989",
+   "label": "Anthropic Fund IV Apr 2026 a Series of C",
+   "title": "Anthropic Fund IV Apr 2026 a Series of CGF2021 LLC D (2026-04-30) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:991",
+   "label": "Anthropic Fund Jan 2026 a Series of CGF2",
+   "title": "Anthropic Fund Jan 2026 a Series of CGF2021 LLC D (2026-02-06) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:993",
+   "label": "Anthropic I a Series of Bloom Opportunit",
+   "title": "Anthropic I a Series of Bloom Opportunities Fund I LLC D (2025-09-17) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:995",
+   "label": "Anthropic II Feb 2026 a Series of CGF202",
+   "title": "Anthropic II Feb 2026 a Series of CGF2021 LLC D (2026-04-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:997",
+   "label": "Anthropic II Feb 2026 a Series of CGF202",
+   "title": "Anthropic II Feb 2026 a Series of CGF2021 LLC D/A (2026-04-22) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:999",
+   "label": "Anthropic IIIX T1V Feb26 Feb 2026 a Seri",
+   "title": "Anthropic IIIX T1V Feb26 Feb 2026 a Series of CGF2021 LLC D (2026-03-03) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1001",
+   "label": "Anthropic Jan 2026 a Series of CGF2021 L",
+   "title": "Anthropic Jan 2026 a Series of CGF2021 LLC D (2026-02-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1003",
+   "label": "Anthropic Jan 2026 a Series of CGF2021 L",
+   "title": "Anthropic Jan 2026 a Series of CGF2021 LLC D/A (2026-02-19) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1005",
+   "label": "Anthropic Jun 2024 a Series of E1 Ventur",
+   "title": "Anthropic Jun 2024 a Series of E1 Ventures Master LLC D (2024-09-10) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1007",
+   "label": "Anthropic MAV Secondary Fund II, a serie",
+   "title": "Anthropic MAV Secondary Fund II, a series of MAV Alternate Investments, LP D (2024-03-12) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1009",
+   "label": "Anthropic Magnitude Jan 2026 a Series of",
+   "title": "Anthropic Magnitude Jan 2026 a Series of CGF2021 LLC D (2026-02-20) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1011",
+   "label": "Anthropic Magnitude Jan 2026 a Series of",
+   "title": "Anthropic Magnitude Jan 2026 a Series of CGF2021 LLC D/A (2026-02-23) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1013",
+   "label": "Anthropic Magnitude-2 Feb 2026 a Series ",
+   "title": "Anthropic Magnitude-2 Feb 2026 a Series of CGF2021 LLC D (2026-04-29) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1015",
+   "label": "Anthropic May 2023 a Series of Stonks SP",
+   "title": "Anthropic May 2023 a Series of Stonks SPVs LLC D (2024-01-17) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1017",
+   "label": "Anthropic NOV25 T1V syndicate a Series o",
+   "title": "Anthropic NOV25 T1V syndicate a Series of CGF2021 LLC D (2025-12-03) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1019",
+   "label": "Anthropic Oct 2024 a Series of CGF2021 L",
+   "title": "Anthropic Oct 2024 a Series of CGF2021 LLC D (2025-02-19) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1021",
+   "label": "Anthropic Oct 2025 a Series of CGF2021 L",
+   "title": "Anthropic Oct 2025 a Series of CGF2021 LLC D (2025-12-03) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1023",
+   "label": "Anthropic PBC 1, a Series of Venelite Ve",
+   "title": "Anthropic PBC 1, a Series of Venelite Venture Funds, LP D (2025-03-21) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1025",
+   "label": "Anthropic PBC Jan 2026 a Series of CGF20",
+   "title": "Anthropic PBC Jan 2026 a Series of CGF2021 LLC D (2026-02-24) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1027",
+   "label": "Anthropic SPV1 Emerging Global a Series ",
+   "title": "Anthropic SPV1 Emerging Global a Series of CGF2021 LLC D (2025-09-29) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1029",
+   "label": "Anthropic SPV2 Emerging Global a Series ",
+   "title": "Anthropic SPV2 Emerging Global a Series of CGF2021 LLC D (2026-02-06) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1031",
+   "label": "Anthropic Secondary October 2025 a Serie",
+   "title": "Anthropic Secondary October 2025 a Series of CGF2021 LLC D (2025-12-03) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1033",
+   "label": "Anthropic Series D NMJFF Apr 2024 a Seri",
+   "title": "Anthropic Series D NMJFF Apr 2024 a Series of CGF2021 LLC D (2024-05-10) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1035",
+   "label": "Anthropic Syndicate Q1 2026 a Series of ",
+   "title": "Anthropic Syndicate Q1 2026 a Series of CGF2021 LLC D (2026-02-23) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1037",
+   "label": "Anthropic T1V Syndicate AUG 2025 a Serie",
+   "title": "Anthropic T1V Syndicate AUG 2025 a Series of CGF2021 LLC D (2025-09-25) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1039",
+   "label": "Anthropic-4 Jun 2025 a Series of Vention",
+   "title": "Anthropic-4 Jun 2025 a Series of Ventioneers Partners LLC D (2025-07-14) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1041",
+   "label": "Arden Anthropic Opportunities I LLC D (2",
+   "title": "Arden Anthropic Opportunities I LLC D (2026-04-02) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1043",
+   "label": "DV Anthropic SPV I Mar 2026 a Series of ",
+   "title": "DV Anthropic SPV I Mar 2026 a Series of CGF2021 LLC D (2026-03-30) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1045",
+   "label": "Edge Partners, LLC, Series B Anthropic D",
+   "title": "Edge Partners, LLC, Series B Anthropic D (2024-03-27) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1047",
+   "label": "Edge Partners, LLC, Series B Anthropic D",
+   "title": "Edge Partners, LLC, Series B Anthropic D/A (2024-04-23) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1049",
+   "label": "Granada Anthropic SPV, a Series of Decil",
+   "title": "Granada Anthropic SPV, a Series of Decile SPV, LLC D (2026-05-26) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1051",
+   "label": "HII Anthropic Series-02, a Series of HII",
+   "title": "HII Anthropic Series-02, a Series of HII Anthropic, LLC D (2026-05-15) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1053",
+   "label": "HII Anthropic-01, a Series of HII Anthro",
+   "title": "HII Anthropic-01, a Series of HII Anthropic, LLC D (2026-03-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1055",
+   "label": "Hiive Anthropic Series I a Series of Hii",
+   "title": "Hiive Anthropic Series I a Series of Hiive Anthropic LLC D (2024-04-15) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1057",
+   "label": "Hiive Anthropic Series II a Series of Hi",
+   "title": "Hiive Anthropic Series II a Series of Hiive Anthropic LLC D (2024-04-15) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1059",
+   "label": "Hiive Anthropic Series V a Series of Hii",
+   "title": "Hiive Anthropic Series V a Series of Hiive Anthropic LLC D (2024-06-10) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1061",
+   "label": "Hiive Anthropic Series VI a Series of Hi",
+   "title": "Hiive Anthropic Series VI a Series of Hiive Anthropic LLC D (2025-03-05) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1063",
+   "label": "Hiive Anthropic Series VII a Series of H",
+   "title": "Hiive Anthropic Series VII a Series of Hiive Anthropic LLC D (2025-04-25) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1065",
+   "label": "IBD VENTURES, LLC - ANTHROPIC SERIES O D",
+   "title": "IBD VENTURES, LLC - ANTHROPIC SERIES O D (2023-06-14) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1067",
+   "label": "ID Funds 3 - Anthropic, a series of ID F",
+   "title": "ID Funds 3 - Anthropic, a series of ID Funds 3 LLC D (2024-04-12) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1069",
+   "label": "INVEXT ANTHROPIC, A SERIES OF INVEXT LLC",
+   "title": "INVEXT ANTHROPIC, A SERIES OF INVEXT LLC D (2026-02-25) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1071",
+   "label": "Inflection Ventures Anthropic Fund I LLC",
+   "title": "Inflection Ventures Anthropic Fund I LLC D (2026-05-15) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1073",
+   "label": "Kaleida Capital Anthropic SPV I a Series",
+   "title": "Kaleida Capital Anthropic SPV I a Series of CGF2021 LLC D (2024-06-13) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1075",
+   "label": "LFG Anthropic a Series of CGF2021 LLC D ",
+   "title": "LFG Anthropic a Series of CGF2021 LLC D (2024-06-05) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1077",
+   "label": "MAYAVALLEY ANTHROPIC A SERIES OF SSD SPV",
+   "title": "MAYAVALLEY ANTHROPIC A SERIES OF SSD SPV I LLC D (2024-04-23) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1079",
+   "label": "MW LSVC Anthropic, LLC D (2024-04-11) - ",
+   "title": "MW LSVC Anthropic, LLC D (2024-04-11) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1081",
+   "label": "Nuvion Series Anthropic Jan 2026 a Serie",
+   "title": "Nuvion Series Anthropic Jan 2026 a Series of CGF2021 LLC D (2026-02-09) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1083",
+   "label": "Okami Anthropic I a Series of CGF2021 LL",
+   "title": "Okami Anthropic I a Series of CGF2021 LLC D (2024-05-21) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1085",
+   "label": "Okami Anthropic II a Series of CGF2021 L",
+   "title": "Okami Anthropic II a Series of CGF2021 LLC D (2024-06-10) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1087",
+   "label": "Pachamama Capital Anthropic a Series of ",
+   "title": "Pachamama Capital Anthropic a Series of CGF2021 LLC D (2026-03-26) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1089",
+   "label": "RVC Anthropic LP D (2024-03-19) - primar",
+   "title": "RVC Anthropic LP D (2024-03-19) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1091",
+   "label": "Scenic Co-Invest Anthropic LLC D (2024-0",
+   "title": "Scenic Co-Invest Anthropic LLC D (2024-06-12) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1093",
+   "label": "Series Anthropic IVS, a Series of Ineffa",
+   "title": "Series Anthropic IVS, a Series of Ineffable Ventures Series, LLC D (2024-12-19) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1095",
+   "label": "Starbridge Anthropic I a Series of CGF20",
+   "title": "Starbridge Anthropic I a Series of CGF2021 LLC D (2025-09-19) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1097",
+   "label": "Starbridge Anthropic II Aug 2025 a Serie",
+   "title": "Starbridge Anthropic II Aug 2025 a Series of CGF2021 LLC D (2025-09-24) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1099",
+   "label": "WU Anthropic LP D (2026-06-01) - primary",
+   "title": "WU Anthropic LP D (2026-06-01) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1101",
+   "label": "ZZG Capital Anthropic, LP D (2023-04-25)",
+   "title": "ZZG Capital Anthropic, LP D (2023-04-25) - primary document",
+   "kind": "primary",
+   "corpus_id": 33,
+   "company": "Anthropic-named Form D Issuers",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1105",
+   "label": "Cerebras Systems Inc. S-1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - primary document",
+   "kind": "primary",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 61
+  },
+  {
+   "id": "doc:1107",
+   "label": "Cerebras Systems Inc. S-1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit FILING FEES",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1109",
+   "label": "Cerebras Exhibit 3.1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1112",
+   "label": "Cerebras Exhibit 3.2",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.2: EX-3.2",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 6
+  },
+  {
+   "id": "doc:1114",
+   "label": "Cerebras Exhibit 3.3",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.3: EX-3.3",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 5
+  },
+  {
+   "id": "doc:1116",
+   "label": "Cerebras Exhibit 3.4",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 3.4: EX-3.4",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 30
+  },
+  {
+   "id": "doc:1120",
+   "label": "Cerebras Exhibit 4.3",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 4.3: EX-4.3",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 23
+  },
+  {
+   "id": "doc:1128",
+   "label": "Cerebras Exhibit 10.2(A)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.2(A): EX-10.2(A)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 10
+  },
+  {
+   "id": "doc:1130",
+   "label": "Cerebras Exhibit 10.2(B)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.2(B): EX-10.2(B)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 16
+  },
+  {
+   "id": "doc:1132",
+   "label": "Cerebras Exhibit 10.2(C)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.2(C): EX-10.2(C)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1134",
+   "label": "Cerebras Exhibit 10.3(A)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.3(A): EX-10.3(A)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1136",
+   "label": "Cerebras Exhibit 10.3(B)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.3(B): EX-10.3(B)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:1138",
+   "label": "Cerebras Exhibit 10.3(C)",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.3(C): EX-10.3(C)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:1140",
+   "label": "Cerebras Exhibit 10.4",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.4: EX-10.4",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:1144",
+   "label": "Cerebras Exhibit 10.6",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.6: EX-10.6",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:1146",
+   "label": "Cerebras Exhibit 10.7",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.7: EX-10.7",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1148",
+   "label": "Cerebras Exhibit 10.8",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.8: EX-10.8",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1150",
+   "label": "Cerebras Exhibit 10.9",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.9: EX-10.9",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1152",
+   "label": "Cerebras Exhibit 10.10",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.10: EX-10.10",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1154",
+   "label": "Cerebras Exhibit 10.11",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.11: EX-10.11",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1158",
+   "label": "Quantinuum Inc. S-1",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - primary document",
+   "kind": "primary",
+   "corpus_id": 32,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 16
+  },
+  {
+   "id": "doc:1160",
+   "label": "Cerebras Exhibit 10.13",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.13: EX-10.13",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:1164",
+   "label": "Quantinuum Exhibit 3.1",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 32,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1166",
+   "label": "Cerebras Exhibit 10.14",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.14: EX-10.14",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 9
+  },
+  {
+   "id": "doc:1168",
+   "label": "Quantinuum Exhibit 3.3",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 3.3: EX-3.3",
+   "kind": "exhibit",
+   "corpus_id": 32,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:1172",
+   "label": "Quantinuum Exhibit 10.9",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 10.9: EX-10.9",
+   "kind": "exhibit",
+   "corpus_id": 32,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1174",
+   "label": "Cerebras Exhibit 10.16",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.16: EX-10.16",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1178",
+   "label": "Cerebras Exhibit 10.17",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.17: EX-10.17",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1186",
+   "label": "Cerebras Exhibit 10.18",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 10.18: EX-10.18",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 8
+  },
+  {
+   "id": "doc:1190",
+   "label": "Cerebras Exhibit 16.1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 16.1: EX-16.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1194",
+   "label": "Cerebras Exhibit 21.1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 21.1: EX-21.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1198",
+   "label": "Cerebras Exhibit 23.1",
+   "title": "Cerebras Systems Inc. S-1 (2026-04-17) - Exhibit 23.1: EX-23.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1208",
+   "label": "Cerebras Systems Inc. S-1",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - primary document",
+   "kind": "primary",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 52
+  },
+  {
+   "id": "doc:1212",
+   "label": "Cerebras Systems Inc. S-1",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit FILING FEES: EX-FILING FEES",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1214",
+   "label": "Cerebras Exhibit 3.1",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1218",
+   "label": "Cerebras Exhibit 3.2",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 3.2: EX-3.2",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:1221",
+   "label": "Cerebras Exhibit 3.3",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 3.3: EX-3.3",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 5
+  },
+  {
+   "id": "doc:1223",
+   "label": "Cerebras Exhibit 3.4",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 3.4: EX-3.4",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 27
+  },
+  {
+   "id": "doc:1225",
+   "label": "Cerebras Exhibit 4.3",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 4.3: EX-4.3",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 21
+  },
+  {
+   "id": "doc:1233",
+   "label": "Cerebras Exhibit 10.4(A)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.4(A): EX-10.4(A)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 10
+  },
+  {
+   "id": "doc:1235",
+   "label": "Cerebras Exhibit 10.4(B)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.4(B): EX-10.4(B)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 16
+  },
+  {
+   "id": "doc:1237",
+   "label": "Cerebras Exhibit 10.4(C)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.4(C): EX-10.4(C)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1239",
+   "label": "Cerebras Exhibit 10.5(A)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.5(A): EX-10.5(A)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 12
+  },
+  {
+   "id": "doc:1241",
+   "label": "Cerebras Exhibit 10.5(B)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.5(B): EX-10.5(B)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:1243",
+   "label": "Cerebras Exhibit 10.5(C)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.5(C): EX-10.5(C)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:1245",
+   "label": "Cerebras Exhibit 10.6",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.6: EX-10.6",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 5
+  },
+  {
+   "id": "doc:1247",
+   "label": "Cerebras Exhibit 10.8",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.8: EX-10.8",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 4
+  },
+  {
+   "id": "doc:1249",
+   "label": "Cerebras Exhibit 10.9",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.9: EX-10.9",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1251",
+   "label": "Cerebras Exhibit 10.10",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.10: EX-10.10",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1253",
+   "label": "Cerebras Exhibit 10.11",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.11: EX-10.11",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1277",
+   "label": "Cerebras Exhibit 10.14",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.14: EX-10.14",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1279",
+   "label": "Cerebras Exhibit 10.15(A)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.15(A): EX-10.15(A)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1281",
+   "label": "Cerebras Exhibit 10.15(B)",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.15(B): EX-10.15(B)",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1283",
+   "label": "Cerebras Exhibit 10.16",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.16: EX-10.16",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1285",
+   "label": "Cerebras Exhibit 10.17",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 10.17: EX-10.17",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1287",
+   "label": "Cerebras Exhibit 21.1",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 21.1: EX-21.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1289",
+   "label": "Cerebras Exhibit 23.1",
+   "title": "Cerebras Systems Inc. S-1 (2024-09-30) - Exhibit 23.1: EX-23.1",
+   "kind": "exhibit",
+   "corpus_id": 34,
+   "company": "Cerebras Systems Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1293",
+   "label": "Quantinuum Inc. S-1",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - primary document",
+   "kind": "primary",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 51
+  },
+  {
+   "id": "doc:1295",
+   "label": "Quantinuum Inc. S-1",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit FILING FEES",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1297",
+   "label": "Quantinuum Exhibit 3.1",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 3.1: EX-3.1",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1299",
+   "label": "Quantinuum Exhibit 3.3",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 3.3: EX-3.3",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 3
+  },
+  {
+   "id": "doc:1301",
+   "label": "Quantinuum Exhibit 10.9",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 10.9: EX-10.9",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 1
+  },
+  {
+   "id": "doc:1311",
+   "label": "Quantinuum Exhibit 99.1",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.1: EX-99.1",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1313",
+   "label": "Quantinuum Exhibit 99.2",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.2: EX-99.2",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1315",
+   "label": "Quantinuum Exhibit 99.3",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.3: EX-99.3",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1317",
+   "label": "Quantinuum Exhibit 99.4",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.4: EX-99.4",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1319",
+   "label": "Quantinuum Exhibit 99.5",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.5: EX-99.5",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1321",
+   "label": "Quantinuum Exhibit 99.6",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.6: EX-99.6",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1323",
+   "label": "Quantinuum Exhibit 99.7",
+   "title": "Quantinuum Inc. S-1 (2026-05-08) - Exhibit 99.7: EX-99.7",
+   "kind": "exhibit",
+   "corpus_id": 35,
+   "company": "Quantinuum Inc.",
+   "authority": null,
+   "degree": 2
+  },
+  {
+   "id": "doc:1326",
+   "label": "ICA \u00a7 3",
+   "title": "ICA \u00a7 3 \u2014 Definition of investment company (15 U.S.C. \u00a7 80a-3)",
+   "kind": "statute",
+   "corpus_id": 36,
+   "company": null,
+   "authority": "ica",
+   "degree": 87
+  },
+  {
+   "id": "doc:1327",
+   "label": "IRC \u00a7 83",
+   "title": "IRC \u00a7 83 \u2014 Property transferred in connection with performance of services (26 U.S.C. \u00a7 83)",
+   "kind": "statute",
+   "corpus_id": 28,
+   "company": null,
+   "authority": "irc",
+   "degree": 6
+  },
+  {
+   "id": "doc:1328",
+   "label": "Rule 504",
+   "title": "Rule 504 \u2014 Exemption for limited offerings and sales of securities not exceeding $10,000,000 (17 C.F.R. \u00a7 230.504)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 522
+  },
+  {
+   "id": "doc:1329",
+   "label": "Rule 506",
+   "title": "Rule 506 \u2014 Exemption for limited offers and sales without regard to dollar amount of offering (17 C.F.R. \u00a7 230.506)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 354
+  },
+  {
+   "id": "doc:1330",
+   "label": "Rule 144",
+   "title": "Rule 144 \u2014 Persons deemed not to be engaged in a distribution and therefore not underwriters (17 C.F.R. \u00a7 230.144)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 137
+  },
+  {
+   "id": "doc:1331",
+   "label": "Rule 144A",
+   "title": "Rule 144A \u2014 Private resales of securities to institutions (17 C.F.R. \u00a7 230.144A)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 4
+  },
+  {
+   "id": "doc:1332",
+   "label": "Rule 701",
+   "title": "Rule 701 \u2014 Exemption for offers and sales of securities pursuant to certain compensatory benefit plans and contracts relating to compensation (17 C.F.R. \u00a7 230.701)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 68
+  },
+  {
+   "id": "doc:1333",
+   "label": "Rule 405",
+   "title": "Rule 405 \u2014 Definitions of terms (17 C.F.R. \u00a7 230.405)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 29
+  },
+  {
+   "id": "doc:1334",
+   "label": "Rule 415",
+   "title": "Rule 415 \u2014 Delayed or continuous offering and sale of securities (17 C.F.R. \u00a7 230.415)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 6
+  },
+  {
+   "id": "doc:1335",
+   "label": "Rule 424",
+   "title": "Rule 424 \u2014 Filing of prospectuses, number of copies (17 C.F.R. \u00a7 230.424)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 6
+  },
+  {
+   "id": "doc:1336",
+   "label": "Rule 430A",
+   "title": "Rule 430A \u2014 Prospectus in a registration statement at the time of effectiveness (17 C.F.R. \u00a7 230.430A)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 5
+  },
+  {
+   "id": "doc:1337",
+   "label": "Rule 433",
+   "title": "Rule 433 \u2014 Conditions to permissible post-filing free writing prospectuses (17 C.F.R. \u00a7 230.433)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 4
+  },
+  {
+   "id": "doc:1338",
+   "label": "Rule 462",
+   "title": "Rule 462 \u2014 Immediate effectiveness of certain registration statements and post-effective amendments (17 C.F.R. \u00a7 230.462)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 27
+  },
+  {
+   "id": "doc:1339",
+   "label": "Rule 501",
+   "title": "Rule 501 \u2014 Definitions and terms used in Regulation D (17 C.F.R. \u00a7 230.501)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 6
+  },
+  {
+   "id": "doc:1340",
+   "label": "Rule 10b-5",
+   "title": "Rule 10b-5 \u2014 Employment of manipulative and deceptive devices (17 C.F.R. \u00a7 240.10b-5)",
+   "kind": "statute",
+   "corpus_id": 37,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:102",
+   "label": "DGCL \u00a7 102",
+   "title": "dgcl:102",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 5
+  },
+  {
+   "id": "key:dgcl:104",
+   "label": "DGCL \u00a7 104",
+   "title": "dgcl:104",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:114",
+   "label": "DGCL \u00a7 114",
+   "title": "dgcl:114",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 1
+  },
+  {
+   "id": "key:dgcl:131",
+   "label": "DGCL \u00a7 131",
+   "title": "dgcl:131",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:136",
+   "label": "DGCL \u00a7 136",
+   "title": "dgcl:136",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 1
+  },
+  {
+   "id": "key:dgcl:155",
+   "label": "DGCL \u00a7 155",
+   "title": "dgcl:155",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 1
+  },
+  {
+   "id": "key:dgcl:158",
+   "label": "DGCL \u00a7 158",
+   "title": "dgcl:158",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:211",
+   "label": "DGCL \u00a7 211",
+   "title": "dgcl:211",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 5
+  },
+  {
+   "id": "key:dgcl:21l",
+   "label": "DGCL \u00a7 21l",
+   "title": "dgcl:21l",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 3
+  },
+  {
+   "id": "key:dgcl:232",
+   "label": "DGCL \u00a7 232",
+   "title": "dgcl:232",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 6
+  },
+  {
+   "id": "key:dgcl:241",
+   "label": "DGCL \u00a7 241",
+   "title": "dgcl:241",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:253",
+   "label": "DGCL \u00a7 253",
+   "title": "dgcl:253",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 1
+  },
+  {
+   "id": "key:dgcl:264",
+   "label": "DGCL \u00a7 264",
+   "title": "dgcl:264",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 1
+  },
+  {
+   "id": "key:dgcl:278",
+   "label": "DGCL \u00a7 278",
+   "title": "dgcl:278",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:281",
+   "label": "DGCL \u00a7 281",
+   "title": "dgcl:281",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 1
+  },
+  {
+   "id": "key:dgcl:295",
+   "label": "DGCL \u00a7 295",
+   "title": "dgcl:295",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:dgcl:296",
+   "label": "DGCL \u00a7 296",
+   "title": "dgcl:296",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "dgcl",
+   "degree": 2
+  },
+  {
+   "id": "key:exchange-act:10d",
+   "label": "Exchange Act \u00a7 10d",
+   "title": "exchange-act:10d",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 2
+  },
+  {
+   "id": "key:exchange-act:15",
+   "label": "Exchange Act \u00a7 15",
+   "title": "exchange-act:15",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 3
+  },
+  {
+   "id": "key:exchange-act:20",
+   "label": "Exchange Act \u00a7 20",
+   "title": "exchange-act:20",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "exchange-act",
+   "degree": 2
+  },
+  {
+   "id": "key:irc:382",
+   "label": "IRC \u00a7 382",
+   "title": "irc:382",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "irc",
+   "degree": 3
+  },
+  {
+   "id": "key:irc:401",
+   "label": "IRC \u00a7 401",
+   "title": "irc:401",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "irc",
+   "degree": 2
+  },
+  {
+   "id": "key:irc:408",
+   "label": "IRC \u00a7 408",
+   "title": "irc:408",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "irc",
+   "degree": 2
+  },
+  {
+   "id": "key:irc:409a",
+   "label": "IRC \u00a7 409a",
+   "title": "irc:409a",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "irc",
+   "degree": 1
+  },
+  {
+   "id": "key:irc:422",
+   "label": "IRC \u00a7 422",
+   "title": "irc:422",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "irc",
+   "degree": 3
+  },
+  {
+   "id": "key:irc:83",
+   "label": "IRC \u00a7 83",
+   "title": "irc:83",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "irc",
+   "degree": 3
+  },
+  {
+   "id": "key:sec-rule:1",
+   "label": "SEC Rule \u00a7 1",
+   "title": "sec-rule:1",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 2
+  },
+  {
+   "id": "key:sec-rule:10a",
+   "label": "SEC Rule \u00a7 10a",
+   "title": "sec-rule:10a",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 9
+  },
+  {
+   "id": "key:sec-rule:10b",
+   "label": "SEC Rule \u00a7 10b",
+   "title": "sec-rule:10b",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 8
+  },
+  {
+   "id": "key:sec-rule:10d",
+   "label": "SEC Rule \u00a7 10d",
+   "title": "sec-rule:10d",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 3
+  },
+  {
+   "id": "key:sec-rule:12",
+   "label": "SEC Rule \u00a7 12",
+   "title": "sec-rule:12",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:12b",
+   "label": "SEC Rule \u00a7 12b",
+   "title": "sec-rule:12b",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 11
+  },
+  {
+   "id": "key:sec-rule:13d",
+   "label": "SEC Rule \u00a7 13d",
+   "title": "sec-rule:13d",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 18
+  },
+  {
+   "id": "key:sec-rule:145",
+   "label": "SEC Rule \u00a7 145",
+   "title": "sec-rule:145",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 11
+  },
+  {
+   "id": "key:sec-rule:14a",
+   "label": "SEC Rule \u00a7 14a",
+   "title": "sec-rule:14a",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 52
+  },
+  {
+   "id": "key:sec-rule:14b",
+   "label": "SEC Rule \u00a7 14b",
+   "title": "sec-rule:14b",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 2
+  },
+  {
+   "id": "key:sec-rule:16a",
+   "label": "SEC Rule \u00a7 16a",
+   "title": "sec-rule:16a",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 13
+  },
+  {
+   "id": "key:sec-rule:16b",
+   "label": "SEC Rule \u00a7 16b",
+   "title": "sec-rule:16b",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 33
+  },
+  {
+   "id": "key:sec-rule:17a",
+   "label": "SEC Rule \u00a7 17a",
+   "title": "sec-rule:17a",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:2",
+   "label": "SEC Rule \u00a7 2",
+   "title": "sec-rule:2",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:2241",
+   "label": "SEC Rule \u00a7 2241",
+   "title": "sec-rule:2241",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:2711",
+   "label": "SEC Rule \u00a7 2711",
+   "title": "sec-rule:2711",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 3
+  },
+  {
+   "id": "key:sec-rule:2a",
+   "label": "SEC Rule \u00a7 2a",
+   "title": "sec-rule:2a",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:3",
+   "label": "SEC Rule \u00a7 3",
+   "title": "sec-rule:3",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 3
+  },
+  {
+   "id": "key:sec-rule:3b",
+   "label": "SEC Rule \u00a7 3b",
+   "title": "sec-rule:3b",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:4",
+   "label": "SEC Rule \u00a7 4",
+   "title": "sec-rule:4",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 2
+  },
+  {
+   "id": "key:sec-rule:436",
+   "label": "SEC Rule \u00a7 436",
+   "title": "sec-rule:436",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 1
+  },
+  {
+   "id": "key:sec-rule:438",
+   "label": "SEC Rule \u00a7 438",
+   "title": "sec-rule:438",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 7
+  },
+  {
+   "id": "key:sec-rule:457",
+   "label": "SEC Rule \u00a7 457",
+   "title": "sec-rule:457",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 10
+  },
+  {
+   "id": "key:sec-rule:472",
+   "label": "SEC Rule \u00a7 472",
+   "title": "sec-rule:472",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "sec-rule",
+   "degree": 3
+  },
+  {
+   "id": "key:securities-act:15",
+   "label": "Securities Act \u00a7 15",
+   "title": "securities-act:15",
+   "kind": "external",
+   "corpus_id": null,
+   "company": null,
+   "authority": "securities-act",
+   "degree": 2
+  }
+ ],
+ "edges": [
+  {
+   "source": "doc:1001",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1001",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1001",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1001",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1003",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1003",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1003",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1003",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1005",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1005",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1005",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1005",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1007",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1007",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1007",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1007",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1009",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1009",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1009",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1009",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1011",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1011",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1011",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1011",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1013",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1013",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1013",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1013",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1015",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1015",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1015",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1015",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1017",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1017",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1017",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1017",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1019",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1019",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1019",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1019",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1021",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1021",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1021",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1021",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1023",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1023",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1023",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1023",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1025",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1025",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1025",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1025",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1027",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1027",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1027",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1027",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1029",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1029",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1029",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1029",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1031",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1031",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1031",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1031",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1033",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1033",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1033",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1033",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1035",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1035",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1035",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1035",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1037",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1037",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1037",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1037",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1039",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1039",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1039",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1039",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1041",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1041",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1041",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1041",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1043",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1043",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1043",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1043",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1045",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1045",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1045",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1045",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1047",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1047",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1047",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1047",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1049",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1049",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1049",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1049",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1051",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1051",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1051",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1051",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1053",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1053",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1053",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1053",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1055",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1055",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1055",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1055",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1057",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1057",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1057",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1057",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1059",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1059",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1059",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1059",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1061",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1061",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1061",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1061",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1063",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1063",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1063",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1063",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1065",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1065",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1065",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1065",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1067",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1067",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1067",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1067",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1069",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1069",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1069",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1069",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1071",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1071",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1071",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1071",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1073",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1073",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1073",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1073",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1075",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1075",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1075",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1075",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1077",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1077",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1077",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1077",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1079",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1079",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1079",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1079",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1081",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1081",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1081",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1081",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1083",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1083",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1083",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1083",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1085",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1085",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1085",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1085",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1087",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1087",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1087",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1087",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1089",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1089",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1089",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1089",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1091",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1091",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1091",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1091",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1093",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1093",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1093",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1093",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1095",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1095",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1095",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1095",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1097",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1097",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1097",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1097",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1099",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1099",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1099",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1099",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1101",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1101",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1101",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1101",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1190",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 19
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1331",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 9
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1334",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1335",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1336",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:859",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 5
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:dgcl:102",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:irc:382",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:sec-rule:10a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:sec-rule:10b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:sec-rule:12b",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:sec-rule:145",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1105",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1107",
+   "target": "key:sec-rule:457",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1109",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1112",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1112",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1112",
+   "target": "key:irc:401",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1112",
+   "target": "key:irc:408",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1112",
+   "target": "key:sec-rule:10b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1114",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1114",
+   "target": "key:dgcl:211",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1114",
+   "target": "key:dgcl:21l",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1114",
+   "target": "key:dgcl:232",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1116",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1116",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1116",
+   "target": "doc:861",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1116",
+   "target": "doc:863",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1116",
+   "target": "doc:864",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1116",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1116",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 4
+  },
+  {
+   "source": "doc:1116",
+   "target": "key:sec-rule:14a",
+   "type": "LAW_EXTERNAL",
+   "weight": 15
+  },
+  {
+   "source": "doc:1116",
+   "target": "key:sec-rule:16a",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:1120",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 9
+  },
+  {
+   "source": "doc:1120",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 5
+  },
+  {
+   "source": "doc:1120",
+   "target": "doc:1337",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1120",
+   "target": "doc:1339",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1120",
+   "target": "doc:883",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1120",
+   "target": "key:dgcl:232",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1120",
+   "target": "key:sec-rule:145",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:1128",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1128",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:1128",
+   "target": "key:sec-rule:16a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1130",
+   "target": "doc:1327",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1130",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:1130",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1130",
+   "target": "key:irc:422",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1132",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1134",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1134",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1134",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 7
+  },
+  {
+   "source": "doc:1136",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1136",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1138",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1138",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1140",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1140",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1144",
+   "target": "key:exchange-act:10d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1144",
+   "target": "key:exchange-act:15",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1144",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1146",
+   "target": "key:irc:409a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:859",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1158",
+   "target": "doc:884",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1158",
+   "target": "key:dgcl:102",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1160",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1160",
+   "target": "doc:1339",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1160",
+   "target": "key:exchange-act:15",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1164",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1166",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1166",
+   "target": "doc:883",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1166",
+   "target": "key:exchange-act:20",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1166",
+   "target": "key:securities-act:15",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1168",
+   "target": "doc:864",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1168",
+   "target": "key:dgcl:158",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1168",
+   "target": "key:dgcl:211",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1172",
+   "target": "doc:868",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1186",
+   "target": "doc:1331",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1186",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1186",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1186",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1186",
+   "target": "key:sec-rule:2",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1186",
+   "target": "key:sec-rule:3",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1186",
+   "target": "key:sec-rule:436",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1194",
+   "target": "key:sec-rule:1",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 15
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 7
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1334",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1335",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1336",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:859",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:dgcl:102",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:irc:382",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:sec-rule:10a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:sec-rule:10b",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:sec-rule:12b",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:sec-rule:145",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1208",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1212",
+   "target": "key:sec-rule:457",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1214",
+   "target": "doc:1109",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1218",
+   "target": "doc:1112",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1218",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1218",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1221",
+   "target": "doc:1114",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1221",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1221",
+   "target": "key:dgcl:211",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1221",
+   "target": "key:dgcl:21l",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1221",
+   "target": "key:dgcl:232",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:1116",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:861",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:863",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:864",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1223",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1223",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 4
+  },
+  {
+   "source": "doc:1223",
+   "target": "key:sec-rule:14a",
+   "type": "LAW_EXTERNAL",
+   "weight": 12
+  },
+  {
+   "source": "doc:1223",
+   "target": "key:sec-rule:16a",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:1225",
+   "target": "doc:1120",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1225",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:1225",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 5
+  },
+  {
+   "source": "doc:1225",
+   "target": "doc:1337",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1225",
+   "target": "doc:1339",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1225",
+   "target": "doc:883",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1225",
+   "target": "key:sec-rule:145",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:1233",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1233",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:1233",
+   "target": "key:sec-rule:16a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1235",
+   "target": "doc:1327",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1235",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:1235",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1235",
+   "target": "key:irc:422",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1237",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1239",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1239",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1239",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 7
+  },
+  {
+   "source": "doc:1241",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1241",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1243",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1243",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1245",
+   "target": "doc:1144",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1245",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1245",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1247",
+   "target": "doc:1148",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1247",
+   "target": "key:exchange-act:10d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1247",
+   "target": "key:exchange-act:15",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1247",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1249",
+   "target": "doc:1150",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1251",
+   "target": "doc:1152",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1253",
+   "target": "doc:1154",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1277",
+   "target": "doc:1166",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1279",
+   "target": "doc:1339",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1281",
+   "target": "doc:1339",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1283",
+   "target": "doc:1174",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1285",
+   "target": "doc:1178",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1287",
+   "target": "doc:1194",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1287",
+   "target": "key:sec-rule:1",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1289",
+   "target": "doc:1198",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 17
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:1334",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:1335",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:1336",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:859",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "doc:884",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "key:dgcl:102",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "key:sec-rule:10a",
+   "type": "LAW_EXTERNAL",
+   "weight": 4
+  },
+  {
+   "source": "doc:1293",
+   "target": "key:sec-rule:10b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1293",
+   "target": "key:sec-rule:12b",
+   "type": "LAW_EXTERNAL",
+   "weight": 4
+  },
+  {
+   "source": "doc:1295",
+   "target": "key:sec-rule:457",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:1297",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1299",
+   "target": "doc:864",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1299",
+   "target": "key:dgcl:158",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1299",
+   "target": "key:dgcl:211",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1301",
+   "target": "doc:868",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1311",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1311",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1313",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1313",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1315",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1315",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1317",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1317",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1319",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1319",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1321",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1321",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:1323",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:1323",
+   "target": "key:sec-rule:438",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 16
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 5
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1334",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1335",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1336",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:1340",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:774",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:867",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:870",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "key:sec-rule:10a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "key:sec-rule:10d",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:744",
+   "target": "key:sec-rule:12b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:744",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:746",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:746",
+   "target": "key:sec-rule:457",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:748",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:748",
+   "target": "doc:879",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:748",
+   "target": "key:sec-rule:12b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:750",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:750",
+   "target": "doc:880",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:750",
+   "target": "key:sec-rule:10b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:752",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:752",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:752",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:752",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:752",
+   "target": "key:sec-rule:14a",
+   "type": "LAW_EXTERNAL",
+   "weight": 9
+  },
+  {
+   "source": "doc:752",
+   "target": "key:sec-rule:14b",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:752",
+   "target": "key:sec-rule:3b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:754",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 5
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:1334",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:1339",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:868",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:881",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "doc:883",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:756",
+   "target": "key:sec-rule:145",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:756",
+   "target": "key:sec-rule:2241",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:758",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:758",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:760",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:760",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:762",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:764",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:764",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:764",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:764",
+   "target": "key:sec-rule:2711",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:764",
+   "target": "key:sec-rule:472",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:766",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:766",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:766",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:766",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:766",
+   "target": "key:sec-rule:10d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:768",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:768",
+   "target": "doc:1333",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:768",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:768",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:768",
+   "target": "key:sec-rule:2711",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:768",
+   "target": "key:sec-rule:472",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:770",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:772",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:774",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:774",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:774",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:776",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:778",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:780",
+   "target": "doc:744",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1330",
+   "type": "LAW",
+   "weight": 27
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1334",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1335",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1336",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:1338",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:882",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "doc:884",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:784",
+   "target": "key:sec-rule:10a",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:784",
+   "target": "key:sec-rule:10b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "key:sec-rule:12",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "key:sec-rule:12b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "key:sec-rule:14a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:784",
+   "target": "key:sec-rule:4",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:786",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:786",
+   "target": "key:sec-rule:457",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:788",
+   "target": "doc:750",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:788",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:790",
+   "target": "doc:752",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:790",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:790",
+   "target": "doc:858",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:790",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:790",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:790",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:792",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:861",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:863",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:864",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:794",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:794",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 4
+  },
+  {
+   "source": "doc:794",
+   "target": "key:sec-rule:14a",
+   "type": "LAW_EXTERNAL",
+   "weight": 15
+  },
+  {
+   "source": "doc:794",
+   "target": "key:sec-rule:16a",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:796",
+   "target": "doc:754",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:796",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:796",
+   "target": "key:sec-rule:17a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:798",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:798",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:798",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:800",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:800",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 8
+  },
+  {
+   "source": "doc:800",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:802",
+   "target": "doc:1332",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:802",
+   "target": "doc:760",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:802",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:802",
+   "target": "key:sec-rule:16a",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:804",
+   "target": "doc:762",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:804",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:804",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:804",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:804",
+   "target": "key:sec-rule:16b",
+   "type": "LAW_EXTERNAL",
+   "weight": 6
+  },
+  {
+   "source": "doc:806",
+   "target": "doc:764",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:806",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:806",
+   "target": "key:sec-rule:13d",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:808",
+   "target": "doc:766",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:808",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:810",
+   "target": "doc:768",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:810",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:812",
+   "target": "doc:770",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:812",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:814",
+   "target": "doc:776",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:814",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:816",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:818",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:820",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:822",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:824",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:826",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:828",
+   "target": "doc:1331",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:828",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:828",
+   "target": "key:sec-rule:2a",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:828",
+   "target": "key:sec-rule:3",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:830",
+   "target": "doc:778",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:830",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:832",
+   "target": "doc:780",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:832",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:834",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:836",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:838",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:840",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:842",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:844",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:846",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:848",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:850",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:852",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:854",
+   "target": "doc:784",
+   "type": "DOCUMENT",
+   "weight": 1
+  },
+  {
+   "source": "doc:857",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:857",
+   "target": "doc:894",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:858",
+   "target": "doc:887",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:858",
+   "target": "doc:888",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:858",
+   "target": "doc:889",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:860",
+   "target": "doc:861",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:860",
+   "target": "doc:886",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:860",
+   "target": "doc:892",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:860",
+   "target": "doc:895",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:861",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:862",
+   "target": "doc:886",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:862",
+   "target": "doc:893",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:863",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:863",
+   "target": "doc:890",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:865",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:866",
+   "target": "doc:886",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:866",
+   "target": "doc:891",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:886",
+   "target": "key:dgcl:131",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:886",
+   "target": "key:dgcl:136",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:887",
+   "target": "doc:888",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:889",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:889",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:889",
+   "target": "key:dgcl:253",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:889",
+   "target": "key:dgcl:264",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:890",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:891",
+   "target": "doc:890",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:891",
+   "target": "key:dgcl:232",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:892",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:892",
+   "target": "doc:886",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:892",
+   "target": "key:dgcl:104",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:892",
+   "target": "key:dgcl:241",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:893",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:893",
+   "target": "doc:886",
+   "type": "LAW",
+   "weight": 10
+  },
+  {
+   "source": "doc:893",
+   "target": "key:dgcl:155",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:894",
+   "target": "key:dgcl:114",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:894",
+   "target": "key:dgcl:278",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:894",
+   "target": "key:dgcl:281",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:894",
+   "target": "key:dgcl:295",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:894",
+   "target": "key:dgcl:296",
+   "type": "LAW_EXTERNAL",
+   "weight": 2
+  },
+  {
+   "source": "doc:895",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:859",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:862",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:872",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:873",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:899",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 5
+  },
+  {
+   "source": "doc:899",
+   "target": "key:dgcl:102",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:899",
+   "target": "key:irc:382",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:903",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:905",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:905",
+   "target": "doc:866",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:905",
+   "target": "key:irc:401",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:905",
+   "target": "key:irc:408",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:907",
+   "target": "doc:865",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:907",
+   "target": "key:dgcl:211",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:907",
+   "target": "key:dgcl:21l",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:907",
+   "target": "key:dgcl:232",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:909",
+   "target": "doc:857",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:909",
+   "target": "doc:860",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:909",
+   "target": "doc:861",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:909",
+   "target": "doc:863",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:909",
+   "target": "doc:864",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:909",
+   "target": "doc:877",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:913",
+   "target": "doc:883",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:913",
+   "target": "key:dgcl:232",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:923",
+   "target": "key:irc:422",
+   "type": "LAW_EXTERNAL",
+   "weight": 1
+  },
+  {
+   "source": "doc:923",
+   "target": "key:irc:83",
+   "type": "LAW_EXTERNAL",
+   "weight": 3
+  },
+  {
+   "source": "doc:927",
+   "target": "doc:869",
+   "type": "LAW",
+   "weight": 2
+  },
+  {
+   "source": "doc:927",
+   "target": "doc:878",
+   "type": "LAW",
+   "weight": 3
+  },
+  {
+   "source": "doc:929",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:929",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:929",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:929",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:931",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:931",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:931",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:931",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:933",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:933",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:933",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:933",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:935",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:935",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:935",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:935",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:937",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:937",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:937",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:937",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:939",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:939",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:939",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:939",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:941",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:941",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:941",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:941",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:943",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:943",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:943",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:943",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:945",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:945",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:945",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:945",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:947",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:947",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:947",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:947",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:949",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:949",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:949",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:949",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:951",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:951",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:951",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:951",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:953",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:953",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:953",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:953",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:955",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:955",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:955",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:955",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:957",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:957",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:957",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:957",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:959",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:959",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:959",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:959",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:961",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:961",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:961",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:961",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:963",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:963",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:963",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:963",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:965",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:965",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:965",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:965",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:967",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:967",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:967",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:967",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:969",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:969",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:969",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:969",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:971",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:971",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:971",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:971",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:973",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:973",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:973",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:973",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:975",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:975",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:975",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:975",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:977",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:977",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:977",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:977",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:979",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:979",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:979",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:979",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:981",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:981",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:981",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:981",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:983",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:983",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:983",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:983",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:985",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:985",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:985",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:985",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:987",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:987",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:987",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:987",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:989",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:989",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:989",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:989",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:991",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:991",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:991",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:991",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:993",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:993",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:993",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:993",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:995",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:995",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:995",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:995",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:997",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:997",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:997",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:997",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:999",
+   "target": "doc:1326",
+   "type": "LAW",
+   "weight": 1
+  },
+  {
+   "source": "doc:999",
+   "target": "doc:1328",
+   "type": "LAW",
+   "weight": 6
+  },
+  {
+   "source": "doc:999",
+   "target": "doc:1329",
+   "type": "LAW",
+   "weight": 4
+  },
+  {
+   "source": "doc:999",
+   "target": "doc:871",
+   "type": "LAW",
+   "weight": 1
+  }
+ ],
+ "stats": {
+  "documents": 269,
+  "external_keys": 51,
+  "edges": 803,
+  "mentions": 1943
+ }
+}

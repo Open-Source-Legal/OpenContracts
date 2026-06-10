@@ -19,6 +19,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
 from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
+    CorpusReference,
     LabelSet,
     Note,
     NoteRevision,
@@ -42,6 +43,22 @@ def _get_document_type() -> Any:
 class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = Relationship
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+
+
+class CorpusReferenceType(DjangoObjectType):
+    """Read-only view of an enrichment cross-reference.
+
+    No ``AnnotatePermissionsForReadMixin``: ``CorpusReference`` has no guardian
+    permission tables — visibility derives from the parent corpus and is
+    enforced by ``CorpusReferenceService`` in the resolver.
+    """
+
+    normalized_data = GenericScalar()  # noqa
+
+    class Meta:
+        model = CorpusReference
         interfaces = [relay.Node]
         connection_class = CountableConnection
 

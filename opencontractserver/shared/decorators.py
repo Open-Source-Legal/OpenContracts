@@ -11,6 +11,7 @@ from celery import shared_task
 from celery.exceptions import Retry
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections, transaction
+from django.utils import timezone
 from plasmapdf.models.PdfDataLayer import build_translation_layer
 
 from opencontractserver.analyzer.models import Analysis
@@ -18,7 +19,7 @@ from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentAnalysisRow
 from opencontractserver.types.dicts import TextSpan
-from opencontractserver.types.enums import LabelType
+from opencontractserver.types.enums import JobStatus, LabelType
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.etl import is_dict_instance_of_typed_dict
 
@@ -353,6 +354,99 @@ def doc_analyzer_task(
         wrapper.is_doc_analyzer_task = True
         # Attach the input schema for runtime retrieval
         wrapper._oc_doc_analyzer_input_schema = input_schema
+
+        return wrapper
+
+    return decorator
+
+
+def corpus_analyzer_task(
+    max_retries: Union[int, None] = None,
+    input_schema: dict[str, Any] | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """
+    Decorator for Celery tasks that analyze a whole corpus in ONE run.
+
+    The corpus-scoped sibling of :func:`doc_analyzer_task`. Where the doc
+    framework fans out per document and persists span annotations from the
+    return value, a corpus analyzer needs corpus-wide context (cross-document
+    indexes, cross-corpus resolution) and owns its own writes — annotations,
+    relationships, ``CorpusReference`` rows, whatever the job produces. The
+    framework provides identity, lifecycle, and surfacing: the task syncs to
+    an ``Analyzer`` row at startup, runs via ``run_task_name_analyzer`` /
+    ``CorpusAction`` like any task-based analyzer, and this wrapper manages
+    the ``Analysis`` lifecycle (RUNNING/COMPLETED/FAILED, timestamps,
+    ``result_message`` / ``error_message``).
+
+    The wrapped function is called with keyword arguments ``corpus_id`` and
+    ``analysis_id`` (plus any ``analysis_input_data`` passthrough kwargs) and
+    must return a JSON-serializable ``dict`` of result counts/details, which
+    is stored on ``Analysis.result_message``.
+
+    :param max_retries: Optional maximum number of retries for the Celery task.
+    :param input_schema: Optional dictionary defining input schema for the task.
+    :return: The decorator function.
+    """
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @shared_task(bind=True, max_retries=max_retries)
+        @wraps(func)
+        def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+            analysis_id = kwargs.get("analysis_id")
+            if not analysis_id:
+                raise ValueError("analysis_id is required for corpus_analyzer_task")
+
+            try:
+                analysis = Analysis.objects.get(id=analysis_id)
+            except ObjectDoesNotExist:
+                raise ValueError(f"Analysis with id {analysis_id} does not exist")
+
+            corpus_id = kwargs.get("corpus_id") or analysis.analyzed_corpus_id
+            if not corpus_id:
+                raise ValueError(
+                    "corpus_analyzer_task requires a corpus: pass corpus_id or "
+                    "link the Analysis to a corpus"
+                )
+            if not Corpus.objects.filter(id=corpus_id).exists():
+                raise ValueError(f"Corpus with id {corpus_id} does not exist")
+            kwargs["corpus_id"] = corpus_id
+
+            analysis.status = JobStatus.RUNNING.value
+            analysis.analysis_started = timezone.now()
+            analysis.save()
+
+            try:
+                result = func(*args, **kwargs)
+
+                if not isinstance(result, dict):
+                    raise ValueError(
+                        "corpus_analyzer_task functions must return a dict of "
+                        "result counts/details"
+                    )
+
+                analysis.status = JobStatus.COMPLETED.value
+                analysis.analysis_completed = timezone.now()
+                analysis.error_message = None
+                analysis.result_message = json.dumps(result, default=str)
+                analysis.save()
+                return result
+
+            except Exception as e:
+                logger.error(
+                    f"corpus_analyzer_task {func.__name__} failed for analysis "
+                    f"{analysis_id}: {e}\n{traceback.format_exc()}"
+                )
+                analysis.status = JobStatus.FAILED.value
+                analysis.analysis_completed = timezone.now()
+                analysis.error_message = str(e)
+                analysis.result_message = None
+                analysis.save()
+                raise
+
+        # Identify tasks decorated by this wrapper
+        wrapper.is_corpus_analyzer_task = True
+        # Attach the input schema for runtime retrieval
+        wrapper._oc_corpus_analyzer_input_schema = input_schema
 
         return wrapper
 

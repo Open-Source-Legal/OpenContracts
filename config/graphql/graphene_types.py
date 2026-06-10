@@ -19,6 +19,7 @@ from config.graphql.annotation_types import (  # noqa: F401
     AnnotationInputType,
     AnnotationLabelType,
     AnnotationType,
+    CorpusReferenceType,
     LabelSetType,
     NoteRevisionType,
     NoteType,

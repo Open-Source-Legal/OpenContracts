@@ -367,6 +367,36 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
     # CORPUS TOOLS
     # -------------------------------------------------------------------------
     ToolDefinition(
+        name="scan_corpus_references",
+        description=(
+            "Inventory explicit references across the corpus (law citations such "
+            "as 'Section 145 of the Delaware General Corporation Law', "
+            "document/exhibit references, and internal section references) "
+            "WITHOUT writing anything. Returns counts by type and sample "
+            "resolved/unresolved candidates. Use before applying enrichment."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        parameters=(
+            ("types", "Optional list of reference types to scan", False),
+            ("sample_n", "Number of sample candidates to return", False),
+        ),
+    ),
+    ToolDefinition(
+        name="apply_corpus_reference_enrichment",
+        description=(
+            "Crawl the corpus and create reference annotations, relationships, "
+            "and cross-references for every explicit reference found (law "
+            "citations, document/exhibit links, internal section links). "
+            "Idempotent: re-running enriches only newly-found references."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(("types", "Optional list of reference types to enrich", False),),
+    ),
+    ToolDefinition(
         name="get_corpus_description",
         description="Retrieve the latest markdown description for this corpus.",
         category=ToolCategory.CORPUS,
@@ -1313,6 +1343,7 @@ class ToolFunctionRegistry:
             aadd_annotations_from_exact_strings,
             aadd_document_note,
             aapply_caml_article_edit,
+            aapply_corpus_reference_enrichment,
             acreate_document_index,
             acreate_markdown_link,
             acreate_or_update_text_document,
@@ -1339,6 +1370,7 @@ class ToolFunctionRegistry:
             aregenerate_corpus_icon,
             arename_document,
             ascan_and_annotate_pii,
+            ascan_corpus_references,
             asearch_corpus_documents,
             asearch_document_notes,
             asearch_exact_text_as_sources,
@@ -1410,6 +1442,11 @@ class ToolFunctionRegistry:
                 (),
             ),
             "scan_and_annotate_pii": (ascan_and_annotate_pii, ()),
+            "scan_corpus_references": (ascan_corpus_references, ()),
+            "apply_corpus_reference_enrichment": (
+                aapply_corpus_reference_enrichment,
+                (),
+            ),
             "create_document_index": (acreate_document_index, ()),
             # Corpus tools
             "get_corpus_description": (aget_corpus_description, ()),

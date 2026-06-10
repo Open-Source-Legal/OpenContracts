@@ -211,3 +211,6 @@ docs/superpowers/
 
 # Superpowers brainstorming scratch files
 .superpowers/
+
+# Demo corpus-import zips (large binaries, staged locally from ~/Code/EDGARx2)
+demo/import_zips/

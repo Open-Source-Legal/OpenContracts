@@ -35,6 +35,7 @@ from opencontractserver.tasks.extract_orchestrator_tasks import mark_extract_com
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.analysis import create_and_setup_analysis
 from opencontractserver.utils.celery_tasks import (
+    get_corpus_analyzer_task_by_name,
     get_doc_analyzer_task_by_name,
     get_task_by_name,
 )
@@ -58,6 +59,31 @@ def run_task_name_analyzer(
     analyzer = analysis.analyzer
 
     task_name = analyzer.task_name
+
+    # Corpus-scoped analyzers run ONCE per analysis (no per-doc fan-out);
+    # the @corpus_analyzer_task wrapper owns the Analysis lifecycle.
+    corpus_task_func = get_corpus_analyzer_task_by_name(task_name)
+    if corpus_task_func is not None:
+        if analysis.analyzed_corpus is None:
+            raise ValueError(
+                f"Corpus analyzer {task_name} requires the Analysis to be "
+                "linked to a corpus"
+            )
+        if document_ids:
+            logger.warning(
+                f"Corpus analyzer {task_name} operates corpus-wide; ignoring "
+                f"document_ids subset ({len(document_ids)} ids)"
+            )
+        corpus_id = analysis.analyzed_corpus.id
+        transaction.on_commit(
+            lambda: corpus_task_func.si(  # type: ignore[attr-defined]
+                analysis_id=analysis.id,
+                corpus_id=corpus_id,
+                **(analysis_input_data if analysis_input_data else {}),
+            ).apply_async()
+        )
+        return
+
     task_func = get_doc_analyzer_task_by_name(task_name)
 
     if task_func is None:

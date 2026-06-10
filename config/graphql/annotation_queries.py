@@ -19,6 +19,7 @@ from config.graphql.filters import LabelFilter, LabelsetFilter, RelationshipFilt
 from config.graphql.graphene_types import (
     AnnotationLabelType,
     AnnotationType,
+    CorpusReferenceType,
     LabelSetType,
     NoteType,
     PageAwareAnnotationType,
@@ -46,6 +47,30 @@ logger = logging.getLogger(__name__)
 
 class AnnotationQueryMixin:
     """Query fields and resolvers for annotation, relationship, label, labelset, and note queries."""
+
+    # CORPUS REFERENCE RESOLVERS ###############################
+    corpus_references = DjangoConnectionField(
+        CorpusReferenceType,
+        corpus_id=graphene.ID(required=True),
+        reference_type=graphene.String(),
+        canonical_key=graphene.String(),
+    )
+
+    def resolve_corpus_references(self, info, corpus_id, **kwargs) -> Any:
+        """List enrichment cross-references for a corpus the user can read.
+
+        Visibility is enforced by ``CorpusReferenceService`` (corpus-derived);
+        no inline Tier-0 permission fusion here.
+        """
+        from opencontractserver.enrichment.service import CorpusReferenceService
+
+        pk = int(from_global_id(corpus_id)[1])
+        qs = CorpusReferenceService.for_corpus(info.context.user, pk)
+        if kwargs.get("reference_type"):
+            qs = qs.filter(reference_type=kwargs["reference_type"])
+        if kwargs.get("canonical_key"):
+            qs = qs.filter(canonical_key=kwargs["canonical_key"])
+        return qs
 
     # ANNOTATION RESOLVERS #####################################
     annotations = DjangoConnectionField(

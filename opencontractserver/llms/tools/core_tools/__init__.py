@@ -37,6 +37,12 @@ from .caml_article import (  # noqa: F401
     aread_corpus_caml_article,
 )
 from .corpus_branding import aregenerate_corpus_icon  # noqa: F401
+from .corpus_references import (  # noqa: F401
+    aapply_corpus_reference_enrichment,
+    apply_corpus_reference_enrichment,
+    ascan_corpus_references,
+    scan_corpus_references,
+)
 from .descriptions import (  # noqa: F401
     aget_corpus_description,
     aget_document_description,
@@ -191,6 +197,10 @@ __all__ = [
     "AnnotationItem",
     "aadd_annotations_from_exact_strings",
     "add_annotations_from_exact_strings",
+    "ascan_corpus_references",
+    "scan_corpus_references",
+    "aapply_corpus_reference_enrichment",
+    "apply_corpus_reference_enrichment",
     "aduplicate_annotations_with_label",
     "duplicate_annotations_with_label",
     # CAML article review (Readme.CAML)
