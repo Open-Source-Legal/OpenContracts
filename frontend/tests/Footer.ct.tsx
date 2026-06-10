@@ -31,7 +31,9 @@ test.describe("Footer (cite rebrand)", () => {
       "href",
       "https://github.com/Open-Source-Legal"
     );
-    await expect(page.getByRole("link", { name: "About cite" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "About OpenContracts" })
+    ).toBeVisible();
 
     // Inline nav row at the bottom (About, Terms, Privacy). No /contact
     // route exists yet, so the footer intentionally does not link to one.
@@ -71,7 +73,9 @@ test.describe("Footer (cite rebrand)", () => {
     // on directly without coupling to internal selectors. The fact that
     // the compact branch is mounted at all is enough for coverage.
     await expect(page.getByText("opensource.legal").first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "About cite" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "About OpenContracts" })
+    ).toBeVisible();
 
     await docScreenshot(page, "layout--footer--compact");
   });

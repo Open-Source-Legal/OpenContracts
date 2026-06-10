@@ -153,15 +153,14 @@ export function Footer() {
             </a>
           </li>
           <li>
-            <Link to="/about">About cite</Link>
+            <Link to="/about">About OpenContracts</Link>
           </li>
         </FooterLinkList>
       </div>
       <div>
         <FooterHeading>opensource.legal &copy; 2021–2026</FooterHeading>
         <p>
-          The citation layer underneath the public record. Originally shipped as
-          Open Contracts; renamed to <em>cite</em> for v3. Built by{" "}
+          Open-source document intelligence you can build on. Built by{" "}
           <a href="https://github.com/JSv4">JSv4</a> and contributors. Use of
           this tool is governed by the terms of service.
         </p>

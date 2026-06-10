@@ -8,7 +8,7 @@
  *  - Privacy Policy  → /privacy            (route exists, keep)
  *  - Terms of Service → /terms_of_service  (route exists, keep)
  *  - GitHub          → external repo link  (keep)
- *  - About cite      → /about              (route exists, keep)
+ *  - About OpenContracts → /about          (route exists, keep)
  *  - Contact Us      → /contact            (no route registered in App.tsx; the
  *                                           Footer no longer links to it either
  *                                           after the v3 cite rebrand, so this
@@ -31,7 +31,7 @@ export type OverflowMenuLink =
 export const OVERFLOW_MENU_LINKS: OverflowMenuLink[] = [
   {
     id: "overflow_about",
-    label: "About cite",
+    label: "About OpenContracts",
     to: "/about",
   },
   {

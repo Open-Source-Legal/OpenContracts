@@ -790,7 +790,7 @@ test.describe("NavMenu Overflow", () => {
 
       // All audited essential links should be present.
       await expect(
-        menu.getByRole("menuitem", { name: "About cite" })
+        menu.getByRole("menuitem", { name: "About OpenContracts" })
       ).toBeVisible();
       await expect(
         menu.getByRole("menuitem", { name: "Privacy Policy" })
@@ -822,7 +822,7 @@ test.describe("NavMenu Overflow", () => {
 
       // Same audited essential links — auth state should not gate them.
       await expect(
-        menu.getByRole("menuitem", { name: "About cite" })
+        menu.getByRole("menuitem", { name: "About OpenContracts" })
       ).toBeVisible();
       await expect(
         menu.getByRole("menuitem", { name: "Privacy Policy" })
@@ -1008,7 +1008,7 @@ test.describe("NavMenu Overflow", () => {
 
       await expect(sheet.getByText("More", { exact: true })).toBeVisible();
       await expect(
-        sheet.getByRole("link", { name: "About cite" })
+        sheet.getByRole("link", { name: "About OpenContracts" })
       ).toBeVisible();
       await expect(
         sheet.getByRole("link", { name: "Privacy Policy" })
@@ -1037,7 +1037,7 @@ test.describe("NavMenu Overflow", () => {
 
       await expect(sheet.getByText("More", { exact: true })).toBeVisible();
       await expect(
-        sheet.getByRole("link", { name: "About cite" })
+        sheet.getByRole("link", { name: "About OpenContracts" })
       ).toBeVisible();
       await expect(
         sheet.getByRole("link", { name: "Privacy Policy" })

@@ -17,19 +17,23 @@
     <meta name="theme-color" content="#FAFAF7" />
     <meta
       name="description"
-      content="cite turns a repository of documents into an open citation graph that humans and AI agents can read, reason over, and contribute back to. Built like infrastructure, contributor-owned, open license."
+      content="OpenContracts turns a repository of documents into an open citation graph that humans and AI agents can read, reason over, and contribute back to. Built like infrastructure, contributor-owned, open license."
     />
     <meta property="og:type" content="website" key="Type" />
     <meta
       property="og:title"
-      content="[cite] — the citation layer for agentic workflows"
+      content="OpenContracts — open-source document intelligence you can build on"
       key="Title"
     />
     <meta
       property="og:description"
-      content="Every document cites other documents. cite turns that graph into open infrastructure for research tools, drafting tools, and AI agents."
+      content="Every document cites other documents. OpenContracts turns that graph into open infrastructure for research tools, drafting tools, and AI agents."
       key="Description"
     />
+    <!-- TODO(brand-rename): og:url and the JSON-LD @id/url below still point at
+         cite.opensource.legal. Align them with the OpenContracts canonical
+         (contracts.opensource.legal) once the DNS migration lands — tracked as
+         an out-of-scope follow-up to the cite→OpenContracts rename. -->
     <meta
       property="og:url"
       content="https://cite.opensource.legal/"
@@ -40,7 +44,7 @@
       content="/OpenContractsScreenshot.png"
       key="Image"
     />
-    <meta property="og:site_name" content="cite" key="Site" />
+    <meta property="og:site_name" content="OpenContracts" key="Site" />
 
     <!-- Google Fonts - Inter (UI) + Source Serif 4 (display / wordmark / body) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -72,9 +76,9 @@
           {
             "@type": "WebApplication",
             "@id": "https://cite.opensource.legal/#app",
-            "name": "cite",
-            "alternateName": "OpenContracts",
-            "description": "The citation layer for agentic workflows. cite turns a repository of documents into an open, traversable citation graph that humans and AI agents can read, reason over, and contribute back to.",
+            "name": "OpenContracts",
+            "alternateName": "cite",
+            "description": "Open-source document intelligence you can build on. OpenContracts turns a repository of documents into an open, traversable citation graph that humans and AI agents can read, reason over, and contribute back to.",
             "url": "https://cite.opensource.legal/",
             "license": "https://opensource.org/licenses/MIT",
             "applicationCategory": "BusinessApplication",
@@ -133,9 +137,9 @@
           },
           {
             "@type": "SoftwareSourceCode",
-            "name": "cite",
-            "alternateName": "OpenContracts",
-            "description": "Open commons of the citation graph. The codebase that powers cite, formerly released as OpenContracts.",
+            "name": "OpenContracts",
+            "alternateName": "cite",
+            "description": "Open commons of the citation graph. The codebase released as OpenContracts.",
             "codeRepository": "https://github.com/Open-Source-Legal/OpenContracts",
             "programmingLanguage": ["Python", "TypeScript"],
             "runtimePlatform": ["Django", "React"],
@@ -163,7 +167,9 @@
       Vite serves files from the 'public' directory at the root path '/'.
       Make sure your assets (favicon.ico, manifest.json, etc.) are in the 'public' folder.
     -->
-    <title>cite — the citation layer for agentic workflows</title>
+    <title>
+      OpenContracts — open-source document intelligence you can build on
+    </title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
