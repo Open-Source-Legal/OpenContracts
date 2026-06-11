@@ -231,6 +231,7 @@ class AnnotationQueryMixin:
         ),
     )
 
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
     def resolve_wanted_authorities(self, info, corpus_id=None) -> Any:
         """Aggregate through ``CorpusReferenceService`` (visibility-scoped);
         the service returns plain dicts that graphene's default resolver maps

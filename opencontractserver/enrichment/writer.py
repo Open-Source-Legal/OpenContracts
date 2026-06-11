@@ -201,16 +201,25 @@ class EnrichmentWriter:
             projection_rows.values_list("source_document_id", "target_document_id")
         )
         for src, tgt in sorted(expected - covered):
-            DocumentRelationship.objects.create(
+            # get_or_create (not create): two enrichment runs racing on the
+            # same corpus can both compute the same (src, tgt) as missing and
+            # would otherwise each INSERT a duplicate edge. Key on the edge's
+            # natural identity; creator/data are write-once defaults.
+            _, created = DocumentRelationship.objects.get_or_create(
                 source_document_id=src,
                 target_document_id=tgt,
                 annotation_label=rel_label,
                 relationship_type=C.DOC_REL_RELATIONSHIP,
                 corpus=self.corpus,
-                creator_id=self.creator_id,
-                data={"analysis_id": self.analysis.id if self.analysis else None},
+                defaults={
+                    "creator_id": self.creator_id,
+                    "data": {
+                        "analysis_id": self.analysis.id if self.analysis else None
+                    },
+                },
             )
-            result.document_relationships_created += 1
+            if created:
+                result.document_relationships_created += 1
 
     def _ensure_section_relationship(self, mention, res, rel_label, result):
         already = Relationship.objects.filter(

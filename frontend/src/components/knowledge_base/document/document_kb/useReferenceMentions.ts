@@ -71,27 +71,46 @@ export function useReferenceMentions(
 
     let cancelled = false;
     (async () => {
-      const { data } = await discoverAnalyses({ variables: { corpusId } });
-      const enrichmentAnalyses = (data?.analyses?.edges ?? [])
-        .map((e) => e.node)
-        .filter((n) => n.analyzer?.taskName === ENRICHMENT_ANALYZER_TASK_NAME);
-      if (enrichmentAnalyses.length === 0 || cancelled) return;
-
-      const fresh: ReturnType<typeof convertToServerAnnotation>[] = [];
-      const existingIds = new Set(annotationsRef.current.map((a) => a.id));
-      for (const analysis of enrichmentAnalyses) {
-        const { data: annData } = await fetchMentions({
-          variables: { analysisId: analysis.id, documentId },
-        });
+      try {
+        const { data } = await discoverAnalyses({ variables: { corpusId } });
+        const enrichmentAnalyses = (data?.analyses?.edges ?? [])
+          .map((e) => e.node)
+          .filter(
+            (n) => n.analyzer?.taskName === ENRICHMENT_ANALYZER_TASK_NAME
+          );
         if (cancelled) return;
-        for (const ann of annData?.analysis?.fullAnnotationList ?? []) {
-          if (!existingIds.has(ann.id)) {
-            existingIds.add(ann.id);
-            fresh.push(convertToServerAnnotation(ann));
+        if (enrichmentAnalyses.length === 0) {
+          // No enrichment analyses yet (e.g. still running). Release the
+          // one-shot gate so a later effect run retries — committing it here
+          // would strand the citations until a full remount.
+          mergedForRef.current = "";
+          return;
+        }
+
+        const fresh: ReturnType<typeof convertToServerAnnotation>[] = [];
+        const existingIds = new Set(annotationsRef.current.map((a) => a.id));
+        for (const analysis of enrichmentAnalyses) {
+          const { data: annData } = await fetchMentions({
+            variables: { analysisId: analysis.id, documentId },
+          });
+          if (cancelled) return;
+          for (const ann of annData?.analysis?.fullAnnotationList ?? []) {
+            if (!existingIds.has(ann.id)) {
+              existingIds.add(ann.id);
+              fresh.push(convertToServerAnnotation(ann));
+            }
           }
         }
+        if (fresh.length > 0) addMultipleAnnotations(fresh);
+      } catch (err) {
+        // Transient failure (network / Apollo). Release the gate so the merge
+        // can be retried rather than silently stuck.
+        if (!cancelled) mergedForRef.current = "";
+        console.warn(
+          "useReferenceMentions: mention merge failed, will retry",
+          err
+        );
       }
-      if (fresh.length > 0) addMultipleAnnotations(fresh);
     })();
 
     return () => {
