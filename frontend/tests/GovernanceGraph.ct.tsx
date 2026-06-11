@@ -12,7 +12,10 @@ import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { GovernanceGraphLive } from "../src/components/corpuses/CorpusHome/intelligence/GovernanceGraphLive";
 import { docScreenshot } from "./utils/docScreenshot";
-import { GET_GOVERNANCE_GRAPH } from "../src/graphql/queries";
+import {
+  GET_GOVERNANCE_GRAPH,
+  GET_WANTED_AUTHORITIES,
+} from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
 const AUTH_CORPUS_ID = "Q29ycHVzVHlwZToy";
@@ -143,6 +146,18 @@ const makeGraphMock = (graph: typeof GRAPH | null, delay?: number) => ({
   },
 });
 
+// Once the graph has nodes, GovernanceGraphLive also fires the
+// wanted-authorities backlog query; an empty backlog keeps these tests
+// focused on the graph itself (the card has its own tests in
+// WantedAuthorities.ct.tsx).
+const emptyWantedMock = {
+  request: {
+    query: GET_WANTED_AUTHORITIES,
+    variables: { corpusId: CORPUS_ID },
+  },
+  result: { data: { wantedAuthorities: [] } },
+};
+
 test.describe("GovernanceGraphLive", () => {
   test("renders the reference web with shelf captions, legend, and stats", async ({
     mount,
@@ -151,7 +166,12 @@ test.describe("GovernanceGraphLive", () => {
     const component = await mount(
       <MemoryRouter>
         <MockedProvider
-          mocks={[makeGraphMock(GRAPH), makeGraphMock(GRAPH)]}
+          mocks={[
+            makeGraphMock(GRAPH),
+            makeGraphMock(GRAPH),
+            emptyWantedMock,
+            emptyWantedMock,
+          ]}
           addTypename={false}
         >
           <GovernanceGraphLive corpusId={CORPUS_ID} />
@@ -236,7 +256,7 @@ test.describe("GovernanceGraphLive", () => {
     const component = await mount(
       <MemoryRouter>
         <MockedProvider
-          mocks={[makeGraphMock(GRAPH, 2000)]}
+          mocks={[makeGraphMock(GRAPH, 2000), emptyWantedMock, emptyWantedMock]}
           addTypename={false}
         >
           <GovernanceGraphLive corpusId={CORPUS_ID} />

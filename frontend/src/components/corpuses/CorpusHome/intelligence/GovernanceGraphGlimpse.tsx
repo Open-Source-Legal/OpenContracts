@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import styled, { keyframes } from "styled-components";
+import styled from "styled-components";
 import * as d3 from "d3";
 import { Scale, ArrowRight } from "lucide-react";
 
@@ -17,6 +17,23 @@ import {
   GovernanceGraphNode,
   GovernanceGraphEdge,
 } from "../../../../graphql/queries";
+import { formatCanonicalLawKey } from "../../../../utils/formatters";
+import {
+  createSeededRandom,
+  runSimulationTicks,
+} from "../../../../utils/graphLayout";
+import {
+  EmptyState,
+  ExploreLink,
+  GraphCard,
+  GraphHeader,
+  GraphMeta,
+  GraphSkeleton,
+  GraphTitle,
+  Legend,
+  LegendItem,
+  SvgWrapper,
+} from "./graphCardChrome";
 
 /**
  * GovernanceGraphGlimpse — the reference web, rendered.
@@ -96,117 +113,14 @@ interface GovernanceGraphGlimpseProps {
 const isLawKind = (kind: string) =>
   kind === KINDS.STATUTE || kind === KINDS.EXTERNAL;
 
-const GraphCard = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 1rem 1.25rem 1.25rem;
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 14px;
-`;
-
-const GraphHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-`;
-
-const GraphTitle = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-
-  svg {
-    color: ${COLORS.LAW_DEFAULT};
-  }
-`;
-
-const GraphMeta = styled.span`
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  font-variant-numeric: tabular-nums;
-`;
-
-const SvgWrapper = styled.div`
-  width: 100%;
-  background: white;
-  border-radius: 10px;
-  overflow: hidden;
-
-  svg {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-`;
-
-const ExploreLink = styled.button`
-  align-self: flex-end;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: none;
-  border: none;
-  padding: 0.25rem 0.25rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.primaryBlue};
-  cursor: pointer;
-
-  &:hover {
-    text-decoration: underline;
-  }
-
-  svg {
-    width: 14px;
-    height: 14px;
-  }
-`;
-
-const EmptyState = styled.div`
+// The governance empty state centers a motif + CTA stack, so it extends the
+// shared chrome's plain text block into a column.
+const CenteredEmptyState = styled(EmptyState)`
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
   padding: 1.75rem 1rem;
-  text-align: center;
-  font-size: 0.8125rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-`;
-
-const shimmer = keyframes`
-  0% { opacity: 0.45; }
-  50% { opacity: 0.8; }
-  100% { opacity: 0.45; }
-`;
-
-const GraphSkeleton = styled.div`
-  width: 100%;
-  aspect-ratio: ${VIEW_WIDTH} / ${VIEW_HEIGHT};
-  border-radius: 10px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
-  animation: ${shimmer} 1.2s ease-in-out infinite;
-`;
-
-const Legend = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 1.1rem;
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-`;
-
-const LegendItem = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  white-space: nowrap;
 `;
 
 /** Miniature of the graph motif for the empty state — two filings over a
@@ -278,18 +192,7 @@ function shortLawLabel(node: GovernanceGraphNode): string {
 
 /** Display form for a ghost key: "dgcl:203" → "DGCL § 203". */
 function ghostLabel(node: GovernanceGraphNode): string {
-  const key = node.title || node.id.replace(/^key:/, "");
-  const [prefix, section] = key.split(":", 2);
-  const acronyms = new Set(["dgcl", "irc", "ica", "iaa", "usc"]);
-  const display = prefix
-    .split("-")
-    .map((part) =>
-      acronyms.has(part) || part === "sec"
-        ? part.toUpperCase()
-        : part.charAt(0).toUpperCase() + part.slice(1)
-    )
-    .join(" ");
-  return section ? `${display} § ${section}` : display;
+  return formatCanonicalLawKey(node.title || node.id.replace(/^key:/, ""));
 }
 
 /** Shorten a filing title to a cluster-anchor label:
@@ -328,11 +231,7 @@ function computeLayout(
   edges: GovernanceGraphEdge[]
 ): Layout {
   // Deterministic pseudo-random for reproducible layouts (mirrors the demo).
-  let seed = LAYOUT_SEED;
-  const rand = () => {
-    seed = (seed * 16807) % 2147483647;
-    return (seed - 1) / 2147483646;
-  };
+  const rand = createSeededRandom(LAYOUT_SEED);
 
   const maxDegree = nodes.reduce((m, n) => Math.max(m, n.degree), 1);
   const nodeRadius = (n: GovernanceGraphNode): number => {
@@ -536,9 +435,7 @@ function computeLayout(
     )
     .stop();
 
-  for (let i = 0; i < SIMULATION_TICKS; i += 1) {
-    simulation.tick();
-  }
+  runSimulationTicks(simulation, SIMULATION_TICKS);
 
   // Clamp filings into frame (the shelf is pinned and never strays). Leave
   // headroom below for shelf labels + authority captions.
@@ -673,12 +570,16 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
       return (
         <GraphCard data-testid={testId}>
           <GraphHeader>
-            <GraphTitle>
+            <GraphTitle $iconColor={COLORS.LAW_DEFAULT}>
               <Scale size={16} />
               Governance graph
             </GraphTitle>
           </GraphHeader>
-          <GraphSkeleton data-testid={`${testId}-skeleton`} />
+          <GraphSkeleton
+            $viewWidth={VIEW_WIDTH}
+            $viewHeight={VIEW_HEIGHT}
+            data-testid={`${testId}-skeleton`}
+          />
         </GraphCard>
       );
     }
@@ -686,26 +587,26 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
       return (
         <GraphCard data-testid={testId}>
           <GraphHeader>
-            <GraphTitle>
+            <GraphTitle $iconColor={COLORS.LAW_DEFAULT}>
               <Scale size={16} />
               Governance graph
             </GraphTitle>
           </GraphHeader>
-          <EmptyState data-testid={`${testId}-error`}>
+          <CenteredEmptyState data-testid={`${testId}-error`}>
             Couldn't load the governance graph. Please try again.
-          </EmptyState>
+          </CenteredEmptyState>
         </GraphCard>
       );
     }
     return (
       <GraphCard data-testid={testId}>
         <GraphHeader>
-          <GraphTitle>
+          <GraphTitle $iconColor={COLORS.LAW_DEFAULT}>
             <Scale size={16} />
             Governance graph
           </GraphTitle>
         </GraphHeader>
-        <EmptyState data-testid={`${testId}-empty`}>
+        <CenteredEmptyState data-testid={`${testId}-empty`}>
           <EmptyMotif />
           <span>
             This collection's reference web hasn't been mapped yet. Once mapped,
@@ -713,7 +614,7 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
             section of the law — appears here.
           </span>
           {emptyAction}
-        </EmptyState>
+        </CenteredEmptyState>
       </GraphCard>
     );
   }
@@ -725,7 +626,7 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
   return (
     <GraphCard data-testid={testId}>
       <GraphHeader>
-        <GraphTitle>
+        <GraphTitle $iconColor={COLORS.LAW_DEFAULT}>
           <Scale size={16} />
           How this collection is wired to the law
         </GraphTitle>

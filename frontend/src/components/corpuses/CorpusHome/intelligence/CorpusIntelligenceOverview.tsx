@@ -14,7 +14,9 @@ import { SuggestedQuestions } from "./SuggestedQuestions";
  *
  *   1. IntelligencePanel     — insight-framed at-a-glance metrics.
  *   2. GovernanceGraphLive   — the reference web: how the collection is wired
- *                              to the law (with a bootstrap CTA when unmapped).
+ *                              to the law (with a bootstrap CTA when unmapped
+ *                              and the wanted-authorities backlog below when
+ *                              citations point at law not yet in the library).
  *   3. DocumentGraphLive     — a visual of how the documents interconnect.
  *   4. SuggestedQuestions    — one-click cross-document Q&A via the corpus agent.
  *

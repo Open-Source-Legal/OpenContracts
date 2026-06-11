@@ -26,6 +26,7 @@ import {
 } from "../../../../graphql/mutations";
 import { useNavigateToDocumentById } from "../../../../hooks/useNavigateToDocumentById";
 import { GovernanceGraphGlimpse } from "./GovernanceGraphGlimpse";
+import { WantedAuthoritiesLive } from "./WantedAuthoritiesLive";
 
 // Stable empty-array references so the glimpse's layout memos stay cached
 // while the query is in flight (see DocumentGraphLive for the rationale).
@@ -34,6 +35,14 @@ const EMPTY_EDGES: GovernanceGraphEdge[] = [];
 
 const spin = keyframes`
   to { transform: rotate(360deg); }
+`;
+
+// The graph card and its wanted-authorities companion stack with the same
+// rhythm the intelligence overview uses between blocks.
+const Stack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 `;
 
 const BootstrapButton = styled.button`
@@ -88,6 +97,11 @@ const WeavingNote = styled.span`
  * corpus-reference-enrichment analysis and (2) installs an ``add_document``
  * CorpusAction so the web keeps growing as documents arrive. While the first
  * run executes, the query polls until nodes appear.
+ *
+ * Once the graph has nodes, the wanted-authorities backlog renders beneath it
+ * (``WantedAuthoritiesLive`` — silent when every citation resolves), so every
+ * surface that shows the graph (intelligence overview, CAML article embed)
+ * also shows what to ingest next.
  */
 interface GovernanceGraphLiveProps {
   corpusId: string;
@@ -216,19 +230,24 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
   );
 
   return (
-    <GovernanceGraphGlimpse
-      nodes={graph?.nodes ?? EMPTY_NODES}
-      edges={graph?.edges ?? EMPTY_EDGES}
-      documentCount={graph?.documentCount ?? 0}
-      externalKeyCount={graph?.externalKeyCount ?? 0}
-      mentionCount={graph?.mentionCount ?? 0}
-      truncated={graph?.truncated ?? false}
-      loading={loading && !graph}
-      error={!!error && !graph}
-      onSelectDocument={handleSelectDocument}
-      onExplore={onExplore}
-      emptyAction={emptyAction}
-      testId={testId}
-    />
+    <Stack>
+      <GovernanceGraphGlimpse
+        nodes={graph?.nodes ?? EMPTY_NODES}
+        edges={graph?.edges ?? EMPTY_EDGES}
+        documentCount={graph?.documentCount ?? 0}
+        externalKeyCount={graph?.externalKeyCount ?? 0}
+        mentionCount={graph?.mentionCount ?? 0}
+        truncated={graph?.truncated ?? false}
+        loading={loading && !graph}
+        error={!!error && !graph}
+        onSelectDocument={handleSelectDocument}
+        onExplore={onExplore}
+        emptyAction={emptyAction}
+        testId={testId}
+      />
+      {/* The graph's dashed ghost nodes, as an actionable backlog. Renders
+          nothing when every citation resolves — most corpora, most days. */}
+      {hasNodes && <WantedAuthoritiesLive corpusId={corpusId} />}
+    </Stack>
   );
 };

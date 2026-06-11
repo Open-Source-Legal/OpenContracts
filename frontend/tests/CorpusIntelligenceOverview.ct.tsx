@@ -11,6 +11,7 @@
 import React from "react";
 import { test, expect } from "./utils/coverage";
 import { MockedProvider } from "@apollo/client/testing";
+import { MemoryRouter } from "react-router-dom";
 import { CorpusIntelligenceOverview } from "../src/components/corpuses/CorpusHome/intelligence/CorpusIntelligenceOverview";
 import { docScreenshot } from "./utils/docScreenshot";
 // Import the real query documents the component runs, so the mocks below stay
@@ -19,6 +20,8 @@ import {
   GET_CORPUS_STATS,
   GET_CORPUS_INTELLIGENCE_AGGREGATES,
   GET_CORPUS_DOCUMENT_GRAPH,
+  GET_GOVERNANCE_GRAPH,
+  GET_WANTED_AUTHORITIES,
 } from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
@@ -111,22 +114,67 @@ const graphMock = {
   },
 };
 
+// The overview also mounts GovernanceGraphLive (GET_GOVERNANCE_GRAPH); an
+// empty graph keeps these tests focused on the document graph + chips.
+// Mocked twice per mount to absorb refetches.
+const governanceMock = {
+  request: {
+    query: GET_GOVERNANCE_GRAPH,
+    variables: { corpusId: CORPUS_ID },
+  },
+  result: {
+    data: {
+      governanceGraph: {
+        corpora: [],
+        nodes: [],
+        edges: [],
+        documentCount: 0,
+        externalKeyCount: 0,
+        edgeCount: 0,
+        mentionCount: 0,
+        truncated: false,
+      },
+    },
+  },
+};
+
+// Empty backlog → WantedAuthoritiesLive renders nothing (by design).
+const wantedMock = {
+  request: {
+    query: GET_WANTED_AUTHORITIES,
+    variables: { corpusId: CORPUS_ID },
+  },
+  result: { data: { wantedAuthorities: [] } },
+};
+
 test.describe("CorpusIntelligenceOverview", () => {
   test("composes the panel, the document graph, and question chips", async ({
     mount,
     page,
   }) => {
     const component = await mount(
-      <MockedProvider
-        mocks={[statsMock, aggMock, graphMock]}
-        addTypename={false}
-      >
-        <CorpusIntelligenceOverview
-          corpusId={CORPUS_ID}
-          onAskQuestion={() => {}}
-          onExploreGraph={() => {}}
-        />
-      </MockedProvider>
+      // MemoryRouter: GovernanceGraphLive's node click-through hook calls
+      // useNavigate, which requires a Router context.
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            statsMock,
+            aggMock,
+            graphMock,
+            governanceMock,
+            governanceMock,
+            wantedMock,
+            wantedMock,
+          ]}
+          addTypename={false}
+        >
+          <CorpusIntelligenceOverview
+            corpusId={CORPUS_ID}
+            onAskQuestion={() => {}}
+            onExploreGraph={() => {}}
+          />
+        </MockedProvider>
+      </MemoryRouter>
     );
 
     await expect(
@@ -168,17 +216,27 @@ test.describe("CorpusIntelligenceOverview", () => {
     const submitted: string[] = [];
 
     const component = await mount(
-      <MockedProvider
-        mocks={[statsMock, aggMock, graphMock]}
-        addTypename={false}
-      >
-        <CorpusIntelligenceOverview
-          corpusId={CORPUS_ID}
-          onAskQuestion={(q) => {
-            submitted.push(q);
-          }}
-        />
-      </MockedProvider>
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            statsMock,
+            aggMock,
+            graphMock,
+            governanceMock,
+            governanceMock,
+            wantedMock,
+            wantedMock,
+          ]}
+          addTypename={false}
+        >
+          <CorpusIntelligenceOverview
+            corpusId={CORPUS_ID}
+            onAskQuestion={(q) => {
+              submitted.push(q);
+            }}
+          />
+        </MockedProvider>
+      </MemoryRouter>
     );
 
     const chip = page

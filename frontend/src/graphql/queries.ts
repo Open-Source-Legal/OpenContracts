@@ -929,6 +929,53 @@ export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
   }
 `;
 
+// ---------------- Wanted authorities (missing-law backlog) ----------------
+// EXTERNAL law citations visible to the user, aggregated by authority prefix
+// and ranked by mention volume — the actionable backlog behind the
+// governance graph's dashed ghost nodes: what to ingest next to resolve the
+// most references.
+
+export interface WantedAuthorityKey {
+  /** Section-root canonical key, e.g. "dgcl:145". */
+  canonicalKey: string;
+  mentionCount: number;
+  corpusCount: number;
+}
+
+export interface WantedAuthority {
+  /** Authority prefix, e.g. "dgcl". */
+  authority: string;
+  mentionCount: number;
+  keyCount: number;
+  corpusCount: number;
+  /** Most-cited missing keys (capped server-side). */
+  topKeys: WantedAuthorityKey[];
+}
+
+export interface GetWantedAuthoritiesInputType {
+  corpusId?: string;
+}
+
+export interface GetWantedAuthoritiesOutputType {
+  wantedAuthorities: WantedAuthority[];
+}
+
+export const GET_WANTED_AUTHORITIES = gql`
+  query wantedAuthorities($corpusId: ID) {
+    wantedAuthorities(corpusId: $corpusId) {
+      authority
+      mentionCount
+      keyCount
+      corpusCount
+      topKeys {
+        canonicalKey
+        mentionCount
+        corpusCount
+      }
+    }
+  }
+`;
+
 // Lean analysis listing used to discover a corpus's reference-enrichment
 // Analysis (matched client-side on analyzer.taskName) so the document viewer
 // can auto-merge its reference-mention annotations into the annotation layer.

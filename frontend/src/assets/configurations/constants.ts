@@ -1075,6 +1075,18 @@ export const GOVERNANCE_GRAPH_AUTHORITY_ORDER = [
   "irc",
 ] as const;
 
+// Authority-prefix words rendered as all-caps acronyms when a canonical law
+// key is displayed ("dgcl:203" → "DGCL § 203"); other words are title-cased
+// ("securities-act" → "Securities Act"). See formatCanonicalLawKey.
+export const LAW_AUTHORITY_ACRONYMS = [
+  "dgcl",
+  "irc",
+  "ica",
+  "iaa",
+  "usc",
+  "sec",
+] as const;
+
 export const GOVERNANCE_GRAPH_AUTHORITY_CAPTIONS: Record<string, string> = {
   dgcl: "DELAWARE GEN. CORP. LAW",
   "securities-act": "SECURITIES ACT OF 1933",
@@ -1105,3 +1117,7 @@ export const ENRICHMENT_ANALYZER_TASK_NAME =
 
 /** Poll cadence (ms) while the reference web is being woven after the CTA. */
 export const GOVERNANCE_GRAPH_WEAVING_POLL_MS = 4000;
+
+/** Max authority rows shown in the wanted-authorities backlog card; the
+ * server already ranks by mention volume, so the cut keeps the top demand. */
+export const WANTED_AUTHORITIES_MAX_ROWS = 5;
