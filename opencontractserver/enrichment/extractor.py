@@ -229,7 +229,7 @@ class ReferenceExtractor:
                 return
             # Trim trailing punctuation captured inside the quotes
             # (e.g. (the "Notes," ...) -> "Notes").
-            term = m.group("term").strip().rstrip(",.;:")
+            term = m.group("term").strip().rstrip(C.TRAILING_PUNCT)
             slug = _slugify_term(term)
             if not slug or slug in seen:
                 continue

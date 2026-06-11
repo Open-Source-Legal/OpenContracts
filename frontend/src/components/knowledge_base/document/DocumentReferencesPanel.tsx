@@ -16,6 +16,7 @@ import {
   CorpusReferenceRow,
 } from "../../../graphql/queries";
 import { useNavigateToDocumentById } from "../../../hooks/useNavigateToDocumentById";
+import { formatCanonicalLawKey } from "../../../utils/formatters";
 
 /**
  * DocumentReferencesPanel — one document's slice of the corpus reference web.
@@ -174,21 +175,6 @@ const RowSkeleton = styled.div`
   animation: ${shimmer} 1.2s ease-in-out infinite;
 `;
 
-/** Display form for a canonical key: "dgcl:145" → "DGCL § 145". */
-function displayKey(key: string): string {
-  const [prefix, section] = key.split(":", 2);
-  const acronyms = new Set(["dgcl", "irc", "ica", "iaa", "usc"]);
-  const display = prefix
-    .split("-")
-    .map((part) =>
-      acronyms.has(part) || part === "sec"
-        ? part.toUpperCase()
-        : part.charAt(0).toUpperCase() + part.slice(1)
-    )
-    .join(" ");
-  return section ? `${display} § ${section}` : display;
-}
-
 interface OutboundGroup {
   key: string;
   referenceType: string;
@@ -245,9 +231,11 @@ export const DocumentReferencesPanel: React.FC<
       const head =
         row.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW &&
         row.canonicalKey
-          ? displayKey(row.canonicalKey)
+          ? formatCanonicalLawKey(row.canonicalKey)
           : row.targetDocument?.title ||
-            (row.canonicalKey ? displayKey(row.canonicalKey) : null) ||
+            (row.canonicalKey
+              ? formatCanonicalLawKey(row.canonicalKey)
+              : null) ||
             row.sourceAnnotation?.rawText ||
             "Reference";
       groups.set(groupKey, {

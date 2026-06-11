@@ -136,6 +136,13 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
     }
   }, [weaving, hasNodes, stopPolling]);
 
+  // Stop the weave poll if the user navigates away mid-weave — otherwise the
+  // interval keeps firing until a remount happens to re-run the effect above.
+  // stopPolling is a no-op when no poll is active, so it is safe unconditional.
+  useEffect(() => {
+    return () => stopPolling();
+  }, [stopPolling]);
+
   const [fetchAnalyzers] = useLazyQuery<GetAnalyzersForEnrichmentOutputType>(
     GET_ANALYZERS_FOR_ENRICHMENT,
     { fetchPolicy: "network-only" }

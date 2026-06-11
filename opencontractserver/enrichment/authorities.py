@@ -67,8 +67,12 @@ def authority_alias_registry(user=None) -> dict[str, str]:
     documents visible to that user are included.
     """
     mapping: dict[str, str] = dict(C.AUTHORITY_PREFIX)
+    # Fail closed: without a user we contribute only the static defaults rather
+    # than aliases from EVERY document (including private corpora). A future
+    # caller that forgets to thread ``creator`` gets no DB-declared aliases, not
+    # a cross-tenant metadata leak.
     qs = (
-        Document.objects.all()
+        Document.objects.none()
         if user is None
         else Document.objects.visible_to_user(user)
     )
@@ -206,7 +210,10 @@ class AuthorityCorpusBootstrapper:
             if existing is not None:
                 try:
                     current = read_field_file_text(existing.txt_extract_file)
-                except Exception:  # unreadable -> rewrite below
+                except (OSError, ValueError, AttributeError):
+                    # Unreadable (missing file / no file associated / decode
+                    # error) -> treat as needs-rewrite below. Narrow on purpose
+                    # so genuine bugs surface instead of being swallowed.
                     current = None
                 if current == sec.text:
                     meta = existing.custom_meta or {}

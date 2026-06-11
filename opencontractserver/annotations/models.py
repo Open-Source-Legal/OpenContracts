@@ -1997,6 +1997,14 @@ class CorpusReference(BaseOCModel):
         expected = enrichment_constants.LABEL_FOR_TYPE.get(self.reference_type)
         if expected is None or not self.source_annotation_id:
             return
+        # Fast path: read the already-loaded relation chain when the caller (the
+        # enrichment writer, which select_relates annotation_label) holds it,
+        # avoiding one query per reference across a bulk enrichment. This
+        # deliberately reads ``_state.fields_cache`` — a Django internal whose
+        # public wrappers (``is_cached`` / ``get_cached_value``) aren't typed by
+        # django-stubs. The cold path below is the safety net if the layout ever
+        # changes (KeyError/AttributeError would surface in tests), so this is a
+        # contained, test-covered optimisation rather than a hard dependency.
         mention = self._state.fields_cache.get("source_annotation")
         if mention is not None and "annotation_label" in mention._state.fields_cache:
             label = mention._state.fields_cache["annotation_label"]
