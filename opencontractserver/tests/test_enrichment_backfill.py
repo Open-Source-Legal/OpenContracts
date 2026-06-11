@@ -18,7 +18,6 @@ from django.core.management import call_command
 from django.test import TestCase
 from graphene.test import Client
 
-from config.graphql.schema import schema
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -159,6 +158,31 @@ class RelinkForKeysTests(TestCase):
         assert out["corpora_checked"] == 0
         assert out["law_references_linked"] == 0
 
+    def test_relink_empty_keys_short_circuits(self):
+        # Empty / all-falsy key lists return a zeroed summary without a sweep.
+        svc = EnrichmentService()
+        assert svc.relink_corpora_for_keys([])["corpora_checked"] == 0
+        assert svc.relink_corpora_for_keys([None, ""])["corpora_checked"] == 0
+
+    def test_relink_isolates_per_corpus_failure(self):
+        # One broken corpus must not strand the sweep: the failure is counted
+        # and the loop continues (documented per-corpus isolation).
+        from unittest.mock import patch
+
+        librarian = User.objects.create_user(username="librarian", password="p")
+        self._bootstrap_dgcl(librarian, public=True)
+
+        with patch.object(
+            EnrichmentService,
+            "link_external_references",
+            side_effect=RuntimeError("boom"),
+        ):
+            out = EnrichmentService().relink_corpora_for_keys(["dgcl:145", "dgcl:203"])
+        assert out["corpora_checked"] == 1
+        assert out["corpora_failed"] == 1
+        assert out["corpora_relinked"] == 0
+        assert out["law_references_linked"] == 0
+
     def test_subsection_refs_match_their_root_key(self):
         # Filing cites securities-act:4(a)(2); the authority lands the root
         # section securities-act:4 — the relink must still pick the corpus up.
@@ -276,6 +300,52 @@ class BootstrapCommandTests(TestCase):
                 path,
             )
 
+    def test_command_rejects_unknown_creator(self):
+        from django.core.management.base import CommandError
+
+        path = self._spec_file(
+            {"sections": [{"key": "dgcl:145", "heading": "DGCL § 145", "text": "x"}]}
+        )
+        with self.assertRaises(CommandError):
+            call_command(
+                "bootstrap_authority",
+                "--creator",
+                "nobody",
+                "--title",
+                "X",
+                "--file",
+                path,
+            )
+
+    def test_command_rejects_unreadable_spec_file(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "bootstrap_authority",
+                "--creator",
+                "owner",
+                "--title",
+                "X",
+                "--file",
+                "/nonexistent/path/to/spec.json",
+            )
+
+    def test_command_rejects_missing_sections_list(self):
+        from django.core.management.base import CommandError
+
+        path = self._spec_file({"aliases": ["DGCL"]})  # no "sections" key
+        with self.assertRaises(CommandError):
+            call_command(
+                "bootstrap_authority",
+                "--creator",
+                "owner",
+                "--title",
+                "X",
+                "--file",
+                path,
+            )
+
 
 class WantedAuthoritiesGraphQLTests(TestCase):
     def setUp(self):
@@ -284,6 +354,13 @@ class WantedAuthoritiesGraphQLTests(TestCase):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
 
     def _execute(self, user, variables=None):
+        # Lazy import: building the graphene schema at module import time trips
+        # a graphene-django field-resolution error under coverage instrumentation
+        # (collection-time), which silently drops this file's coverage. Importing
+        # inside the method defers the build to runtime. Mirrors the pattern in
+        # test_enrichment_tools.py / test_governance_graph.py.
+        from config.graphql.schema import schema
+
         client = Client(schema)
         return client.execute(
             self.QUERY, variable_values=variables, context_value=_GQLContext(user)
