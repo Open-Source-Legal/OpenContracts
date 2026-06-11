@@ -62,6 +62,29 @@ def _run_graph(user, corpus_pk):
     )
 
 
+REFS_QUERY = """
+    query ($cid: ID!, $did: ID!) {
+      corpusReferences(corpusId: $cid, documentId: $did) {
+        edges { node { id referenceType } }
+      }
+    }
+"""
+
+
+def _run_refs(user, corpus_pk, document_gid):
+    from graphene.test import Client
+
+    from config.graphql.schema import schema
+
+    return Client(schema, context_value=_Ctx(user)).execute(
+        REFS_QUERY,
+        variables={
+            "cid": to_global_id("CorpusType", corpus_pk),
+            "did": document_gid,
+        },
+    )
+
+
 class GovernanceGraphTests(TestCase):
     """Happy-path graph composition for a filing corpus with a linked authority."""
 
@@ -208,3 +231,48 @@ class GovernanceGraphTests(TestCase):
         # The private authority corpus must not be listed.
         corpus_ids = {c["id"] for c in graph["corpora"]}
         assert to_global_id("CorpusType", self.auth_corpus_id) not in corpus_ids
+
+    def test_corpus_references_document_id_idor_guard(self):
+        """A corpus reader cannot probe references by a document they can't see.
+
+        The ``corpusReferences(documentId:)`` filter validates that the supplied
+        document is READ-visible before filtering by it. The statute section
+        lives in the private authority corpus and is a LAW target of this
+        corpus's references — so without the guard, a reader of the (public)
+        filing corpus could supply the statute's id and learn it has references.
+        The guard returns the same empty result as a document with none.
+        """
+        primary_gid = to_global_id("DocumentType", self.primary_id)
+        statute_gid = to_global_id("DocumentType", self.statute_id)
+
+        # Owner sees both documents — a positive control proving each id genuinely
+        # has references in the corpus (so the reader's empties below are the
+        # guard at work, not an absence of data).
+        owner_primary = _run_refs(self.user, self.corpus.id, primary_gid)
+        assert owner_primary.get("errors") is None, owner_primary.get("errors")
+        assert owner_primary["data"]["corpusReferences"][
+            "edges"
+        ], "expected the primary's outbound references"
+        owner_statute = _run_refs(self.user, self.corpus.id, statute_gid)
+        assert owner_statute["data"]["corpusReferences"][
+            "edges"
+        ], "expected inbound references targeting the statute section"
+
+        # Reader can READ the filing corpus (public) but NOT the private statute.
+        reader = User.objects.create_user(username="refs-reader", password="p")
+        self.corpus.is_public = True
+        self.corpus.save()
+        Document.objects.filter(id__in=[self.primary_id, self.exhibit_id]).update(
+            is_public=True
+        )
+
+        # Visible document → references flow through.
+        reader_primary = _run_refs(reader, self.corpus.id, primary_gid)
+        assert reader_primary.get("errors") is None, reader_primary.get("errors")
+        assert reader_primary["data"]["corpusReferences"]["edges"]
+
+        # Invisible document → IDOR guard returns empty (statute has refs, but the
+        # reader cannot see it, so cannot probe by its id).
+        reader_statute = _run_refs(reader, self.corpus.id, statute_gid)
+        assert reader_statute.get("errors") is None, reader_statute.get("errors")
+        assert reader_statute["data"]["corpusReferences"]["edges"] == []

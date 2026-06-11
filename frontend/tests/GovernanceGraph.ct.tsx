@@ -9,7 +9,7 @@
  */
 import { test, expect } from "./utils/coverage";
 import { MockedProvider } from "@apollo/client/testing";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { GovernanceGraphLive } from "../src/components/corpuses/CorpusHome/intelligence/GovernanceGraphLive";
 import { GovernanceGraphEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/GovernanceGraphEmbed";
 import { CamlEmbedProvider } from "../src/components/corpuses/caml/CamlEmbedContext";
@@ -17,10 +17,15 @@ import { docScreenshot } from "./utils/docScreenshot";
 import {
   GET_GOVERNANCE_GRAPH,
   GET_WANTED_AUTHORITIES,
+  GET_ANALYZERS_FOR_ENRICHMENT,
+  GET_DOCUMENT_BY_ID_FOR_REDIRECT,
 } from "../src/graphql/queries";
+import { START_ANALYSIS, CREATE_CORPUS_ACTION } from "../src/graphql/mutations";
+import { ENRICHMENT_ANALYZER_TASK_NAME } from "../src/assets/configurations/constants";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
 const AUTH_CORPUS_ID = "Q29ycHVzVHlwZToy";
+const ENRICH_ANALYZER_ID = "QW5hbHl6ZXJUeXBlOjE=";
 
 const GRAPH = {
   corpora: [
@@ -160,6 +165,99 @@ const emptyWantedMock = {
   result: { data: { wantedAuthorities: [] } },
 };
 
+// --- Bootstrap-flow mocks (empty graph → "Map the reference web") -----------
+
+const analyzersMock = (taskName: string | null) => ({
+  request: { query: GET_ANALYZERS_FOR_ENRICHMENT },
+  result: {
+    data: {
+      analyzers: {
+        edges: taskName ? [{ node: { id: ENRICH_ANALYZER_ID, taskName } }] : [],
+      },
+    },
+  },
+});
+
+const startAnalysisMock = {
+  request: {
+    query: START_ANALYSIS,
+    variables: { analyzerId: ENRICH_ANALYZER_ID, corpusId: CORPUS_ID },
+  },
+  result: {
+    data: {
+      startAnalysisOnDoc: {
+        ok: true,
+        message: "Started",
+        obj: {
+          id: "QW5hbHlzaXNUeXBlOjE=",
+          analysisStarted: "2026-01-01T00:00:00Z",
+          analysisCompleted: null,
+          analyzedDocuments: { edges: [] },
+          receivedCallbackFile: null,
+          annotations: { totalCount: 0 },
+          analyzer: {
+            id: ENRICH_ANALYZER_ID,
+            analyzerId: "reference-enrichment",
+            description: "",
+            manifest: null,
+            labelsetSet: { totalCount: 0 },
+            hostGremlin: null,
+          },
+        },
+      },
+    },
+  },
+};
+
+const createCorpusActionMock = {
+  request: {
+    query: CREATE_CORPUS_ACTION,
+    variables: {
+      corpusId: CORPUS_ID,
+      trigger: "add_document",
+      analyzerId: ENRICH_ANALYZER_ID,
+      name: "Reference enrichment (auto)",
+    },
+  },
+  result: { data: { createCorpusAction: { ok: true, message: "ok" } } },
+};
+
+// Node click-through resolves the document's slugs via the redirect query,
+// then navigates to its canonical path. Beta Energy's primary node is the
+// unambiguous target (no exhibit shares its title).
+const redirectMock = {
+  request: {
+    query: GET_DOCUMENT_BY_ID_FOR_REDIRECT,
+    variables: { id: "Doc:primary2" },
+  },
+  result: {
+    data: {
+      document: {
+        id: "Doc:primary2",
+        slug: "beta-energy-s1",
+        title: "Beta Energy Inc. S-1 (2026-02-02)",
+        creator: {
+          id: "VXNlcjox",
+          slug: "acme",
+          username: "acme",
+          email: "acme@example.com",
+        },
+        corpus: {
+          id: CORPUS_ID,
+          slug: "ipo-s1-filings",
+          title: "Select 2026 IPO S-1 Filings",
+          creator: {
+            id: "VXNlcjox",
+            slug: "acme",
+            username: "acme",
+            email: "acme@example.com",
+          },
+        },
+      },
+    },
+  },
+};
+
 test.describe("GovernanceGraphLive", () => {
   test("renders the reference web with shelf captions, legend, and stats", async ({
     mount,
@@ -274,6 +372,121 @@ test.describe("GovernanceGraphLive", () => {
     await expect(
       page.locator('[data-testid="governance-graph-live-svg"]')
     ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("bootstrap CTA starts enrichment and enters the weaving state", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            // initial query (empty → CTA) plus a few extra for the weave poll
+            makeGraphMock(null),
+            makeGraphMock(null),
+            makeGraphMock(null),
+            makeGraphMock(null),
+            analyzersMock(ENRICHMENT_ANALYZER_TASK_NAME),
+            startAnalysisMock,
+            createCorpusActionMock,
+          ]}
+          addTypename={false}
+        >
+          <GovernanceGraphLive corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const bootstrap = page.locator(
+      '[data-testid="governance-graph-live-bootstrap"]'
+    );
+    await expect(bootstrap).toBeVisible({ timeout: 10000 });
+    await bootstrap.click();
+
+    // Analyzer fetch → startAnalysis → add_document action → weaving state.
+    await expect(
+      page.locator('[data-testid="governance-graph-live-weaving"]')
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("bootstrap surfaces an error when enrichment is unavailable", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            makeGraphMock(null),
+            makeGraphMock(null),
+            analyzersMock(null),
+          ]}
+          addTypename={false}
+        >
+          <GovernanceGraphLive corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const bootstrap = page.locator(
+      '[data-testid="governance-graph-live-bootstrap"]'
+    );
+    await expect(bootstrap).toBeVisible({ timeout: 10000 });
+    await bootstrap.click();
+
+    // No analyzer → no weave; the CTA stays available for a retry.
+    await expect(bootstrap).toContainText("Map the reference web");
+    await expect(
+      page.locator('[data-testid="governance-graph-live-weaving"]')
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("clicking a document node navigates to its canonical path", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MemoryRouter initialEntries={["/"]}>
+        <MockedProvider
+          mocks={[
+            makeGraphMock(GRAPH),
+            makeGraphMock(GRAPH),
+            emptyWantedMock,
+            emptyWantedMock,
+            redirectMock,
+          ]}
+          addTypename={false}
+        >
+          <Routes>
+            <Route
+              path="/d/acme/ipo-s1-filings/beta-energy-s1"
+              element={<div data-testid="node-nav-arrived">arrived</div>}
+            />
+            <Route
+              path="*"
+              element={<GovernanceGraphLive corpusId={CORPUS_ID} />}
+            />
+          </Routes>
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const betaNode = page
+      .locator('[data-testid="governance-graph-live-node"]')
+      .filter({ hasText: "Beta Energy" });
+    await expect(betaNode).toBeVisible({ timeout: 10000 });
+    await betaNode.click();
+
+    await expect(page.locator('[data-testid="node-nav-arrived"]')).toBeVisible({
+      timeout: 10000,
+    });
 
     await component.unmount();
   });

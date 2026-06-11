@@ -178,16 +178,19 @@ class EnrichmentWriter:
             ).values_list("source_annotation__document_id", "target_document_id")
         )
 
-        projection_rows = DocumentRelationship.objects.filter(
-            corpus=self.corpus,
-            relationship_type=C.DOC_REL_RELATIONSHIP,
-            annotation_label=rel_label,
+        # Materialise the current projection once — we both prune stale rows
+        # and read coverage from it, with a delete in between; evaluating the
+        # lazy queryset twice around the delete is a wasted round-trip.
+        projection_rows = list(
+            DocumentRelationship.objects.filter(
+                corpus=self.corpus,
+                relationship_type=C.DOC_REL_RELATIONSHIP,
+                annotation_label=rel_label,
+            ).values_list("id", "source_document_id", "target_document_id", "data")
         )
         stale_ids = [
             pk
-            for pk, src, tgt, data in projection_rows.values_list(
-                "id", "source_document_id", "target_document_id", "data"
-            )
+            for pk, src, tgt, data in projection_rows
             if isinstance(data, dict)
             and "analysis_id" in data  # enrichment-owned only
             and (src, tgt) not in expected
@@ -196,10 +199,12 @@ class EnrichmentWriter:
             DocumentRelationship.objects.filter(id__in=stale_ids).delete()
             result.document_relationships_pruned += len(stale_ids)
 
-        # User-authored rows count toward coverage: don't shadow them.
-        covered = set(
-            projection_rows.values_list("source_document_id", "target_document_id")
-        )
+        # Coverage = every projection row still standing after the prune
+        # (user-authored rows count too: don't shadow them).
+        stale_set = set(stale_ids)
+        covered = {
+            (src, tgt) for pk, src, tgt, data in projection_rows if pk not in stale_set
+        }
         for src, tgt in sorted(expected - covered):
             # get_or_create (not create): two enrichment runs racing on the
             # same corpus can both compute the same (src, tgt) as missing and

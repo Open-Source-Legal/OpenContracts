@@ -93,7 +93,22 @@ export function openAnnotationUrl(
   annotation: ServerTokenAnnotation | ServerSpanAnnotation,
   navigate?: (to: string) => void
 ): boolean {
-  const url = annotation.linkUrl;
+  return openSafeUrl(annotation.linkUrl, navigate);
+}
+
+/**
+ * Navigate to a link URL with the same internal/external + safety handling as
+ * :func:`openAnnotationUrl`, but from a bare URL string rather than an
+ * annotation. Use this for reference-web link chips (the governance graph /
+ * References panel) where the URL is carried on a row, not an annotation
+ * object. Site-relative ``/...`` paths route through ``navigate``; safe
+ * absolute URLs open in a new ``noopener`` tab; missing/unsafe URLs are a
+ * no-op returning ``false``.
+ */
+export function openSafeUrl(
+  url: string | null | undefined,
+  navigate?: (to: string) => void
+): boolean {
   if (!url) return false;
   // Trim once and reuse for the safety check and the actual navigation;
   // ``isSafeUrl`` would otherwise trim again internally.

@@ -257,6 +257,38 @@ class CorpusReferenceTraversalVisibilityTests(TestCase):
         # ...but the private target document nulls out for the reader.
         assert all(e["node"]["targetDocument"] is None for e in edges)
 
+    def test_document_filter_is_idor_safe_for_invisible_doc(self):
+        # IDOR: a corpus reader filtering by an INVISIBLE document's id must
+        # not learn whether it has references — that would probe the private
+        # target. The owner, who can see the document, still gets the row.
+        from graphene.test import Client
+        from graphql_relay import to_global_id
+
+        from config.graphql.schema import schema
+
+        query = """
+            query ($cid: ID!, $did: ID) {
+              corpusReferences(corpusId: $cid, documentId: $did) {
+                edges { node { canonicalKey } }
+              }
+            }
+        """
+        variables = {
+            "cid": to_global_id("CorpusType", self.corpus.id),
+            "did": to_global_id("DocumentType", self.private_doc.id),
+        }
+        reader_res = Client(schema, context_value=_Ctx(self.reader)).execute(
+            query, variables=variables
+        )
+        assert reader_res.get("errors") is None, reader_res.get("errors")
+        assert reader_res["data"]["corpusReferences"]["edges"] == []
+
+        owner_res = Client(schema, context_value=_Ctx(self.owner)).execute(
+            query, variables=variables
+        )
+        assert owner_res.get("errors") is None, owner_res.get("errors")
+        assert owner_res["data"]["corpusReferences"]["edges"]
+
 
 class BackfillToolRegistryTests(TestCase):
     def test_backfill_tools_are_registered(self):

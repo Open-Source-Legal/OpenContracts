@@ -17,6 +17,7 @@ import {
 } from "../../../graphql/queries";
 import { useNavigateToDocumentById } from "../../../hooks/useNavigateToDocumentById";
 import { formatCanonicalLawKey } from "../../../utils/formatters";
+import { openSafeUrl } from "../../annotator/utils/urlAnnotation";
 
 /**
  * DocumentReferencesPanel — one document's slice of the corpus reference web.
@@ -346,7 +347,9 @@ export const DocumentReferencesPanel: React.FC<
                   key={group.key}
                   $clickable={clickable}
                   onClick={
-                    clickable ? () => navigate(group.linkUrl!) : undefined
+                    clickable
+                      ? () => openSafeUrl(group.linkUrl, navigate)
+                      : undefined
                   }
                   data-testid="references-panel-outbound-row"
                 >

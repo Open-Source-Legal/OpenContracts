@@ -266,11 +266,26 @@ class EnrichmentService:
         if not wanted:
             return summary
 
+        # Pre-filter SQL-side to refs whose authority prefix matches a wanted
+        # key's, before the Python candidate_keys match. A ref can only satisfy
+        # a wanted key if they share an authority (candidate_keys never crosses
+        # authorities — it only rolls a subsection up to its section root), so
+        # this bounds the scan to the relevant authorities instead of loading
+        # every EXTERNAL law ref in the system into memory (the cross-product
+        # concern on large deployments). The Python set-intersection below still
+        # does the exact root match SQL can't express.
+        from django.db.models import Q
+
+        prefix_filter = Q()
+        for prefix in {k.split(":", 1)[0] for k in wanted}:
+            prefix_filter |= Q(canonical_key__startswith=f"{prefix}:")
+
         # Distinct (corpus, key) pairs only — bounded by the EXTERNAL-ref key
         # space, not mention volume. Root matching (regex-derived) is
         # Python-side because SQL can't express candidate_keys.
         pairs = (
             CorpusReference.objects.filter(
+                prefix_filter,
                 reference_type=C.REF_LAW,
                 resolution_status=C.STATUS_EXTERNAL,
             )
