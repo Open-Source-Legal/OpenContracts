@@ -87,7 +87,13 @@ class CorpusIntelligenceSetupService(BaseService):
         *,
         request: Any = None,
     ) -> ServiceResult[IntelligenceSetupStatus]:
-        """Report which bundle pieces are already installed on the corpus."""
+        """Report which bundle pieces are already installed on the corpus.
+
+        Three DB queries per call (corpus fetch, reference-action exists,
+        installed-template names). Mounted once per corpus page load, so the
+        cost is negligible; revisit (e.g. a single aggregated query) if this is
+        ever polled or rendered per-row in the corpus list.
+        """
         from opencontractserver.corpuses.models import Corpus, CorpusAction
 
         corpus = cls.get_or_none(Corpus, corpus_pk, user)
@@ -331,6 +337,18 @@ class CorpusIntelligenceSetupService(BaseService):
                         corpus=corpus, source_template=template
                     ).first()
                     outcome.already_installed = action is not None
+                except Exception as exc:
+                    # Any other clone failure (e.g. OperationalError, ValueError)
+                    # must stay contained to this template — the bundle promises
+                    # graceful partial success, so record it and move on rather
+                    # than aborting the remaining templates with a 500.
+                    outcome.error = f"Failed to install template: {exc}"
+                    logger.exception(
+                        "Intelligence setup: clone failed for %r on corpus %s",
+                        name,
+                        corpus.pk,
+                    )
+                    continue
                 if action is None:
                     outcome.error = "Failed to install template."
                     continue

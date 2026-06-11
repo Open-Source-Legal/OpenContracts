@@ -200,6 +200,121 @@ class IntelligenceSetupServiceTestCase(TestCase):
         result = CorpusIntelligenceSetupService.status(self.stranger, self.corpus.pk)
         self.assertFalse(result.ok)
 
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_setup_skips_deterministic_half_without_analyzer(self, mock_start):
+        """No enrichment analyzer registered → LLM half still installs."""
+        from opencontractserver.analyzer.models import Analyzer
+
+        Analyzer.objects.filter(
+            task_name=enrichment_constants.ENRICHMENT_ANALYZER_TASK
+        ).delete()
+
+        result = CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+        self.assertTrue(result.ok, result.error)
+        summary = result.value
+        assert summary is not None
+
+        self.assertFalse(summary.reference_available)
+        self.assertFalse(summary.reference_action_installed_now)
+        self.assertFalse(summary.reference_analysis_started)
+        mock_start.assert_not_called()
+        # No reference action row, but the templates still installed.
+        self.assertFalse(
+            CorpusAction.objects.filter(
+                corpus=self.corpus,
+                analyzer__task_name=enrichment_constants.ENRICHMENT_ANALYZER_TASK,
+            ).exists()
+        )
+        self.assertTrue(all(o.installed_now for o in summary.templates))
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_setup_skips_second_analysis_when_one_in_flight(self, mock_start):
+        """A QUEUED/RUNNING enrichment analysis suppresses a duplicate start."""
+        from opencontractserver.analyzer.models import Analysis, Analyzer
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = Analyzer.objects.get(
+            task_name=enrichment_constants.ENRICHMENT_ANALYZER_TASK
+        )
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.user,
+            status=JobStatus.RUNNING.value,
+        )
+
+        result = CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+        self.assertTrue(result.ok, result.error)
+        summary = result.value
+        assert summary is not None
+
+        # Action installed, but no second analysis started.
+        self.assertTrue(summary.reference_action_installed_now)
+        self.assertFalse(summary.reference_analysis_started)
+        mock_start.assert_not_called()
+
+    @patch(_START_ANALYSIS, side_effect=lambda *a, **k: ServiceResult.failure("boom"))
+    def test_setup_records_failed_analysis_start(self, mock_start):
+        """A failed analysis start is logged, not fatal — setup still succeeds."""
+        result = CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+        self.assertTrue(result.ok, result.error)
+        summary = result.value
+        assert summary is not None
+        self.assertTrue(summary.reference_action_installed_now)
+        self.assertFalse(summary.reference_analysis_started)
+        mock_start.assert_called_once()
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_setup_records_error_for_inactive_template(self, mock_start):
+        """An inactive bundle template is recorded as an error, not raised."""
+        target = INTELLIGENCE_SETUP_TEMPLATE_NAMES[0]
+        CorpusActionTemplate.objects.filter(name=target).update(is_active=False)
+
+        result = CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+        self.assertTrue(result.ok, result.error)
+        summary = result.value
+        assert summary is not None
+
+        by_name = {o.template_name: o for o in summary.templates}
+        self.assertEqual(by_name[target].error, "Template not found or inactive.")
+        self.assertFalse(by_name[target].installed_now)
+        # The other templates still install — partial success.
+        for name, outcome in by_name.items():
+            if name != target:
+                self.assertTrue(outcome.installed_now, name)
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_setup_contains_clone_failure_per_template(self, mock_start):
+        """A non-IntegrityError clone failure stays contained to its template."""
+        with patch.object(
+            CorpusActionTemplate,
+            "clone_to_corpus",
+            side_effect=ValueError("kaboom"),
+        ):
+            setup_result = CorpusIntelligenceSetupService.setup(
+                self.user, self.corpus.pk
+            )
+
+        # The whole call still succeeds (graceful partial success), and the
+        # deterministic reference half is unaffected.
+        self.assertTrue(setup_result.ok, setup_result.error)
+        summary = setup_result.value
+        assert summary is not None
+        self.assertTrue(summary.reference_action_installed_now)
+        for outcome in summary.templates:
+            self.assertFalse(outcome.installed_now, outcome.template_name)
+            self.assertTrue(
+                outcome.error.startswith("Failed to install template:"),
+                outcome.error,
+            )
+        # No partial action rows were left installed.
+        self.assertFalse(
+            CorpusAction.objects.filter(
+                corpus=self.corpus,
+                source_template__name__in=INTELLIGENCE_SETUP_TEMPLATE_NAMES,
+            ).exists()
+        )
+
 
 class IntelligenceSetupGraphQLTestCase(TestCase):
     """Schema-level smoke tests via graphql_sync execution."""

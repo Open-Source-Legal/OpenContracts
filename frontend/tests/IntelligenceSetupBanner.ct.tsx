@@ -40,44 +40,47 @@ const statusMock = (isSet: boolean) => ({
   },
 });
 
-const setupMock = {
+const template = (overrides: Record<string, unknown> = {}) => ({
+  templateName: "Document Description Updater",
+  installedNow: true,
+  alreadyInstalled: false,
+  queuedCount: 12,
+  skippedAlreadyRunCount: 0,
+  error: "",
+  ...overrides,
+});
+
+// A successful setup payload. `summary` mirrors the full SETUP_CORPUS_INTELLIGENCE
+// selection (including referenceActionAlreadyInstalled, which the real server
+// returns) so the mock matches the server contract.
+const setupResult = (summaryOverrides: Record<string, unknown> = {}) => ({
+  setupCorpusIntelligence: {
+    ok: true,
+    message: "Collection intelligence setup started.",
+    summary: {
+      referenceAvailable: true,
+      referenceActionInstalledNow: true,
+      referenceActionAlreadyInstalled: false,
+      referenceAnalysisStarted: true,
+      totalActiveDocuments: 12,
+      templates: [
+        template(),
+        template({ templateName: "Document Summary Generator" }),
+      ],
+      ...summaryOverrides,
+    },
+  },
+});
+
+const setupMockWith = (data: unknown) => ({
   request: {
     query: SETUP_CORPUS_INTELLIGENCE,
     variables: { corpusId: CORPUS_ID },
   },
-  result: {
-    data: {
-      setupCorpusIntelligence: {
-        ok: true,
-        message: "Collection intelligence setup started.",
-        summary: {
-          referenceAvailable: true,
-          referenceActionInstalledNow: true,
-          referenceAnalysisStarted: true,
-          totalActiveDocuments: 12,
-          templates: [
-            {
-              templateName: "Document Description Updater",
-              installedNow: true,
-              alreadyInstalled: false,
-              queuedCount: 12,
-              skippedAlreadyRunCount: 0,
-              error: "",
-            },
-            {
-              templateName: "Document Summary Generator",
-              installedNow: true,
-              alreadyInstalled: false,
-              queuedCount: 12,
-              skippedAlreadyRunCount: 0,
-              error: "",
-            },
-          ],
-        },
-      },
-    },
-  },
-};
+  result: { data },
+});
+
+const setupMock = setupMockWith(setupResult());
 
 test.describe("IntelligenceSetupBanner", () => {
   test("offers setup when the bundle is missing, then hides after running it", async ({
@@ -136,6 +139,176 @@ test.describe("IntelligenceSetupBanner", () => {
     await expect(
       page.locator('[data-testid="intelligence-setup-banner"]')
     ).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("nothing-queued with a template error surfaces a soft warning", async ({
+    mount,
+    page,
+  }) => {
+    // ok=true but every run was capped/skipped and a template carried an error
+    // → warning, not a "fully set up" claim. The banner stays (refetched status
+    // is still not-fully-set-up).
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          statusMock(false),
+          setupMockWith(
+            setupResult({
+              templates: [
+                template({ installedNow: true, queuedCount: 0, error: "" }),
+                template({
+                  templateName: "Document Summary Generator",
+                  installedNow: true,
+                  queuedCount: 0,
+                  error: "Batch run capped at 50 documents.",
+                }),
+              ],
+            })
+          ),
+          statusMock(false),
+        ]}
+        addTypename={false}
+      >
+        <>
+          <ToastContainer />
+          <IntelligenceSetupBanner corpusId={CORPUS_ID} />
+        </>
+      </MockedProvider>
+    );
+
+    await page
+      .locator('[data-testid="intelligence-setup-banner-button"]')
+      .click();
+
+    await expect(
+      page.getByText(/some document runs couldn't be queued/i)
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("nothing-queued and no errors reports a clean set-up", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          statusMock(false),
+          setupMockWith(
+            setupResult({
+              referenceAnalysisStarted: false,
+              templates: [
+                template({
+                  installedNow: false,
+                  alreadyInstalled: true,
+                  queuedCount: 0,
+                }),
+                template({
+                  templateName: "Document Summary Generator",
+                  installedNow: false,
+                  alreadyInstalled: true,
+                  queuedCount: 0,
+                }),
+              ],
+            })
+          ),
+          statusMock(true),
+        ]}
+        addTypename={false}
+      >
+        <>
+          <ToastContainer />
+          <IntelligenceSetupBanner corpusId={CORPUS_ID} />
+        </>
+      </MockedProvider>
+    );
+
+    await page
+      .locator('[data-testid="intelligence-setup-banner-button"]')
+      .click();
+
+    await expect(
+      page.getByText(/Collection intelligence is set up\./i)
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("a failed mutation surfaces an error toast and keeps the banner", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          statusMock(false),
+          setupMockWith({
+            setupCorpusIntelligence: {
+              ok: false,
+              message: "You don't have permission to set up this corpus.",
+              summary: null,
+            },
+          }),
+        ]}
+        addTypename={false}
+      >
+        <>
+          <ToastContainer />
+          <IntelligenceSetupBanner corpusId={CORPUS_ID} />
+        </>
+      </MockedProvider>
+    );
+
+    const banner = page.locator('[data-testid="intelligence-setup-banner"]');
+    await expect(banner).toBeVisible({ timeout: 10000 });
+    await page
+      .locator('[data-testid="intelligence-setup-banner-button"]')
+      .click();
+
+    await expect(
+      page.getByText(/don't have permission to set up this corpus/i)
+    ).toBeVisible({ timeout: 10000 });
+    // !ok returns before refetch → the banner is still offered.
+    await expect(banner).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("a network/mutation error surfaces the generic error toast", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          statusMock(false),
+          {
+            request: {
+              query: SETUP_CORPUS_INTELLIGENCE,
+              variables: { corpusId: CORPUS_ID },
+            },
+            error: new Error("network down"),
+          },
+        ]}
+        addTypename={false}
+      >
+        <>
+          <ToastContainer />
+          <IntelligenceSetupBanner corpusId={CORPUS_ID} />
+        </>
+      </MockedProvider>
+    );
+
+    await page
+      .locator('[data-testid="intelligence-setup-banner-button"]')
+      .click();
+
+    await expect(
+      page.getByText(/Couldn't set up collection intelligence\./i)
+    ).toBeVisible({ timeout: 10000 });
 
     await component.unmount();
   });
