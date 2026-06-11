@@ -12,7 +12,10 @@ import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { DocumentReferencesPanel } from "../src/components/knowledge_base/document/DocumentReferencesPanel";
 import { docScreenshot } from "./utils/docScreenshot";
-import { GET_CORPUS_REFERENCES_FOR_DOCUMENT } from "../src/graphql/queries";
+import {
+  GET_CORPUS_REFERENCES_FOR_DOCUMENT,
+  GET_DOCUMENT_BY_ID_FOR_REDIRECT,
+} from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
 const DOC_ID = "RG9jdW1lbnRUeXBlOjE=";
@@ -185,6 +188,87 @@ test.describe("DocumentReferencesPanel", () => {
     await dgclRow.click();
 
     await expect(page.locator('[data-testid="nav-arrived"]')).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("clicking an inbound row resolves the source doc and navigates", async ({
+    mount,
+    page,
+  }) => {
+    // Inbound rows have no link_url — they resolve the source document's slugs
+    // via GET_DOCUMENT_BY_ID_FOR_REDIRECT, then navigate to its canonical path.
+    const redirectMock = {
+      request: {
+        query: GET_DOCUMENT_BY_ID_FOR_REDIRECT,
+        variables: { id: OTHER_DOC_ID },
+      },
+      result: {
+        data: {
+          document: {
+            id: OTHER_DOC_ID,
+            slug: "amendment-1",
+            title: "Amendment No. 1",
+            creator: {
+              id: "VXNlcjox",
+              slug: "acme",
+              username: "acme",
+              email: "acme@example.com",
+            },
+            corpus: {
+              id: CORPUS_ID,
+              slug: "ipo-s1-filings",
+              title: "Select 2026 IPO S-1 Filings",
+              creator: {
+                id: "VXNlcjox",
+                slug: "acme",
+                username: "acme",
+                email: "acme@example.com",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <MemoryRouter initialEntries={["/"]}>
+        <MockedProvider
+          mocks={[
+            makeMock(REFERENCE_ROWS),
+            makeMock(REFERENCE_ROWS),
+            redirectMock,
+          ]}
+          addTypename={false}
+        >
+          <Routes>
+            <Route
+              path="/d/acme/ipo-s1-filings/amendment-1"
+              element={<div data-testid="inbound-nav-arrived">arrived</div>}
+            />
+            <Route
+              path="*"
+              element={
+                <DocumentReferencesPanel
+                  documentId={DOC_ID}
+                  corpusId={CORPUS_ID}
+                />
+              }
+            />
+          </Routes>
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const inboundRow = page
+      .locator('[data-testid="references-panel-inbound-row"]')
+      .filter({ hasText: "Amendment No. 1" });
+    await expect(inboundRow).toBeVisible({ timeout: 10000 });
+    await inboundRow.click();
+
+    await expect(
+      page.locator('[data-testid="inbound-nav-arrived"]')
+    ).toBeVisible({ timeout: 10000 });
 
     await component.unmount();
   });
