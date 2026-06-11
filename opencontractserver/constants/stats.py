@@ -28,3 +28,10 @@ CORPUS_DOCUMENT_GRAPH_MAX_NODES = 60
 # How many distinct annotation labels to surface in the IntelligencePanel's
 # label-distribution mini-chart before collapsing the long tail.
 CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N = 8
+
+# Node cap for the corpus-scoped governance graph (reference web: documents,
+# statute sections, and external-citation ghosts). Larger than the
+# relationship-glimpse cap because the governance panel is a dedicated
+# full-bleed visualization, not a landing-page card; nodes are ranked by
+# degree (summed mention weight) and the rest summarised via ``truncated``.
+GOVERNANCE_GRAPH_MAX_NODES = 200

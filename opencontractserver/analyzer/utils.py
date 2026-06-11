@@ -15,11 +15,11 @@ try:
     # Attempt to import Celery logic in a typical run
     from opencontractserver.utils.celery_tasks import (
         celery_app,
-        get_doc_analyzer_task_by_name,
+        get_analyzer_task_by_name,
     )
 except ImportError:
     # If Celery or tasks aren't available in this context, set placeholders
-    get_doc_analyzer_task_by_name = None  # type: ignore[assignment]
+    get_analyzer_task_by_name = None  # type: ignore[assignment]
     celery_app = None
 
 logger = logging.getLogger(__name__)
@@ -78,9 +78,9 @@ def auto_create_doc_analyzers(
     :param update_existing: If True, update existing analyzers with missing/outdated fields.
     """
 
-    if celery_app is None or get_doc_analyzer_task_by_name is None:
+    if celery_app is None or get_analyzer_task_by_name is None:
         logger.warning(
-            "auto_create_doc_analyzers: Celery or doc_analyzer_task accessor not available."
+            "auto_create_doc_analyzers: Celery or analyzer task accessor not available."
         )
         return
 
@@ -101,9 +101,9 @@ def auto_create_doc_analyzers(
     model_fields = [f.name for f in AnalyzerModel._meta.get_fields()]
     has_input_schema = "input_schema" in model_fields
 
-    # Iterate over tasks in Celery registry
+    # Iterate over tasks in Celery registry (doc- and corpus-scoped analyzers)
     for task_name in celery_app.tasks.keys():
-        analyzer_task = get_doc_analyzer_task_by_name(task_name)
+        analyzer_task = get_analyzer_task_by_name(task_name)
         if analyzer_task is None:
             continue
 
@@ -114,7 +114,9 @@ def auto_create_doc_analyzers(
         trimmed_desc = Truncator(docstring).chars(max_docstring_length)
         default_desc = "Auto-created from @doc_analyzer_task-decorated Celery task."
         description = trimmed_desc if trimmed_desc else default_desc
-        schema = getattr(analyzer_task, "_oc_doc_analyzer_input_schema", None)
+        schema = getattr(
+            analyzer_task, "_oc_doc_analyzer_input_schema", None
+        ) or getattr(analyzer_task, "_oc_corpus_analyzer_input_schema", None)
 
         # Check for existing analyzer
         existing_analyzer = None

@@ -6,8 +6,8 @@ from django.core.checks import Warning, register
 @register()
 def check_unsynced_analyzers(app_configs: Any, **kwargs: Any) -> list[Warning]:
     """
-    Check if there are doc_analyzer_task decorated functions
-    that haven't been synced to the database.
+    Check if there are doc_analyzer_task / corpus_analyzer_task decorated
+    functions that haven't been synced to the database.
     """
     warnings: list[Warning] = []
 
@@ -15,13 +15,13 @@ def check_unsynced_analyzers(app_configs: Any, **kwargs: Any) -> list[Warning]:
         from opencontractserver.analyzer.models import Analyzer
         from opencontractserver.utils.celery_tasks import (
             celery_app,
-            get_doc_analyzer_task_by_name,
+            get_analyzer_task_by_name,
         )
 
         unsynced = []
 
         for task_name in celery_app.tasks.keys():
-            analyzer_task = get_doc_analyzer_task_by_name(task_name)
+            analyzer_task = get_analyzer_task_by_name(task_name)
             if analyzer_task is None:
                 continue
 

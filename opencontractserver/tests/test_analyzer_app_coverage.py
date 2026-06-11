@@ -224,12 +224,18 @@ class CheckUnsyncedAnalyzersTests(TestCase):
         self.assertEqual(warnings, [])
 
     def test_skips_non_doc_analyzer_tasks(self) -> None:
+        # A plain task carries neither analyzer marker. Set both markers
+        # explicitly: bare MagicMock attributes are truthy, which would
+        # misclassify the task as a (corpus) analyzer.
+        regular_task = MagicMock(
+            is_doc_analyzer_task=False, is_corpus_analyzer_task=False
+        )
         with patch(
             "opencontractserver.utils.celery_tasks.celery_app"
         ) as mock_celery, patch(
             "opencontractserver.utils.celery_tasks.get_doc_analyzer_task_by_name"
         ) as mock_get:
-            mock_celery.tasks = {"some.regular.task": MagicMock()}
+            mock_celery.tasks = {"some.regular.task": regular_task}
             # Not a doc_analyzer_task → helper returns None
             mock_get.return_value = None
 
@@ -412,7 +418,7 @@ class GetGremlinManifestsTests(TestCase):
 class AutoCreateDocAnalyzersEdgeCases(TestCase):
 
     def test_no_users_returns_early(self) -> None:
-        # Patch celery_app and the get_doc_analyzer_task_by_name so the
+        # Patch celery_app and the get_analyzer_task_by_name so the
         # iteration body is exercised; UserModel.objects.first() returns
         # None to trigger the early-return path.
         fake_task = MagicMock()
@@ -423,7 +429,7 @@ class AutoCreateDocAnalyzersEdgeCases(TestCase):
         with patch(
             "opencontractserver.analyzer.utils.celery_app"
         ) as mock_celery, patch(
-            "opencontractserver.analyzer.utils.get_doc_analyzer_task_by_name",
+            "opencontractserver.analyzer.utils.get_analyzer_task_by_name",
             return_value=fake_task,
         ), self.assertLogs(
             "opencontractserver.analyzer.utils", level="WARNING"
@@ -447,7 +453,7 @@ class AutoCreateDocAnalyzersEdgeCases(TestCase):
                 auto_create_doc_analyzers(
                     AnalyzerModel=MagicMock(), UserModel=MagicMock()
                 )
-            self.assertTrue(any("Celery or doc_analyzer_task" in m for m in cm.output))
+            self.assertTrue(any("Celery or analyzer task" in m for m in cm.output))
 
     def test_update_existing_false_skips_update(self) -> None:
         fake_task = MagicMock()
@@ -458,7 +464,7 @@ class AutoCreateDocAnalyzersEdgeCases(TestCase):
         with patch(
             "opencontractserver.analyzer.utils.celery_app"
         ) as mock_celery, patch(
-            "opencontractserver.analyzer.utils.get_doc_analyzer_task_by_name",
+            "opencontractserver.analyzer.utils.get_analyzer_task_by_name",
             return_value=fake_task,
         ):
             mock_celery.tasks = {"some.task": fake_task}

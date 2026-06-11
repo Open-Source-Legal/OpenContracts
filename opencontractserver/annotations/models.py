@@ -30,6 +30,7 @@ from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 from pgvector.django import HnswIndex, VectorField
 
 from opencontractserver.constants.search import HNSW_EF_CONSTRUCTION, HNSW_M
+from opencontractserver.enrichment import constants as enrichment_constants
 from opencontractserver.shared.defaults import (
     jsonfield_default_value,
 )
@@ -1876,3 +1877,102 @@ class NoteRevision(django.db.models.Model):
 
     def __str__(self) -> str:
         return f"NoteRevision(note_id={self.note_id}, v={self.version})"
+
+
+# --------------------------------------------------------------------------- #
+# Cross-document / cross-corpus reference substrate (enrichment)              #
+# --------------------------------------------------------------------------- #
+# Discriminator values are single-sourced from the enrichment engine's
+# constants (`enrichment/constants.py` is pure — no model imports — so this
+# cannot cycle); only the human-readable labels live here.
+REFERENCE_TYPE_CHOICES = [
+    (enrichment_constants.REF_LAW, "Law citation"),
+    (enrichment_constants.REF_DOCUMENT, "Document reference"),
+    (enrichment_constants.REF_SECTION, "Internal section reference"),
+    (enrichment_constants.REF_DEFINED_TERM, "Defined term"),
+]
+RESOLUTION_STATUS_CHOICES = [
+    (enrichment_constants.STATUS_RESOLVED, "Resolved"),
+    (enrichment_constants.STATUS_UNRESOLVED, "Unresolved"),
+    (enrichment_constants.STATUS_EXTERNAL, "External (no internal target)"),
+]
+
+
+class CorpusReference(BaseOCModel):
+    """First-class connection between a reference *mention* and its target.
+
+    Within-document links continue to use :class:`Relationship`;
+    ``CorpusReference`` carries the cross-document, cross-corpus, and
+    external-law (statute) links that ``Relationship`` cannot express (a
+    relationship is pinned to a single document). ``canonical_key`` is the
+    cross-corpus join key (e.g. ``dgcl:145``) — cross-corpus *linking* is future
+    work, but the shape anticipates it via ``target_corpus`` + ``canonical_key``.
+    """
+
+    corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=django.db.models.CASCADE,
+        related_name="references",
+        db_index=True,
+    )
+    reference_type = django.db.models.CharField(
+        max_length=16, choices=REFERENCE_TYPE_CHOICES, db_index=True
+    )
+    source_annotation = django.db.models.ForeignKey(
+        "annotations.Annotation",
+        on_delete=django.db.models.CASCADE,
+        related_name="outbound_references",
+    )
+    target_annotation = django.db.models.ForeignKey(
+        "annotations.Annotation",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inbound_references",
+    )
+    target_document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inbound_references",
+    )
+    target_corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inbound_references",
+    )
+    canonical_key = django.db.models.CharField(
+        max_length=255, null=True, blank=True, db_index=True
+    )
+    normalized_data = django.db.models.JSONField(null=True, blank=True)
+    confidence = django.db.models.FloatField(default=1.0)
+    resolution_status = django.db.models.CharField(
+        max_length=16, choices=RESOLUTION_STATUS_CHOICES, default="RESOLVED"
+    )
+    created_by_analysis = django.db.models.ForeignKey(
+        "analyzer.Analysis",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_references",
+    )
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["corpus", "reference_type"]),
+            django.db.models.Index(fields=["canonical_key"]),
+        ]
+        constraints = [
+            # Idempotency guard: one reference per (source span, type, key).
+            django.db.models.UniqueConstraint(
+                fields=["source_annotation", "reference_type", "canonical_key"],
+                name="uniq_corpusref_source_type_key",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        target = self.canonical_key or self.target_document_id
+        return f"CorpusReference({self.reference_type} -> {target})"

@@ -19,6 +19,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
 from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
+    CorpusReference,
     LabelSet,
     Note,
     NoteRevision,
@@ -44,6 +45,104 @@ class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         model = Relationship
         interfaces = [relay.Node]
         connection_class = CountableConnection
+
+
+class CorpusReferenceType(DjangoObjectType):
+    """Read-only view of an enrichment cross-reference.
+
+    No ``AnnotatePermissionsForReadMixin``: ``CorpusReference`` has no guardian
+    permission tables — visibility derives from the parent corpus and is
+    enforced by ``CorpusReferenceService`` in the resolver.
+    """
+
+    normalized_data = GenericScalar()  # noqa
+
+    class Meta:
+        model = CorpusReference
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+
+
+class GovernanceGraphCorpusType(graphene.ObjectType):
+    """A corpus participating in the governance graph (filing or authority)."""
+
+    id = graphene.ID(required=True, description="Global CorpusType id.")
+    title = graphene.String()
+    kind = graphene.String(
+        required=True, description='"filing" or "authority" (cited body of law).'
+    )
+
+
+class GovernanceGraphNodeType(graphene.ObjectType):
+    """One governance-graph node: a document or an external-citation ghost."""
+
+    id = graphene.String(
+        required=True,
+        description=(
+            "Node id: the global DocumentType id for document nodes, or "
+            '"key:<canonical_key>" for external ghost nodes.'
+        ),
+    )
+    document_id = graphene.ID(
+        description="Global DocumentType id (null for external ghost nodes)."
+    )
+    title = graphene.String(
+        description="Document title, or the canonical key for ghost nodes."
+    )
+    kind = graphene.String(
+        required=True, description='"primary", "exhibit", "statute" or "external".'
+    )
+    corpus_id = graphene.ID(
+        description="Global CorpusType id of the node's corpus (null for ghosts)."
+    )
+    authority = graphene.String(
+        description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.'
+    )
+    degree = graphene.Int(
+        required=True, description="Summed mention weight of edges touching the node."
+    )
+
+
+class GovernanceGraphEdgeType(graphene.ObjectType):
+    """One weighted reference edge between two governance-graph nodes."""
+
+    source = graphene.String(required=True, description="Source node id.")
+    target = graphene.String(required=True, description="Target node id.")
+    edge_type = graphene.String(
+        required=True, description='"LAW", "LAW_EXTERNAL" or "DOCUMENT".'
+    )
+    weight = graphene.Int(required=True, description="Mention count.")
+
+
+class GovernanceGraphType(graphene.ObjectType):
+    """The corpus-scoped reference web in node-link form.
+
+    Built by ``GovernanceGraphService`` from corpus-as-gate ``CorpusReference``
+    rows + permission-filtered ``DocumentRelationship`` rows, with every
+    surfaced document independently READ-checked (invisible targets degrade to
+    external ghost nodes). Counts describe the full visible graph; the
+    node/edge lists may be degree-capped (``truncated``).
+    """
+
+    corpora = graphene.List(graphene.NonNull(GovernanceGraphCorpusType), required=True)
+    nodes = graphene.List(graphene.NonNull(GovernanceGraphNodeType), required=True)
+    edges = graphene.List(graphene.NonNull(GovernanceGraphEdgeType), required=True)
+    document_count = graphene.Int(
+        required=True, description="Distinct visible document nodes (pre-cap)."
+    )
+    external_key_count = graphene.Int(
+        required=True, description="Distinct external ghost nodes (pre-cap)."
+    )
+    edge_count = graphene.Int(
+        required=True, description="Distinct edges in the full graph (pre-cap)."
+    )
+    mention_count = graphene.Int(
+        required=True, description="Total reference mentions across all edges."
+    )
+    truncated = graphene.Boolean(
+        required=True,
+        description="True when nodes/edges were dropped to honor the node cap.",
+    )
 
 
 class RelationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectType):
