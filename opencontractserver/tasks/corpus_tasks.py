@@ -1154,3 +1154,19 @@ def reembed_corpus(
                 )
 
     return result
+
+
+@shared_task
+def relink_corpora_for_keys_task(canonical_keys: list[str]) -> dict:
+    """Reactive re-link sweep after an authority bootstrap.
+
+    Offloaded from the agent-tool bootstrap path so a large authority set
+    (many sections x many affected corpora, each relinked under its own
+    creator's visibility) does not hold the tool's thread-pool slot for
+    minutes. The management-command path still relinks inline. Returns the
+    per-corpus convergence summary produced by
+    ``EnrichmentService.relink_corpora_for_keys``.
+    """
+    from opencontractserver.enrichment.services import EnrichmentService
+
+    return EnrichmentService().relink_corpora_for_keys(canonical_keys)

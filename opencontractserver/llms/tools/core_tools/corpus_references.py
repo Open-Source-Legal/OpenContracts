@@ -83,6 +83,7 @@ def bootstrap_authority_corpus(
     sections: list[dict],
     aliases: list[str] | None = None,
     make_public: bool = False,
+    relink_async: bool = False,
 ) -> dict:
     """Create or refresh an authority corpus, then re-link citing corpora.
 
@@ -128,6 +129,7 @@ def bootstrap_authority_corpus(
         sections=parsed,
         aliases=aliases,
         make_public=make_public,
+        relink_async=relink_async,
     )
 
 
@@ -172,10 +174,14 @@ async def abootstrap_authority_corpus(
     aliases: list[str] | None = None,
     make_public: bool = False,
 ) -> dict:
+    # relink_async=True: offload the post-bootstrap relink sweep to Celery so a
+    # large authority set doesn't hold this tool's single thread-pool slot for
+    # minutes. Not exposed as a tool parameter — the LLM never sets it.
     return await _db_sync_to_async(bootstrap_authority_corpus)(
         creator_id=creator_id,
         corpus_title=corpus_title,
         sections=sections,
         aliases=aliases,
         make_public=make_public,
+        relink_async=True,
     )
