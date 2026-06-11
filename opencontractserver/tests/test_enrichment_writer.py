@@ -5,7 +5,6 @@ from django.core.files.base import ContentFile
 from django.test import TestCase
 from graphene.test import Client
 
-from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
     RELATIONSHIP_LABEL,
     SPAN_LABEL,
@@ -393,6 +392,13 @@ class CorpusReferencesResolverGuardTests(TestCase):
         self.user = User.objects.create_user(username="gql-guard", password="p")
 
     def _execute(self, corpus_id_value: str):
+        # Lazy import: building the graphene schema at module import time trips
+        # a graphene-django field-resolution error under coverage instrumentation
+        # (collection-time), which silently drops this file's coverage. Importing
+        # inside the method defers the build to runtime. Mirrors the pattern in
+        # test_enrichment_tools.py / test_governance_graph.py.
+        from config.graphql.schema import schema
+
         client = Client(schema)
         query = """
             query CorpusRefs($corpusId: ID!) {
