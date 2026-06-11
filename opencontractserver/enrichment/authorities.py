@@ -124,6 +124,7 @@ def bootstrap_authority_corpus(
     corpus_id: int | None = None,
     make_public: bool = False,
     relink: bool = True,
+    relink_async: bool = False,
 ) -> dict:
     """Production entry point: bootstrap an authority, then converge filings.
 
@@ -136,6 +137,12 @@ def bootstrap_authority_corpus(
     * ``relink`` (default on) — reactive re-link: immediately upgrade
       EXTERNAL references in every corpus citing the bootstrapped keys,
       each under its own creator's visibility.
+
+    When ``relink_async`` is set, the relink sweep is enqueued as a Celery
+    task and ``result["relink"]`` carries ``{"queued": True, "task_id": ...}``
+    instead of the inline summary — the async agent-tool path uses this so a
+    large authority set doesn't hold its thread-pool slot for minutes. The
+    management command keeps the inline path (``relink_async=False``).
 
     The agent tool and the ``bootstrap_authority`` management command both
     route through here so the workflow exists exactly once.
@@ -158,9 +165,16 @@ def bootstrap_authority_corpus(
             corpus.save(update_fields=["is_public", "modified"])
         result["made_public"] = True
     if relink:
-        result["relink"] = EnrichmentService().relink_corpora_for_keys(
-            [sec.key for sec in sections]
-        )
+        keys = [sec.key for sec in sections]
+        if relink_async:
+            from opencontractserver.tasks.corpus_tasks import (
+                relink_corpora_for_keys_task,
+            )
+
+            async_result = relink_corpora_for_keys_task.delay(keys)
+            result["relink"] = {"queued": True, "task_id": async_result.id}
+        else:
+            result["relink"] = EnrichmentService().relink_corpora_for_keys(keys)
     return result
 
 

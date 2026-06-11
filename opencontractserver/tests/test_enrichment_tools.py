@@ -315,6 +315,30 @@ class BackfillToolFunctionTests(TestCase):
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.resolution_status == "RESOLVED"
 
+    def test_bootstrap_tool_async_relink_offloads_to_celery(self):
+        # The async agent-tool path threads relink_async=True so the relink
+        # sweep is enqueued instead of run inline (no thread-pool slot held for
+        # minutes on a large authority set).
+        from opencontractserver.llms.tools.core_tools import (
+            bootstrap_authority_corpus,
+        )
+
+        out = bootstrap_authority_corpus(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law",
+            sections=[
+                {"key": "dgcl:145", "heading": "DGCL § 145", "text": "..145.."},
+            ],
+            relink_async=True,
+        )
+        # Offloaded: the inline summary is replaced by a queued task handle.
+        assert out["relink"]["queued"] is True
+        assert out["relink"]["task_id"]
+        # Celery runs eagerly under test settings, so the citing corpus still
+        # converged: the EXTERNAL dgcl:145 reference upgraded to RESOLVED.
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == "RESOLVED"
+
     def test_bootstrap_tool_rejects_malformed_sections(self):
         from opencontractserver.llms.tools.core_tools import (
             bootstrap_authority_corpus,
