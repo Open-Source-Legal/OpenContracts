@@ -51,6 +51,88 @@ def apply_corpus_reference_enrichment(
     )
 
 
+def list_wanted_authorities(
+    *,
+    corpus_id: int,
+    creator_id: int,
+) -> dict:
+    """List the authorities this corpus still cites EXTERNALLY (read-only).
+
+    The missing-authority backlog: law citations with no resolvable target,
+    aggregated by authority and ranked by mention volume — what to bootstrap
+    next to light up the most references. Subsection citations roll up to
+    their section root (the unit a bootstrap materialises).
+    """
+    from django.contrib.auth import get_user_model
+
+    from opencontractserver.enrichment.services import CorpusReferenceService
+
+    user = get_user_model().objects.get(pk=creator_id)
+    return {
+        "corpus_id": corpus_id,
+        "authorities": CorpusReferenceService.wanted_authorities(
+            user, corpus_id=corpus_id
+        ),
+    }
+
+
+def bootstrap_authority_corpus(
+    *,
+    creator_id: int,
+    corpus_title: str,
+    sections: list[dict],
+    aliases: list[str] | None = None,
+    make_public: bool = False,
+    relink_async: bool = False,
+) -> dict:
+    """Create or refresh an authority corpus, then re-link citing corpora.
+
+    Each section dict needs ``key`` (canonical key, e.g. "dgcl:145"),
+    ``heading`` (document title) and ``text`` (full section text);
+    ``source_url`` is optional. Idempotent: unchanged sections are skipped,
+    changed text version-ups the existing document. After the bootstrap,
+    EXTERNAL law references across all corpora citing these keys are
+    upgraded to RESOLVED links (each corpus under its own creator's
+    visibility).
+    """
+    from opencontractserver.enrichment.authorities import (
+        AuthoritySection,
+    )
+    from opencontractserver.enrichment.authorities import (
+        bootstrap_authority_corpus as _bootstrap,
+    )
+
+    if not sections:
+        raise ValueError("sections must be a non-empty list")
+    parsed: list[AuthoritySection] = []
+    for i, sec in enumerate(sections):
+        if not isinstance(sec, dict) or not all(
+            isinstance(sec.get(f), str) and sec.get(f, "").strip()
+            for f in ("key", "heading", "text")
+        ):
+            raise ValueError(
+                f"sections[{i}] must be a dict with non-empty 'key', "
+                "'heading' and 'text' (optional 'source_url')"
+            )
+        parsed.append(
+            AuthoritySection(
+                key=sec["key"].strip(),
+                heading=sec["heading"].strip(),
+                text=sec["text"],
+                source_url=sec.get("source_url"),
+            )
+        )
+
+    return _bootstrap(
+        creator_id=creator_id,
+        corpus_title=corpus_title,
+        sections=parsed,
+        aliases=aliases,
+        make_public=make_public,
+        relink_async=relink_async,
+    )
+
+
 async def ascan_corpus_references(
     *,
     corpus_id: int,
@@ -71,4 +153,35 @@ async def aapply_corpus_reference_enrichment(
 ) -> dict:
     return await _db_sync_to_async(apply_corpus_reference_enrichment)(
         corpus_id=corpus_id, creator_id=creator_id, types=types
+    )
+
+
+async def alist_wanted_authorities(
+    *,
+    corpus_id: int,
+    creator_id: int,
+) -> dict:
+    return await _db_sync_to_async(list_wanted_authorities)(
+        corpus_id=corpus_id, creator_id=creator_id
+    )
+
+
+async def abootstrap_authority_corpus(
+    *,
+    creator_id: int,
+    corpus_title: str,
+    sections: list[dict],
+    aliases: list[str] | None = None,
+    make_public: bool = False,
+) -> dict:
+    # relink_async=True: offload the post-bootstrap relink sweep to Celery so a
+    # large authority set doesn't hold this tool's single thread-pool slot for
+    # minutes. Not exposed as a tool parameter — the LLM never sets it.
+    return await _db_sync_to_async(bootstrap_authority_corpus)(
+        creator_id=creator_id,
+        corpus_title=corpus_title,
+        sections=sections,
+        aliases=aliases,
+        make_public=make_public,
+        relink_async=True,
     )

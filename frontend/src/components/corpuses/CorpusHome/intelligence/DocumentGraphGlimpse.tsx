@@ -1,5 +1,4 @@
 import React, { useMemo } from "react";
-import styled, { keyframes } from "styled-components";
 import * as d3 from "d3";
 import { Share2, ArrowRight } from "lucide-react";
 
@@ -13,6 +12,19 @@ import {
   CorpusDocumentGraphNode,
   CorpusDocumentGraphEdge,
 } from "../../../../graphql/queries";
+import { runSimulationTicks } from "../../../../utils/graphLayout";
+import {
+  EmptyState,
+  ExploreLink,
+  GraphCard,
+  GraphHeader,
+  GraphMeta,
+  GraphSkeleton,
+  GraphTitle,
+  Legend,
+  LegendItem,
+  SvgWrapper,
+} from "./graphCardChrome";
 
 /**
  * DocumentGraphGlimpse — a static, deterministic force-directed rendering of
@@ -68,121 +80,6 @@ interface DocumentGraphGlimpseProps {
   testId?: string;
 }
 
-const GraphCard = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 1rem 1.25rem 1.25rem;
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 14px;
-`;
-
-const GraphHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-`;
-
-const GraphTitle = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-
-  svg {
-    color: ${OS_LEGAL_COLORS.primaryBlue};
-  }
-`;
-
-const GraphMeta = styled.span`
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  font-variant-numeric: tabular-nums;
-`;
-
-const SvgWrapper = styled.div`
-  width: 100%;
-  background: white;
-  border-radius: 10px;
-  overflow: hidden;
-
-  svg {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-`;
-
-const ExploreLink = styled.button`
-  align-self: flex-end;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: none;
-  border: none;
-  padding: 0.25rem 0.25rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.primaryBlue};
-  cursor: pointer;
-
-  &:hover {
-    text-decoration: underline;
-  }
-
-  svg {
-    width: 14px;
-    height: 14px;
-  }
-`;
-
-const EmptyState = styled.div`
-  padding: 1.5rem 1rem;
-  text-align: center;
-  font-size: 0.8125rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-`;
-
-const shimmer = keyframes`
-  0% { opacity: 0.45; }
-  50% { opacity: 0.8; }
-  100% { opacity: 0.45; }
-`;
-
-// First-load placeholder matching the SVG's aspect ratio so the card doesn't
-// reflow when the graph arrives. Mirrors IntelligencePanel's StatSkeleton.
-const GraphSkeleton = styled.div`
-  width: 100%;
-  aspect-ratio: ${VIEW_WIDTH} / ${VIEW_HEIGHT};
-  border-radius: 10px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
-  animation: ${shimmer} 1.2s ease-in-out infinite;
-`;
-
-// Legend — without it the graph is just blue dots and lines: a first-time
-// viewer can't tell what an edge or a big node means. Entries are rendered
-// conditionally on the edge types actually present so we never explain a
-// dashed style the data doesn't use.
-const Legend = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 1.1rem;
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-`;
-
-const LegendItem = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  white-space: nowrap;
-`;
-
 /**
  * Compute a deterministic force-directed layout. Initial positions are seeded
  * on a circle (no RNG), then the simulation is run synchronously for a fixed
@@ -230,10 +127,7 @@ function computeLayout(
     .force("collide", d3.forceCollide<SimNode>().radius(MAX_NODE_RADIUS + 4))
     .stop();
 
-  // Run synchronously — no animation frame, fully deterministic.
-  for (let i = 0; i < SIMULATION_TICKS; i += 1) {
-    simulation.tick();
-  }
+  runSimulationTicks(simulation, SIMULATION_TICKS);
 
   // Clamp into the viewBox so nothing renders off-canvas.
   const pad = MAX_NODE_RADIUS + 2;
@@ -292,7 +186,11 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
               Document graph
             </GraphTitle>
           </GraphHeader>
-          <GraphSkeleton data-testid={`${testId}-skeleton`} />
+          <GraphSkeleton
+            $viewWidth={VIEW_WIDTH}
+            $viewHeight={VIEW_HEIGHT}
+            data-testid={`${testId}-skeleton`}
+          />
         </GraphCard>
       );
     }

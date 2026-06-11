@@ -1,6 +1,7 @@
 import {
   EXTRACT_GRID_CELL_TRUNCATE_LENGTH,
   FILE_SIZE,
+  LAW_AUTHORITY_ACRONYMS,
   TIME_UNITS,
 } from "../assets/configurations/constants";
 
@@ -259,4 +260,25 @@ export function humanizeLabel(label: string): string {
         : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
     )
     .join(" ");
+}
+
+const LAW_ACRONYM_SET = new Set<string>(LAW_AUTHORITY_ACRONYMS);
+
+/**
+ * Display form for a canonical law key from the reference web:
+ * "dgcl:203" → "DGCL § 203", "securities-act:4(a)(2)" → "Securities Act
+ * § 4(a)(2)". Acronym authority words upper-case; the rest title-case. Used
+ * for governance-graph ghost nodes and the wanted-authorities backlog.
+ */
+export function formatCanonicalLawKey(key: string): string {
+  const [prefix, section] = key.split(":", 2);
+  const display = prefix
+    .split("-")
+    .map((part) =>
+      LAW_ACRONYM_SET.has(part)
+        ? part.toUpperCase()
+        : part.charAt(0).toUpperCase() + part.slice(1)
+    )
+    .join(" ");
+  return section ? `${display} § ${section}` : display;
 }

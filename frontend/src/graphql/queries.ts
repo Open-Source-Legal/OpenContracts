@@ -787,6 +787,256 @@ export const GET_CORPUS_DOCUMENT_GRAPH = gql`
   }
 `;
 
+// ---------------- Governance Graph (reference web) ----------------
+// The corpus-scoped reference web: documents + statute sections + external
+// citation ghosts, with mention-weighted LAW / LAW_EXTERNAL / DOCUMENT edges.
+// Powers the GovernanceGraphGlimpse on the Corpus Intelligence home.
+
+export interface GovernanceGraphCorpus {
+  id: string;
+  title?: string | null;
+  /** "filing" | "authority" */
+  kind: string;
+}
+
+export interface GovernanceGraphNode {
+  /** Global DocumentType id, or "key:<canonical_key>" for ghost nodes. */
+  id: string;
+  /** Global DocumentType id (null for external ghost nodes). */
+  documentId?: string | null;
+  title?: string | null;
+  /** "primary" | "exhibit" | "statute" | "external" */
+  kind: string;
+  corpusId?: string | null;
+  /** Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes. */
+  authority?: string | null;
+  degree: number;
+}
+
+export interface GovernanceGraphEdge {
+  source: string;
+  target: string;
+  /** "LAW" | "LAW_EXTERNAL" | "DOCUMENT" */
+  edgeType: string;
+  weight: number;
+}
+
+export interface GovernanceGraph {
+  corpora: GovernanceGraphCorpus[];
+  nodes: GovernanceGraphNode[];
+  edges: GovernanceGraphEdge[];
+  documentCount: number;
+  externalKeyCount: number;
+  edgeCount: number;
+  mentionCount: number;
+  truncated: boolean;
+}
+
+export interface GetGovernanceGraphInputType {
+  corpusId: string;
+  limit?: number;
+}
+
+export interface GetGovernanceGraphOutputType {
+  governanceGraph: GovernanceGraph;
+}
+
+export const GET_GOVERNANCE_GRAPH = gql`
+  query governanceGraph($corpusId: ID!, $limit: Int) {
+    governanceGraph(corpusId: $corpusId, limit: $limit) {
+      corpora {
+        id
+        title
+        kind
+      }
+      nodes {
+        id
+        documentId
+        title
+        kind
+        corpusId
+        authority
+        degree
+      }
+      edges {
+        source
+        target
+        edgeType
+        weight
+      }
+      documentCount
+      externalKeyCount
+      edgeCount
+      mentionCount
+      truncated
+    }
+  }
+`;
+
+// One document's slice of the corpus reference web — both directions in a
+// single fetch (the backend's documentId filter matches EITHER side); the
+// References panel splits inbound/outbound client-side.
+export interface CorpusReferenceRow {
+  id: string;
+  referenceType: string;
+  canonicalKey?: string | null;
+  resolutionStatus: string;
+  sourceAnnotation?: {
+    id: string;
+    rawText?: string | null;
+    linkUrl?: string | null;
+    document?: { id: string; title?: string | null } | null;
+  } | null;
+  targetDocument?: { id: string; title?: string | null } | null;
+}
+
+export interface GetCorpusReferencesForDocumentInputType {
+  corpusId: string;
+  documentId: string;
+}
+
+export interface GetCorpusReferencesForDocumentOutputType {
+  corpusReferences: {
+    edges: { node: CorpusReferenceRow }[];
+  };
+}
+
+export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
+  query corpusReferencesForDocument($corpusId: ID!, $documentId: ID) {
+    corpusReferences(corpusId: $corpusId, documentId: $documentId) {
+      edges {
+        node {
+          id
+          referenceType
+          canonicalKey
+          resolutionStatus
+          sourceAnnotation {
+            id
+            rawText
+            linkUrl
+            document {
+              id
+              title
+            }
+          }
+          targetDocument {
+            id
+            title
+          }
+        }
+      }
+    }
+  }
+`;
+
+// ---------------- Wanted authorities (missing-law backlog) ----------------
+// EXTERNAL law citations visible to the user, aggregated by authority prefix
+// and ranked by mention volume — the actionable backlog behind the
+// governance graph's dashed ghost nodes: what to ingest next to resolve the
+// most references.
+
+export interface WantedAuthorityKey {
+  /** Section-root canonical key, e.g. "dgcl:145". */
+  canonicalKey: string;
+  mentionCount: number;
+  corpusCount: number;
+}
+
+export interface WantedAuthority {
+  /** Authority prefix, e.g. "dgcl". */
+  authority: string;
+  mentionCount: number;
+  keyCount: number;
+  corpusCount: number;
+  /** Most-cited missing keys (capped server-side). */
+  topKeys: WantedAuthorityKey[];
+}
+
+export interface GetWantedAuthoritiesInputType {
+  corpusId?: string;
+}
+
+export interface GetWantedAuthoritiesOutputType {
+  wantedAuthorities: WantedAuthority[];
+}
+
+export const GET_WANTED_AUTHORITIES = gql`
+  query wantedAuthorities($corpusId: ID) {
+    wantedAuthorities(corpusId: $corpusId) {
+      authority
+      mentionCount
+      keyCount
+      corpusCount
+      topKeys {
+        canonicalKey
+        mentionCount
+        corpusCount
+      }
+    }
+  }
+`;
+
+// Lean analysis listing used to discover a corpus's reference-enrichment
+// Analysis (matched client-side on analyzer.taskName) so the document viewer
+// can auto-merge its reference-mention annotations into the annotation layer.
+export interface EnrichmentAnalysisNode {
+  id: string;
+  analyzer?: { id: string; taskName?: string | null } | null;
+}
+
+export interface GetAnalysesForCorpusEnrichmentInputType {
+  corpusId: string;
+}
+
+export interface GetAnalysesForCorpusEnrichmentOutputType {
+  analyses: {
+    edges: { node: EnrichmentAnalysisNode }[];
+  };
+}
+
+export const GET_ANALYSES_FOR_CORPUS_ENRICHMENT = gql`
+  query analysesForCorpusEnrichment($corpusId: ID) {
+    analyses(corpusId: $corpusId) {
+      edges {
+        node {
+          id
+          analyzer {
+            id
+            taskName
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Lean analyzer listing used to discover the corpus-reference-enrichment
+// analyzer (matched client-side on taskName) for the "Map the reference web"
+// bootstrap CTA. The analyzer table is small; no server-side filter needed.
+export interface EnrichmentAnalyzerNode {
+  id: string;
+  taskName?: string | null;
+}
+
+export interface GetAnalyzersForEnrichmentOutputType {
+  analyzers: {
+    edges: { node: EnrichmentAnalyzerNode }[];
+  };
+}
+
+export const GET_ANALYZERS_FOR_ENRICHMENT = gql`
+  query analyzersForEnrichment {
+    analyzers {
+      edges {
+        node {
+          id
+          taskName
+        }
+      }
+    }
+  }
+`;
+
 export interface LabelDistributionEntry {
   label: string;
   color?: string | null;

@@ -77,6 +77,8 @@ GRAPH_CORPUS_AUTHORITY = "authority"
 # Defaults / thresholds.
 DEFAULT_SAMPLE_N = 10
 MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1
+# Per-authority cap on the keys surfaced by the wanted-authorities queue.
+WANTED_AUTHORITIES_TOP_KEYS = 10
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"

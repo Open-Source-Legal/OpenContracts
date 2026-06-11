@@ -364,6 +364,18 @@ export const cache = new InMemoryCache({
           "relationshipType",
           "annotationLabelText",
         ]),
+        // Reference-web queries. keyArgs use the GraphQL FIELD-ARGUMENT names
+        // (CLAUDE.md #15) so each (corpus[, document]) gets its own cache entry
+        // — without these, switching documents collapses corpusReferences into
+        // one slot and navigating corpora serves a stale governanceGraph /
+        // wantedAuthorities.
+        corpusReferences: relayStylePagination(["corpusId", "documentId"]),
+        governanceGraph: {
+          keyArgs: ["corpusId"],
+        },
+        wantedAuthorities: {
+          keyArgs: ["corpusId"],
+        },
         // Slug resolution queries - cache by input parameters
         userBySlug: {
           keyArgs: ["slug"],

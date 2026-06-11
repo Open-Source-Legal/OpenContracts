@@ -1,33 +1,50 @@
 /**
- * Helpers for OC_URL annotations — annotations whose label text is
- * ``OC_URL`` and whose ``linkUrl`` is opened on click.
+ * Helpers for link annotations — annotations whose ``linkUrl`` is opened
+ * on click.
  *
  * Centralised here so that the PDF and text/markdown renderers share the
  * same is-url check and open behaviour. Updating click semantics in one
  * place keeps the two viewers in lock-step.
  */
 
-import { OC_URL_LABEL } from "../../../assets/configurations/constants";
+import { REFERENCE_MENTION_DISPLAY_NAMES } from "../../../assets/configurations/constants";
 import {
   ServerSpanAnnotation,
   ServerTokenAnnotation,
 } from "../types/annotations";
 
 /**
- * Whether an annotation should behave as a clickable hyperlink. True when
- * the annotation carries the OC_URL label *and* has a non-empty
- * ``linkUrl``. We require both so an OC_URL annotation with a missing
- * URL (e.g. while the author is still editing) falls back to normal
- * selection behaviour.
+ * Whether an annotation should behave as a clickable hyperlink: true for
+ * ANY annotation with a non-empty ``linkUrl``. ``link_url`` is validated
+ * server-side (``Annotation.validate_link_url``) and only set on
+ * annotations that genuinely point somewhere — user-authored OC_URL links
+ * and enrichment reference mentions (OC_REF_LAW / OC_REF_DOC, whose
+ * canonical ``/d/…`` paths route to the cited statute section or exhibit).
+ * An annotation with a missing URL (e.g. an OC_URL the author is still
+ * editing) falls back to normal selection behaviour. Authoring affordances
+ * (the edit-URL modal flow) key off the OC_URL label directly, not this
+ * predicate.
  */
 export function isUrlAnnotation(
   annotation: ServerTokenAnnotation | ServerSpanAnnotation
 ): boolean {
   return (
-    annotation.annotationLabel?.text === OC_URL_LABEL &&
     typeof annotation.linkUrl === "string" &&
     annotation.linkUrl.trim().length > 0
   );
+}
+
+/**
+ * Human-facing chip label for an annotation. Enrichment reference mentions
+ * carry machine-readable label codes (``OC_REF_LAW`` …); surfacing those raw
+ * on the hover chip reads as noise. Map them to plain names ("Law",
+ * "Exhibit", …); everything else shows its own label text unchanged.
+ */
+export function annotationChipLabel(
+  annotation: ServerTokenAnnotation | ServerSpanAnnotation
+): string {
+  const text = annotation.annotationLabel?.text ?? "";
+  return REFERENCE_MENTION_DISPLAY_NAMES[text] ?? text;
 }
 
 /**
@@ -76,7 +93,22 @@ export function openAnnotationUrl(
   annotation: ServerTokenAnnotation | ServerSpanAnnotation,
   navigate?: (to: string) => void
 ): boolean {
-  const url = annotation.linkUrl;
+  return openSafeUrl(annotation.linkUrl, navigate);
+}
+
+/**
+ * Navigate to a link URL with the same internal/external + safety handling as
+ * :func:`openAnnotationUrl`, but from a bare URL string rather than an
+ * annotation. Use this for reference-web link chips (the governance graph /
+ * References panel) where the URL is carried on a row, not an annotation
+ * object. Site-relative ``/...`` paths route through ``navigate``; safe
+ * absolute URLs open in a new ``noopener`` tab; missing/unsafe URLs are a
+ * no-op returning ``false``.
+ */
+export function openSafeUrl(
+  url: string | null | undefined,
+  navigate?: (to: string) => void
+): boolean {
   if (!url) return false;
   // Trim once and reuse for the safety check and the actual navigation;
   // ``isSafeUrl`` would otherwise trim again internally.

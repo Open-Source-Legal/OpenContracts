@@ -1971,7 +1971,45 @@ class CorpusReference(BaseOCModel):
                 fields=["source_annotation", "reference_type", "canonical_key"],
                 name="uniq_corpusref_source_type_key",
             ),
+            # Postgres treats NULLs as distinct, so the triple above does not
+            # guard keyless rows — this partial constraint closes the
+            # concurrent-writer duplication hole for refs with no canonical key.
+            django.db.models.UniqueConstraint(
+                fields=["source_annotation", "reference_type"],
+                condition=django.db.models.Q(canonical_key__isnull=True),
+                name="uniq_corpusref_source_type_nullkey",
+            ),
         ]
+
+    def save(self, *args, **kwargs):
+        self._require_type_label_agreement()
+        super().save(*args, **kwargs)
+
+    def _require_type_label_agreement(self) -> None:
+        """``reference_type`` denormalizes the mention's ``OC_REF_*`` label
+        (for indexing/filtering) — refuse to persist a row where the two
+        disagree so the duplicated fact can never drift.
+
+        Costs one indexed lookup of the mention's label text. Skips when the
+        mention has no label — agreement is then undefined.
+        """
+        expected = enrichment_constants.LABEL_FOR_TYPE.get(self.reference_type)
+        if expected is None or not self.source_annotation_id:
+            return
+        # One indexed lookup of the mention's label. We do NOT inspect the
+        # in-memory relation cache (a Django internal) to skip it — the
+        # enrichment writer select_relates ``annotation_label`` at the queryset
+        # level to keep this lookup cheap, and a single-row save can absorb it.
+        label_text = (
+            Annotation.objects.filter(pk=self.source_annotation_id)
+            .values_list("annotation_label__text", flat=True)
+            .first()
+        )
+        if label_text is not None and label_text != expected:
+            raise ValidationError(
+                f"CorpusReference.reference_type={self.reference_type!r} requires "
+                f"a source annotation labelled {expected!r}, got {label_text!r}."
+            )
 
     def __str__(self) -> str:
         target = self.canonical_key or self.target_document_id

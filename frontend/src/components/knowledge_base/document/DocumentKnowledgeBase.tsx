@@ -59,6 +59,7 @@ import { DocumentViewer } from "./document_kb/DocumentViewer";
 import { useResizeHandle } from "./document_kb/useResizeHandle";
 import { useDocumentMarkdown } from "./document_kb/useDocumentMarkdown";
 import { useStructuralAnnotations } from "./document_kb/useStructuralAnnotations";
+import { useReferenceMentions } from "./document_kb/useReferenceMentions";
 import { useJumpToRelationship } from "./document_kb/useJumpToRelationship";
 import { useDocumentLoader } from "./document_kb/useDocumentLoader";
 import { useContainerWidth } from "./document_kb/useContainerWidth";
@@ -528,6 +529,14 @@ const DocumentKnowledgeBase: React.FC<DocumentKnowledgeBaseProps> = ({
     selectedAnalysisId: selectedAnalysis?.id ?? null,
     selectedExtractId: selectedExtract?.id ?? null,
   });
+
+  // Auto-merge reference-mention annotations (the document's citation
+  // hyperlinks) — analysis-created and therefore excluded from the default
+  // load, but a reader expects citations visible without selecting an
+  // analysis. Gated on the loader settling: its onCompleted REPLACES the
+  // annotation state, so merging before it would be silently wiped. See
+  // useReferenceMentions for the full rationale.
+  useReferenceMentions(documentId, corpusId, !loading);
 
   // `description` is the inline markdown (canonical-CAML projection).
   const corpusMdContent = corpusData?.corpus?.description ?? null;

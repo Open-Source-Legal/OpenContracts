@@ -397,6 +397,46 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         parameters=(("types", "Optional list of reference types to enrich", False),),
     ),
     ToolDefinition(
+        name="list_wanted_authorities",
+        description=(
+            "List the bodies of law this corpus cites WITHOUT a resolvable "
+            "authority document (the missing-authority backlog), aggregated "
+            "by authority and ranked by mention volume with the most-cited "
+            "section keys. Read-only; use to decide what to bootstrap next."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+    ),
+    ToolDefinition(
+        name="bootstrap_authority_corpus",
+        description=(
+            "Create or refresh an 'authority corpus' (one text document per "
+            "statute/regulation section, keyed by canonical key such as "
+            "'dgcl:145'), then automatically re-link every corpus citing "
+            "those keys so EXTERNAL law references become clickable RESOLVED "
+            "links. Idempotent. Optionally publish the corpus so the "
+            "authority resolves citations for all users."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            ("corpus_title", "Title for the authority corpus", True),
+            (
+                "sections",
+                "List of {key, heading, text, source_url?} section objects",
+                True,
+            ),
+            (
+                "aliases",
+                "Authority names as they appear in citation text "
+                "(e.g. 'Delaware General Corporation Law')",
+                False,
+            ),
+            ("make_public", "Publish the corpus for all users", False),
+        ),
+    ),
+    ToolDefinition(
         name="get_corpus_description",
         description="Retrieve the latest markdown description for this corpus.",
         category=ToolCategory.CORPUS,
@@ -1344,6 +1384,7 @@ class ToolFunctionRegistry:
             aadd_document_note,
             aapply_caml_article_edit,
             aapply_corpus_reference_enrichment,
+            abootstrap_authority_corpus,
             acreate_document_index,
             acreate_markdown_link,
             acreate_or_update_text_document,
@@ -1362,6 +1403,7 @@ class ToolFunctionRegistry:
             alist_fieldsets,
             alist_recent_analyses,
             alist_recent_extracts,
+            alist_wanted_authorities,
             aload_document_md_summary,
             aload_document_txt_extract,
             amove_document,
@@ -1447,6 +1489,8 @@ class ToolFunctionRegistry:
                 aapply_corpus_reference_enrichment,
                 (),
             ),
+            "list_wanted_authorities": (alist_wanted_authorities, ()),
+            "bootstrap_authority_corpus": (abootstrap_authority_corpus, ()),
             "create_document_index": (acreate_document_index, ()),
             # Corpus tools
             "get_corpus_description": (aget_corpus_description, ()),

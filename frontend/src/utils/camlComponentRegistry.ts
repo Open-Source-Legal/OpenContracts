@@ -9,6 +9,7 @@
 import { ExtractGridEmbed } from "../components/extracts/ExtractGridEmbed";
 import { InsightPanelEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/InsightPanelEmbed";
 import { DocumentGraphEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/DocumentGraphEmbed";
+import { GovernanceGraphEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/GovernanceGraphEmbed";
 import { AskAcrossDocsEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/AskAcrossDocsEmbed";
 import type { CamlComponentRegistry } from "./camlComponents";
 
@@ -18,5 +19,6 @@ export const CAML_COMPONENTS: CamlComponentRegistry = {
   // CamlEmbedContext (provided by CorpusArticleView / the editor preview).
   "insight-panel": InsightPanelEmbed,
   "document-graph": DocumentGraphEmbed,
+  "governance-graph": GovernanceGraphEmbed,
   "ask-across-docs": AskAcrossDocsEmbed,
 };

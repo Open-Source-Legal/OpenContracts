@@ -6,6 +6,7 @@ import {
   Database,
   BarChart3,
   BookOpen,
+  Link2,
 } from "lucide-react";
 import { AnalysisType, ExtractType } from "../../../../types/graphql-api";
 import { ChatPanelWidthMode } from "../../../annotator/context/UISettingsAtom";
@@ -165,6 +166,19 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
           <span className="tab-label">Analysis</span>
         </SidebarTab>
       )}
+      <SidebarTab
+        $isActive={sidebarViewMode === "references"}
+        $panelOpen={panelOpen}
+        onClick={onTabClick("references")}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        data-testid="view-mode-references"
+        data-tooltip="References"
+        aria-label="Inbound and outbound references"
+      >
+        <Link2 />
+        <span className="tab-label">References</span>
+      </SidebarTab>
       <SidebarTab
         $isActive={sidebarViewMode === "discussions"}
         $panelOpen={panelOpen}

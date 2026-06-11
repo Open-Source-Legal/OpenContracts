@@ -134,18 +134,18 @@ class GovernanceGraphService:
         node_doc_ids = {val for kind, val in degree if kind == "doc"}
         ghost_keys = {val for kind, val in degree if kind == "key"}
 
-        # These node objects are read only for ``title``/``custom_meta``, so
-        # drop the visibility manager's default JOINs/prefetches before
-        # narrowing with ``.only()``. ``select_related(None)`` is required:
-        # the manager select_relates ``parent`` (among others), and Django
-        # forbids a field being both select_related and deferred by ``.only()``.
+        # values_list, not .only(): Document's default manager bakes in
+        # select_related("parent", ...), and Django forbids deferring a field
+        # that select_related traverses. Plain tuples also skip model
+        # instantiation and the manager's guardian-permission prefetches —
+        # these nodes are read only for title/custom_meta.
         docs = {
-            d.id: d
-            for d in BaseService.filter_visible(Document, user, request=request)
+            pk: {"title": title, "custom_meta": meta}
+            for pk, title, meta in BaseService.filter_visible(
+                Document, user, request=request
+            )
             .filter(id__in=node_doc_ids)
-            .select_related(None)
-            .prefetch_related(None)
-            .only("id", "title", "custom_meta")
+            .values_list("id", "title", "custom_meta")
         }
 
         # Corpora the graph reaches: the queried corpus plus READ-visible
@@ -178,10 +178,11 @@ class GovernanceGraphService:
             doc = docs.get(doc_pk)
             if doc is None:
                 continue
-            meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
+            title = doc["title"]
+            meta = doc["custom_meta"] if isinstance(doc["custom_meta"], dict) else {}
             if meta.get("canonical_key"):
                 kind = C.GRAPH_NODE_STATUTE
-            elif "exhibit" in (doc.title or "").lower():
+            elif "exhibit" in (title or "").lower():
                 kind = C.GRAPH_NODE_EXHIBIT
             else:
                 kind = C.GRAPH_NODE_PRIMARY
@@ -189,7 +190,7 @@ class GovernanceGraphService:
             doc_nodes.append(
                 {
                     "doc_pk": doc_pk,
-                    "title": doc.title,
+                    "title": title,
                     "kind": kind,
                     "corpus_pk": node_corpus if node_corpus in listed_corpora else None,
                     "authority": meta.get("authority"),

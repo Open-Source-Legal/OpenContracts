@@ -146,9 +146,16 @@ class EnrichmentService:
             "unresolved_samples": unresolved,
         }
 
-    def _get_analysis(self, corpus, creator_id: int) -> Analysis:
-        # task_name is unique and the startup sync may have created the row
-        # under id == task_name already — converge on it before creating.
+    @staticmethod
+    def get_or_create_analyzer(creator_id: int) -> Analyzer:
+        """Converge on THE enrichment ``Analyzer`` row.
+
+        ``task_name`` is unique, and the migration/startup auto-sync
+        (``auto_create_doc_analyzers``) may already have created the row under
+        ``id == task_name`` — reuse it before creating the friendly-id row.
+        Every code path that needs the enrichment analyzer (service, tests)
+        must go through here so the converge logic exists exactly once.
+        """
         analyzer = Analyzer.objects.filter(task_name=C.ENRICHMENT_ANALYZER_TASK).first()
         if analyzer is None:
             analyzer, _ = Analyzer.objects.get_or_create(
@@ -159,6 +166,10 @@ class EnrichmentService:
                     "creator_id": creator_id,
                 },
             )
+        return analyzer
+
+    def _get_analysis(self, corpus, creator_id: int) -> Analysis:
+        analyzer = self.get_or_create_analyzer(creator_id)
         # Two provenance paths: when ``apply`` runs via the analyzer framework
         # (Celery), the @corpus_analyzer_task wrapper owns the Analysis and
         # drives RUNNING -> COMPLETED/FAILED. This branch serves the direct
@@ -209,7 +220,9 @@ class EnrichmentService:
             "relationships_created": res.relationships_created,
             "references_created": res.references_created,
             "document_relationships_created": res.document_relationships_created,
+            "document_relationships_pruned": res.document_relationships_pruned,
             "law_references_linked": link["law_references_linked"],
+            "links_restamped": link["links_restamped"],
         }
 
     # -- cross-corpus linking ----------------------------------------------- #
@@ -227,7 +240,95 @@ class EnrichmentService:
         corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
         return self._link_external(user, corpus)
 
+    def relink_corpora_for_keys(self, canonical_keys) -> dict:
+        """Reactive re-link: converge filing corpora after an authority lands.
+
+        Given the canonical keys a bootstrap just materialised, find every
+        corpus holding EXTERNAL law references satisfiable by those keys
+        (subsection citations match via their section root) and re-run the
+        linking pass for each — **as that corpus's creator**, so visibility
+        semantics are preserved per corpus: a private authority resolves only
+        the corpora of users who can see it; nothing leaks.
+
+        Per-corpus failures are logged and counted but do not abort the
+        sweep (one broken corpus must not strand the rest).
+        """
+        from opencontractserver.enrichment.authorities import candidate_keys
+
+        wanted = {k for k in canonical_keys or [] if k}
+        summary = {
+            "corpora_checked": 0,
+            "corpora_relinked": 0,
+            "corpora_failed": 0,
+            "law_references_linked": 0,
+            "links_restamped": 0,
+        }
+        if not wanted:
+            return summary
+
+        # Pre-filter SQL-side to refs whose authority prefix matches a wanted
+        # key's, before the Python candidate_keys match. A ref can only satisfy
+        # a wanted key if they share an authority (candidate_keys never crosses
+        # authorities — it only rolls a subsection up to its section root), so
+        # this bounds the scan to the relevant authorities instead of loading
+        # every EXTERNAL law ref in the system into memory (the cross-product
+        # concern on large deployments). The Python set-intersection below still
+        # does the exact root match SQL can't express.
+        from django.db.models import Q
+
+        prefix_filter = Q()
+        for prefix in {k.split(":", 1)[0] for k in wanted}:
+            prefix_filter |= Q(canonical_key__startswith=f"{prefix}:")
+
+        # Distinct (corpus, key) pairs only — bounded by the EXTERNAL-ref key
+        # space, not mention volume. Root matching (regex-derived) is
+        # Python-side because SQL can't express candidate_keys.
+        pairs = (
+            CorpusReference.objects.filter(
+                prefix_filter,
+                reference_type=C.REF_LAW,
+                resolution_status=C.STATUS_EXTERNAL,
+            )
+            .exclude(canonical_key=None)
+            .values_list("corpus_id", "canonical_key")
+            .distinct()
+        )
+        affected_ids = {
+            corpus_id
+            for corpus_id, key in pairs
+            # queryset excludes None keys; the truthiness check narrows the type
+            if key and set(candidate_keys(key)) & wanted
+        }
+        summary["corpora_checked"] = len(affected_ids)
+
+        for corpus in Corpus.objects.filter(id__in=affected_ids).select_related(
+            "creator"
+        ):
+            try:
+                out = self.link_external_references(
+                    corpus_id=corpus.id, creator_id=corpus.creator_id
+                )
+            except Exception:
+                logger.exception(
+                    "Relink failed for corpus %s — continuing sweep", corpus.id
+                )
+                summary["corpora_failed"] += 1
+                continue
+            summary["law_references_linked"] += out["law_references_linked"]
+            summary["links_restamped"] += out["links_restamped"]
+            if out["law_references_linked"]:
+                summary["corpora_relinked"] += 1
+        return summary
+
     def _link_external(self, user, corpus) -> dict:
+        """Resolve still-external law refs, then repair all mention links.
+
+        Pass 1 assigns targets; pass 2 (``_restamp_mention_links``) recomputes
+        ``link_url`` for *every* resolved reference from the current slugs, so
+        each linking run also repairs slug drift on previously-stamped
+        mentions — ``CorpusReference.target_document`` is the durable truth
+        and ``link_url`` only a cached projection of it.
+        """
         from opencontractserver.documents.models import Document, DocumentPath
         from opencontractserver.enrichment.authorities import find_authority_target
 
@@ -241,10 +342,8 @@ class EnrichmentService:
             .select_related("source_annotation")
         )
         target_cache: dict[str, Document | None] = {}
-        corpus_cache: dict[int, Corpus] = {}
         now = timezone.now()
         updated_refs: list[CorpusReference] = []
-        updated_mentions: list[Annotation] = []
         # First pass: build target_cache (deduped by canonical key).
         for ref in refs:
             key = ref.canonical_key
@@ -269,39 +368,62 @@ class EnrichmentService:
             target = target_cache.get(key)
             if target is None:
                 continue
-            target_corpus_id = path_corpus_cache.get(target.id)
             ref.target_document = target
-            ref.target_corpus_id = target_corpus_id
+            ref.target_corpus_id = path_corpus_cache.get(target.id)
             ref.resolution_status = C.STATUS_RESOLVED
             # bulk_update bypasses auto_now — stamp ``modified`` explicitly.
             ref.modified = now
             updated_refs.append(ref)
-            if target_corpus_id is not None:
-                if target_corpus_id not in corpus_cache:
-                    corpus_cache[target_corpus_id] = Corpus.objects.select_related(
-                        "creator"
-                    ).get(pk=target_corpus_id)
-                target_corpus = corpus_cache[target_corpus_id]
-                # Canonical slug path into the authority corpus — the only
-                # shape the frontend router serves (anything else 404s).
-                link_url = document_in_corpus_path(
-                    corpus_creator_slug=target_corpus.creator.slug,
-                    corpus_slug=target_corpus.slug,
-                    document_slug=target.slug,
-                )
-                if link_url:
-                    mention = ref.source_annotation
-                    mention.link_url = link_url
-                    mention.modified = now
-                    updated_mentions.append(mention)
 
-        # Two queries instead of O(N) row-by-row saves (corpora carry
+        # One query instead of O(N) row-by-row saves (corpora carry
         # hundreds-to-thousands of law references at demo scale).
         if updated_refs:
             CorpusReference.objects.bulk_update(
                 updated_refs,
                 ["target_document", "target_corpus", "resolution_status", "modified"],
             )
-        if updated_mentions:
-            Annotation.objects.bulk_update(updated_mentions, ["link_url", "modified"])
-        return {"corpus_id": corpus.id, "law_references_linked": len(updated_refs)}
+        restamped = self._restamp_mention_links(corpus)
+        return {
+            "corpus_id": corpus.id,
+            "law_references_linked": len(updated_refs),
+            "links_restamped": restamped,
+        }
+
+    def _restamp_mention_links(self, corpus) -> int:
+        """Recompute ``link_url`` for every resolved reference mention.
+
+        The canonical slug path is the only shape the frontend router serves
+        (anything else 404s). LAW refs link into the target (authority)
+        corpus; DOCUMENT refs target a sibling document of the source corpus
+        (``target_corpus`` is null for them). Only mentions whose stored link
+        differs are written back.
+        """
+        refs = CorpusReference.objects.filter(
+            corpus=corpus,
+            resolution_status=C.STATUS_RESOLVED,
+            target_document__isnull=False,
+            reference_type__in=(C.REF_LAW, C.REF_DOCUMENT),
+        ).select_related(
+            "source_annotation", "target_document", "target_corpus__creator"
+        )
+        now = timezone.now()
+        changed: dict[int, Annotation] = {}
+        for ref in refs:
+            target_document = ref.target_document
+            if target_document is None:  # queryset excludes; narrows the type
+                continue
+            target_corpus = ref.target_corpus or corpus
+            link_url = document_in_corpus_path(
+                corpus_creator_slug=target_corpus.creator.slug,
+                corpus_slug=target_corpus.slug,
+                document_slug=target_document.slug,
+            )
+            mention = ref.source_annotation
+            if link_url and mention.link_url != link_url:
+                mention.link_url = link_url
+                # bulk_update bypasses auto_now — stamp ``modified`` explicitly.
+                mention.modified = now
+                changed[mention.pk] = mention
+        if changed:
+            Annotation.objects.bulk_update(changed.values(), ["link_url", "modified"])
+        return len(changed)

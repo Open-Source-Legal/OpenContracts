@@ -110,6 +110,85 @@ class EnrichmentGraphQLTests(TestCase):
         assert result["data"]["corpusReferences"]["edges"] == []
 
 
+class CorpusReferenceDocumentFilterTests(TestCase):
+    """``corpusReferences(documentId:)`` returns refs touching EITHER side.
+
+    The document References side-panel fetches one document's inbound +
+    outbound references in a single query and splits client-side.
+    """
+
+    DOC_TEXT = (
+        "Indemnification under Section 145 of the Delaware General Corporation "
+        "Law. The underwriting agreement is filed as Exhibit 1.1 hereto."
+    )
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="owner", password="p")
+        self.corpus = Corpus.objects.create(title="C", creator=self.user)
+        primary = Document.objects.create(title="Acme S-1 primary", creator=self.user)
+        primary.txt_extract_file.save(
+            "p.txt", ContentFile(self.DOC_TEXT.encode("utf-8"))
+        )
+        exhibit = Document.objects.create(
+            title="Acme S-1 - Exhibit 1.1: EX-1.1", creator=self.user
+        )
+        exhibit.txt_extract_file.save("e.txt", ContentFile(b"Underwriting."))
+        self.primary_in_corpus, _, _ = self.corpus.add_document(
+            document=primary, user=self.user
+        )
+        self.exhibit_in_corpus, _, _ = self.corpus.add_document(
+            document=exhibit, user=self.user
+        )
+        apply_corpus_reference_enrichment(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+    def _run(self, document_pk):
+        from graphene.test import Client
+        from graphql_relay import to_global_id
+
+        from config.graphql.schema import schema
+
+        query = """
+            query ($cid: ID!, $did: ID) {
+              corpusReferences(corpusId: $cid, documentId: $did) {
+                edges { node { referenceType canonicalKey } }
+              }
+            }
+        """
+        return Client(schema, context_value=_Ctx(self.user)).execute(
+            query,
+            variables={
+                "cid": to_global_id("CorpusType", self.corpus.id),
+                "did": to_global_id("DocumentType", document_pk),
+            },
+        )
+
+    def test_source_document_returns_its_outbound_references(self):
+        result = self._run(self.primary_in_corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        types = {
+            e["node"]["referenceType"]
+            for e in result["data"]["corpusReferences"]["edges"]
+        }
+        assert "LAW" in types
+        assert "DOCUMENT" in types
+
+    def test_target_document_returns_its_inbound_references(self):
+        # The exhibit is only ever a TARGET (the primary cites it).
+        result = self._run(self.exhibit_in_corpus.id)
+        assert result.get("errors") is None, result.get("errors")
+        edges = result["data"]["corpusReferences"]["edges"]
+        assert edges, "expected the inbound DOCUMENT reference"
+        assert {e["node"]["referenceType"] for e in edges} == {"DOCUMENT"}
+
+    def test_unrelated_document_returns_nothing(self):
+        other = Document.objects.create(title="Unrelated", creator=self.user)
+        result = self._run(other.id)
+        assert result.get("errors") is None, result.get("errors")
+        assert result["data"]["corpusReferences"]["edges"] == []
+
+
 class CorpusReferenceTraversalVisibilityTests(TestCase):
     """Nested FK traversal on ``CorpusReferenceType`` must not leak documents.
 
@@ -177,3 +256,133 @@ class CorpusReferenceTraversalVisibilityTests(TestCase):
         assert edges
         # ...but the private target document nulls out for the reader.
         assert all(e["node"]["targetDocument"] is None for e in edges)
+
+    def test_document_filter_is_idor_safe_for_invisible_doc(self):
+        # IDOR: a corpus reader filtering by an INVISIBLE document's id must
+        # not learn whether it has references — that would probe the private
+        # target. The owner, who can see the document, still gets the row.
+        from graphene.test import Client
+        from graphql_relay import to_global_id
+
+        from config.graphql.schema import schema
+
+        query = """
+            query ($cid: ID!, $did: ID) {
+              corpusReferences(corpusId: $cid, documentId: $did) {
+                edges { node { canonicalKey } }
+              }
+            }
+        """
+        variables = {
+            "cid": to_global_id("CorpusType", self.corpus.id),
+            "did": to_global_id("DocumentType", self.private_doc.id),
+        }
+        reader_res = Client(schema, context_value=_Ctx(self.reader)).execute(
+            query, variables=variables
+        )
+        assert reader_res.get("errors") is None, reader_res.get("errors")
+        assert reader_res["data"]["corpusReferences"]["edges"] == []
+
+        owner_res = Client(schema, context_value=_Ctx(self.owner)).execute(
+            query, variables=variables
+        )
+        assert owner_res.get("errors") is None, owner_res.get("errors")
+        assert owner_res["data"]["corpusReferences"]["edges"]
+
+
+class BackfillToolRegistryTests(TestCase):
+    def test_backfill_tools_are_registered(self):
+        names = {t.name for t in AVAILABLE_TOOLS}
+        assert "list_wanted_authorities" in names
+        assert "bootstrap_authority_corpus" in names
+
+    def test_bootstrap_tool_requires_approval_and_write(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "bootstrap_authority_corpus")
+        assert td.requires_approval is True
+        assert td.requires_write_permission is True
+
+    def test_list_wanted_tool_is_corpus_scoped_read_only(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "list_wanted_authorities")
+        assert td.requires_corpus is True
+        assert td.requires_approval is False
+        assert td.requires_write_permission is False
+
+
+class BackfillToolFunctionTests(TestCase):
+    def setUp(self):
+        from opencontractserver.llms.tools.core_tools import (
+            apply_corpus_reference_enrichment,
+        )
+
+        self.user = User.objects.create_user(username="owner2", password="p")
+        self.corpus = Corpus.objects.create(title="C2", creator=self.user)
+        doc = Document.objects.create(title="S-1 primary document", creator=self.user)
+        doc.txt_extract_file.save("d.txt", ContentFile(TEXT.encode("utf-8")))
+        self.corpus.add_document(document=doc, user=self.user)
+        apply_corpus_reference_enrichment(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+    def test_list_wanted_authorities_reports_queue(self):
+        from opencontractserver.llms.tools.core_tools import list_wanted_authorities
+
+        out = list_wanted_authorities(corpus_id=self.corpus.id, creator_id=self.user.id)
+        auths = {w["authority"] for w in out["authorities"]}
+        assert "dgcl" in auths
+
+    def test_bootstrap_tool_creates_authority_and_relinks(self):
+        from opencontractserver.llms.tools.core_tools import (
+            bootstrap_authority_corpus,
+        )
+
+        out = bootstrap_authority_corpus(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law",
+            sections=[
+                {"key": "dgcl:145", "heading": "DGCL § 145", "text": "..145.."},
+            ],
+        )
+        assert out["documents_created"] == 1
+        assert out["relink"]["law_references_linked"] == 1
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == "RESOLVED"
+
+    def test_bootstrap_tool_async_relink_offloads_to_celery(self):
+        # The async agent-tool path threads relink_async=True so the relink
+        # sweep is enqueued instead of run inline (no thread-pool slot held for
+        # minutes on a large authority set).
+        from opencontractserver.llms.tools.core_tools import (
+            bootstrap_authority_corpus,
+        )
+
+        out = bootstrap_authority_corpus(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law",
+            sections=[
+                {"key": "dgcl:145", "heading": "DGCL § 145", "text": "..145.."},
+            ],
+            relink_async=True,
+        )
+        # Offloaded: the inline summary is replaced by a queued task handle.
+        assert out["relink"]["queued"] is True
+        assert out["relink"]["task_id"]
+        # Celery runs eagerly under test settings, so the citing corpus still
+        # converged: the EXTERNAL dgcl:145 reference upgraded to RESOLVED.
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == "RESOLVED"
+
+    def test_bootstrap_tool_rejects_malformed_sections(self):
+        from opencontractserver.llms.tools.core_tools import (
+            bootstrap_authority_corpus,
+        )
+
+        with self.assertRaises(ValueError):
+            bootstrap_authority_corpus(
+                creator_id=self.user.id,
+                corpus_title="Broken",
+                sections=[{"heading": "missing key and text"}],
+            )
+        with self.assertRaises(ValueError):
+            bootstrap_authority_corpus(
+                creator_id=self.user.id, corpus_title="Empty", sections=[]
+            )

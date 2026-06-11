@@ -455,6 +455,26 @@ export const PENDING_OC_URL_LABEL_ID = "__pending_oc_url__";
 // styling, and the auto-created server-side label all agree.
 export const OC_URL_LABEL_COLOR = "#2563EB";
 
+// Reference-mention label texts emitted by the enrichment engine. Keep in
+// sync with opencontractserver/enrichment/constants.py (LABEL_REF_*). These
+// are machine-readable label codes, not display strings — the viewers render
+// the friendly name from REFERENCE_MENTION_DISPLAY_NAMES instead of showing
+// the raw code on the hover chip.
+export const OC_REF_LAW_LABEL = "OC_REF_LAW";
+export const OC_REF_DOC_LABEL = "OC_REF_DOC";
+export const OC_REF_SECTION_LABEL = "OC_REF_SECTION";
+export const OC_REF_TERM_LABEL = "OC_REF_TERM";
+
+// Human-facing chip labels for reference mentions. A reference span reads as
+// a hyperlink (amber underline + external-link icon); the chip names the
+// *kind* of reference in plain language rather than the internal label code.
+export const REFERENCE_MENTION_DISPLAY_NAMES: Record<string, string> = {
+  [OC_REF_LAW_LABEL]: "Law",
+  [OC_REF_DOC_LABEL]: "Exhibit",
+  [OC_REF_SECTION_LABEL]: "Section",
+  [OC_REF_TERM_LABEL]: "Defined term",
+};
+
 // Geographic annotation conventions — issue #1819.
 // Annotations carrying these labels are auto-created by the geocoding
 // pipeline (``opencontractserver/utils/geocoding``) and store the resolved
@@ -947,3 +967,164 @@ export const DOCUMENT_GRAPH_LAYOUT = {
   MIN_NODE_RADIUS: 5,
   MAX_NODE_RADIUS: 16,
 } as const;
+
+// ---------------------------------------------------------------------------
+// Governance Graph (reference web) — layout + visual vocabulary
+// ---------------------------------------------------------------------------
+
+// GovernanceGraphGlimpse layout geometry. Bipartite composition: filing
+// documents float in an upper band (clustered around their primary via
+// DOCUMENT edges), statute sections are PINNED on a "law shelf" near the
+// bottom, grouped by authority. The d3-force simulation runs a fixed number
+// of synchronous ticks from seeded positions (LCG, no Math.random) so the
+// layout is deterministic and test-friendly. Sized for the 200-node
+// GOVERNANCE_GRAPH_MAX_NODES backend cap.
+export const GOVERNANCE_GRAPH_LAYOUT = {
+  VIEW_WIDTH: 960,
+  VIEW_HEIGHT: 600,
+  SIMULATION_TICKS: 320,
+  /** Vertical center of the filings band, as a fraction of view height. */
+  FILINGS_BAND_Y: 0.3,
+  /** Vertical position of the pinned law shelf, as a fraction of view height. */
+  LAW_SHELF_Y: 0.78,
+  /** Horizontal inset of the law shelf, as a fraction of view width. */
+  LAW_SHELF_INSET: 0.05,
+  /** Gap between authority groups on the shelf, in section-slot units. */
+  AUTHORITY_GROUP_GAP: 1.6,
+  MIN_NODE_RADIUS: 3.5,
+  MAX_NODE_RADIUS: 22,
+  /** Primary filings never shrink below this — they anchor their cluster. */
+  MIN_PRIMARY_RADIUS: 13,
+  /** Shelf nodes sit on a fixed pitch — cap so giants don't overlap. */
+  MAX_SHELF_RADIUS: 12,
+  /** Seed for the deterministic LCG used to jitter initial positions. */
+  LAYOUT_SEED: 42,
+  /**
+   * Above this node count the rendering switches to dense mode: shelf labels
+   * gate on degree, edges thin out, authority captions stagger + abbreviate.
+   */
+  DENSE_NODE_THRESHOLD: 120,
+  /**
+   * A filing cluster with more members than this is a "swarm": its nodes
+   * anchor to their own seeded x across the full band (link force keeps
+   * exhibits near their primary) instead of one shared anchor point, so the
+   * cluster reads as a wide constellation rather than a packed disc.
+   */
+  SWARM_CLUSTER_SIZE: 40,
+} as const;
+
+// Node kinds / edge types emitted by the governanceGraph GraphQL query —
+// must match opencontractserver/enrichment/constants.py GRAPH_* values.
+export const GOVERNANCE_GRAPH_NODE_KINDS = {
+  PRIMARY: "primary",
+  EXHIBIT: "exhibit",
+  STATUTE: "statute",
+  EXTERNAL: "external",
+} as const;
+
+export const GOVERNANCE_GRAPH_EDGE_TYPES = {
+  LAW: "LAW",
+  LAW_EXTERNAL: "LAW_EXTERNAL",
+  DOCUMENT: "DOCUMENT",
+} as const;
+
+// Visual vocabulary for the governance graph, tuned for the light OS-legal
+// surface. Law is ALWAYS amber (the visual signature of the reference web);
+// filing clusters draw from the categorical hues below, anchored on the app's
+// primary blue so the first cluster ties into the rest of the intelligence
+// home. External ("cited, not yet ingested") ghosts are muted slate.
+export const GOVERNANCE_GRAPH_COLORS = {
+  /** Categorical hues for filing clusters (primary + its exhibits). */
+  CLUSTER_HUES: [
+    "#3b82f6", // app primary blue
+    "#10b981", // emerald
+    "#8b5cf6", // violet
+    "#f97316", // orange
+    "#06b6d4", // cyan
+    "#ec4899", // pink
+    "#84cc16", // lime
+    "#6366f1", // indigo
+  ],
+  /** Amber fills per authority; falls back to LAW_DEFAULT. */
+  AUTHORITY_FILLS: {
+    dgcl: "#d97706",
+    "securities-act": "#f59e0b",
+    "sec-rule": "#fbbf24",
+    "exchange-act": "#ea8a0c",
+    ica: "#ca8a04",
+    iaa: "#ca8a04",
+    irc: "#b45309",
+  } as Record<string, string>,
+  LAW_DEFAULT: "#d97706",
+  /** Defined-term references (the violet from CLUSTER_HUES). */
+  DEFINED_TERM: "#8b5cf6",
+  /** Dashed ghost nodes + edges for citations without an in-system target. */
+  EXTERNAL: "#94a3b8",
+  /** Letter-spaced micro-caption ink for THE FILINGS / THE LAW layers. */
+  LAYER_CAPTION: "#b6c0d4",
+  LAW_CAPTION: "#c9a45c",
+} as const;
+
+// Law-shelf ordering of authorities (left to right) and display captions.
+// Authorities not listed here append after, alphabetically, with an
+// upper-cased key caption — adding a body of law requires no code change.
+export const GOVERNANCE_GRAPH_AUTHORITY_ORDER = [
+  "dgcl",
+  "securities-act",
+  "sec-rule",
+  "exchange-act",
+  "ica",
+  "irc",
+] as const;
+
+// Authority-prefix words rendered as all-caps acronyms when a canonical law
+// key is displayed ("dgcl:203" → "DGCL § 203"); other words are title-cased
+// ("securities-act" → "Securities Act"). See formatCanonicalLawKey.
+export const LAW_AUTHORITY_ACRONYMS = [
+  "dgcl",
+  "irc",
+  "ica",
+  "iaa",
+  "usc",
+  "sec",
+] as const;
+
+export const GOVERNANCE_GRAPH_AUTHORITY_CAPTIONS: Record<string, string> = {
+  dgcl: "DELAWARE GEN. CORP. LAW",
+  "securities-act": "SECURITIES ACT OF 1933",
+  "sec-rule": "SEC RULES (17 C.F.R.)",
+  "exchange-act": "EXCHANGE ACT OF 1934",
+  ica: "INV. CO. ACT",
+  iaa: "INV. ADVISERS ACT",
+  irc: "INTERNAL REVENUE CODE",
+};
+
+// Abbreviated captions for dense shelves where the long forms collide.
+export const GOVERNANCE_GRAPH_AUTHORITY_CAPTIONS_SHORT: Record<string, string> =
+  {
+    dgcl: "DGCL",
+    "securities-act": "'33 ACT",
+    "sec-rule": "SEC RULES",
+    "exchange-act": "'34 ACT",
+    ica: "ICA",
+    iaa: "IAA",
+    irc: "IRC",
+  };
+
+// Celery task name of the corpus reference enrichment analyzer — used to
+// discover the Analyzer row that powers the "Map the reference web" CTA.
+// Must match opencontractserver/enrichment/constants.py ENRICHMENT_ANALYZER_TASK.
+export const ENRICHMENT_ANALYZER_TASK_NAME =
+  "opencontractserver.tasks.corpus_analysis_tasks.corpus_reference_enrichment";
+
+/** Poll cadence (ms) while the reference web is being woven after the CTA. */
+export const GOVERNANCE_GRAPH_WEAVING_POLL_MS = 4000;
+
+/** Stop polling for the woven web after this long even if no nodes appear — a
+ * corpus with genuinely no law references never produces nodes, so the poll
+ * would otherwise spin forever. */
+export const GOVERNANCE_GRAPH_WEAVING_MAX_MS = 90000;
+
+/** Max authority rows shown in the wanted-authorities backlog card; the
+ * server already ranks by mention volume, so the cut keeps the top demand. */
+export const WANTED_AUTHORITIES_MAX_ROWS = 5;

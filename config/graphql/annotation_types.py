@@ -145,6 +145,47 @@ class GovernanceGraphType(graphene.ObjectType):
     )
 
 
+class WantedAuthorityKeyType(graphene.ObjectType):
+    """One missing canonical key (rolled up to its section root)."""
+
+    canonical_key = graphene.String(
+        required=True, description='Section-root canonical key, e.g. "dgcl:145".'
+    )
+    mention_count = graphene.Int(
+        required=True, description="EXTERNAL mentions citing this key."
+    )
+    corpus_count = graphene.Int(
+        required=True, description="Distinct corpora citing this key."
+    )
+
+
+class WantedAuthorityType(graphene.ObjectType):
+    """One authority worth bootstrapping, ranked by citation demand.
+
+    Aggregated by ``CorpusReferenceService.wanted_authorities`` from EXTERNAL
+    law references visible to the requesting user — the actionable backlog
+    behind the governance graph's ghost nodes.
+    """
+
+    authority = graphene.String(
+        required=True, description='Authority prefix, e.g. "dgcl".'
+    )
+    mention_count = graphene.Int(
+        required=True, description="Total EXTERNAL mentions for this authority."
+    )
+    key_count = graphene.Int(
+        required=True, description="Distinct section-root keys cited."
+    )
+    corpus_count = graphene.Int(
+        required=True, description="Distinct corpora with unresolved citations."
+    )
+    top_keys = graphene.List(
+        graphene.NonNull(WantedAuthorityKeyType),
+        required=True,
+        description="Most-cited missing keys (capped server-side).",
+    )
+
+
 class RelationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectType):
     id = graphene.String()
     source_ids = graphene.List(graphene.String)

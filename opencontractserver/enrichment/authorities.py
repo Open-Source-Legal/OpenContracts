@@ -115,6 +115,69 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
     return None
 
 
+def bootstrap_authority_corpus(
+    *,
+    creator_id: int,
+    corpus_title: str,
+    sections: list[AuthoritySection],
+    aliases: list[str] | None = None,
+    corpus_id: int | None = None,
+    make_public: bool = False,
+    relink: bool = True,
+    relink_async: bool = False,
+) -> dict:
+    """Production entry point: bootstrap an authority, then converge filings.
+
+    Wraps :class:`AuthorityCorpusBootstrapper` with the two behaviours every
+    real backfill wants (and tests usually don't):
+
+    * ``make_public`` — publish the corpus so the authority resolves
+      citations for *every* user (``Corpus.save`` propagates ``is_public``
+      to its documents);
+    * ``relink`` (default on) — reactive re-link: immediately upgrade
+      EXTERNAL references in every corpus citing the bootstrapped keys,
+      each under its own creator's visibility.
+
+    When ``relink_async`` is set, the relink sweep is enqueued as a Celery
+    task and ``result["relink"]`` carries ``{"queued": True, "task_id": ...}``
+    instead of the inline summary — the async agent-tool path uses this so a
+    large authority set doesn't hold its thread-pool slot for minutes. The
+    management command keeps the inline path (``relink_async=False``).
+
+    The agent tool and the ``bootstrap_authority`` management command both
+    route through here so the workflow exists exactly once.
+    """
+    from opencontractserver.enrichment.services import EnrichmentService
+
+    result = AuthorityCorpusBootstrapper().bootstrap(
+        creator_id=creator_id,
+        corpus_title=corpus_title,
+        sections=sections,
+        corpus_id=corpus_id,
+        aliases=aliases,
+    )
+    if make_public:
+        corpus = Corpus.objects.get(pk=result["corpus_id"])
+        if not corpus.is_public:
+            corpus.is_public = True
+            # save() (not .update()) so the is_public change propagates to
+            # the corpus's documents.
+            corpus.save(update_fields=["is_public", "modified"])
+        result["made_public"] = True
+    if relink:
+        keys = [sec.key for sec in sections]
+        if relink_async:
+            from opencontractserver.tasks.corpus_tasks import (
+                relink_corpora_for_keys_task,
+            )
+
+            async_result = relink_corpora_for_keys_task.delay(keys)
+            result["relink"] = {"queued": True, "task_id": async_result.id}
+        else:
+            result["relink"] = EnrichmentService().relink_corpora_for_keys(keys)
+    return result
+
+
 class AuthorityCorpusBootstrapper:
     """Create or refresh an authority corpus from a section spec."""
 

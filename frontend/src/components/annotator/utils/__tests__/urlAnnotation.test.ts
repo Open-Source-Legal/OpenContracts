@@ -1,8 +1,8 @@
 /**
  * Unit tests for ``urlAnnotation.ts``:
  *
- * - ``isUrlAnnotation`` returns true only when the annotation carries the
- *   ``OC_URL`` label AND a non-empty ``linkUrl``.
+ * - ``isUrlAnnotation`` returns true for ANY annotation with a non-empty
+ *   ``linkUrl`` (user OC_URL links and enrichment reference mentions alike).
  * - ``openAnnotationUrl`` opens http(s) URLs via ``window.open`` with
  *   noopener/noreferrer, navigates site-relative paths in the current tab,
  *   and refuses dangerous schemes (``javascript:``, ``data:``) even when
@@ -14,7 +14,11 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 
-import { OC_URL_LABEL } from "../../../../assets/configurations/constants";
+import {
+  OC_URL_LABEL,
+  OC_REF_LAW_LABEL,
+  OC_REF_DOC_LABEL,
+} from "../../../../assets/configurations/constants";
 import { LabelType } from "../../types/enums";
 import { PermissionTypes } from "../../../types";
 import {
@@ -22,6 +26,7 @@ import {
   ServerTokenAnnotation,
 } from "../../types/annotations";
 import {
+  annotationChipLabel,
   isSafeUrl,
   isUrlAnnotation,
   openAnnotationUrl,
@@ -91,7 +96,7 @@ function makeToken(
 }
 
 describe("isUrlAnnotation", () => {
-  it("returns true when label is OC_URL and linkUrl is non-empty", () => {
+  it("returns true when linkUrl is non-empty (OC_URL label)", () => {
     expect(isUrlAnnotation(makeSpan(ocUrlLabel, "https://example.com"))).toBe(
       true
     );
@@ -100,7 +105,7 @@ describe("isUrlAnnotation", () => {
     );
   });
 
-  it("returns false when label is OC_URL but linkUrl is missing", () => {
+  it("returns false when linkUrl is missing", () => {
     // Common while the author is editing — the annotation is not yet
     // clickable so click handlers must keep selection behaviour.
     expect(isUrlAnnotation(makeSpan(ocUrlLabel, null))).toBe(false);
@@ -109,11 +114,43 @@ describe("isUrlAnnotation", () => {
     expect(isUrlAnnotation(makeSpan(ocUrlLabel, "   "))).toBe(false);
   });
 
-  it("returns false when linkUrl is present but label is not OC_URL", () => {
-    // Defence in depth: the existence of a linkUrl alone does NOT make an
-    // annotation clickable; the label must opt-in.
+  it("returns true for any label with a linkUrl (reference mentions)", () => {
+    // link_url is the contract, not the label: enrichment reference
+    // mentions (OC_REF_LAW / OC_REF_DOC) carry canonical /d/… paths and
+    // must be clickable in both viewers. The URL itself is still gated by
+    // isSafeUrl at open time.
     expect(isUrlAnnotation(makeSpan(otherLabel, "https://example.com"))).toBe(
-      false
+      true
+    );
+    expect(
+      isUrlAnnotation(makeSpan(otherLabel, "/d/owner/dgcl/dgcl-145"))
+    ).toBe(true);
+    expect(isUrlAnnotation(makeSpan(otherLabel, null))).toBe(false);
+  });
+});
+
+describe("annotationChipLabel", () => {
+  const refLawLabel: AnnotationLabelType = {
+    ...otherLabel,
+    id: "label-ref-law",
+    text: OC_REF_LAW_LABEL,
+  };
+  const refDocLabel: AnnotationLabelType = {
+    ...otherLabel,
+    id: "label-ref-doc",
+    text: OC_REF_DOC_LABEL,
+  };
+
+  it("maps reference-mention label codes to friendly names", () => {
+    // The chip should read "Law" / "Exhibit", not the raw OC_REF_* code.
+    expect(annotationChipLabel(makeSpan(refLawLabel, "/d/x"))).toBe("Law");
+    expect(annotationChipLabel(makeSpan(refDocLabel, "/d/x"))).toBe("Exhibit");
+  });
+
+  it("passes other labels through unchanged", () => {
+    expect(annotationChipLabel(makeSpan(otherLabel, null))).toBe("Other");
+    expect(annotationChipLabel(makeSpan(ocUrlLabel, "https://x"))).toBe(
+      OC_URL_LABEL
     );
   });
 });

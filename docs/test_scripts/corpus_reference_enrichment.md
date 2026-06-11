@@ -89,12 +89,42 @@ document/exhibit references (as in-app links), and internal section references.
     `test_enrichment_writer.py::...creates_relationship`).
 - **Idempotent re-run:** `annotations_created == 0`, `references_created == 0`.
 - **Defined terms (opt-in, `types=ALL_REFERENCE_TYPES`):** 599 distinct terms
-  across 925 definition sites — top cross-corpus stubs `term:company` (16 docs),
+  across 925 definition sites — top terms `term:company` (16 docs),
   `term:board`, `term:common-stock`, `term:change-in-control`,
-  `term:class-a-common-stock`, `term:affiliate`. Each is a `DEFINED_TERM`
-  `CorpusReference` with `resolution_status='RESOLVED'` and `canonical_key`
-  `term:<slug>` (usage→definition linking is a future increment — deferred to
-  avoid the volume explosion of high-frequency terms like "Company").
+  `term:class-a-common-stock`, `term:affiliate`. Definition sites are
+  **mention-only**: the `OC_REF_TERM` annotation carries `term:<slug>` in its
+  `data` and no `CorpusReference` row is written (usage→definition linking is
+  a future increment — deferred to avoid the volume explosion of
+  high-frequency terms like "Company").
+
+## Authority backfill (bootstrap → reactive re-link)
+
+Discover what's missing, bootstrap it, and watch citing corpora converge:
+
+```bash
+# 1. The wanted-authorities queue (also: GraphQL `wantedAuthorities`,
+#    agent tool `list_wanted_authorities`)
+docker compose -f local.yml run --rm django python manage.py shell -c "
+from django.contrib.auth import get_user_model
+from opencontractserver.enrichment.services import CorpusReferenceService
+u = get_user_model().objects.get(username='<USER>')
+for w in CorpusReferenceService.wanted_authorities(u):
+    print(w['authority'], w['mention_count'], 'mentions,',
+          w['corpus_count'], 'corpora ->', [k['canonical_key'] for k in w['top_keys']])
+"
+
+# 2. Bootstrap from a JSON spec; --public lets every user's citations resolve,
+#    and the reactive re-link upgrades EXTERNAL refs across citing corpora
+#    (each corpus relinked under its own creator's visibility).
+docker compose -f local.yml run --rm django python manage.py bootstrap_authority \
+  --creator <USER> --title "Delaware General Corporation Law" \
+  --file /path/to/dgcl.json --public
+```
+
+Spec format: `{"aliases": ["Delaware General Corporation Law"], "sections":
+[{"key": "dgcl:145", "heading": "DGCL § 145", "text": "...", "source_url": "..."}]}`.
+Expected output lines: a bootstrap summary (created/updated/skipped/restamped)
+and a re-link summary (corpora upgraded, references linked, links restamped).
 
 ## Cleanup
 Delete the run's rows (the `Analysis` groups them):

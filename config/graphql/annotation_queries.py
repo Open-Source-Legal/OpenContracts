@@ -29,6 +29,7 @@ from config.graphql.graphene_types import (
     PageAwareAnnotationType,
     PdfPageInfoType,
     RelationshipType,
+    WantedAuthorityType,
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.annotations.models import (
@@ -60,6 +61,13 @@ class AnnotationQueryMixin:
         corpus_id=graphene.ID(required=True),
         reference_type=graphene.String(),
         canonical_key=graphene.String(),
+        document_id=graphene.ID(
+            description=(
+                "Restrict to references touching this document on EITHER side "
+                "(source mention's document or resolved target document) — the "
+                "single-fetch shape the document References panel needs."
+            )
+        ),
     )
 
     def resolve_corpus_references(self, info, corpus_id, **kwargs) -> Any:
@@ -69,7 +77,9 @@ class AnnotationQueryMixin:
         no inline Tier-0 permission fusion here.
         """
         from opencontractserver.annotations.models import CorpusReference
+        from opencontractserver.documents.models import Document
         from opencontractserver.enrichment.services import CorpusReferenceService
+        from opencontractserver.shared.services.base import BaseService
 
         pk_str = from_global_id(corpus_id)[1]
         if not str(pk_str).isdigit():
@@ -80,6 +90,27 @@ class AnnotationQueryMixin:
             qs = qs.filter(reference_type=kwargs["reference_type"])
         if kwargs.get("canonical_key"):
             qs = qs.filter(canonical_key=kwargs["canonical_key"])
+        if kwargs.get("document_id"):
+            doc_pk_str = from_global_id(kwargs["document_id"])[1]
+            if not str(doc_pk_str).isdigit():
+                return CorpusReference.objects.none()
+            doc_pk = int(doc_pk_str)
+            # IDOR: validate the document is READ-visible to the caller before
+            # filtering by it. Without this a corpus reader could probe whether
+            # an arbitrary (possibly invisible) document has references in this
+            # corpus. An invisible document yields the same empty result as one
+            # with no references.
+            if (
+                not BaseService.filter_visible(
+                    Document, info.context.user, request=info.context
+                )
+                .filter(id=doc_pk)
+                .exists()
+            ):
+                return CorpusReference.objects.none()
+            qs = qs.filter(
+                Q(source_annotation__document_id=doc_pk) | Q(target_document_id=doc_pk)
+            )
         # Pull the FK targets the type resolves in one pass — without this each
         # CorpusReferenceType row fires a separate query per FK (N+1).
         return qs.select_related(
@@ -199,6 +230,37 @@ class AnnotationQueryMixin:
             edge_count=data["edge_count"],
             mention_count=data["mention_count"],
             truncated=data["truncated"],
+        )
+
+    wanted_authorities = graphene.List(
+        graphene.NonNull(WantedAuthorityType),
+        corpus_id=graphene.ID(
+            required=False,
+            description="Restrict the backlog to one corpus; omit for all visible.",
+        ),
+        required=True,
+        description=(
+            "The missing-authority backlog: EXTERNAL law citations visible to "
+            "the user, aggregated by authority prefix and ranked by mention "
+            "volume — what to bootstrap next to resolve the most references."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_wanted_authorities(self, info, corpus_id=None) -> Any:
+        """Aggregate through ``CorpusReferenceService`` (visibility-scoped);
+        the service returns plain dicts that graphene's default resolver maps
+        onto ``WantedAuthorityType`` fields."""
+        from opencontractserver.enrichment.services import CorpusReferenceService
+
+        pk: int | None = None
+        if corpus_id:
+            pk_str = from_global_id(corpus_id)[1]
+            if not str(pk_str).isdigit():
+                return []
+            pk = int(pk_str)
+        return CorpusReferenceService.wanted_authorities(
+            info.context.user, corpus_id=pk
         )
 
     # ANNOTATION RESOLVERS #####################################
