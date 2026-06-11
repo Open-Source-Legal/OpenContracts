@@ -7,6 +7,7 @@ import {
   ModalBody,
   ModalFooter,
   Button,
+  Checkbox,
   Input,
   Textarea,
   Spinner,
@@ -41,6 +42,9 @@ export type CorpusModalMode = "CREATE" | "EDIT" | "VIEW";
 
 export interface CorpusFormData {
   id?: string;
+  /** Create mode only: run the one-click collection-intelligence setup
+   * (reference web + document descriptions/summaries) after creation. */
+  setupIntelligence?: boolean;
   title?: string;
   slug?: string;
   description?: string;
@@ -362,6 +366,9 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
 
   // Form state
   const [title, setTitle] = useState("");
+  // Create-mode opt-in for the post-create intelligence setup (default on —
+  // the recommended path; the agent runs scale with document count).
+  const [setupIntelligence, setSetupIntelligence] = useState(true);
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
@@ -619,6 +626,7 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
       formData.categories = categories;
       formData.license = license;
       formData.licenseLink = licenseLink;
+      formData.setupIntelligence = setupIntelligence;
     }
 
     onSubmit(formData);
@@ -637,6 +645,7 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
     categories,
     license,
     licenseLink,
+    setupIntelligence,
   ]);
 
   // Get header text based on mode
@@ -840,6 +849,21 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
                 upward
               />
             </CorpusFormField>
+
+            {isCreate && (
+              <CorpusFormField>
+                <Checkbox
+                  id="corpus-setup-intelligence"
+                  data-testid="corpus-setup-intelligence"
+                  checked={setupIntelligence}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setSetupIntelligence(e.target.checked)
+                  }
+                  disabled={loading}
+                  label="Set up collection intelligence — map the reference web and auto-describe/summarize documents as they arrive"
+                />
+              </CorpusFormField>
+            )}
           </FormSection>
         </ModalBody>
 

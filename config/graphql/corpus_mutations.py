@@ -14,6 +14,7 @@ from graphql_jwt.decorators import login_required, user_passes_test
 from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import DRFDeletion, DRFMutation
+from config.graphql.corpus_types import CorpusIntelligenceSetupSummaryType
 from config.graphql.graphene_types import (
     CorpusActionExecutionType,
     CorpusActionType,
@@ -1653,6 +1654,50 @@ class AddTemplateToCorpus(graphene.Mutation):
                 message="Failed to add template. Please try again.",
                 obj=None,
             )
+
+
+class SetupCorpusIntelligence(graphene.Mutation):
+    """One-click collection-intelligence setup.
+
+    Composes the default enrichment bundle in a single idempotent call:
+    installs the reference-enrichment analyzer as an ``add_document`` action
+    and starts the first weave (deterministic), then clones the description +
+    summary action templates and batch-runs each over every document already
+    in the corpus (LLM). Safe to repeat — every step skips work that already
+    exists. Requires UPDATE permission on the corpus.
+    """
+
+    class Arguments:
+        corpus_id = graphene.ID(
+            required=True, description="ID of the corpus to set up."
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    summary = graphene.Field(CorpusIntelligenceSetupSummaryType)
+
+    @login_required
+    def mutate(root, info, corpus_id: str) -> "SetupCorpusIntelligence":
+        from opencontractserver.corpuses.services import (
+            CorpusIntelligenceSetupService,
+        )
+
+        failure_msg = "Corpus not found or you don't have permission."
+        try:
+            corpus_pk = int(from_global_id(corpus_id)[1])
+        except Exception:
+            return SetupCorpusIntelligence(ok=False, message=failure_msg, summary=None)
+
+        result = CorpusIntelligenceSetupService.setup(
+            info.context.user, corpus_pk, request=info.context
+        )
+        if not result.ok:
+            return SetupCorpusIntelligence(ok=False, message=result.error, summary=None)
+        return SetupCorpusIntelligence(
+            ok=True,
+            message="Collection intelligence setup started.",
+            summary=result.value,
+        )
 
 
 class ToggleCorpusMemory(graphene.Mutation):

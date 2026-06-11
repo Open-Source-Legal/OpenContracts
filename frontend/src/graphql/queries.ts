@@ -712,6 +712,35 @@ export interface GetCorpusStatsOutputType {
   corpusStats: CorpusStats;
 }
 
+// Which pieces of the default collection-intelligence bundle (reference-web
+// action + description/summary agent templates) a corpus already has —
+// drives the one-click setup banner's visibility.
+export interface CorpusIntelligenceSetupStatus {
+  referenceActionInstalled: boolean;
+  installedTemplateNames: string[];
+  missingTemplateNames: string[];
+  isFullySetUp: boolean;
+}
+
+export interface GetCorpusIntelligenceSetupStatusInputType {
+  corpusId: string;
+}
+
+export interface GetCorpusIntelligenceSetupStatusOutputType {
+  corpusIntelligenceSetupStatus: CorpusIntelligenceSetupStatus | null;
+}
+
+export const GET_CORPUS_INTELLIGENCE_SETUP_STATUS = gql`
+  query corpusIntelligenceSetupStatus($corpusId: ID!) {
+    corpusIntelligenceSetupStatus(corpusId: $corpusId) {
+      referenceActionInstalled
+      installedTemplateNames
+      missingTemplateNames
+      isFullySetUp
+    }
+  }
+`;
+
 export const GET_CORPUS_STATS = gql`
   query corpusStats($corpusId: ID!) {
     corpusStats(corpusId: $corpusId) {

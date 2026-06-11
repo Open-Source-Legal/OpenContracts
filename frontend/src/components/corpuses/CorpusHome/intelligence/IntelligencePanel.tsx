@@ -15,6 +15,7 @@ import {
   GetCorpusIntelligenceAggregatesInputType,
   GetCorpusIntelligenceAggregatesOutputType,
 } from "../../../../graphql/queries";
+import { IntelligenceSetupBanner } from "./IntelligenceSetupBanner";
 
 /**
  * IntelligencePanel — the insight-framed "at a glance" panel of the Corpus
@@ -244,6 +245,10 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
 
   return (
     <PanelContainer data-testid={testId}>
+      {/* One-click bundle setup — silent once the corpus is fully set up.
+          Mounted here so both the overview and the insight-panel CAML embed
+          surface it. */}
+      <IntelligenceSetupBanner corpusId={corpusId} />
       <StatsRow>
         {statsInitialLoading ? (
           <>

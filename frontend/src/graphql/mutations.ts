@@ -249,6 +249,9 @@ export interface CreateCorpusOutputs {
   createCorpus: {
     ok?: boolean;
     message?: string;
+    /** Global id of the created corpus — lets follow-up mutations (e.g.
+     * setupCorpusIntelligence) chain off the create. */
+    objId?: string | null;
   };
 }
 
@@ -277,6 +280,63 @@ export const CREATE_CORPUS = gql`
     ) {
       ok
       message
+      objId
+    }
+  }
+`;
+
+// ---------------- Collection-intelligence setup ----------------
+// One-click composite: installs the reference-enrichment add_document action
+// and the description/summary agent templates, starts the first reference
+// weave, and batch-runs the agents over every document already present.
+// Idempotent server-side — safe to call repeatedly.
+
+export interface IntelligenceTemplateOutcome {
+  templateName: string;
+  installedNow: boolean;
+  alreadyInstalled: boolean;
+  queuedCount: number;
+  skippedAlreadyRunCount: number;
+  error: string;
+}
+
+export interface SetupCorpusIntelligenceInputs {
+  corpusId: string;
+}
+
+export interface SetupCorpusIntelligenceOutputs {
+  setupCorpusIntelligence: {
+    ok: boolean;
+    message?: string | null;
+    summary?: {
+      referenceAvailable: boolean;
+      referenceActionInstalledNow: boolean;
+      referenceAnalysisStarted: boolean;
+      totalActiveDocuments: number;
+      templates: IntelligenceTemplateOutcome[];
+    } | null;
+  };
+}
+
+export const SETUP_CORPUS_INTELLIGENCE = gql`
+  mutation setupCorpusIntelligence($corpusId: ID!) {
+    setupCorpusIntelligence(corpusId: $corpusId) {
+      ok
+      message
+      summary {
+        referenceAvailable
+        referenceActionInstalledNow
+        referenceAnalysisStarted
+        totalActiveDocuments
+        templates {
+          templateName
+          installedNow
+          alreadyInstalled
+          queuedCount
+          skippedAlreadyRunCount
+          error
+        }
+      }
     }
   }
 `;

@@ -43,12 +43,20 @@ from opencontractserver.corpuses.services.folder_documents import (
     FolderDocumentService,
 )
 from opencontractserver.corpuses.services.folders import FolderCRUDService
+from opencontractserver.corpuses.services.intelligence_setup import (
+    CorpusIntelligenceSetupService,
+    IntelligenceSetupStatus,
+    IntelligenceSetupSummary,
+)
 from opencontractserver.corpuses.services.lifecycle import DocumentLifecycleService
 from opencontractserver.corpuses.services.paths import CorpusPathService
 from opencontractserver.corpuses.services.votes import CorpusVoteService
 
 __all__ = [
     "BatchRunSummary",
+    "CorpusIntelligenceSetupService",
+    "IntelligenceSetupStatus",
+    "IntelligenceSetupSummary",
     "CorpusActionService",
     "CorpusCategoryService",
     "FolderCRUDService",

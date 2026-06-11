@@ -93,6 +93,7 @@ from config.graphql.corpus_mutations import (
     RemoveDocumentsFromCorpus,
     RunCorpusAction,
     SetCorpusVisibility,
+    SetupCorpusIntelligence,
     StartCorpusActionBatchRun,
     StartCorpusFork,
     ToggleCorpusMemory,
@@ -334,6 +335,7 @@ class Mutation(graphene.ObjectType):
     run_corpus_action = RunCorpusAction.Field()
     start_corpus_action_batch_run = StartCorpusActionBatchRun.Field()
     add_template_to_corpus = AddTemplateToCorpus.Field()
+    setup_corpus_intelligence = SetupCorpusIntelligence.Field()
     toggle_corpus_memory = ToggleCorpusMemory.Field()
 
     # CORPUS CATEGORY MUTATIONS (superuser-only) ###############################

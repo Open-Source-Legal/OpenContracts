@@ -956,3 +956,64 @@ class CorpusDescriptionRevisionType(graphene.ObjectType):
         """Document creation timestamp — historical revisions used the
         same field name."""
         return self.created
+
+
+class IntelligenceTemplateOutcomeType(graphene.ObjectType):
+    """Per-template result from the one-click intelligence setup."""
+
+    template_name = graphene.String(required=True)
+    installed_now = graphene.Boolean(
+        required=True, description="Template was cloned into the corpus by this call."
+    )
+    already_installed = graphene.Boolean(
+        required=True, description="The corpus already had this template's action."
+    )
+    queued_count = graphene.Int(
+        required=True, description="Documents queued for an agent run by this call."
+    )
+    skipped_already_run_count = graphene.Int(
+        required=True, description="Documents skipped because they already ran."
+    )
+    error = graphene.String(
+        required=True,
+        description="Per-template failure (empty string when the step succeeded).",
+    )
+
+
+class CorpusIntelligenceSetupSummaryType(graphene.ObjectType):
+    """Result envelope for ``setupCorpusIntelligence``.
+
+    Mirrors ``IntelligenceSetupSummary`` from
+    ``opencontractserver.corpuses.services.intelligence_setup`` — graphene's
+    default resolver reads the dataclass attributes directly.
+    """
+
+    reference_available = graphene.Boolean(
+        required=True,
+        description="The reference-enrichment analyzer is registered on this deployment.",
+    )
+    reference_action_installed_now = graphene.Boolean(required=True)
+    reference_action_already_installed = graphene.Boolean(required=True)
+    reference_analysis_started = graphene.Boolean(
+        required=True, description="An immediate reference-web weave was started."
+    )
+    total_active_documents = graphene.Int(required=True)
+    templates = graphene.List(
+        graphene.NonNull(IntelligenceTemplateOutcomeType), required=True
+    )
+
+
+class CorpusIntelligenceSetupStatusType(graphene.ObjectType):
+    """Which intelligence-bundle pieces a corpus already has installed."""
+
+    reference_action_installed = graphene.Boolean(required=True)
+    installed_template_names = graphene.List(
+        graphene.NonNull(graphene.String), required=True
+    )
+    missing_template_names = graphene.List(
+        graphene.NonNull(graphene.String), required=True
+    )
+    is_fully_set_up = graphene.Boolean(
+        required=True,
+        description="Reference action installed and no bundle template missing.",
+    )
