@@ -59,11 +59,14 @@ def _readme_body(user: User, corpus: Corpus) -> str:
 
 
 class IntelligenceBlockHelperTests(TestCase):
-    def test_block_contains_all_three_markers(self):
+    def test_block_contains_all_registered_markers(self):
         for marker in CAML_INTELLIGENCE_MARKERS:
             self.assertIn(marker, CAML_INTELLIGENCE_BLOCK)
-        # The three the task contract names, explicitly.
+        # The four the contract names, explicitly. governance-graph is what
+        # surfaces the reference web (and its "Map the reference web" CTA) on
+        # default-article corpora — see PR #1977.
         self.assertIn("[component:insight-panel]", CAML_INTELLIGENCE_BLOCK)
+        self.assertIn("[component:governance-graph]", CAML_INTELLIGENCE_BLOCK)
         self.assertIn("[component:document-graph]", CAML_INTELLIGENCE_BLOCK)
         self.assertIn("[component:ask-across-docs]", CAML_INTELLIGENCE_BLOCK)
 

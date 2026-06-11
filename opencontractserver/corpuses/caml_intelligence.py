@@ -5,11 +5,13 @@ overview by default — the design goal is an *extremely structural default with
 narrative override*: the article ships with the overview embedded, and an author
 may edit the prose around it without ever losing the overview.
 
-The overview is rendered by three CAML component embeds registered in the
+The overview is rendered by four CAML component embeds registered in the
 frontend (``frontend/src/utils/camlComponentRegistry.ts``): ``insight-panel``,
-``document-graph``, and ``ask-across-docs``. Each embed fetches its data live at
-view time, so the block below is *fixed text* — it never goes stale and never
-needs regeneration when corpus data changes.
+``governance-graph``, ``document-graph``, and ``ask-across-docs``. Each embed
+fetches its data live at view time, so the block below is *fixed text* — it
+never goes stale and never needs regeneration when corpus data changes. The
+governance-graph embed doubles as the reference web's entry point: on an
+unmapped corpus it renders the "Map the reference web" bootstrap CTA.
 
 This module is pure string transforms (no ORM access) so it can be called safely
 from services, signal handlers, management commands, data migrations, and tests
@@ -21,13 +23,14 @@ from __future__ import annotations
 
 import re
 
-# The three component markers the frontend registry recognises. Used both to
+# The component markers the frontend registry recognises. Used both to
 # build the block and to detect (in ``ensure_intelligence_block``) whether an
 # existing CAML source already embeds the overview. Kept as a tuple so the
 # membership test below stays a single source of truth — adding/removing a
 # marker here updates detection automatically.
 CAML_INTELLIGENCE_MARKERS: tuple[str, ...] = (
     "[component:insight-panel]",
+    "[component:governance-graph]",
     "[component:document-graph]",
     "[component:ask-across-docs]",
 )
@@ -42,6 +45,12 @@ CAML_INTELLIGENCE_BLOCK = """\
 
 ::: oc-component
 [component:insight-panel]
+:::
+
+## How this collection is wired to the law
+
+::: oc-component
+[component:governance-graph]
 :::
 
 ## How these documents interconnect
