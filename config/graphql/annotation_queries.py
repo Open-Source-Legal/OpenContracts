@@ -77,7 +77,9 @@ class AnnotationQueryMixin:
         no inline Tier-0 permission fusion here.
         """
         from opencontractserver.annotations.models import CorpusReference
+        from opencontractserver.documents.models import Document
         from opencontractserver.enrichment.services import CorpusReferenceService
+        from opencontractserver.shared.services.base import BaseService
 
         pk_str = from_global_id(corpus_id)[1]
         if not str(pk_str).isdigit():
@@ -93,6 +95,19 @@ class AnnotationQueryMixin:
             if not str(doc_pk_str).isdigit():
                 return CorpusReference.objects.none()
             doc_pk = int(doc_pk_str)
+            # IDOR: validate the document is READ-visible to the caller before
+            # filtering by it. Without this a corpus reader could probe whether
+            # an arbitrary (possibly invisible) document has references in this
+            # corpus. An invisible document yields the same empty result as one
+            # with no references.
+            if (
+                not BaseService.filter_visible(
+                    Document, info.context.user, request=info.context
+                )
+                .filter(id=doc_pk)
+                .exists()
+            ):
+                return CorpusReference.objects.none()
             qs = qs.filter(
                 Q(source_annotation__document_id=doc_pk) | Q(target_document_id=doc_pk)
             )

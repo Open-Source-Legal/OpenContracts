@@ -9,7 +9,7 @@
  */
 import { test, expect } from "./utils/coverage";
 import { MockedProvider } from "@apollo/client/testing";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { DocumentReferencesPanel } from "../src/components/knowledge_base/document/DocumentReferencesPanel";
 import { docScreenshot } from "./utils/docScreenshot";
 import { GET_CORPUS_REFERENCES_FOR_DOCUMENT } from "../src/graphql/queries";
@@ -142,6 +142,49 @@ test.describe("DocumentReferencesPanel", () => {
     await expect(panel).toContainText("Amendment No. 1");
 
     await docScreenshot(page, "annotations--references-panel--with-data");
+
+    await component.unmount();
+  });
+
+  test("clicking an outbound citation navigates to its link target", async ({
+    mount,
+    page,
+  }) => {
+    // The DGCL row carries a site-relative linkUrl; openSafeUrl must route it
+    // through the SPA router (not a hard load). A matching <Route> renders a
+    // marker once navigation lands.
+    const component = await mount(
+      <MemoryRouter initialEntries={["/"]}>
+        <MockedProvider
+          mocks={[makeMock(REFERENCE_ROWS), makeMock(REFERENCE_ROWS)]}
+          addTypename={false}
+        >
+          <Routes>
+            <Route
+              path="/d/owner/dgcl/dgcl-145"
+              element={<div data-testid="nav-arrived">arrived</div>}
+            />
+            <Route
+              path="*"
+              element={
+                <DocumentReferencesPanel
+                  documentId={DOC_ID}
+                  corpusId={CORPUS_ID}
+                />
+              }
+            />
+          </Routes>
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const dgclRow = page
+      .locator('[data-testid="references-panel-outbound-row"]')
+      .filter({ hasText: "DGCL § 145" });
+    await expect(dgclRow).toBeVisible({ timeout: 10000 });
+    await dgclRow.click();
+
+    await expect(page.locator('[data-testid="nav-arrived"]')).toBeVisible();
 
     await component.unmount();
   });
