@@ -1677,6 +1677,7 @@ class SetupCorpusIntelligence(graphene.Mutation):
     summary = graphene.Field(CorpusIntelligenceSetupSummaryType)
 
     @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_HEAVY)
     def mutate(root, info, corpus_id: str) -> "SetupCorpusIntelligence":
         from opencontractserver.corpuses.services import (
             CorpusIntelligenceSetupService,

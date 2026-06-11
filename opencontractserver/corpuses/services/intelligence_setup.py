@@ -125,6 +125,9 @@ class CorpusIntelligenceSetupService(BaseService):
     ) -> ServiceResult[IntelligenceSetupSummary]:
         """Install the bundle and kick off enrichment over existing documents."""
         from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
 
         corpus = cls.get_or_none(Corpus, corpus_pk, user)
         if corpus is None:
@@ -144,7 +147,13 @@ class CorpusIntelligenceSetupService(BaseService):
             reference_action_already_installed=False,
             reference_analysis_started=False,
             reference_available=False,
-            total_active_documents=corpus._get_active_documents().count(),
+            # Corpus-as-gate count through the service (the setup user holds
+            # UPDATE, hence READ) rather than reaching into the private
+            # Corpus._get_active_documents — same active-document set,
+            # include_caml=False on both surfaces.
+            total_active_documents=CorpusDocumentService.get_corpus_documents(
+                user, corpus, request=request
+            ).count(),
         )
 
         cls._setup_reference_enrichment(user, corpus, summary, request=request)
@@ -234,7 +243,11 @@ class CorpusIntelligenceSetupService(BaseService):
 
         # First weave now (not just on the next upload) — unless one is
         # already in flight, in which case starting another would only
-        # duplicate work the running analysis will do anyway.
+        # duplicate work the running analysis will do anyway. The check and the
+        # start below are intentionally non-atomic: a concurrent request could
+        # slip between them and start a second analysis, but that is recoverable
+        # (the enrichment writer is idempotent — just wasted work), so a lock is
+        # not warranted here.
         in_flight = Analysis.objects.filter(
             analyzer=analyzer,
             analyzed_corpus=corpus,
