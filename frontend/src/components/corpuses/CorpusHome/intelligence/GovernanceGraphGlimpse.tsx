@@ -526,15 +526,22 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
     if (!hoveredId) return 1;
     return e.source === hoveredId || e.target === hoveredId ? 1.6 : 0.25;
   };
+  // Neighbours of the hovered node, computed once per hover (O(edges)). Without
+  // this, nodeEmphasis below would re-scan every edge for every node on each
+  // render — O(nodes × edges), ~160k iterations at the 200-node / ~800-edge cap.
+  const hoveredNeighborIds = useMemo(() => {
+    if (!hoveredId) return null;
+    const ids = new Set<string>();
+    for (const e of edges) {
+      if (e.source === hoveredId) ids.add(e.target);
+      else if (e.target === hoveredId) ids.add(e.source);
+    }
+    return ids;
+  }, [hoveredId, edges]);
   const nodeEmphasis = (n: SimNode): number => {
     if (!hoveredId) return 1;
     if (n.id === hoveredId) return 1;
-    const incident = edges.some(
-      (e) =>
-        (e.source === hoveredId && e.target === n.id) ||
-        (e.target === hoveredId && e.source === n.id)
-    );
-    return incident ? 1 : 0.35;
+    return hoveredNeighborIds?.has(n.id) ? 1 : 0.35;
   };
 
   // Static labels — gated against the SHELF-LOCAL degree scale (a dominant

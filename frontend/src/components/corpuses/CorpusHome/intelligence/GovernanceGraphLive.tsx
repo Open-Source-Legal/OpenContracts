@@ -8,6 +8,7 @@ import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles
 import {
   ENRICHMENT_ANALYZER_TASK_NAME,
   GOVERNANCE_GRAPH_WEAVING_POLL_MS,
+  GOVERNANCE_GRAPH_WEAVING_MAX_MS,
 } from "../../../../assets/configurations/constants";
 import {
   GET_GOVERNANCE_GRAPH,
@@ -142,6 +143,24 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
   useEffect(() => {
     return () => stopPolling();
   }, [stopPolling]);
+
+  // Give up weaving after a max duration: a corpus with genuinely no law
+  // references never yields nodes, so the poll above would spin forever.
+  // Reverting to the empty CTA lets the user re-run if documents were still
+  // processing. (When nodes DO arrive, the first effect clears `weaving`,
+  // whose change tears this timer down.)
+  useEffect(() => {
+    if (!weaving) return;
+    const timer = setTimeout(() => {
+      stopPolling();
+      setWeaving(false);
+      toast.info(
+        "No reference web yet — mapping finished without finding links. " +
+          "Re-run if documents were still processing."
+      );
+    }, GOVERNANCE_GRAPH_WEAVING_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [weaving, stopPolling]);
 
   const [fetchAnalyzers] = useLazyQuery<GetAnalyzersForEnrichmentOutputType>(
     GET_ANALYZERS_FOR_ENRICHMENT,

@@ -1056,6 +1056,8 @@ export const GOVERNANCE_GRAPH_COLORS = {
     irc: "#b45309",
   } as Record<string, string>,
   LAW_DEFAULT: "#d97706",
+  /** Defined-term references (the violet from CLUSTER_HUES). */
+  DEFINED_TERM: "#8b5cf6",
   /** Dashed ghost nodes + edges for citations without an in-system target. */
   EXTERNAL: "#94a3b8",
   /** Letter-spaced micro-caption ink for THE FILINGS / THE LAW layers. */
@@ -1117,6 +1119,11 @@ export const ENRICHMENT_ANALYZER_TASK_NAME =
 
 /** Poll cadence (ms) while the reference web is being woven after the CTA. */
 export const GOVERNANCE_GRAPH_WEAVING_POLL_MS = 4000;
+
+/** Stop polling for the woven web after this long even if no nodes appear — a
+ * corpus with genuinely no law references never produces nodes, so the poll
+ * would otherwise spin forever. */
+export const GOVERNANCE_GRAPH_WEAVING_MAX_MS = 90000;
 
 /** Max authority rows shown in the wanted-authorities backlog card; the
  * server already ranks by mention volume, so the cut keeps the top demand. */
