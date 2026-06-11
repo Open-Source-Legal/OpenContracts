@@ -1990,31 +1990,21 @@ class CorpusReference(BaseOCModel):
         (for indexing/filtering) — refuse to persist a row where the two
         disagree so the duplicated fact can never drift.
 
-        Uses the in-memory relation chain when the caller (the enrichment
-        writer) already holds it; otherwise costs one indexed lookup.
-        Skips when the mention has no label — agreement is then undefined.
+        Costs one indexed lookup of the mention's label text. Skips when the
+        mention has no label — agreement is then undefined.
         """
         expected = enrichment_constants.LABEL_FOR_TYPE.get(self.reference_type)
         if expected is None or not self.source_annotation_id:
             return
-        # Fast path: read the already-loaded relation chain when the caller (the
-        # enrichment writer, which select_relates annotation_label) holds it,
-        # avoiding one query per reference across a bulk enrichment. This
-        # deliberately reads ``_state.fields_cache`` — a Django internal whose
-        # public wrappers (``is_cached`` / ``get_cached_value``) aren't typed by
-        # django-stubs. The cold path below is the safety net if the layout ever
-        # changes (KeyError/AttributeError would surface in tests), so this is a
-        # contained, test-covered optimisation rather than a hard dependency.
-        mention = self._state.fields_cache.get("source_annotation")
-        if mention is not None and "annotation_label" in mention._state.fields_cache:
-            label = mention._state.fields_cache["annotation_label"]
-            label_text = label.text if label is not None else None
-        else:
-            label_text = (
-                Annotation.objects.filter(pk=self.source_annotation_id)
-                .values_list("annotation_label__text", flat=True)
-                .first()
-            )
+        # One indexed lookup of the mention's label. We do NOT inspect the
+        # in-memory relation cache (a Django internal) to skip it — the
+        # enrichment writer select_relates ``annotation_label`` at the queryset
+        # level to keep this lookup cheap, and a single-row save can absorb it.
+        label_text = (
+            Annotation.objects.filter(pk=self.source_annotation_id)
+            .values_list("annotation_label__text", flat=True)
+            .first()
+        )
         if label_text is not None and label_text != expected:
             raise ValidationError(
                 f"CorpusReference.reference_type={self.reference_type!r} requires "

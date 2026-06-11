@@ -38,7 +38,7 @@ const REFERENCE_TYPE_META: Record<string, { label: string; color: string }> = {
   LAW: { label: "Law", color: GOVERNANCE_GRAPH_COLORS.LAW_DEFAULT },
   DOCUMENT: { label: "Exhibit", color: OS_LEGAL_COLORS.primaryBlue },
   SECTION: { label: "Section", color: OS_LEGAL_COLORS.textSecondary },
-  DEFINED_TERM: { label: "Term", color: "#8b5cf6" },
+  DEFINED_TERM: { label: "Term", color: GOVERNANCE_GRAPH_COLORS.DEFINED_TERM },
 };
 
 const TYPE_ORDER = ["LAW", "DOCUMENT", "SECTION", "DEFINED_TERM"];

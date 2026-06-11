@@ -70,6 +70,7 @@ export function useReferenceMentions(
     mergedForRef.current = mergeKey;
 
     let cancelled = false;
+    let succeeded = false;
     (async () => {
       try {
         const { data } = await discoverAnalyses({ variables: { corpusId } });
@@ -102,6 +103,7 @@ export function useReferenceMentions(
           }
         }
         if (fresh.length > 0) addMultipleAnnotations(fresh);
+        succeeded = true;
       } catch (err) {
         // Transient failure (network / Apollo). Release the gate so the merge
         // can be retried rather than silently stuck.
@@ -115,6 +117,11 @@ export function useReferenceMentions(
 
     return () => {
       cancelled = true;
+      // Release the gate if we tear down before the merge completed — covers a
+      // fetch that hangs without resolving or throwing (the catch above never
+      // fires), which would otherwise leave the gate committed and block any
+      // retry while the component stays mounted.
+      if (!succeeded) mergedForRef.current = "";
     };
   }, [
     ready,
