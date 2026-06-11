@@ -111,7 +111,11 @@ class ReferenceResolver:
         if heading:
             idx = doc_text.lower().find(heading.lower(), cand.end)
             if idx == -1:
-                idx = doc_text.lower().find(heading.lower())
+                # Backward reference (e.g. "as defined in 'Heading' above"):
+                # match the nearest *preceding* occurrence, not the first in
+                # the document — a duplicate heading in an earlier exhibit
+                # would otherwise mis-resolve to an unrelated section.
+                idx = doc_text.lower().rfind(heading.lower(), 0, cand.start)
             if idx != -1:
                 res.target_offset = idx
                 res.resolution_status = C.STATUS_RESOLVED

@@ -77,6 +77,9 @@ GRAPH_CORPUS_AUTHORITY = "authority"
 # Defaults / thresholds.
 DEFAULT_SAMPLE_N = 10
 MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1
+# Punctuation stripped from the tail of a captured defined term
+# (e.g. (the "Notes," ...) -> "Notes").
+TRAILING_PUNCT = ",.;:"
 ALL_REFERENCE_TYPES = (REF_LAW, REF_DOCUMENT, REF_SECTION, REF_DEFINED_TERM)
 # Defined-terms are opt-in (precision risk); not scanned/applied by default.
 DEFAULT_REFERENCE_TYPES = (REF_LAW, REF_DOCUMENT, REF_SECTION)

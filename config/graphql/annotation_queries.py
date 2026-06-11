@@ -80,7 +80,15 @@ class AnnotationQueryMixin:
             qs = qs.filter(reference_type=kwargs["reference_type"])
         if kwargs.get("canonical_key"):
             qs = qs.filter(canonical_key=kwargs["canonical_key"])
-        return qs
+        # Pull the FK targets the type resolves in one pass — without this each
+        # CorpusReferenceType row fires a separate query per FK (N+1).
+        return qs.select_related(
+            "source_annotation",
+            "corpus",
+            "target_document",
+            "target_annotation",
+            "target_corpus",
+        )
 
     governance_graph = graphene.Field(
         GovernanceGraphType,
