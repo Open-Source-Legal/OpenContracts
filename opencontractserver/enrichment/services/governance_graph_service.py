@@ -134,10 +134,17 @@ class GovernanceGraphService:
         node_doc_ids = {val for kind, val in degree if kind == "doc"}
         ghost_keys = {val for kind, val in degree if kind == "key"}
 
+        # These node objects are read only for ``title``/``custom_meta``, so
+        # drop the visibility manager's default JOINs/prefetches before
+        # narrowing with ``.only()``. ``select_related(None)`` is required:
+        # the manager select_relates ``parent`` (among others), and Django
+        # forbids a field being both select_related and deferred by ``.only()``.
         docs = {
             d.id: d
             for d in BaseService.filter_visible(Document, user, request=request)
             .filter(id__in=node_doc_ids)
+            .select_related(None)
+            .prefetch_related(None)
             .only("id", "title", "custom_meta")
         }
 
