@@ -11,6 +11,8 @@ import { test, expect } from "./utils/coverage";
 import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { GovernanceGraphLive } from "../src/components/corpuses/CorpusHome/intelligence/GovernanceGraphLive";
+import { GovernanceGraphEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/GovernanceGraphEmbed";
+import { CamlEmbedProvider } from "../src/components/corpuses/caml/CamlEmbedContext";
 import { docScreenshot } from "./utils/docScreenshot";
 import {
   GET_GOVERNANCE_GRAPH,
@@ -272,6 +274,67 @@ test.describe("GovernanceGraphLive", () => {
     await expect(
       page.locator('[data-testid="governance-graph-live-svg"]')
     ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+});
+
+// The CAML embed is a thin wrapper: it resolves the corpus id from
+// CamlEmbedContext (marker prop overriding ambient) and delegates rendering to
+// GovernanceGraphLive. These tests pin the context->corpusId->Live wiring and
+// the no-corpus null guard.
+test.describe("GovernanceGraphEmbed", () => {
+  test("renders the live graph from the ambient CAML corpus id", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            makeGraphMock(GRAPH),
+            makeGraphMock(GRAPH),
+            emptyWantedMock,
+            emptyWantedMock,
+          ]}
+          addTypename={false}
+        >
+          <CamlEmbedProvider value={{ corpusId: CORPUS_ID }}>
+            <GovernanceGraphEmbed />
+          </CamlEmbedProvider>
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    await expect(
+      page.locator('[data-testid="governance-graph-live-svg"]')
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('[data-testid="governance-graph-live-node"]')
+    ).toHaveCount(6);
+
+    await docScreenshot(page, "caml--governance-graph-embed--with-data");
+
+    await component.unmount();
+  });
+
+  test("renders nothing without an ambient corpus id", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider mocks={[]} addTypename={false}>
+          <CamlEmbedProvider value={{}}>
+            <GovernanceGraphEmbed />
+          </CamlEmbedProvider>
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    await expect(
+      page.locator('[data-testid="governance-graph-live-svg"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });
