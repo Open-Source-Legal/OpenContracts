@@ -136,7 +136,9 @@ class GovernanceGraphService:
 
         # values_list, not .only(): Document's default manager bakes in
         # select_related("parent", ...), and Django forbids deferring a field
-        # that select_related traverses.
+        # that select_related traverses. Plain tuples also skip model
+        # instantiation and the manager's guardian-permission prefetches —
+        # these nodes are read only for title/custom_meta.
         docs = {
             pk: {"title": title, "custom_meta": meta}
             for pk, title, meta in BaseService.filter_visible(

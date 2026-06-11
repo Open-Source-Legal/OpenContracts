@@ -96,7 +96,15 @@ class AnnotationQueryMixin:
             qs = qs.filter(
                 Q(source_annotation__document_id=doc_pk) | Q(target_document_id=doc_pk)
             )
-        return qs
+        # Pull the FK targets the type resolves in one pass — without this each
+        # CorpusReferenceType row fires a separate query per FK (N+1).
+        return qs.select_related(
+            "source_annotation",
+            "corpus",
+            "target_document",
+            "target_annotation",
+            "target_corpus",
+        )
 
     governance_graph = graphene.Field(
         GovernanceGraphType,
