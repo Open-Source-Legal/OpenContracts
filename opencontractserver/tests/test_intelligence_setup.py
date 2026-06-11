@@ -181,7 +181,8 @@ class IntelligenceSetupServiceTestCase(TestCase):
         assert before_status is not None
         self.assertFalse(before_status.reference_action_installed)
         self.assertEqual(
-            before_status.missing_template_names, INTELLIGENCE_SETUP_TEMPLATE_NAMES
+            before_status.missing_template_names,
+            list(INTELLIGENCE_SETUP_TEMPLATE_NAMES),
         )
         self.assertFalse(before_status.is_fully_set_up)
 

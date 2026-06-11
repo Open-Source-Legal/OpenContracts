@@ -19,10 +19,10 @@ avoid circular dependencies. Alignment with the enum is verified in
 # ``test_intelligence_setup.py``. Deliberately the lean default — heavier
 # templates (key terms, notes) stay opt-in via the Action Library.
 
-INTELLIGENCE_SETUP_TEMPLATE_NAMES: list[str] = [
+INTELLIGENCE_SETUP_TEMPLATE_NAMES: tuple[str, ...] = (
     "Document Description Updater",
     "Document Summary Generator",
-]
+)
 
 # Display name for the auto-installed reference-enrichment analyzer action.
 # The governance graph's "Map the reference web" CTA creates the same action

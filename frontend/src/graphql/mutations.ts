@@ -311,6 +311,7 @@ export interface SetupCorpusIntelligenceOutputs {
     summary?: {
       referenceAvailable: boolean;
       referenceActionInstalledNow: boolean;
+      referenceActionAlreadyInstalled: boolean;
       referenceAnalysisStarted: boolean;
       totalActiveDocuments: number;
       templates: IntelligenceTemplateOutcome[];
@@ -326,6 +327,7 @@ export const SETUP_CORPUS_INTELLIGENCE = gql`
       summary {
         referenceAvailable
         referenceActionInstalledNow
+        referenceActionAlreadyInstalled
         referenceAnalysisStarted
         totalActiveDocuments
         templates {

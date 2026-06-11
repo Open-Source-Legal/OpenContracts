@@ -138,21 +138,30 @@ export const IntelligenceSetupBanner: React.FC<
         );
         return;
       }
-      const queued = (payload.summary?.templates ?? []).reduce(
-        (sum, t) => sum + t.queuedCount,
-        0
-      );
-      toast.success(
-        queued > 0
-          ? `Setting up — ${queued} document enrichment ${
-              queued === 1 ? "run" : "runs"
-            } queued${
-              payload.summary?.referenceAnalysisStarted
-                ? ", reference web weaving"
-                : ""
-            }.`
-          : "Collection intelligence is set up."
-      );
+      const templates = payload.summary?.templates ?? [];
+      const queued = templates.reduce((sum, t) => sum + t.queuedCount, 0);
+      const hadTemplateError = templates.some((t) => t.error);
+      if (queued > 0) {
+        toast.success(
+          `Setting up — ${queued} document enrichment ${
+            queued === 1 ? "run" : "runs"
+          } queued${
+            payload.summary?.referenceAnalysisStarted
+              ? ", reference web weaving"
+              : ""
+          }.`
+        );
+      } else if (hadTemplateError) {
+        // ok=True but nothing queued and a template carried an error — e.g. the
+        // batch-run hit BATCH_RUN_MAX_DOCS. Don't claim it's fully set up.
+        toast.warning(
+          "Collection intelligence installed, but some document runs " +
+            "couldn't be queued (e.g. a per-run document cap). Re-run or " +
+            "check the panels."
+        );
+      } else {
+        toast.success("Collection intelligence is set up.");
+      }
       // Status flips to fully-set-up as soon as the actions exist, which
       // hides the banner — the per-surface panels (summary coverage,
       // governance graph) show the enrichment landing as it completes.
