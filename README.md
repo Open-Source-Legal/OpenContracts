@@ -61,6 +61,12 @@ agent whose answers come back grounded and cited.
 Everything in both clips is the stock product against a local install — no custom code,
 and every surface the UI touches is also reachable over the API and MCP server below.
 
+Here's the artifact those clips produce, frozen so you can read it — every filing wired to
+the exact section of law it cites, with bodies of law the library doesn't hold yet drawn as
+dashed nodes, tracked until you ingest them:
+
+![The governance graph — filings linked to the statute sections they cite, down to the section, with un-ingested law tracked as dashed nodes](docs/assets/images/screenshots/auto/corpus--governance-graph--with-data.png)
+
 ---
 
 ## Build on it
