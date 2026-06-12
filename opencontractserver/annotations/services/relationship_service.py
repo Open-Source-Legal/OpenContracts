@@ -301,8 +301,9 @@ class RelationshipService(BaseService):
 
         Corpus READ is the gate (via ``CorpusDocumentService.get_corpus_documents``
         — **corpus-as-gate semantics, issue #1682**: deliberate, because the
-        sole caller is the MCP corpus tool surface, the documented default
-        for pipeline-facing callers operating over a whole readable corpus.
+        sole caller is the MCP corpus tool surface
+        (``opencontractserver/mcp/tools.py``), the documented default for
+        pipeline-facing callers operating over a whole readable corpus.
         A future user-facing GraphQL caller MUST switch this to
         ``get_corpus_documents_visible_to_user``); returns
         ``Relationship.objects.none()`` if the corpus is not visible.

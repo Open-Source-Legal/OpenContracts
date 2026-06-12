@@ -616,9 +616,13 @@ class AnnotationService(BaseService):
         ``user`` engages the ``created_by_*`` privacy gate (2026-06 audit):
         without it, label names and counts of analysis-/extract-private
         annotations leaked into the aggregate for viewers who could not see
-        the rows themselves. Pass the requesting user from every
-        user-facing caller; ``None`` is treated as anonymous (public
-        analyses only, no extracts).
+        the rows themselves. ``user=None`` is treated as ANONYMOUS — the
+        MOST restrictive shape (public analyses only, no extracts) — so an
+        omitted argument under-counts for authenticated viewers rather than
+        leaking; every user-facing caller MUST pass the requesting user.
+        (Current callers: the ``corpusIntelligenceAggregates`` resolver in
+        ``config/graphql/corpus_queries.py`` and the privacy regression
+        tests — both pass ``user``.)
 
         ``distinct=True`` on the count is required: structural annotations are
         joined via the ``structural_set__documents`` reverse FK, which fans a

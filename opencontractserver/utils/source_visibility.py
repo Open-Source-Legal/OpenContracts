@@ -117,8 +117,6 @@ def visible_extracts_for(user: Any) -> QuerySet:
     if user is None or getattr(user, "is_anonymous", True):
         return Extract.objects.none()
 
-    visible = Extract.objects.filter(Q(creator=user) | Q(is_public=True))
-
     user_grant_ids = ExtractUserObjectPermission.objects.filter(
         user=user, permission__codename="read_extract"
     ).values_list("content_object_id", flat=True)
@@ -127,8 +125,11 @@ def visible_extracts_for(user: Any) -> QuerySet:
         permission__codename="read_extract",
     ).values_list("content_object_id", flat=True)
 
-    return (
-        visible
-        | Extract.objects.filter(id__in=user_grant_ids)
-        | Extract.objects.filter(id__in=group_grant_ids)
+    # Same single-filter shape as ``visible_analyses_for`` — one WHERE
+    # clause with two uncorrelated id-subqueries.
+    return Extract.objects.filter(
+        Q(is_public=True)
+        | Q(creator=user)
+        | Q(id__in=user_grant_ids)
+        | Q(id__in=group_grant_ids)
     )
