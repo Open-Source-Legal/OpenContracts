@@ -286,6 +286,28 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         # A reader with doc+corpus grants is similarly denied.
         self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
 
+    def test_created_by_extract_orphan_source_denies_access(self) -> None:
+        """Extract-side twin of the orphaned-source race guard above:
+        ``_source_privacy_recursion_passes`` fails closed when
+        ``created_by_extract_id`` is non-null but the dereference yields
+        ``None`` (the in-memory state during the read-vs-SET_NULL race
+        window). Same descriptor-cache simulation as the analysis-side
+        test — the DB's FK constraint prevents persisting a true orphan.
+        """
+        from django.db.models.fields.related_descriptors import (
+            ForwardManyToOneDescriptor,
+        )
+
+        ann = self.via_extract
+        descriptor = type(ann).__dict__["created_by_extract"]
+        assert isinstance(descriptor, ForwardManyToOneDescriptor)
+        ann._state.fields_cache[descriptor.field.name] = None
+        self.assertIsNotNone(ann.created_by_extract_id)
+        self.assertIsNone(ann.created_by_extract)
+
+        self.assertFalse(ann.user_can(self.creator, PermissionTypes.READ))
+        self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
+
     def test_str_and_int_user_id_inputs_on_annotation(self) -> None:
         """int and str user ids resolve identically to the User instance."""
         self.assertTrue(self.plain.user_can(self.creator.id, PermissionTypes.READ))
