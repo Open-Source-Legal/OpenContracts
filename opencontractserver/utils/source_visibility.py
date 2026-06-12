@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 
-def apply_source_privacy_gate(qs: "QuerySet", user: Any) -> "QuerySet":
+def apply_source_privacy_gate(qs: QuerySet, user: Any) -> QuerySet:
     """Exclude non-structural rows whose ``created_by_*`` source ``user``
     cannot see.
 
