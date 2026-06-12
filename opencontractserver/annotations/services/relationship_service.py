@@ -251,8 +251,26 @@ class RelationshipService(BaseService):
         if not can_read:
             return {"total": 0, "by_type": {}}
 
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
+        )
+
+        # Privacy gate (2026-06 audit): without it, the counts and label
+        # names of analysis-/extract-private relationships leaked into the
+        # aggregate for viewers who could not see the rows themselves.
         summary = (
             Relationship.objects.filter(document_id=document_id, corpus_id=corpus_id)
+            .exclude(
+                Q(created_by_analysis__isnull=False)
+                & Q(structural=False)
+                & ~Q(created_by_analysis__in=visible_analyses_for(user))
+            )
+            .exclude(
+                Q(created_by_extract__isnull=False)
+                & Q(structural=False)
+                & ~Q(created_by_extract__in=visible_extracts_for(user))
+            )
             .values("relationship_label__text")
             .annotate(count=Count("id"))
         )
@@ -281,8 +299,13 @@ class RelationshipService(BaseService):
         corpus-FK relationships, relationships on visible corpus documents, and
         structural relationships linked via those documents' structural sets.
 
-        Corpus READ is the gate (via ``CorpusDocumentService.get_corpus_documents``);
-        returns ``Relationship.objects.none()`` if the corpus is not visible.
+        Corpus READ is the gate (via ``CorpusDocumentService.get_corpus_documents``
+        — **corpus-as-gate semantics, issue #1682**: deliberate, because the
+        sole caller is the MCP corpus tool surface, the documented default
+        for pipeline-facing callers operating over a whole readable corpus.
+        A future user-facing GraphQL caller MUST switch this to
+        ``get_corpus_documents_visible_to_user``); returns
+        ``Relationship.objects.none()`` if the corpus is not visible.
         """
         from opencontractserver.annotations.models import (
             Relationship,
@@ -290,6 +313,10 @@ class RelationshipService(BaseService):
         )
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.corpuses.services import CorpusDocumentService
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
+        )
 
         try:
             corpus = Corpus.objects.visible_to_user(user).get(id=corpus_id)
@@ -308,6 +335,18 @@ class RelationshipService(BaseService):
             Q(corpus_id=corpus_id)
             | Q(document_id__in=doc_ids)
             | Q(structural=True, structural_set_id__in=set_ids)
+        )
+        # Privacy gate (2026-06 audit): MCP runs with a user context, so
+        # analysis-/extract-private relationships must not surface here any
+        # more than in the document-view listing.
+        qs = qs.exclude(
+            Q(created_by_analysis__isnull=False)
+            & Q(structural=False)
+            & ~Q(created_by_analysis__in=visible_analyses_for(user))
+        ).exclude(
+            Q(created_by_extract__isnull=False)
+            & Q(structural=False)
+            & ~Q(created_by_extract__in=visible_extracts_for(user))
         )
         if structural is not None:
             qs = qs.filter(structural=structural)

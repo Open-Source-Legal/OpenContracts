@@ -603,6 +603,7 @@ class AnnotationService(BaseService):
         visible_doc_ids,
         top_n: int,
         exclude_label_prefix: Optional[str] = None,
+        user=None,
     ) -> list[dict]:
         """Top-N annotation-label distribution across a corpus's visible docs.
 
@@ -611,6 +612,13 @@ class AnnotationService(BaseService):
         permission-filtered Document queryset) so the visibility decision is
         made once at the call site and the ``__in`` clauses below push
         subqueries to SQL rather than materialising ids into Python.
+
+        ``user`` engages the ``created_by_*`` privacy gate (2026-06 audit):
+        without it, label names and counts of analysis-/extract-private
+        annotations leaked into the aggregate for viewers who could not see
+        the rows themselves. Pass the requesting user from every
+        user-facing caller; ``None`` is treated as anonymous (public
+        analyses only, no extracts).
 
         ``distinct=True`` on the count is required: structural annotations are
         joined via the ``structural_set__documents`` reverse FK, which fans a
@@ -628,10 +636,27 @@ class AnnotationService(BaseService):
             List of ``{"annotation_label__text", "annotation_label__color",
             "count"}`` dicts ordered by descending count.
         """
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
+        )
+
         qs = corpus.annotations.filter(
             Q(document_id__in=visible_doc_ids)
             | Q(structural_set__documents__in=visible_doc_ids, structural=True)
         ).exclude(annotation_label__isnull=True)
+        # Privacy gate (2026-06 audit): exclude analysis-/extract-private
+        # rows the user cannot see so their label names/counts don't leak
+        # into the aggregate. Structural rows bypass privacy as everywhere.
+        qs = qs.exclude(
+            Q(created_by_analysis__isnull=False)
+            & Q(structural=False)
+            & ~Q(created_by_analysis__in=visible_analyses_for(user))
+        ).exclude(
+            Q(created_by_extract__isnull=False)
+            & Q(structural=False)
+            & ~Q(created_by_extract__in=visible_extracts_for(user))
+        )
         if exclude_label_prefix:
             qs = qs.exclude(annotation_label__text__startswith=exclude_label_prefix)
         return list(
@@ -775,6 +800,12 @@ class AnnotationService(BaseService):
         if analysis_isnull is not None:
             qs = qs.filter(analysis__isnull=analysis_isnull)
 
+        # NOTE: intentionally returns an UNANNOTATED queryset — no
+        # pre-computed ``_can_*`` values (unlike ``get_document_annotations``,
+        # where one (doc, corpus) pair covers every row). A corpus-wide
+        # listing spans many documents with differing effective permissions,
+        # so per-row ``myPermissions`` falls back to
+        # ``AnnotatePermissionsForReadMixin``'s standard resolution.
         return qs.distinct()
 
     @classmethod

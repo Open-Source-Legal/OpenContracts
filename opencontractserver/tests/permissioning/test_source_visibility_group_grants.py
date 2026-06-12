@@ -159,6 +159,13 @@ class AnnotationServiceGroupGrantTestCase(TestCase):
         self.assertIn(self.ann_via_analysis.pk, listed)
         self.assertNotIn(self.ann_via_extract.pk, listed)
 
+    def test_group_extract_grant_unlocks_corpus_listing(self):
+        """Corpus-listing counterpart for the extract branch."""
+        assign_perm("read_extract", self.group, self.extract)
+        listed = self._corpus_listing_pks(self.group_viewer)
+        self.assertIn(self.ann_via_extract.pk, listed)
+        self.assertNotIn(self.ann_via_analysis.pk, listed)
+
     def test_listing_matches_user_can_after_group_grant(self):
         """Parity: once the group grant lands, the service listing and
         ``user_can(READ)`` agree (fresh instance to sidestep the Tier-1

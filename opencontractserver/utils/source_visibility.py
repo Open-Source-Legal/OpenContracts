@@ -57,8 +57,6 @@ def visible_analyses_for(user: Any) -> QuerySet:
     if user is None or getattr(user, "is_anonymous", True):
         return Analysis.objects.filter(is_public=True)
 
-    visible = Analysis.objects.filter(Q(is_public=True) | Q(creator=user))
-
     user_grant_ids = AnalysisUserObjectPermission.objects.filter(
         user=user, permission__codename="read_analysis"
     ).values_list("content_object_id", flat=True)
@@ -67,10 +65,14 @@ def visible_analyses_for(user: Any) -> QuerySet:
         permission__codename="read_analysis",
     ).values_list("content_object_id", flat=True)
 
-    return (
-        visible
-        | Analysis.objects.filter(id__in=user_grant_ids)
-        | Analysis.objects.filter(id__in=group_grant_ids)
+    # Single filter with OR'd Q objects — one WHERE clause with two
+    # uncorrelated id-subqueries. (Queryset ``|`` would OR-merge to the
+    # same SQL here; the single-filter shape just reads more directly.)
+    return Analysis.objects.filter(
+        Q(is_public=True)
+        | Q(creator=user)
+        | Q(id__in=user_grant_ids)
+        | Q(id__in=group_grant_ids)
     )
 
 
@@ -94,6 +96,15 @@ def visible_extracts_for(user: Any) -> QuerySet:
     user-facing flow currently sets ``Extract.is_public``, so this has no
     practical exposure today; pinned by
     ``test_public_extract_source_passes_both_surfaces``.
+
+    Surface note: this gate is deliberately NOT corpus-gated. The
+    extract-OBJECT listing (``ExtractService.get_visible_extracts``) is the
+    hybrid surface — extract permission AND corpus READ — while this gate
+    mirrors the manager-level ``Extract.objects.user_can`` that ``user_can``'s
+    privacy recursion consults (no corpus AND). The row being unlocked still
+    requires doc+corpus READ of ITS OWN corpus through the enclosing query,
+    so corpus gating is not lost — it just applies to the row's corpus, not
+    the source's.
     """
     from django.db.models import Q
 

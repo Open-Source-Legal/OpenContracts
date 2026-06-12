@@ -920,6 +920,9 @@ Annotations and relationships use a special permission inheritance model that pr
 
 ```python
 # From opencontractserver/annotations/services/annotation_service.py
+# NOTE: deliberately ABBREVIATED — the ``...`` and prose comments sketch the
+# shape; this is not copy-paste code. The implementation is the single
+# source of truth.
 
 class AnnotationService(BaseService):
     @classmethod

@@ -228,6 +228,8 @@ class ExtractManager(BaseVisibilityManager):
         # resolver maps None / unresolvable ids to None and passes
         # AnonymousUser through, so both surfaces deny exactly the same
         # caller set (pinned by ExtractAuthorizationInvariantsTestCase).
+        # Forwarding ``resolved`` to super() means the base class's own
+        # resolution call is an idempotent no-op for the User instance.
         resolved = resolve_user_for_user_can(user)
         if resolved is None or getattr(resolved, "is_anonymous", True):
             return False

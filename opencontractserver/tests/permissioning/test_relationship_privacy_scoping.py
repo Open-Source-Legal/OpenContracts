@@ -157,6 +157,19 @@ class RelationshipServicePrivacyScopingTestCase(TestCase):
         )
         self.assertNotIn(self.rel_via_extract.pk, listed)
 
+    def test_group_level_extract_grant_unlocks_listing(self):
+        """Symmetrical group-grant pin for the EXTRACT branch."""
+        group = Group.objects.create(name="rel_priv_extract_group")
+        self.group_viewer.groups.add(group)
+        assign_perm("read_extract", group, self.extract)
+        listed = self._listed_pks(self.group_viewer)
+        self.assertIn(
+            self.rel_via_extract.pk,
+            listed,
+            "group-granted extract READ must unlock the listing",
+        )
+        self.assertNotIn(self.rel_via_analysis.pk, listed)
+
     def test_structural_rows_bypass_privacy_in_listing(self):
         structural_private = Relationship.objects.create(
             relationship_label=self.rel_label,

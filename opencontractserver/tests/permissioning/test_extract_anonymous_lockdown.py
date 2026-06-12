@@ -144,3 +144,78 @@ class ExtractAnonymousLockdownTestCase(TestCase):
             .filter(pk=private_extract.pk)
             .exists()
         )
+
+
+class ExtractListingGrantParityTestCase(TestCase):
+    """``get_visible_extracts`` honours group grants and exact read
+    codenames on BOTH legs (2026-06 audit follow-up).
+
+    The listing previously consulted only USER-level guardian rows (any
+    codename) for the extract leg and ``codename__contains="read"`` on the
+    corpus leg, while ``check_extract_permission`` resolves both through
+    ``user_can`` (group grants + exact read codename) — a filter/check
+    parity drift of the same class as the privacy gates.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+
+        self.owner = User.objects.create_user(
+            username="elgp_owner", email="elo@lock.test", password="x"
+        )
+        self.group_user = User.objects.create_user(
+            username="elgp_group_user", email="elg@lock.test", password="x"
+        )
+        self.update_only = User.objects.create_user(
+            username="elgp_update_only", email="elu@lock.test", password="x"
+        )
+        self.group = Group.objects.create(name="extract_listing_group")
+        self.group_user.groups.add(self.group)
+
+        self.private_corpus = Corpus.objects.create(
+            title="ELGP Corpus", creator=self.owner, is_public=False
+        )
+        self.fieldset = Fieldset.objects.create(
+            name="ELGP Fieldset", creator=self.owner
+        )
+        self.private_extract = Extract.objects.create(
+            name="ELGP Extract",
+            corpus=self.private_corpus,
+            fieldset=self.fieldset,
+            creator=self.owner,
+            is_public=False,
+        )
+
+    def test_group_grants_on_extract_and_corpus_unlock_listing(self):
+        from guardian.shortcuts import assign_perm
+
+        # Both legs via GROUP grants only.
+        assign_perm("read_extract", self.group, self.private_extract)
+        assign_perm("read_corpus", self.group, self.private_corpus)
+        self.assertTrue(
+            ExtractService.get_visible_extracts(self.group_user)
+            .filter(pk=self.private_extract.pk)
+            .exists(),
+            "group-granted extract READ + corpus READ must unlock the listing",
+        )
+        # And the single-object surface agrees.
+        has_perm, _ = ExtractService.check_extract_permission(
+            self.group_user, self.private_extract.id
+        )
+        self.assertTrue(has_perm)
+
+    def test_update_only_extract_grant_does_not_unlock_listing(self):
+        # UPDATE-only on the extract (no READ); corpus READ granted directly.
+        set_permissions_for_obj_to_user(
+            self.update_only, self.private_extract, [PermissionTypes.UPDATE]
+        )
+        set_permissions_for_obj_to_user(
+            self.update_only, self.private_corpus, [PermissionTypes.READ]
+        )
+        self.assertFalse(
+            ExtractService.get_visible_extracts(self.update_only)
+            .filter(pk=self.private_extract.pk)
+            .exists(),
+            "listing must require the exact read_extract codename "
+            "(parity with check_extract_permission's user_can READ)",
+        )

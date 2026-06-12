@@ -772,10 +772,11 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
            passes through).
         3. **Anonymous route**: READ via ``visible_to_user(...).exists()``,
            non-READ denied.
-        4. **Superuser bypass** → True. Must precede structural-write-deny
-           so superusers retain write access to structural items.
-        5. **Structural write deny** → for non-superusers, any non-READ
-           permission on a ``structural=True`` annotation returns False.
+        4. **Structural-write break-glass** → for any non-READ permission on
+           a ``structural=True`` annotation: True for superusers, False for
+           everyone else. This is NOT a blanket superuser bypass — outside
+           this single branch superusers are computed exactly like a normal
+           user (scoped admin access, 2026-05).
         6. **Privacy recursion** (only when not structural-READ): see
            ``_source_privacy_recursion_passes`` (module-level, shared with
            ``RelationshipManager``).
