@@ -43,28 +43,53 @@ if TYPE_CHECKING:
 
 def apply_source_privacy_gate(qs: QuerySet, user: Any) -> QuerySet:
     """Exclude non-structural rows whose ``created_by_*`` source ``user``
-    cannot see.
+    cannot see — unless ``user`` is the ROW's own creator.
 
     The single home for the privacy-gate *exclusion* shape (the source
     subqueries live in the two builders below). Works on any queryset of a
     model carrying ``created_by_analysis`` / ``created_by_extract`` /
-    ``structural`` — i.e. ``Annotation`` and ``Relationship``. Structural
-    rows always pass (privacy never hides structural data); anonymous
-    semantics come from the builders (public analyses only, no extracts).
+    ``structural`` / ``creator`` — i.e. ``Annotation`` and
+    ``Relationship``. Structural rows always pass (privacy never hides
+    structural data); anonymous semantics come from the builders (public
+    analyses only, no extracts).
 
-    NOTE: ``AnnotationQuerySet.visible_to_user`` composes the equivalent
-    gate as a positive ``Q`` filter (structural | creator | no-source |
-    source-visible) rather than this exclude pair, because it needs the
-    creator disjunct and single-WHERE composition with the doc/corpus
-    EXISTS predicates — keep the two shapes in sync when changing either.
+    Creator exemption (2026-06 audit, review round 17): the row's own
+    creator passes the gate for AUTHENTICATED users, matching the
+    ``Q(creator=user)`` disjunct in ``AnnotationQuerySet.visible_to_user``
+    and the creator short-circuit in ``RelationshipManager.user_can`` /
+    ``visible_to_user``. Without it the service listings were the odd
+    surface out: a relationship's creator who lost source access kept
+    READ on both manager surfaces yet vanished from the document view.
+    (The remaining annotation-side divergence is ``user_can`` only —
+    issue #1986 item 1, pinned by
+    ``test_annotation_creator_parity_gap_sentinel``.) The exemption is
+    deliberately NOT built for anonymous users — ``Q(creator=<anonymous>)``
+    is not a valid lookup, and anonymous callers can never be a row's
+    creator.
+
+    NOTE: ``AnnotationQuerySet.visible_to_user`` composes the SAME
+    semantics as a positive ``Q`` filter (structural | creator |
+    no-source | source-visible) purely for single-WHERE composition with
+    its doc/corpus EXISTS predicates — keep the two shapes in sync when
+    changing either (pinned by
+    ``test_gate_matches_queryset_visibility_for_non_creator``).
     """
+    if user is not None and not getattr(user, "is_anonymous", True):
+        creator_exempt = Q(creator=user)
+    else:
+        # Always-false predicate: anonymous callers get no exemption and
+        # ``Q(creator=AnonymousUser())`` would not be a valid lookup.
+        creator_exempt = Q(pk__in=[])
+
     return qs.exclude(
         Q(created_by_analysis__isnull=False)
         & Q(structural=False)
+        & ~creator_exempt
         & ~Q(created_by_analysis__in=visible_analyses_for(user))
     ).exclude(
         Q(created_by_extract__isnull=False)
         & Q(structural=False)
+        & ~creator_exempt
         & ~Q(created_by_extract__in=visible_extracts_for(user))
     )
 

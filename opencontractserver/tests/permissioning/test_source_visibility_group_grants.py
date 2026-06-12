@@ -137,6 +137,32 @@ class AnnotationServiceGroupGrantTestCase(TestCase):
         self.assertEqual(self._document_listing_pks(self.group_viewer), set())
         self.assertEqual(self._corpus_listing_pks(self.group_viewer), set())
 
+    def test_row_creator_exempt_from_gate_in_document_listing(self):
+        """The row's own creator passes the gate without source access
+        (round-17 creator exemption — service listings now agree with the
+        queryset gate's ``Q(creator=user)`` disjunct instead of being the
+        odd surface out)."""
+        own_row = Annotation.objects.create(
+            raw_text="own private-rooted row",
+            json={"x": 9},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.group_viewer,  # no analysis/extract access
+            document=self.document,
+            corpus=self.corpus,
+            created_by_analysis=self.analysis,
+        )
+        self.assertIn(
+            own_row.pk,
+            self._document_listing_pks(self.group_viewer),
+            "creator-owned privacy-rooted row vanished from the service "
+            "listing despite the creator exemption",
+        )
+        # Other users' private rows stay hidden.
+        self.assertNotIn(
+            self.ann_via_analysis.pk, self._document_listing_pks(self.group_viewer)
+        )
+
     def test_group_analysis_grant_unlocks_document_listing(self):
         assign_perm("read_analysis", self.group, self.analysis)
         listed = self._document_listing_pks(self.group_viewer)
@@ -171,14 +197,16 @@ class AnnotationServiceGroupGrantTestCase(TestCase):
         ``apply_source_privacy_gate`` (the services' exclude shape) and the
         positive-Q privacy gate inside ``AnnotationQuerySet.visible_to_user``.
 
-        Scoped to NON-CREATOR viewers on purpose: the queryset gate carries
-        a ``Q(creator=user)`` disjunct with no ``user_can`` counterpart for
-        annotations (the known asymmetry tracked as issue #1986 item 1), so
-        a strict all-users equality would fail by design on creator-owned
-        rows. For non-creators holding doc+corpus READ, the queryset's
-        doc/corpus component passes and membership reduces to the privacy
-        verdict — the two shapes must agree exactly, before and after a
-        source grant lands.
+        Since review round 17 the gate carries the same authenticated
+        creator exemption as the queryset disjunct, so the two LIST shapes
+        agree for creators too (pinned separately by
+        ``test_row_creator_exempt_from_gate_in_document_listing``); the
+        only remaining creator divergence is ``user_can`` on the annotation
+        side (issue #1986 item 1, pinned by the sentinel). This test keeps
+        its non-creator scope to stay focused on the grant-driven
+        transitions: for non-creators holding doc+corpus READ, queryset
+        membership reduces to the privacy verdict — the two shapes must
+        agree exactly, before and after a source grant lands.
         """
         from opencontractserver.utils.source_visibility import (
             apply_source_privacy_gate,

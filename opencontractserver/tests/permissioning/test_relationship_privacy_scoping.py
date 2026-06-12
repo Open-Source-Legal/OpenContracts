@@ -170,6 +170,30 @@ class RelationshipServicePrivacyScopingTestCase(TestCase):
         )
         self.assertNotIn(self.rel_via_analysis.pk, listed)
 
+    def test_creator_retains_own_privacy_rooted_row_in_listing(self):
+        """The relationship's own creator sees their row in the document
+        view without source access (round-17 creator exemption) —
+        previously the service listing was the odd surface out: both
+        manager surfaces honoured the creator while the listing hid the
+        row."""
+        own_rel = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.viewer,  # has doc+corpus READ, no source access
+            document=self.document,
+            corpus=self.corpus,
+            structural=False,
+            created_by_analysis=self.analysis,
+        )
+        listed = self._listed_pks(self.viewer)
+        self.assertIn(
+            own_rel.pk,
+            listed,
+            "creator-owned privacy-rooted relationship vanished from the "
+            "document view despite both manager surfaces granting READ",
+        )
+        # Other users' private rows stay hidden.
+        self.assertNotIn(self.rel_via_analysis.pk, listed)
+
     def test_structural_rows_bypass_privacy_in_listing(self):
         structural_private = Relationship.objects.create(
             relationship_label=self.rel_label,
