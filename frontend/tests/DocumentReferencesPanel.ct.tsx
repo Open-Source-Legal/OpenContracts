@@ -198,6 +198,9 @@ test.describe("DocumentReferencesPanel", () => {
   }) => {
     // Inbound rows have no link_url — they resolve the source document's slugs
     // via GET_DOCUMENT_BY_ID_FOR_REDIRECT, then navigate to its canonical path.
+    // The redirect query carries no corpus context (DocumentType has no corpus
+    // field — documents relate to corpora via paths), so the resulting path is
+    // the document's standalone canonical path: /d/{creator}/{doc}.
     const redirectMock = {
       request: {
         query: GET_DOCUMENT_BY_ID_FOR_REDIRECT,
@@ -214,17 +217,6 @@ test.describe("DocumentReferencesPanel", () => {
               slug: "acme",
               username: "acme",
               email: "acme@example.com",
-            },
-            corpus: {
-              id: CORPUS_ID,
-              slug: "ipo-s1-filings",
-              title: "Select 2026 IPO S-1 Filings",
-              creator: {
-                id: "VXNlcjox",
-                slug: "acme",
-                username: "acme",
-                email: "acme@example.com",
-              },
             },
           },
         },
@@ -243,7 +235,7 @@ test.describe("DocumentReferencesPanel", () => {
         >
           <Routes>
             <Route
-              path="/d/acme/ipo-s1-filings/amendment-1"
+              path="/d/acme/amendment-1"
               element={<div data-testid="inbound-nav-arrived">arrived</div>}
             />
             <Route
