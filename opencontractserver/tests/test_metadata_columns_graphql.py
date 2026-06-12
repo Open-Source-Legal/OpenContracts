@@ -526,3 +526,72 @@ class MetadataColumnsGraphQLTestCase(TestCase):
         self.assertEqual(data["missingFields"], 2)
         self.assertEqual(data["percentage"], 60.0)
         self.assertEqual(data["missingRequired"], ["Field 1"])
+
+
+class DeleteMetadataColumnTestCase(TestCase):
+    """``deleteMetadataColumn`` — schema-validated counterpart of the
+    frontend's DELETE_METADATA_COLUMN document (which previously called a
+    mutation that did not exist; the un-validated endpoint silently ignored
+    it and the delete never happened)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="del-owner", password="x")
+        self.stranger = User.objects.create_user(username="del-stranger", password="x")
+        self.client_owner = Client(schema, context_value=TestContext(self.user))
+        self.client_stranger = Client(schema, context_value=TestContext(self.stranger))
+        self.corpus = Corpus.objects.create(title="Del Corpus", creator=self.user)
+        set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.CRUD])
+        self.fieldset = Fieldset.objects.create(
+            name="md", description="md", creator=self.user
+        )
+        self.column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Reviewed By",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.user,
+        )
+        set_permissions_for_obj_to_user(self.user, self.column, [PermissionTypes.CRUD])
+
+    MUTATION = """
+        mutation DeleteMetadataColumn($columnId: ID!) {
+            deleteMetadataColumn(columnId: $columnId) { ok message }
+        }
+    """
+
+    def test_creator_can_delete(self):
+        result = self.client_owner.execute(
+            self.MUTATION,
+            variables={"columnId": to_global_id("ColumnType", self.column.pk)},
+        )
+        payload = result["data"]["deleteMetadataColumn"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.assertFalse(Column.objects.filter(pk=self.column.pk).exists())
+
+    def test_stranger_gets_unified_not_found(self):
+        result = self.client_stranger.execute(
+            self.MUTATION,
+            variables={"columnId": to_global_id("ColumnType", self.column.pk)},
+        )
+        payload = result["data"]["deleteMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        self.assertTrue(Column.objects.filter(pk=self.column.pk).exists())
+
+    def test_non_manual_column_refused(self):
+        extract_col = Column.objects.create(
+            fieldset=self.fieldset,
+            name="LLM col",
+            query="q",
+            output_type="str",
+            is_manual_entry=False,
+            creator=self.user,
+        )
+        set_permissions_for_obj_to_user(self.user, extract_col, [PermissionTypes.CRUD])
+        result = self.client_owner.execute(
+            self.MUTATION,
+            variables={"columnId": to_global_id("ColumnType", extract_col.pk)},
+        )
+        payload = result["data"]["deleteMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertTrue(Column.objects.filter(pk=extract_col.pk).exists())

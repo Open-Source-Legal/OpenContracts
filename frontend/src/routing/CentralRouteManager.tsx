@@ -481,10 +481,13 @@ export function CentralRouteManager() {
               if (idData?.document) {
                 // Redirect to canonical slug URL
                 // Type assertion: redirect query doesn't include analyses field,
-                // but buildCanonicalPath only needs slug and creator
+                // but buildCanonicalPath only needs slug and creator.
+                // Corpus context comes from the ROUTE's slug resolution above —
+                // the redirect query itself carries none (DocumentType has no
+                // corpus field; documents relate to corpora via paths).
                 const canonicalPath = buildCanonicalPath(
                   idData.document as any,
-                  idData.document.corpus as any
+                  (data?.corpusBySlugs as any) ?? undefined
                 );
                 if (canonicalPath) {
                   navigate(canonicalPath + location.search, { replace: true });

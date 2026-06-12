@@ -963,14 +963,22 @@ export const Corpuses = () => {
           // here must not read as a failed corpus creation — surface softly.
           const newCorpusId = data.data.createCorpus.objId;
           if (formData.setupIntelligence && newCorpusId) {
-            trySetupIntelligence({
-              variables: { corpusId: newCorpusId },
-            }).catch(() => {
+            const setupNotStarted = () =>
               toast.info(
                 "Corpus created, but intelligence setup couldn't start — " +
                   "you can run it from the corpus page."
               );
-            });
+            trySetupIntelligence({
+              variables: { corpusId: newCorpusId },
+            })
+              .then((result) => {
+                // The mutation reports soft failures as ok=false rather than
+                // throwing — without this check the opt-in fails silently.
+                if (!result.data?.setupCorpusIntelligence?.ok) {
+                  setupNotStarted();
+                }
+              })
+              .catch(setupNotStarted);
           }
         } else {
           toast.error(`FAILED on server: ${data.data?.createCorpus.message}`);

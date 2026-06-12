@@ -339,11 +339,16 @@ describe("ID-based Navigation", () => {
       );
 
       await waitFor(() => {
-        // Should redirect to canonical URL with corpus context
-        expect(mockNavigate).toHaveBeenCalledWith(
-          "/d/john-doe/test-corpus/test-document",
-          { replace: true }
-        );
+        // Slug resolution failed entirely (corpusBySlugs is null in the mock
+        // above), so no corpus context survives — the ID fallback redirects
+        // to the document's STANDALONE canonical path. DocumentType exposes
+        // no `corpus` field (documents relate to corpora via paths); the old
+        // corpus-context expectation here was sourced from a mock-only field
+        // the server never returned. The corpus-context variant of this
+        // redirect is taken when corpusBySlugs resolves.
+        expect(mockNavigate).toHaveBeenCalledWith("/d/john-doe/test-document", {
+          replace: true,
+        });
       });
     });
   });

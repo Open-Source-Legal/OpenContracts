@@ -1,4 +1,4 @@
-"""Batch-execution operations for agent-based corpus actions."""
+"""Batch-execution and template-install operations for corpus actions."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from opencontractserver.constants.corpus_actions import BATCH_RUN_MAX_DOCS
 from opencontractserver.shared.services.base import BaseService
@@ -16,8 +16,10 @@ from opencontractserver.types.enums import PermissionTypes
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import (
+        Corpus,
         CorpusAction,
         CorpusActionExecution,
+        CorpusActionTemplate,
     )
     from opencontractserver.users.models import User
 
@@ -54,24 +56,52 @@ class CorpusActionService(BaseService):
         """Queue an agent action against every eligible document in its corpus."""
         # Local imports keep this module importable when the corpuses app is
         # still loading (the model module is heavy and pulls in signals).
-        from opencontractserver.corpuses.models import (
-            CorpusAction,
-            CorpusActionExecution,
-            CorpusActionTrigger,
-        )
-        from opencontractserver.tasks.agent_tasks import run_agent_corpus_action
+        from opencontractserver.corpuses.models import CorpusAction
 
         try:
             action = CorpusAction.objects.select_related("corpus").get(pk=action_id)
         except CorpusAction.DoesNotExist:
             return ServiceResult.failure(cls._NOT_FOUND_MESSAGE)
 
-        corpus = action.corpus
-        if not cls.user_has(corpus, user, PermissionTypes.UPDATE, request=request):
+        if not cls.user_has(
+            action.corpus, user, PermissionTypes.UPDATE, request=request
+        ):
             # Collapse "no permission" into the same not-found error as
             # missing-action to avoid leaking action existence.
             return ServiceResult.failure(cls._NOT_FOUND_MESSAGE)
 
+        return cls.batch_run_action(user, action, request=request)
+
+    @classmethod
+    def batch_run_action(
+        cls,
+        user: User,
+        action: CorpusAction,
+        *,
+        request: Any = None,
+        allow_partial: bool = False,
+    ) -> ServiceResult[BatchRunSummary]:
+        """Trusted-caller variant of :meth:`batch_run_on_corpus`.
+
+        ``action`` is already fetched and the caller has verified write
+        permission on its corpus (intelligence setup gates at CRUD before
+        calling) — this skips the redundant re-fetch + permission re-check the
+        pk-based public entry point performs.
+
+        With ``allow_partial=True``, an eligible set larger than
+        ``BATCH_RUN_MAX_DOCS`` queues the first ``BATCH_RUN_MAX_DOCS``
+        documents (deterministic id order) instead of refusing; the remainder
+        is derivable from the summary as
+        ``total_active_documents - skipped_already_run_count - queued_count``,
+        and a repeat call continues where this one left off.
+        """
+        from opencontractserver.corpuses.models import (
+            CorpusActionExecution,
+            CorpusActionTrigger,
+        )
+        from opencontractserver.tasks.agent_tasks import run_agent_corpus_action
+
+        corpus = action.corpus
         if not action.is_agent_action:
             return ServiceResult.failure(
                 "Only agent-based corpus actions can be batch-run on every "
@@ -115,12 +145,16 @@ class CorpusActionService(BaseService):
                 )
 
             if len(eligible_ids) > BATCH_RUN_MAX_DOCS:
-                return ServiceResult.failure(
-                    f"The eligible set ({len(eligible_ids)} documents) "
-                    f"exceeds the per-call cap of {BATCH_RUN_MAX_DOCS}. "
-                    "Wait for in-flight runs to complete, or narrow the "
-                    "corpus first."
-                )
+                if not allow_partial:
+                    return ServiceResult.failure(
+                        f"The eligible set ({len(eligible_ids)} documents) "
+                        f"exceeds the per-call cap of {BATCH_RUN_MAX_DOCS}. "
+                        "Wait for in-flight runs to complete, or narrow the "
+                        "corpus first."
+                    )
+                # Partial mode: queue the first cap-many (ids are sorted, so a
+                # repeat call deterministically continues with the rest).
+                eligible_ids = eligible_ids[:BATCH_RUN_MAX_DOCS]
 
             executions = CorpusActionExecution.bulk_queue(
                 corpus_action=action,
@@ -164,6 +198,56 @@ class CorpusActionService(BaseService):
                 total_active_documents=total_active,
             )
         )
+
+    @classmethod
+    def install_template(
+        cls,
+        user: User,
+        corpus: Corpus,
+        template: CorpusActionTemplate,
+        *,
+        request: Any = None,
+    ) -> tuple[CorpusAction | None, bool]:
+        """Clone ``template`` into ``corpus`` as a ``CorpusAction``, idempotently.
+
+        The single home for the install recipe shared by ``AddTemplateToCorpus``
+        and the intelligence-setup bundle: fast-path dedupe on
+        ``source_template``, savepoint-wrapped clone so a duplicate-insert race
+        cannot poison the outer transaction, ``IntegrityError`` recovery by
+        re-query, and a CRUD grant on the new row to the installing user.
+
+        The caller must have verified write permission on ``corpus`` (both
+        callers gate at CRUD) and that ``template`` is active. Returns
+        ``(action, created)`` — ``created=False`` with the existing row when
+        the template was already installed (or lost a concurrent race).
+        Non-``IntegrityError`` clone failures propagate to the caller.
+        """
+        from opencontractserver.corpuses.models import CorpusAction
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        existing = CorpusAction.objects.filter(
+            corpus=corpus, source_template=template
+        ).first()
+        if existing is not None:
+            return existing, False
+
+        try:
+            with transaction.atomic():
+                action = template.clone_to_corpus(corpus, creator=user)
+        except IntegrityError:
+            return (
+                CorpusAction.objects.filter(
+                    corpus=corpus, source_template=template
+                ).first(),
+                False,
+            )
+
+        set_permissions_for_obj_to_user(
+            user, action, [PermissionTypes.CRUD], request=request
+        )
+        return action, True
 
     @classmethod
     def _already_run_document_ids(cls, action: CorpusAction) -> set[int]:

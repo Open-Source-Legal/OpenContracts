@@ -2039,3 +2039,52 @@ class TestIOSettingsRequiredFieldsGuard(TestCase):
         self.assertEqual(type_name, "CorpusType")
         # Underlying row exists at that pk — proves the global id is decodable.
         self.assertTrue(Corpus.objects.filter(pk=int(pk)).exists())
+
+
+class TestServedValidationRulesIncludeSpecRules(TestCase):
+    """The rule list handed to GraphQLView must EXTEND the spec rules.
+
+    graphql-core's ``validate(schema, document, rules)`` REPLACES the
+    specified (spec) rule set when ``rules`` is provided. Passing only the
+    custom hardening rules therefore silently DISABLED every standard
+    GraphQL validation on the live endpoint — queries with unknown
+    arguments/fields executed instead of erroring (the bogus parts were
+    simply ignored), which let ~26 invalid frontend documents ship
+    unnoticed (e.g. an unscoped ``analyses(corpusId:)`` discovery sweep).
+    """
+
+    def test_unknown_argument_is_rejected_by_served_rules(self):
+        from graphql import parse, validate
+
+        from config.graphql.schema import schema, validation_rules
+
+        document = parse(
+            'query { analyses(bogusArgument: "x") { edges { node { id } } } }'
+        )
+        errors = validate(schema.graphql_schema, document, validation_rules)
+        self.assertTrue(
+            any("Unknown argument" in str(e) for e in errors),
+            f"spec validation is OFF on the served endpoint: {errors!r}",
+        )
+
+    def test_unknown_field_is_rejected_by_served_rules(self):
+        from graphql import parse, validate
+
+        from config.graphql.schema import schema, validation_rules
+
+        document = parse("query { definitelyNotARealField }")
+        errors = validate(schema.graphql_schema, document, validation_rules)
+        self.assertTrue(errors)
+
+    def test_depth_limit_still_enforced_alongside_spec_rules(self):
+        from graphql import parse, validate
+
+        from config.graphql.schema import schema, validation_rules
+
+        # Corpus.parent recursion: spec-valid but deeper than the cap.
+        inner = "id"
+        for _ in range(20):
+            inner = f"parent {{ {inner} }}"
+        document = parse(f"query {{ corpuses {{ edges {{ node {{ {inner} }} }} }} }}")
+        errors = validate(schema.graphql_schema, document, validation_rules)
+        self.assertTrue(any("depth" in str(e).lower() for e in errors))

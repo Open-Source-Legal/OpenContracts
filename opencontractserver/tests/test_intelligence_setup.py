@@ -32,6 +32,8 @@ from opencontractserver.corpuses.services import CorpusIntelligenceSetupService
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment import constants as enrichment_constants
 from opencontractserver.shared.services.conventions import ServiceResult
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -164,7 +166,23 @@ class IntelligenceSetupServiceTestCase(TestCase):
         )
 
     @patch(_START_ANALYSIS, side_effect=_ok_analysis)
-    def test_setup_requires_update_permission(self, mock_start):
+    def test_setup_requires_crud_permission(self, mock_start):
+        """Setup gates at CRUD — the tier AddTemplateToCorpus and
+        CreateCorpusAction require for installing the very same rows. An
+        UPDATE-only collaborator must be refused, not offered a weaker path."""
+        # Invisible corpus: same not-found envelope (anti-enumeration).
+        result = CorpusIntelligenceSetupService.setup(self.stranger, self.corpus.pk)
+        self.assertFalse(result.ok)
+        self.assertEqual(
+            result.error, CorpusIntelligenceSetupService._NOT_FOUND_MESSAGE
+        )
+
+        # Visible with UPDATE but not CRUD: still refused.
+        set_permissions_for_obj_to_user(
+            self.stranger,
+            self.corpus,
+            [PermissionTypes.READ, PermissionTypes.UPDATE],
+        )
         result = CorpusIntelligenceSetupService.setup(self.stranger, self.corpus.pk)
         self.assertFalse(result.ok)
         self.assertEqual(
@@ -172,6 +190,92 @@ class IntelligenceSetupServiceTestCase(TestCase):
         )
         self.assertFalse(CorpusAction.objects.filter(corpus=self.corpus).exists())
         mock_start.assert_not_called()
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_status_reports_can_setup(self, mock_start):
+        """``can_setup`` mirrors the mutation's permission gate so the CTA
+        never renders for viewers whose click is guaranteed to fail."""
+        owner_status = CorpusIntelligenceSetupService.status(self.user, self.corpus.pk)
+        self.assertTrue(owner_status.ok)
+        assert owner_status.value is not None
+        self.assertTrue(owner_status.value.can_setup)
+
+        reader = User.objects.create_user(username="reader", password="x")
+        set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+        reader_status = CorpusIntelligenceSetupService.status(reader, self.corpus.pk)
+        self.assertTrue(reader_status.ok)
+        assert reader_status.value is not None
+        self.assertFalse(reader_status.value.can_setup)
+
+        # UPDATE-without-CRUD matches the setup gate too.
+        editor = User.objects.create_user(username="editor", password="x")
+        set_permissions_for_obj_to_user(
+            editor, self.corpus, [PermissionTypes.READ, PermissionTypes.UPDATE]
+        )
+        editor_status = CorpusIntelligenceSetupService.status(editor, self.corpus.pk)
+        self.assertTrue(editor_status.ok)
+        assert editor_status.value is not None
+        self.assertFalse(editor_status.value.can_setup)
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_status_fully_set_up_without_analyzer(self, mock_start):
+        """Without the enrichment analyzer registered the reference half can
+        never install — status must not demand it forever (zombie CTA)."""
+        from opencontractserver.analyzer.models import Analyzer
+
+        Analyzer.objects.filter(
+            task_name=enrichment_constants.ENRICHMENT_ANALYZER_TASK
+        ).delete()
+
+        before = CorpusIntelligenceSetupService.status(self.user, self.corpus.pk)
+        assert before.value is not None
+        self.assertFalse(before.value.reference_available)
+        self.assertFalse(before.value.is_fully_set_up)  # templates still missing
+
+        CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+
+        after = CorpusIntelligenceSetupService.status(self.user, self.corpus.pk)
+        assert after.value is not None
+        self.assertFalse(after.value.reference_available)
+        self.assertFalse(after.value.reference_action_installed)
+        self.assertTrue(after.value.is_fully_set_up)
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_status_ignores_unavailable_template(self, mock_start):
+        """A template deactivated deployment-wide cannot be installed — it must
+        not keep the corpus 'not fully set up' (and the CTA visible) forever."""
+        target = INTELLIGENCE_SETUP_TEMPLATE_NAMES[0]
+        CorpusActionTemplate.objects.filter(name=target).update(is_active=False)
+
+        CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+
+        status = CorpusIntelligenceSetupService.status(self.user, self.corpus.pk)
+        assert status.value is not None
+        self.assertNotIn(target, status.value.missing_template_names)
+        self.assertTrue(status.value.is_fully_set_up)
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_setup_queues_partial_batch_over_cap(self, mock_start):
+        """Over the per-call cap, setup queues up to the cap instead of nothing
+        and reports how many documents remain for a later run."""
+        with patch(
+            "opencontractserver.corpuses.services.corpus_actions.BATCH_RUN_MAX_DOCS",
+            2,
+        ):
+            result = CorpusIntelligenceSetupService.setup(self.user, self.corpus.pk)
+        self.assertTrue(result.ok, result.error)
+        summary = result.value
+        assert summary is not None
+        for outcome in summary.templates:
+            self.assertEqual(outcome.queued_count, 2, outcome.template_name)
+            self.assertEqual(outcome.remaining_count, 1, outcome.template_name)
+            self.assertEqual(outcome.error, "", outcome.template_name)
+        self.assertEqual(
+            CorpusActionExecution.objects.filter(
+                corpus_action__corpus=self.corpus
+            ).count(),
+            2 * len(INTELLIGENCE_SETUP_TEMPLATE_NAMES),
+        )
 
     @patch(_START_ANALYSIS, side_effect=_ok_analysis)
     def test_status_before_and_after(self, mock_start):
@@ -361,6 +465,7 @@ class IntelligenceSetupGraphQLTestCase(TestCase):
                     templateName
                     installedNow
                     queuedCount
+                    remainingCount
                     error
                   }
                 }
@@ -386,10 +491,12 @@ class IntelligenceSetupGraphQLTestCase(TestCase):
             """
             query Status($id: ID!) {
               corpusIntelligenceSetupStatus(corpusId: $id) {
+                referenceAvailable
                 referenceActionInstalled
                 installedTemplateNames
                 missingTemplateNames
                 isFullySetUp
+                canSetup
               }
             }
             """,
@@ -397,6 +504,8 @@ class IntelligenceSetupGraphQLTestCase(TestCase):
             self.user,
         )
         status = data["corpusIntelligenceSetupStatus"]
+        self.assertTrue(status["referenceAvailable"])
         self.assertTrue(status["referenceActionInstalled"])
         self.assertEqual(status["missingTemplateNames"], [])
         self.assertTrue(status["isFullySetUp"])
+        self.assertTrue(status["canSetup"])

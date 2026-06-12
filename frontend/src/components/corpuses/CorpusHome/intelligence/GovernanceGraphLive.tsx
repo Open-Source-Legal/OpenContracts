@@ -13,9 +13,12 @@ import {
 import {
   GET_GOVERNANCE_GRAPH,
   GET_ANALYZERS_FOR_ENRICHMENT,
+  GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
   GetGovernanceGraphInputType,
   GetGovernanceGraphOutputType,
   GetAnalyzersForEnrichmentOutputType,
+  GetCorpusIntelligenceSetupStatusInputType,
+  GetCorpusIntelligenceSetupStatusOutputType,
   GovernanceGraphNode,
   GovernanceGraphEdge,
 } from "../../../../graphql/queries";
@@ -166,6 +169,10 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
     GET_ANALYZERS_FOR_ENRICHMENT,
     { fetchPolicy: "network-only" }
   );
+  const [fetchSetupStatus] = useLazyQuery<
+    GetCorpusIntelligenceSetupStatusOutputType,
+    GetCorpusIntelligenceSetupStatusInputType
+  >(GET_CORPUS_INTELLIGENCE_SETUP_STATUS, { fetchPolicy: "network-only" });
   const [startAnalysis] = useMutation<StartAnalysisOutput, StartAnalysisInput>(
     START_ANALYSIS
   );
@@ -204,23 +211,33 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
         return;
       }
 
-      // Keep the web growing: install the add_document action. A failure
-      // here (e.g. collaborator without update rights) shouldn't abort the
-      // already-running first weave — surface it softly instead.
-      try {
-        await createCorpusAction({
-          variables: {
-            corpusId,
-            trigger: "add_document",
-            analyzerId: analyzer.id,
-            name: "Reference enrichment (auto)",
-          },
-        });
-      } catch {
-        toast.info(
-          "Mapping started — but the keep-it-updated action couldn't be " +
-            "installed (you may need edit rights on this corpus)."
-        );
+      // Keep the web growing: install the add_document action — unless the
+      // corpus already has one (e.g. installed by one-click intelligence
+      // setup); a second row would run the analyzer twice on every future
+      // upload. A failure here (e.g. collaborator without edit rights)
+      // shouldn't abort the already-running first weave — surface it softly.
+      const { data: setupStatusData } = await fetchSetupStatus({
+        variables: { corpusId },
+      });
+      const actionAlreadyInstalled =
+        !!setupStatusData?.corpusIntelligenceSetupStatus
+          ?.referenceActionInstalled;
+      if (!actionAlreadyInstalled) {
+        try {
+          await createCorpusAction({
+            variables: {
+              corpusId,
+              trigger: "add_document",
+              analyzerId: analyzer.id,
+              name: "Reference enrichment (auto)",
+            },
+          });
+        } catch {
+          toast.info(
+            "Mapping started — but the keep-it-updated action couldn't be " +
+              "installed (you may need edit rights on this corpus)."
+          );
+        }
       }
 
       setWeaving(true);
@@ -234,6 +251,7 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
   }, [
     corpusId,
     fetchAnalyzers,
+    fetchSetupStatus,
     startAnalysis,
     createCorpusAction,
     startPolling,

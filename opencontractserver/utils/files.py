@@ -41,6 +41,21 @@ def base_64_encode_bytes(doc_bytes: bytes):
     return base64_encoded_message
 
 
+def clamp_shared_url_cache_ttl(requested_ttl: int, signed_lifetime: int) -> int:
+    """Cap the shared signed-URL cache TTL at half the signature lifetime.
+
+    A cached presigned URL must always be served with ample validity left —
+    a cache window longer than the signature turns every late cache hit into
+    a dead 403 link (regression: the AWS settings branch once derived the
+    lifetime from the HTTP CacheControl max-age, 7 days, while signatures
+    expired after 1 hour). ``signed_lifetime == 0`` means URLs are unsigned
+    (LOCAL storage) and the requested TTL passes through untouched.
+    """
+    if signed_lifetime <= 0:
+        return max(0, requested_ttl)
+    return max(0, min(requested_ttl, signed_lifetime // 2))
+
+
 class _TextReadableFieldFile(typing.Protocol):
     """Structural type for the ``FieldFile.open()`` slice this helper needs."""
 

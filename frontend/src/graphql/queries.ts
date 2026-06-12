@@ -73,7 +73,6 @@ export const GET_DOCUMENTS = gql`
     $hasLabelWithId: String
     $annotateDocLabels: Boolean!
     $hasAnnotationsWithIds: String
-    $includeMetadata: Boolean!
     $includeCaml: Boolean
   ) {
     documents(
@@ -716,10 +715,13 @@ export interface GetCorpusStatsOutputType {
 // action + description/summary agent templates) a corpus already has —
 // drives the one-click setup banner's visibility.
 export interface CorpusIntelligenceSetupStatus {
+  referenceAvailable: boolean;
   referenceActionInstalled: boolean;
   installedTemplateNames: string[];
   missingTemplateNames: string[];
   isFullySetUp: boolean;
+  /** The viewer holds the permission the setup mutation requires (CRUD). */
+  canSetup: boolean;
 }
 
 export interface GetCorpusIntelligenceSetupStatusInputType {
@@ -733,10 +735,12 @@ export interface GetCorpusIntelligenceSetupStatusOutputType {
 export const GET_CORPUS_INTELLIGENCE_SETUP_STATUS = gql`
   query corpusIntelligenceSetupStatus($corpusId: ID!) {
     corpusIntelligenceSetupStatus(corpusId: $corpusId) {
+      referenceAvailable
       referenceActionInstalled
       installedTemplateNames
       missingTemplateNames
       isFullySetUp
+      canSetup
     }
   }
 `;
@@ -1024,8 +1028,8 @@ export interface GetAnalysesForCorpusEnrichmentOutputType {
 }
 
 export const GET_ANALYSES_FOR_CORPUS_ENRICHMENT = gql`
-  query analysesForCorpusEnrichment($corpusId: ID) {
-    analyses(corpusId: $corpusId) {
+  query analysesForCorpusEnrichment($corpusId: String) {
+    analyses(analyzedCorpusId: $corpusId) {
       edges {
         node {
           id
@@ -3000,6 +3004,36 @@ export interface GetAnnotationsForAnalysisOutput {
   analysis: AnalysisType;
 }
 
+// Lean variant for the reference-mention merge (useReferenceMentions): only
+// the fields convertToServerAnnotation renders. The full
+// GET_ANNOTATIONS_FOR_ANALYSIS selection drags per-annotation userFeedback /
+// relationship / document / corpus resolvers — measured at ~176s for 108
+// mention annotations vs ~0s for this selection.
+export const GET_REFERENCE_MENTIONS_FOR_ANALYSIS = gql`
+  query GetReferenceMentionsForAnalysis($analysisId: ID!, $documentId: ID) {
+    analysis(id: $analysisId) {
+      id
+      fullAnnotationList(documentId: $documentId) {
+        id
+        annotationLabel {
+          id
+          text
+          color
+          icon
+          description
+          labelType
+        }
+        annotationType
+        page
+        rawText
+        linkUrl
+        json
+        structural
+      }
+    }
+  }
+`;
+
 export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
   query GetAnnotationsForAnalysis($analysisId: ID!, $documentId: ID) {
     analysis(id: $analysisId) {
@@ -3046,7 +3080,7 @@ export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
         }
         allSourceNodeInRelationship {
           id
-          annotationLabel {
+          relationshipLabel {
             id
             text
             color
@@ -3063,7 +3097,7 @@ export const GET_ANNOTATIONS_FOR_ANALYSIS = gql`
         }
         allTargetNodeInRelationship {
           id
-          annotationLabel {
+          relationshipLabel {
             id
             text
             color
@@ -4476,38 +4510,6 @@ export type GetDocumentOnlyInput = GetDocumentWithStructureInput;
 export type GetDocumentOnlyOutput = GetDocumentWithStructureOutput;
 
 /**
- * Mutation to add a document to a corpus
- */
-export interface AddDocumentToCorpusInput {
-  documentId: string;
-  corpusId: string;
-}
-
-export interface AddDocumentToCorpusOutput {
-  addDocumentToCorpus: {
-    success: boolean;
-    message: string;
-    corpus: {
-      id: string;
-      title: string;
-    };
-  };
-}
-
-export const ADD_DOCUMENT_TO_CORPUS = gql`
-  mutation AddDocumentToCorpus($documentId: ID!, $corpusId: ID!) {
-    addDocumentToCorpus(documentId: $documentId, corpusId: $corpusId) {
-      success
-      message
-      corpus {
-        id
-        title
-      }
-    }
-  }
-`;
-
-/**
  * Query to get user's corpuses for the Add to Corpus modal
  */
 export interface GetMyCorpusesOutput {
@@ -4525,7 +4527,7 @@ export interface GetMyCorpusesOutput {
 
 export const GET_MY_CORPUSES = gql`
   query GetMyCorpuses {
-    corpuses(isPublic: false, myPermissions: ["UPDATE"]) {
+    corpuses(isPublic: false) {
       edges {
         node {
           id
@@ -4760,29 +4762,17 @@ export const GET_CORPUS_CONVERSATIONS = gql`
 `;
 
 export const GET_CORPUS_CHAT_MESSAGES = gql`
-  query GetCorpusChatMessages(
-    $conversationId: ID!
-    $cursor: String
-    $limit: Int
-  ) {
-    chatMessages(
-      conversation_Id: $conversationId
-      first: $limit
-      after: $cursor
-    ) {
-      edges {
-        node {
-          id
-          content
-          msgType
-          createdAt
-          data
-          creator {
-            id
-            slug
-            email
-          }
-        }
+  query GetCorpusChatMessages($conversationId: ID!) {
+    chatMessages(conversationId: $conversationId) {
+      id
+      content
+      msgType
+      createdAt
+      data
+      creator {
+        id
+        slug
+        email
       }
     }
   }
@@ -4828,23 +4818,19 @@ export interface GetCorpusChatMessagesInputs {
 }
 
 export interface GetCorpusChatMessagesOutputs {
-  chatMessages: {
-    edges: Array<{
-      node: {
-        id: string;
-        content: string;
-        msgType: string;
-        createdAt: string;
-        data: {
-          sources?: WebSocketSources[];
-          message_id?: string;
-        };
-        creator: {
-          email: string;
-        };
-      };
-    }>;
-  };
+  chatMessages: Array<{
+    id: string;
+    content: string;
+    msgType: string;
+    createdAt: string;
+    data: {
+      sources?: WebSocketSources[];
+      message_id?: string;
+    };
+    creator: {
+      email: string;
+    };
+  }>;
 }
 
 export const GET_ME = gql`
@@ -4976,17 +4962,6 @@ export const GET_DOCUMENT_BY_ID_FOR_REDIRECT = gql`
         username
         email
       }
-      corpus {
-        id
-        slug
-        title
-        creator {
-          id
-          slug
-          username
-          email
-        }
-      }
     }
   }
 `;
@@ -5006,17 +4981,6 @@ export interface GetDocumentByIdForRedirectOutput {
       username: string;
       email: string;
     };
-    corpus: {
-      id: string;
-      slug: string;
-      title: string;
-      creator: {
-        id: string;
-        slug: string;
-        username: string;
-        email: string;
-      };
-    } | null;
   } | null;
 }
 
@@ -6394,7 +6358,7 @@ export const GET_CORPUS_DOCUMENT_TOC_EDGES = gql`
   query GetCorpusDocumentTocEdges(
     $corpusId: ID
     $first: Int
-    $relationshipType: String
+    $relationshipType: DocumentsDocumentRelationshipRelationshipTypeChoices
     $annotationLabelText: String
   ) {
     documentRelationships(
@@ -6635,14 +6599,6 @@ export const GET_RESEARCH_REPORT = gql`
           id
           slug
         }
-        corpus {
-          id
-          slug
-          creator {
-            id
-            slug
-          }
-        }
       }
     }
   }
@@ -6700,14 +6656,6 @@ export const RESOLVE_RESEARCH_REPORT_BY_SLUG = gql`
         creator {
           id
           slug
-        }
-        corpus {
-          id
-          slug
-          creator {
-            id
-            slug
-          }
         }
       }
     }

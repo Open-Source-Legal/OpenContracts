@@ -140,7 +140,13 @@ export const IntelligenceSetupBanner: React.FC<
       }
       const templates = payload.summary?.templates ?? [];
       const queued = templates.reduce((sum, t) => sum + t.queuedCount, 0);
-      const hadTemplateError = templates.some((t) => t.error);
+      const remaining = templates.reduce(
+        (sum, t) => sum + (t.remainingCount ?? 0),
+        0
+      );
+      const templateErrors = templates
+        .filter((t) => t.error)
+        .map((t) => `${t.templateName}: ${t.error}`);
       if (queued > 0) {
         toast.success(
           `Setting up — ${queued} document enrichment ${
@@ -149,15 +155,18 @@ export const IntelligenceSetupBanner: React.FC<
             payload.summary?.referenceAnalysisStarted
               ? ", reference web weaving"
               : ""
+          }${
+            remaining > 0
+              ? `; ${remaining} more deferred past the per-run cap — re-run later to continue`
+              : ""
           }.`
         );
-      } else if (hadTemplateError) {
-        // ok=True but nothing queued and a template carried an error — e.g. the
-        // batch-run hit BATCH_RUN_MAX_DOCS. Don't claim it's fully set up.
+      } else if (templateErrors.length > 0) {
+        // ok=True but nothing queued and a template carried an error — don't
+        // claim it's fully set up; surface the actual failures.
         toast.warning(
           "Collection intelligence installed, but some document runs " +
-            "couldn't be queued (e.g. a per-run document cap). Re-run or " +
-            "check the panels."
+            `couldn't be queued — ${templateErrors.join("; ")}`
         );
       } else {
         toast.success("Collection intelligence is set up.");
@@ -174,9 +183,11 @@ export const IntelligenceSetupBanner: React.FC<
   }, [corpusId, refetch, setupIntelligence]);
 
   const status = data?.corpusIntelligenceSetupStatus;
-  // Silent while loading, on error, and once fully set up — the banner only
-  // exists to offer setup, never to report state.
-  if (!status || status.isFullySetUp) return null;
+  // Silent while loading, on error, once fully set up, and for viewers who
+  // can't run setup (canSetup mirrors the mutation's CRUD gate — rendering
+  // the CTA for them would offer a guaranteed-to-fail click). The banner
+  // only exists to offer setup, never to report state.
+  if (!status || status.isFullySetUp || !status.canSetup) return null;
 
   return (
     <Banner data-testid={testId}>

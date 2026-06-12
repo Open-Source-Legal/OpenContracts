@@ -8,7 +8,7 @@ from typing import Any
 import graphene
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
-from django.db import DatabaseError, IntegrityError, transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 from graphql_jwt.decorators import login_required, user_passes_test
 from graphql_relay import from_global_id, to_global_id
@@ -1604,37 +1604,21 @@ class AddTemplateToCorpus(graphene.Mutation):
             # Get the template (templates are global, no user filter needed)
             template = CorpusActionTemplate.objects.get(pk=template_pk, is_active=True)
 
-            # Fast-path duplicate check (avoids wasted clone + rollback).
-            # The unique constraint + IntegrityError catch below handles the
-            # race-condition window between this check and the insert.
-            if CorpusAction.objects.filter(
-                corpus=corpus, source_template=template
-            ).exists():
-                return AddTemplateToCorpus(
-                    ok=False,
-                    message="This template has already been added to the corpus",
-                    obj=None,
-                )
+            # Shared install recipe (dedupe fast-path, savepoint-wrapped
+            # clone, IntegrityError race recovery, CRUD grant) — the same
+            # method the one-click intelligence setup uses, so the two
+            # install paths cannot drift.
+            from opencontractserver.corpuses.services import CorpusActionService
 
-            # Clone the template into a CorpusAction.
-            # Wrap in a savepoint so that a race-condition IntegrityError
-            # does not abort the outer transaction (PostgreSQL requirement).
-            try:
-                with transaction.atomic():
-                    action = template.clone_to_corpus(corpus, creator=user)
-            except IntegrityError:
-                return AddTemplateToCorpus(
-                    ok=False,
-                    message="This template has already been added to the corpus",
-                    obj=None,
-                )
-
-            set_permissions_for_obj_to_user(
-                user,
-                action,
-                [PermissionTypes.CRUD],
-                request=info.context,
+            action, created = CorpusActionService.install_template(
+                user, corpus, template, request=info.context
             )
+            if not created:
+                return AddTemplateToCorpus(
+                    ok=False,
+                    message="This template has already been added to the corpus",
+                    obj=None,
+                )
 
             return AddTemplateToCorpus(
                 ok=True,
@@ -1664,7 +1648,8 @@ class SetupCorpusIntelligence(graphene.Mutation):
     and starts the first weave (deterministic), then clones the description +
     summary action templates and batch-runs each over every document already
     in the corpus (LLM). Safe to repeat — every step skips work that already
-    exists. Requires UPDATE permission on the corpus.
+    exists. Requires CRUD permission on the corpus — the tier
+    AddTemplateToCorpus and CreateCorpusAction gate the identical writes at.
     """
 
     class Arguments:

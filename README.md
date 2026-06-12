@@ -29,14 +29,39 @@ findings = await agent.structured_response(
 [![Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/JSv4)
 
 |                   |                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Backend coverage  | [![backend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=backend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=backend)                                                                                                                                                                                                                             |
 | Frontend coverage | [![frontend](https://codecov.io/gh/Open-Source-Legal/OpenContracts/branch/main/graph/badge.svg?flag=frontend&token=RdVsiuaTVz)](https://app.codecov.io/gh/Open-Source-Legal/OpenContracts?flags%5B0%5D=frontend)                                                                                                                                                                                                                          |
 | Meta              | [![code style - black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![types - Mypy](https://img.shields.io/badge/types-Mypy-blue.svg)](https://github.com/python/mypy) [![imports - isort](https://img.shields.io/badge/imports-isort-ef8336.svg)](https://github.com/pycqa/isort) [![License - MIT](https://img.shields.io/badge/license-MIT-green)](https://opensource.org/licenses/MIT) |
 
 ---
 
-![Discovery Landing Page](docs/assets/images/screenshots/auto/landing--discovery-page--anonymous.png)
+## From documents to a citation graph — in about a minute
+
+Create a corpus, drop in your documents, and click **Set up**. That one click installs the
+intelligence bundle: agents describe and summarize every document, and the reference web
+starts weaving — every statutory citation detected, resolved, and drawn as an edge.
+
+![Create a corpus and set up collection intelligence in one click](docs/assets/images/gifs/demo-1-create-and-setup.gif)
+
+By the end of the clip, 36 SEC filings are a navigable graph — wired to the Delaware
+General Corporation Law, the Securities Act, and the SEC rules they cite, section by
+section. Law the library doesn't hold yet isn't dropped on the floor: it's tracked as a
+backlog, automatically, until you ingest it.
+
+### Then explore it — and ask it questions
+
+Citations are highlighted inline on the filings themselves. The References panel lists
+everything a document cites — click any cite to open the statute, with its own
+cross-references and everything that cites it back. The ask bar runs a corpus-scoped
+agent whose answers come back grounded and cited.
+
+![Explore the citation graph — inline citations, the references panel, and grounded answers](docs/assets/images/gifs/demo-2-explore-and-ask.gif)
+
+Everything in both clips is the stock product against a local install — no custom code,
+and every surface the UI touches is also reachable over the API and MCP server below.
+
+---
 
 ## Build on it
 
@@ -189,7 +214,9 @@ This is the DRY principle applied to the citation graph: annotate once, build on
 
 ---
 
-## See it in Action
+## Annotation flows
+
+The human side of the graph — precise, layout-faithful annotation on PDFs and text:
 
 ### PDF Annotation Flow
 
@@ -240,10 +267,10 @@ docker compose -f production.yml up -d
 
 The discover/landing page and the `/about` page are driven by a JSON content pack so deployers can retarget the messaging without forking the codebase. Two variants ship in the repo:
 
-| Variant key     | Framing                                                | Best fit                                                                        |
-| --------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `default`       | _Open-source document intelligence you can build on._  | The OSS project's repo and most self-hosted deployments — developer-facing.     |
-| `public-record` | _The citation layer underneath the public record._     | End-user deployments curating public-domain documents (named-incumbents pitch). |
+| Variant key     | Framing                                               | Best fit                                                                        |
+| --------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `default`       | _Open-source document intelligence you can build on._ | The OSS project's repo and most self-hosted deployments — developer-facing.     |
+| `public-record` | _The citation layer underneath the public record._    | End-user deployments curating public-domain documents (named-incumbents pitch). |
 
 Switch variants at runtime by setting `REACT_APP_LANDING_VARIANT` in `frontend/public/env-config.js` — no rebuild required. Unknown variant keys fall back to `default`.
 

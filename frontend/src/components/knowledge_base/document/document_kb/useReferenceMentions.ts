@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
-import { useLazyQuery } from "@apollo/client";
+import { useApolloClient } from "@apollo/client";
 
 import {
   GET_ANALYSES_FOR_CORPUS_ENRICHMENT,
-  GET_ANNOTATIONS_FOR_ANALYSIS,
+  GET_REFERENCE_MENTIONS_FOR_ANALYSIS,
   GetAnalysesForCorpusEnrichmentInputType,
   GetAnalysesForCorpusEnrichmentOutputType,
 } from "../../../../graphql/queries";
@@ -25,11 +25,13 @@ import { convertToServerAnnotation } from "../../../../utils/transform";
  * cross-references to be visible and clickable without hunting for an
  * analysis selector.
  *
- * Flow: discover the corpus's reference-enrichment Analyses (matched on
- * `analyzer.taskName` — the corpus filter on the analyses query is loose, so
- * every matching analysis is tried; `fullAnnotationList(documentId)` scopes
- * each to this document), fetch their annotations via the existing
- * per-analysis query (which enforces analysis visibility server-side), and
+ * Flow: discover the corpus's reference-enrichment Analyses (scoped
+ * server-side via `analyses(analyzedCorpusId:)` and matched on
+ * `analyzer.taskName`; `fullAnnotationList(documentId)` scopes
+ * each to this document), fetch their annotations via the LEAN
+ * per-analysis query (analysis visibility is enforced server-side; the full
+ * GET_ANNOTATIONS_FOR_ANALYSIS selection costs minutes for ~100 mentions —
+ * see GET_REFERENCE_MENTIONS_FOR_ANALYSIS), and
  * merge them into `pdfAnnotations` — id-deduped, and gated one-shot per
  * (document, corpus) so Apollo's cache/network double emissions can't
  * double-insert.
@@ -49,14 +51,12 @@ export function useReferenceMentions(
   const mergedForRef = useRef<string>("");
   const mergeKey = `${documentId}:${corpusId ?? ""}`;
 
-  const [discoverAnalyses] = useLazyQuery<
-    GetAnalysesForCorpusEnrichmentOutputType,
-    GetAnalysesForCorpusEnrichmentInputType
-  >(GET_ANALYSES_FOR_CORPUS_ENRICHMENT, { fetchPolicy: "cache-first" });
-
-  const [fetchMentions] = useLazyQuery(GET_ANNOTATIONS_FOR_ANALYSIS, {
-    fetchPolicy: "cache-first",
-  });
+  // client.query (not useLazyQuery): this is an imperative await-in-a-loop
+  // flow, and a lazy-query handle re-executed with changing variables can
+  // leave a promise unsettled (observed live: the per-analysis loop hung on
+  // the first await and the merge never ran). client.query promises always
+  // settle.
+  const client = useApolloClient();
 
   // Keep a live ref of current annotations for the async merge below —
   // depending on `pdfAnnotations` directly would re-run the effect on every
@@ -73,7 +73,14 @@ export function useReferenceMentions(
     let succeeded = false;
     (async () => {
       try {
-        const { data } = await discoverAnalyses({ variables: { corpusId } });
+        const { data } = await client.query<
+          GetAnalysesForCorpusEnrichmentOutputType,
+          GetAnalysesForCorpusEnrichmentInputType
+        >({
+          query: GET_ANALYSES_FOR_CORPUS_ENRICHMENT,
+          variables: { corpusId },
+          fetchPolicy: "cache-first",
+        });
         const enrichmentAnalyses = (data?.analyses?.edges ?? [])
           .map((e) => e.node)
           .filter(
@@ -91,8 +98,10 @@ export function useReferenceMentions(
         const fresh: ReturnType<typeof convertToServerAnnotation>[] = [];
         const existingIds = new Set(annotationsRef.current.map((a) => a.id));
         for (const analysis of enrichmentAnalyses) {
-          const { data: annData } = await fetchMentions({
+          const { data: annData } = await client.query({
+            query: GET_REFERENCE_MENTIONS_FOR_ANALYSIS,
             variables: { analysisId: analysis.id, documentId },
+            fetchPolicy: "cache-first",
           });
           if (cancelled) return;
           for (const ann of annData?.analysis?.fullAnnotationList ?? []) {
@@ -123,13 +132,5 @@ export function useReferenceMentions(
       // retry while the component stays mounted.
       if (!succeeded) mergedForRef.current = "";
     };
-  }, [
-    ready,
-    mergeKey,
-    corpusId,
-    documentId,
-    discoverAnalyses,
-    fetchMentions,
-    addMultipleAnnotations,
-  ]);
+  }, [ready, mergeKey, corpusId, documentId, client, addMultipleAnnotations]);
 }

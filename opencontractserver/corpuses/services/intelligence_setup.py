@@ -44,6 +44,9 @@ class TemplateSetupOutcome:
     queued_count: int
     skipped_already_run_count: int
     error: str = ""
+    # Documents deferred past the per-call batch cap — a later run (or the
+    # add_document trigger) picks them up.
+    remaining_count: int = 0
 
 
 @dataclass
@@ -62,13 +65,23 @@ class IntelligenceSetupSummary:
 class IntelligenceSetupStatus:
     """Which bundle pieces a corpus already has (drives the setup CTA)."""
 
+    reference_available: bool
     reference_action_installed: bool
     installed_template_names: list[str]
     missing_template_names: list[str]
+    can_setup: bool
 
     @property
     def is_fully_set_up(self) -> bool:
-        return self.reference_action_installed and not self.missing_template_names
+        """Everything *installable on this deployment* is installed.
+
+        Pieces the deployment cannot provide (no enrichment analyzer
+        registered, bundle template missing/inactive) are excluded — they can
+        never install, so requiring them would leave the setup CTA visible
+        forever with nothing left for it to do.
+        """
+        reference_done = self.reference_action_installed or not self.reference_available
+        return reference_done and not self.missing_template_names
 
 
 class CorpusIntelligenceSetupService(BaseService):
@@ -89,32 +102,54 @@ class CorpusIntelligenceSetupService(BaseService):
     ) -> ServiceResult[IntelligenceSetupStatus]:
         """Report which bundle pieces are already installed on the corpus.
 
-        Three DB queries per call (corpus fetch, reference-action exists,
-        installed-template names). Mounted once per corpus page load, so the
-        cost is negligible; revisit (e.g. a single aggregated query) if this is
-        ever polled or rendered per-row in the corpus list.
+        A handful of DB queries per call (corpus fetch, analyzer lookup,
+        reference-action exists, available + installed template names, one
+        permission check). Mounted once per corpus page load, so the cost is
+        negligible; revisit (e.g. a single aggregated query) if this is ever
+        polled or rendered per-row in the corpus list.
         """
-        from opencontractserver.corpuses.models import Corpus, CorpusAction
+        from opencontractserver.corpuses.models import (
+            Corpus,
+            CorpusAction,
+            CorpusActionTemplate,
+        )
+        from opencontractserver.enrichment.services import EnrichmentService
 
         corpus = cls.get_or_none(Corpus, corpus_pk, user)
         if corpus is None:
             return ServiceResult.failure(cls._NOT_FOUND_MESSAGE)
 
+        reference_available = EnrichmentService.get_analyzer() is not None
         reference_installed = cls._reference_action_qs(corpus).exists()
+        available = set(
+            CorpusActionTemplate.objects.filter(
+                name__in=INTELLIGENCE_SETUP_TEMPLATE_NAMES, is_active=True
+            ).values_list("name", flat=True)
+        )
         installed = list(
             CorpusAction.objects.filter(
                 corpus=corpus,
                 source_template__name__in=INTELLIGENCE_SETUP_TEMPLATE_NAMES,
             ).values_list("source_template__name", flat=True)
         )
+        # Only deployment-available templates count as missing — an inactive
+        # or unseeded template can never install (see is_fully_set_up).
         missing = [
-            name for name in INTELLIGENCE_SETUP_TEMPLATE_NAMES if name not in installed
+            name
+            for name in INTELLIGENCE_SETUP_TEMPLATE_NAMES
+            if name in available and name not in installed
         ]
         return ServiceResult.success(
             IntelligenceSetupStatus(
+                reference_available=reference_available,
                 reference_action_installed=reference_installed,
                 installed_template_names=installed,
                 missing_template_names=missing,
+                # Mirrors setup()'s gate so the CTA never renders for viewers
+                # whose click is guaranteed to fail.
+                can_setup=cls.user_has(
+                    corpus, user, PermissionTypes.CRUD, request=request
+                ),
             )
         )
 
@@ -129,7 +164,13 @@ class CorpusIntelligenceSetupService(BaseService):
         *,
         request: Any = None,
     ) -> ServiceResult[IntelligenceSetupSummary]:
-        """Install the bundle and kick off enrichment over existing documents."""
+        """Install the bundle and kick off enrichment over existing documents.
+
+        Gated at CRUD — the same tier ``AddTemplateToCorpus`` and
+        ``CreateCorpusAction`` require for installing the identical rows
+        individually, so this composite is never a weaker path to the same
+        writes.
+        """
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.corpuses.services.corpus_documents import (
             CorpusDocumentService,
@@ -141,7 +182,7 @@ class CorpusIntelligenceSetupService(BaseService):
         error = cls.require_permission(
             corpus,
             user,
-            PermissionTypes.UPDATE,
+            PermissionTypes.CRUD,
             request=request,
             error_message=cls._NOT_FOUND_MESSAGE,
         )
@@ -153,17 +194,21 @@ class CorpusIntelligenceSetupService(BaseService):
             reference_action_already_installed=False,
             reference_analysis_started=False,
             reference_available=False,
-            # Corpus-as-gate count through the service (the setup user holds
-            # UPDATE, hence READ) rather than reaching into the private
-            # Corpus._get_active_documents — same active-document set,
-            # include_caml=False on both surfaces.
-            total_active_documents=CorpusDocumentService.get_corpus_documents(
-                user, corpus, request=request
-            ).count(),
         )
 
         cls._setup_reference_enrichment(user, corpus, summary, request=request)
-        cls._setup_templates(user, corpus, summary, request=request)
+        batch_total = cls._setup_templates(user, corpus, summary, request=request)
+        # Every batch run already computes the active-document total; only
+        # fall back to a standalone corpus-as-gate count through the service
+        # (the setup user holds CRUD, hence READ) when no batch ran — same
+        # active-document set, include_caml=False on both surfaces.
+        summary.total_active_documents = (
+            batch_total
+            if batch_total is not None
+            else CorpusDocumentService.get_corpus_documents(
+                user, corpus, request=request
+            ).count()
+        )
 
         cls.log_action(
             "Intelligence setup for",
@@ -205,23 +250,18 @@ class CorpusIntelligenceSetupService(BaseService):
         request: Any = None,
     ) -> None:
         """Install the reference-web action and start the first weave."""
-        from opencontractserver.analyzer.models import Analysis, Analyzer
+        from opencontractserver.analyzer.models import Analysis
         from opencontractserver.analyzer.services.analysis_lifecycle_service import (
             AnalysisLifecycleService,
         )
-        from opencontractserver.corpuses.models import (
-            CorpusAction,
-            CorpusActionTrigger,
-        )
-        from opencontractserver.enrichment import constants as enrichment_constants
+        from opencontractserver.corpuses.models import CorpusActionTrigger
+        from opencontractserver.enrichment.services import EnrichmentService
         from opencontractserver.types.enums import JobStatus
         from opencontractserver.utils.permissioning import (
             set_permissions_for_obj_to_user,
         )
 
-        analyzer = Analyzer.objects.filter(
-            task_name=enrichment_constants.ENRICHMENT_ANALYZER_TASK
-        ).first()
+        analyzer = EnrichmentService.get_analyzer()
         if analyzer is None:
             # Deployment without the enrichment analyzer registered — the
             # LLM half of the bundle still proceeds.
@@ -235,17 +275,31 @@ class CorpusIntelligenceSetupService(BaseService):
         if cls._reference_action_qs(corpus).exists():
             summary.reference_action_already_installed = True
         else:
-            action = CorpusAction.objects.create(
-                name=REFERENCE_ENRICHMENT_ACTION_NAME,
+            from opencontractserver.corpuses.models import CorpusAction
+
+            # get_or_create (rather than a bare create()) narrows the
+            # concurrent-double-install window and converges on the same row
+            # the governance graph's bootstrap CTA creates, regardless of
+            # which path ran first. No DB constraint backs this up
+            # (source_template is NULL, so unique_template_per_corpus doesn't
+            # apply) — a duplicate from a photo-finish race is wasted work,
+            # not corruption (the enrichment writer is idempotent).
+            action, created = CorpusAction.objects.get_or_create(
                 corpus=corpus,
-                analyzer=analyzer,
                 trigger=CorpusActionTrigger.ADD_DOCUMENT.value,
-                creator=user,
+                analyzer=analyzer,
+                defaults={
+                    "name": REFERENCE_ENRICHMENT_ACTION_NAME,
+                    "creator": user,
+                },
             )
-            set_permissions_for_obj_to_user(
-                user, action, [PermissionTypes.CRUD], request=request
-            )
-            summary.reference_action_installed_now = True
+            if created:
+                set_permissions_for_obj_to_user(
+                    user, action, [PermissionTypes.CRUD], request=request
+                )
+                summary.reference_action_installed_now = True
+            else:
+                summary.reference_action_already_installed = True
 
         # First weave now (not just on the next upload) — unless one is
         # already in flight, in which case starting another would only
@@ -284,20 +338,24 @@ class CorpusIntelligenceSetupService(BaseService):
         summary: IntelligenceSetupSummary,
         *,
         request: Any = None,
-    ) -> None:
-        """Clone the bundle templates and batch-run each over existing docs."""
-        from django.db import IntegrityError, transaction
+    ) -> int | None:
+        """Clone the bundle templates and batch-run each over existing docs.
 
-        from opencontractserver.corpuses.models import (
-            CorpusAction,
-            CorpusActionTemplate,
-        )
+        Returns the active-document total computed by the last batch run, or
+        ``None`` when no batch ran (lets ``setup`` skip a redundant count).
+        """
+        from opencontractserver.corpuses.models import CorpusActionTemplate
         from opencontractserver.corpuses.services.corpus_actions import (
             CorpusActionService,
         )
-        from opencontractserver.utils.permissioning import (
-            set_permissions_for_obj_to_user,
-        )
+
+        templates_by_name = {
+            t.name: t
+            for t in CorpusActionTemplate.objects.filter(
+                name__in=INTELLIGENCE_SETUP_TEMPLATE_NAMES, is_active=True
+            )
+        }
+        batch_total: int | None = None
 
         for name in INTELLIGENCE_SETUP_TEMPLATE_NAMES:
             outcome = TemplateSetupOutcome(
@@ -309,9 +367,7 @@ class CorpusIntelligenceSetupService(BaseService):
             )
             summary.templates.append(outcome)
 
-            template = CorpusActionTemplate.objects.filter(
-                name=name, is_active=True
-            ).first()
+            template = templates_by_name.get(name)
             if template is None:
                 outcome.error = "Template not found or inactive."
                 logger.warning(
@@ -321,53 +377,51 @@ class CorpusIntelligenceSetupService(BaseService):
                 )
                 continue
 
-            action = CorpusAction.objects.filter(
-                corpus=corpus, source_template=template
-            ).first()
-            if action is not None:
-                outcome.already_installed = True
+            try:
+                action, created = CorpusActionService.install_template(
+                    user, corpus, template, request=request
+                )
+            except Exception as exc:
+                # Any non-IntegrityError clone failure (e.g. OperationalError,
+                # ValueError) must stay contained to this template — the bundle
+                # promises graceful partial success, so record it and move on
+                # rather than aborting the remaining templates with a 500.
+                outcome.error = f"Failed to install template: {exc}"
+                logger.exception(
+                    "Intelligence setup: clone failed for %r on corpus %s",
+                    name,
+                    corpus.pk,
+                )
+                continue
+            if action is None:
+                outcome.error = "Failed to install template."
+                continue
+            if created:
+                outcome.installed_now = True
             else:
-                try:
-                    # Savepoint so a duplicate-insert race doesn't poison the
-                    # outer transaction (mirrors AddTemplateToCorpus).
-                    with transaction.atomic():
-                        action = template.clone_to_corpus(corpus, creator=user)
-                except IntegrityError:
-                    action = CorpusAction.objects.filter(
-                        corpus=corpus, source_template=template
-                    ).first()
-                    outcome.already_installed = action is not None
-                except Exception as exc:
-                    # Any other clone failure (e.g. OperationalError, ValueError)
-                    # must stay contained to this template — the bundle promises
-                    # graceful partial success, so record it and move on rather
-                    # than aborting the remaining templates with a 500.
-                    outcome.error = f"Failed to install template: {exc}"
-                    logger.exception(
-                        "Intelligence setup: clone failed for %r on corpus %s",
-                        name,
-                        corpus.pk,
-                    )
-                    continue
-                if action is None:
-                    outcome.error = "Failed to install template."
-                    continue
-                if outcome.already_installed is False:
-                    set_permissions_for_obj_to_user(
-                        user, action, [PermissionTypes.CRUD], request=request
-                    )
-                    outcome.installed_now = True
+                outcome.already_installed = True
 
-            batch = CorpusActionService.batch_run_on_corpus(
-                user, action.pk, request=request
+            # Partial mode: a corpus larger than the per-call cap queues the
+            # first cap-many documents instead of nothing — the remainder is
+            # reported so the UI can say what's deferred.
+            batch = CorpusActionService.batch_run_action(
+                user, action, request=request, allow_partial=True
             )
             if batch.ok and batch.value is not None:
                 outcome.queued_count = batch.value.queued_count
                 outcome.skipped_already_run_count = (
                     batch.value.skipped_already_run_count
                 )
+                batch_total = batch.value.total_active_documents
+                outcome.remaining_count = max(
+                    0,
+                    batch_total
+                    - outcome.skipped_already_run_count
+                    - outcome.queued_count,
+                )
             else:
-                # Surface (e.g. the BATCH_RUN_MAX_DOCS cap) without failing
-                # the whole setup — the action is installed and will run on
-                # future uploads regardless.
+                # Surface without failing the whole setup — the action is
+                # installed and will run on future uploads regardless.
                 outcome.error = batch.error or "Batch run failed."
+
+        return batch_total

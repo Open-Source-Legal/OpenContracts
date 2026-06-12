@@ -371,6 +371,44 @@ class CorpusActionBatchRunServiceTests(_BatchRunFixtureMixin, TransactionTestCas
         mock_task.delay.assert_not_called()
         self.assertFalse(CorpusActionExecution.objects.exists())
 
+    def test_over_cap_allow_partial_queues_up_to_cap(self):
+        """``batch_run_action(allow_partial=True)`` queues the first cap-many
+        eligible documents instead of refusing, and repeated calls continue
+        where the previous one left off (already-run docs are skipped)."""
+        with patch(
+            "opencontractserver.corpuses.services.corpus_actions.BATCH_RUN_MAX_DOCS",
+            3,
+        ), patch(RUN_AGENT_TASK_PATH):
+            first = CorpusActionService.batch_run_action(
+                self.owner, self.agent_action, allow_partial=True
+            )
+            second = CorpusActionService.batch_run_action(
+                self.owner, self.agent_action, allow_partial=True
+            )
+
+        self.assertTrue(first.ok, first.error)
+        assert first.value is not None
+        self.assertEqual(first.value.queued_count, 3)
+        self.assertEqual(first.value.total_active_documents, 5)
+
+        self.assertTrue(second.ok, second.error)
+        assert second.value is not None
+        self.assertEqual(second.value.queued_count, 2)
+        self.assertEqual(second.value.skipped_already_run_count, 3)
+        self.assertEqual(CorpusActionExecution.objects.count(), 5)
+
+    def test_over_cap_without_allow_partial_still_rejected(self):
+        """The trusted-action variant keeps the hard cap by default."""
+        with patch(
+            "opencontractserver.corpuses.services.corpus_actions.BATCH_RUN_MAX_DOCS",
+            3,
+        ), patch(RUN_AGENT_TASK_PATH) as mock_task:
+            result = CorpusActionService.batch_run_action(self.owner, self.agent_action)
+
+        self.assertFalse(result.ok)
+        self.assertIn("cap", result.error.lower())
+        mock_task.delay.assert_not_called()
+
 
 class StartCorpusActionBatchRunGraphQLTests(_BatchRunFixtureMixin, GraphQLTestCase):
     """End-to-end GraphQL tests for the StartCorpusActionBatchRun mutation."""

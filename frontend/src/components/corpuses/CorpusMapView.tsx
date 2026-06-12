@@ -181,7 +181,7 @@ export const CorpusMapView: React.FC<CorpusMapViewProps> = ({
         if (!resolvedDoc) {
           return;
         }
-        const url = getDocumentUrl(resolvedDoc, resolvedDoc.corpus);
+        const url = getDocumentUrl(resolvedDoc);
         if (url !== "#") {
           navigate(url);
         }

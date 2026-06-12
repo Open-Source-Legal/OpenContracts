@@ -342,3 +342,72 @@ class ExtractsMutationTestCase(TestCase):
         # Verify the extract was deleted
         with self.assertRaises(Extract.DoesNotExist):
             Extract.objects.get(id=self.extract.id)
+
+
+class UpdateFieldsetMutationTestCase(TestCase):
+    """``updateFieldset`` — schema-validated counterpart of the frontend's
+    REQUEST_UPDATE_FIELDSET document (previously called a mutation that did
+    not exist; the un-validated endpoint silently ignored it and edits were
+    lost)."""
+
+    MUTATION = """
+        mutation UpdateFieldset($id: ID!, $name: String, $description: String) {
+            updateFieldset(id: $id, name: $name, description: $description) {
+                ok
+                message
+                obj { id name description }
+            }
+        }
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="fs-owner", password="x")
+        self.stranger = User.objects.create_user(username="fs-stranger", password="x")
+        self.fieldset = Fieldset.objects.create(
+            name="Before", description="before", creator=self.user
+        )
+        set_permissions_for_obj_to_user(
+            self.user, self.fieldset, [PermissionTypes.CRUD]
+        )
+
+    def _execute(self, user, variables):
+        from django.test import RequestFactory
+
+        from config.graphql.schema import schema
+
+        request = RequestFactory().post("/graphql/")
+        request.user = user
+        return schema.execute(
+            self.MUTATION, variable_values=variables, context_value=request
+        )
+
+    def test_creator_can_update(self):
+        result = self._execute(
+            self.user,
+            {
+                "id": to_global_id("FieldsetType", self.fieldset.pk),
+                "name": "After",
+                "description": "after",
+            },
+        )
+        self.assertIsNone(result.errors, result.errors)
+        payload = result.data["updateFieldset"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.fieldset.refresh_from_db()
+        self.assertEqual(self.fieldset.name, "After")
+        self.assertEqual(self.fieldset.description, "after")
+
+    def test_stranger_gets_unified_not_found(self):
+        result = self._execute(
+            self.stranger,
+            {
+                "id": to_global_id("FieldsetType", self.fieldset.pk),
+                "name": "Hacked",
+            },
+        )
+        self.assertIsNone(result.errors, result.errors)
+        payload = result.data["updateFieldset"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        self.fieldset.refresh_from_db()
+        self.assertEqual(self.fieldset.name, "Before")

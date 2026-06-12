@@ -19,7 +19,7 @@ import { SETUP_CORPUS_INTELLIGENCE } from "../src/graphql/mutations";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
 
-const statusMock = (isSet: boolean) => ({
+const statusMock = (isSet: boolean, canSetup = true) => ({
   request: {
     query: GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
     variables: { corpusId: CORPUS_ID },
@@ -27,6 +27,7 @@ const statusMock = (isSet: boolean) => ({
   result: {
     data: {
       corpusIntelligenceSetupStatus: {
+        referenceAvailable: true,
         referenceActionInstalled: isSet,
         installedTemplateNames: isSet
           ? ["Document Description Updater", "Document Summary Generator"]
@@ -35,6 +36,7 @@ const statusMock = (isSet: boolean) => ({
           ? []
           : ["Document Description Updater", "Document Summary Generator"],
         isFullySetUp: isSet,
+        canSetup,
       },
     },
   },
@@ -47,6 +49,7 @@ const template = (overrides: Record<string, unknown> = {}) => ({
   queuedCount: 12,
   skippedAlreadyRunCount: 0,
   error: "",
+  remainingCount: 0,
   ...overrides,
 });
 
@@ -143,6 +146,76 @@ test.describe("IntelligenceSetupBanner", () => {
     await component.unmount();
   });
 
+  test("renders nothing for viewers who cannot run setup", async ({
+    mount,
+    page,
+  }) => {
+    // canSetup=false (read-only / anonymous viewer): the CTA would be a
+    // guaranteed-to-fail button, so the banner must not render at all.
+    const component = await mount(
+      <MockedProvider
+        mocks={[statusMock(false, false), statusMock(false, false)]}
+        addTypename={false}
+      >
+        <IntelligenceSetupBanner corpusId={CORPUS_ID} />
+      </MockedProvider>
+    );
+
+    await page.waitForTimeout(1000);
+    await expect(
+      page.locator('[data-testid="intelligence-setup-banner"]')
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("queued runs with a capped remainder report the deferred count", async ({
+    mount,
+    page,
+  }) => {
+    // A corpus larger than the per-call cap queues cap-many docs and defers
+    // the rest — the toast must say so instead of implying full coverage.
+    const component = await mount(
+      <MockedProvider
+        mocks={[
+          statusMock(false),
+          setupMockWith(
+            setupResult({
+              templates: [
+                template({ queuedCount: 200, remainingCount: 50 }),
+                template({
+                  templateName: "Document Summary Generator",
+                  queuedCount: 200,
+                  remainingCount: 50,
+                }),
+              ],
+            })
+          ),
+          statusMock(true),
+        ]}
+        addTypename={false}
+      >
+        <>
+          <ToastContainer />
+          <IntelligenceSetupBanner corpusId={CORPUS_ID} />
+        </>
+      </MockedProvider>
+    );
+
+    await page
+      .locator('[data-testid="intelligence-setup-banner-button"]')
+      .click();
+
+    await expect(
+      page.getByText(/400 document enrichment runs queued/i)
+    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/100 more deferred/i)).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
   test("nothing-queued with a template error surfaces a soft warning", async ({
     mount,
     page,
@@ -182,8 +255,11 @@ test.describe("IntelligenceSetupBanner", () => {
       .locator('[data-testid="intelligence-setup-banner-button"]')
       .click();
 
+    const warning = page.getByText(/some document runs couldn't be queued/i);
+    await expect(warning).toBeVisible({ timeout: 10000 });
+    // The actual per-template failure is surfaced, not a generic guess.
     await expect(
-      page.getByText(/some document runs couldn't be queued/i)
+      page.getByText(/Batch run capped at 50 documents/i)
     ).toBeVisible({ timeout: 10000 });
 
     await component.unmount();

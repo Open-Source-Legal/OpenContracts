@@ -978,6 +978,13 @@ class IntelligenceTemplateOutcomeType(graphene.ObjectType):
         required=True,
         description="Per-template failure (empty string when the step succeeded).",
     )
+    remaining_count = graphene.Int(
+        required=True,
+        description=(
+            "Documents deferred past the per-call batch cap — re-run setup "
+            "(or wait for the add_document trigger) to process them."
+        ),
+    )
 
 
 class CorpusIntelligenceSetupSummaryType(graphene.ObjectType):
@@ -1006,6 +1013,10 @@ class CorpusIntelligenceSetupSummaryType(graphene.ObjectType):
 class CorpusIntelligenceSetupStatusType(graphene.ObjectType):
     """Which intelligence-bundle pieces a corpus already has installed."""
 
+    reference_available = graphene.Boolean(
+        required=True,
+        description="The reference-enrichment analyzer is registered on this deployment.",
+    )
     reference_action_installed = graphene.Boolean(required=True)
     installed_template_names = graphene.List(
         graphene.NonNull(graphene.String), required=True
@@ -1015,5 +1026,16 @@ class CorpusIntelligenceSetupStatusType(graphene.ObjectType):
     )
     is_fully_set_up = graphene.Boolean(
         required=True,
-        description="Reference action installed and no bundle template missing.",
+        description=(
+            "Every deployment-installable bundle piece is installed "
+            "(unavailable pieces — unregistered analyzer, inactive template — "
+            "are excluded)."
+        ),
+    )
+    can_setup = graphene.Boolean(
+        required=True,
+        description=(
+            "The requesting user holds the permission setupCorpusIntelligence "
+            "requires (CRUD) — drives the setup CTA's visibility."
+        ),
     )

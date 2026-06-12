@@ -12,10 +12,8 @@ skipped — the extraction result is never lost.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from asgiref.sync import sync_to_async
 
@@ -24,7 +22,10 @@ from opencontractserver.constants.extraction import (
     MAX_GROUNDABLE_STRINGS,
     MIN_GROUNDABLE_LENGTH,
 )
-from opencontractserver.utils.files import read_field_file_text
+from opencontractserver.utils.span_projection import (
+    load_document_text_and_layer,
+    project_span_to_token_annotation,
+)
 from opencontractserver.utils.text_alignment import (
     AlignmentResult,
     align_text_to_document,
@@ -115,51 +116,9 @@ def _is_non_groundable(s: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@sync_to_async
-def _load_document_text_and_layer(document: Document) -> tuple[str, Any, str]:
-    """Load document text and optional PlasmaPDF translation layer.
-
-    Returns:
-        (doc_text, pdf_layer_or_none, annotation_type_const)
-    """
-    from opencontractserver.annotations.models import SPAN_LABEL, TOKEN_LABEL
-    from opencontractserver.constants.document_processing import (
-        DOCX_MIME_TYPE,
-        TEXT_MIMETYPES,
-    )
-    from opencontractserver.utils.compact_pawls import expand_pawls_pages
-
-    file_type = (document.file_type or "").lower()
-
-    if file_type == "application/pdf":
-        if not document.pawls_parse_file:
-            raise ValueError(
-                f"PDF document id={document.id} lacks a PAWLS layer; "
-                "cannot ground extractions."
-            )
-        from plasmapdf.models.PdfDataLayer import build_translation_layer
-
-        with document.pawls_parse_file.open("r") as f:
-            pawls_tokens = expand_pawls_pages(json.load(f))
-
-        pdf_layer = build_translation_layer(pawls_tokens)
-        return pdf_layer.doc_text, pdf_layer, TOKEN_LABEL
-
-    elif file_type in TEXT_MIMETYPES or file_type == DOCX_MIME_TYPE:
-        if not document.txt_extract_file:
-            raise ValueError(
-                f"Document id={document.id} (type={file_type}) lacks "
-                "txt_extract_file; cannot ground extractions."
-            )
-        doc_text = read_field_file_text(document.txt_extract_file)
-
-        return doc_text, None, SPAN_LABEL
-
-    else:
-        raise ValueError(
-            f"Unsupported file_type {file_type!r} for grounding on "
-            f"document id={document.id}"
-        )
+# Shared with the enrichment writer — single home for the format-aware text
+# load and the span→token projection (opencontractserver/utils/span_projection).
+_load_document_text_and_layer = sync_to_async(load_document_text_and_layer)
 
 
 # ---------------------------------------------------------------------------
@@ -294,31 +253,18 @@ def _create_pdf_annotation(
     caller's per-annotation ``try/except`` rolls back the savepoint and
     logs the skip.
     """
-    from plasmapdf.models.types import SpanAnnotation, TextSpan
-
     from opencontractserver.annotations.models import TOKEN_LABEL, Annotation
 
-    span = TextSpan(
-        id=str(uuid4()),
+    # Shared projection raises ValueError when PlasmaPDF cannot determine the
+    # page; the caller's per-annotation try/except rolls back the savepoint
+    # and logs the skip (preferred over saving with a wrong page).
+    annotation_json, page, raw_text = project_span_to_token_annotation(
+        pdf_layer,
         start=result.char_start,
         end=result.char_end,
         text=result.matched_text,
+        label_text=label_obj.text,
     )
-    span_annotation = SpanAnnotation(span=span, annotation_label=label_obj.text)
-    oc_ann = pdf_layer.create_opencontract_annotation_from_span(span_annotation)
-
-    page = oc_ann.get("page")
-    if page is None:
-        # Skipping is preferred over saving with page=1: a wrong page on a
-        # multi-page PDF produces a structurally incorrect annotation that
-        # confuses users clicking through to the source.  Raising rolls
-        # back the savepoint and the outer loop logs it as a failed
-        # grounding attempt.
-        raise ValueError(
-            f"PlasmaPDF could not determine page for span "
-            f"[{result.char_start}:{result.char_end}] in document "
-            f"{document.id}; skipping grounding annotation."
-        )
 
     # Note: ``json`` (bounding boxes) is in ``defaults``, NOT a lookup key.
     # For PDFs the (document, corpus, label, page, raw_text) tuple already
@@ -352,12 +298,12 @@ def _create_pdf_annotation(
         annotation_label=label_obj,
         page=page,
         annotation_type=TOKEN_LABEL,
-        raw_text=oc_ann["rawText"],
+        raw_text=raw_text,
         creator_id=creator_id,
         is_grounding_source=True,
         structural=False,
         defaults={
-            "json": oc_ann["annotation_json"],
+            "json": annotation_json,
         },
     )
     return annot

@@ -428,3 +428,218 @@ class CorpusReferencesResolverGuardTests(TestCase):
         result = self._execute(relay_id)
         self.assertNotIn("errors", result)
         self.assertEqual(result["data"]["corpusReferences"]["edges"], [])
+
+
+class PdfTokenMentionTests(TestCase):
+    """Mention annotations on PDF documents are projected onto PAWLs tokens.
+
+    The enrichment extractor works in char offsets against
+    ``txt_extract_file``; for PDFs that text IS the PlasmaPDF translation
+    layer's ``doc_text`` (the parser saves it that way), so the writer can
+    project each mention onto token bounding boxes losslessly — the same
+    machinery datacell grounding uses. TXT documents keep span mentions.
+    """
+
+    # Two pages so the page projection is observable (legacy writer
+    # hardcoded page=1 for everything).
+    PAGES = [
+        "We are subject to Section 203 of the Delaware General Corporation "
+        "Law and related provisions thereof. "
+        "See “Risk Factors” for important considerations.",
+        "Risk Factors are described here. "
+        "Indemnification is governed by Section 145 of the Delaware General "
+        "Corporation Law as amended.",
+    ]
+
+    def setUp(self):
+        import json as jsonlib
+
+        from plasmapdf.models.PdfDataLayer import build_translation_layer
+
+        from opencontractserver.tests.test_extraction_grounding import (
+            _build_pawls_for_text,
+        )
+
+        self.user = User.objects.create_user(username="pdf-owner", password="p")
+        self.corpus = Corpus.objects.create(title="PDF Corpus", creator=self.user)
+
+        pawls_json = _build_pawls_for_text(self.PAGES)
+        layer = build_translation_layer(jsonlib.loads(pawls_json))
+        self.doc_text = layer.doc_text
+
+        self.pdf_doc = Document.objects.create(
+            title="Acme S-1 (2024-09-30) - primary document",
+            creator=self.user,
+            file_type="application/pdf",
+        )
+        self.pdf_doc.pawls_parse_file.save(
+            "doc.pawls", ContentFile(pawls_json.encode("utf-8"))
+        )
+        # Mirrors the parser: txt extract is the translation layer's text.
+        self.pdf_doc.txt_extract_file.save(
+            "doc.txt", ContentFile(self.doc_text.encode("utf-8"))
+        )
+        self.in_corpus, _, _ = self.corpus.add_document(
+            document=self.pdf_doc, user=self.user
+        )
+
+    def _law_mentions(self):
+        return Annotation.objects.filter(
+            document=self.in_corpus,
+            corpus=self.corpus,
+            annotation_label__text=C.LABEL_REF_LAW,
+        )
+
+    def test_pdf_mentions_are_token_annotations_with_real_pages(self):
+        from opencontractserver.annotations.models import TOKEN_LABEL
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        mentions = list(self._law_mentions())
+        assert len(mentions) >= 2, [m.raw_text for m in mentions]
+        for m in mentions:
+            assert m.annotation_type == TOKEN_LABEL, m.raw_text
+            # Token payload: page-keyed dict (v1 or v2 compact), NOT a span.
+            assert isinstance(m.json, dict)
+            assert "start" not in m.json, m.json
+            # The char span survives as data so dedupe/converge can key on it.
+            assert isinstance(m.data.get("char_span"), dict), m.data
+            assert isinstance(m.data["char_span"]["start"], int)
+            assert m.annotation_label.label_type == TOKEN_LABEL
+
+        # The §145 mention is on the second page — the legacy hardcoded
+        # page=1 would flunk this.
+        pages = {m.page for m in mentions}
+        assert len(pages) >= 2, pages
+
+        # See-quoted-heading SECTION refs anchor their span at the quoted
+        # heading while raw_text includes the "See " prefix (raw extends LEFT
+        # of the span start) — the projection must handle that shape too.
+        section_mentions = list(
+            Annotation.objects.filter(
+                document=self.in_corpus,
+                corpus=self.corpus,
+                annotation_label__text=C.LABEL_REF_SECTION,
+                raw_text__icontains="Risk Factors",
+            )
+        )
+        assert section_mentions, "expected the see-quoted section mention"
+        from opencontractserver.annotations.models import TOKEN_LABEL as _TL
+
+        for m in section_mentions:
+            assert m.annotation_type == _TL, (m.raw_text, m.json)
+
+        # CorpusReference rows still hang off the token mentions.
+        assert (
+            CorpusReference.objects.filter(
+                corpus=self.corpus, reference_type=C.REF_LAW
+            ).count()
+            >= 2
+        )
+
+    def test_reapply_is_idempotent_for_token_mentions(self):
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        before = self._law_mentions().count()
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        assert self._law_mentions().count() == before
+
+    def test_legacy_span_mention_is_upgraded_in_place(self):
+        """Re-running enrichment converges pre-fix span mentions to token
+        mentions without duplicating them or breaking CorpusReference FKs."""
+        from opencontractserver.annotations.models import TOKEN_LABEL
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        mention = self._law_mentions().first()
+        assert mention is not None
+        ref_ids = set(
+            CorpusReference.objects.filter(source_annotation=mention).values_list(
+                "id", flat=True
+            )
+        )
+
+        # Downgrade to the exact legacy shape the old writer produced.
+        span_label = self.corpus.ensure_label_and_labelset(
+            label_text=C.LABEL_REF_LAW,
+            creator_id=self.user.id,
+            label_type=SPAN_LABEL,
+        )
+        char_span = dict(mention.data["char_span"])
+        legacy_data = {
+            k: v for k, v in (mention.data or {}).items() if k != "char_span"
+        }
+        Annotation.objects.filter(pk=mention.pk).update(
+            json={"start": char_span["start"], "end": char_span["end"]},
+            annotation_type=SPAN_LABEL,
+            annotation_label=span_label,
+            page=1,
+            data=legacy_data or None,
+        )
+
+        before = self._law_mentions().count()
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        assert self._law_mentions().count() == before  # no duplicate
+
+        mention.refresh_from_db()
+        assert mention.annotation_type == TOKEN_LABEL
+        assert "start" not in mention.json
+        assert mention.data["char_span"] == char_span
+        assert mention.annotation_label.label_type == TOKEN_LABEL
+        # The reference rows still point at the same (upgraded) annotation.
+        assert (
+            set(
+                CorpusReference.objects.filter(source_annotation=mention).values_list(
+                    "id", flat=True
+                )
+            )
+            == ref_ids
+        )
+
+    def test_drifted_offsets_are_remapped_by_occurrence(self):
+        """Real ingests routinely have whitespace-level drift between
+        ``txt_extract_file`` and the PAWLs-derived text (e.g. page
+        separators). Offsets then disagree, but each mention's raw text still
+        occurs in the same order in both — the writer remaps by ordinal
+        occurrence so PDF mentions keep their token representation."""
+        from opencontractserver.annotations.models import TOKEN_LABEL
+
+        # Shift everything: extra prefix + doubled whitespace mimic a parser
+        # that joined pages/sentences differently from PlasmaPDF; the
+        # line-wrapped citation mimics the hard-wrap drift seen on real
+        # EDGAR ingests (raw_text carries '\n' where PAWLs text has ' ').
+        drifted = "FORM S-1 COVER\n\n" + self.doc_text.replace(
+            "Section 145 of the Delaware", "Section 145 of\nthe Delaware"
+        ).replace(" Section 203", "  Section 203")
+        self.in_corpus.txt_extract_file.save(
+            "drifted.txt", ContentFile(drifted.encode("utf-8"))
+        )
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        mentions = list(self._law_mentions())
+        assert len(mentions) >= 2
+        for m in mentions:
+            assert m.annotation_type == TOKEN_LABEL, (m.raw_text, m.json)
+        assert len({m.page for m in mentions}) >= 2
+
+    def test_unfindable_mention_falls_back_to_span(self):
+        """A mention whose raw text does not exist in the PAWLs-derived text
+        at all (txt extract materially diverged) cannot be projected — keep
+        the trustworthy span representation rather than painting tokens in
+        the wrong place."""
+        ghost = (
+            self.doc_text
+            + " Plus a ghost citation: Section 999 of the Investment Company Act."
+        )
+        self.in_corpus.txt_extract_file.save(
+            "ghost.txt", ContentFile(ghost.encode("utf-8"))
+        )
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        ghost_mentions = [
+            m for m in self._law_mentions() if "999" in (m.raw_text or "")
+        ]
+        assert ghost_mentions, "expected the ghost citation to be extracted"
+        for m in ghost_mentions:
+            assert m.annotation_type == SPAN_LABEL, m.raw_text
+            assert "start" in m.json
