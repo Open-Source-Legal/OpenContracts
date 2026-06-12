@@ -1142,7 +1142,12 @@ def mutate(root, info, annotation_id):
         Annotation, annotation_pk, info.context.user, request=info.context
     )  # IDOR-safe: None whether missing or unreadable
 
-    # Single call handles all privacy/structural logic (falsy = granted)
+    # TRUTHINESS INVERSION (see BaseService.require_permission docstring):
+    # require_permission returns "" (falsy) when GRANTED and a human-readable
+    # denial string (truthy) when DENIED — it does NOT raise. The idiom below
+    # reads as "if denied, bail". Do NOT transcribe the legacy
+    # ``if user_can(...)`` direction onto this call — that flips the gate;
+    # use BaseService.user_has when you want a boolean grant.
     if annotation_obj is None or BaseService.require_permission(
         annotation_obj, info.context.user, PermissionTypes.DELETE,
         request=info.context,

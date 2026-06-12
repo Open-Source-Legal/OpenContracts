@@ -1227,6 +1227,10 @@ class RelationshipManager(BaseVisibilityManager):
         # short-circuit (see docstring) and before the doc/corpus MIN so a
         # non-creator without source access is denied regardless of their
         # doc+corpus grants.
+        # PERF: dereferences the created_by_* FKs when set — bulk callers
+        # looping ``user_can`` per row SHOULD select_related(
+        # "created_by_analysis", "created_by_extract") on their root
+        # queryset (see ``_source_privacy_recursion_passes``).
         if not _source_privacy_recursion_passes(
             user, instance, permission, include_group_permissions, request=request
         ):

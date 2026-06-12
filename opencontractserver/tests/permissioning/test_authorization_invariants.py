@@ -1193,6 +1193,35 @@ class RelationshipAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestC
             "analysis grant unlocked an EXTRACT-rooted relationship — leak!",
         )
 
+    def test_privacy_recursion_grants_via_extract_grant(self):
+        """Symmetrical positive pin for the EXTRACT branch: an explicit READ
+        grant on the source extract unlocks the extract-rooted relationship
+        on BOTH surfaces — and does not bleed into the analysis-rooted
+        sibling."""
+        from opencontractserver.annotations.models import Relationship
+
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.extract, [PermissionTypes.READ]
+        )
+        self.assertTrue(
+            self.private_rel_via_extract.user_can(
+                self.shared_reader, PermissionTypes.READ
+            ),
+            "user_can must honour the explicit READ grant on the source extract",
+        )
+        self.assertTrue(
+            Relationship.objects.visible_to_user(self.shared_reader)
+            .filter(pk=self.private_rel_via_extract.pk)
+            .exists(),
+            "visible_to_user must honour the explicit READ grant on the source extract",
+        )
+        self.assertFalse(
+            self.private_rel_via_analysis.user_can(
+                self.shared_reader, PermissionTypes.READ
+            ),
+            "extract grant unlocked an ANALYSIS-rooted relationship — leak!",
+        )
+
     def test_privacy_recursion_honors_group_grant(self):
         """A READ grant on the source analysis via a GROUP must unlock the
         analysis-rooted relationship on BOTH surfaces (filter/check parity
