@@ -702,7 +702,7 @@ def _source_privacy_recursion_passes(
         return True
 
     analysis_id = getattr(instance, "created_by_analysis_id", None)
-    if analysis_id:
+    if analysis_id is not None:
         # ``instance`` is statically ``Model`` but this branch only runs for
         # Annotation/Relationship rows, which declare this FK.
         source_analysis = instance.created_by_analysis  # type: ignore[attr-defined]
@@ -719,7 +719,7 @@ def _source_privacy_recursion_passes(
         )
 
     extract_id = getattr(instance, "created_by_extract_id", None)
-    if extract_id:
+    if extract_id is not None:
         # ``instance`` is statically ``Model`` but this branch only runs for
         # Annotation/Relationship rows, which declare this FK.
         source_extract = instance.created_by_extract  # type: ignore[attr-defined]
