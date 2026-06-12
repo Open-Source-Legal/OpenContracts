@@ -73,9 +73,21 @@ def visible_extracts_for(user: Any) -> QuerySet:
 
     Returns a lazy queryset (safe to embed as a subquery via
     ``__in=...``): nothing for anonymous users (extracts are never
-    anonymous-visible); own | user-granted | group-granted extracts for
-    authenticated users. ``is_public`` is intentionally absent — extract
-    privacy has never keyed off the flag and no user-facing flow sets it.
+    anonymous-visible — ``ExtractManager`` denies them on both surfaces, so
+    the flag is irrelevant on that branch); public | own | user-granted |
+    group-granted extracts for authenticated users.
+
+    ``is_public`` note: the original inline implementations omitted the
+    flag for extracts (while including it for analyses). That was a latent
+    filter/check parity violation, not a design choice — ``user_can``'s
+    privacy recursion delegates to ``Extract.objects.user_can``, which
+    grants READ on ``is_public`` rows for authenticated users, so an
+    extract-rooted row on a public extract passed ``user_can(READ)`` while
+    never appearing in lists. Including the flag here (authenticated branch
+    only) restores parity and mirrors ``visible_analyses_for``. No
+    user-facing flow currently sets ``Extract.is_public``, so this has no
+    practical exposure today; pinned by
+    ``test_public_extract_source_passes_both_surfaces``.
     """
     from django.db.models import Q
 
@@ -88,7 +100,7 @@ def visible_extracts_for(user: Any) -> QuerySet:
     if user is None or getattr(user, "is_anonymous", True):
         return Extract.objects.none()
 
-    visible = Extract.objects.filter(Q(creator=user))
+    visible = Extract.objects.filter(Q(creator=user) | Q(is_public=True))
 
     user_grant_ids = ExtractUserObjectPermission.objects.filter(user=user).values_list(
         "content_object_id", flat=True

@@ -1623,6 +1623,50 @@ class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCas
             "visible_to_user must honour the group-level READ grant on the source",
         )
 
+    def test_public_extract_source_passes_both_surfaces(self):
+        """A PUBLIC extract unlocks its extract-rooted rows for authenticated
+        viewers on BOTH surfaces (2026-06 audit follow-up): ``user_can``'s
+        privacy recursion grants READ on ``is_public`` sources via
+        ``Extract.objects.user_can``, and the list gates previously omitted
+        the flag for extracts (while honouring it for analyses) — a latent
+        filter/check parity violation. ``visible_extracts_for`` now includes
+        ``is_public`` on the authenticated branch; this pins the two
+        surfaces agreeing. (Anonymous users still see nothing —
+        ``ExtractManager`` denies them outright.)
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.extracts.models import Extract
+
+        public_extract = Extract.objects.create(
+            name="Public Invariant Source Extract",
+            corpus=self.corpus,
+            fieldset=self.fieldset,
+            creator=self.creator,
+            is_public=True,
+        )
+        rooted = Annotation.objects.create(
+            raw_text="via_public_extract",
+            json={"x": 6},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            created_by_extract=public_extract,
+        )
+        # shared_reader has doc+corpus READ but no grant on the extract.
+        self.assertTrue(
+            rooted.user_can(self.shared_reader, PermissionTypes.READ),
+            "user_can must grant READ via the PUBLIC source extract",
+        )
+        self.assertTrue(
+            Annotation.objects.visible_to_user(self.shared_reader)
+            .filter(pk=rooted.pk)
+            .exists(),
+            "visible_to_user must include rows rooted in a PUBLIC extract "
+            "(parity with user_can's recursion)",
+        )
+
     def test_is_public_does_not_grant_writes(self):
         """SECURITY: ``is_public=True`` grants a non-creator READ but never
         UPDATE/DELETE — the write asymmetry must hold for Annotation."""
