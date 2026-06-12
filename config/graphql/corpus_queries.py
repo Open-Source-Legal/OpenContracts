@@ -318,7 +318,16 @@ class CorpusQueryMixin:
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
     def resolve_corpus_intelligence_setup_status(self, info, corpus_id) -> Any:
-        """Visibility-scoped via ``CorpusIntelligenceSetupService.status``."""
+        """Visibility-scoped via ``CorpusIntelligenceSetupService.status``.
+
+        Deliberately NOT ``@login_required``: the setup banner reads this on the
+        intelligence overview and the ``insight-panel`` CAML embed, both of which
+        anonymous users can reach for a public corpus. There is no privilege
+        escalation — ``status`` filters the corpus through ``visible_to_user``
+        (returning ``None`` for an invisible corpus) and reports ``can_setup``
+        from CRUD, which an anonymous user never has. Anonymous viewers of a
+        public corpus therefore see read-only status and no actionable button.
+        """
         from opencontractserver.corpuses.services import (
             CorpusIntelligenceSetupService,
         )

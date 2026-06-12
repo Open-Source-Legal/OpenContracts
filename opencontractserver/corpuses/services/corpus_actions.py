@@ -237,6 +237,12 @@ class CorpusActionService(BaseService):
             with transaction.atomic():
                 action = template.clone_to_corpus(corpus, creator=user)
         except IntegrityError:
+            # A concurrent installer won the unique-insert race; re-fetch the row
+            # it created. ``.first()`` can theoretically still return ``None`` if
+            # that racing transaction rolled back in the sliver between its insert
+            # and this re-query — practically impossible, but the return type stays
+            # ``CorpusAction | None`` and callers (``intelligence_setup.setup``)
+            # skip on ``action is None`` rather than assume a row exists.
             return (
                 CorpusAction.objects.filter(
                     corpus=corpus, source_template=template
