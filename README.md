@@ -180,7 +180,7 @@ The engine — annotation, corpus management, AI agents, MCP server, vector sear
 
 This is not another chat-with-your-PDFs tool. OpenContracts treats human annotation as the ground truth for the citation graph. Teams define custom label schemas, annotate documents with precise selections (including multi-page spans), and map relationships between concepts. AI builds on top of that work — it doesn't replace it.
 
-![Document Annotator](docs/assets/images/screenshots/auto/readme--document-annotator--with-pdf.png)
+![Precise, layout-faithful annotations on a PDF — colored label spans, multi-page sections, and the annotation sidebar](docs/assets/images/screenshots/auto/annotations--pdf-canvas--with-labels.png)
 
 ### Corpuses, Not File Cabinets
 
@@ -188,7 +188,7 @@ Documents are organized into corpuses — version-controlled collections with fo
 
 This is `git` for the citation graph: branch, build, share, never lose work.
 
-![Corpus Home](docs/assets/images/screenshots/auto/readme--corpus-home--with-chat.png)
+![Collection intelligence overview — document, connection, annotation, and extract counts, summary coverage, dominant labels, and the governance graph](docs/assets/images/screenshots/auto/corpus--intelligence-overview--with-data.png)
 
 ### AI Agents That Work With What You've Built
 
@@ -196,7 +196,7 @@ Configurable AI agents can search your documents, query your annotations, and pa
 
 @mention an agent in a discussion thread. Ask it to compare clauses across a hundred contracts. Let it surface patterns your team annotated last quarter. The agent's power comes from the quality of the citation graph underneath it.
 
-![AI Agent Response](docs/assets/images/screenshots/auto/threads--agent-message--response.png)
+![An agent grounding its answer in tool calls — similarity search, exact-text search, and document lookups over the corpus](docs/assets/images/screenshots/auto/chat--tool-popover--multi-tool.png)
 
 ### Collaboration Where the Citations Live
 
