@@ -308,6 +308,54 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         self.assertFalse(ann.user_can(self.creator, PermissionTypes.READ))
         self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
 
+    def test_annotation_creator_parity_gap_sentinel(self) -> None:
+        """SENTINEL for issue #1986 item 1 — pins the KNOWN annotation-side
+        creator parity divergence so a future fix must consciously update
+        both surfaces (same idiom as the retired Phase-C deferral sentinel).
+
+        An annotation's own creator who holds doc+corpus READ but has NO
+        access to the privacy source currently:
+        - APPEARS in ``visible_to_user`` (the queryset privacy gate's
+          ``Q(creator=user)`` disjunct), but
+        - is DENIED by ``user_can(READ)`` (``_source_privacy_recursion_passes``
+          has no creator exemption on the annotation side — relationships
+          resolved this with a creator short-circuit; annotations have not).
+
+        This is exactly why the matrix invariant fixtures never include a
+        creator-of-row ≠ creator-of-source annotation: that fixture would
+        fail ``test_read_equivalence_across_user_matrix`` by design until
+        #1986 item 1 picks a semantic. When that fix lands, BOTH assertions
+        below must flip together.
+        """
+        # ``reader`` (doc+corpus READ, no analysis access) authors a row
+        # rooted in the creator's private analysis.
+        ann = Annotation.objects.create(
+            raw_text="creator-parity-sentinel",
+            json={"x": 99},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.reader,
+            document=self.doc,
+            corpus=self.corpus,
+            created_by_analysis=self.analysis,
+        )
+        in_filter = (
+            Annotation.objects.visible_to_user(self.reader).filter(pk=ann.pk).exists()
+        )
+        check = ann.user_can(self.reader, PermissionTypes.READ)
+        self.assertTrue(
+            in_filter,
+            "queryset gate's Q(creator=user) no longer admits the row's "
+            "creator — if intentional, update issue #1986 item 1 and this "
+            "sentinel together",
+        )
+        self.assertFalse(
+            check,
+            "user_can now exempts the row's creator from privacy recursion "
+            "— if intentional, update issue #1986 item 1 and this sentinel "
+            "together",
+        )
+
     def test_str_and_int_user_id_inputs_on_annotation(self) -> None:
         """int and str user ids resolve identically to the User instance."""
         self.assertTrue(self.plain.user_can(self.creator.id, PermissionTypes.READ))
