@@ -131,17 +131,26 @@ class CorpusStatsTestCase(TestCase):
             "totalExtracts": 2,
         }
 
-        # Test for all user types
+        # Authenticated viewers of a public corpus all see the same stats.
         for client in [
             self.owner_client,
             self.collaborator_client,
             self.regular_client,
-            self.anonymous_client,
         ]:
             result = client.execute(query, variable_values=variables)
             self.assertIsNotNone(result.get("data"))
             stats = result["data"]["corpusStats"]
             self.assertEqual(stats, expected_stats)
+
+        # BEHAVIOR CHANGE (2026-06 permissioning audit): extracts are never
+        # anonymous-visible at any layer (ExtractManager / ExtractService),
+        # and corpusStats counts are per-viewer by contract ("all counts
+        # respect the permission model" — resolve_corpus_stats). Anonymous
+        # viewers therefore see a zero extract count on the same corpus.
+        result = self.anonymous_client.execute(query, variable_values=variables)
+        self.assertIsNotNone(result.get("data"))
+        stats = result["data"]["corpusStats"]
+        self.assertEqual(stats, {**expected_stats, "totalExtracts": 0})
 
     def test_private_corpus_stats_query(self):
         query = """
