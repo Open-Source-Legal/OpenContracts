@@ -68,6 +68,18 @@ class ExtractAnonymousLockdownTestCase(TestCase):
         self.assertFalse(has_perm)
         self.assertIsNone(extract)
 
+    def test_check_extract_permission_denies_none_user(self):
+        """``None`` (not just ``AnonymousUser``) hits the fail-closed
+        ``getattr(user, "is_anonymous", True)`` default at the service
+        layer — the manager surfaces' ``None`` cases are pinned in
+        ``test_manager_visible_to_user_is_empty_for_anonymous`` /
+        ``test_manager_user_can_denies_anonymous``."""
+        has_perm, extract = ExtractService.check_extract_permission(
+            None, self.public_extract.id
+        )
+        self.assertFalse(has_perm)
+        self.assertIsNone(extract)
+
     # ---- manager surfaces (filter/check parity) --------------------------
 
     def test_manager_visible_to_user_is_empty_for_anonymous(self):
