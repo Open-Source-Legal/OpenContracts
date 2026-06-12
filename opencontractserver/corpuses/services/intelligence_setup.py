@@ -176,18 +176,15 @@ class CorpusIntelligenceSetupService(BaseService):
             CorpusDocumentService,
         )
 
-        corpus = cls.get_or_none(Corpus, corpus_pk, user)
+        # Single IDOR-safe CRUD lookup — collapses the READ gate and the CRUD
+        # check into one call (the canonical pattern, same as ``status()``'s
+        # READ gate). A user without CRUD gets ``None`` and the
+        # indistinguishable not-found message, so existence can't be enumerated.
+        corpus = cls.get_or_none(
+            Corpus, corpus_pk, user, PermissionTypes.CRUD, request=request
+        )
         if corpus is None:
             return ServiceResult.failure(cls._NOT_FOUND_MESSAGE)
-        error = cls.require_permission(
-            corpus,
-            user,
-            PermissionTypes.CRUD,
-            request=request,
-            error_message=cls._NOT_FOUND_MESSAGE,
-        )
-        if error:
-            return ServiceResult.failure(error)
 
         summary = IntelligenceSetupSummary(
             reference_action_installed_now=False,
@@ -314,6 +311,11 @@ class CorpusIntelligenceSetupService(BaseService):
             status__in=[JobStatus.QUEUED.value, JobStatus.RUNNING.value],
         ).exists()
         if in_flight:
+            # A weave is already QUEUED/RUNNING — the reference web IS being
+            # built, just not started by this call. Report it as started so the
+            # summary (and the frontend toast) doesn't misleadingly omit the
+            # "reference web weaving" note when an earlier setup/CTA is mid-run.
+            summary.reference_analysis_started = True
             return
         result = AnalysisLifecycleService.start_document_analysis(
             user,

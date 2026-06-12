@@ -42,6 +42,10 @@ _START_ANALYSIS = (
     "AnalysisLifecycleService.start_document_analysis"
 )
 
+# Superuser the template seeder requires to own AgentConfigurations (mirrors
+# the migration-time admin in test_corpus_action_template).
+_SEED_ADMIN_USERNAME = "migration_admin"
+
 
 def _ok_analysis(*args, **kwargs):
     return ServiceResult.success(object())
@@ -64,7 +68,7 @@ def _seed_bundle_dependencies(creator_id: int) -> None:
     # The seeder skips silently unless a superuser exists to own the
     # AgentConfigurations (mirrors test_corpus_action_template).
     User.objects.get_or_create(
-        username="migration_admin",
+        username=_SEED_ADMIN_USERNAME,
         defaults={"is_superuser": True, "is_staff": True, "password": "x"},
     )
     create_default_action_templates(apps, None)
@@ -352,10 +356,14 @@ class IntelligenceSetupServiceTestCase(TestCase):
         summary = result.value
         assert summary is not None
 
-        # Action installed, but no second analysis started.
+        # Action installed and no *second* analysis started (the running one
+        # is not duplicated)...
         self.assertTrue(summary.reference_action_installed_now)
-        self.assertFalse(summary.reference_analysis_started)
         mock_start.assert_not_called()
+        # ...but the summary still reports the weave as started: the reference
+        # web IS being built by the in-flight analysis, so the toast must not
+        # misleadingly omit the "reference web weaving" note.
+        self.assertTrue(summary.reference_analysis_started)
 
     @patch(_START_ANALYSIS, side_effect=lambda *a, **k: ServiceResult.failure("boom"))
     def test_setup_records_failed_analysis_start(self, mock_start):
@@ -509,3 +517,43 @@ class IntelligenceSetupGraphQLTestCase(TestCase):
         self.assertEqual(status["missingTemplateNames"], [])
         self.assertTrue(status["isFullySetUp"])
         self.assertTrue(status["canSetup"])
+
+    @patch(_START_ANALYSIS, side_effect=_ok_analysis)
+    def test_setup_mutation_idor_for_stranger(self, mock_start):
+        """A user without corpus access gets the indistinguishable failure.
+
+        The mutation must return ``ok=False`` with the IDOR-safe message (same
+        text whether the corpus is missing or merely off-limits) and install
+        nothing — never leaking the corpus's existence and never running the
+        CRUD-gated writes as a stranger.
+        """
+        stranger = User.objects.create_user(username="gql-stranger", password="x")
+        gid = to_global_id("CorpusType", self.corpus.pk)
+
+        data = self._execute(
+            """
+            mutation Setup($id: ID!) {
+              setupCorpusIntelligence(corpusId: $id) {
+                ok
+                message
+                summary {
+                  referenceActionInstalledNow
+                }
+              }
+            }
+            """,
+            {"id": gid},
+            stranger,
+        )
+        payload = data["setupCorpusIntelligence"]
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["message"],
+            "Corpus not found or you don't have permission.",
+        )
+        self.assertIsNone(payload["summary"])
+        # No reference action was installed on the corpus by the stranger's call.
+        self.assertFalse(
+            CorpusAction.objects.filter(corpus=self.corpus).exists(),
+            "stranger's rejected setup must not install any CorpusAction",
+        )

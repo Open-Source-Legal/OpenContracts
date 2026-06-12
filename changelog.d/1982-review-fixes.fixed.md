@@ -39,6 +39,17 @@
   leaving users to believe enrichment was running.
 - **Setup warning toast names the actual failures.** The banner aggregates
   `templates[].error` into the warning instead of a generic guess.
+- **In-flight weave reported as started.** When an enrichment analysis is
+  already QUEUED/RUNNING, `CorpusIntelligenceSetupService.setup`
+  (`opencontractserver/corpuses/services/intelligence_setup.py`) no longer leaves
+  `reference_analysis_started=False` — the reference web *is* being built, so the
+  summary (and the banner toast's "reference web weaving" note) now reflects it
+  instead of silently omitting it.
+- **`setup()` permission lookup collapsed to one IDOR-safe call.** The READ
+  `get_or_none` + separate `require_permission(CRUD)` pair became a single
+  `get_or_none(Corpus, …, PermissionTypes.CRUD)` (the canonical pattern
+  `status()` already uses) — no behavior change, but no longer a divergent
+  double-check.
 - **Dedup/cleanup.** Template installs go through a single shared
   `CorpusActionService.install_template` (dedupe fast-path, savepoint clone,
   IntegrityError recovery, CRUD grant) used by both `AddTemplateToCorpus` and
