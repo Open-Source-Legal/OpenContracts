@@ -166,6 +166,55 @@ class AnnotationServiceGroupGrantTestCase(TestCase):
         self.assertIn(self.ann_via_extract.pk, listed)
         self.assertNotIn(self.ann_via_analysis.pk, listed)
 
+    def test_gate_matches_queryset_visibility_for_non_creator(self):
+        """Scoped parity pin for the documented sync contract between
+        ``apply_source_privacy_gate`` (the services' exclude shape) and the
+        positive-Q privacy gate inside ``AnnotationQuerySet.visible_to_user``.
+
+        Scoped to NON-CREATOR viewers on purpose: the queryset gate carries
+        a ``Q(creator=user)`` disjunct with no ``user_can`` counterpart for
+        annotations (the known asymmetry tracked as issue #1986 item 1), so
+        a strict all-users equality would fail by design on creator-owned
+        rows. For non-creators holding doc+corpus READ, the queryset's
+        doc/corpus component passes and membership reduces to the privacy
+        verdict — the two shapes must agree exactly, before and after a
+        source grant lands.
+        """
+        from opencontractserver.utils.source_visibility import (
+            apply_source_privacy_gate,
+        )
+
+        def gate_verdict(user, ann) -> bool:
+            return apply_source_privacy_gate(
+                Annotation.objects.filter(pk=ann.pk), user
+            ).exists()
+
+        def queryset_verdict(user, ann) -> bool:
+            return Annotation.objects.visible_to_user(user).filter(pk=ann.pk).exists()
+
+        private_rows = [self.ann_via_analysis, self.ann_via_extract]
+
+        # Before any source grant: both shapes deny both private rows.
+        for ann in private_rows:
+            self.assertEqual(
+                gate_verdict(self.group_viewer, ann),
+                queryset_verdict(self.group_viewer, ann),
+                f"shapes disagree pre-grant for pk={ann.pk}",
+            )
+            self.assertFalse(gate_verdict(self.group_viewer, ann))
+
+        # After a group analysis grant: shapes agree row-by-row — the
+        # analysis row unlocks, the extract row stays hidden.
+        assign_perm("read_analysis", self.group, self.analysis)
+        for ann in private_rows:
+            self.assertEqual(
+                gate_verdict(self.group_viewer, ann),
+                queryset_verdict(self.group_viewer, ann),
+                f"shapes disagree post-grant for pk={ann.pk}",
+            )
+        self.assertTrue(gate_verdict(self.group_viewer, self.ann_via_analysis))
+        self.assertFalse(gate_verdict(self.group_viewer, self.ann_via_extract))
+
     def test_listing_matches_user_can_after_group_grant(self):
         """Parity: once the group grant lands, the service listing and
         ``user_can(READ)`` agree (fresh instance to sidestep the Tier-1

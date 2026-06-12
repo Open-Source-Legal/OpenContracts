@@ -683,12 +683,18 @@ def _source_privacy_recursion_passes(
 
     Performance note: the FK descriptors (``instance.created_by_analysis``
     / ``created_by_extract``) hit the database once each per call when the
-    relations aren't prefetched. Bulk callers SHOULD
-    ``select_related("created_by_analysis", "created_by_extract")`` on
-    their root queryset.
+    relations aren't prefetched. Callers that invoke ``user_can`` in a loop
+    MUST ``select_related("created_by_analysis", "created_by_extract")`` on
+    their root queryset (single-object call sites are unaffected).
     """
     from opencontractserver.types.enums import PermissionTypes
 
+    # Structural-READ short-circuit. The list-side counterpart is the
+    # ``Q(structural=True)`` disjunct in the privacy gates
+    # (``AnnotationQuerySet.visible_to_user``'s positive filter and
+    # ``apply_source_privacy_gate``'s ``structural=False`` conjuncts) —
+    # removing either side without the other breaks filter/check parity
+    # for structural rows rooted in an invisible source.
     is_structural_read = (
         getattr(instance, "structural", False) and permission == PermissionTypes.READ
     )

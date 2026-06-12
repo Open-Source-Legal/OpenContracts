@@ -35,6 +35,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import Q
+
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
@@ -56,8 +58,6 @@ def apply_source_privacy_gate(qs: "QuerySet", user: Any) -> "QuerySet":
     creator disjunct and single-WHERE composition with the doc/corpus
     EXISTS predicates — keep the two shapes in sync when changing either.
     """
-    from django.db.models import Q
-
     return qs.exclude(
         Q(created_by_analysis__isnull=False)
         & Q(structural=False)
@@ -76,8 +76,6 @@ def visible_analyses_for(user: Any) -> QuerySet:
     ``__in=...``): public analyses for anonymous users; public | own |
     user-granted | group-granted analyses for authenticated users.
     """
-    from django.db.models import Q
-
     from opencontractserver.analyzer.models import (
         Analysis,
         AnalysisGroupObjectPermission,
@@ -136,8 +134,6 @@ def visible_extracts_for(user: Any) -> QuerySet:
     so corpus gating is not lost — it just applies to the row's corpus, not
     the source's.
     """
-    from django.db.models import Q
-
     from opencontractserver.extracts.models import (
         Extract,
         ExtractGroupObjectPermission,
