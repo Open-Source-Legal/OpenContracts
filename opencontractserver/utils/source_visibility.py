@@ -39,6 +39,36 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 
+def apply_source_privacy_gate(qs: "QuerySet", user: Any) -> "QuerySet":
+    """Exclude non-structural rows whose ``created_by_*`` source ``user``
+    cannot see.
+
+    The single home for the privacy-gate *exclusion* shape (the source
+    subqueries live in the two builders below). Works on any queryset of a
+    model carrying ``created_by_analysis`` / ``created_by_extract`` /
+    ``structural`` — i.e. ``Annotation`` and ``Relationship``. Structural
+    rows always pass (privacy never hides structural data); anonymous
+    semantics come from the builders (public analyses only, no extracts).
+
+    NOTE: ``AnnotationQuerySet.visible_to_user`` composes the equivalent
+    gate as a positive ``Q`` filter (structural | creator | no-source |
+    source-visible) rather than this exclude pair, because it needs the
+    creator disjunct and single-WHERE composition with the doc/corpus
+    EXISTS predicates — keep the two shapes in sync when changing either.
+    """
+    from django.db.models import Q
+
+    return qs.exclude(
+        Q(created_by_analysis__isnull=False)
+        & Q(structural=False)
+        & ~Q(created_by_analysis__in=visible_analyses_for(user))
+    ).exclude(
+        Q(created_by_extract__isnull=False)
+        & Q(structural=False)
+        & ~Q(created_by_extract__in=visible_extracts_for(user))
+    )
+
+
 def visible_analyses_for(user: Any) -> QuerySet:
     """Analyses whose privacy-rooted annotations/relationships ``user`` may see.
 

@@ -90,34 +90,18 @@ class RelationshipService(BaseService):
         # Build query with combined document filters
         qs = Relationship.objects.filter(doc_filters)
 
-        # Apply privacy filtering for created_by_* fields (same pattern as
+        # Apply privacy filtering for created_by_* fields (same gate as
         # Annotations). Applies to ALL users including superusers (scoped admin
         # access, 2026-05): an admin only sees analysis-/extract-private
-        # relationships it can actually reach. The shared builders honour
+        # relationships it can actually reach. The shared gate honours
         # user- AND group-level guardian grants (parity with ``user_can``'s
-        # privacy recursion) and encode the anonymous rules (public analyses
+        # privacy recursion) and encodes the anonymous rules (public analyses
         # only; never extracts).
         from opencontractserver.utils.source_visibility import (
-            visible_analyses_for,
-            visible_extracts_for,
+            apply_source_privacy_gate,
         )
 
-        visible_analyses = visible_analyses_for(user)
-        visible_extracts = visible_extracts_for(user)
-
-        # Filter relationships: exclude private ones unless user has access
-        # BUT always include structural relationships (they're always visible)
-        qs = qs.exclude(
-            # Exclude non-structural analysis-created relationships user can't see
-            Q(created_by_analysis__isnull=False)
-            & Q(structural=False)  # Only apply privacy to non-structural
-            & ~Q(created_by_analysis__in=visible_analyses)
-        ).exclude(
-            # Exclude non-structural extract-created relationships user can't see
-            Q(created_by_extract__isnull=False)
-            & Q(structural=False)  # Only apply privacy to non-structural
-            & ~Q(created_by_extract__in=visible_extracts)
-        )
+        qs = apply_source_privacy_gate(qs, user)
 
         if corpus_id:
             # Filter by corpus (permissions already checked)
@@ -252,24 +236,18 @@ class RelationshipService(BaseService):
             return {"total": 0, "by_type": {}}
 
         from opencontractserver.utils.source_visibility import (
-            visible_analyses_for,
-            visible_extracts_for,
+            apply_source_privacy_gate,
         )
 
         # Privacy gate (2026-06 audit): without it, the counts and label
         # names of analysis-/extract-private relationships leaked into the
         # aggregate for viewers who could not see the rows themselves.
         summary = (
-            Relationship.objects.filter(document_id=document_id, corpus_id=corpus_id)
-            .exclude(
-                Q(created_by_analysis__isnull=False)
-                & Q(structural=False)
-                & ~Q(created_by_analysis__in=visible_analyses_for(user))
-            )
-            .exclude(
-                Q(created_by_extract__isnull=False)
-                & Q(structural=False)
-                & ~Q(created_by_extract__in=visible_extracts_for(user))
+            apply_source_privacy_gate(
+                Relationship.objects.filter(
+                    document_id=document_id, corpus_id=corpus_id
+                ),
+                user,
             )
             .values("relationship_label__text")
             .annotate(count=Count("id"))
@@ -315,8 +293,7 @@ class RelationshipService(BaseService):
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.corpuses.services import CorpusDocumentService
         from opencontractserver.utils.source_visibility import (
-            visible_analyses_for,
-            visible_extracts_for,
+            apply_source_privacy_gate,
         )
 
         try:
@@ -340,15 +317,7 @@ class RelationshipService(BaseService):
         # Privacy gate (2026-06 audit): MCP runs with a user context, so
         # analysis-/extract-private relationships must not surface here any
         # more than in the document-view listing.
-        qs = qs.exclude(
-            Q(created_by_analysis__isnull=False)
-            & Q(structural=False)
-            & ~Q(created_by_analysis__in=visible_analyses_for(user))
-        ).exclude(
-            Q(created_by_extract__isnull=False)
-            & Q(structural=False)
-            & ~Q(created_by_extract__in=visible_extracts_for(user))
-        )
+        qs = apply_source_privacy_gate(qs, user)
         if structural is not None:
             qs = qs.filter(structural=structural)
         return qs.distinct()

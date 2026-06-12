@@ -327,30 +327,14 @@ class AnnotationService(BaseService):
         # Apply privacy filtering for created_by_* fields. Applies to ALL
         # users including superusers (scoped admin access, 2026-05): an admin
         # only sees analysis-/extract-private annotations it can actually
-        # reach. The shared builders honour user- AND group-level guardian
-        # grants (parity with ``user_can``'s privacy recursion) and encode
+        # reach. The shared gate honours user- AND group-level guardian
+        # grants (parity with ``user_can``'s privacy recursion) and encodes
         # the anonymous rules (public analyses only; never extracts).
         from opencontractserver.utils.source_visibility import (
-            visible_analyses_for,
-            visible_extracts_for,
+            apply_source_privacy_gate,
         )
 
-        visible_analyses = visible_analyses_for(user)
-        visible_extracts = visible_extracts_for(user)
-
-        # Filter annotations: exclude private ones unless user has access
-        # BUT always include structural annotations (they're always visible)
-        qs = qs.exclude(
-            # Exclude non-structural analysis-created annotations user can't see
-            Q(created_by_analysis__isnull=False)
-            & Q(structural=False)  # Only apply privacy to non-structural
-            & ~Q(created_by_analysis__in=visible_analyses)
-        ).exclude(
-            # Exclude non-structural extract-created annotations user can't see
-            Q(created_by_extract__isnull=False)
-            & Q(structural=False)  # Only apply privacy to non-structural
-            & ~Q(created_by_extract__in=visible_extracts)
-        )
+        qs = apply_source_privacy_gate(qs, user)
 
         # Add filters
         if corpus_id:
@@ -533,7 +517,7 @@ class AnnotationService(BaseService):
             user=user,
             corpus_id=corpus_id,
             check_current_version=False,  # Already checked via path
-            **kwargs
+            **kwargs,
         )
 
     @classmethod
@@ -603,7 +587,8 @@ class AnnotationService(BaseService):
         visible_doc_ids,
         top_n: int,
         exclude_label_prefix: Optional[str] = None,
-        user=None,
+        *,
+        user,
     ) -> list[dict]:
         """Top-N annotation-label distribution across a corpus's visible docs.
 
@@ -616,13 +601,13 @@ class AnnotationService(BaseService):
         ``user`` engages the ``created_by_*`` privacy gate (2026-06 audit):
         without it, label names and counts of analysis-/extract-private
         annotations leaked into the aggregate for viewers who could not see
-        the rows themselves. ``user=None`` is treated as ANONYMOUS — the
-        MOST restrictive shape (public analyses only, no extracts) — so an
-        omitted argument under-counts for authenticated viewers rather than
-        leaking; every user-facing caller MUST pass the requesting user.
-        (Current callers: the ``corpusIntelligenceAggregates`` resolver in
-        ``config/graphql/corpus_queries.py`` and the privacy regression
-        tests — both pass ``user``.)
+        the rows themselves. The parameter is REQUIRED and keyword-only —
+        omission is a ``TypeError`` at the call site, never a silent
+        under-count. Passing an explicit ``None`` (or ``AnonymousUser``)
+        yields the most restrictive anonymous shape: public analyses only,
+        no extracts. (Current callers: the ``corpusIntelligenceAggregates``
+        resolver in ``config/graphql/corpus_queries.py`` and the privacy
+        regression tests.)
 
         ``distinct=True`` on the count is required: structural annotations are
         joined via the ``structural_set__documents`` reverse FK, which fans a
@@ -641,8 +626,7 @@ class AnnotationService(BaseService):
             "count"}`` dicts ordered by descending count.
         """
         from opencontractserver.utils.source_visibility import (
-            visible_analyses_for,
-            visible_extracts_for,
+            apply_source_privacy_gate,
         )
 
         qs = corpus.annotations.filter(
@@ -652,15 +636,7 @@ class AnnotationService(BaseService):
         # Privacy gate (2026-06 audit): exclude analysis-/extract-private
         # rows the user cannot see so their label names/counts don't leak
         # into the aggregate. Structural rows bypass privacy as everywhere.
-        qs = qs.exclude(
-            Q(created_by_analysis__isnull=False)
-            & Q(structural=False)
-            & ~Q(created_by_analysis__in=visible_analyses_for(user))
-        ).exclude(
-            Q(created_by_extract__isnull=False)
-            & Q(structural=False)
-            & ~Q(created_by_extract__in=visible_extracts_for(user))
-        )
+        qs = apply_source_privacy_gate(qs, user)
         if exclude_label_prefix:
             qs = qs.exclude(annotation_label__text__startswith=exclude_label_prefix)
         return list(
@@ -777,26 +753,12 @@ class AnnotationService(BaseService):
         # guard. The old guard skipped privacy filtering entirely for
         # anonymous viewers, leaking analysis-/extract-private annotations
         # on public corpora (2026-06 audit). Anonymous handling lives inside
-        # the builders instead.
+        # the shared gate.
         from opencontractserver.utils.source_visibility import (
-            visible_analyses_for,
-            visible_extracts_for,
+            apply_source_privacy_gate,
         )
 
-        visible_analyses = visible_analyses_for(user)
-        visible_extracts = visible_extracts_for(user)
-
-        # Filter: exclude private annotations user can't see
-        # BUT always include structural annotations (bypass privacy)
-        qs = qs.exclude(
-            Q(created_by_analysis__isnull=False)
-            & Q(structural=False)
-            & ~Q(created_by_analysis__in=visible_analyses)
-        ).exclude(
-            Q(created_by_extract__isnull=False)
-            & Q(structural=False)
-            & ~Q(created_by_extract__in=visible_extracts)
-        )
+        qs = apply_source_privacy_gate(qs, user)
 
         # Apply optional filters
         if structural is not None:
