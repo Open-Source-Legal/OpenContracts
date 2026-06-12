@@ -1141,6 +1141,7 @@ All annotation mutations now properly respect the privacy model through the cent
 # Inline ``user_can`` is FORBIDDEN in config/graphql/ (E001) — mutations go
 # through BaseService, which delegates to the same per-model user_can:
 def mutate(root, info, annotation_id):
+    annotation_pk = from_global_id(annotation_id)[1]  # Relay global id → pk
     annotation_obj = BaseService.get_or_none(
         Annotation, annotation_pk, info.context.user, request=info.context
     )  # IDOR-safe: None whether missing or unreadable
