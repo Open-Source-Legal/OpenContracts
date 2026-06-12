@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
 
-def visible_analyses_for(user: Any) -> "QuerySet":
+def visible_analyses_for(user: Any) -> QuerySet:
     """Analyses whose privacy-rooted annotations/relationships ``user`` may see.
 
     Returns a lazy queryset (safe to embed as a subquery via
@@ -68,7 +68,7 @@ def visible_analyses_for(user: Any) -> "QuerySet":
     )
 
 
-def visible_extracts_for(user: Any) -> "QuerySet":
+def visible_extracts_for(user: Any) -> QuerySet:
     """Extracts whose privacy-rooted annotations/relationships ``user`` may see.
 
     Returns a lazy queryset (safe to embed as a subquery via

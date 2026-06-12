@@ -47,7 +47,6 @@ class ExtractService(BaseService):
         from opencontractserver.types.enums import PermissionTypes
 
         # scoped admin access, 2026-05: admins computed like a normal user
-
         # Extracts are NEVER visible to anonymous users (2026-06
         # permissioning audit) — deny before any lookup so the response is
         # indistinguishable from "not found" (IDOR posture).

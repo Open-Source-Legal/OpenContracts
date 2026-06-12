@@ -642,7 +642,7 @@ class DocumentManager(BaseVisibilityManager):
 # at the point of declaration.  The resulting manager still gets the
 # ``PermissionManager`` API plus everything declared on the queryset.
 def _source_privacy_recursion_passes(
-    user: "UserModel | AnonymousUser",
+    user: UserModel | AnonymousUser,
     instance: Model,
     permission: _PermissionTypes,
     include_group_permissions: bool,

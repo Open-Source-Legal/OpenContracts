@@ -110,6 +110,7 @@ class ExtractAnonymousLockdownTestCase(TestCase):
             self.owner, self.public_extract.id
         )
         self.assertTrue(has_perm)
+        assert extract is not None  # narrow Optional for mypy; asserted above
         self.assertEqual(extract.pk, self.public_extract.pk)
         self.assertTrue(
             Extract.objects.visible_to_user(self.owner)

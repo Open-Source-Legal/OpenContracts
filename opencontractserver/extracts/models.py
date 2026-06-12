@@ -237,7 +237,7 @@ class ExtractManager(BaseVisibilityManager):
 
 
 class Extract(BaseOCModel):
-    objects = ExtractManager()
+    objects = ExtractManager()  # type: ignore[misc]
 
     corpus = django.db.models.ForeignKey(
         "corpuses.Corpus",  # Using string reference instead of direct import
