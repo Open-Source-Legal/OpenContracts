@@ -377,7 +377,13 @@ class DeleteMetadataColumn(graphene.Mutation):
             column = BaseService.get_or_none(
                 Column, from_global_id(column_id)[1], user, request=info.context
             )
-            if column is None or BaseService.require_permission(
+            # require_permission returns "" on grant and a non-empty error
+            # string on denial, so a truthy result means "denied". Guard the
+            # None case first to avoid calling require_permission on a missing
+            # object.
+            if column is None:
+                return DeleteMetadataColumn(ok=False, message=not_found_msg)
+            if BaseService.require_permission(
                 column, user, PermissionTypes.DELETE, request=info.context
             ):
                 return DeleteMetadataColumn(ok=False, message=not_found_msg)
@@ -613,7 +619,13 @@ class UpdateFieldset(graphene.Mutation):
             fieldset = BaseService.get_or_none(
                 Fieldset, from_global_id(id)[1], user, request=info.context
             )
-            if fieldset is None or BaseService.require_permission(
+            # require_permission returns "" on grant and a non-empty error
+            # string on denial, so a truthy result means "denied". Guard the
+            # None case first to avoid calling require_permission on a missing
+            # object.
+            if fieldset is None:
+                return UpdateFieldset(ok=False, message=not_found_msg)
+            if BaseService.require_permission(
                 fieldset, user, PermissionTypes.UPDATE, request=info.context
             ):
                 return UpdateFieldset(ok=False, message=not_found_msg)

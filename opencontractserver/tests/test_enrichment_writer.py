@@ -444,11 +444,11 @@ class PdfTokenMentionTests(TestCase):
     # hardcoded page=1 for everything).
     PAGES = [
         "We are subject to Section 203 of the Delaware General Corporation "
-        "Law and related provisions thereof. "
-        "See “Risk Factors” for important considerations.",
+        + "Law and related provisions thereof. "
+        + "See “Risk Factors” for important considerations.",
         "Risk Factors are described here. "
-        "Indemnification is governed by Section 145 of the Delaware General "
-        "Corporation Law as amended.",
+        + "Indemnification is governed by Section 145 of the Delaware General "
+        + "Corporation Law as amended.",
     ]
 
     def setUp(self):
