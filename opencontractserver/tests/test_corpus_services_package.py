@@ -30,6 +30,7 @@ from opencontractserver.corpuses.services import (
     CorpusActionService,
     CorpusCategoryService,
     CorpusDocumentService,
+    CorpusIntelligenceSetupService,
     CorpusPathService,
     CorpusService,
     CorpusVoteService,
@@ -53,6 +54,7 @@ SEGMENTED_SERVICES = (
     CorpusVoteService,
     CorpusActionService,
     CorpusCategoryService,
+    CorpusIntelligenceSetupService,
 )
 
 
@@ -91,6 +93,9 @@ class TestServicesPackageStructure(SimpleTestCase):
                     "CorpusVoteService",
                     "CorpusActionService",
                     "CorpusCategoryService",
+                    "CorpusIntelligenceSetupService",
+                    "IntelligenceSetupStatus",
+                    "IntelligenceSetupSummary",
                     "BatchRunSummary",
                 ]
             ),
