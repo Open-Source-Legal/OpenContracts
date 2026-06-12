@@ -200,6 +200,25 @@ class LabelDistributionPrivacyRegressionTestCase(_PrivacyFixtureBase):
         labels = self._labels_for(self.owner)
         self.assertIn("pgr_secret", labels)
 
+    def test_group_granted_viewer_sees_private_labels(self):
+        """Completes the aggregate-surface grant matrix: a GROUP-level READ
+        grant on the source analysis unlocks its label in the aggregate
+        (the gate flows through apply_source_privacy_gate, whose group
+        handling is pinned elsewhere — this pins the aggregate surface
+        end-to-end)."""
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        group = Group.objects.create(name="pgr_label_group")
+        self.viewer.groups.add(group)
+        assign_perm("read_analysis", group, self.analysis)
+        labels = self._labels_for(self.viewer)
+        self.assertIn(
+            "pgr_secret",
+            labels,
+            "group-granted source READ must surface the label in the aggregate",
+        )
+
 
 class RelationshipAggregatePrivacyRegressionTestCase(_PrivacyFixtureBase):
     """Leak 3: relationship summary counts and the MCP corpus listing must
