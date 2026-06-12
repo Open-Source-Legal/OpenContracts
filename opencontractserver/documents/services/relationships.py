@@ -400,8 +400,9 @@ class DocumentRelationshipService(BaseService):
         """
         from opencontractserver.types.enums import PermissionTypes
 
-        # Map permission type string to enum. ``user_can`` already handles the
-        # superuser short-circuit, so we don't need a guard here.
+        # Map permission type string to enum. ``user_can`` encodes the full
+        # per-object rules (superusers are computed like any other user —
+        # scoped admin access, 2026-05), so no extra guard is needed here.
         perm_map = {
             "READ": PermissionTypes.READ,
             "CREATE": PermissionTypes.CREATE,

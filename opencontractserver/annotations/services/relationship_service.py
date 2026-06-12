@@ -10,7 +10,7 @@ Behaviour is preserved exactly — this is a relocation, not a rewrite.
 
 from typing import Optional
 
-from django.db.models import Count, Q, QuerySet, Value
+from django.db.models import BooleanField, Case, Count, Q, QuerySet, Value, When
 
 from opencontractserver.annotations.services.annotation_service import (
     AnnotationService,
@@ -93,48 +93,17 @@ class RelationshipService(BaseService):
         # Apply privacy filtering for created_by_* fields (same pattern as
         # Annotations). Applies to ALL users including superusers (scoped admin
         # access, 2026-05): an admin only sees analysis-/extract-private
-        # relationships it can actually reach.
-        # Get analyses user can access
-        from opencontractserver.analyzer.models import (
-            Analysis,
-            AnalysisUserObjectPermission,
+        # relationships it can actually reach. The shared builders honour
+        # user- AND group-level guardian grants (parity with ``user_can``'s
+        # privacy recursion) and encode the anonymous rules (public analyses
+        # only; never extracts).
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
         )
-        from opencontractserver.extracts.models import Extract
 
-        # Anonymous users can only see public analyses/extracts
-        if user.is_anonymous:
-            visible_analyses = Analysis.objects.filter(Q(is_public=True))
-            visible_extracts = Extract.objects.none()  # No extracts for anonymous
-        else:
-            # Base query for visible analyses
-            visible_analyses = Analysis.objects.filter(
-                Q(is_public=True) | Q(creator=user)
-            )
-
-            # Add analyses with explicit permissions
-            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
-
-            visible_analyses = visible_analyses | Analysis.objects.filter(
-                id__in=analyses_with_permission
-            )
-
-            # Get extracts user can access
-            from opencontractserver.extracts.models import (
-                ExtractUserObjectPermission,
-            )
-
-            visible_extracts = Extract.objects.filter(Q(creator=user))
-
-            # Add extracts with explicit permissions
-            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
-
-            visible_extracts = visible_extracts | Extract.objects.filter(
-                id__in=extracts_with_permission
-            )
+        visible_analyses = visible_analyses_for(user)
+        visible_extracts = visible_extracts_for(user)
 
         # Filter relationships: exclude private ones unless user has access
         # BUT always include structural relationships (they're always visible)
@@ -231,6 +200,14 @@ class RelationshipService(BaseService):
                     | Q(target_annotations__id__in=datacell_annotation_ids)
                 )
 
+        # Structural rows are writable ONLY via the superuser break-glass
+        # (see ``RelationshipManager.user_can``); reflect that in the
+        # pre-computed myPermissions so the UI mirrors what mutations will
+        # actually allow (2026-06 permissioning audit — annotations already
+        # masked structural writes; relationships previously reported the
+        # raw doc+corpus values on structural rows).
+        user_is_superuser = bool(getattr(user, "is_superuser", False))
+
         # Optimize with prefetches and annotate with computed permissions
         qs = (
             qs.select_related("relationship_label", "creator")
@@ -242,8 +219,16 @@ class RelationshipService(BaseService):
                 # Store computed permissions for backwards compatibility
                 _can_read=Value(can_read),
                 _can_create=Value(can_create),
-                _can_update=Value(can_update),
-                _can_delete=Value(can_delete),
+                _can_update=Case(
+                    When(structural=True, then=Value(user_is_superuser)),
+                    default=Value(can_update),
+                    output_field=BooleanField(),
+                ),
+                _can_delete=Case(
+                    When(structural=True, then=Value(user_is_superuser)),
+                    default=Value(can_delete),
+                    output_field=BooleanField(),
+                ),
                 _can_comment=Value(can_comment),
             )
             .distinct()

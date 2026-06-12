@@ -326,48 +326,17 @@ class AnnotationService(BaseService):
 
         # Apply privacy filtering for created_by_* fields. Applies to ALL
         # users including superusers (scoped admin access, 2026-05): an admin
-        # only sees analysis-/extract-private annotations it can actually reach.
-        # Get analyses user can access
-        from opencontractserver.analyzer.models import (
-            Analysis,
-            AnalysisUserObjectPermission,
+        # only sees analysis-/extract-private annotations it can actually
+        # reach. The shared builders honour user- AND group-level guardian
+        # grants (parity with ``user_can``'s privacy recursion) and encode
+        # the anonymous rules (public analyses only; never extracts).
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
         )
-        from opencontractserver.extracts.models import Extract
 
-        # Anonymous users can only see public analyses/extracts
-        if user.is_anonymous:
-            visible_analyses = Analysis.objects.filter(Q(is_public=True))
-            visible_extracts = Extract.objects.none()  # No extracts for anonymous
-        else:
-            # Base query for visible analyses
-            visible_analyses = Analysis.objects.filter(
-                Q(is_public=True) | Q(creator=user)
-            )
-
-            # Add analyses with explicit permissions
-            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
-
-            visible_analyses = visible_analyses | Analysis.objects.filter(
-                id__in=analyses_with_permission
-            )
-
-            # Get extracts user can access
-            from opencontractserver.extracts.models import (
-                ExtractUserObjectPermission,
-            )
-
-            visible_extracts = Extract.objects.filter(Q(creator=user))
-
-            # Add extracts with explicit permissions
-            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
-
-            visible_extracts = visible_extracts | Extract.objects.filter(
-                id__in=extracts_with_permission
-            )
+        visible_analyses = visible_analyses_for(user)
+        visible_extracts = visible_extracts_for(user)
 
         # Filter annotations: exclude private ones unless user has access
         # BUT always include structural annotations (they're always visible)
@@ -469,6 +438,14 @@ class AnnotationService(BaseService):
         # ``AnnotationType.resolve_feedback_count``.
         from opencontractserver.feedback.models import UserFeedback
 
+        # Structural rows are writable ONLY via the superuser break-glass
+        # (see ``AnnotationManager.user_can``); reflect that in the
+        # pre-computed myPermissions so the UI mirrors what mutations will
+        # actually allow. ``_compute_effective_permissions`` has no superuser
+        # short-circuit (scoped admin access, 2026-05), so the break-glass
+        # must be applied here explicitly.
+        user_is_superuser = bool(getattr(user, "is_superuser", False))
+
         qs = (
             qs.select_related("annotation_label", "creator", "analysis")
             .prefetch_related(
@@ -485,21 +462,18 @@ class AnnotationService(BaseService):
             .annotate(
                 _can_read=Value(can_read),
                 _can_create=Value(can_create),
-                # Structural annotations are read-only for non-superusers.
-                # ``can_update``/``can_delete`` here came from doc+corpus
-                # perms; mask them off per-row for structural annotations
-                # so the annotation matches ``AnnotationManager.user_can``'s
-                # structural-write-deny rule. Superusers were already
-                # handled upstream in ``_compute_effective_permissions``
-                # (superuser → all True), so this Case fires only for
-                # non-superusers and only on structural rows.
+                # ``can_update``/``can_delete`` came from doc+corpus perms;
+                # mask them per-row on structural annotations so the
+                # annotation matches ``AnnotationManager.user_can``'s
+                # structural-write rule: True for superusers (break-glass),
+                # False for everyone else.
                 _can_update=Case(
-                    When(structural=True, then=Value(False)),
+                    When(structural=True, then=Value(user_is_superuser)),
                     default=Value(can_update),
                     output_field=BooleanField(),
                 ),
                 _can_delete=Case(
-                    When(structural=True, then=Value(False)),
+                    When(structural=True, then=Value(user_is_superuser)),
                     default=Value(can_delete),
                     output_field=BooleanField(),
                 ),
@@ -701,17 +675,9 @@ class AnnotationService(BaseService):
         Returns:
             QuerySet of annotations with permission filtering applied
         """
-        from opencontractserver.analyzer.models import (
-            Analysis,
-            AnalysisUserObjectPermission,
-        )
         from opencontractserver.annotations.models import Annotation
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document
-        from opencontractserver.extracts.models import (
-            Extract,
-            ExtractUserObjectPermission,
-        )
         from opencontractserver.types.enums import PermissionTypes
 
         # Superusers are computed like any other user (scoped admin access,
@@ -772,41 +738,30 @@ class AnnotationService(BaseService):
         qs = Annotation.objects.filter(base_filter)
 
         # Apply privacy filtering for created_by_* fields. Applies to ALL
-        # authenticated users including superusers (scoped admin access,
-        # 2026-05): an admin only sees analysis-/extract-private annotations
-        # it can actually reach.
-        if not user.is_anonymous:
-            # Get analyses user can access
-            visible_analyses = Analysis.objects.filter(
-                Q(is_public=True) | Q(creator=user)
-            )
-            analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
-            visible_analyses = visible_analyses | Analysis.objects.filter(
-                id__in=analyses_with_permission
-            )
+        # users including superusers (scoped admin access, 2026-05): an admin
+        # only sees analysis-/extract-private annotations it can actually
+        # reach. The shared builders honour user- AND group-level guardian
+        # grants (parity with ``user_can``'s privacy recursion) and encode
+        # the anonymous rules (public analyses only; never extracts).
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
+        )
 
-            # Get extracts user can access
-            visible_extracts = Extract.objects.filter(Q(creator=user))
-            extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-                user=user
-            ).values_list("content_object_id", flat=True)
-            visible_extracts = visible_extracts | Extract.objects.filter(
-                id__in=extracts_with_permission
-            )
+        visible_analyses = visible_analyses_for(user)
+        visible_extracts = visible_extracts_for(user)
 
-            # Filter: exclude private annotations user can't see
-            # BUT always include structural annotations (bypass privacy)
-            qs = qs.exclude(
-                Q(created_by_analysis__isnull=False)
-                & Q(structural=False)
-                & ~Q(created_by_analysis__in=visible_analyses)
-            ).exclude(
-                Q(created_by_extract__isnull=False)
-                & Q(structural=False)
-                & ~Q(created_by_extract__in=visible_extracts)
-            )
+        # Filter: exclude private annotations user can't see
+        # BUT always include structural annotations (bypass privacy)
+        qs = qs.exclude(
+            Q(created_by_analysis__isnull=False)
+            & Q(structural=False)
+            & ~Q(created_by_analysis__in=visible_analyses)
+        ).exclude(
+            Q(created_by_extract__isnull=False)
+            & Q(structural=False)
+            & ~Q(created_by_extract__in=visible_extracts)
+        )
 
         # Apply optional filters
         if structural is not None:

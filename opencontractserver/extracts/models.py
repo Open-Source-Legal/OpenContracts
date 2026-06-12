@@ -10,6 +10,7 @@ from opencontractserver.annotations.models import Annotation
 from opencontractserver.documents.models import Document
 from opencontractserver.shared.defaults import jsonfield_default_value
 from opencontractserver.shared.fields import NullableJSONField
+from opencontractserver.shared.Managers import BaseVisibilityManager
 from opencontractserver.shared.Models import BaseOCModel
 
 User = get_user_model()
@@ -181,7 +182,63 @@ class ColumnGroupObjectPermission(GroupObjectPermissionBase):
     )
 
 
+class ExtractManager(BaseVisibilityManager):
+    """Visibility manager for ``Extract`` — extracts are never anonymous-visible.
+
+    The generic ``BaseVisibilityManager`` rules would expose ``is_public``
+    extracts to anonymous users. The agreed semantic (2026-06 permissioning
+    audit; see the Anonymous User Access Summary in
+    ``docs/permissioning/consolidated_permissioning_guide.md``) is that
+    anonymous users can never reach extracts at ANY layer — ``ExtractService``
+    enforces the same rule at the service boundary, and the annotation /
+    relationship privacy gates treat extracts as invisible to anonymous
+    viewers. Both manager surfaces are overridden in lockstep so the
+    filter/check parity invariant holds
+    (``ExtractAuthorizationInvariantsTestCase``).
+    """
+
+    def visible_to_user(
+        self,
+        user: Any = None,
+        lightweight: bool = False,
+        with_doc_label_annotations: bool = False,
+    ) -> django.db.models.QuerySet:
+        if user is None or getattr(user, "is_anonymous", True):
+            return self.get_queryset().none()
+        return super().visible_to_user(
+            user,
+            lightweight=lightweight,
+            with_doc_label_annotations=with_doc_label_annotations,
+        )
+
+    def user_can(
+        self,
+        user: Any,
+        instance: django.db.models.Model,
+        permission: Any,
+        *,
+        include_group_permissions: bool = True,
+        request: Any = None,
+    ) -> bool:
+        from opencontractserver.shared.user_can_mixin import (
+            resolve_user_for_user_can,
+        )
+
+        resolved = resolve_user_for_user_can(user)
+        if resolved is None or getattr(resolved, "is_anonymous", True):
+            return False
+        return super().user_can(
+            resolved,
+            instance,
+            permission,
+            include_group_permissions=include_group_permissions,
+            request=request,
+        )
+
+
 class Extract(BaseOCModel):
+    objects = ExtractManager()
+
     corpus = django.db.models.ForeignKey(
         "corpuses.Corpus",  # Using string reference instead of direct import
         related_name="extracts",

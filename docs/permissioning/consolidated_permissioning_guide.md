@@ -4,13 +4,13 @@
 
 > **🔴 CRITICAL SECURITY**: Structural annotations and relationships are ALWAYS read-only except for superusers. Even owners with full CRUD permissions cannot modify structural items. This is enforced in `AnnotationManager.user_can` and `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`) — the structural-write branch runs before any other permission branch. This superuser write to structural items is the **single retained admin data privilege** (a deliberate break-glass for repairing system-generated structural data); see the Admin (Superuser) Access Model banner below.
 
-> **🛡️ ADMIN (SUPERUSER) ACCESS MODEL (scoped admin access, 2026-05)**: A superuser is authorized over **user data** (corpuses, documents, annotations, relationships, notes, conversations, analyses, extracts, datacells, folders, feedback, profiles, badge awards, agents, …) **exactly like a normal user** — there is **no blanket bypass**. With no grants, an admin sees only public + own + explicitly-shared rows and is denied writes on private data it does not own. The blanket `if user.is_superuser: return all()/True` short-circuits were removed from every visibility manager / queryset / `user_can` / permission-enumeration / query-optimizer path. **Three things are retained for superusers:** (1) the **structural-write break-glass** above; (2) **moderation** of conversations/threads (`Conversation.can_moderate` / `Corpus.can_moderate`); and (3) **admin-only configuration/restriction gates** enforced in mutations/services — e.g. `PipelineSettings`, `Badge` and `CorpusCategory` management, "create global agents", "make analyses public", and worker-upload provisioning. The legitimate **break-glass for inspecting/repairing arbitrary user data is the Django admin site** (`is_staff`), which uses unfiltered ORM and is unaffected by these manager changes. (Follow-up: an explicit, audited support/impersonation mechanism may be added later.)
+> **🛡️ ADMIN (SUPERUSER) ACCESS MODEL (scoped admin access, 2026-05)**: A superuser is authorized over **user data** (corpuses, documents, annotations, relationships, notes, conversations, analyses, extracts, datacells, folders, feedback, profiles, badge awards, agents, …) **exactly like a normal user** — there is **no blanket bypass**. With no grants, an admin sees only public + own + explicitly-shared rows and is denied writes on private data it does not own. The blanket `if user.is_superuser: return all()/True` short-circuits were removed from every visibility manager / queryset / `user_can` / permission-enumeration / query-optimizer path. **Three things are retained for superusers:** (1) the **structural-write break-glass** above; (2) **moderation** of conversations/threads (`Conversation.can_moderate` / `Corpus.user_can_moderate` — the two deliberately differ: the corpus surface accepts any `CorpusModerator` row while the conversation surface requires a non-empty `permissions` list; reconciliation tracked under #1450); and (3) **admin-only configuration/restriction gates** enforced in mutations/services — e.g. `PipelineSettings`, `Badge` and `CorpusCategory` management, "create global agents", "make analyses public", and worker-upload provisioning. The legitimate **break-glass for inspecting/repairing arbitrary user data is the Django admin site** (`is_staff`), which uses unfiltered ORM and is unaffected by these manager changes. (Follow-up: an explicit, audited support/impersonation mechanism may be added later.)
 >
 > **Permanent document deletion (escape hatch):** `DocumentLifecycleService.permanently_delete_document` and empty-trash now gate on `corpus.user_can(user, DELETE)` computed like a normal user — there is **no superuser override**. An admin who must purge orphaned/malicious documents they do not own has two paths: (1) grant themselves `DELETE` on the owning corpus (the ordinary permission flow), after which the app-level operation succeeds; or (2) use the Django admin site's unfiltered ORM for direct deletion. Both no-grant-denied and granted-success cases are pinned by `opencontractserver/tests/test_permanent_deletion.py::TestPermanentDeletionPermissions::test_permanent_delete_requires_delete_permission_computed_like_normal_user`.
 
 > **🟠 AUTHORIZATION API**: The canonical single-object authorization check is `Model.objects.user_can(user, obj, permission)` (manager surface) / `obj.user_can(user, permission)` (instance surface). It is the read/check counterpart of the `Model.objects.visible_to_user(user)` queryset filter — the two are pinned to agree by the invariant suite in `opencontractserver/tests/permissioning/test_authorization_invariants.py`. New code MUST call `user_can`.
 
-> **🔵 NEW FEATURE**: Annotations can now be marked as "created by" an analysis or extract using `created_by_analysis` and `created_by_extract` fields. These annotations are private to the source object and only visible to users with permission to that analysis/extract.
+> **🔵 SOURCE PRIVACY**: Annotations **and Relationships** can be marked as "created by" an analysis or extract using `created_by_analysis` and `created_by_extract` fields. These rows are private to the source object and only visible to users with permission to that analysis/extract. Relationships gained full enforcement in the 2026-06 permissioning audit (closing the Phase-C deferral from issue #1655): `RelationshipManager.user_can` and `RelationshipManager.visible_to_user` now recurse into the source exactly like annotations. The list-side privacy gates honour **user- and group-level** guardian grants via the shared builders in `opencontractserver/utils/source_visibility.py`.
 
 > **🟢 NEW FEATURE**: COMMENT permission added with special "open commenting" mode. When `corpus.allow_comments = True`, any user who can READ an annotation can COMMENT on it. Enables community feedback without explicit permission grants.
 
@@ -22,7 +22,7 @@
 
 > **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeService` in `opencontractserver/badges/services/badge_service.py`.
 
-> **🟢 SERVICE-LAYER ENTRY (Phase 6 — issue #1720)**: Every consumer of permission-filtered data (GraphQL resolvers, MCP tools, REST views, user-context Celery tasks) reaches models through `opencontractserver/<app>/services/`. The shared base `opencontractserver.shared.services.base.BaseService` exposes `get_or_none`, `filter_visible`, `require_permission`, and `user_has` for cases where a dedicated per-app method is overkill. Direct inline use of `visible_to_user` / `user_can` / `user_has_permission_for_obj` is forbidden in `config/graphql/` and enforced by `opencontractserver/tests/architecture/test_graphql_service_layer.py`. See `docs/architecture/query_permission_patterns.md` for the full per-app service catalogue.
+> **🟢 SERVICE-LAYER ENTRY (Phase 6 — issue #1720)**: Every consumer of permission-filtered data (GraphQL resolvers, MCP tools, REST views, user-context Celery tasks) reaches models through `opencontractserver/<app>/services/`. The shared base `opencontractserver.shared.services.base.BaseService` exposes `get_or_none`, `filter_visible`, `filter_visible_qs` (chains `visible_to_user` onto an existing queryset/related manager in one SQL pass and **fails closed** — raises `TypeError` rather than passing unfiltered rows through), `require_permission`, and `user_has` for cases where a dedicated per-app method is overkill. Direct inline use of the Tier-0 tokens `visible_to_user` / `user_can` / `user_has_permission_for_obj` is forbidden in `config/graphql/` and enforced **twice**: by `opencontractserver/tests/architecture/test_graphql_service_layer.py` AND by a Django system check (`opencontractserver/shared/checks.py`, `opencontracts.E001`) that fails `manage.py` startup on any violation. (The legacy `user_has_permission_for_obj` helper itself has been deleted; the token remains scanned so it cannot be reintroduced.) **Scope nuance:** both enforcers scan `config/graphql/` only, and only for those three tokens — e.g. the mention-autocomplete resolvers in `config/graphql/search_queries.py` still inline guardian `get_objects_for_user` legally. Treat a green E001 as "no inline Tier-0 in `config/graphql/`", not "everything is service-routed". See `docs/architecture/query_permission_patterns.md` for the full per-app service catalogue.
 
 ## Key Changes in Current Implementation
 
@@ -33,14 +33,15 @@
 | **Structural Items** | Could be modified by owners | **READ-ONLY except for superusers** | Critical security |
 | **Permission Priority** | Corpus > Document | Document > Corpus (most restrictive) | Better security |
 | **Database Queries** | 1 per annotation/relationship | 2 total (doc + corpus) | Massive performance gain |
-| **Permission Storage** | `annotationuserobjectpermission` table | None - computed at runtime | Simpler database |
+| **Permission Storage** | `annotationuserobjectpermission` table | Not consulted — computed at runtime (the guardian tables still exist in the schema but play no part in annotation visibility) | Simpler permission model |
 | **Permission Uniformity** | Each annotation/relationship different | All same in document | Predictable behavior |
 | **Analysis Privacy** | All annotations visible with doc+corpus perms | Annotations created by analysis are private | Enhanced privacy control |
 | **Extract Privacy** | All annotations visible with doc+corpus perms | Annotations created by extract are private | Enhanced privacy control |
 | **Anonymous Access** | Not supported | Read-only access to public resources | Public corpus support |
 | **User Profile Privacy** | All users visible | Privacy via `is_profile_public` + corpus membership | Profile privacy control |
 | **Badge Visibility** | All badges visible | Follows recipient's profile privacy | Badge privacy control |
-| **Document Actions** | Inline permission checks | `DocumentActionsQueryOptimizer` | Centralized least-privilege |
+| **Document Actions** | Inline permission checks | `DocumentActionsService` | Centralized least-privilege |
+| **Relationship Privacy** | `created_by_*` fields present but unenforced | Full privacy recursion in `RelationshipManager` (2026-06, closes #1655 Phase-C) | Relationships match annotations |
 | **Single-object check** | inline permission helper | `Manager.user_can()` / `obj.user_can()` | Check surface paired with `visible_to_user()` filter |
 
 ## Table of Contents
@@ -80,7 +81,7 @@ OpenContracts implements a sophisticated hierarchical permission system with dif
      - User has `PermissionTypes.UPDATE` permission on parent Corpus (with `include_group_permissions=True`)
    - **CRITICAL SECURITY**: `corpus.is_public=True` grants READ-ONLY access, NOT write access
    - Never check `corpus.is_public` for write permission authorization
-   - Implementation: `config/graphql/corpus_folder_mutations.py`
+   - Implementation: permission gates live in `FolderCRUDService` (`opencontractserver/corpuses/services/folders.py` — every write method checks `corpus.user_can(user, PermissionTypes.UPDATE)`, which honours creator status and group grants); `config/graphql/corpus_folder_mutations.py` is a thin GraphQL wrapper that delegates to the service
 
 3. **Annotations and Relationships - NO INDIVIDUAL PERMISSIONS**
    - **IMPORTANT: Annotations and Relationships do NOT have individual permissions**
@@ -112,15 +113,15 @@ OpenContracts implements a sophisticated hierarchical permission system with dif
 
 5. **CorpusCategory - GLOBALLY VISIBLE, ADMIN-PROVISIONED**
    - **NO individual permissions** - Categories are visible to ALL users (including anonymous)
-   - Categories are admin-provisioned structural data managed via Django Admin only
+   - Categories are admin-provisioned structural data: superusers manage them via the superuser-gated GraphQL mutations (`CreateCorpusCategory` / `UpdateCorpusCategory` / `DeleteCorpusCategory` in `config/graphql/corpus_category_mutations.py`) or the Django Admin
    - Users cannot create, modify, or delete categories - only superusers can
    - **GraphQL Type**: Does NOT use `AnnotatePermissionsForReadMixin` (categories have no permissions)
    - **corpusCount field**: Dynamically computed based on user's visible corpuses
      - Anonymous users see count of public corpuses in each category
      - Authenticated users see count of corpuses they have access to
    - Categories are seeded via migration with a `system` user (inactive, unusable password)
-   - Implementation: `config/graphql/graphene_types.py:1589` (CorpusCategoryType)
-   - Query resolver: `config/graphql/queries.py:resolve_corpus_categories`
+   - Implementation: `CorpusCategoryType` in `config/graphql/corpus_types.py`
+   - Query resolver: `resolve_corpus_categories` in `config/graphql/corpus_queries.py` (uses `BaseService.filter_visible(Corpus, user)` for the per-user `corpusCount` annotation)
 
 ### Key Principles
 
@@ -236,8 +237,11 @@ Then apply permission checks:
 For Standard Annotations:
 Document Permission (PRIMARY) ∩ Corpus Permission (SECONDARY) = Effective Permission
 
-For Private Annotations (created_by_analysis or created_by_extract):
+For Private Annotations AND Relationships (created_by_analysis or created_by_extract):
 Source Permission (REQUIRED) ∩ Document Permission ∩ Corpus Permission = Effective Permission
+(The row's own creator is exempt from the source check — matching the
+queryset gates' Q(creator=user) disjunct and the relationship creator
+short-circuit.)
 
 For Structural Annotations:
 Document READ Permission = Always Visible (READ-ONLY)
@@ -398,7 +402,7 @@ The two are pinned to agree for READ by the invariant suite (`test_authorization
 | **DocumentRelationship** | Inherited (Doc+Corpus) | Source + Target doc permissions | Corpus permissions | `Effective = MIN(source_doc, target_doc, corpus)` |
 | **CorpusFolder** | Inherited (Corpus) | Parent corpus permissions | None | No individual permissions; write requires UPDATE on corpus |
 | **Annotation** | Inherited (Doc+Corpus) | Document permissions | Corpus permissions | `Effective = MIN(doc, corpus)`; Structural always READ-ONLY |
-| **Relationship** | Inherited (Doc+Corpus) | Document permissions | Corpus permissions | `Effective = MIN(doc, corpus)`; Structural always READ-ONLY |
+| **Relationship** | Inherited (Doc+Corpus) | Document permissions | Corpus permissions | `Effective = MIN(doc, corpus)`; Structural always READ-ONLY; `created_by_*` privacy recursion (2026-06) |
 | **Metadata (Datacell)** | Corpus-primary | Corpus permissions | Document READ required | Corpus UPDATE + Doc READ = can edit; corpus-level feature |
 | **Analysis** | Hybrid | Object permissions | Corpus READ required | Content filtered by doc permissions |
 | **Extract** | Hybrid | Object permissions | Corpus READ required | Content filtered by doc permissions |
@@ -407,6 +411,11 @@ The two are pinned to agree for READ by the invariant suite (`test_authorization
 | **ChatMessage** | Inherited (Conversation) + Moderator | Parent conversation visibility | Moderator access | See [ChatMessage Visibility](#chatmessage-visibility-moderator-access) |
 | **UserBadge** | Privacy-filtered | Recipient's profile privacy | Corpus membership | Follows recipient's `is_profile_public` |
 | **User** | Privacy-controlled | `is_profile_public` | Corpus membership | Private users visible via shared corpus with > READ |
+| **Note** | Inherited (Doc+Corpus) | Document + corpus visibility | Creator / explicit grants | `NoteManager.user_can` / `NoteQuerySet.visible_to_user` (MIN of doc+corpus) |
+| **UserFeedback** | Inherited (Annotation) for READ | Commented annotation visibility | Creator / `is_public` / guardian on the row | READ inherits from the annotation; writes are creator/explicit-grant only (`UserFeedbackManager`) |
+| **Embedding** | Inherited (parent object) | Parent document/annotation/note visibility | — | `EmbeddingManager` (`opencontractserver/shared/Managers.py`) |
+| **CorpusAction** | Direct (generic) | Creator / `is_public` / guardian | — | Generic `visible_to_user`; listed per-corpus by `DocumentActionsService` |
+| **Notification** | Recipient-only | `recipient == user` | — | Simple ownership — no guardian tables, does NOT use `AnnotatePermissionsForReadMixin` |
 
 ### Detailed Permission Formulas
 
@@ -469,11 +478,11 @@ DELETE Check:
 - **Anonymous users**: Read-only access if source doc, target doc, AND corpus are all `is_public=True`
 - **No `@login_required`**: Query resolvers do NOT require authentication; permission filtering via `visible_to_user()` handles anonymous access to public resources
 
-**Query Optimizer**: Use `DocumentRelationshipQueryOptimizer` for:
+**Service**: Use `DocumentRelationshipService` (`opencontractserver/documents/services/relationships.py`) for:
 - IDOR-safe fetches with `get_relationship_by_id(user, id)`
 - Filtered queries with `get_visible_relationships(user, ...)`
 - Document-specific queries with `get_relationships_for_document(user, doc_id, ...)`
-- Permission checks with `user_has_permission(user, doc_relationship, permission_type)`
+- Permission checks with `user_has_permission(user, doc_relationship, permission_type)` — MIN(source_doc, target_doc, corpus) via three `user_can` calls
 
 #### Annotations & Relationships (including DocumentRelationship)
 ```
@@ -482,7 +491,7 @@ Structural Override = IF structural THEN READ-ONLY (except superuser)
 Privacy Filter = IF created_by_analysis/extract THEN require source permission
 ```
 
-**Note**: The Relationship model (for annotation-to-annotation relationships) has the same privacy fields as Annotation: `created_by_analysis`, `created_by_extract`, `structural`, and `is_public`. See model definition at `opencontractserver/annotations/models.py:155-376`.
+**Note**: The Relationship model (for annotation-to-annotation relationships) has the same privacy fields as Annotation — `created_by_analysis`, `created_by_extract`, `structural`, and `is_public` — and, since the 2026-06 permissioning audit, the same **enforcement**: `RelationshipManager.user_can` recurses into the source object and `RelationshipManager.visible_to_user` carries the matching privacy gate (see `opencontractserver/shared/Managers.py`; parity pinned by `RelationshipAuthorizationInvariantsTestCase`). One asymmetry vs annotations: the relationship's own **creator** passes via the creator short-circuit even without source access, mirrored by `Q(creator=user)` in the queryset gate.
 
 ##### Annotation Images (`/api/annotations/<id>/images/`)
 
@@ -523,7 +532,7 @@ DELETE Check:
 - Anonymous users: READ-only access if both document and corpus are public (documents in public corpora inherit `is_public=True` automatically)
 - Superusers: computed like a normal user — NO blanket access to metadata (scoped admin access, 2026-05); an admin reads/writes datacells only on documents+corpora it can access normally
 
-**Implementation**: `MetadataQueryOptimizer.check_metadata_mutation_permission()` in `opencontractserver/extracts/query_optimizer.py`
+**Implementation**: `MetadataService.check_metadata_mutation_permission()` in `opencontractserver/extracts/services/metadata.py`
 
 #### Conversations - Bifurcated Permission Model
 
@@ -648,8 +657,8 @@ assert thread_msg in visible_to_alice  # Moderator access
 | Relationship | ✅ | Document AND Corpus both public |
 | DocumentRelationship | ✅ | Source doc, target doc, AND corpus all public |
 | Analysis | ✅ | Analysis public AND Corpus public |
-| Extract | ❌ | Never (always filtered out) |
-| Conversation | ✅ | `is_public=True` |
+| Extract | ❌ | Never — enforced at the manager (`ExtractManager` denies anonymous on both `visible_to_user` and `user_can`) AND service (`ExtractService`) layers (2026-06 audit) |
+| Conversation | ✅ | `is_public=True`; **THREADs additionally** via context inheritance when the attached corpus/document is public (CHATs never) |
 | User Profile | ✅ | `is_profile_public=True` |
 
 ### Structural Item Protection Summary
@@ -662,33 +671,43 @@ assert thread_msg in visible_to_alice  # Moderator access
 | Non-Structural Relationship | Per doc+corpus permissions | Full CRUD |
 
 **Enforcement Locations:**
-- Annotations: `permissioning.py:297-303`
-- Relationships: `permissioning.py:388-394`
+- Annotations: `AnnotationManager.user_can` (`opencontractserver/shared/Managers.py`) — structural-write branch runs before any other permission branch
+- Relationships: `RelationshipManager.user_can` (`opencontractserver/shared/Managers.py`) — same ordering
+- Pre-computed `myPermissions`: the list services (`AnnotationService` / `RelationshipService`) mask `_can_update`/`_can_delete` per-row on structural rows to `user.is_superuser`, so the UI mirrors the break-glass
 
 ### Discussion Thread Permissions
 
 Discussions follow a **visibility-based participation model**: if you can READ a resource, you can participate in discussions about it.
 
-| Action | Permission Required | Code Location |
-|--------|---------------------|---------------|
-| Create thread on corpus | READ on corpus | `conversation_mutations.py:122` |
-| Create thread on document | READ on document | `conversation_mutations.py:142` |
-| Create thread on both | READ on corpus AND document | `conversation_mutations.py:122,142` |
-| Post message in thread | READ on conversation | `conversation_mutations.py:232` |
-| Reply to message | READ on conversation | `conversation_mutations.py:330` |
-| Vote on message/thread | READ on conversation | Visibility-based |
-| Edit own message | Creator OR moderator | `conversation_mutations.py:488` |
-| Delete own message | Creator OR moderator | `conversation_mutations.py:676` |
-| Moderate thread (lock/pin/delete) | See below | `moderation_mutations.py` |
+All checks route through the service layer (`BaseService` /
+`get_for_user_or_none`) inside `config/graphql/conversation_mutations.py` —
+there are no inline permission checks:
+
+| Action | Permission Required | Enforcement |
+|--------|---------------------|-------------|
+| Create thread on corpus | READ on corpus | `CreateThreadMutation` → `get_for_user_or_none(Corpus, …)` |
+| Create thread on document | READ on document | `CreateThreadMutation` → `get_for_user_or_none(Document, …)` |
+| Create thread on both | READ on corpus AND document | Both lookups above |
+| Post message in thread | READ on conversation | `CreateThreadMessageMutation` → `get_for_user_or_none(Conversation, …)` |
+| Reply to message | READ on conversation | `ReplyToMessageMutation` → `BaseService.require_permission` |
+| Vote on message/thread | READ on conversation | Visibility-based (`BaseService.get_or_none` in `voting_mutations.py`) |
+| Edit own message | Creator OR moderator | `UpdateMessage` → `BaseService.filter_visible` + `BaseService.user_has` |
+| Delete own message | Creator OR moderator | `DeleteMessage` → `get_for_user_or_none(ChatMessage, …)` + `BaseService.user_has` |
+| Moderate thread (lock/pin/delete) | See below | `moderation_mutations.py` → `conversation.can_moderate(user)` |
 
 **Moderator Access:**
-A user can moderate a thread if any of the following are true:
-- User is a superuser
+A user can moderate a thread if any of the following are true (`Conversation.can_moderate`, `opencontractserver/conversations/models.py`):
+- User is a superuser (retained admin capability — see the Admin Access Model banner)
 - User is the thread creator
 - User owns the corpus (`chat_with_corpus.creator == user`)
 - User owns the document (`chat_with_document.creator == user`)
-- User has EDIT permission on the corpus
-- User has EDIT permission on the document
+- User is a `CorpusModerator` for the corpus **with a non-empty `permissions` list**
+
+EDIT/UPDATE permission on the corpus or document does **NOT** grant thread
+moderation — delegated moderation goes through `CorpusModerator` rows.
+(`Corpus.user_can_moderate`, the corpus-level moderation surface, is
+deliberately looser — it accepts any `CorpusModerator` row regardless of the
+`permissions` list; reconciliation tracked under #1450.)
 
 **Rationale**: Discussions are meant to be collaborative. Anyone who can view a resource should be able to ask questions and participate in conversations about it. This encourages engagement and knowledge sharing while still maintaining moderation controls for resource owners.
 
@@ -736,7 +755,7 @@ can_comment = can_read
 
 ### Implementation
 
-**In `AnnotationQueryOptimizer._compute_effective_permissions()`:**
+**In `AnnotationService._compute_effective_permissions()` (`opencontractserver/annotations/services/annotation_service.py`):**
 
 ```python
 # Compute final read permission
@@ -831,9 +850,14 @@ def set_permissions_for_obj_to_user(
 def get_users_permissions_for_obj(
     user: type[User],
     instance: type[django.db.models.Model],
-    include_group_permissions: bool = False,
+    include_group_permissions: bool = True,
 ) -> set[str]:
-    """Get all permissions a user has for a specific object."""
+    """Get all permissions a user has for a specific object.
+
+    Group permissions are included BY DEFAULT. Results are memoized on the
+    instance (Tier-1 cache, INSTANCE_PERMS_CACHE_ATTR) — see the
+    Two-Tier Permission Cache section.
+    """
 ```
 
 ### GraphQL Integration
@@ -847,8 +871,8 @@ class AnnotatePermissionsForReadMixin:
     def resolve_my_permissions(self, info) -> list[PermissionTypes]:
         # Check for pre-computed permissions (annotations/relationships only)
         model_name = self._meta.model_name
-        if model_name in ['annotation', 'relationship'] and hasattr(self, '_can_read'):
-            # Use optimized pre-computed permissions from AnnotationQueryOptimizer
+        if model_name in ['annotation', 'relationship', 'documentrelationship'] and hasattr(self, '_can_read'):
+            # Use optimized pre-computed permissions from AnnotationService
             # These are annotated as _can_read, _can_create, _can_update, _can_delete
             permissions = set()
             if getattr(self, '_can_read', False):
@@ -895,68 +919,53 @@ class PermissionAnnotatingMiddleware:
 Annotations and relationships use a special permission inheritance model that prioritizes document security:
 
 ```python
-# From opencontractserver/annotations/query_optimizer.py
+# From opencontractserver/annotations/services/annotation_service.py
 
-class AnnotationQueryOptimizer:
+class AnnotationService(BaseService):
     @classmethod
     def _compute_effective_permissions(
         cls,
         user,
         document_id: int,
-        corpus_id: Optional[int] = None
-    ) -> tuple[bool, bool, bool, bool]:
+        corpus_id: Optional[int] = None,
+        context=None,
+    ) -> tuple[bool, bool, bool, bool, bool]:
         """
         Compute effective permissions based on document and corpus.
         Document permissions are PRIMARY (most restrictive).
 
-        Returns: (can_read, can_create, can_update, can_delete)
+        Returns: (can_read, can_create, can_update, can_delete, can_comment)
         """
         # NOTE (scoped admin access, 2026-05): there is NO superuser
-        # short-circuit here anymore — admins are computed via the same
+        # short-circuit here — admins are computed via the same
         # document+corpus logic below. (The structural-write break-glass lives
-        # in AnnotationManager.user_can, not in this effective-permission path.)
+        # in AnnotationManager.user_can; the list services additionally mask
+        # per-row structural _can_update/_can_delete to user.is_superuser.)
+
+        # ``context`` (the GraphQL request) memoizes the answer per
+        # (user, document, corpus) AND threads request= into the underlying
+        # Document/Corpus ``user_can`` calls (Tier-2 cache, PR #1665).
 
         # Anonymous users only have read access to public documents/corpuses
         if user.is_anonymous:
-            doc_read = document.is_public
-            if not doc_read:
-                return False, False, False, False
-            if corpus_id:
-                corpus = Corpus.objects.get(id=corpus_id)
-                if not corpus.is_public:
-                    return False, False, False, False
-            return True, False, False, False  # Read-only
+            # document public? corpus (if given) public? → (True, False,
+            # False, False, False); otherwise all False.
+            ...
 
-        # Check document permissions (PRIMARY - must have these)
-        doc = Document.objects.get(id=document_id)
-        doc_read = user_has_permission(user, doc, READ)
-        doc_create = user_has_permission(user, doc, CREATE)
-        doc_update = user_has_permission(user, doc, UPDATE)
-        doc_delete = user_has_permission(user, doc, DELETE)
+        # Authenticated: document permissions FIRST, each via the canonical
+        # ``Document.objects.user_can(user, document, <perm>, request=context)``
+        # — so creator status and group grants are honoured. No document READ
+        # = no access at all. If no corpus, document permissions stand alone.
 
-        # No document read permission = no access at all
-        if not doc_read:
-            return False, False, False, False
-
-        # If no corpus, use document permissions only
-        if not corpus_id:
-            return doc_read, doc_create, doc_update, doc_delete
-
-        # Check corpus permissions and apply most restrictive
-        corpus = Corpus.objects.get(id=corpus_id)
-        corpus_read = user_has_permission(user, corpus, READ)
-        corpus_create = user_has_permission(user, corpus, CREATE)
-        corpus_update = user_has_permission(user, corpus, UPDATE)
-        corpus_delete = user_has_permission(user, corpus, DELETE)
-
-        # Return minimum permissions (most restrictive)
-        return (
-            doc_read and corpus_read,
-            doc_create and corpus_create,
-            doc_update and corpus_update,
-            doc_delete and corpus_delete
-        )
+        # With a corpus: same five ``Corpus.objects.user_can`` checks, then
+        # the most restrictive wins:
+        #     final_<perm> = doc_<perm> AND corpus_<perm>
+        # COMMENT has the one exception (BACON MODE): when
+        # ``corpus.allow_comments`` is True, final_comment = final_read.
 ```
+
+See the COMMENT Permission System section above for the full comment-mode
+logic; the real implementation is the single source of truth.
 
 ### Special Cases
 
@@ -1018,7 +1027,7 @@ All permission checks for annotations and relationships go through the per-model
 2. **Structural protection** - Structural annotations/relationships are ALWAYS read-only for non-superusers (superusers retain structural-write via the break-glass)
 3. **Privacy enforcement** - Checks source object permissions for private annotations
 4. **Permission inheritance** - Requires SAME permission level on source object as requested
-5. **Document+corpus computation** - Uses AnnotationQueryOptimizer for final permissions
+5. **Document+corpus computation** - Uses `AnnotationService._compute_effective_permissions` for final permissions
 
 **Implementation Details:**
 - Structural annotation protection: `AnnotationManager.user_can` (`opencontractserver/shared/Managers.py`)
@@ -1067,21 +1076,27 @@ class Annotation(BaseOCModel):
         ]
 ```
 
-### Privacy Filtering in Query Optimizer
+### Privacy Filtering in List Queries
+
+The "which sources can this user see" subqueries are built ONCE, in
+`opencontractserver/utils/source_visibility.py`, and shared by every list
+path that applies the privacy gate (`AnnotationQuerySet.visible_to_user`,
+`AnnotationService.get_document_annotations` / `get_corpus_annotations`,
+`RelationshipManager.visible_to_user`, and
+`RelationshipService.get_document_relationships`). The builders honour
+**user- and group-level** guardian grants — matching `user_can`'s privacy
+recursion, which resolves group grants by default — and encode the
+anonymous rules (public analyses only; extracts never).
 
 ```python
-# In AnnotationQueryOptimizer.get_document_annotations()
-
-# Get analyses/extracts user can access
-visible_analyses = Analysis.objects.filter(
-    Q(is_public=True) | Q(creator=user) |
-    Q(id__in=AnalysisUserObjectPermission.objects.filter(user=user).values_list('content_object_id'))
+# In any privacy-gated list path:
+from opencontractserver.utils.source_visibility import (
+    visible_analyses_for,
+    visible_extracts_for,
 )
 
-visible_extracts = Extract.objects.filter(
-    Q(creator=user) |
-    Q(id__in=ExtractUserObjectPermission.objects.filter(user=user).values_list('content_object_id'))
-)
+visible_analyses = visible_analyses_for(user)   # public | own | user-grant | group-grant
+visible_extracts = visible_extracts_for(user)   # own | user-grant | group-grant (none for anonymous)
 
 # Filter annotations: exclude private ones unless user has access
 # BUT always include structural annotations (they're always visible)
@@ -1119,15 +1134,22 @@ annotation = Annotation.objects.create(
 All annotation mutations now properly respect the privacy model through the centralized permission system:
 
 ```python
-# Example from RemoveAnnotation mutation
+# Example from RemoveAnnotation mutation (config/graphql/annotation_mutations.py).
+# Inline ``user_can`` is FORBIDDEN in config/graphql/ (E001) — mutations go
+# through BaseService, which delegates to the same per-model user_can:
 def mutate(root, info, annotation_id):
-    annotation = Annotation.objects.get(id=annotation_id)
+    annotation_obj = BaseService.get_or_none(
+        Annotation, annotation_pk, info.context.user, request=info.context
+    )  # IDOR-safe: None whether missing or unreadable
 
-    # Single call handles all privacy logic
-    if not annotation.user_can(info.context.user, PermissionTypes.DELETE):
+    # Single call handles all privacy/structural logic (falsy = granted)
+    if annotation_obj is None or BaseService.require_permission(
+        annotation_obj, info.context.user, PermissionTypes.DELETE,
+        request=info.context,
+    ):
         return RemoveAnnotation(ok=False, message="Permission denied")
 
-    annotation.delete()
+    annotation_obj.delete()
     return RemoveAnnotation(ok=True)
 ```
 
@@ -1249,7 +1271,7 @@ Both services implement IDOR protection by returning the same response whether a
 
 ```python
 # IDOR-safe check - same response for non-existent or inaccessible
-has_permission, badge = BadgeQueryOptimizer.check_user_badge_visibility(user, badge_id)
+has_permission, badge = BadgeService.check_user_badge_visibility(user, badge_id)
 if not has_permission:
     return None  # Same response whether badge doesn't exist or user can't see it
 ```
@@ -1258,12 +1280,12 @@ if not has_permission:
 
 The following GraphQL resolvers use these optimizers:
 
-| Resolver | Optimizer | Description |
-|----------|-----------|-------------|
-| `resolve_user_by_slug` | `UserQueryOptimizer` | Get user by slug with privacy check |
-| `resolve_search_users_for_mention` | `UserQueryOptimizer` | Search users for @mention |
-| `resolve_user_badges` | `BadgeQueryOptimizer` | List visible badge awards |
-| `resolve_user_badge` | `BadgeQueryOptimizer` | Get single badge by ID |
+| Resolver | Service | Location |
+|----------|---------|----------|
+| `resolve_user_by_slug` | `UserService.get_visible_users` | `config/graphql/user_queries.py` |
+| `resolve_search_users_for_mention` | `UserService.get_visible_users` | `config/graphql/search_queries.py` |
+| `resolve_user_badges` | `BadgeService.get_visible_user_badges` | `config/graphql/social_queries.py` |
+| `resolve_user_badge` | `BadgeService.check_user_badge_visibility` | `config/graphql/social_queries.py` |
 
 ### Testing
 
@@ -1288,36 +1310,37 @@ This ensures:
 - Corpus permissions provide additional restrictions, not expansions
 - Consistent permission behavior across all document-related objects
 
-### Implementation: DocumentActionsQueryOptimizer
+### Implementation: DocumentActionsService
 
-The `DocumentActionsQueryOptimizer` class in `opencontractserver/documents/query_optimizer.py` provides centralized permission logic for document-related queries:
+The `DocumentActionsService` class in `opencontractserver/documents/services/actions.py` provides centralized permission logic for document-related queries:
 
 ```python
-from opencontractserver.documents.query_optimizer import DocumentActionsQueryOptimizer
+from opencontractserver.documents.services import DocumentActionsService
 
 # Get all actions/extracts/analyses for a document
-result = DocumentActionsQueryOptimizer.get_document_actions(
+result = DocumentActionsService.get_document_actions(
     user=requesting_user,
     document_id=document_id,
-    corpus_id=corpus_id  # Optional
+    corpus_id=corpus_id,  # Optional
+    request=info.context,  # Optional — engages the Tier-2 permission cache
 )
 # Returns: {"corpus_actions": [...], "extracts": [...], "analysis_rows": [...]}
 
 # Get corpus actions for a corpus
-corpus_actions = DocumentActionsQueryOptimizer.get_corpus_actions_for_corpus(
+corpus_actions = DocumentActionsService.get_corpus_actions_for_corpus(
     user=requesting_user,
     corpus_id=corpus_id
 )
 
 # Get extracts that include a document
-extracts = DocumentActionsQueryOptimizer.get_extracts_for_document(
+extracts = DocumentActionsService.get_extracts_for_document(
     user=requesting_user,
     document_id=document_id,
     corpus_id=corpus_id  # Optional
 )
 
 # Get analysis rows for a document
-analysis_rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
+analysis_rows = DocumentActionsService.get_analysis_rows_for_document(
     user=requesting_user,
     document_id=document_id,
     corpus_id=corpus_id  # Optional
@@ -1335,44 +1358,45 @@ analysis_rows = DocumentActionsQueryOptimizer.get_analysis_rows_for_document(
 
 ### Permission Checking
 
-The optimizer includes internal permission checking methods:
+The service gates on the canonical `user_can` API — no private helper
+methods, no superuser branch (scoped admin access, 2026-05):
 
 ```python
-# Internal methods (called automatically)
-_check_document_permission(user, document) -> bool
-_check_corpus_permission(user, corpus) -> bool
+# Inside get_document_actions:
+if not document.user_can(user, PermissionTypes.READ, request=request):
+    return empty_result
+if corpus_id and not corpus.user_can(user, PermissionTypes.READ, request=request):
+    return empty_result
 ```
 
-**Access is granted if any of:**
-- User is superuser
-- Object is public (`is_public=True`)
-- User is the creator
-- User has explicit READ permission (via django-guardian)
+`user_can` grants READ if the object is public, the user is the creator, or
+the user holds an explicit guardian grant (user- or group-level). Superusers
+are computed exactly like a normal user.
 
 ### Integration with Other Optimizers
 
-The `DocumentActionsQueryOptimizer` leverages other query optimizers for consistent permission filtering:
+The `DocumentActionsService` leverages the per-app services for consistent permission filtering:
 
-- **ExtractQueryOptimizer**: Used for filtering visible extracts
-- **AnalysisQueryOptimizer**: Used for filtering visible analyses
+- **`ExtractService`** (`opencontractserver/extracts/services/extract_service.py`): filters visible extracts (hybrid model — extract permission AND corpus READ)
+- **`AnalysisService`** (`opencontractserver/analyzer/services/analysis_service.py`): filters visible analyses (same hybrid model)
 
 ```python
-# Example: How get_document_actions uses other optimizers
-def get_document_actions(cls, user, document_id, corpus_id=None):
-    # 1. Check document permission
-    if not cls._check_document_permission(user, document):
+# Example: How get_document_actions composes the services
+def get_document_actions(cls, user, document_id, corpus_id=None, *, request=None):
+    # 1. Check document permission (canonical user_can)
+    if not document.user_can(user, PermissionTypes.READ, request=request):
         return empty_result
 
     # 2. Check corpus permission (if provided)
-    if corpus_id and not cls._check_corpus_permission(user, corpus):
+    if corpus_id and not corpus.user_can(user, PermissionTypes.READ, request=request):
         return empty_result
 
-    # 3. Use ExtractQueryOptimizer for extracts
-    visible_extracts = ExtractQueryOptimizer.get_visible_extracts(user, corpus_id)
+    # 3. Use ExtractService for extracts
+    visible_extracts = ExtractService.get_visible_extracts(user, corpus_id=corpus_id, context=request)
     result["extracts"] = visible_extracts.filter(documents=document)
 
-    # 4. Use AnalysisQueryOptimizer for analysis rows
-    visible_analyses = AnalysisQueryOptimizer.get_visible_analyses(user, corpus_id)
+    # 4. Use AnalysisService for analysis rows
+    visible_analyses = AnalysisService.get_visible_analyses(user, corpus_id=corpus_id, context=request)
     result["analysis_rows"] = document.rows.filter(analysis__in=visible_analyses)
 
     return result
@@ -1380,15 +1404,15 @@ def get_document_actions(cls, user, document_id, corpus_id=None):
 
 ### GraphQL Resolver Integration
 
-The `resolve_document_corpus_actions` resolver uses this optimizer:
+The `resolve_document_corpus_actions` resolver (`config/graphql/action_queries.py`) uses this service:
 
 ```python
-def resolve_document_corpus_actions(self, info, **kwargs):
-    user = info.context.user
-    result = DocumentActionsQueryOptimizer.get_document_actions(
-        user=user,
-        document_id=decode_id(self.id),
-        corpus_id=decode_id(kwargs.get("corpus_id")) if kwargs.get("corpus_id") else None
+def resolve_document_corpus_actions(self, info, document_id, corpus_id=None):
+    result = DocumentActionsService.get_document_actions(
+        user=info.context.user,
+        document_id=decode_id(document_id),
+        corpus_id=decode_id(corpus_id) if corpus_id else None,
+        request=info.context,
     )
     return result
 ```
@@ -1450,15 +1474,15 @@ The elimination of annotation-level permissions means:
 The optimization is transparent to the GraphQL layer:
 
 ```python
-# In resolve_annotations (config/graphql/queries.py)
-if document_id:
-    # Use optimized path
-    queryset = AnnotationQueryOptimizer.get_document_annotations(
-        document_id=doc_id,
-        user=info.context.user,
-        corpus_id=corpus_id
-    )
-    # Queryset already has permissions annotated
+# In resolve_all_annotations (config/graphql/document_types.py)
+queryset = AnnotationService.get_document_annotations(
+    document_id=self.id,
+    user=info.context.user,
+    corpus_id=corpus_pk,
+    analysis_id=analysis_pk,
+    context=info.context,  # request-scoped permission + instance caches
+)
+# Queryset already has permissions annotated (_can_read, _can_update, …)
 ```
 
 ## GraphQL Query Patterns
@@ -1731,7 +1755,12 @@ Components that properly support read-only mode:
 ### Comprehensive Test Coverage
 
 The permission system is thoroughly tested in:
-- `opencontractserver/tests/permissioning/test_annotation_privacy_scoping.py` - Proves privacy scoping works
+- `opencontractserver/tests/permissioning/test_authorization_invariants.py` - **The filter/check parity suite** (`visible_to_user ⟺ user_can(READ)` per model, incl. relationship privacy recursion and group-granted sources)
+- `opencontractserver/tests/permissioning/test_annotation_privacy_scoping.py` - Proves annotation privacy scoping works
+- `opencontractserver/tests/permissioning/test_relationship_privacy_scoping.py` - Relationship privacy scoping through the document-view listing (2026-06)
+- `opencontractserver/tests/permissioning/test_source_visibility_group_grants.py` - Group-granted analysis/extract permissions unlock private rows in list queries (2026-06)
+- `opencontractserver/tests/permissioning/test_extract_anonymous_lockdown.py` - Extracts are never anonymous-visible, at manager AND service layers (2026-06)
+- `opencontractserver/tests/permissioning/test_structural_mypermissions_breakglass.py` - Pre-computed myPermissions mirror the structural-write break-glass (2026-06)
 - `opencontractserver/tests/permissioning/test_annotation_permission_inheritance.py` - Validates inheritance model
 - `opencontractserver/tests/permissioning/test_analysis_extract_hybrid_permissions.py` - Tests hybrid permission model
 - `opencontractserver/tests/test_structural_protection.py` - **Tests structural annotation/relationship protection**
@@ -1781,7 +1810,7 @@ def test_document_primary_permissions():
     set_permissions_for_obj_to_user(user, document, [PermissionTypes.READ])
     set_permissions_for_obj_to_user(user, corpus, [PermissionTypes.UPDATE])
 
-    annotations = AnnotationQueryOptimizer.get_document_annotations(
+    annotations = AnnotationService.get_document_annotations(
         document_id=document.id,
         user=user,
         corpus_id=corpus.id
@@ -1811,7 +1840,7 @@ def test_analysis_created_annotation_privacy():
     set_permissions_for_obj_to_user(viewer, corpus, [PermissionTypes.READ])
 
     # Should NOT see the private annotation
-    visible = AnnotationQueryOptimizer.get_document_annotations(
+    visible = AnnotationService.get_document_annotations(
         document_id=doc.id,
         user=viewer,
         corpus_id=corpus.id
@@ -1822,7 +1851,7 @@ def test_analysis_created_annotation_privacy():
     set_permissions_for_obj_to_user(viewer, analysis, [PermissionTypes.READ])
 
     # Now should see the annotation
-    visible = AnnotationQueryOptimizer.get_document_annotations(
+    visible = AnnotationService.get_document_annotations(
         document_id=doc.id,
         user=viewer,
         corpus_id=corpus.id
@@ -1842,7 +1871,7 @@ def test_structural_annotations_always_visible():
     )
 
     # User WITHOUT analysis permission
-    visible = AnnotationQueryOptimizer.get_document_annotations(
+    visible = AnnotationService.get_document_annotations(
         document_id=doc.id,
         user=viewer,
         corpus_id=corpus.id,
@@ -1952,7 +1981,7 @@ describe('Permission Flow', () => {
 - **Verify**: Check database directly to ensure old permissions are removed
 
 #### N+1 Query Performance Issues
-- **Check**: Annotation queries use `AnnotationQueryOptimizer`
+- **Check**: Annotation queries use `AnnotationService`
 - **Check**: `_can_*` attributes are present on annotation querysets
 - **Check**: `AnnotationType.get_queryset()` detects and preserves pre-computed permissions
 
@@ -2051,7 +2080,7 @@ def resolve_analysis_annotations(analysis, info):
     """
     Resolve annotations within an analysis, filtered by document permissions.
     """
-    # Use existing AnnotationQueryOptimizer
+    # Use existing AnnotationService
     user = info.context.user
 
     # Get all annotation IDs from this analysis
@@ -2071,8 +2100,8 @@ def resolve_analysis_annotations(analysis, info):
 ## Common Pitfalls and Solutions
 
 ### Pitfall 1: Forgetting corpusId in GraphQL queries
-**Problem**: Querying `allAnnotations` without `corpusId` returns empty results
-**Solution**: ALWAYS include `corpusId` parameter in annotation queries
+**Problem**: Querying `allAnnotations` without `corpusId` returns **structural annotations only** (corpus-scoped user annotations are omitted; requesting `isStructural: false` without a corpus returns empty)
+**Solution**: ALWAYS include `corpusId` parameter when you want user/manual annotations
 
 ### Pitfall 2: Not understanding analysis_id parameter behavior
 **Problem**: Expecting to see all annotations (manual + analysis) when querying without `analysis_id`
@@ -2170,7 +2199,11 @@ Users can autocomplete/mention a document if they have **at least one of**:
 #### Autocomplete Filtering
 
 ```python
-# In config/graphql/queries.py
+# In config/graphql/search_queries.py
+# NOTE: these mention resolvers inline guardian ``get_objects_for_user`` —
+# legal under E001 (which scans only visible_to_user / user_can /
+# user_has_permission_for_obj) but an acknowledged exception to the
+# service-layer policy; migration into a service is a known follow-up.
 
 def resolve_search_corpuses_for_mention(self, info, text_search=None, **kwargs):
     """Only returns corpuses where user can meaningfully contribute."""
@@ -2343,7 +2376,7 @@ assert len(viewer_resources) == 0  # Viewer doesn't see mention
 - [ ] `mentionedResources` filters by viewer permissions
 - [ ] IDOR protection: same error for non-existent vs. inaccessible
 
-**Frontend Tests** (`frontend/tests/MentionPermissions.test.tsx`):
+**Frontend Tests** (planned — no dedicated mention-permission spec exists yet):
 - [ ] Autocomplete displays backend-filtered results
 - [ ] Inaccessible mentions render as plain text
 - [ ] Accessible mentions render as clickable chips
@@ -2392,7 +2425,8 @@ The permission system operates at three layers:
 The `UnifiedAgentConsumer` validates user permissions **before** accepting the WebSocket connection:
 
 ```python
-# Lines 131-187 in unified_agent_conversation.py
+# In UnifiedAgentConsumer._validate_resource_permissions()
+# (called from connect(); config/websocket/consumers/unified_agent_conversation.py)
 
 # For corpus context
 if self.corpus_id:
@@ -2438,7 +2472,10 @@ Before agent initialization, tools are filtered based on user permissions. This 
 #### Tool Filtering Logic
 
 ```python
-# Lines 178-210 in agent_factory.py
+# In UnifiedAgentFactory.create_document_agent() (agent_factory.py) —
+# create_corpus_agent() applies the same filters against the corpus.
+# The flags themselves are declared on CoreTool in
+# opencontractserver/llms/tools/tool_factory.py.
 
 # Check user's write permission on document
 has_write_permission = await _user_has_write_permission(user_id, doc_obj)
@@ -2489,10 +2526,10 @@ Each `CoreTool` has three permission-related flags:
 
 **Location**: `opencontractserver/llms/tools/pydantic_ai_tools.py`
 
-The `_check_user_permissions()` function runs **before every tool execution** as a defense-in-depth measure:
+The async `_check_user_permissions()` function runs (awaited) **before every tool execution** as a defense-in-depth measure:
 
 ```python
-# Lines 20-127 in pydantic_ai_tools.py
+# In pydantic_ai_tools.py
 
 async def _check_user_permissions(ctx: RunContext[PydanticAIDependencies]) -> None:
     """
@@ -2540,15 +2577,27 @@ async def _check_user_permissions(ctx: RunContext[PydanticAIDependencies]) -> No
             raise PermissionError(f"User {user_id} lacks READ permission on corpus")
 ```
 
-**Injection Point**: This check is automatically injected into every tool wrapper at lines 264 and 299 in `pydantic_ai_tools.py`:
+**Injection Point**: The check is awaited inside the single `async_wrapper` that wraps every tool in `pydantic_ai_tools.py`:
 
 ```python
 async def async_wrapper(ctx: RunContext[PydanticAIDependencies], *args, **kwargs):
     # Defense-in-depth: validate user permissions BEFORE any tool execution
-    _check_user_permissions(ctx)
+    await _check_user_permissions(ctx)
 
     # Then execute tool...
     return await original_func(*args, **kwargs)
+```
+
+**Tool fault tolerance (issue #820)**: the same wrapper splits exception
+handling by class — **security exceptions propagate, operational errors do
+not**:
+
+```python
+except (PermissionError, ToolConfirmationRequired):
+    raise  # security exceptions propagate to the framework
+except Exception as e:
+    # operational failures are returned to the LLM as an error string
+    return f"[Tool error] {func_name} failed: {e}. ..."
 ```
 
 #### Writing permission checks inside a tool
@@ -2570,7 +2619,7 @@ Notes:
 ### 4. Vector Search Permission Layer
 
 **Locations**:
-- GraphQL: `config/graphql/queries.py:resolve_semantic_search`
+- GraphQL: `resolve_semantic_search` in `config/graphql/search_queries.py`
 - Vector Store: `opencontractserver/llms/vector_stores/core_vector_stores.py`
 
 The vector search system implements its own permission layer to ensure users can only search annotations they have access to.
@@ -2580,13 +2629,15 @@ The vector search system implements its own permission layer to ensure users can
 The `semantic_search` query validates document/corpus access before creating the vector store:
 
 ```python
-# Defense-in-depth check at GraphQL layer
+# Defense-in-depth check at GraphQL layer (config/graphql/search_queries.py).
+# Inline visible_to_user is forbidden in config/graphql/ (E001) — the
+# resolver goes through BaseService:
 if document_pk:
-    if not Document.objects.visible_to_user(user).filter(id=document_pk).exists():
+    if not BaseService.filter_visible(Document, user, request=info.context).filter(id=document_pk).exists():
         return []  # IDOR-safe: same response for not found vs. no permission
 
 if corpus_pk:
-    if not Corpus.objects.visible_to_user(user).filter(id=corpus_pk).exists():
+    if not BaseService.filter_visible(Corpus, user, request=info.context).filter(id=corpus_pk).exists():
         return []  # IDOR-safe: same response for not found vs. no permission
 ```
 
@@ -2719,8 +2770,8 @@ The following WebSocket consumers have been **removed/deprecated** in favor of `
 // OLD (deprecated)
 const ws = new WebSocket(`/ws/corpus_query/${corpusId}/`);
 
-// NEW (unified)
-const ws = new WebSocket(`/ws/agent/?corpus_id=${corpusId}`);
+// NEW (unified — route defined in config/asgi.py)
+const ws = new WebSocket(`/ws/agent-chat/?corpus_id=${corpusId}`);
 ```
 
 ### Key Security Properties
@@ -2741,9 +2792,10 @@ For complete details on the LLM/Agent system architecture, see:
 ### Testing
 
 Comprehensive tests for the agent permission model are located in:
-- `opencontractserver/tests/llms/test_agent_permissions.py` - Agent factory permission filtering
-- `opencontractserver/tests/websocket/test_unified_agent_consumer_permissions.py` - WebSocket layer validation
-- `opencontractserver/tests/llms/test_tool_permission_enforcement.py` - Runtime permission checks
+- `opencontractserver/tests/test_agent_factory.py` - Agent factory permission filtering
+- `opencontractserver/tests/websocket/test_unified_agent_consumer.py` - WebSocket layer validation
+- `opencontractserver/tests/websocket/test_agent_permission_escalation.py` - Escalation scenarios across the layers
+- `opencontractserver/tests/test_pydantic_ai_tools_module.py` - Runtime permission checks + fault tolerance
 
 Key test scenarios:
 - Anonymous users can only access public resources
@@ -2792,7 +2844,28 @@ When you add a new model whose rows must be permission-filtered, work through th
 Authorization checks answer "may this user do X to this object." *Fetching* the right objects for a user is the job of the service layer, and request-context code should go through it rather than composing `visible_to_user` filters by hand:
 
 - **`DocumentService`** (`opencontractserver/documents/document_service.py`) — the single source of truth for document-level operations: creation, quota, lifecycle, document-level permissions, and standalone single-document lookup. Use it when the document is the noun and corpus context is incidental.
-- **The `opencontractserver/corpuses/services/` package** — the single source of truth for corpus-scoped operations: "give me X inside corpus Y for user Z" (issue #1716 split the former `CorpusObjsService` monolith into segmented services). Import the specific service from `opencontractserver.corpuses.services`: `CorpusDocumentService` (document-in-corpus reads/writes + membership: `get_corpus_document_by_slug`, `get_corpus_document_by_id`, `is_document_in_corpus`, CAML articles), `FolderCRUDService` (folder CRUD, tree, search), `FolderDocumentService` (document-in-folder placement), `DocumentLifecycleService` (soft-delete/restore/trash), `CorpusPathService` (`DocumentPath` disambiguation internals), and `CorpusService` (Corpus-row CRUD: delete, visibility, description versioning).
+- **The `opencontractserver/corpuses/services/` package** — the single source of truth for corpus-scoped operations: "give me X inside corpus Y for user Z" (issue #1716 split the former `CorpusObjsService` monolith into segmented services). Import the specific service from `opencontractserver.corpuses.services`: `CorpusDocumentService` (document-in-corpus reads/writes + membership: `get_corpus_documents`, `get_corpus_documents_visible_to_user`, `get_corpus_document_by_slug`, `get_corpus_document_by_id`, `is_document_in_corpus`, CAML articles), `FolderCRUDService` (folder CRUD, tree, search), `FolderDocumentService` (document-in-folder placement), `DocumentLifecycleService` (soft-delete/restore/trash), `CorpusPathService` (`DocumentPath` disambiguation internals), and `CorpusService` (Corpus-row CRUD: delete, visibility, description versioning).
+
+#### Corpus document access — two deliberate semantics (issue #1682)
+
+`CorpusDocumentService` exposes **two list methods with intentionally
+different security semantics**. Choose by caller intent; never silently swap
+one for the other:
+
+- **`get_corpus_documents(user, corpus)` — corpus-as-gate.** Corpus READ
+  unlocks *every* document with an active path in that corpus, including
+  private documents the user holds no document-level grant on. This is the
+  documented default for **pipeline-facing** callers that legitimately
+  operate over a whole readable corpus: MCP tools, discovery, badge/analysis
+  tasks, and the single-document helpers built on it
+  (`get_corpus_document_by_slug` / `get_corpus_document_by_id` /
+  `is_document_in_corpus`).
+- **`get_corpus_documents_visible_to_user(user, corpus)` — MIN(document,
+  corpus).** Enforces `MIN(document_permission, corpus_permission)`: a
+  private document inside a public (or merely shared) corpus stays hidden
+  from users who lack document-level READ. **User-facing surfaces that must
+  not leak private documents — e.g. the GraphQL `CorpusType.documents`
+  resolver — MUST use this variant.**
 
 **IDOR safety:** never fuse `corpus.get_documents().values_list("id", flat=True)` with `Document.objects.visible_to_user(user)` by hand — that copy-paste pattern is IDOR-prone. `CorpusDocumentService` is the canonical entry point and returns an empty queryset (not a leak, not an error) on permission denial. `corpus.get_documents()` itself now emits a `DeprecationWarning`; internal/task code without a user must call `corpus._get_active_documents()` explicitly.
 

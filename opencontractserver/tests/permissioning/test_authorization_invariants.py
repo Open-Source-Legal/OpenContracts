@@ -1045,14 +1045,92 @@ class RelationshipAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestC
             structural=True,
         )
 
+        # ---- Privacy-rooted fixtures (2026-06 permissioning audit) ----
+        # Relationships now recurse into created_by_analysis /
+        # created_by_extract exactly like annotations (closes the Phase-C
+        # deferral from issue #1655). The matrix below pins filter/check
+        # parity for analysis- and extract-rooted rows, including a user
+        # whose source grant arrives via a GROUP.
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        from opencontractserver.analyzer.models import Analysis, Analyzer
+        from opencontractserver.extracts.models import Extract, Fieldset
+
+        self.analysis_granted_reader = User.objects.create_user(
+            username="rel_analysis_reader", email="rar@inv.test", password="x"
+        )
+        self.group_reader = User.objects.create_user(
+            username="rel_group_reader", email="rgr@inv.test", password="x"
+        )
+        for extra_reader in (self.analysis_granted_reader, self.group_reader):
+            set_permissions_for_obj_to_user(
+                extra_reader, self.corpus, [PermissionTypes.READ]
+            )
+            set_permissions_for_obj_to_user(
+                extra_reader, self.document, [PermissionTypes.READ]
+            )
+
+        self.analyzer = Analyzer.objects.create(
+            id="rel_invariant_analyzer",
+            description="x",
+            creator=self.creator,
+            task_name="opencontractserver.tasks.noop",
+        )
+        self.analysis = Analysis.objects.create(
+            analyzer=self.analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.creator,
+        )
+        self.fieldset = Fieldset.objects.create(
+            name="Rel Invariant Fieldset", creator=self.creator
+        )
+        self.extract = Extract.objects.create(
+            name="Rel Invariant Extract",
+            corpus=self.corpus,
+            fieldset=self.fieldset,
+            creator=self.creator,
+        )
+
+        set_permissions_for_obj_to_user(
+            self.analysis_granted_reader, self.analysis, [PermissionTypes.READ]
+        )
+        self.rel_group = Group.objects.create(name="rel_invariant_group")
+        self.group_reader.groups.add(self.rel_group)
+        assign_perm("read_analysis", self.rel_group, self.analysis)
+
+        self.private_rel_via_analysis = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            structural=False,
+            created_by_analysis=self.analysis,
+        )
+        self.private_rel_via_extract = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            structural=False,
+            created_by_extract=self.extract,
+        )
+
         self._matrix_users = [
             self.creator,
             self.shared_reader,
             self.stranger,
+            self.analysis_granted_reader,
+            self.group_reader,
             self._superuser,
             AnonymousUser(),
         ]
-        self._matrix_instances = [self.relationship, self.structural_rel]
+        self._matrix_instances = [
+            self.relationship,
+            self.structural_rel,
+            self.private_rel_via_analysis,
+            self.private_rel_via_extract,
+        ]
 
     def test_structural_relationships_are_read_only_for_non_superuser(self):
         """Structural relationships can only be READ by non-superusers."""
@@ -1072,20 +1150,211 @@ class RelationshipAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestC
             self.structural_rel.user_can(self._superuser, PermissionTypes.UPDATE)
         )
 
-    def test_no_privacy_widening_via_created_by_analysis(self):
-        """RelationshipManager.user_can does NOT consult ``created_by_analysis``.
-
-        Relationship privacy has never recursed into that field; this
-        test pins that ``RelationshipManager.user_can`` preserves that
-        behavior. Adding a privacy check would require its own explicit
-        invariant.
+    def test_privacy_recursion_blocks_user_without_source_access(self):
+        """A user with doc+corpus READ but no analysis/extract access can
+        neither READ a privacy-rooted relationship via ``user_can`` nor see
+        it in ``visible_to_user`` (2026-06 audit — closes the Phase-C
+        deferral from issue #1655; relationships now match annotations).
         """
-        # No fixture mutation needed — the relationship has no created_by_analysis
-        # set, and the matrix-level READ-equivalence test already
-        # exercises the standard MIN(doc, corpus) path. This sentinel
-        # test documents the contract.
-        self.assertIsNone(self.relationship.created_by_analysis_id)
-        self.assertIsNone(self.relationship.created_by_extract_id)
+        from opencontractserver.annotations.models import Relationship
+
+        for rel in (self.private_rel_via_analysis, self.private_rel_via_extract):
+            self.assertFalse(
+                rel.user_can(self.shared_reader, PermissionTypes.READ),
+                f"shared_reader read privacy-rooted relationship {rel.pk} — leak!",
+            )
+            self.assertFalse(
+                Relationship.objects.visible_to_user(self.shared_reader)
+                .filter(pk=rel.pk)
+                .exists(),
+                f"privacy-rooted relationship {rel.pk} listed for shared_reader — leak!",
+            )
+
+    def test_privacy_recursion_grants_via_user_level_source_grant(self):
+        """An explicit READ grant on the source analysis unlocks the
+        analysis-rooted relationship on BOTH surfaces — but does not bleed
+        into the extract-rooted sibling."""
+        from opencontractserver.annotations.models import Relationship
+
+        self.assertTrue(
+            self.private_rel_via_analysis.user_can(
+                self.analysis_granted_reader, PermissionTypes.READ
+            )
+        )
+        self.assertTrue(
+            Relationship.objects.visible_to_user(self.analysis_granted_reader)
+            .filter(pk=self.private_rel_via_analysis.pk)
+            .exists()
+        )
+        self.assertFalse(
+            self.private_rel_via_extract.user_can(
+                self.analysis_granted_reader, PermissionTypes.READ
+            ),
+            "analysis grant unlocked an EXTRACT-rooted relationship — leak!",
+        )
+
+    def test_privacy_recursion_honors_group_grant(self):
+        """A READ grant on the source analysis via a GROUP must unlock the
+        analysis-rooted relationship on BOTH surfaces (filter/check parity
+        for group grants — the list-side gates consult the group
+        object-permission tables via ``source_visibility``)."""
+        from opencontractserver.annotations.models import Relationship
+
+        self.assertTrue(
+            self.private_rel_via_analysis.user_can(
+                self.group_reader, PermissionTypes.READ
+            ),
+            "user_can must honour the group-level READ grant on the source",
+        )
+        self.assertTrue(
+            Relationship.objects.visible_to_user(self.group_reader)
+            .filter(pk=self.private_rel_via_analysis.pk)
+            .exists(),
+            "visible_to_user must honour the group-level READ grant on the source",
+        )
+
+    def test_privacy_recursion_requires_source_permission_for_writes(self):
+        """DELETE on a privacy-rooted relationship requires DELETE on the
+        source as well as doc+corpus: a READ-only source grant plus full
+        doc+corpus CRUD is still denied; adding source DELETE flips it."""
+        set_permissions_for_obj_to_user(
+            self.analysis_granted_reader, self.document, [PermissionTypes.CRUD]
+        )
+        set_permissions_for_obj_to_user(
+            self.analysis_granted_reader, self.corpus, [PermissionTypes.CRUD]
+        )
+        self.assertFalse(
+            self.private_rel_via_analysis.user_can(
+                self.analysis_granted_reader, PermissionTypes.DELETE
+            ),
+            "DELETE allowed with only READ on the source analysis — leak!",
+        )
+        set_permissions_for_obj_to_user(
+            self.analysis_granted_reader,
+            self.analysis,
+            [PermissionTypes.READ, PermissionTypes.DELETE],
+        )
+        self.assertTrue(
+            self.private_rel_via_analysis.user_can(
+                self.analysis_granted_reader, PermissionTypes.DELETE
+            ),
+            "DELETE denied despite DELETE on source + doc + corpus",
+        )
+
+    def test_relationship_creator_retains_access_to_privacy_rooted_rows(self):
+        """The relationship's own creator keeps READ access to a
+        privacy-rooted row on both surfaces even without source access —
+        the creator short-circuit in ``user_can`` matches the
+        ``Q(creator=user)`` disjunct in the queryset privacy gate."""
+        from opencontractserver.annotations.models import Relationship
+
+        own_rel = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.shared_reader,  # no analysis access
+            document=self.document,
+            corpus=self.corpus,
+            structural=False,
+            created_by_analysis=self.analysis,
+        )
+        self.assertTrue(own_rel.user_can(self.shared_reader, PermissionTypes.READ))
+        self.assertTrue(
+            Relationship.objects.visible_to_user(self.shared_reader)
+            .filter(pk=own_rel.pk)
+            .exists()
+        )
+
+    def test_structural_rows_bypass_privacy(self):
+        """Structural relationships stay READable (doc+corpus READ) even
+        when ``created_by_analysis`` points at a source the user cannot
+        see — privacy never hides structural rows."""
+        from opencontractserver.annotations.models import Relationship
+
+        structural_private = Relationship.objects.create(
+            relationship_label=self.rel_label,
+            creator=self.creator,
+            document=self.document,
+            corpus=self.corpus,
+            structural=True,
+            created_by_analysis=self.analysis,
+        )
+        self.assertTrue(
+            structural_private.user_can(self.shared_reader, PermissionTypes.READ)
+        )
+        self.assertTrue(
+            Relationship.objects.visible_to_user(self.shared_reader)
+            .filter(pk=structural_private.pk)
+            .exists()
+        )
+
+
+class ExtractAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
+    """Pin filter/check equivalence for ``Extract``.
+
+    ``ExtractManager`` (2026-06 permissioning audit) denies anonymous users
+    on BOTH surfaces — extracts are never anonymous-visible, even when
+    ``is_public=True`` — and otherwise inherits the generic creator /
+    ``is_public`` / guardian rules. The matrix pins parity across that
+    override (the hybrid corpus-AND rule is service-level —
+    ``ExtractService`` — and out of scope for the manager surfaces).
+    """
+
+    def setUp(self):
+        from opencontractserver.extracts.models import Extract, Fieldset
+
+        self.model_cls = Extract
+
+        self.creator = User.objects.create_user(
+            username="ext_creator", email="ec@inv.test", password="x"
+        )
+        self.granted_reader = User.objects.create_user(
+            username="ext_reader", email="er@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="ext_stranger", email="es@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="ext_admin", email="ea@inv.test", password="x"
+        )
+
+        self.fieldset = Fieldset.objects.create(
+            name="Ext Invariant Fieldset", creator=self.creator
+        )
+        self.private_extract = Extract.objects.create(
+            name="Private Invariant Extract",
+            fieldset=self.fieldset,
+            creator=self.creator,
+            is_public=False,
+        )
+        self.public_extract = Extract.objects.create(
+            name="Public Invariant Extract",
+            fieldset=self.fieldset,
+            creator=self.creator,
+            is_public=True,
+        )
+        set_permissions_for_obj_to_user(
+            self.granted_reader, self.private_extract, [PermissionTypes.READ]
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.granted_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.private_extract, self.public_extract]
+
+    def test_anonymous_denied_even_on_public_extract(self):
+        """Extracts are never anonymous-visible — both surfaces deny, even
+        for ``is_public=True`` rows (2026-06 audit)."""
+        from opencontractserver.extracts.models import Extract
+
+        anon = AnonymousUser()
+        self.assertFalse(
+            Extract.objects.user_can(anon, self.public_extract, PermissionTypes.READ)
+        )
+        self.assertFalse(Extract.objects.visible_to_user(anon).exists())
+        self.assertFalse(Extract.objects.visible_to_user(None).exists())
 
 
 class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
@@ -1273,6 +1542,56 @@ class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCas
         """
         self.assertFalse(
             self.private_via_analysis.user_can(self.shared_reader, PermissionTypes.READ)
+        )
+
+    def test_group_granted_source_read_passes_both_surfaces(self):
+        """A READ grant on the source analysis via a GROUP must unlock the
+        privacy-rooted annotation on BOTH surfaces (2026-06 permissioning
+        audit: the list-side privacy gates previously consulted only the
+        USER object-permission table, so a group-granted viewer passed
+        ``user_can`` but never saw the row in ``visible_to_user``).
+
+        Fresh instances are fetched around the grant so the Tier-1
+        instance permission cache cannot mask the transition (group
+        grants do not flow through ``set_permissions_for_obj_to_user``'s
+        invalidation).
+        """
+        from django.contrib.auth.models import Group
+        from guardian.shortcuts import assign_perm
+
+        from opencontractserver.annotations.models import Annotation
+
+        group = Group.objects.create(name="ann_invariant_group")
+        group_user = User.objects.create_user(
+            username="ann_group_reader", email="agr@inv.test", password="x"
+        )
+        group_user.groups.add(group)
+        set_permissions_for_obj_to_user(group_user, self.corpus, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(
+            group_user, self.document, [PermissionTypes.READ]
+        )
+
+        # Before the source grant: hidden on both surfaces.
+        fresh = Annotation.objects.get(pk=self.private_via_analysis.pk)
+        self.assertFalse(fresh.user_can(group_user, PermissionTypes.READ))
+        self.assertFalse(
+            Annotation.objects.visible_to_user(group_user)
+            .filter(pk=self.private_via_analysis.pk)
+            .exists()
+        )
+
+        assign_perm("read_analysis", group, self.analysis)
+
+        fresh = Annotation.objects.get(pk=self.private_via_analysis.pk)
+        self.assertTrue(
+            fresh.user_can(group_user, PermissionTypes.READ),
+            "user_can must honour the group-level READ grant on the source",
+        )
+        self.assertTrue(
+            Annotation.objects.visible_to_user(group_user)
+            .filter(pk=self.private_via_analysis.pk)
+            .exists(),
+            "visible_to_user must honour the group-level READ grant on the source",
         )
 
     def test_is_public_does_not_grant_writes(self):

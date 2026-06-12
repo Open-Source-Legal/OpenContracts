@@ -47,6 +47,13 @@ class ExtractService(BaseService):
         from opencontractserver.types.enums import PermissionTypes
 
         # scoped admin access, 2026-05: admins computed like a normal user
+
+        # Extracts are NEVER visible to anonymous users (2026-06
+        # permissioning audit) — deny before any lookup so the response is
+        # indistinguishable from "not found" (IDOR posture).
+        if getattr(user, "is_anonymous", True):
+            return False, None
+
         try:
             extract = Extract.objects.get(id=extract_id)
 
@@ -102,10 +109,12 @@ class ExtractService(BaseService):
 
         # scoped admin access, 2026-05: admins computed like a normal user
         if user.is_anonymous:
-            # Anonymous users can only see public extracts in public corpuses
-            qs = Extract.objects.filter(
-                Q(is_public=True) & (Q(corpus__isnull=True) | Q(corpus__is_public=True))
-            )
+            # Extracts are NEVER visible to anonymous users (2026-06
+            # permissioning audit) — matches ExtractManager and the
+            # annotation/relationship privacy gates. The previous
+            # public-extract branch here was drift copied from the
+            # analysis service.
+            qs = Extract.objects.none()
         else:
             # Import permission model
             from opencontractserver.extracts.models import ExtractUserObjectPermission

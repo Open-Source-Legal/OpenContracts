@@ -340,10 +340,10 @@ class PermissionQuerySet(models.QuerySet):
         the queryset filter — this is the invariant pinned by
         ``test_authorization_invariants``.
 
-        Logic:
-          - Superuser → all rows (DB-default ordering preserved).
+        Logic (scoped admin access, 2026-05 — superusers are computed
+        like any other user, no blanket bypass):
           - Anonymous → ``is_public=True`` only.
-          - Authenticated non-superuser → ``creator | is_public |
+          - Authenticated → ``creator | is_public |
             guardian read codename (user- and group-level)``.
 
         Concrete subclasses (``DocumentQuerySet``, ``AnnotationQuerySet``,
@@ -536,16 +536,8 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         from django.apps import apps
         from django.contrib.auth.models import AnonymousUser
 
-        from opencontractserver.analyzer.models import (
-            Analysis,
-            AnalysisUserObjectPermission,
-        )
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document
-        from opencontractserver.extracts.models import (
-            Extract,
-            ExtractUserObjectPermission,
-        )
 
         # Peer querysets (NoteQuerySet, PermissionQuerySet) normalise None
         # to AnonymousUser at the queryset boundary. The Manager wrapper
@@ -593,24 +585,18 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
 
         # ---- Authenticated users ----
 
-        # Build visibility filters for analyses / extracts. Kept as lazy
-        # querysets so they compile to subqueries (no extra round-trips) and
-        # keep the cached-count SQL deterministic (see CachedCountQuerySetMixin).
-        visible_analyses = Analysis.objects.filter(Q(is_public=True) | Q(creator=user))
-        analyses_with_permission = AnalysisUserObjectPermission.objects.filter(
-            user=user
-        ).values_list("content_object_id", flat=True)
-        visible_analyses = visible_analyses | Analysis.objects.filter(
-            id__in=analyses_with_permission
+        # Visibility filters for analyses / extracts — shared builders so the
+        # privacy gate honours user- AND group-level guardian grants, matching
+        # ``user_can``'s privacy recursion (parity invariant). Lazy querysets
+        # compile to subqueries (no extra round-trips) and keep the
+        # cached-count SQL deterministic (see CachedCountQuerySetMixin).
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
         )
 
-        visible_extracts = Extract.objects.filter(Q(creator=user))
-        extracts_with_permission = ExtractUserObjectPermission.objects.filter(
-            user=user
-        ).values_list("content_object_id", flat=True)
-        visible_extracts = visible_extracts | Extract.objects.filter(
-            id__in=extracts_with_permission
-        )
+        visible_analyses = visible_analyses_for(user)
+        visible_extracts = visible_extracts_for(user)
 
         # Privacy gate. An annotation clears it when it is structural, the
         # user's own, has no analysis/extract privacy source, or its privacy

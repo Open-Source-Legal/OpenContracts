@@ -140,9 +140,10 @@ class BaseVisibilityManager(UserCanMixin, Manager):
     Base manager that implements the standard visibility logic for non-annotations and non-relationships .
 
     This manager provides a secure default implementation of visible_to_user that:
-    1. Allows superusers to see everything
-    2. For anonymous users: only public objects
-    3. For authenticated users: public objects, objects they created, or objects explicitly shared with them
+    1. For anonymous users: only public objects
+    2. For authenticated users (superusers included — scoped admin access,
+       2026-05, no blanket bypass): public objects, objects they created, or
+       objects explicitly shared with them
 
     This is the SECURE fallback logic that should be used by all models that don't have
     more specific permission requirements.
@@ -370,9 +371,10 @@ class PermissionManager(BaseVisibilityManager):
         signature parity with ``BaseVisibilityManager`` but have no effect
         here — ``PermissionQuerySet`` only filters on creator / public.
 
-        Note: this override returns before reaching ``super().visible_to_user``,
-        so the base class superuser shortcut is NOT used. Superuser visibility
-        is granted by ``PermissionQuerySet.visible_to_user`` itself.
+        Note: this override returns before reaching ``super().visible_to_user``;
+        ``PermissionQuerySet.visible_to_user`` encodes the full filter
+        (superusers are computed like any other user — scoped admin access,
+        2026-05).
         """
         if user is None:
             user = AnonymousUser()
@@ -639,6 +641,90 @@ class DocumentManager(BaseVisibilityManager):
 # mypy can't trace its members, so the dynamic-base-class warning is silenced
 # at the point of declaration.  The resulting manager still gets the
 # ``PermissionManager`` API plus everything declared on the queryset.
+def _source_privacy_recursion_passes(
+    user: "UserModel | AnonymousUser",
+    instance: Model,
+    permission: _PermissionTypes,
+    include_group_permissions: bool,
+    *,
+    request: Any = None,
+) -> bool:
+    """Return whether the ``created_by_*`` privacy-recursion gate passes.
+
+    Shared by ``AnnotationManager.user_can`` and
+    ``RelationshipManager.user_can`` — both models carry
+    ``created_by_analysis`` / ``created_by_extract`` FKs and enforce the
+    same source-permission rule (relationships gained the recursion in the
+    2026-06 permissioning audit, closing the Phase-C deferral from issue
+    #1655).
+
+    Three outcomes:
+    - ``True`` for the structural-READ short-circuit (structural rows are
+      always READable when the parent doc is).
+    - ``True`` when the row has neither ``created_by_analysis`` nor
+      ``created_by_extract`` set (privacy recursion is a no-op).
+    - For analysis/extract-rooted rows, the requested permission must hold
+      on the source object as well as doc+corpus. Delegates to
+      ``Analysis.objects.user_can`` / ``Extract.objects.user_can`` so
+      creator status on the source is honored.
+
+    Callers have already denied non-READ structural requests (the
+    structural-write break-glass runs first), so ``structural and READ`` is
+    the only structural state we can still be in — but we keep the explicit
+    ``and permission == READ`` for readability rather than relying on the
+    flow-sensitive equivalence.
+
+    Performance note: the FK descriptors (``instance.created_by_analysis``
+    / ``created_by_extract``) hit the database once each per call when the
+    relations aren't prefetched. Bulk callers SHOULD
+    ``select_related("created_by_analysis", "created_by_extract")`` on
+    their root queryset.
+    """
+    from opencontractserver.types.enums import PermissionTypes
+
+    is_structural_read = (
+        getattr(instance, "structural", False) and permission == PermissionTypes.READ
+    )
+    if is_structural_read:
+        return True
+
+    analysis_id = getattr(instance, "created_by_analysis_id", None)
+    if analysis_id:
+        # ``instance`` is statically ``Model`` but this branch only runs for
+        # Annotation/Relationship rows, which declare this FK.
+        source_analysis = instance.created_by_analysis  # type: ignore[attr-defined]
+        if source_analysis is None:
+            return False
+        from opencontractserver.analyzer.models import Analysis
+
+        return Analysis.objects.user_can(
+            user,
+            source_analysis,
+            permission,
+            include_group_permissions=include_group_permissions,
+            request=request,
+        )
+
+    extract_id = getattr(instance, "created_by_extract_id", None)
+    if extract_id:
+        # ``instance`` is statically ``Model`` but this branch only runs for
+        # Annotation/Relationship rows, which declare this FK.
+        source_extract = instance.created_by_extract  # type: ignore[attr-defined]
+        if source_extract is None:
+            return False
+        from opencontractserver.extracts.models import Extract
+
+        return Extract.objects.user_can(
+            user,
+            source_extract,
+            permission,
+            include_group_permissions=include_group_permissions,
+            request=request,
+        )
+
+    return True
+
+
 class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  # type: ignore[misc]
     """
     Custom Manager for the Annotation model that uses:
@@ -684,7 +770,8 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         5. **Structural write deny** → for non-superusers, any non-READ
            permission on a ``structural=True`` annotation returns False.
         6. **Privacy recursion** (only when not structural-READ): see
-           ``_check_annotation_privacy_recursion``.
+           ``_source_privacy_recursion_passes`` (module-level, shared with
+           ``RelationshipManager``).
         7. ``document_id is None`` → READ via ``visible_to_user(...).exists()``
            (covers the structural_set route), non-READ denied.
         8. **MIN(doc, corpus)** → see
@@ -745,7 +832,7 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         ):
             return bool(getattr(user, "is_superuser", False))
 
-        if not self._check_annotation_privacy_recursion(
+        if not _source_privacy_recursion_passes(
             user, instance, permission, include_group_permissions, request=request
         ):
             return False
@@ -787,80 +874,6 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         if permission != PermissionTypes.READ:
             return False
         return self.get_queryset().visible_to_user(user).filter(pk=instance.pk).exists()
-
-    def _check_annotation_privacy_recursion(
-        self,
-        user: UserModel | AnonymousUser,
-        instance: Model,
-        permission: _PermissionTypes,
-        include_group_permissions: bool,
-        *,
-        request: Any = None,
-    ) -> bool:
-        """Return whether the privacy-recursion gate passes.
-
-        Three outcomes:
-        - ``True`` for the structural-READ short-circuit (structural
-          rows are always READable when the parent doc is).
-        - ``True`` when the annotation has neither
-          ``created_by_analysis`` nor ``created_by_extract`` set
-          (privacy recursion is a no-op).
-        - For analysis/extract-rooted annotations, the requested
-          permission must hold on the source object as well as
-          doc+corpus. Delegates to ``Analysis.objects.user_can`` /
-          ``Extract.objects.user_can`` so creator status on the source
-          is honored.
-
-        At this point the caller has already denied non-READ
-        structural calls, so ``structural and READ`` is the only
-        structural state we can still be in — but we keep the
-        explicit ``and permission == READ`` for readability rather
-        than relying on the flow-sensitive equivalence.
-        """
-        from opencontractserver.types.enums import PermissionTypes
-
-        is_structural_read = (
-            getattr(instance, "structural", False)
-            and permission == PermissionTypes.READ
-        )
-        if is_structural_read:
-            return True
-
-        analysis_id = getattr(instance, "created_by_analysis_id", None)
-        if analysis_id:
-            # ``instance`` is statically ``Model`` but this branch only runs for
-            # Annotation rows, which declare this FK.
-            source_analysis = instance.created_by_analysis  # type: ignore[attr-defined]
-            if source_analysis is None:
-                return False
-            from opencontractserver.analyzer.models import Analysis
-
-            return Analysis.objects.user_can(
-                user,
-                source_analysis,
-                permission,
-                include_group_permissions=include_group_permissions,
-                request=request,
-            )
-
-        extract_id = getattr(instance, "created_by_extract_id", None)
-        if extract_id:
-            # ``instance`` is statically ``Model`` but this branch only runs for
-            # Annotation rows, which declare this FK.
-            source_extract = instance.created_by_extract  # type: ignore[attr-defined]
-            if source_extract is None:
-                return False
-            from opencontractserver.extracts.models import Extract
-
-            return Extract.objects.user_can(
-                user,
-                source_extract,
-                permission,
-                include_group_permissions=include_group_permissions,
-                request=request,
-            )
-
-        return True
 
     def _compute_annotation_effective_permission(
         self,
@@ -1098,13 +1111,38 @@ class RelationshipManager(BaseVisibilityManager):
             Q(corpus__isnull=True) | Q(corpus_id__in=visible_corpus_ids)
         )
 
+        # Privacy gate for analysis-/extract-rooted relationships (2026-06
+        # permissioning audit; closes the Phase-C deferral from issue #1655).
+        # Mirrors the AnnotationQuerySet gate: a row clears it when it is
+        # structural, the user's own, has no privacy source, or its source is
+        # one the user can see (incl. group grants via the shared builders).
+        # Must stay aligned with the ``_source_privacy_recursion_passes``
+        # branch in ``user_can`` — the parity invariant pins the two.
+        from opencontractserver.utils.source_visibility import (
+            visible_analyses_for,
+            visible_extracts_for,
+        )
+
+        privacy_gate = (
+            Q(structural=True)
+            | (Q(created_by_analysis__isnull=True) & Q(created_by_extract__isnull=True))
+            | Q(created_by_analysis__in=visible_analyses_for(user))
+            | Q(created_by_extract__in=visible_extracts_for(user))
+        )
+
         # Anonymous users have no ``id`` field — gate the creator OR to
         # authenticated users only. Doc/corpus visibility already encodes
         # the public-anonymous path via ``Document.objects.visible_to_user``.
         if user.is_anonymous:
-            qs = self.get_queryset().filter(doc_corpus_visible)
+            qs = self.get_queryset().filter(doc_corpus_visible & privacy_gate)
         else:
-            qs = self.get_queryset().filter(Q(creator=user) | doc_corpus_visible)
+            # ``Q(creator=user)`` in the gate matches the creator
+            # short-circuit in ``user_can`` so a relationship's creator keeps
+            # READ access to their own privacy-rooted rows on both surfaces.
+            privacy_gate = privacy_gate | Q(creator=user)
+            qs = self.get_queryset().filter(
+                (Q(creator=user) | doc_corpus_visible) & privacy_gate
+            )
         return _exclude_soft_deleted_doc_orphans(qs)
 
     def user_can(
@@ -1118,23 +1156,23 @@ class RelationshipManager(BaseVisibilityManager):
     ) -> bool:
         """Single-object authorization check for ``Relationship``.
 
-        Order: structural-write break-glass (superuser-only) →
-        (``document_id is None`` → False) → MIN(doc, corpus) via
-        ``AnnotationService``. Superusers are otherwise computed like any
-        other user (scoped admin access, 2026-05).
+        Order: anonymous READ-only → structural-write break-glass
+        (superuser-only) → creator short-circuit → privacy recursion
+        (``created_by_analysis`` / ``created_by_extract``, via the shared
+        ``_source_privacy_recursion_passes``) → (``document_id is None`` →
+        False) → MIN(doc, corpus) via ``AnnotationService``. Superusers
+        are otherwise computed like any other user (scoped admin access,
+        2026-05).
 
-        **NOTE: deliberately does NOT check ``created_by_analysis``/
-        ``created_by_extract``**. Although these fields exist on
-        ``Relationship``, relationship privacy has never recursed into
-        them. Adding a privacy check here would be a behavior widening
-        beyond the scope of Phase A. If/when that widening is desired,
-        mirror the annotation branch and pin a new invariant test.
-
-        TODO(Phase-C, issue #1655 follow-up): mirror the privacy
-        recursion already wired into ``AnnotationManager.user_can`` so
-        analysis-/extract-rooted relationships honour their source's
-        creator/grant semantics rather than only the doc+corpus MIN.
-        Until then this omission is intentional, not an oversight.
+        The privacy recursion (2026-06 permissioning audit; closes the
+        Phase-C deferral from issue #1655) runs AFTER the creator
+        short-circuit on purpose: the queryset's privacy gate carries a
+        matching ``Q(creator=user)`` disjunct, so a relationship's creator
+        keeps access to their own analysis-/extract-rooted rows on both
+        surfaces (filter/check parity, pinned by
+        ``test_authorization_invariants``). Non-creators must hold the
+        requested permission on the source Analysis/Extract as well as
+        doc+corpus.
         """
         from django.contrib.auth.models import AnonymousUser
 
@@ -1183,6 +1221,16 @@ class RelationshipManager(BaseVisibilityManager):
             and permission in _RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS
         ):
             return True
+
+        # Privacy recursion for analysis-/extract-rooted relationships —
+        # shared with ``AnnotationManager.user_can``. Runs after the creator
+        # short-circuit (see docstring) and before the doc/corpus MIN so a
+        # non-creator without source access is denied regardless of their
+        # doc+corpus grants.
+        if not _source_privacy_recursion_passes(
+            user, instance, permission, include_group_permissions, request=request
+        ):
+            return False
 
         if getattr(instance, "document_id", None) is None:
             return False
