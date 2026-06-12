@@ -224,6 +224,10 @@ class ExtractManager(BaseVisibilityManager):
             resolve_user_for_user_can,
         )
 
+        # Equivalent shape to the ``visible_to_user`` guard above: the
+        # resolver maps None / unresolvable ids to None and passes
+        # AnonymousUser through, so both surfaces deny exactly the same
+        # caller set (pinned by ExtractAuthorizationInvariantsTestCase).
         resolved = resolve_user_for_user_can(user)
         if resolved is None or getattr(resolved, "is_anonymous", True):
             return False

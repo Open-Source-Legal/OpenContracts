@@ -743,6 +743,12 @@ class AnnotationService(BaseService):
         # reach. The shared builders honour user- AND group-level guardian
         # grants (parity with ``user_can``'s privacy recursion) and encode
         # the anonymous rules (public analyses only; never extracts).
+        #
+        # Intentionally UNCONDITIONAL — no ``if not user.is_anonymous``
+        # guard. The old guard skipped privacy filtering entirely for
+        # anonymous viewers, leaking analysis-/extract-private annotations
+        # on public corpora (2026-06 audit). Anonymous handling lives inside
+        # the builders instead.
         from opencontractserver.utils.source_visibility import (
             visible_analyses_for,
             visible_extracts_for,

@@ -20,10 +20,15 @@ Anonymous semantics (agreed in the same audit):
 - **extracts** — NONE. Extracts are never visible to anonymous users, at
   any layer (see ``ExtractManager`` and ``ExtractService``).
 
-Grant-shape note: a *any-permission-row* match on the guardian tables
-(rather than a ``read_*`` codename filter) is deliberately preserved from
-the original inline implementations — holders of any explicit grant on the
-source object clear the privacy gate.
+Grant-shape note: the gates match guardian rows carrying the ``read_*``
+codename specifically — NOT any-permission rows. The original inline
+implementations matched any grant, which was itself a parity drift:
+``user_can``'s privacy recursion resolves READ through
+``Analysis.objects.user_can`` / ``Extract.objects.user_can``, whose
+guardian branch checks the read codename — so an ``update_analysis``-only
+grantee cleared the old list gates while failing ``user_can(READ)``
+(2026-06 audit follow-up; pinned by
+``test_update_only_source_grant_does_not_unlock_lists``).
 """
 
 from __future__ import annotations
@@ -54,11 +59,12 @@ def visible_analyses_for(user: Any) -> QuerySet:
 
     visible = Analysis.objects.filter(Q(is_public=True) | Q(creator=user))
 
-    user_grant_ids = AnalysisUserObjectPermission.objects.filter(user=user).values_list(
-        "content_object_id", flat=True
-    )
+    user_grant_ids = AnalysisUserObjectPermission.objects.filter(
+        user=user, permission__codename="read_analysis"
+    ).values_list("content_object_id", flat=True)
     group_grant_ids = AnalysisGroupObjectPermission.objects.filter(
-        group_id__in=user.groups.values_list("id", flat=True)
+        group_id__in=user.groups.values_list("id", flat=True),
+        permission__codename="read_analysis",
     ).values_list("content_object_id", flat=True)
 
     return (
@@ -102,11 +108,12 @@ def visible_extracts_for(user: Any) -> QuerySet:
 
     visible = Extract.objects.filter(Q(creator=user) | Q(is_public=True))
 
-    user_grant_ids = ExtractUserObjectPermission.objects.filter(user=user).values_list(
-        "content_object_id", flat=True
-    )
+    user_grant_ids = ExtractUserObjectPermission.objects.filter(
+        user=user, permission__codename="read_extract"
+    ).values_list("content_object_id", flat=True)
     group_grant_ids = ExtractGroupObjectPermission.objects.filter(
-        group_id__in=user.groups.values_list("id", flat=True)
+        group_id__in=user.groups.values_list("id", flat=True),
+        permission__codename="read_extract",
     ).values_list("content_object_id", flat=True)
 
     return (

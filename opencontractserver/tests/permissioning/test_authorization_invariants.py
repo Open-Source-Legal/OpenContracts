@@ -1667,6 +1667,43 @@ class AnnotationAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCas
             "(parity with user_can's recursion)",
         )
 
+    def test_update_only_source_grant_does_not_unlock_lists(self):
+        """An UPDATE-only grant on the source analysis must NOT clear the
+        privacy gate (2026-06 audit follow-up): ``user_can``'s recursion
+        resolves READ through the read codename, so the list gates must
+        match — the old any-permission-row match let an
+        ``update_analysis``-only grantee see private rows in lists while
+        ``user_can(READ)`` denied them (filter/check parity violation).
+        """
+        from opencontractserver.annotations.models import Annotation
+
+        update_only = User.objects.create_user(
+            username="ann_update_only", email="auo@inv.test", password="x"
+        )
+        set_permissions_for_obj_to_user(
+            update_only, self.corpus, [PermissionTypes.READ]
+        )
+        set_permissions_for_obj_to_user(
+            update_only, self.document, [PermissionTypes.READ]
+        )
+        # UPDATE-only on the source — deliberately NO READ.
+        set_permissions_for_obj_to_user(
+            update_only, self.analysis, [PermissionTypes.UPDATE]
+        )
+
+        fresh = Annotation.objects.get(pk=self.private_via_analysis.pk)
+        self.assertFalse(
+            fresh.user_can(update_only, PermissionTypes.READ),
+            "user_can(READ) must deny an UPDATE-only source grantee",
+        )
+        self.assertFalse(
+            Annotation.objects.visible_to_user(update_only)
+            .filter(pk=self.private_via_analysis.pk)
+            .exists(),
+            "list gate must NOT be cleared by a non-READ source grant "
+            "(parity with user_can's read-codename recursion)",
+        )
+
     def test_is_public_does_not_grant_writes(self):
         """SECURITY: ``is_public=True`` grants a non-creator READ but never
         UPDATE/DELETE — the write asymmetry must hold for Annotation."""

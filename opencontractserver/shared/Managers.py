@@ -674,6 +674,13 @@ def _source_privacy_recursion_passes(
     ``and permission == READ`` for readability rather than relying on the
     flow-sensitive equivalence.
 
+    Deleted-source posture: both FKs are ``on_delete=SET_NULL``, so deleting
+    the source Analysis/Extract NULLs the FK and the row becomes a normal
+    (non-private) row — deletion does NOT permanently lock rows. The
+    ``source is None`` branches below fire only in the race window where the
+    id column is read before the SET_NULL lands; they fail closed for that
+    window, by design.
+
     Performance note: the FK descriptors (``instance.created_by_analysis``
     / ``created_by_extract``) hit the database once each per call when the
     relations aren't prefetched. Bulk callers SHOULD
