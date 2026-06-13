@@ -173,6 +173,14 @@ class AnnotationServiceGroupGrantTestCase(TestCase):
             "analysis group grant unlocked an EXTRACT-rooted annotation — leak!",
         )
 
+    def test_group_analysis_grant_unlocks_annotation_queryset(self):
+        """Direct manager/queryset surface uses the same group-aware gate."""
+        assign_perm("read_analysis", self.group, self.analysis)
+        visible = Annotation.objects.visible_to_user(self.group_viewer)
+
+        self.assertTrue(visible.filter(pk=self.ann_via_analysis.pk).exists())
+        self.assertFalse(visible.filter(pk=self.ann_via_extract.pk).exists())
+
     def test_group_extract_grant_unlocks_document_listing(self):
         assign_perm("read_extract", self.group, self.extract)
         listed = self._document_listing_pks(self.group_viewer)

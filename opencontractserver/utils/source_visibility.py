@@ -78,8 +78,10 @@ def apply_source_privacy_gate(qs: QuerySet, user: Any) -> QuerySet:
         creator_exempt = Q(creator=user)
     else:
         # Always-false predicate: anonymous callers get no exemption and
-        # ``Q(creator=AnonymousUser())`` would not be a valid lookup.
-        creator_exempt = Q(pk__in=[])
+        # ``Q(creator=AnonymousUser())`` would not be a valid lookup. Primary
+        # keys are non-null, so this excludes every row without relying on the
+        # database-specific SQL Django emits for ``pk__in=[]``.
+        creator_exempt = Q(pk__isnull=True)
 
     return qs.exclude(
         Q(created_by_analysis__isnull=False)

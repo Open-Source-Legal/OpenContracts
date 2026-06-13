@@ -25,6 +25,9 @@ from django.db.models import (
 
 from opencontractserver.shared.services import BaseService
 
+# ``source_visibility`` imports stay inside methods below: importing that module
+# at file load time creates Django app-loading cycles through models/managers.
+
 
 class AnnotationService(BaseService):
     """

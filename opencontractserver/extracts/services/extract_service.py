@@ -54,6 +54,9 @@ class ExtractService(BaseService):
             return False, None
 
         try:
+            # Deliberately bypasses ``visible_to_user`` so the service can
+            # distinguish extract-level and corpus-level denial below. The
+            # anonymous guard above is load-bearing for this unfenced lookup.
             extract = Extract.objects.get(id=extract_id)
 
             # Check extract-level permission

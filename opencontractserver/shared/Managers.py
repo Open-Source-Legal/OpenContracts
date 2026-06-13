@@ -1096,6 +1096,15 @@ class RelationshipManager(BaseVisibilityManager):
         narrower than ``user_can``'s MIN(doc, corpus) and produced the
         Phase A invariant-test mismatch. We compose doc + corpus
         visibility directly here so the two surfaces agree.
+
+        Structural-set relationships whose ``document_id`` is NULL are
+        intentionally outside this manager-wide non-creator surface: without a
+        request document there is no safe way to map ``structural_set_id`` back
+        to one specific readable document. Document views use
+        ``RelationshipService.get_document_relationships``, which adds the
+        structural-set disjunct after checking that document. ``user_can`` also
+        returns ``False`` for ``document_id is None``, so filter/check parity
+        is preserved here.
         """
         from opencontractserver.corpuses.models import Corpus
         from opencontractserver.documents.models import Document

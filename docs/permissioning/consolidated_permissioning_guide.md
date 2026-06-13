@@ -1091,6 +1091,13 @@ path that applies the privacy gate (`AnnotationQuerySet.visible_to_user`,
 recursion, which resolves group grants by default — and encode the
 anonymous rules (public analyses only; extracts never).
 
+**Performance note:** each privacy gate embeds the visible-analysis and
+visible-extract subqueries, including user- and group-level guardian grant
+lookups. Keep guardian permission tables indexed on the permission, principal
+(`user` / `group`), and object-id columns before adding new source-privacy list
+surfaces; otherwise annotation + relationship requests can stack several nested
+subqueries in one page load.
+
 ```python
 # In any privacy-gated list path:
 from opencontractserver.utils.source_visibility import (

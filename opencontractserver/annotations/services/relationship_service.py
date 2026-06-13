@@ -17,6 +17,9 @@ from opencontractserver.annotations.services.annotation_service import (
 )
 from opencontractserver.shared.services import BaseService
 
+# ``source_visibility`` imports stay inside methods below: importing that module
+# at file load time creates Django app-loading cycles through models/managers.
+
 
 class RelationshipService(BaseService):
     """
@@ -134,11 +137,15 @@ class RelationshipService(BaseService):
 
                 try:
                     analysis = Analysis.objects.get(id=analysis_id)
+                    user_id = getattr(user, "id", None)
                     # User can see relationships if: analysis is public, user is creator,
                     # OR has explicit READ permission
                     has_permission = (
                         analysis.is_public
-                        or analysis.creator_id == user.id
+                        or (
+                            analysis.creator_id is not None
+                            and analysis.creator_id == user_id
+                        )
                         or analysis.user_can(
                             user, PermissionTypes.READ, request=context
                         )
