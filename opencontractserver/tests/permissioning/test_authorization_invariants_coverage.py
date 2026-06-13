@@ -308,7 +308,9 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         self.assertTrue(ann.user_can(self.creator, PermissionTypes.READ))
         self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
 
-    def test_annotation_creator_source_private_row_has_filter_check_parity(self) -> None:
+    def test_annotation_creator_source_private_row_has_filter_check_parity(
+        self,
+    ) -> None:
         """The row creator passes both annotation list and single-object READ
         gates even without source access; doc/corpus permissions still apply."""
         # ``reader`` (doc+corpus READ, no analysis access) authors a row

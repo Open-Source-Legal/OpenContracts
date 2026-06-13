@@ -111,7 +111,9 @@ class StructuralMyPermissionsBreakGlassTestCase(TestCase):
             user=user,
             corpus_id=self.corpus.id,
         )
-        return {row.pk: (row._can_read, row._can_update, row._can_delete) for row in rows}
+        return {
+            row.pk: (row._can_read, row._can_update, row._can_delete) for row in rows
+        }
 
     def _relationship_perm_map(self, user) -> dict[int, tuple[bool, bool, bool]]:
         rows = RelationshipService.get_document_relationships(
@@ -119,7 +121,9 @@ class StructuralMyPermissionsBreakGlassTestCase(TestCase):
             user=user,
             corpus_id=self.corpus.id,
         )
-        return {row.pk: (row._can_read, row._can_update, row._can_delete) for row in rows}
+        return {
+            row.pk: (row._can_read, row._can_update, row._can_delete) for row in rows
+        }
 
     def test_superuser_sees_structural_writes_via_breakglass(self):
         perms = self._annotation_perm_map(self.superuser)
