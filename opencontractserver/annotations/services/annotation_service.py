@@ -591,7 +591,7 @@ class AnnotationService(BaseService):
         top_n: int,
         exclude_label_prefix: Optional[str] = None,
         *,
-        user,
+        user: Any,
     ) -> list[dict]:
         """Top-N annotation-label distribution across a corpus's visible docs.
 

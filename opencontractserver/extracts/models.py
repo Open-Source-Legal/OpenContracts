@@ -237,7 +237,8 @@ class ExtractManager(BaseVisibilityManager):
         # AnonymousUser through, so both surfaces deny exactly the same
         # caller set (pinned by ExtractAuthorizationInvariantsTestCase).
         # Forwarding ``resolved`` to super() means the base class's own
-        # resolution call is an idempotent no-op for the User instance.
+        # resolution call is an idempotent no-op for the User instance
+        # (pinned by test_resolve_user_for_user_can_is_idempotent_for_user).
         resolved = resolve_user_for_user_can(user)
         if resolved is None or getattr(resolved, "is_anonymous", True):
             return False

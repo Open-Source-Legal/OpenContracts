@@ -152,6 +152,16 @@ class ExtractAnonymousLockdownTestCase(TestCase):
             .exists()
         )
 
+    def test_resolve_user_for_user_can_is_idempotent_for_user(self):
+        """Resolved ``User`` instances pass through without another lookup."""
+        from opencontractserver.shared.user_can_mixin import (
+            resolve_user_for_user_can,
+        )
+
+        with self.assertNumQueries(0):
+            resolved = resolve_user_for_user_can(self.owner)
+        self.assertIs(resolved, self.owner)
+
     def test_granted_user_still_sees_private_extract(self):
         private_extract = Extract.objects.create(
             name="Private Extract",
