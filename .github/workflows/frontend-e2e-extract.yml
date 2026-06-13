@@ -72,6 +72,13 @@ jobs:
         working-directory: ./frontend
         run: yarn playwright install --with-deps chromium
 
+      - name: Free runner disk for Docker stack
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          docker system prune -af || true
+          df -h
+
       # ────────────────────────────────────────────────────────────────
       # Materialize `.envs/.local/*` from the committed `.envs/.test/*`
       # templates. Real `.envs/.local/*` files are gitignored because
@@ -142,7 +149,16 @@ jobs:
           # `local.e2e-coverage.yml` swaps the Django start command for
           # `/start-with-coverage` (coverage.py wrapping `manage.py runserver
           # --noreload`). All other services keep their default commands.
-          docker compose -f local.yml -f local.e2e-coverage.yml up -d
+          #
+          # Start only the services this spec needs. A bare `up -d` starts
+          # every service in local.yml, including heavyweight optional parser /
+          # embedder images and operator services; hosted runners can exhaust
+          # Docker disk before the app stack even boots.
+          docker compose -f local.yml -f local.e2e-coverage.yml up -d \
+            postgres redis docling-parser vector-embedder
+          docker compose -f local.yml -f local.e2e-coverage.yml up -d \
+            --no-deps django celeryworker
+
           echo "Waiting for django to become healthy…"
           for i in {1..60}; do
             state=$(docker inspect -f '{{.State.Health.Status}}' \
@@ -221,8 +237,12 @@ jobs:
       - name: Export backend coverage to XML
         if: success() || failure()
         run: |
-          docker compose -f local.yml run --rm --no-deps django \
-            coverage xml -o /app/coverage-backend-e2e-extract.xml || true
+          if docker compose -f local.yml ps --status running --services | grep -qx django; then
+            timeout 120s docker compose -f local.yml exec -T django \
+              coverage xml -o /app/coverage-backend-e2e-extract.xml || true
+          else
+            echo "django container is not running; skipping backend coverage export"
+          fi
           ls -la coverage-backend-e2e-extract.xml || true
 
       - name: Capture backend logs on failure
