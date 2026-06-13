@@ -14,7 +14,7 @@ this module covers the GraphQL-facing service listing.
 """
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import AnonymousUser, Group
 from django.test import TestCase
 from guardian.shortcuts import assign_perm
 
@@ -124,6 +124,19 @@ class RelationshipServicePrivacyScopingTestCase(TestCase):
 
     def test_viewer_without_source_access_sees_only_plain_relationship(self):
         listed = self._listed_pks(self.viewer)
+        self.assertIn(self.plain_rel.pk, listed)
+        self.assertNotIn(self.rel_via_analysis.pk, listed)
+        self.assertNotIn(self.rel_via_extract.pk, listed)
+
+    def test_anonymous_public_doc_listing_hides_source_private_relationships(self):
+        """Anonymous users can list public doc/corpus rows, but source-private
+        relationship rows still fail the service-level privacy gate."""
+        self.corpus.is_public = True
+        self.corpus.save(update_fields=["is_public"])
+        self.document.is_public = True
+        self.document.save(update_fields=["is_public"])
+
+        listed = self._listed_pks(AnonymousUser())
         self.assertIn(self.plain_rel.pk, listed)
         self.assertNotIn(self.rel_via_analysis.pk, listed)
         self.assertNotIn(self.rel_via_extract.pk, listed)

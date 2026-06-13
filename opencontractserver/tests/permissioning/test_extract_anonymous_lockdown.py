@@ -144,6 +144,14 @@ class ExtractAnonymousLockdownTestCase(TestCase):
             )
         )
 
+    def test_manager_visible_to_user_accepts_integer_user_id(self):
+        """The extract override preserves the base manager's user-id shortcut."""
+        self.assertTrue(
+            Extract.objects.visible_to_user(self.owner.id)
+            .filter(pk=self.public_extract.pk)
+            .exists()
+        )
+
     def test_granted_user_still_sees_private_extract(self):
         private_extract = Extract.objects.create(
             name="Private Extract",

@@ -24,6 +24,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import (
     TOKEN_LABEL,
     Annotation,
@@ -255,6 +256,47 @@ class GeographicAnnotationServiceCorpusTests(_GeoFixtureMixin, TestCase):
         self.assertEqual(len(france_pins), 1)
         # Critical: the private document does NOT appear in the count.
         self.assertEqual(france_pins[0].document_count, 1)
+
+    def test_viewer_source_private_annotation_does_not_contribute_pin(self):
+        """Corpus aggregation applies the same source privacy gate as lists."""
+        analyzer = Analyzer.objects.create(
+            id="geo_source_private_analyzer",
+            description="geo",
+            creator=self.owner,
+            task_name="opencontractserver.tasks.noop",
+        )
+        private_analysis = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            is_public=False,
+        )
+        Annotation.objects.create(
+            page=0,
+            raw_text="Canada",
+            document=self.doc_public,
+            corpus=self.corpus,
+            annotation_label=self.country_label,
+            creator=self.owner,
+            annotation_type=TOKEN_LABEL,
+            structural=False,
+            created_by_analysis=private_analysis,
+            data={
+                "canonical_name": "Canada",
+                "lat": 56.130366,
+                "lng": -106.346771,
+                "admin_codes": {"iso_alpha2": "CA"},
+                "geocoded": True,
+            },
+            json={"0": {"bounds": {}, "rawText": "Canada", "tokensJsons": []}},
+        )
+
+        pins = GeographicAnnotationService.aggregate_for_corpus(
+            user=self.viewer, corpus=self.corpus, label_types=["country"]
+        )
+        names = {p.canonical_name for p in pins}
+        self.assertIn("France", names)
+        self.assertNotIn("Canada", names)
 
     def test_no_corpus_read_returns_empty(self):
         # An outsider with no corpus permissions gets an empty list,

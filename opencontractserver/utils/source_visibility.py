@@ -60,12 +60,12 @@ def apply_source_privacy_gate(qs: QuerySet, user: Any) -> QuerySet:
     ``visible_to_user``. Without it the service listings were the odd
     surface out: a relationship's creator who lost source access kept
     READ on both manager surfaces yet vanished from the document view.
-    (The remaining annotation-side divergence is ``user_can`` only —
-    issue #1986 item 1, pinned by
-    ``test_annotation_creator_parity_gap_sentinel``.) The exemption is
-    deliberately NOT built for anonymous users — ``Q(creator=<anonymous>)``
-    is not a valid lookup, and anonymous callers can never be a row's
-    creator.
+    Annotation filter/check parity for this same source-privacy exemption
+    is pinned by
+    ``test_annotation_creator_source_private_row_has_filter_check_parity``.
+    The exemption is deliberately NOT built for anonymous users —
+    ``Q(creator=<anonymous>)`` is not a valid lookup, and anonymous callers
+    can never be a row's creator.
 
     NOTE: ``AnnotationQuerySet.visible_to_user`` composes the SAME
     semantics as a positive ``Q`` filter (structural | creator |

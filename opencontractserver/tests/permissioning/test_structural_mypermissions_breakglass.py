@@ -105,26 +105,26 @@ class StructuralMyPermissionsBreakGlassTestCase(TestCase):
             corpus=self.corpus,
         )
 
-    def _annotation_perm_map(self, user) -> dict[int, tuple[bool, bool]]:
+    def _annotation_perm_map(self, user) -> dict[int, tuple[bool, bool, bool]]:
         rows = AnnotationService.get_document_annotations(
             document_id=self.document.id,
             user=user,
             corpus_id=self.corpus.id,
         )
-        return {row.pk: (row._can_update, row._can_delete) for row in rows}
+        return {row.pk: (row._can_read, row._can_update, row._can_delete) for row in rows}
 
-    def _relationship_perm_map(self, user) -> dict[int, tuple[bool, bool]]:
+    def _relationship_perm_map(self, user) -> dict[int, tuple[bool, bool, bool]]:
         rows = RelationshipService.get_document_relationships(
             document_id=self.document.id,
             user=user,
             corpus_id=self.corpus.id,
         )
-        return {row.pk: (row._can_update, row._can_delete) for row in rows}
+        return {row.pk: (row._can_read, row._can_update, row._can_delete) for row in rows}
 
     def test_superuser_sees_structural_writes_via_breakglass(self):
         perms = self._annotation_perm_map(self.superuser)
-        self.assertEqual(perms[self.structural_ann.pk], (True, True))
-        self.assertEqual(perms[self.normal_ann.pk], (True, True))
+        self.assertEqual(perms[self.structural_ann.pk], (True, True, True))
+        self.assertEqual(perms[self.normal_ann.pk], (True, True, True))
         # myPermissions must agree with what the mutation gate will allow.
         self.assertTrue(
             self.structural_ann.user_can(self.superuser, PermissionTypes.UPDATE)
@@ -134,19 +134,19 @@ class StructuralMyPermissionsBreakGlassTestCase(TestCase):
         perms = self._annotation_perm_map(self.owner)
         self.assertEqual(
             perms[self.structural_ann.pk],
-            (False, False),
+            (True, False, False),
             "non-superuser shown structural write affordances — UI would "
             "offer an edit the mutation gate denies",
         )
-        self.assertEqual(perms[self.normal_ann.pk], (True, True))
+        self.assertEqual(perms[self.normal_ann.pk], (True, True, True))
         self.assertFalse(
             self.structural_ann.user_can(self.owner, PermissionTypes.UPDATE)
         )
 
     def test_superuser_sees_structural_relationship_writes_via_breakglass(self):
         perms = self._relationship_perm_map(self.superuser)
-        self.assertEqual(perms[self.structural_rel.pk], (True, True))
-        self.assertEqual(perms[self.normal_rel.pk], (True, True))
+        self.assertEqual(perms[self.structural_rel.pk], (True, True, True))
+        self.assertEqual(perms[self.normal_rel.pk], (True, True, True))
         self.assertTrue(
             self.structural_rel.user_can(self.superuser, PermissionTypes.UPDATE)
         )
@@ -155,11 +155,11 @@ class StructuralMyPermissionsBreakGlassTestCase(TestCase):
         perms = self._relationship_perm_map(self.owner)
         self.assertEqual(
             perms[self.structural_rel.pk],
-            (False, False),
+            (True, False, False),
             "relationship listing previously reported raw doc+corpus writes "
             "on structural rows — must be masked like annotations",
         )
-        self.assertEqual(perms[self.normal_rel.pk], (True, True))
+        self.assertEqual(perms[self.normal_rel.pk], (True, True, True))
         self.assertFalse(
             self.structural_rel.user_can(self.owner, PermissionTypes.UPDATE)
         )

@@ -203,10 +203,18 @@ class ExtractManager(BaseVisibilityManager):
         lightweight: bool = False,
         with_doc_label_annotations: bool = False,
     ) -> django.db.models.QuerySet:
-        if user is None or getattr(user, "is_anonymous", True):
+        from opencontractserver.shared.user_can_mixin import (
+            resolve_user_for_user_can,
+        )
+
+        # Resolve before the anonymous guard to preserve the base manager's
+        # integer-user-id convenience. ``user_can`` does the same below, so
+        # the two manager surfaces deny the same caller set.
+        resolved = resolve_user_for_user_can(user)
+        if resolved is None or getattr(resolved, "is_anonymous", True):
             return self.get_queryset().none()
         return super().visible_to_user(
-            user,
+            resolved,
             lightweight=lightweight,
             with_doc_label_annotations=with_doc_label_annotations,
         )
