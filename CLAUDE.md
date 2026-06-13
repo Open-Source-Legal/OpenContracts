@@ -563,7 +563,7 @@ Run manually: `pre-commit run --all-files`
 ## Common Pitfalls
 
 1. **Frontend tests hanging**: Always use `--reporter=list` flag
-2. **Permission N+1 queries**: Use `.visible_to_user()` NOT individual permission checks. For **Conversation list queries** in GraphQL resolvers, use `ConversationQueryOptimizer` from `opencontractserver.conversations.query_optimizer` - it provides request-level caching to avoid repeated corpus/document visibility subqueries
+2. **Permission N+1 queries**: Use `.visible_to_user()` NOT individual permission checks. For **Conversation list queries** in GraphQL resolvers, use `ConversationService` from `opencontractserver.conversations.services` - it provides request-level caching to avoid repeated corpus/document visibility subqueries. For annotation/relationship source privacy, looping `user_can` over rows dereferences `created_by_analysis` / `created_by_extract`; use list/queryset surfaces or `select_related("created_by_analysis", "created_by_extract")`.
 3. **Missing GraphQL mocks**: Check variables match exactly (null vs undefined matters), add duplicates for refetches
 4. **Notification duplication in tests**: Moderation methods auto-create ModerationAction records
 5. **Structural annotation editing**: Always read-only except for superusers

@@ -1559,18 +1559,25 @@ class ExtractServiceTestCase(TestCase):
         self.assertTrue(ok)
         self.assertEqual(extract, self.extract_no_corpus)
 
-    def test_get_visible_extracts_anonymous_only_public(self):
-        """Anonymous users see only public extracts in public/no corpora."""
+    def test_get_visible_extracts_anonymous_sees_nothing(self):
+        """Anonymous users see NO extracts — not even ``is_public`` ones.
+
+        BEHAVIOR CHANGE (2026-06 permissioning audit): this test previously
+        pinned the old drift ("anonymous sees public extracts in public
+        corpora"). The agreed semantic — matching the consolidated
+        permissioning guide's anonymous table and the annotation/relationship
+        privacy gates — is that extracts are never anonymous-visible at any
+        layer. Enforced by ``ExtractManager`` and ``ExtractService``; full
+        coverage in ``test_extract_anonymous_lockdown.py``.
+        """
         from django.contrib.auth.models import AnonymousUser
 
-        # Mark the public extract truly public.
+        # Even an explicitly public extract stays hidden from anonymous users.
         self.extract_public.is_public = True
         self.extract_public.save()
 
         qs = ExtractService.get_visible_extracts(user=AnonymousUser())
-        names = {e.name for e in qs}
-        self.assertIn("Extract Public", names)
-        self.assertNotIn("Extract 1 (Corpus 1)", names)
+        self.assertFalse(qs.exists())
 
     def test_get_visible_extracts_corpus_id_unknown_returns_none(self):
         """A non-existent corpus_id resolves to an empty queryset (not 500)."""

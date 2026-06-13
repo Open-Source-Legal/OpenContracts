@@ -366,6 +366,11 @@ def list_relationships(
             structural=structural,
         )
     else:
+        # Sanctioned corpus-as-gate context (issue #1682): MCP is a
+        # pipeline-facing caller, the documented default for
+        # get_corpus_relationships' document scope. Do NOT copy this call
+        # into a user-facing GraphQL resolver — that context requires the
+        # MIN-semantics variant (see the service docstring).
         qs = RelationshipService.get_corpus_relationships(
             corpus_id=corpus.id, user=user, structural=structural
         )

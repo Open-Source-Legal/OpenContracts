@@ -279,12 +279,68 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         self.assertIsNotNone(ann.created_by_analysis_id)
         self.assertIsNone(ann.created_by_analysis)
 
-        # Even the annotation's own creator is denied — the orphan source
-        # is treated as private and there's no Analysis row left to
-        # honour the creator-grant short-circuit on.
-        self.assertFalse(ann.user_can(self.creator, PermissionTypes.READ))
+        # The annotation's own creator still passes via the row-creator
+        # short-circuit before source recursion. Non-creators fail closed when
+        # the stale source dereference returns None.
+        self.assertTrue(ann.user_can(self.creator, PermissionTypes.READ))
         # A reader with doc+corpus grants is similarly denied.
         self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
+
+    def test_created_by_extract_orphan_source_denies_access(self) -> None:
+        """Extract-side twin of the orphaned-source race guard above:
+        ``_source_privacy_recursion_passes`` fails closed when
+        ``created_by_extract_id`` is non-null but the dereference yields
+        ``None`` (the in-memory state during the read-vs-SET_NULL race
+        window). Same descriptor-cache simulation as the analysis-side
+        test — the DB's FK constraint prevents persisting a true orphan.
+        """
+        from django.db.models.fields.related_descriptors import (
+            ForwardManyToOneDescriptor,
+        )
+
+        ann = self.via_extract
+        descriptor = type(ann).__dict__["created_by_extract"]
+        assert isinstance(descriptor, ForwardManyToOneDescriptor)
+        ann._state.fields_cache[descriptor.field.name] = None
+        self.assertIsNotNone(ann.created_by_extract_id)
+        self.assertIsNone(ann.created_by_extract)
+
+        self.assertTrue(ann.user_can(self.creator, PermissionTypes.READ))
+        self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
+
+    def test_annotation_creator_source_private_row_has_filter_check_parity(
+        self,
+    ) -> None:
+        """The row creator passes both annotation list and single-object READ
+        gates even without source access; doc/corpus permissions still apply."""
+        # ``reader`` (doc+corpus READ, no analysis access) authors a row
+        # rooted in the creator's private analysis.
+        ann = Annotation.objects.create(
+            raw_text="creator-parity-sentinel",
+            json={"x": 99},
+            page=1,
+            annotation_label=self.token_label,
+            creator=self.reader,
+            document=self.doc,
+            corpus=self.corpus,
+            created_by_analysis=self.analysis,
+        )
+        in_filter = (
+            Annotation.objects.visible_to_user(self.reader).filter(pk=ann.pk).exists()
+        )
+        check = ann.user_can(self.reader, PermissionTypes.READ)
+        self.assertTrue(
+            in_filter,
+            "queryset gate's Q(creator=user) should admit the row's creator",
+        )
+        self.assertTrue(
+            check,
+            "user_can should mirror the queryset row-creator exemption",
+        )
+        self.assertFalse(
+            ann.user_can(self.reader, PermissionTypes.UPDATE),
+            "row creator source-privacy exemption must not bypass doc/corpus UPDATE",
+        )
 
     def test_str_and_int_user_id_inputs_on_annotation(self) -> None:
         """int and str user ids resolve identically to the User instance."""

@@ -414,6 +414,11 @@ class GeographicAnnotationService(BaseService):
             corpus_id=corpus.pk,
             document_id__in=visible_docs.values("pk"),
         )
+        from opencontractserver.utils.source_visibility import (
+            apply_source_privacy_gate,
+        )
+
+        qs = apply_source_privacy_gate(qs, user)
 
         return _aggregate_pins(qs, label_types=label_types, bbox=bbox)
 

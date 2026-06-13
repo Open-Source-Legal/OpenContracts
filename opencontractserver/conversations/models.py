@@ -342,19 +342,21 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
         """
         Returns queryset filtered to messages visible to the user.
 
-        A user can see a message if ANY of:
-        1. User is superuser
-        2. Message is in a visible conversation (inherits bifurcated CHAT/THREAD logic)
-        3. User created the message
-        4. User has explicit permission on the message
-        5. User can moderate the conversation (corpus/document/thread owner)
+        A user can see a message if ANY of (superusers are computed like any
+        other user — scoped admin access, 2026-05, no blanket bypass):
+        1. Message is in a visible conversation (inherits bifurcated CHAT/THREAD logic)
+        2. User created the message
+        3. User has explicit permission on the message
+        4. User can moderate the conversation (the OWNER-based conditions
+           only — conversation/corpus/document creator — NOT the broader
+           ``can_moderate``, which includes superusers)
 
-        The primary visibility check (case 2) leverages Conversation.objects.visible_to_user()
+        The primary visibility check (case 1) leverages Conversation.objects.visible_to_user()
         which implements bifurcated permissions:
         - CHAT: creator + explicit permissions + public
         - THREAD: CHAT rules + context inheritance from corpus/document
 
-        The moderator access (case 5) is retained for additional access to allow
+        The moderator access (case 4) is retained for additional access to allow
         corpus/document owners to see all messages for moderation purposes, even
         if they wouldn't normally see the conversation.
         """

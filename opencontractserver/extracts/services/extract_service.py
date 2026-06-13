@@ -47,7 +47,16 @@ class ExtractService(BaseService):
         from opencontractserver.types.enums import PermissionTypes
 
         # scoped admin access, 2026-05: admins computed like a normal user
+        # Extracts are NEVER visible to anonymous users (2026-06
+        # permissioning audit) — deny before any lookup so the response is
+        # indistinguishable from "not found" (IDOR posture).
+        if getattr(user, "is_anonymous", True):
+            return False, None
+
         try:
+            # Deliberately bypasses ``visible_to_user`` so the service can
+            # distinguish extract-level and corpus-level denial below. The
+            # anonymous guard above is load-bearing for this unfenced lookup.
             extract = Extract.objects.get(id=extract_id)
 
             # Check extract-level permission
@@ -72,7 +81,7 @@ class ExtractService(BaseService):
 
             return True, extract
 
-        except Extract.DoesNotExist:
+        except (TypeError, ValueError, Extract.DoesNotExist):
             return False, None
 
     @classmethod
@@ -101,53 +110,85 @@ class ExtractService(BaseService):
         from opencontractserver.types.enums import PermissionTypes
 
         # scoped admin access, 2026-05: admins computed like a normal user
-        if user.is_anonymous:
-            # Anonymous users can only see public extracts in public corpuses
-            qs = Extract.objects.filter(
-                Q(is_public=True) & (Q(corpus__isnull=True) | Q(corpus__is_public=True))
-            )
-        else:
-            # Import permission model
-            from opencontractserver.extracts.models import ExtractUserObjectPermission
+        if user is None or getattr(user, "is_anonymous", True):
+            # Extracts are NEVER visible to anonymous users (2026-06
+            # permissioning audit) — matches ExtractManager and the
+            # annotation/relationship privacy gates. The previous
+            # public-extract branch here was drift copied from the
+            # analysis service. (Same fail-closed guard shape as
+            # check_extract_permission and the manager.) Early return —
+            # the corpus-scope and prefetch logic below is
+            # authenticated-only.
+            return Extract.objects.none()
 
-            # Get extracts where:
-            # 1. User has permission on the extract (via creator, is_public, or guardian) AND
-            # 2. User has permission on the corpus (required for both anonymous and authenticated)
-            # Note: is_public=True grants extract-level access, but corpus access is still checked below
-            qs = Extract.objects.filter(
-                # User must have extract permission (one of: creator, public, or guardian)
-                Q(creator=user)
-                | Q(is_public=True)
-                | Exists(
-                    ExtractUserObjectPermission.objects.filter(
-                        user=user, content_object_id=OuterRef("id")
-                    )
-                )
-            ).filter(
-                # AND user must have corpus permission
-                Q(corpus__isnull=True)  # No corpus needed
-                | Q(corpus__creator=user)
-                | Q(corpus__is_public=True)
-                | Exists(
-                    CorpusUserObjectPermission.objects.filter(
-                        user=user,
-                        content_object_id=OuterRef("corpus_id"),
-                        permission__codename__contains="read",
-                    )
+        # Import permission models
+        from opencontractserver.corpuses.models import (
+            CorpusGroupObjectPermission,
+        )
+        from opencontractserver.extracts.models import (
+            ExtractGroupObjectPermission,
+            ExtractUserObjectPermission,
+        )
+
+        user_group_ids = user.groups.values_list("id", flat=True)
+
+        # Get extracts where:
+        # 1. User has READ permission on the extract (creator, public, or a
+        #    user-/group-level guardian READ grant) AND
+        # 2. User has READ permission on the corpus (same shapes).
+        # Both legs honour GROUP grants and match exact read_* codenames —
+        # the previous user-table-only Exists (and the corpus leg's
+        # ``codename__contains="read"`` substring match) drifted from
+        # ``check_extract_permission``'s ``user_can`` checks, which resolve
+        # group grants and the exact read codename (2026-06 audit
+        # follow-up; same filter/check parity class as the privacy gates).
+        qs = Extract.objects.filter(
+            # User must have extract READ (creator, public, or guardian)
+            Q(creator=user)
+            | Q(is_public=True)
+            | Exists(
+                ExtractUserObjectPermission.objects.filter(
+                    user=user,
+                    content_object_id=OuterRef("id"),
+                    permission__codename="read_extract",
                 )
             )
+            | Exists(
+                ExtractGroupObjectPermission.objects.filter(
+                    group_id__in=user_group_ids,
+                    content_object_id=OuterRef("id"),
+                    permission__codename="read_extract",
+                )
+            )
+        ).filter(
+            # AND user must have corpus permission
+            Q(corpus__isnull=True)  # No corpus needed
+            | Q(corpus__creator=user)
+            | Q(corpus__is_public=True)
+            | Exists(
+                CorpusUserObjectPermission.objects.filter(
+                    user=user,
+                    content_object_id=OuterRef("corpus_id"),
+                    permission__codename="read_corpus",
+                )
+            )
+            | Exists(
+                CorpusGroupObjectPermission.objects.filter(
+                    group_id__in=user_group_ids,
+                    content_object_id=OuterRef("corpus_id"),
+                    permission__codename="read_corpus",
+                )
+            )
+        )
 
         # Filter by corpus if specified
         if corpus_id:
-            # Check corpus permission
+            # Check corpus permission. Anonymous callers already returned
+            # above — only authenticated users reach this check.
             try:
                 corpus = Corpus.objects.get(id=corpus_id)
-                # Anonymous users can only access public corpuses
-                if user.is_anonymous:
-                    if not corpus.is_public:
-                        return Extract.objects.none()
                 # scoped admin access, 2026-05: admins computed like a normal user
-                elif not corpus.user_can(user, PermissionTypes.READ, request=context):
+                if not corpus.user_can(user, PermissionTypes.READ, request=context):
                     return Extract.objects.none()
             except Corpus.DoesNotExist:
                 return Extract.objects.none()

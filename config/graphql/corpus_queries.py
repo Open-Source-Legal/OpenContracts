@@ -691,6 +691,7 @@ class CorpusQueryMixin:
             visible_doc_ids=visible_doc_ids,
             top_n=CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
             exclude_label_prefix=OC_RESERVED_LABEL_PREFIX,
+            user=info.context.user,
         )
         label_distribution = [
             LabelDistributionEntryType(

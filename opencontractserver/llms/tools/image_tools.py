@@ -474,10 +474,11 @@ def get_annotation_images_with_permission(
     Image visibility is **identical** to annotation visibility: the single
     source of truth is ``AnnotationQuerySet.visible_to_user`` (see
     ``opencontractserver/shared/QuerySets.py``), which already encodes
-    the consolidated permissioning guide — superuser bypass, anonymous
-    structural-only rules (including the ``structural_set``-linked
-    branch), authenticated MIN(document, corpus) with guardian
-    permissions, and the analysis/extract privacy model.
+    the consolidated permissioning guide — anonymous structural-only
+    rules (including the ``structural_set``-linked branch), authenticated
+    MIN(document, corpus) with guardian permissions, and the
+    analysis/extract privacy model. Superusers are computed like any
+    other user (scoped admin access, 2026-05 — no blanket bypass).
 
     Returns an empty list for missing **or** unauthorized annotations
     (IDOR protection — identical response shape so callers cannot

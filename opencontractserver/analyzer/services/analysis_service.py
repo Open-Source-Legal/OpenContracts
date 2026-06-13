@@ -114,19 +114,44 @@ class AnalysisService(BaseService):
                 & (Q(analyzed_corpus__isnull=True) | Q(analyzed_corpus__is_public=True))
             )
         else:
-            # Import permission model
-            from opencontractserver.analyzer.models import AnalysisUserObjectPermission
+            # Import permission models
+            from opencontractserver.analyzer.models import (
+                AnalysisGroupObjectPermission,
+                AnalysisUserObjectPermission,
+            )
+            from opencontractserver.corpuses.models import (
+                CorpusGroupObjectPermission,
+            )
+
+            user_group_ids = user.groups.values_list("id", flat=True)
 
             # Get analyses where:
-            # 1. User has permission on the analysis AND
-            # 2. User has permission on the corpus
+            # 1. User has READ permission on the analysis (public, creator, or
+            #    a user-/group-level guardian READ grant) AND
+            # 2. User has READ permission on the corpus (same shapes).
+            # Both legs honour GROUP grants and match exact read_* codenames —
+            # mirrors the same parity fix applied to the sibling
+            # ``ExtractService.get_visible_extracts`` (2026-06 audit): the
+            # previous user-table-only Exists (and the corpus leg's
+            # ``codename__contains="read"`` substring match) drifted from
+            # ``check_analysis_permission``'s ``user_can`` checks, which
+            # resolve group grants and the exact read codename.
             qs = Analysis.objects.filter(
-                # User must have analysis permission
+                # User must have analysis READ (public, creator, or guardian)
                 Q(is_public=True)
                 | Q(creator=user)
                 | Exists(
                     AnalysisUserObjectPermission.objects.filter(
-                        user=user, content_object_id=OuterRef("id")
+                        user=user,
+                        content_object_id=OuterRef("id"),
+                        permission__codename="read_analysis",
+                    )
+                )
+                | Exists(
+                    AnalysisGroupObjectPermission.objects.filter(
+                        group_id__in=user_group_ids,
+                        content_object_id=OuterRef("id"),
+                        permission__codename="read_analysis",
                     )
                 )
             ).filter(
@@ -138,7 +163,14 @@ class AnalysisService(BaseService):
                     CorpusUserObjectPermission.objects.filter(
                         user=user,
                         content_object_id=OuterRef("analyzed_corpus_id"),
-                        permission__codename__contains="read",
+                        permission__codename="read_corpus",
+                    )
+                )
+                | Exists(
+                    CorpusGroupObjectPermission.objects.filter(
+                        group_id__in=user_group_ids,
+                        content_object_id=OuterRef("analyzed_corpus_id"),
+                        permission__codename="read_corpus",
                     )
                 )
             )
