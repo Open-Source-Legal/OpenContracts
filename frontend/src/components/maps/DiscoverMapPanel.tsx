@@ -112,7 +112,7 @@ export const DiscoverMapPanel: React.FC<DiscoverMapPanelProps> = ({
         // getDocumentUrl accepts the redirect query's slug/creator shape
         // directly (a structural subset of DocumentType) and returns "#" when
         // slugs are missing, so no cast is needed.
-        const url = getDocumentUrl(document, document.corpus);
+        const url = getDocumentUrl(document);
         if (url !== "#") {
           navigate(url);
         }

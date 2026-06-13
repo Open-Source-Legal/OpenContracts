@@ -68,14 +68,17 @@ const navbarCustomStyles = `
     background: rgba(255, 255, 255, 0.15) !important;
     color: rgba(255, 255, 255, 0.9) !important;
   }
-  /* cite wordmark — Source Serif 4 with the brackets preserved.
+  /* [OpenContracts] wordmark — Source Serif 4 with the brackets preserved.
      Overrides the @os-legal/ui default of 600-weight Inter so the
-     wordmark reads as a typographic mark, not a UI label. */
+     wordmark reads as a typographic mark, not a UI label. Sized a step
+     below the old [cite] mark so the longer name keeps the same visual
+     weight in the bar. */
   .oc-navbar__brand-name {
     font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif} !important;
     font-weight: 400 !important;
-    font-size: 22px !important;
-    letter-spacing: -0.5px !important;
+    font-size: 19px !important;
+    letter-spacing: -0.4px !important;
+    white-space: nowrap !important;
   }
 `;
 
@@ -232,7 +235,7 @@ export const NavMenu = () => {
         size={28}
         bracketColor={OS_LEGAL_COLORS.warmPaper}
         nodeColor={OS_LEGAL_COLORS.accent}
-        ariaLabel="cite"
+        ariaLabel="OpenContracts"
       />
     ),
     []
@@ -244,7 +247,7 @@ export const NavMenu = () => {
         <UserSettingsModal />
         <MobileNavMenu
           logo={logoNode}
-          brandName="[cite]"
+          brandName="[OpenContracts]"
           items={mobileNavItems}
           activeId={activeId}
           userName={displayName}
@@ -265,7 +268,7 @@ export const NavMenu = () => {
       <NavbarHeightSync />
       <NavBar
         logo={logoNode}
-        brandName="[cite]"
+        brandName="[OpenContracts]"
         version={VERSION_TAG}
         items={navItems}
         activeId={activeId}

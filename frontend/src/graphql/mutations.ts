@@ -249,6 +249,9 @@ export interface CreateCorpusOutputs {
   createCorpus: {
     ok?: boolean;
     message?: string;
+    /** Global id of the created corpus — lets follow-up mutations (e.g.
+     * setupCorpusIntelligence) chain off the create. */
+    objId?: string | null;
   };
 }
 
@@ -277,6 +280,68 @@ export const CREATE_CORPUS = gql`
     ) {
       ok
       message
+      objId
+    }
+  }
+`;
+
+// ---------------- Collection-intelligence setup ----------------
+// One-click composite: installs the reference-enrichment add_document action
+// and the description/summary agent templates, starts the first reference
+// weave, and batch-runs the agents over every document already present.
+// Idempotent server-side — safe to call repeatedly.
+
+export interface IntelligenceTemplateOutcome {
+  templateName: string;
+  installedNow: boolean;
+  alreadyInstalled: boolean;
+  queuedCount: number;
+  skippedAlreadyRunCount: number;
+  error: string;
+  /** Documents deferred past the per-call batch cap — re-run to continue. */
+  remainingCount: number;
+}
+
+export interface SetupCorpusIntelligenceInputs {
+  corpusId: string;
+}
+
+export interface SetupCorpusIntelligenceOutputs {
+  setupCorpusIntelligence: {
+    ok: boolean;
+    message?: string | null;
+    summary?: {
+      referenceAvailable: boolean;
+      referenceActionInstalledNow: boolean;
+      referenceActionAlreadyInstalled: boolean;
+      referenceAnalysisStarted: boolean;
+      totalActiveDocuments: number;
+      templates: IntelligenceTemplateOutcome[];
+    } | null;
+  };
+}
+
+export const SETUP_CORPUS_INTELLIGENCE = gql`
+  mutation setupCorpusIntelligence($corpusId: ID!) {
+    setupCorpusIntelligence(corpusId: $corpusId) {
+      ok
+      message
+      summary {
+        referenceAvailable
+        referenceActionInstalledNow
+        referenceActionAlreadyInstalled
+        referenceAnalysisStarted
+        totalActiveDocuments
+        templates {
+          templateName
+          installedNow
+          alreadyInstalled
+          queuedCount
+          skippedAlreadyRunCount
+          error
+          remainingCount
+        }
+      }
     }
   }
 `;
@@ -323,7 +388,6 @@ export interface AcceptCookieConsentInputs {}
 export interface AcceptCookieConsentOutputs {
   acceptCookieConsent: {
     ok?: boolean;
-    message?: string;
   };
 }
 
@@ -331,7 +395,6 @@ export const ACCEPT_COOKIE_CONSENT = gql`
   mutation {
     acceptCookieConsent {
       ok
-      message
     }
   }
 `;
@@ -1487,7 +1550,7 @@ export interface RequestUpdateFieldsetInputType {
 export const REQUEST_UPDATE_FIELDSET = gql`
   mutation UpdateFieldset($id: ID!, $name: String, $description: String) {
     updateFieldset(id: $id, name: $name, description: $description) {
-      msg
+      message
       ok
       obj {
         id
@@ -2792,7 +2855,7 @@ export interface UpdateMessageOutput {
  * Returns the updated message with vote counts and current user's vote status.
  */
 export const UPVOTE_MESSAGE = gql`
-  mutation UpvoteMessage($messageId: ID!) {
+  mutation UpvoteMessage($messageId: String!) {
     voteMessage(messageId: $messageId, voteType: "upvote") {
       ok
       message
@@ -2831,7 +2894,7 @@ export interface UpvoteMessageOutput {
  * Returns the updated message with vote counts and current user's vote status.
  */
 export const DOWNVOTE_MESSAGE = gql`
-  mutation DownvoteMessage($messageId: ID!) {
+  mutation DownvoteMessage($messageId: String!) {
     voteMessage(messageId: $messageId, voteType: "downvote") {
       ok
       message
@@ -2858,7 +2921,7 @@ export interface DownvoteMessageOutput {
  * Returns the updated message with vote counts and current user's vote status (null after removal).
  */
 export const REMOVE_VOTE = gql`
-  mutation RemoveVote($messageId: ID!) {
+  mutation RemoveVote($messageId: String!) {
     removeVote(messageId: $messageId) {
       ok
       message
@@ -3083,11 +3146,11 @@ export interface RemoveCorpusVoteOutput {
 // ============================================================================
 
 export const PIN_THREAD = gql`
-  mutation PinThread($conversationId: ID!) {
+  mutation PinThread($conversationId: String!) {
     pinThread(conversationId: $conversationId) {
       ok
       message
-      conversation {
+      obj {
         id
         isPinned
         pinnedBy {
@@ -3108,7 +3171,7 @@ export interface PinThreadOutput {
   pinThread: {
     ok: boolean;
     message: string;
-    conversation: {
+    obj: {
       id: string;
       isPinned: boolean;
       pinnedBy: {
@@ -3121,11 +3184,11 @@ export interface PinThreadOutput {
 }
 
 export const UNPIN_THREAD = gql`
-  mutation UnpinThread($conversationId: ID!) {
+  mutation UnpinThread($conversationId: String!) {
     unpinThread(conversationId: $conversationId) {
       ok
       message
-      conversation {
+      obj {
         id
         isPinned
         pinnedBy {
@@ -3146,7 +3209,7 @@ export interface UnpinThreadOutput {
   unpinThread: {
     ok: boolean;
     message: string;
-    conversation: {
+    obj: {
       id: string;
       isPinned: boolean;
       pinnedBy: {
@@ -3159,11 +3222,11 @@ export interface UnpinThreadOutput {
 }
 
 export const LOCK_THREAD = gql`
-  mutation LockThread($conversationId: ID!) {
+  mutation LockThread($conversationId: String!) {
     lockThread(conversationId: $conversationId) {
       ok
       message
-      conversation {
+      obj {
         id
         isLocked
         lockedBy {
@@ -3184,7 +3247,7 @@ export interface LockThreadOutput {
   lockThread: {
     ok: boolean;
     message: string;
-    conversation: {
+    obj: {
       id: string;
       isLocked: boolean;
       lockedBy: {
@@ -3197,11 +3260,11 @@ export interface LockThreadOutput {
 }
 
 export const UNLOCK_THREAD = gql`
-  mutation UnlockThread($conversationId: ID!) {
+  mutation UnlockThread($conversationId: String!) {
     unlockThread(conversationId: $conversationId) {
       ok
       message
-      conversation {
+      obj {
         id
         isLocked
         lockedBy {
@@ -3222,7 +3285,7 @@ export interface UnlockThreadOutput {
   unlockThread: {
     ok: boolean;
     message: string;
-    conversation: {
+    obj: {
       id: string;
       isLocked: boolean;
       lockedBy: {
@@ -3239,15 +3302,6 @@ export const DELETE_THREAD = gql`
     deleteThread(conversationId: $conversationId) {
       ok
       message
-      conversation {
-        id
-        isDeleted
-        deletedBy {
-          id
-          username
-        }
-        deletedAt
-      }
     }
   }
 `;
@@ -3260,15 +3314,6 @@ export interface DeleteThreadOutput {
   deleteThread: {
     ok: boolean;
     message: string;
-    conversation: {
-      id: string;
-      isDeleted: boolean;
-      deletedBy: {
-        id: string;
-        username: string;
-      } | null;
-      deletedAt: string | null;
-    } | null;
   };
 }
 
@@ -3277,15 +3322,6 @@ export const RESTORE_THREAD = gql`
     restoreThread(conversationId: $conversationId) {
       ok
       message
-      conversation {
-        id
-        isDeleted
-        deletedBy {
-          id
-          username
-        }
-        deletedAt
-      }
     }
   }
 `;
@@ -3298,15 +3334,6 @@ export interface RestoreThreadOutput {
   restoreThread: {
     ok: boolean;
     message: string;
-    conversation: {
-      id: string;
-      isDeleted: boolean;
-      deletedBy: {
-        id: string;
-        username: string;
-      } | null;
-      deletedAt: string | null;
-    } | null;
   };
 }
 
@@ -3317,7 +3344,7 @@ export interface RestoreThreadOutput {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 export const RESTORE_DELETED_DOCUMENT = gql`
-  mutation RestoreDeletedDocument($documentId: ID!, $corpusId: ID!) {
+  mutation RestoreDeletedDocument($documentId: String!, $corpusId: String!) {
     restoreDeletedDocument(documentId: $documentId, corpusId: $corpusId) {
       ok
       message

@@ -355,6 +355,59 @@ class UpdateMetadataColumn(graphene.Mutation):
             )
 
 
+class DeleteMetadataColumn(graphene.Mutation):
+    """Delete a manual-entry metadata column definition (values cascade)."""
+
+    class Arguments:
+        column_id = graphene.ID(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @login_required
+    def mutate(root, info, column_id) -> "DeleteMetadataColumn":
+        from opencontractserver.types.enums import PermissionTypes
+
+        # Unified message blocks IDOR enumeration: same response whether the
+        # column does not exist or the caller lacks DELETE permission.
+        not_found_msg = "Column not found or you do not have permission to delete it."
+
+        try:
+            user = info.context.user
+            column = BaseService.get_or_none(
+                Column, from_global_id(column_id)[1], user, request=info.context
+            )
+            # require_permission returns "" on grant and a non-empty error
+            # string on denial, so a truthy result means "denied". Guard the
+            # None case first to avoid calling require_permission on a missing
+            # object.
+            if column is None:
+                return DeleteMetadataColumn(ok=False, message=not_found_msg)
+            if BaseService.require_permission(
+                column, user, PermissionTypes.DELETE, request=info.context
+            ):
+                return DeleteMetadataColumn(ok=False, message=not_found_msg)
+
+            # Mirrors UpdateMetadataColumn: only manual-entry (metadata)
+            # columns are managed through this surface — extract columns
+            # have their own lifecycle (DeleteColumn).
+            if not column.is_manual_entry:
+                return DeleteMetadataColumn(
+                    ok=False, message="Only manual entry columns can be deleted"
+                )
+
+            column.delete()
+            return DeleteMetadataColumn(
+                ok=True, message="Metadata field deleted successfully"
+            )
+
+        except Exception:
+            logger.exception("Error deleting metadata field")
+            return DeleteMetadataColumn(
+                ok=False, message="Error deleting metadata field."
+            )
+
+
 class SetMetadataValue(graphene.Mutation):
     """Set a metadata value for a document.
 
@@ -539,6 +592,55 @@ class CreateFieldset(graphene.Mutation):
         )
 
         return CreateFieldset(ok=True, message="SUCCESS!", obj=fieldset)
+
+
+class UpdateFieldset(graphene.Mutation):
+    """Rename / re-describe a fieldset the caller may UPDATE."""
+
+    class Arguments:
+        id = graphene.ID(required=True)
+        name = graphene.String(required=False)
+        description = graphene.String(required=False)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    obj = graphene.Field(FieldsetType)
+
+    @login_required
+    def mutate(root, info, id, name=None, description=None) -> "UpdateFieldset":
+        from opencontractserver.types.enums import PermissionTypes
+
+        # Unified message blocks IDOR enumeration: same response whether the
+        # fieldset does not exist or the caller lacks UPDATE permission.
+        not_found_msg = "Fieldset not found or you do not have permission to update it."
+
+        try:
+            user = info.context.user
+            fieldset = BaseService.get_or_none(
+                Fieldset, from_global_id(id)[1], user, request=info.context
+            )
+            # require_permission returns "" on grant and a non-empty error
+            # string on denial, so a truthy result means "denied". Guard the
+            # None case first to avoid calling require_permission on a missing
+            # object.
+            if fieldset is None:
+                return UpdateFieldset(ok=False, message=not_found_msg)
+            if BaseService.require_permission(
+                fieldset, user, PermissionTypes.UPDATE, request=info.context
+            ):
+                return UpdateFieldset(ok=False, message=not_found_msg)
+
+            if name is not None:
+                fieldset.name = name
+            if description is not None:
+                fieldset.description = description
+            fieldset.save()
+
+            return UpdateFieldset(ok=True, message="SUCCESS!", obj=fieldset)
+
+        except Exception:
+            logger.exception("Error updating fieldset")
+            return UpdateFieldset(ok=False, message="Error updating fieldset.")
 
 
 class UpdateColumnMutation(DRFMutation):

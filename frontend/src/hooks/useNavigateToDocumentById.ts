@@ -8,7 +8,7 @@ import {
   GetDocumentByIdForRedirectOutput,
 } from "../graphql/queries";
 import { buildCanonicalPath } from "../utils/navigationUtils";
-import { CorpusType, DocumentType } from "../types/graphql-api";
+import { DocumentType } from "../types/graphql-api";
 
 /**
  * Navigate to a document's canonical slug path given only its global id.
@@ -42,10 +42,10 @@ export function useNavigateToDocumentById(): (
       // CorpusType — enough for buildCanonicalPath, which only reads slug and
       // creator.slug. Narrow through `unknown` rather than `any` so the cast
       // stays explicit and the any-baseline guard is not tripped.
-      const path = buildCanonicalPath(
-        doc as unknown as DocumentType,
-        doc.corpus as unknown as CorpusType
-      );
+      // The redirect query carries no corpus context (DocumentType has no
+      // corpus field — documents relate to corpora via paths), so this
+      // resolves the document's standalone canonical path.
+      const path = buildCanonicalPath(doc as unknown as DocumentType);
       if (path) navigate(path + (queryString || ""));
     },
     [resolveDocumentById, navigate]

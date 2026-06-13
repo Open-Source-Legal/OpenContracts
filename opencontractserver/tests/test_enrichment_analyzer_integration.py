@@ -60,6 +60,20 @@ class CorpusAnalyzerTaskTests(TestCase):
         self.user = User.objects.create_user(username="owner", password="p")
         self.corpus = _make_corpus(self.user)
 
+    def test_get_analyzer_is_lookup_only(self):
+        """``get_analyzer`` finds the converged row without creating one —
+        the lookup twin callers use when absence means 'feature unavailable'."""
+        from opencontractserver.enrichment.services import EnrichmentService
+
+        Analyzer.objects.filter(task_name=C.ENRICHMENT_ANALYZER_TASK).delete()
+        self.assertIsNone(EnrichmentService.get_analyzer())
+        self.assertFalse(
+            Analyzer.objects.filter(task_name=C.ENRICHMENT_ANALYZER_TASK).exists()
+        )
+
+        created = EnrichmentService.get_or_create_analyzer(self.user.id)
+        self.assertEqual(EnrichmentService.get_analyzer(), created)
+
     def test_adapter_is_registered_as_corpus_analyzer(self):
         task = get_corpus_analyzer_task_by_name(C.ENRICHMENT_ANALYZER_TASK)
         assert task is not None

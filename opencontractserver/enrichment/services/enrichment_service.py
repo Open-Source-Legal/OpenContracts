@@ -147,6 +147,18 @@ class EnrichmentService:
         }
 
     @staticmethod
+    def get_analyzer() -> Analyzer | None:
+        """Lookup-only twin of :meth:`get_or_create_analyzer`.
+
+        Returns the converged enrichment ``Analyzer`` row, or ``None`` when the
+        deployment has none registered. Use this when absence means "feature
+        unavailable" (e.g. intelligence setup skipping the reference half)
+        rather than a row to create; both methods share this lookup so the
+        converge scheme still exists exactly once.
+        """
+        return Analyzer.objects.filter(task_name=C.ENRICHMENT_ANALYZER_TASK).first()
+
+    @staticmethod
     def get_or_create_analyzer(creator_id: int) -> Analyzer:
         """Converge on THE enrichment ``Analyzer`` row.
 
@@ -154,9 +166,10 @@ class EnrichmentService:
         (``auto_create_doc_analyzers``) may already have created the row under
         ``id == task_name`` — reuse it before creating the friendly-id row.
         Every code path that needs the enrichment analyzer (service, tests)
-        must go through here so the converge logic exists exactly once.
+        must go through here (or :meth:`get_analyzer` for lookup-only callers)
+        so the converge logic exists exactly once.
         """
-        analyzer = Analyzer.objects.filter(task_name=C.ENRICHMENT_ANALYZER_TASK).first()
+        analyzer = EnrichmentService.get_analyzer()
         if analyzer is None:
             analyzer, _ = Analyzer.objects.get_or_create(
                 id=C.ENRICHMENT_ANALYZER_ID,
@@ -217,6 +230,7 @@ class EnrichmentService:
             "documents_scanned": len(documents),
             "total_candidates": len(resolutions),
             "annotations_created": res.annotations_created,
+            "annotations_upgraded": res.annotations_upgraded,
             "relationships_created": res.relationships_created,
             "references_created": res.references_created,
             "document_relationships_created": res.document_relationships_created,

@@ -58,3 +58,34 @@ class ReadFieldFileTextTests(SimpleTestCase):
         """Default strict policy surfaces decode errors to the caller."""
         with self.assertRaises(UnicodeDecodeError):
             read_field_file_text(_FakeFieldFile(b"abc\xffdef"))
+
+
+class SharedUrlCacheTtlTests(SimpleTestCase):
+    """The shared signed-URL cache must never outlive the signatures it holds.
+
+    Regression: the AWS settings branch derived the signed-URL lifetime from
+    ``_AWS_EXPIRY`` (the HTTP CacheControl max-age, 7 days) instead of the
+    actual presign lifetime (``AWS_QUERYSTRING_EXPIRE``, 1 hour) — the cache
+    served dead 403 links for up to 5 hours.
+    """
+
+    def test_clamps_to_half_signature_lifetime(self):
+        from opencontractserver.utils.files import clamp_shared_url_cache_ttl
+
+        self.assertEqual(clamp_shared_url_cache_ttl(21600, 3600), 1800)
+
+    def test_passthrough_when_under_half_lifetime(self):
+        from opencontractserver.utils.files import clamp_shared_url_cache_ttl
+
+        self.assertEqual(clamp_shared_url_cache_ttl(900, 3600), 900)
+
+    def test_unsigned_storage_passes_through(self):
+        from opencontractserver.utils.files import clamp_shared_url_cache_ttl
+
+        # LOCAL storage: URLs are unsigned; an operator-chosen TTL stands.
+        self.assertEqual(clamp_shared_url_cache_ttl(1234, 0), 1234)
+
+    def test_never_negative(self):
+        from opencontractserver.utils.files import clamp_shared_url_cache_ttl
+
+        self.assertEqual(clamp_shared_url_cache_ttl(-5, 3600), 0)

@@ -302,8 +302,23 @@ class UserFeedbackQuerySet(models.QuerySet):
         # acceptable for Phase A correctness, but see issue #1655 for
         # the Phase B request-scoped permission cache that should wrap
         # this path before it hits scale.
-        visible_annotation_ids = Annotation.objects.visible_to_user(user).values("pk")
-        inherited_visibility = Q(commented_annotation_id__in=visible_annotation_ids)
+        #
+        # Correlated ``Exists`` (NOT ``commented_annotation_id__in=<subquery>``):
+        # the uncorrelated ``IN`` form forces the planner to materialize the
+        # visibility filter over the ENTIRE annotations table before probing
+        # it — measured at ~0.8s per evaluation on a mid-sized dev DB, which
+        # turned the per-annotation ``userFeedback`` connections of a
+        # 108-mention document into a ~3-minute GraphQL response. Pinning the
+        # subquery to ``OuterRef("commented_annotation_id")`` keeps identical
+        # semantics (row passes iff its commented annotation is visible) while
+        # letting the planner drive it from the feedback row's annotation id.
+        inherited_visibility = Q(
+            Exists(
+                Annotation.objects.visible_to_user(user).filter(
+                    pk=OuterRef("commented_annotation_id")
+                )
+            )
+        )
 
         if user.is_anonymous:
             return self.filter(Q(is_public=True) | inherited_visibility).distinct()

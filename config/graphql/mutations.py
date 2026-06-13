@@ -7,7 +7,6 @@ composes them into the root Mutation class used by the GraphQL schema.
 
 import graphene
 import graphql_jwt
-from django.conf import settings
 
 # Import agent mutations
 from config.graphql.agent_mutations import (
@@ -93,6 +92,7 @@ from config.graphql.corpus_mutations import (
     RemoveDocumentsFromCorpus,
     RunCorpusAction,
     SetCorpusVisibility,
+    SetupCorpusIntelligence,
     StartCorpusActionBatchRun,
     StartCorpusFork,
     ToggleCorpusMemory,
@@ -139,6 +139,7 @@ from config.graphql.extract_mutations import (
     CreateMetadataColumn,
     DeleteColumn,
     DeleteExtract,
+    DeleteMetadataColumn,
     DeleteMetadataValue,
     EditDatacell,
     RejectDatacell,
@@ -148,6 +149,7 @@ from config.graphql.extract_mutations import (
     StartExtract,
     UpdateColumnMutation,
     UpdateExtractMutation,
+    UpdateFieldset,
     UpdateMetadataColumn,
 )
 
@@ -244,11 +246,15 @@ from config.graphql.worker_mutations import (
 
 
 class Mutation(graphene.ObjectType):
-    # TOKEN MUTATIONS (IF WE'RE NOT OUTSOURCING JWT CREATION TO AUTH0) #######
-    if not settings.USE_AUTH0:
-        token_auth = ObtainJSONWebTokenWithUser.Field()
-    else:
-        token_auth = graphql_jwt.ObtainJSONWebToken.Field()
+    # TOKEN MUTATIONS #########################################################
+    # Always the ``WithUser`` payload: gating the field's TYPE on USE_AUTH0
+    # made the schema change shape per deployment, so the frontend's
+    # LOGIN_MUTATION (which selects ``user``) was schema-INVALID on Auth0
+    # deployments — harmless only while spec validation was disabled. Under
+    # Auth0 this mutation is simply never used (the frontend gates login on
+    # REACT_APP_USE_AUTH0, and password auth is rejected by the backends),
+    # but it stays schema-valid everywhere.
+    token_auth = ObtainJSONWebTokenWithUser.Field()
 
     verify_token = graphql_jwt.Verify.Field()
     refresh_token = graphql_jwt.Refresh.Field()
@@ -334,6 +340,7 @@ class Mutation(graphene.ObjectType):
     run_corpus_action = RunCorpusAction.Field()
     start_corpus_action_batch_run = StartCorpusActionBatchRun.Field()
     add_template_to_corpus = AddTemplateToCorpus.Field()
+    setup_corpus_intelligence = SetupCorpusIntelligence.Field()
     toggle_corpus_memory = ToggleCorpusMemory.Field()
 
     # CORPUS CATEGORY MUTATIONS (superuser-only) ###############################
@@ -371,6 +378,7 @@ class Mutation(graphene.ObjectType):
 
     # EXTRACT MUTATIONS ##########################################################
     create_fieldset = CreateFieldset.Field()
+    update_fieldset = UpdateFieldset.Field()
 
     create_column = CreateColumn.Field()
     update_column = UpdateColumnMutation.Field()
@@ -394,6 +402,7 @@ class Mutation(graphene.ObjectType):
     # NEW METADATA MUTATIONS (Column/Datacell based) ################################
     create_metadata_column = CreateMetadataColumn.Field()
     update_metadata_column = UpdateMetadataColumn.Field()
+    delete_metadata_column = DeleteMetadataColumn.Field()
     set_metadata_value = SetMetadataValue.Field()
     delete_metadata_value = DeleteMetadataValue.Field()
 

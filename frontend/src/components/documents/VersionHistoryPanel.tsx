@@ -56,7 +56,7 @@ export const GET_DOCUMENT_VERSION_HISTORY = gql`
 
 // GraphQL mutation for restoring a document to a previous version
 export const RESTORE_DOCUMENT_TO_VERSION = gql`
-  mutation RestoreDocumentToVersion($documentId: ID!, $corpusId: ID!) {
+  mutation RestoreDocumentToVersion($documentId: String!, $corpusId: String!) {
     restoreDocumentToVersion(documentId: $documentId, corpusId: $corpusId) {
       ok
       message

@@ -8,12 +8,13 @@ from typing import Any
 import graphene
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
-from django.db import DatabaseError, IntegrityError, transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 from graphql_jwt.decorators import login_required, user_passes_test
 from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import DRFDeletion, DRFMutation
+from config.graphql.corpus_types import CorpusIntelligenceSetupSummaryType
 from config.graphql.graphene_types import (
     CorpusActionExecutionType,
     CorpusActionType,
@@ -1603,37 +1604,21 @@ class AddTemplateToCorpus(graphene.Mutation):
             # Get the template (templates are global, no user filter needed)
             template = CorpusActionTemplate.objects.get(pk=template_pk, is_active=True)
 
-            # Fast-path duplicate check (avoids wasted clone + rollback).
-            # The unique constraint + IntegrityError catch below handles the
-            # race-condition window between this check and the insert.
-            if CorpusAction.objects.filter(
-                corpus=corpus, source_template=template
-            ).exists():
-                return AddTemplateToCorpus(
-                    ok=False,
-                    message="This template has already been added to the corpus",
-                    obj=None,
-                )
+            # Shared install recipe (dedupe fast-path, savepoint-wrapped
+            # clone, IntegrityError race recovery, CRUD grant) — the same
+            # method the one-click intelligence setup uses, so the two
+            # install paths cannot drift.
+            from opencontractserver.corpuses.services import CorpusActionService
 
-            # Clone the template into a CorpusAction.
-            # Wrap in a savepoint so that a race-condition IntegrityError
-            # does not abort the outer transaction (PostgreSQL requirement).
-            try:
-                with transaction.atomic():
-                    action = template.clone_to_corpus(corpus, creator=user)
-            except IntegrityError:
-                return AddTemplateToCorpus(
-                    ok=False,
-                    message="This template has already been added to the corpus",
-                    obj=None,
-                )
-
-            set_permissions_for_obj_to_user(
-                user,
-                action,
-                [PermissionTypes.CRUD],
-                request=info.context,
+            action, created = CorpusActionService.install_template(
+                user, corpus, template, request=info.context
             )
+            if not created:
+                return AddTemplateToCorpus(
+                    ok=False,
+                    message="This template has already been added to the corpus",
+                    obj=None,
+                )
 
             return AddTemplateToCorpus(
                 ok=True,
@@ -1653,6 +1638,52 @@ class AddTemplateToCorpus(graphene.Mutation):
                 message="Failed to add template. Please try again.",
                 obj=None,
             )
+
+
+class SetupCorpusIntelligence(graphene.Mutation):
+    """One-click collection-intelligence setup.
+
+    Composes the default enrichment bundle in a single idempotent call:
+    installs the reference-enrichment analyzer as an ``add_document`` action
+    and starts the first weave (deterministic), then clones the description +
+    summary action templates and batch-runs each over every document already
+    in the corpus (LLM). Safe to repeat — every step skips work that already
+    exists. Requires CRUD permission on the corpus — the tier
+    AddTemplateToCorpus and CreateCorpusAction gate the identical writes at.
+    """
+
+    class Arguments:
+        corpus_id = graphene.ID(
+            required=True, description="ID of the corpus to set up."
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    summary = graphene.Field(CorpusIntelligenceSetupSummaryType)
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_HEAVY)
+    def mutate(root, info, corpus_id: str) -> "SetupCorpusIntelligence":
+        from opencontractserver.corpuses.services import (
+            CorpusIntelligenceSetupService,
+        )
+
+        failure_msg = "Corpus not found or you don't have permission."
+        try:
+            corpus_pk = int(from_global_id(corpus_id)[1])
+        except Exception:
+            return SetupCorpusIntelligence(ok=False, message=failure_msg, summary=None)
+
+        result = CorpusIntelligenceSetupService.setup(
+            info.context.user, corpus_pk, request=info.context
+        )
+        if not result.ok:
+            return SetupCorpusIntelligence(ok=False, message=result.error, summary=None)
+        return SetupCorpusIntelligence(
+            ok=True,
+            message="Collection intelligence setup started.",
+            summary=result.value,
+        )
 
 
 class ToggleCorpusMemory(graphene.Mutation):

@@ -472,9 +472,7 @@ export const CookieConsentDialog = () => {
         setAnalyticsConsent(true);
         showCookieAcceptModal(false);
       } else {
-        toast.error(
-          `Failed to record consent: ${data.acceptCookieConsent.message}`
-        );
+        toast.error("Failed to record consent");
         // Still close the modal and set localStorage as fallback
         localStorage.setItem("oc_cookieAccepted", "true");
         setAnalyticsConsent(true);

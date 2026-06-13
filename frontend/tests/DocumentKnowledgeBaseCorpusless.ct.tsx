@@ -7,7 +7,6 @@ import {
   GET_DOCUMENT_KNOWLEDGE_AND_ANNOTATIONS,
   GET_DOCUMENT_ANNOTATIONS_ONLY,
   GET_MY_CORPUSES,
-  ADD_DOCUMENT_TO_CORPUS,
   GET_CONVERSATIONS,
 } from "../src/graphql/queries";
 import { LINK_DOCUMENTS_TO_CORPUS } from "../src/graphql/mutations";

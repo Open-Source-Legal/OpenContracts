@@ -17,6 +17,7 @@ from config.graphql.corpus_types import (
     CorpusDocumentGraphNodeType,
     CorpusDocumentGraphType,
     CorpusIntelligenceAggregatesType,
+    CorpusIntelligenceSetupStatusType,
     LabelDistributionEntryType,
 )
 from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
@@ -304,6 +305,42 @@ class CorpusQueryMixin:
         )
 
     # CORPUS STATS RESOLVERS #####################################
+    corpus_intelligence_setup_status = graphene.Field(
+        CorpusIntelligenceSetupStatusType,
+        corpus_id=graphene.ID(required=True),
+        description=(
+            "Which pieces of the default collection-intelligence bundle "
+            "(reference-web action + description/summary templates) are "
+            "already installed on the corpus. Null when the corpus is not "
+            "visible to the requesting user."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_intelligence_setup_status(self, info, corpus_id) -> Any:
+        """Visibility-scoped via ``CorpusIntelligenceSetupService.status``.
+
+        Deliberately NOT ``@login_required``: the setup banner reads this on the
+        intelligence overview and the ``insight-panel`` CAML embed, both of which
+        anonymous users can reach for a public corpus. There is no privilege
+        escalation — ``status`` filters the corpus through ``visible_to_user``
+        (returning ``None`` for an invisible corpus) and reports ``can_setup``
+        from CRUD, which an anonymous user never has. Anonymous viewers of a
+        public corpus therefore see read-only status and no actionable button.
+        """
+        from opencontractserver.corpuses.services import (
+            CorpusIntelligenceSetupService,
+        )
+
+        try:
+            corpus_pk = int(from_global_id(corpus_id)[1])
+        except Exception:
+            return None
+        result = CorpusIntelligenceSetupService.status(
+            info.context.user, corpus_pk, request=info.context
+        )
+        return result.value if result.ok else None
+
     corpus_stats = graphene.Field(CorpusStatsType, corpus_id=graphene.ID(required=True))
 
     @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))

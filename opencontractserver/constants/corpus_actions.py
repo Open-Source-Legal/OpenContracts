@@ -11,6 +11,25 @@ avoid circular dependencies. Alignment with the enum is verified in
 """
 
 # ---------------------------------------------------------------------------
+# One-click "collection intelligence" setup bundle
+# ---------------------------------------------------------------------------
+# Seeded CorpusActionTemplate names installed (and batch-run over existing
+# documents) by ``CorpusIntelligenceSetupService``. Names must match
+# ``opencontractserver/corpuses/template_seeds.py``; alignment is pinned by
+# ``test_intelligence_setup.py``. Deliberately the lean default — heavier
+# templates (key terms, notes) stay opt-in via the Action Library.
+
+INTELLIGENCE_SETUP_TEMPLATE_NAMES: tuple[str, ...] = (
+    "Document Description Updater",
+    "Document Summary Generator",
+)
+
+# Display name for the auto-installed reference-enrichment analyzer action.
+# The governance graph's "Map the reference web" CTA creates the same action
+# client-side with this name, so the two entry points converge on one row.
+REFERENCE_ENRICHMENT_ACTION_NAME = "Reference enrichment (auto)"
+
+# ---------------------------------------------------------------------------
 # Default tool sets by trigger type
 # ---------------------------------------------------------------------------
 # When a user creates an agent corpus action without specifying tools,

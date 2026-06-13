@@ -393,7 +393,14 @@ elif STORAGE_BACKEND == "AWS":
     AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME", default="dummy-bucket")
     # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html#settings
     AWS_QUERYSTRING_AUTH = True
+    # Presigned-URL signature lifetime (seconds). Made explicit (rather than
+    # relying on django-storages' implicit 3600 default) because the shared
+    # file-URL cache TTL below MUST be derived from it.
+    AWS_QUERYSTRING_EXPIRE = env.int("AWS_QUERYSTRING_EXPIRE", default=3600)
     # DO NOT change these unless you know what you're doing.
+    # NOTE: this is the HTTP CacheControl max-age for the stored OBJECTS —
+    # it has nothing to do with how long presigned URLs stay valid (that is
+    # AWS_QUERYSTRING_EXPIRE above).
     _AWS_EXPIRY = 60 * 60 * 24 * 7
     # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html#settings
     AWS_S3_OBJECT_PARAMETERS = {
@@ -533,15 +540,28 @@ elif STORAGE_BACKEND == "GCP":
 # window. The TTL is held well under the signed-URL lifetime so a cached URL is
 # always served with ample validity remaining. 0 disables the shared cache
 # (LOCAL storage URLs are relative + free; only the per-request memo applies).
+from opencontractserver.utils.files import (  # noqa: E402  (pure helper, no app/model imports at module level)
+    clamp_shared_url_cache_ttl as _clamp_shared_url_cache_ttl,
+)
+
 if STORAGE_BACKEND == "GCP":
     _signed_url_lifetime_seconds = int(GS_EXPIRATION.total_seconds())
 elif STORAGE_BACKEND == "AWS":
-    _signed_url_lifetime_seconds = _AWS_EXPIRY
+    # The PRESIGN lifetime (AWS_QUERYSTRING_EXPIRE) — NOT ``_AWS_EXPIRY``,
+    # which is the stored objects' HTTP CacheControl max-age (7 days) and
+    # says nothing about signature validity. Deriving from the wrong value
+    # let this cache serve dead (403) links for up to 5 hours.
+    _signed_url_lifetime_seconds = AWS_QUERYSTRING_EXPIRE
 else:
     _signed_url_lifetime_seconds = 0
-FILE_URL_SHARED_CACHE_TTL = env.int(
-    "FILE_URL_SHARED_CACHE_TTL",
-    default=max(0, min(_signed_url_lifetime_seconds // 2, 6 * 60 * 60)),
+# Clamped even when set explicitly via env: a TTL beyond half the signature
+# lifetime can only ever serve expired links.
+FILE_URL_SHARED_CACHE_TTL = _clamp_shared_url_cache_ttl(
+    env.int(
+        "FILE_URL_SHARED_CACHE_TTL",
+        default=max(0, min(_signed_url_lifetime_seconds // 2, 6 * 60 * 60)),
+    ),
+    _signed_url_lifetime_seconds,
 )
 
 # Max concurrent signBlob round trips when ``FileUrlPrewarmMiddleware`` pre-signs

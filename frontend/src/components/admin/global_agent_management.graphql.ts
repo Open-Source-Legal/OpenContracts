@@ -52,7 +52,7 @@ export const CREATE_GLOBAL_AGENT_CONFIGURATION = gql`
     $systemInstructions: String!
     $availableTools: [String]
     $permissionRequiredTools: [String]
-    $badgeConfig: JSONString
+    $badgeConfig: GenericScalar
     $avatarUrl: String
     $scope: String!
     $isPublic: Boolean
@@ -88,7 +88,7 @@ export const UPDATE_GLOBAL_AGENT_CONFIGURATION = gql`
     $systemInstructions: String
     $availableTools: [String]
     $permissionRequiredTools: [String]
-    $badgeConfig: JSONString
+    $badgeConfig: GenericScalar
     $avatarUrl: String
     $isActive: Boolean
     $isPublic: Boolean

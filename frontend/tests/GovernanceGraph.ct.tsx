@@ -14,11 +14,13 @@ import { GovernanceGraphLive } from "../src/components/corpuses/CorpusHome/intel
 import { GovernanceGraphEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/GovernanceGraphEmbed";
 import { CamlEmbedProvider } from "../src/components/corpuses/caml/CamlEmbedContext";
 import { docScreenshot } from "./utils/docScreenshot";
+import { ToastContainer } from "react-toastify";
 import {
   GET_GOVERNANCE_GRAPH,
   GET_WANTED_AUTHORITIES,
   GET_ANALYZERS_FOR_ENRICHMENT,
   GET_DOCUMENT_BY_ID_FOR_REDIRECT,
+  GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
 } from "../src/graphql/queries";
 import { START_ANALYSIS, CREATE_CORPUS_ACTION } from "../src/graphql/mutations";
 import { ENRICHMENT_ANALYZER_TASK_NAME } from "../src/assets/configurations/constants";
@@ -222,8 +224,31 @@ const createCorpusActionMock = {
   result: { data: { createCorpusAction: { ok: true, message: "ok" } } },
 };
 
+// The bootstrap consults the intelligence-setup status before installing the
+// add_document action, so a row installed elsewhere (one-click setup) isn't
+// duplicated.
+const setupStatusMock = (referenceActionInstalled: boolean) => ({
+  request: {
+    query: GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
+    variables: { corpusId: CORPUS_ID },
+  },
+  result: {
+    data: {
+      corpusIntelligenceSetupStatus: {
+        referenceAvailable: true,
+        referenceActionInstalled,
+        installedTemplateNames: [],
+        missingTemplateNames: [],
+        isFullySetUp: false,
+        canSetup: true,
+      },
+    },
+  },
+});
+
 // Node click-through resolves the document's slugs via the redirect query,
-// then navigates to its canonical path. Beta Energy's primary node is the
+// then navigates to its standalone canonical path (the redirect query
+// carries no corpus context). Beta Energy's primary node is the
 // unambiguous target (no exhibit shares its title).
 const redirectMock = {
   request: {
@@ -241,17 +266,6 @@ const redirectMock = {
           slug: "acme",
           username: "acme",
           email: "acme@example.com",
-        },
-        corpus: {
-          id: CORPUS_ID,
-          slug: "ipo-s1-filings",
-          title: "Select 2026 IPO S-1 Filings",
-          creator: {
-            id: "VXNlcjox",
-            slug: "acme",
-            username: "acme",
-            email: "acme@example.com",
-          },
         },
       },
     },
@@ -391,6 +405,7 @@ test.describe("GovernanceGraphLive", () => {
             makeGraphMock(null),
             analyzersMock(ENRICHMENT_ANALYZER_TASK_NAME),
             startAnalysisMock,
+            setupStatusMock(false),
             createCorpusActionMock,
           ]}
           addTypename={false}
@@ -410,6 +425,52 @@ test.describe("GovernanceGraphLive", () => {
     await expect(
       page.locator('[data-testid="governance-graph-live-weaving"]')
     ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("bootstrap skips installing the action when one is already installed", async ({
+    mount,
+    page,
+  }) => {
+    // No createCorpusActionMock on purpose: with the reference action already
+    // installed (e.g. by one-click intelligence setup) the bootstrap must not
+    // fire CREATE_CORPUS_ACTION at all — an unexpected call would error and
+    // surface the "couldn't be installed" info toast.
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            makeGraphMock(null),
+            makeGraphMock(null),
+            makeGraphMock(null),
+            makeGraphMock(null),
+            analyzersMock(ENRICHMENT_ANALYZER_TASK_NAME),
+            startAnalysisMock,
+            setupStatusMock(true),
+          ]}
+          addTypename={false}
+        >
+          <>
+            <ToastContainer />
+            <GovernanceGraphLive corpusId={CORPUS_ID} />
+          </>
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const bootstrap = page.locator(
+      '[data-testid="governance-graph-live-bootstrap"]'
+    );
+    await expect(bootstrap).toBeVisible({ timeout: 10000 });
+    await bootstrap.click();
+
+    await expect(
+      page.locator('[data-testid="governance-graph-live-weaving"]')
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByText(/keep-it-updated action couldn't be installed/i)
+    ).toHaveCount(0);
 
     await component.unmount();
   });
@@ -466,7 +527,7 @@ test.describe("GovernanceGraphLive", () => {
         >
           <Routes>
             <Route
-              path="/d/acme/ipo-s1-filings/beta-energy-s1"
+              path="/d/acme/beta-energy-s1"
               element={<div data-testid="node-nav-arrived">arrived</div>}
             />
             <Route

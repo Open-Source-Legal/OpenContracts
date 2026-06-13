@@ -596,3 +596,29 @@ class TestUserFeedbackVisibility(TestCase):
     def test_get_or_none_nonexistent(self):
         result = UserFeedback.objects.get_or_none(pk=999999)
         self.assertIsNone(result)
+
+
+class TestVisibilityQueryShape(TestCase):
+    """Pin the correlated-EXISTS form of the inherited-visibility filter.
+
+    Regression: ``UserFeedbackQuerySet.visible_to_user`` once expressed
+    "feedback on a visible annotation is visible" as
+    ``commented_annotation_id__in=<visible annotations subquery>`` — an
+    uncorrelated ``IN`` that forces the planner to materialize the
+    visibility filter over the ENTIRE annotations table on every
+    evaluation (~0.8s each on a mid-sized dev DB; 108 per-annotation
+    ``userFeedback`` connections turned one GraphQL response into ~3
+    minutes). The correlated ``EXISTS`` pinned to
+    ``commented_annotation_id`` has identical semantics and an
+    index-driven plan.
+    """
+
+    def test_inherited_visibility_is_correlated_exists(self):
+        user = get_user_model().objects.create_user(username="shape-user", password="x")
+        sql = str(UserFeedback.objects.visible_to_user(user).query)
+        self.assertIn("EXISTS", sql)
+        self.assertNotRegex(
+            sql,
+            r'"commented_annotation_id" IN \(SELECT',
+            "inherited visibility regressed to the uncorrelated IN form",
+        )
