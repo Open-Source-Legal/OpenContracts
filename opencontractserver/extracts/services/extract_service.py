@@ -81,7 +81,7 @@ class ExtractService(BaseService):
 
             return True, extract
 
-        except Extract.DoesNotExist:
+        except (TypeError, ValueError, Extract.DoesNotExist):
             return False, None
 
     @classmethod

@@ -80,6 +80,15 @@ class ExtractAnonymousLockdownTestCase(TestCase):
         self.assertFalse(has_perm)
         self.assertIsNone(extract)
 
+    def test_check_extract_permission_denies_malformed_id(self):
+        """Malformed or undecoded Relay ids fail closed at the service edge."""
+        for malformed in ("RXh0cmFjdFR5cGU6MQ==", object()):
+            has_perm, extract = ExtractService.check_extract_permission(
+                self.owner, malformed  # type: ignore[arg-type]
+            )
+            self.assertFalse(has_perm)
+            self.assertIsNone(extract)
+
     # ---- manager surfaces (filter/check parity) --------------------------
 
     def test_manager_visible_to_user_is_empty_for_anonymous(self):

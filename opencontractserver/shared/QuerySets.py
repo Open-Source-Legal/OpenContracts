@@ -606,12 +606,9 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             # Structural annotations (always visible if doc is readable)
             Q(structural=True)
             |
-            # User's own annotations. KNOWN ASYMMETRY (issue #1986 item 1):
-            # AnnotationManager.user_can's privacy recursion has NO matching
-            # creator exemption, so a creator who lost source access passes
-            # this list gate while user_can(READ) denies them. Relationships
-            # resolved the same asymmetry with a creator short-circuit; the
-            # annotation-side reconciliation is tracked, not accidental.
+            # User's own annotations. Mirrors ``AnnotationManager.user_can``'s
+            # row-creator source-privacy exemption; the doc/corpus filters
+            # below still apply.
             Q(creator=user)
             |
             # Regular annotations (no privacy fields)

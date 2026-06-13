@@ -491,7 +491,7 @@ Structural Override = IF structural THEN READ-ONLY (except superuser)
 Privacy Filter = IF created_by_analysis/extract THEN require source permission
 ```
 
-**Note**: The Relationship model (for annotation-to-annotation relationships) has the same privacy fields as Annotation — `created_by_analysis`, `created_by_extract`, `structural`, and `is_public` — and, since the 2026-06 permissioning audit, the same **enforcement**: `RelationshipManager.user_can` recurses into the source object and `RelationshipManager.visible_to_user` carries the matching privacy gate (see `opencontractserver/shared/Managers.py`; parity pinned by `RelationshipAuthorizationInvariantsTestCase`). One asymmetry vs annotations: the relationship's own **creator** passes via the creator short-circuit even without source access, mirrored by `Q(creator=user)` in the queryset gate.
+**Note**: The Relationship model (for annotation-to-annotation relationships) has the same privacy fields as Annotation — `created_by_analysis`, `created_by_extract`, `structural`, and `is_public` — and, since the 2026-06 permissioning audit, the same **enforcement**: `RelationshipManager.user_can` recurses into the source object and `RelationshipManager.visible_to_user` carries the matching privacy gate (see `opencontractserver/shared/Managers.py`; parity pinned by `RelationshipAuthorizationInvariantsTestCase`). The row's own **creator** passes the source privacy gate even without source access, mirrored by `Q(creator=user)` in the queryset gate. For annotations, document/corpus permission checks still apply after that source-privacy exemption.
 
 ##### Annotation Images (`/api/annotations/<id>/images/`)
 
@@ -1093,10 +1093,15 @@ anonymous rules (public analyses only; extracts never).
 
 **Performance note:** each privacy gate embeds the visible-analysis and
 visible-extract subqueries, including user- and group-level guardian grant
-lookups. Keep guardian permission tables indexed on the permission, principal
-(`user` / `group`), and object-id columns before adding new source-privacy list
-surfaces; otherwise annotation + relationship requests can stack several nested
-subqueries in one page load.
+lookups. The concrete Guardian tables already carry unique B-tree indexes on
+`(user, permission, content_object)` / `(group, permission, content_object)`;
+the 2026-06 audit also adds hot-path companion indexes on
+`(permission, user, content_object)` and `(permission, group, content_object)`
+for the source privacy tables
+(`anl_uop_perm_user_obj_idx`, `anl_gop_perm_grp_obj_idx`,
+`ext_uop_perm_user_obj_idx`, `ext_gop_perm_grp_obj_idx`). Keep that shape
+before adding new source-privacy list surfaces; otherwise annotation +
+relationship requests can stack several nested subqueries in one page load.
 
 ```python
 # In any privacy-gated list path:

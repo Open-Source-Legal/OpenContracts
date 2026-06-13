@@ -208,13 +208,12 @@ class AnnotationServiceGroupGrantTestCase(TestCase):
         Since review round 17 the gate carries the same authenticated
         creator exemption as the queryset disjunct, so the two LIST shapes
         agree for creators too (pinned separately by
-        ``test_row_creator_exempt_from_gate_in_document_listing``); the
-        only remaining creator divergence is ``user_can`` on the annotation
-        side (issue #1986 item 1, pinned by the sentinel). This test keeps
-        its non-creator scope to stay focused on the grant-driven
-        transitions: for non-creators holding doc+corpus READ, queryset
-        membership reduces to the privacy verdict — the two shapes must
-        agree exactly, before and after a source grant lands.
+        ``test_row_creator_exempt_from_gate_in_document_listing`` and
+        ``test_annotation_creator_source_private_row_has_filter_check_parity``).
+        This test keeps its non-creator scope to stay focused on the
+        grant-driven transitions: for non-creators holding doc+corpus READ,
+        queryset membership reduces to the privacy verdict — the two shapes
+        must agree exactly, before and after a source grant lands.
         """
         from opencontractserver.utils.source_visibility import (
             apply_source_privacy_gate,

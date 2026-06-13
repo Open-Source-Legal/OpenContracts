@@ -279,10 +279,10 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         self.assertIsNotNone(ann.created_by_analysis_id)
         self.assertIsNone(ann.created_by_analysis)
 
-        # Even the annotation's own creator is denied — the orphan source
-        # is treated as private and there's no Analysis row left to
-        # honour the creator-grant short-circuit on.
-        self.assertFalse(ann.user_can(self.creator, PermissionTypes.READ))
+        # The annotation's own creator still passes via the row-creator
+        # short-circuit before source recursion. Non-creators fail closed when
+        # the stale source dereference returns None.
+        self.assertTrue(ann.user_can(self.creator, PermissionTypes.READ))
         # A reader with doc+corpus grants is similarly denied.
         self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
 
@@ -305,28 +305,12 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         self.assertIsNotNone(ann.created_by_extract_id)
         self.assertIsNone(ann.created_by_extract)
 
-        self.assertFalse(ann.user_can(self.creator, PermissionTypes.READ))
+        self.assertTrue(ann.user_can(self.creator, PermissionTypes.READ))
         self.assertFalse(ann.user_can(self.reader, PermissionTypes.READ))
 
-    def test_annotation_creator_parity_gap_sentinel(self) -> None:
-        """SENTINEL for issue #1986 item 1 — pins the KNOWN annotation-side
-        creator parity divergence so a future fix must consciously update
-        both surfaces (same idiom as the retired Phase-C deferral sentinel).
-
-        An annotation's own creator who holds doc+corpus READ but has NO
-        access to the privacy source currently:
-        - APPEARS in ``visible_to_user`` (the queryset privacy gate's
-          ``Q(creator=user)`` disjunct), but
-        - is DENIED by ``user_can(READ)`` (``_source_privacy_recursion_passes``
-          has no creator exemption on the annotation side — relationships
-          resolved this with a creator short-circuit; annotations have not).
-
-        This is exactly why the matrix invariant fixtures never include a
-        creator-of-row ≠ creator-of-source annotation: that fixture would
-        fail ``test_read_equivalence_across_user_matrix`` by design until
-        #1986 item 1 picks a semantic. When that fix lands, BOTH assertions
-        below must flip together.
-        """
+    def test_annotation_creator_source_private_row_has_filter_check_parity(self) -> None:
+        """The row creator passes both annotation list and single-object READ
+        gates even without source access; doc/corpus permissions still apply."""
         # ``reader`` (doc+corpus READ, no analysis access) authors a row
         # rooted in the creator's private analysis.
         ann = Annotation.objects.create(
@@ -345,15 +329,15 @@ class AnnotationUserCanLeafBranchesTestCase(TestCase):
         check = ann.user_can(self.reader, PermissionTypes.READ)
         self.assertTrue(
             in_filter,
-            "queryset gate's Q(creator=user) no longer admits the row's "
-            "creator — if intentional, update issue #1986 item 1 and this "
-            "sentinel together",
+            "queryset gate's Q(creator=user) should admit the row's creator",
+        )
+        self.assertTrue(
+            check,
+            "user_can should mirror the queryset row-creator exemption",
         )
         self.assertFalse(
-            check,
-            "user_can now exempts the row's creator from privacy recursion "
-            "— if intentional, update issue #1986 item 1 and this sentinel "
-            "together",
+            ann.user_can(self.reader, PermissionTypes.UPDATE),
+            "row creator source-privacy exemption must not bypass doc/corpus UPDATE",
         )
 
     def test_str_and_int_user_id_inputs_on_annotation(self) -> None:

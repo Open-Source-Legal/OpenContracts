@@ -30,13 +30,12 @@ from opencontractserver.types.protocols import (  # noqa: F401
     PermissionedQueryManagerProtocol,
 )
 
-# Subset of permission codes Relationship recognises and that creators
-# are exempt from. PUBLISH/PERMISSION are intentionally excluded so they
-# still fall through to the terminal ``return False`` below
-# (Relationship doesn't model those codes; creators aren't exempt from
-# that fact). Module-level so the tuple isn't reallocated on every
-# ``RelationshipManager.user_can`` call.
-_RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS = frozenset(
+# Subset of permission codes Annotation / Relationship recognise for
+# row-creator shortcuts. PUBLISH/PERMISSION are intentionally excluded so they
+# still fall through to the terminal ``return False`` below (these models don't
+# support those codes; creators aren't exempt from that fact). Module-level so
+# the tuple isn't reallocated on every ``user_can`` call.
+_ROW_CREATOR_SHORT_CIRCUIT_PERMS = frozenset(
     {
         _PermissionTypes.READ,
         _PermissionTypes.CREATE,
@@ -48,6 +47,9 @@ _RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS = frozenset(
         _PermissionTypes.ALL,
     }
 )
+
+_RELATIONSHIP_CREATOR_SHORT_CIRCUIT_PERMS = _ROW_CREATOR_SHORT_CIRCUIT_PERMS
+_ANNOTATION_CREATOR_SOURCE_PRIVACY_EXEMPT_PERMS = _ROW_CREATOR_SHORT_CIRCUIT_PERMS
 
 if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
@@ -783,7 +785,12 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
            everyone else. This is NOT a blanket superuser bypass — outside
            this single branch superusers are computed exactly like a normal
            user (scoped admin access, 2026-05).
-        6. **Privacy recursion** (only when not structural-READ): see
+        5. **Row-creator source-privacy exemption** for supported annotation
+           permissions (mirrors ``AnnotationQuerySet.visible_to_user``'s
+           ``Q(creator=user)`` branch). This bypasses only the source privacy
+           recursion; document/corpus permissions are still computed below.
+        6. **Privacy recursion** (only when not structural-READ and the row
+           creator exemption does not apply): see
            ``_source_privacy_recursion_passes`` (module-level, shared with
            ``RelationshipManager``).
         7. ``document_id is None`` → READ via ``visible_to_user(...).exists()``
@@ -846,8 +853,22 @@ class AnnotationManager(PermissionManager.from_queryset(AnnotationQuerySet)):  #
         ):
             return bool(getattr(user, "is_superuser", False))
 
-        if not _source_privacy_recursion_passes(
-            user, instance, permission, include_group_permissions, request=request
+        # Row-creator source-privacy exemption — mirrors ``Q(creator=user)``
+        # in ``AnnotationQuerySet.visible_to_user``'s privacy gate. This must
+        # skip only the source-recursion check, then still fall through to the
+        # normal doc/corpus MIN computation below; the queryset does not let an
+        # annotation creator bypass document/corpus visibility.
+        row_creator_exempt_from_source_privacy = (
+            getattr(instance, "creator_id", None) is not None
+            and instance.creator_id == user.id  # type: ignore[attr-defined]
+            and permission in _ANNOTATION_CREATOR_SOURCE_PRIVACY_EXEMPT_PERMS
+        )
+
+        if (
+            not row_creator_exempt_from_source_privacy
+            and not _source_privacy_recursion_passes(
+                user, instance, permission, include_group_permissions, request=request
+            )
         ):
             return False
 
