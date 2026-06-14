@@ -20,6 +20,7 @@
   },
   "overrides": {
     "undici": ">=7.24.0",
-    "picomatch": ">=4.0.4"
+    "picomatch": ">=4.0.4",
+    "esbuild": ">=0.28.1"
   }
 }
