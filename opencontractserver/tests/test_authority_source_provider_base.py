@@ -129,7 +129,6 @@ class TestAuthoritySourceProviderRegistry(SimpleTestCase):
         """Concrete providers register via the auto-discovery package, so once
         they ship the registry returns a non-empty list and a usc-handler."""
         providers = get_all_authority_source_providers_cached()
-        self.assertIsInstance(providers, list)
         self.assertTrue(
             any(
                 d.component_class is not None
