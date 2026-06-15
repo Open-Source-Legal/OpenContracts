@@ -293,7 +293,7 @@ class TestSafeFetchBytesHappyPath:
         assert host == ALLOWED_HOST
 
     def test_fetch_text_decodes_utf8(self):
-        body = "Section 1. — café".encode("utf-8")
+        body = "Section 1. — café".encode()
 
         def _stream_dispatch(self_client, method, url, **kwargs):
             return _mock_stream(200, body)
