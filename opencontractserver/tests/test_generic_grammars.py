@@ -57,3 +57,28 @@ class StateGrammarTests(SimpleTestCase):
 
     def test_california_corp_code(self):
         assert "ca-corp:300" in self._keys("Cal. Corp. Code § 300 requires")
+
+
+class BareActGrammarTests(SimpleTestCase):
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key: c for c in self.ex.extract(text)}
+
+    def test_bare_act_with_year(self):
+        c = self._keys("subject to the Bank Holding Company Act of 1956")[
+            "act:bank-holding-company-act-1956"
+        ]
+        assert c.authority_type == C.AUTHORITY_TYPE_STATUTE
+        assert c.detection_confidence < 0.9  # lower precision than numeric cites
+        assert c.normalized_data.get("section") is None
+
+    def test_bare_act_without_year(self):
+        assert "act:clean-water-act" in self._keys(
+            "violations of the Clean Water Act were alleged"
+        )
+
+    def test_requires_multiple_capitalized_words(self):
+        # "the Act" alone must NOT match (too generic).
+        assert self._keys("as defined in the Act") == {}

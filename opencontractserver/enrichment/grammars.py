@@ -18,6 +18,7 @@ from opencontractserver.enrichment.extractor import Candidate
 # Confidence by grammar family — structured numeric cites are high precision;
 # bare-Act detection (Task 11) is intentionally lower.
 _CONF_STRUCTURED = 0.9
+_CONF_BARE_ACT = 0.55
 
 # A section token: digits, optional trailing letter, optional (a)(2) subsections,
 # optional hyphenated rule tail (10b-5, 261.4).
@@ -36,6 +37,17 @@ _PUBL_RE = re.compile(
     re.IGNORECASE,
 )
 _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
+
+# Bare Act: "the Clean Water Act", "the Bank Holding Company Act of 1956".
+# Require >=2 capitalized words before "Act" so "the Act" never matches.
+_BARE_ACT_RE = re.compile(
+    r"\bthe\s+(?P<name>(?:[A-Z][A-Za-z'&.\-]+\s+){1,6}Act)"
+    r"(?:\s+of\s+(?P<year>\d{4}))?"
+)
+
+
+def _slug_act(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
 
 
 def _cand(start, end, raw, key, jur, typ, conf=_CONF_STRUCTURED) -> Candidate:
@@ -100,6 +112,31 @@ def _stat(text: str) -> Iterator[Candidate]:
         )
 
 
+def _bare_acts(text: str) -> Iterator[Candidate]:
+    for m in _BARE_ACT_RE.finditer(text):
+        name = m.group("name")
+        # Reject a single capitalized word + Act (e.g. "the Restricted Act"
+        # noise is allowed, but "the Act" cannot reach here — regex requires
+        # >=1 word then "Act", and we additionally require >=2 total tokens).
+        if len(name.split()) < 2:
+            continue
+        slug = _slug_act(name)
+        year = m.group("year")
+        key = f"act:{slug}-{year}" if year else f"act:{slug}"
+        c = _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            key,
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_STATUTE,
+            conf=_CONF_BARE_ACT,
+        )
+        c.normalized_data["section"] = None
+        c.normalized_data["display_name"] = name
+        yield c
+
+
 class GenericCitationExtractor:
     """Run all Tier-2a shape grammars over text → list[Candidate]."""
 
@@ -124,6 +161,7 @@ class GenericCitationExtractor:
         out.extend(_fedreg(text))
         out.extend(_publ(text))
         out.extend(_stat(text))
+        out.extend(_bare_acts(text))
         out.extend(self._states(text))
         return out
 
