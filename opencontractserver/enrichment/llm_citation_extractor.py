@@ -4,6 +4,11 @@ Slides a window across document text, asks an LLM to identify citation spans
 with structured output, verifies each span against the source text to reject
 hallucinations, and returns :class:`~opencontractserver.enrichment.extractor.Candidate`
 objects with ``detection_tier="llm"``.
+
+PRIVACY NOTE: This module transmits raw document text chunks to the configured
+external LLM provider (OpenAI, Anthropic, etc.) for analysis. Callers must
+treat LLM-based extraction as opt-in and must not enable it for documents
+containing sensitive or confidential content without appropriate consent.
 """
 
 from __future__ import annotations
@@ -31,8 +36,10 @@ class CitationCandidate(BaseModel):
     raw_text: str = Field(
         description="Exact citation substring, verbatim from the text"
     )
-    start: int = Field(description="Char offset of citation start within this chunk")
-    end: int = Field(description="Char offset (exclusive) within this chunk")
+    start: int = Field(
+        ge=0, description="Char offset of citation start within this chunk"
+    )
+    end: int = Field(ge=0, description="Char offset (exclusive) within this chunk")
     jurisdiction: str = Field(description='e.g. "Delaware", "Federal", "California"')
     authority_type: str = Field(description='e.g. "statute", "regulation", "case_law"')
     normalized_citation: str = Field(
@@ -169,12 +176,20 @@ def verify_and_place(
             "confidence": cand.confidence,
         }
 
-    # Drift-recovery path: search within chunk_text.
-    local = chunk_text.find(cand.raw_text)
-    if local == -1:
+    # Recovery: the LLM's offsets drifted. Anchor on raw_text, choosing the
+    # occurrence NEAREST the claimed offset (a repeated citation must not be
+    # mis-anchored to an unrelated duplicate).
+    if not cand.raw_text.strip():
+        return None
+    occurrences = []
+    idx = chunk_text.find(cand.raw_text)
+    while idx != -1:
+        occurrences.append(idx)
+        idx = chunk_text.find(cand.raw_text, idx + 1)
+    if not occurrences:
         logger.debug("LLM hallucination rejected: %r not in chunk", cand.raw_text)
         return None
-
+    local = min(occurrences, key=lambda o: abs(o - cand.start))
     placed_start = chunk_start + local
     placed_end = placed_start + len(cand.raw_text)
     return {
@@ -224,14 +239,24 @@ async def _one_shot_structured(
     chunk_text: str,
     model: Any,
 ) -> ChunkCitationExtraction:
-    """Run one structured extraction call against a single chunk."""
+    """Run one structured extraction call against a single chunk.
+
+    Temperature is forced to 0 for all providers so that an identical citation
+    in the same chunk position yields a stable canonical key across overlapping
+    chunks. TestModel ignores model_settings, so this has no effect on tests.
+    """
     from pydantic_ai import Agent
+
+    # Deterministic output is required: the same citation must yield the same
+    # key even when it falls in the overlap region of two adjacent chunks.
+    model_settings = {"temperature": 0}
 
     agent: Agent[None, ChunkCitationExtraction] = Agent(
         model=model,
         output_type=ChunkCitationExtraction,
         instructions=_INSTRUCTIONS,
         retries=C.LLM_STRUCTURED_RETRIES,
+        model_settings=model_settings,
     )
     result = await agent.run(chunk_text)
     return result.output
@@ -288,8 +313,10 @@ class LLMCitationExtractor:
         if step <= 0:
             step = self._window
 
-        # Dedup on (start, end, canonical_key).
-        seen: set[tuple[int, int, str | None]] = set()
+        # Dedup on (start, end) only. An identical span IS the same citation;
+        # LLM nondeterminism must not let two different derived keys for the
+        # same span both survive into the output. First chunk wins.
+        seen: set[tuple[int, int]] = set()
         candidates: list[Candidate] = []
 
         pos = 0
@@ -320,7 +347,7 @@ class LLMCitationExtractor:
                     placement["normalized_citation"],
                     placement["raw_text"],
                 )
-                dedup_key = (placement["start"], placement["end"], canonical_key)
+                dedup_key = (placement["start"], placement["end"])
                 if dedup_key in seen:
                     continue
                 seen.add(dedup_key)

@@ -98,6 +98,9 @@ def discover_authorities(
 
     Set ``use_llm=True`` to run an additional LLM detection pass for
     prose/obscure citations (slower, costs tokens). Defaults to ``False``.
+    When enabled, raw document text chunks are transmitted to the configured
+    external LLM provider; do not use on confidential documents without
+    appropriate consent.
     """
     from opencontractserver.enrichment.services import EnrichmentService
 
