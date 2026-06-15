@@ -31,6 +31,10 @@ _CFR_RE = re.compile(
     r"\b(?P<title>\d+)\s+C\.?\s?F\.?\s?R\.?\s+(?:§+\s*)?(?P<sec>\d+\.\d+"
     r"(?:[-–]\d+)?(?:\([0-9a-zA-Z]+\))*)"
 )
+# The periods are optional (``Fed\.?``/``Reg\.?``) to tolerate OCR that drops
+# punctuation, so "40 Fed Reg 1234" matches alongside "40 Fed. Reg. 1234". The
+# leading volume number + trailing page number keep false positives low; "Fed"
+# never matches "Federal", so prose like "Federal Regulation 40" is excluded.
 _FEDREG_RE = re.compile(r"\b(?P<vol>\d+)\s+Fed\.?\s?Reg\.?\s+(?P<page>\d[\d,]*)")
 # "No." is optional: the Bluebook short form "Pub. L. 117-58" (no "No.") is the
 # dominant form in filings and opinions alongside "Pub. L. No. 117-58".
@@ -52,17 +56,25 @@ def _slug_act(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
 
 
-def _cand(start, end, raw, key, jur, typ, conf=_CONF_STRUCTURED) -> Candidate:
+def _cand(
+    start, end, raw, key, jur, typ, conf=_CONF_STRUCTURED, extra=None
+) -> Candidate:
+    normalized_data = {
+        "authority": key.split(":", 1)[0],
+        "tier": C.DETECTION_TIER_GRAMMAR,
+    }
+    # Grammar-specific fields (e.g. bare-Act ``section``/``display_name``) are
+    # merged here rather than mutated onto the returned object by the caller, so
+    # the dict is fully formed in one place and never aliased.
+    if extra:
+        normalized_data.update(extra)
     return Candidate(
         reference_type=C.REF_LAW,
         start=start,
         end=end,
         raw_text=raw,
         canonical_key=key,
-        normalized_data={
-            "authority": key.split(":", 1)[0],
-            "tier": C.DETECTION_TIER_GRAMMAR,
-        },
+        normalized_data=normalized_data,
         jurisdiction=jur,
         authority_type=typ,
         detection_tier=C.DETECTION_TIER_GRAMMAR,
@@ -145,7 +157,11 @@ def _bare_acts(text: str) -> Iterator[Candidate]:
         slug = _slug_act(name)
         year = m.group("year")
         key = f"act:{slug}-{year}" if year else f"act:{slug}"
-        c = _cand(
+        # Jurisdiction is assumed ``us-federal`` for every bare Act: the shape
+        # alone can't tell "the Clean Air Act" (federal) from "the Texas
+        # Business Organizations Act" (state). The low _CONF_BARE_ACT signal
+        # flags the uncertainty; state-act disambiguation is a Phase-1 follow-up.
+        yield _cand(
             m.start(),
             m.end(),
             m.group(0),
@@ -153,10 +169,8 @@ def _bare_acts(text: str) -> Iterator[Candidate]:
             C.JURISDICTION_US_FEDERAL,
             C.AUTHORITY_TYPE_STATUTE,
             conf=_CONF_BARE_ACT,
+            extra={"section": None, "display_name": name},
         )
-        c.normalized_data["section"] = None
-        c.normalized_data["display_name"] = name
-        yield c
 
 
 class GenericCitationExtractor:

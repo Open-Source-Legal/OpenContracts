@@ -2,7 +2,14 @@
 
 Reproduces today's in-code alias map as queryable rows so the registry is
 extensible without a code change. Idempotent on re-run via update_or_create.
+
+Coupling note: ``seed`` reads live ``enrichment.constants`` (AUTHORITY_PREFIX,
+PREFIX_CLASSIFICATION, PREFIX_DISPLAY_NAME) rather than a frozen snapshot. A
+future constants change therefore will NOT retroactively reach databases where
+this migration is already recorded as applied — ship such changes as a new
+re-seed migration (see 0085). The constants test enforces full coverage in CI.
 """
+
 from django.db import migrations
 
 

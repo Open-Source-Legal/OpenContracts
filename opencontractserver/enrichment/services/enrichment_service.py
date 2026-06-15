@@ -69,18 +69,19 @@ class EnrichmentService:
         return sections
 
     def _resolutions(
-        self, corpus, documents, types, user, tiers=None
+        self, corpus, documents, types, user, extra_tiers=None
     ) -> list[Resolution]:
         from opencontractserver.enrichment.authorities import authority_alias_registry
         from opencontractserver.enrichment.grammars import GenericCitationExtractor
         from opencontractserver.enrichment.reconcile import reconcile
 
         wanted = set(types or C.DEFAULT_REFERENCE_TYPES)
-        # The trusted registry tier is ALWAYS the base; ``tiers`` only chooses
-        # which *additional* layers (e.g. grammar) to merge on top of it. So the
-        # registry extractor runs unconditionally and ``tiers=['grammar']`` means
-        # "registry + grammar", not "grammar only".
-        active_tiers = set(tiers or (C.DETECTION_TIER_REGISTRY,))
+        # The trusted registry tier is ALWAYS the base; ``extra_tiers`` only
+        # selects which *additional* layers (e.g. grammar) to merge on top of
+        # it — it is additive, not exhaustive. So the registry extractor runs
+        # unconditionally and ``extra_tiers=[DETECTION_TIER_GRAMMAR]`` means
+        # "registry + grammar", never "grammar only".
+        active_tiers = set(extra_tiers or ())
         resolver = ReferenceResolver(documents)
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
         generic = (
@@ -125,10 +126,12 @@ class EnrichmentService:
         creator_id: int,
         types: list[str] | None = None,
         sample_n: int = C.DEFAULT_SAMPLE_N,
-        tiers: list[str] | None = None,
+        extra_tiers: list[str] | None = None,
     ) -> dict:
         user, corpus, documents = self._load(corpus_id, creator_id)
-        resolutions = self._resolutions(corpus, documents, types, user, tiers=tiers)
+        resolutions = self._resolutions(
+            corpus, documents, types, user, extra_tiers=extra_tiers
+        )
 
         by_type = Counter(r.reference_type for r in resolutions)
         by_status = Counter(r.resolution_status for r in resolutions)
@@ -183,15 +186,21 @@ class EnrichmentService:
             documents,
             [C.REF_LAW],
             user,
-            tiers=[C.DETECTION_TIER_REGISTRY, C.DETECTION_TIER_GRAMMAR],
+            extra_tiers=[C.DETECTION_TIER_GRAMMAR],
         )
 
         # Registry-tier candidates carry no jurisdiction/authority_type (the
         # static extractor predates the taxonomy), so resolve it by prefix from
         # the AuthorityNamespace registry, falling back to PREFIX_CLASSIFICATION.
         # Without this, dgcl/irc/etc. would be absent from the rollups below.
+        # Resolver-generated canonical keys are always ``"<prefix>:<locator>"``
+        # (see ReferenceResolver), so the prefix is the segment before the first
+        # ``:``. A hypothetical bare key with no ``:`` would yield itself here and
+        # could be misflagged as a new namespace — guard against that drift.
         prefixes = {
-            r.canonical_key.split(":", 1)[0] for r in resolutions if r.canonical_key
+            r.canonical_key.split(":", 1)[0]
+            for r in resolutions
+            if r.canonical_key and ":" in r.canonical_key
         }
         ns_rows = list(
             AuthorityNamespace.objects.filter(prefix__in=prefixes).values_list(
@@ -320,7 +329,7 @@ class EnrichmentService:
         creator_id: int,
         types: list[str] | None = None,
         analysis: Analysis | None = None,
-        tiers: list[str] | None = None,
+        extra_tiers: list[str] | None = None,
     ) -> dict:
         """Persist the corpus's reference web.
 
@@ -329,7 +338,9 @@ class EnrichmentService:
         service call) a provenance ``Analysis`` is created here.
         """
         user, corpus, documents = self._load(corpus_id, creator_id)
-        resolutions = self._resolutions(corpus, documents, types, user, tiers=tiers)
+        resolutions = self._resolutions(
+            corpus, documents, types, user, extra_tiers=extra_tiers
+        )
         if analysis is None:
             analysis = self._get_analysis(corpus, creator_id)
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)

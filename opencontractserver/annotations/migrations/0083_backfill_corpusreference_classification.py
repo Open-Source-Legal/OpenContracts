@@ -3,7 +3,14 @@
 Idempotent and forward-only in effect (reverse is a no-op): only rows still
 missing a jurisdiction are touched, so re-running never clobbers values a later
 detection pass set.
+
+Coupling note: this reads live ``enrichment.constants`` (PREFIX_CLASSIFICATION)
+rather than inlining a frozen snapshot. The constants are large and stable, and
+the ``jurisdiction__isnull=True`` guard makes a constants change harmless on
+re-run (it never overwrites). Do not repurpose this migration to *re-classify*
+existing rows if the mapping changes — add a new data migration instead.
 """
+
 from django.db import migrations
 
 
