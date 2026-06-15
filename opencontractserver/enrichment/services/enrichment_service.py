@@ -171,16 +171,28 @@ class EnrichmentService:
         *,
         corpus_id: int,
         creator_id: int,
+        max_documents: int | None = None,
     ) -> dict:
         """Read-only open-vocabulary inventory (registry + grammar tiers).
 
         Surfaces authorities the registry alone would miss, grouped by
         jurisdiction / authority_type, and flags prefixes with no
         AuthorityNamespace row (genuinely new bodies of law).
+
+        Runs registry + grammar extraction over the *full text* of every corpus
+        document, so cost scales with corpus size. ``max_documents`` caps the
+        document set when set (the result reports ``documents_truncated`` so the
+        cap is never silent); ``None`` (default) scans the whole corpus.
         """
         from opencontractserver.annotations.models import AuthorityNamespace
 
         user, corpus, documents = self._load(corpus_id, creator_id)
+        documents_total = len(documents)
+        documents_truncated = (
+            max_documents is not None and documents_total > max_documents
+        )
+        if documents_truncated:
+            documents = documents[:max_documents]
         resolutions = self._resolutions(
             corpus,
             documents,
@@ -265,6 +277,8 @@ class EnrichmentService:
         return {
             "corpus_id": corpus_id,
             "documents_scanned": len(documents),
+            "documents_total": documents_total,
+            "documents_truncated": documents_truncated,
             "total_candidates": len(resolutions),
             "by_key": by_key,
             "by_jurisdiction": dict(by_jurisdiction),

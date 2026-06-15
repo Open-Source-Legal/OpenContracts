@@ -8,45 +8,15 @@ PREFIX_CLASSIFICATION, PREFIX_DISPLAY_NAME) rather than a frozen snapshot. A
 future constants change therefore will NOT retroactively reach databases where
 this migration is already recorded as applied — ship such changes as a new
 re-seed migration (see 0085). The constants test enforces full coverage in CI.
+
+The seed/unseed bodies live in ``enrichment._namespace_seed`` so 0085 can reuse
+them with a normal import (a migration module name starts with a digit and can't
+be imported directly).
 """
 
 from django.db import migrations
 
-
-def seed(apps, schema_editor):
-    from opencontractserver.enrichment import constants as C
-
-    AuthorityNamespace = apps.get_model("annotations", "AuthorityNamespace")
-
-    # Collect aliases per prefix from the reverse of AUTHORITY_PREFIX.
-    aliases_by_prefix: dict[str, list[str]] = {}
-    for alias, prefix in C.AUTHORITY_PREFIX.items():
-        aliases_by_prefix.setdefault(prefix, []).append(alias.lower())
-
-    prefixes = set(C.AUTHORITY_PREFIX.values()) | {C.SEC_RULE_PREFIX}
-    for prefix in prefixes:
-        # Graceful fallback so adding a prefix to AUTHORITY_PREFIX without its
-        # classification/display-name entry can never crash ``migrate`` on a
-        # clean schema (the constants test still enforces full coverage in CI).
-        jur, typ = C.PREFIX_CLASSIFICATION.get(prefix, (None, None))
-        AuthorityNamespace.objects.update_or_create(
-            prefix=prefix,
-            defaults={
-                "display_name": C.PREFIX_DISPLAY_NAME.get(prefix, prefix),
-                "jurisdiction": jur,
-                "authority_type": typ,
-                "aliases": sorted(set(aliases_by_prefix.get(prefix, []))),
-                "is_global": True,
-            },
-        )
-
-
-def unseed(apps, schema_editor):
-    from opencontractserver.enrichment import constants as C
-
-    AuthorityNamespace = apps.get_model("annotations", "AuthorityNamespace")
-    prefixes = set(C.AUTHORITY_PREFIX.values()) | {C.SEC_RULE_PREFIX}
-    AuthorityNamespace.objects.filter(prefix__in=prefixes).delete()
+from opencontractserver.enrichment._namespace_seed import seed, unseed
 
 
 class Migration(migrations.Migration):

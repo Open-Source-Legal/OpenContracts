@@ -1957,7 +1957,11 @@ class CorpusReference(BaseOCModel):
         max_length=64, null=True, blank=True, db_index=True
     )
     authority_type = django.db.models.CharField(
-        max_length=32, null=True, blank=True, db_index=True
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_AUTHORITY_TYPES],
     )
     # Phase 1 detection provenance — which layer found the mention and how
     # confident. detection_tier in constants.DETECTION_TIER_*; defaults to the
@@ -1966,6 +1970,7 @@ class CorpusReference(BaseOCModel):
         max_length=16,
         default=enrichment_constants.DETECTION_TIER_REGISTRY,
         db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_DETECTION_TIERS],
     )
     detection_confidence = django.db.models.FloatField(default=1.0)
     resolution_status = django.db.models.CharField(
@@ -2051,7 +2056,11 @@ class AuthorityNamespace(django.db.models.Model):
         max_length=64, null=True, blank=True, db_index=True
     )
     authority_type = django.db.models.CharField(
-        max_length=32, null=True, blank=True, db_index=True
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_AUTHORITY_TYPES],
     )
     # Surface forms seen in text (lowercased), fed into the extractor alias map.
     aliases = django.db.models.JSONField(default=list, blank=True)
@@ -2076,6 +2085,20 @@ class AuthorityNamespace(django.db.models.Model):
         indexes = [
             django.db.models.Index(fields=["jurisdiction", "authority_type"]),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # A corpus-linked namespace is by definition NOT global: marking it
+        # ``is_global`` would leak its aliases into every user's extraction
+        # regardless of corpus visibility (authority_alias_registry gates
+        # corpus-linked rows behind ``visible_to_user``). Refuse the incoherent
+        # combination rather than silently mis-scope it.
+        if self.authority_corpus_id and self.is_global:
+            raise ValidationError(
+                "AuthorityNamespace cannot be both is_global=True and "
+                "corpus-linked (authority_corpus set); a corpus-scoped "
+                "namespace must set is_global=False."
+            )
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"AuthorityNamespace({self.prefix}: {self.display_name})"

@@ -11,7 +11,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="corpusreference",
             name="detection_tier",
-            field=models.CharField(db_index=True, default="registry", max_length=16),
+            field=models.CharField(
+                choices=[
+                    ("registry", "registry"),
+                    ("grammar", "grammar"),
+                    ("llm", "llm"),
+                ],
+                db_index=True,
+                default="registry",
+                max_length=16,
+            ),
         ),
         migrations.AddField(
             model_name="corpusreference",

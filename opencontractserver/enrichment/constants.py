@@ -140,3 +140,8 @@ PREFIX_DISPLAY_NAME = {
 DETECTION_TIER_REGISTRY = "registry"  # Tier 1: static/DB alias grammars (trusted)
 DETECTION_TIER_GRAMMAR = "grammar"  # Tier 2a: generic citation-shape grammars
 DETECTION_TIER_LLM = "llm"  # Tier 2b: LLM extraction (future phase)
+ALL_DETECTION_TIERS = (
+    DETECTION_TIER_REGISTRY,
+    DETECTION_TIER_GRAMMAR,
+    DETECTION_TIER_LLM,
+)

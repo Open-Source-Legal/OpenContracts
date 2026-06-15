@@ -20,7 +20,21 @@ class Migration(migrations.Migration):
             model_name="corpusreference",
             name="authority_type",
             field=models.CharField(
-                blank=True, db_index=True, max_length=32, null=True
+                blank=True,
+                choices=[
+                    ("statute", "statute"),
+                    ("regulation", "regulation"),
+                    ("admin-rule", "admin-rule"),
+                    ("municipal-ordinance", "municipal-ordinance"),
+                    ("case", "case"),
+                    ("constitution", "constitution"),
+                    ("court-rule", "court-rule"),
+                    ("guidance", "guidance"),
+                    ("treaty", "treaty"),
+                ],
+                db_index=True,
+                max_length=32,
+                null=True,
             ),
         ),
     ]

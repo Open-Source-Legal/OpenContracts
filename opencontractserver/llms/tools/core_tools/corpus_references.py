@@ -80,6 +80,7 @@ def discover_authorities(
     *,
     corpus_id: int,
     creator_id: int,
+    max_documents: int | None = None,
 ) -> dict:
     """Open-vocabulary authority inventory (read-only).
 
@@ -89,10 +90,16 @@ def discover_authorities(
     Acts) — grouped by jurisdiction and authority type. ``new_namespaces`` lists
     prefixes with no registry entry yet: the candidates worth bootstrapping or
     locating. Writes nothing.
+
+    Cost scales with corpus size (every document's full text is scanned). On a
+    large corpus pass ``max_documents`` to cap the scan; the result then reports
+    ``documents_total`` and ``documents_truncated`` so the cap is explicit.
     """
     from opencontractserver.enrichment.services import EnrichmentService
 
-    return EnrichmentService().discover(corpus_id=corpus_id, creator_id=creator_id)
+    return EnrichmentService().discover(
+        corpus_id=corpus_id, creator_id=creator_id, max_documents=max_documents
+    )
 
 
 def bootstrap_authority_corpus(
@@ -210,7 +217,8 @@ async def adiscover_authorities(
     *,
     corpus_id: int,
     creator_id: int,
+    max_documents: int | None = None,
 ) -> dict:
     return await _db_sync_to_async(discover_authorities)(
-        corpus_id=corpus_id, creator_id=creator_id
+        corpus_id=corpus_id, creator_id=creator_id, max_documents=max_documents
     )

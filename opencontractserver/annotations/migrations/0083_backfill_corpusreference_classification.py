@@ -21,13 +21,28 @@ def backfill(apps, schema_editor):
     qs = CorpusReference.objects.filter(
         reference_type=C.REF_LAW, jurisdiction__isnull=True
     ).exclude(canonical_key__isnull=True)
-    for ref in qs.iterator():
+
+    # Classify in memory then flush in batched bulk_update passes: O(n/batch)
+    # round trips instead of one UPDATE per row. Tens-of-thousands of law refs
+    # on a large deployment would otherwise time the migration out.
+    batch: list = []
+    chunk_size = 2000
+    for ref in qs.iterator(chunk_size=chunk_size):
         prefix = (ref.canonical_key or "").split(":", 1)[0]
         classification = C.PREFIX_CLASSIFICATION.get(prefix)
         if classification is None:
             continue
         ref.jurisdiction, ref.authority_type = classification
-        ref.save(update_fields=["jurisdiction", "authority_type"])
+        batch.append(ref)
+        if len(batch) >= chunk_size:
+            CorpusReference.objects.bulk_update(
+                batch, ["jurisdiction", "authority_type"], batch_size=500
+            )
+            batch = []
+    if batch:
+        CorpusReference.objects.bulk_update(
+            batch, ["jurisdiction", "authority_type"], batch_size=500
+        )
 
 
 def noop(apps, schema_editor):

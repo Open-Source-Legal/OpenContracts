@@ -12,19 +12,13 @@ Idempotent on a freshly-seeded DB (update_or_create is a no-op there), so it is
 safe to ship to production where 0082 already populated the table.
 """
 
-import importlib
-
 from django.db import migrations
 
-# Reuse 0082's seed function verbatim — module name starts with a digit, so it
-# can't be imported with a normal ``import`` statement.
-_seed_module = importlib.import_module(
-    "opencontractserver.annotations.migrations.0082_seed_authority_namespaces"
-)
+from opencontractserver.enrichment._namespace_seed import seed
 
 
 def reseed(apps, schema_editor):
-    _seed_module.seed(apps, schema_editor)
+    seed(apps, schema_editor)
 
 
 class Migration(migrations.Migration):

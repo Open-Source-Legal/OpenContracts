@@ -1,10 +1,13 @@
 """AuthorityNamespace registry model (Phase 0)."""
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
 from opencontractserver.annotations.models import AuthorityNamespace
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.enrichment import constants as C
+from opencontractserver.tests.factories import UserFactory
 
 
 class AuthorityNamespaceModelTests(TestCase):
@@ -21,6 +24,29 @@ class AuthorityNamespaceModelTests(TestCase):
         assert ns.prefix == "tx-boc"
         assert "tex. bus. orgs. code" in ns.aliases
         assert ns.is_global is True
+
+    def test_corpus_linked_namespace_cannot_be_global(self):
+        """A corpus-linked namespace marked is_global would leak its aliases
+        into every user's extraction regardless of corpus visibility — save()
+        must refuse the incoherent combination."""
+        user = UserFactory()
+        corpus = Corpus.objects.create(title="Authority corpus", creator=user)
+        with self.assertRaises(ValidationError):
+            AuthorityNamespace.objects.create(
+                prefix="corp-linked-global",
+                display_name="Bad",
+                authority_corpus=corpus,
+                is_global=True,
+            )
+        # The corpus-scoped form (is_global=False) is accepted.
+        ns = AuthorityNamespace.objects.create(
+            prefix="corp-linked-scoped",
+            display_name="Good",
+            authority_corpus=corpus,
+            is_global=False,
+        )
+        assert ns.authority_corpus_id == corpus.id
+        assert ns.is_global is False
 
     def test_prefix_is_unique(self):
         # Use a non-seeded prefix so the seed migration's "dgcl" row doesn't
