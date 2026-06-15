@@ -127,17 +127,17 @@ class EnrichmentService:
 
         resolutions: list[Resolution] = []
         for doc in documents:
-            text = doc_texts.get(doc.id)
-            if text is None:
+            doc_text = doc_texts.get(doc.id)
+            if doc_text is None:
                 continue
             sections = sections_by_doc.get(doc.id, [])
             meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
             primary = list(
-                extractor.extract(text, default_authority=meta.get("authority"))
+                extractor.extract(doc_text, default_authority=meta.get("authority"))
             )
             if generic is not None:
                 # Registry wins on overlap; generic adds the open-vocabulary tail.
-                cands = reconcile(primary, generic.extract(text))
+                cands = reconcile(primary, generic.extract(doc_text))
             else:
                 cands = primary
             if llm_extractor is not None:
@@ -145,7 +145,7 @@ class EnrichmentService:
             for cand in cands:
                 if cand.reference_type not in wanted:
                     continue
-                resolutions.append(resolver.resolve(cand, doc.id, text, sections))
+                resolutions.append(resolver.resolve(cand, doc.id, doc_text, sections))
         return resolutions
 
     # -- public API -------------------------------------------------------- #
