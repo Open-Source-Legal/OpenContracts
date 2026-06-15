@@ -154,6 +154,8 @@ class CrawlAuthoritiesService(BaseService):
             # Re-extract the authority's OWN outbound citations and seed the
             # frontier at depth+1 — only when we haven't reached max_depth.
             if row.depth < max_depth:
+                # Authority corpora hold one small document per statute section,
+                # so this apply scan is bounded (not a large-corpus scan).
                 apply_res = EnrichmentService().apply(
                     corpus_id=authority_corpus_id,
                     creator_id=creator_id,

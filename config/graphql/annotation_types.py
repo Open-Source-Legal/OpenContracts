@@ -106,9 +106,10 @@ class GovernanceGraphNodeType(graphene.ObjectType):
     )
     discovery_state = graphene.String(
         description=(
-            'Authority-frontier crawl status for ghost nodes: "queued", '
-            '"in_progress", "ingested", "failed", "unlocated", "blocked_license", '
-            '"pending_approval" — or null when not tracked.'
+            "Authority-frontier crawl status for ghost nodes: "
+            '"queued", "in_progress", "discovered", "ingested", "resolved", '
+            '"failed", "unsupported", "blocked_license", "unlocated", '
+            '"pending_approval", "deferred_cap" — or null when not tracked.'
         )
     )
     degree = graphene.Int(

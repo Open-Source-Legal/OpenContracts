@@ -519,3 +519,218 @@ class BoundsTerminationTests(TransactionTestCase):
             total_in_db,
             f"frontier_residual sums to {total_in_census} but DB has {total_in_db} rows",
         )
+
+    def test_extracted_child_reuses_existing_frontier_row(self):
+        """Re-extraction that yields a key already in the frontier → seed_child_keys skips it.
+
+        Verifies that a pre-existing frontier row (at any state) for a child
+        canonical_key is not duplicated and its state is not reset.
+        """
+        user = _make_user("child-reuse-user")
+
+        # Parent row at depth 0 — the one that will be ingested.
+        AuthorityFrontier.objects.create(
+            canonical_key="usc-15:300",
+            authority="usc-15",
+            jurisdiction="us-federal",
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            mention_count=5,
+            depth=0,
+            discovery_state="queued",
+        )
+        # Child row already exists at "ingested" state — seed_child_keys must
+        # treat it as a duplicate and leave it untouched.
+        child_key = "usc-15:301"
+        AuthorityFrontier.objects.create(
+            canonical_key=child_key,
+            authority="usc-15",
+            jurisdiction="us-federal",
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            mention_count=3,
+            depth=1,
+            discovery_state="ingested",
+        )
+
+        # Confirm exactly 2 rows before the crawl.
+        self.assertEqual(AuthorityFrontier.objects.count(), 2)
+
+        # Mock: re-extraction returns the already-existing child key.
+        mock_refs = MagicMock()
+        mock_refs.filter.return_value = mock_refs
+        mock_refs.exclude.return_value = mock_refs
+        mock_refs.values_list.return_value.distinct.return_value = [child_key]
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=_make_bootstrap_mock("ingested", corpus_id=6000),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 1},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=mock_refs,
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=1,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        # Still exactly 2 rows — no duplicate was created.
+        self.assertEqual(
+            AuthorityFrontier.objects.filter(canonical_key=child_key).count(),
+            1,
+            "seed_child_keys must not create a duplicate row for an existing key",
+        )
+        # The existing row's state must not have been reset.
+        child = AuthorityFrontier.objects.get(canonical_key=child_key)
+        self.assertEqual(
+            child.discovery_state,
+            "ingested",
+            "seed_child_keys must not reset an existing row's state",
+        )
+
+    def test_deferred_cap_rows_not_re_dequeued(self):
+        """5 queued rows in the same jurisdiction with cap=2 → 2 ingested, 3 deferred_cap.
+
+        The loop must terminate (not hang) and no deferred_cap row must be
+        processed by discover_and_bootstrap (assert call count == ingested count).
+        """
+        user = _make_user("defer-cap-requeue-user")
+        self._make_queued_rows(
+            5, jurisdiction="us-de", authority="dgcl", mention_count=10
+        )
+
+        bootstrap_calls = []
+
+        def _tracking_bootstrap(
+            *, creator_id, frontier_row, make_public=True, relink_async=True
+        ):
+            from opencontractserver.enrichment.services import AuthorityFrontierService
+
+            bootstrap_calls.append(frontier_row.canonical_key)
+            AuthorityFrontierService.mark(frontier_row, "ingested")
+            return {
+                "status": "ingested",
+                "corpus_id": 7000 + len(bootstrap_calls),
+                "documents_created": 1,
+                "documents_updated": 0,
+                "documents_skipped": 0,
+                "documents_restamped": 0,
+                "canonical_key": frontier_row.canonical_key,
+            }
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=_tracking_bootstrap,
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 0},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=_make_empty_corpus_ref_mock(),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=0,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=2,
+                token_budget=0,
+            )
+
+        # Exactly 2 ingested, 3 parked at deferred_cap.
+        self.assertEqual(summary["authorities_ingested"], 2)
+        self.assertEqual(summary["per_jurisdiction"].get("us-de", 0), 2)
+        parked = AuthorityFrontier.objects.filter(
+            discovery_state="deferred_cap"
+        ).count()
+        self.assertEqual(parked, 3)
+        # discover_and_bootstrap must have been called only for ingested rows.
+        self.assertEqual(
+            len(bootstrap_calls),
+            2,
+            "discover_and_bootstrap must not be called for deferred_cap rows",
+        )
+
+    def test_crawl_with_dotted_section_child_key(self):
+        """Re-extraction that yields a dotted CFR section key preserves the full key.
+
+        ``cfr-40:261.4`` must be stored as-is (the dot-suffix is NOT stripped by
+        ``candidate_keys``, which only strips parenthesised subsection suffixes).
+        The resulting frontier row must sit at parent.depth+1.
+        """
+        user = _make_user("dotted-key-user")
+
+        # Seed row at depth 0 that will be ingested.
+        AuthorityFrontier.objects.create(
+            canonical_key="cfr-40:261",
+            authority="cfr-40",
+            jurisdiction="us-federal",
+            authority_type=C.AUTHORITY_TYPE_REGULATION,
+            mention_count=5,
+            depth=0,
+            discovery_state="queued",
+        )
+
+        dotted_child_key = "cfr-40:261.4"
+
+        mock_refs = MagicMock()
+        mock_refs.filter.return_value = mock_refs
+        mock_refs.exclude.return_value = mock_refs
+        mock_refs.values_list.return_value.distinct.return_value = [dotted_child_key]
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=_make_bootstrap_mock("ingested", corpus_id=8000),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 1},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=mock_refs,
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=1,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        # The dotted key must exist as-is — not truncated to "cfr-40:261".
+        self.assertTrue(
+            AuthorityFrontier.objects.filter(canonical_key=dotted_child_key).exists(),
+            f"frontier row for dotted key '{dotted_child_key}' must exist after crawl",
+        )
+        child = AuthorityFrontier.objects.get(canonical_key=dotted_child_key)
+        self.assertEqual(
+            child.depth,
+            1,
+            "dotted child key must be seated at parent.depth + 1",
+        )

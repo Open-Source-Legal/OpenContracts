@@ -485,6 +485,16 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
                 "Hard cap on authorities ingested this run (default 50)",
                 False,
             ),
+            (
+                "per_jurisdiction_cap",
+                "Max authorities ingested per jurisdiction per run",
+                False,
+            ),
+            (
+                "token_budget",
+                "Approx token budget before the crawl stops",
+                False,
+            ),
         ),
     ),
     ToolDefinition(

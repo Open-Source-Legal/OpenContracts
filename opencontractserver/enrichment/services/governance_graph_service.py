@@ -174,6 +174,7 @@ class GovernanceGraphService:
             for c in listed_corpora.values()
         ]
 
+        # Doc nodes represent ingested documents, not frontier entries — discovery_state is None.
         doc_nodes = []
         for doc_pk in node_doc_ids:
             doc = docs.get(doc_pk)

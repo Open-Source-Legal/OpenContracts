@@ -245,6 +245,8 @@ def crawl_authorities(
     max_depth: int = 2,
     min_demand: int = 2,
     max_authorities: int = 50,
+    per_jurisdiction_cap: int | None = None,
+    token_budget: int | None = None,
 ) -> dict:
     """Bounded recursive crawl: discover & ingest the authorities a corpus
     cites, then the authorities THOSE cite, up to ``max_depth`` hops. Returns a
@@ -252,6 +254,7 @@ def crawl_authorities(
     and the full frontier residual census. Idempotent: already-ingested
     authorities are skipped, re-crawling creates zero duplicate documents.
     """
+    from opencontractserver.enrichment import constants as C
     from opencontractserver.enrichment.services.crawl_authorities_service import (
         CrawlAuthoritiesService,
     )
@@ -262,6 +265,14 @@ def crawl_authorities(
         max_depth=max_depth,
         min_demand=min_demand,
         max_authorities=max_authorities,
+        per_jurisdiction_cap=(
+            per_jurisdiction_cap
+            if per_jurisdiction_cap is not None
+            else C.CRAWL_DEFAULT_PER_JURISDICTION_CAP
+        ),
+        token_budget=(
+            token_budget if token_budget is not None else C.CRAWL_DEFAULT_TOKEN_BUDGET
+        ),
     )
 
 
@@ -272,6 +283,8 @@ async def acrawl_authorities(
     max_depth: int = 2,
     min_demand: int = 2,
     max_authorities: int = 50,
+    per_jurisdiction_cap: int | None = None,
+    token_budget: int | None = None,
 ) -> dict:
     return await _db_sync_to_async(crawl_authorities)(
         creator_id=creator_id,
@@ -279,4 +292,6 @@ async def acrawl_authorities(
         max_depth=max_depth,
         min_demand=min_demand,
         max_authorities=max_authorities,
+        per_jurisdiction_cap=per_jurisdiction_cap,
+        token_budget=token_budget,
     )
