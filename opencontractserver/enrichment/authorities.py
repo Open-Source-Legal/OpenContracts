@@ -82,10 +82,10 @@ def authority_alias_registry(user=None) -> dict[str, str]:
             Q(is_global=True)
             | Q(authority_corpus__in=Corpus.objects.visible_to_user(user))
         )
-    for prefix, aliases in ns_qs.values_list("prefix", "aliases"):
+    for ns_prefix, aliases in ns_qs.values_list("prefix", "aliases"):
         for alias in aliases or []:
             if isinstance(alias, str) and alias.strip():
-                mapping[alias.strip().lower()] = prefix
+                mapping[alias.strip().lower()] = ns_prefix
 
     # Legacy per-document alias source (authority corpora stamp custom_meta).
     # Fail closed: without a user contribute only the static + global rows.

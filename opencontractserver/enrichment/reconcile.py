@@ -15,9 +15,7 @@ def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
     return not (a[1] <= b[0] or a[0] >= b[1])
 
 
-def reconcile(
-    primary: list[Candidate], secondary: list[Candidate]
-) -> list[Candidate]:
+def reconcile(primary: list[Candidate], secondary: list[Candidate]) -> list[Candidate]:
     """Keep all ``primary``; add ``secondary`` candidates that don't overlap a
     kept span. ``secondary`` is processed in document order so the earliest
     span wins an intra-layer overlap."""

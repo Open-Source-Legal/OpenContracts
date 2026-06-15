@@ -205,6 +205,7 @@ async def abootstrap_authority_corpus(
         relink_async=True,
     )
 
+
 async def adiscover_authorities(
     *,
     corpus_id: int,

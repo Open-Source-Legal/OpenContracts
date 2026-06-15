@@ -69,8 +69,12 @@ def _usc(text: str) -> Iterator[Candidate]:
     for m in _USC_RE.finditer(text):
         key = f"usc-{m.group('title')}:{m.group('sec').lower()}"
         yield _cand(
-            m.start(), m.end(), m.group(0), key,
-            C.JURISDICTION_US_FEDERAL, C.AUTHORITY_TYPE_STATUTE,
+            m.start(),
+            m.end(),
+            m.group(0),
+            key,
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_STATUTE,
         )
 
 
@@ -78,8 +82,12 @@ def _cfr(text: str) -> Iterator[Candidate]:
     for m in _CFR_RE.finditer(text):
         key = f"cfr-{m.group('title')}:{m.group('sec').lower()}"
         yield _cand(
-            m.start(), m.end(), m.group(0), key,
-            C.JURISDICTION_US_FEDERAL, C.AUTHORITY_TYPE_REGULATION,
+            m.start(),
+            m.end(),
+            m.group(0),
+            key,
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_REGULATION,
         )
 
 
@@ -88,8 +96,12 @@ def _fedreg(text: str) -> Iterator[Candidate]:
         page = m.group("page").replace(",", "")
         key = f"fedreg:{m.group('vol')}.{page}"
         yield _cand(
-            m.start(), m.end(), m.group(0), key,
-            C.JURISDICTION_US_FEDERAL, C.AUTHORITY_TYPE_ADMIN_RULE,
+            m.start(),
+            m.end(),
+            m.group(0),
+            key,
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_ADMIN_RULE,
         )
 
 
@@ -97,8 +109,12 @@ def _publ(text: str) -> Iterator[Candidate]:
     for m in _PUBL_RE.finditer(text):
         key = f"publ:{m.group('cong')}-{m.group('num')}"
         yield _cand(
-            m.start(), m.end(), m.group(0), key,
-            C.JURISDICTION_US_FEDERAL, C.AUTHORITY_TYPE_STATUTE,
+            m.start(),
+            m.end(),
+            m.group(0),
+            key,
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_STATUTE,
         )
 
 
@@ -107,8 +123,12 @@ def _stat(text: str) -> Iterator[Candidate]:
         page = m.group("page").replace(",", "")
         key = f"stat:{m.group('vol')}.{page}"
         yield _cand(
-            m.start(), m.end(), m.group(0), key,
-            C.JURISDICTION_US_FEDERAL, C.AUTHORITY_TYPE_STATUTE,
+            m.start(),
+            m.end(),
+            m.group(0),
+            key,
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_STATUTE,
         )
 
 
@@ -147,8 +167,7 @@ class GenericCitationExtractor:
         self._state_alt = "|".join(re.escape(a) for a in ordered)
         self._state_re = (
             re.compile(
-                r"(?P<abbr>" + self._state_alt + r")\s+(?:§+\s*)?(?P<sec>"
-                + _SEC + r")"
+                r"(?P<abbr>" + self._state_alt + r")\s+(?:§+\s*)?(?P<sec>" + _SEC + r")"
             )
             if ordered
             else None

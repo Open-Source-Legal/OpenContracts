@@ -9,8 +9,12 @@ from opencontractserver.enrichment.reconcile import reconcile
 
 def _c(start, end, key, tier):
     return Candidate(
-        reference_type=C.REF_LAW, start=start, end=end, raw_text=key,
-        canonical_key=key, detection_tier=tier,
+        reference_type=C.REF_LAW,
+        start=start,
+        end=end,
+        raw_text=key,
+        canonical_key=key,
+        detection_tier=tier,
     )
 
 
@@ -29,7 +33,7 @@ class ReconcileTests(SimpleTestCase):
         assert {c.canonical_key for c in out} == {"dgcl:145", "cfr-40:261.4"}
 
     def test_grammar_self_overlap_first_wins(self):
-        primary = []
+        primary: list = []
         secondary = [
             _c(0, 20, "usc-15:78j(b)", C.DETECTION_TIER_GRAMMAR),
             _c(5, 25, "usc-15:78j", C.DETECTION_TIER_GRAMMAR),

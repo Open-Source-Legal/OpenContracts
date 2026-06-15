@@ -662,14 +662,21 @@ class WriterClassificationStampTests(TestCase):
         from opencontractserver.enrichment.writer import EnrichmentWriter
 
         cand = Candidate(
-            reference_type=C.REF_LAW, start=0, end=18, raw_text="15 U.S.C. § 78j(b)",
-            canonical_key="usc-15:78j(b)", jurisdiction="us-federal",
-            authority_type="statute", detection_tier="grammar",
+            reference_type=C.REF_LAW,
+            start=0,
+            end=18,
+            raw_text="15 U.S.C. § 78j(b)",
+            canonical_key="usc-15:78j(b)",
+            jurisdiction="us-federal",
+            authority_type="statute",
+            detection_tier="grammar",
             detection_confidence=0.9,
         )
         res = Resolution(
-            candidate=cand, source_document_id=self.doc.id,
-            resolution_status=C.STATUS_EXTERNAL, canonical_key="usc-15:78j(b)",
+            candidate=cand,
+            source_document_id=self.doc.id,
+            resolution_status=C.STATUS_EXTERNAL,
+            canonical_key="usc-15:78j(b)",
             normalized_data=dict(cand.normalized_data),
         )
         writer = EnrichmentWriter(self.corpus, self.user.id, analysis=None)

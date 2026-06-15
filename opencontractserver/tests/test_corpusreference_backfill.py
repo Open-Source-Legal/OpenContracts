@@ -26,13 +26,22 @@ class BackfillClassificationTests(TestCase):
             label_text=C.LABEL_REF_LAW, creator_id=user.id, label_type=SPAN_LABEL
         )
         ann = Annotation.objects.create(
-            raw_text=key, page=1, json={"start": 0, "end": 3},
-            annotation_label=label, document=doc, corpus=corpus,
-            creator=user, annotation_type=SPAN_LABEL,
+            raw_text=key,
+            page=1,
+            json={"start": 0, "end": 3},
+            annotation_label=label,
+            document=doc,
+            corpus=corpus,
+            creator=user,
+            annotation_type=SPAN_LABEL,
         )
         return CorpusReference.objects.create(
-            corpus=corpus, reference_type=C.REF_LAW, source_annotation=ann,
-            canonical_key=key, resolution_status=C.STATUS_EXTERNAL, creator=user,
+            corpus=corpus,
+            reference_type=C.REF_LAW,
+            source_annotation=ann,
+            canonical_key=key,
+            resolution_status=C.STATUS_EXTERNAL,
+            creator=user,
             **extra,
         )
 
