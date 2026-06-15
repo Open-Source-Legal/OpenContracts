@@ -124,43 +124,48 @@ class AuthorityFrontierModelTests(TestCase):
 
 
 class AuthorityKeyEquivalenceModelTests(TestCase):
-    """Model round-trip and constraint tests for AuthorityKeyEquivalence."""
+    """Model round-trip and constraint tests for AuthorityKeyEquivalence.
+
+    Uses synthetic ``zz-*`` keys that are NOT in the curated equivalence seed
+    (migration 0087), so these model-level assertions stay isolated from seeded
+    rows.
+    """
 
     def test_round_trip(self):
         equiv = AuthorityKeyEquivalence.objects.create(
-            from_key="exchange-act:10",
-            to_key="usc-15:78j",
+            from_key="zz-act:10",
+            to_key="zz-usc:78j",
             source="uslm",
             confidence=0.98,
         )
         equiv.refresh_from_db()
-        self.assertEqual(equiv.from_key, "exchange-act:10")
-        self.assertEqual(equiv.to_key, "usc-15:78j")
+        self.assertEqual(equiv.from_key, "zz-act:10")
+        self.assertEqual(equiv.to_key, "zz-usc:78j")
         self.assertEqual(equiv.source, "uslm")
         self.assertAlmostEqual(equiv.confidence, 0.98)
 
     def test_unique_pair_constraint(self):
         AuthorityKeyEquivalence.objects.create(
-            from_key="exchange-act:10",
-            to_key="usc-15:78j",
+            from_key="zz-act:10",
+            to_key="zz-usc:78j",
         )
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 AuthorityKeyEquivalence.objects.create(
-                    from_key="exchange-act:10",
-                    to_key="usc-15:78j",
+                    from_key="zz-act:10",
+                    to_key="zz-usc:78j",
                 )
 
     def test_reverse_pair_allowed(self):
         """The inverse direction is a separate, valid row."""
         AuthorityKeyEquivalence.objects.create(
-            from_key="exchange-act:10",
-            to_key="usc-15:78j",
+            from_key="zz-act:10",
+            to_key="zz-usc:78j",
         )
         # Reverse pair should not raise
         rev = AuthorityKeyEquivalence.objects.create(
-            from_key="usc-15:78j",
-            to_key="exchange-act:10",
+            from_key="zz-usc:78j",
+            to_key="zz-act:10",
         )
         self.assertIsNotNone(rev.pk)
 
