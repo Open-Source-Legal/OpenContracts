@@ -23,6 +23,7 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
+from opencontractserver.utils.safe_http import safe_fetch_text
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,6 @@ _USER_AGENT = (
     "(https://github.com/Open-Source-Legal/OpenContracts; "
     "contact: opensource@opencontracts.dev)"
 )
-
-# Allowed host for the raw-text body URL returned by the FR API.
-_FR_ALLOWED_HOST = "federalregister.gov"
 
 # Regex for parsing a Federal Register citation to derive volume and page.
 # Matches e.g. "88 FR 2371" and "88 FR 12345".
@@ -195,35 +193,20 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             key = request.canonical_key
 
         # --- Step 3: fetch full plain-text body (fall back to abstract) -----
+        # safe_fetch_text enforces the allowlist + IP validation centrally;
+        # SSRFValidationError is raised for any non-allowlisted/private host,
+        # which the except block catches and degrades gracefully to abstract.
         text = abstract
         if raw_text_url:
-            import urllib.parse
-
-            parsed_host = urllib.parse.urlparse(raw_text_url).hostname or ""
-            host_ok = parsed_host == _FR_ALLOWED_HOST or parsed_host.endswith(
-                f".{_FR_ALLOWED_HOST}"
-            )
-            if not host_ok:
+            try:
+                text, _ = safe_fetch_text(raw_text_url, headers=headers)
+            except Exception:  # noqa: BLE001
                 logger.warning(
-                    "FederalRegisterProvider: raw_text_url host %r is not "
-                    "%s — skipping fetch, using abstract for document %s",
-                    parsed_host,
-                    _FR_ALLOWED_HOST,
+                    "FederalRegisterProvider: raw_text_url fetch failed (%s); "
+                    "falling back to abstract for document %s",
+                    raw_text_url,
                     document_number,
                 )
-            else:
-                try:
-                    raw_resp = requests.get(raw_text_url, headers=headers, timeout=60)
-                    raw_resp.raise_for_status()
-                    text = raw_resp.text
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "FederalRegisterProvider: raw_text_url GET failed (%s); "
-                        "falling back to abstract for document %s",
-                        raw_text_url,
-                        document_number,
-                    )
-                    text = abstract
 
         return [
             AuthoritySection(

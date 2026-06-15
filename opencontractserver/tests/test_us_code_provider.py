@@ -311,39 +311,19 @@ class TestUSCodeValidation(SimpleTestCase):
             self.provider.locate("usc-15:78j/../../etc")
 
     def test_size_cap_raises_on_oversized_download(self):
-        """_load_title_xml must raise ValueError when download exceeds cap."""
-        import io
-        import zipfile
+        """_load_title_xml must raise when safe_fetch_bytes reports oversized response."""
         from unittest.mock import patch
 
-        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
-            _MAX_DOWNLOAD_BYTES,
-        )
-
-        # Build a minimal ZIP in memory containing a file larger than the cap.
-        oversized_content = b"x" * (_MAX_DOWNLOAD_BYTES + 1)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
-            zf.writestr("usc15.xml", oversized_content)
-        zip_bytes = buf.getvalue()
-
-        # Patch urlopen to stream back the oversized zip.
-        class _FakeResp:
-            def __init__(self, data):
-                self._buf = io.BytesIO(data)
-
-            def read(self, n=-1):
-                return self._buf.read(n)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                pass
+        from opencontractserver.utils.safe_http import SSRFValidationError
 
         req = self.provider.locate("usc-15:2")
-        with patch("urllib.request.urlopen", return_value=_FakeResp(zip_bytes)):
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers."
+            "us_code_provider.safe_fetch_bytes",
+            side_effect=SSRFValidationError("response exceeded size cap"),
+        ):
             with self.assertRaises(
-                ValueError, msg="Expected ValueError for oversized download"
+                SSRFValidationError,
+                msg="Expected SSRFValidationError for oversized download",
             ):
                 self.provider._load_title_xml(req)

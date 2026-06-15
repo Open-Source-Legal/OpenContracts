@@ -27,6 +27,7 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
+from opencontractserver.utils.safe_http import safe_fetch_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -94,12 +95,6 @@ _TEXT_CONTRIBUTING_TAGS = {
     f"{{{_USLM_NS}}}item",
     f"{{{_USLM_NS}}}subitem",
 }
-
-# HTTP timeout (seconds) for the OLRC ZIP download.
-_HTTP_TIMEOUT = 30
-
-# Maximum allowed size of the title XML (bytes) — 250 MiB.
-_MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
 
 
 def _validate_usc_components(title: str, section: str) -> None:
@@ -348,29 +343,12 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         Returns:
             Raw UTF-8 bytes of the unzipped title XML.
         """
-        import urllib.request
-
         extra = request.extra or {}
         padded = extra.get("padded_title", "")
         member_name = _XML_MEMBER_TEMPLATE.format(padded_title=padded)
 
         logger.info("USCodeProvider: downloading %s", request.url)
-        with urllib.request.urlopen(
-            request.url, timeout=_HTTP_TIMEOUT
-        ) as resp:  # noqa: S310
-            chunks: list[bytes] = []
-            total = 0
-            while True:
-                chunk = resp.read(65536)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > _MAX_DOWNLOAD_BYTES:
-                    raise ValueError(
-                        f"title XML exceeds max size ({_MAX_DOWNLOAD_BYTES} bytes)"
-                    )
-                chunks.append(chunk)
-            zip_bytes = b"".join(chunks)
+        zip_bytes, _ = safe_fetch_bytes(request.url)
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)
