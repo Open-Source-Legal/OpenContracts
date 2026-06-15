@@ -38,3 +38,22 @@ class FederalGrammarTests(SimpleTestCase):
 
     def test_no_false_positive_on_plain_numbers(self):
         assert self._keys("the company has 15 offices and 40 employees") == {}
+
+
+class StateGrammarTests(SimpleTestCase):
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key: c for c in self.ex.extract(text)}
+
+    def test_texas_business_orgs_code(self):
+        c = self._keys("governed by Tex. Bus. Orgs. Code § 21.401")["tx-boc:21.401"]
+        assert c.jurisdiction == "us-tx"
+        assert c.authority_type == C.AUTHORITY_TYPE_STATUTE
+
+    def test_delaware_code_dedups_to_dgcl_prefix(self):
+        assert "dgcl:145" in self._keys("per Del. Code Ann. tit. 8 § 145")
+
+    def test_california_corp_code(self):
+        assert "ca-corp:300" in self._keys("Cal. Corp. Code § 300 requires")
