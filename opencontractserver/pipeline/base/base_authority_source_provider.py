@@ -41,6 +41,13 @@ class BaseAuthoritySourceProvider(PipelineComponentBase, ABC):
     supported_prefixes: ClassVar[tuple[str, ...]] = ()
     # The authority body's licence — gates ingestion to public-domain only.
     license: ClassVar[str] = "public-domain"
+    # Lower priority value = preferred; deterministic providers default to 100.
+    # The agentic fallback uses 9999 to ensure it is always last resort.
+    priority: ClassVar[int] = 100
+    # When True the gate parks the result at pending_approval instead of ingesting.
+    requires_approval: ClassVar[bool] = False
+    # Set False to exclude a provider from _provider_for selection.
+    enabled: ClassVar[bool] = True
 
     # ---- public API (registry/orchestrator calls these) ---------------------
     def can_handle(self, canonical_key: str) -> bool:

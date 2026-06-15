@@ -381,11 +381,17 @@ class EquivalenceRelinkInResultTests(TransactionTestCase):
         )
 
 
-class EmptyFetchMarksFailedTests(TransactionTestCase):
-    """discover_and_bootstrap marks frontier 'failed' when provider returns no sections."""
+class EmptyFetchMarksUnlocatedTests(TransactionTestCase):
+    """discover_and_bootstrap marks frontier 'unlocated' when provider returns no sections.
 
-    def test_empty_fetch_marks_failed(self):
-        """When provider._load_title_xml returns XML with no matching section, status=failed."""
+    Behaviour changed in Phase 4: empty sections now flow through the gate and
+    return status='unlocated' (GATE_UNLOCATED) rather than status='failed'.
+    'unlocated' is a more precise audit state than 'failed' — it distinguishes
+    "we found the provider but the section wasn't there" from a network/parse error.
+    """
+
+    def test_empty_fetch_marks_unlocated(self):
+        """When provider._load_title_xml returns XML with no matching section, status=unlocated."""
         user = _create_user("empty-fetch-user")
 
         frontier_row = AuthorityFrontier.objects.create(
@@ -409,11 +415,12 @@ class EmptyFetchMarksFailedTests(TransactionTestCase):
                 relink_async=False,
             )
 
-        self.assertEqual(result["status"], "failed", result)
-        self.assertIn("error", result)
+        # Phase 4: gate returns unlocated (not failed) for empty sections.
+        self.assertEqual(result["status"], "unlocated", result)
+        self.assertIn("reason", result)
 
         frontier_row.refresh_from_db()
-        self.assertEqual(frontier_row.discovery_state, "failed")
+        self.assertEqual(frontier_row.discovery_state, "unlocated")
 
         # No authority document should have been created for the missing section.
         self.assertFalse(
@@ -461,3 +468,152 @@ class IngestedDocumentPopulatedTests(TransactionTestCase):
         assert frontier_row.ingested_document is not None  # narrow for mypy
         key = frontier_row.ingested_document.custom_meta.get("canonical_key")
         self.assertEqual(key, "usc-15:2")
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 gate integration tests
+# ---------------------------------------------------------------------------
+
+USC_15_2_SECTIONS = [
+    AuthoritySection(
+        key="usc-15:2",
+        heading="Monopolizing trade a felony; penalty",
+        text="Every person who shall monopolize...",
+        source_url="https://uscode.house.gov/download/t15.zip",
+    )
+]
+
+USC_78J_SECTIONS = [
+    AuthoritySection(
+        key="usc-15:78j",
+        heading="Manipulative and deceptive devices",
+        text="It shall be unlawful...",
+        source_url="https://uscode.house.gov/download/t15.zip",
+    )
+]
+
+MISMATCHED_SECTIONS = [
+    AuthoritySection(
+        key="usc-15:99z",
+        heading="Some unrelated section",
+        text="Text with no relation.",
+        source_url="https://uscode.house.gov/download/t15.zip",
+    )
+]
+
+
+class GateLicenseBlockedIntegrationTests(TransactionTestCase):
+    """Gate blocks discovery when provider license is not public-domain."""
+
+    def test_license_blocked_records_state(self):
+        """Provider with non-public-domain license → frontier gets blocked_license."""
+        user = _create_user("gate-license-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        # Patch provider to return a non-public-domain license and valid sections.
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_SECTION_FIXTURE,
+        ), patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider.license",
+            new="licensed",
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "blocked_license", result)
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(frontier_row.discovery_state, "blocked_license")
+        self.assertGreater(len(frontier_row.candidate_sources), 0)
+        self.assertEqual(
+            frontier_row.candidate_sources[-1]["outcome"], "blocked_license"
+        )
+
+
+class GateCitationMismatchIntegrationTests(TransactionTestCase):
+    """Gate blocks when fetched section key doesn't match requested key."""
+
+    def test_mismatch_records_unlocated(self):
+        """Provider returns sections with wrong key → frontier gets unlocated with mismatch."""
+        user = _create_user("gate-mismatch-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:78j",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        # Patch fetch() to return a section with a wrong key (not 78j), bypassing
+        # the empty-sections path so we exercise the key-mismatch branch.
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider.fetch",
+            return_value=MISMATCHED_SECTIONS,
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "unlocated", result)
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(frontier_row.discovery_state, "unlocated")
+        self.assertGreater(len(frontier_row.candidate_sources), 0)
+        self.assertEqual(frontier_row.candidate_sources[-1]["verify"], "mismatch")
+
+
+class GateHappyPathIntegrationTests(TransactionTestCase):
+    """Gate passes for valid public-domain sections with matching key."""
+
+    def test_happy_path_gate_passes_and_records(self):
+        """Provider returns matching section → frontier ingested with verify=match."""
+        user = _create_user("gate-happy-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        # USC_SECTION_FIXTURE has section usc-15:2.
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_SECTION_FIXTURE,
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "ingested", result)
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(frontier_row.discovery_state, "ingested")
+        self.assertGreater(len(frontier_row.candidate_sources), 0)
+        last = frontier_row.candidate_sources[-1]
+        self.assertEqual(last["outcome"], "ingested")
+        self.assertEqual(last["verify"], "match")

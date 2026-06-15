@@ -29,24 +29,27 @@ class AuthorityDiscoveryService(BaseService):
 
     @classmethod
     def _provider_for(cls, canonical_key: str):
-        """Return the first public-domain provider that can handle *canonical_key*.
+        """Return the highest-priority provider that can handle *canonical_key*.
 
-        Iterates the registry and instantiates each provider to call
-        ``can_handle``.  Returns a ``(name, provider_instance)`` tuple on
-        success, or ``(None, None)`` when no provider matches.
+        Sorts the registry by ascending ``priority`` ClassVar so lower numbers
+        are preferred. License enforcement is delegated to ``AuthorityGateService``
+        — this method intentionally does NOT filter by license.
+        Returns a ``(name, provider_instance)`` tuple on success, or
+        ``(None, None)`` when no provider matches.
         """
         from opencontractserver.pipeline.registry import (
             get_all_authority_source_providers_cached,
         )
 
-        for defn in get_all_authority_source_providers_cached():
+        defns = sorted(
+            get_all_authority_source_providers_cached(),
+            key=lambda d: getattr(d.component_class, "priority", 100),
+        )
+        for defn in defns:
             if defn.component_class is None:
                 continue
             provider = defn.component_class()
-            if (
-                provider.can_handle(canonical_key)
-                and provider.license == "public-domain"
-            ):
+            if provider.can_handle(canonical_key):
                 return defn.name, provider
         return None, None
 
@@ -128,19 +131,41 @@ class AuthorityDiscoveryService(BaseService):
                 "canonical_key": canonical_key,
             }
 
-        # --- guard: empty fetch is a failure, not a silent no-op ------------
-        if not sections:
-            logger.warning(
-                "AuthorityDiscoveryService: provider %s returned no sections for %s",
-                name,
-                canonical_key,
-            )
+        # --- gate (verify + license + domain) --------------------------------
+        from django.utils import timezone
+
+        from opencontractserver.enrichment.services.authority_gate_service import (
+            GATE_OK,
+            AuthorityGateService,
+            GateDecision,
+        )
+
+        decision: GateDecision = AuthorityGateService.evaluate(
+            canonical_key=canonical_key,
+            sections=sections,
+            provider_license=provider.license,
+            require_approval_for_agentic=getattr(provider, "requires_approval", False),
+        )
+        candidate_record = {
+            "provider": name,
+            "can_handle": True,
+            "license": provider.license,
+            "source_domain": decision.source_domain,
+            "verify": decision.verify,
+            "outcome": decision.verdict if decision.verdict != GATE_OK else "ingested",
+            "error": None if decision.verdict == GATE_OK else decision.reason,
+            "attempted_at": timezone.now().isoformat(),
+        }
+        if decision.verdict != GATE_OK:
             AuthorityFrontierService.mark(
-                frontier_row, "failed", error="provider returned no sections"
+                frontier_row,
+                decision.verdict,
+                error=decision.reason,
+                candidate_record=candidate_record,
             )
             return {
-                "status": "failed",
-                "error": "provider returned no sections",
+                "status": decision.verdict,
+                "reason": decision.reason,
                 "canonical_key": canonical_key,
             }
 
@@ -203,6 +228,7 @@ class AuthorityDiscoveryService(BaseService):
             frontier_row,
             "ingested",
             document_id=ingested_doc.id if ingested_doc else None,
+            candidate_record=candidate_record,
         )
 
         return {
