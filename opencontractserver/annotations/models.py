@@ -2147,6 +2147,10 @@ class AuthorityFrontier(django.db.models.Model):
         ("resolved", "CorpusReference upgraded to RESOLVED"),
         ("failed", "No source found"),
         ("unsupported", "No provider can_handle"),
+        # Phase 4: visible, non-silent gate outcomes
+        ("blocked_license", "Source found but license not on public-domain allowlist"),
+        ("unlocated", "Located text did not verify against the requested key"),
+        ("pending_approval", "Found, awaiting human approval before ingest"),
     ]
     discovery_state = django.db.models.CharField(
         max_length=32,

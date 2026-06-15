@@ -81,20 +81,35 @@ class AuthorityFrontierService(BaseService):
         *,
         document_id: int | None = None,
         error: str | None = None,
+        candidate_record: dict | None = None,
     ) -> None:
-        """Transition ``row`` to ``state``, optionally recording a document or error."""
+        """Transition ``row`` to ``state``, optionally recording a document or error.
+
+        Args:
+            row: The ``AuthorityFrontier`` instance to update.
+            state: New ``discovery_state`` value.
+            document_id: If provided, set ``ingested_document_id`` to this value.
+            error: If provided, set ``last_error`` to this message.
+            candidate_record: If provided, APPEND to ``candidate_sources`` (append-only
+                audit trail — earlier attempts are never overwritten).
+        """
         row.discovery_state = state
         row.last_attempt = timezone.now()
         if document_id is not None:
             row.ingested_document_id = document_id
         if error is not None:
             row.last_error = error
-        row.save(
-            update_fields=[
-                "discovery_state",
-                "last_attempt",
-                "ingested_document",
-                "last_error",
-                "modified",
+        update_fields = [
+            "discovery_state",
+            "last_attempt",
+            "ingested_document",
+            "last_error",
+            "modified",
+        ]
+        if candidate_record is not None:
+            # Append-only audit trail; never overwrite prior attempts.
+            row.candidate_sources = list(row.candidate_sources or []) + [
+                candidate_record
             ]
-        )
+            update_fields.append("candidate_sources")
+        row.save(update_fields=update_fields)
