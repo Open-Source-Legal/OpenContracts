@@ -8,22 +8,6 @@
 
 Point OpenContracts at a repository of documents and get a programmable citation graph — human annotation, structured extraction, AI agents, and a built-in MCP server, all behind one API. Self-hosted, MIT-licensed, and built for teams working at scale.
 
-```python
-from opencontractserver.llms import agents
-from pydantic import BaseModel
-
-class Findings(BaseModel):
-    unusual_terms: list[str]
-
-# Run inside an async context (an async function, a notebook, or `ipython --asyncio`).
-# `my_contracts` is a Corpus — pass its integer PK or an ORM instance.
-agent = await agents.for_corpus(corpus=my_contracts)
-findings = await agent.structured_response(
-    prompt="Flag any unusual payment terms across these contracts.",
-    target_type=Findings,
-)
-```
-
 > Same graph, three surfaces: a **GraphQL + REST API** for your apps, a **Model Context Protocol** server for your agents, and a **React UI** for your team.
 
 [![Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/JSv4)
@@ -226,11 +210,11 @@ The human side of the graph — precise, layout-faithful annotation on PDFs and 
 
 ### PDF Annotation Flow
 
-![PDF Annotation Flow](docs/assets/images/gifs/PDF%20Annotation%20Flow.gif)
+![PDF Annotation Flow](docs/assets/images/gifs/pdf-annotation-flow.gif)
 
 ### Text Format Support
 
-![Text Annotation Flow](docs/assets/images/gifs/Txt%20Annotation%20Flow.gif)
+![Text Annotation Flow](docs/assets/images/gifs/text-annotation-flow.gif)
 
 ---
 
