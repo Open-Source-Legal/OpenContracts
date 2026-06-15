@@ -452,6 +452,13 @@ class EnrichmentWriter:
                 "normalized_data": normalized or None,
                 "created_by_analysis": self.analysis,
                 "creator_id": self.creator_id,
+                # Phase 1: carry the candidate's classification + detection
+                # provenance onto the durable row (read from the original
+                # Candidate, which Resolution preserves).
+                "jurisdiction": res.candidate.jurisdiction,
+                "authority_type": res.candidate.authority_type,
+                "detection_tier": res.candidate.detection_tier,
+                "detection_confidence": res.candidate.detection_confidence,
             },
         )
         if created:

@@ -643,3 +643,42 @@ class PdfTokenMentionTests(TestCase):
         for m in ghost_mentions:
             assert m.annotation_type == SPAN_LABEL, m.raw_text
             assert "start" in m.json
+
+
+class WriterClassificationStampTests(TestCase):
+    """The writer copies a grammar candidate's classification onto the row."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="w", password="p")
+        self.corpus = Corpus.objects.create(title="C", creator=self.user)
+        self.doc = Document.objects.create(title="D", creator=self.user)
+
+    def test_grammar_candidate_classification_persisted(self):
+        from opencontractserver.enrichment import constants as C
+        from opencontractserver.enrichment.extractor import Candidate
+        from opencontractserver.enrichment.resolver import Resolution
+        from opencontractserver.enrichment.writer import EnrichmentWriter
+
+        cand = Candidate(
+            reference_type=C.REF_LAW, start=0, end=18, raw_text="15 U.S.C. § 78j(b)",
+            canonical_key="usc-15:78j(b)", jurisdiction="us-federal",
+            authority_type="statute", detection_tier="grammar",
+            detection_confidence=0.9,
+        )
+        res = Resolution(
+            candidate=cand, source_document_id=self.doc.id,
+            resolution_status=C.STATUS_EXTERNAL, canonical_key="usc-15:78j(b)",
+            normalized_data=dict(cand.normalized_data),
+        )
+        writer = EnrichmentWriter(self.corpus, self.user.id, analysis=None)
+        writer.write([res])
+
+        from opencontractserver.annotations.models import CorpusReference
+
+        ref = CorpusReference.objects.get(canonical_key="usc-15:78j(b)")
+        assert ref.jurisdiction == "us-federal"
+        assert ref.authority_type == "statute"
+        assert ref.detection_tier == "grammar"
+        assert ref.detection_confidence == 0.9
