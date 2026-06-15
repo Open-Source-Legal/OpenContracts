@@ -145,3 +145,13 @@ ALL_DETECTION_TIERS = (
     DETECTION_TIER_GRAMMAR,
     DETECTION_TIER_LLM,
 )
+
+# --- Phase 2: Tier-2b LLM citation detection ------------------------------- #
+# Verified spans below this self-rated confidence go to the review bucket
+# (surfaced, never auto-promoted to mentions).
+LLM_CONFIDENCE_FLOOR = 0.7
+# Offset-preserving sliding-window chunking for the LLM pass (chars).
+LLM_CHUNK_WINDOW = 2000
+LLM_CHUNK_OVERLAP = 400
+# pydantic-ai output-validation retries for the structured call.
+LLM_STRUCTURED_RETRIES = 3
