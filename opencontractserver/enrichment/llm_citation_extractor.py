@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -245,21 +245,25 @@ async def _one_shot_structured(
     in the same chunk position yields a stable canonical key across overlapping
     chunks. TestModel ignores model_settings, so this has no effect on tests.
     """
-    from pydantic_ai import Agent
+    from opencontractserver.llms.agents.pydantic_ai_factory import (
+        make_pydantic_ai_agent,
+    )
 
-    # Deterministic output is required: the same citation must yield the same
-    # key even when it falls in the overlap region of two adjacent chunks.
-    model_settings = {"temperature": 0}
-
-    agent: Agent[None, ChunkCitationExtraction] = Agent(
-        model=model,
-        output_type=ChunkCitationExtraction,
+    # Route through the project's sanctioned construction chokepoint (forbids the
+    # system_prompt foot-gun, installs history compaction). Deterministic output
+    # is required so an identical citation yields a stable canonical key even
+    # when it falls in the overlap region of two adjacent chunks.
+    agent = make_pydantic_ai_agent(
+        model,
         instructions=_INSTRUCTIONS,
-        retries=C.LLM_STRUCTURED_RETRIES,
-        model_settings=model_settings,
+        output_type=ChunkCitationExtraction,
+        output_retries=C.LLM_STRUCTURED_RETRIES,
+        model_settings={"temperature": 0},
     )
     result = await agent.run(chunk_text)
-    return result.output
+    # output_type is passed through **kwargs, so the static type is Any/str;
+    # the runtime value is a validated ChunkCitationExtraction.
+    return cast(ChunkCitationExtraction, result.output)
 
 
 # ---------------------------------------------------------------------------
