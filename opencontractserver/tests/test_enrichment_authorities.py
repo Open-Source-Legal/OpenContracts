@@ -209,3 +209,29 @@ class FindAuthorityTargetTests(TestCase):
     def test_visibility_respected(self):
         stranger = User.objects.create_user(username="stranger", password="p")
         assert find_authority_target("dgcl:122", stranger) is None
+
+
+class AuthorityAliasRegistryNamespaceTests(TestCase):
+    """authority_alias_registry merges global AuthorityNamespace aliases."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="ns", password="p")
+
+    def test_global_namespace_alias_is_included(self):
+        from opencontractserver.annotations.models import AuthorityNamespace
+        from opencontractserver.enrichment.authorities import authority_alias_registry
+
+        AuthorityNamespace.objects.create(
+            prefix="tx-boc",
+            display_name="Texas Business Organizations Code",
+            jurisdiction="us-tx",
+            authority_type="statute",
+            aliases=["texas business organizations code"],
+            is_global=True,
+        )
+        mapping = authority_alias_registry(self.user)
+        assert mapping["texas business organizations code"] == "tx-boc"
+        # Static defaults still present (back-compat).
+        assert mapping["dgcl"] == "dgcl"
