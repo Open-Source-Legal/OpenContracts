@@ -98,6 +98,19 @@ class GovernanceGraphNodeType(graphene.ObjectType):
     authority = graphene.String(
         description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.'
     )
+    jurisdiction = graphene.String(
+        description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).'
+    )
+    authority_type = graphene.String(
+        description='Authority type: "statute", "regulation", etc. (null if unknown).'
+    )
+    discovery_state = graphene.String(
+        description=(
+            'Authority-frontier crawl status for ghost nodes: "queued", '
+            '"in_progress", "ingested", "failed", "unlocated", "blocked_license", '
+            '"pending_approval" — or null when not tracked.'
+        )
+    )
     degree = graphene.Int(
         required=True, description="Summed mention weight of edges touching the node."
     )

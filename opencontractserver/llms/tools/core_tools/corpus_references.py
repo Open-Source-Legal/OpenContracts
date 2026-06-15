@@ -236,3 +236,47 @@ async def adiscover_authorities(
         max_documents=max_documents,
         use_llm=use_llm,
     )
+
+
+def crawl_authorities(
+    *,
+    creator_id: int,
+    corpus_id: int | None = None,
+    max_depth: int = 2,
+    min_demand: int = 2,
+    max_authorities: int = 50,
+) -> dict:
+    """Bounded recursive crawl: discover & ingest the authorities a corpus
+    cites, then the authorities THOSE cite, up to ``max_depth`` hops. Returns a
+    summary with per-state counts, per-jurisdiction tallies, the stop reason,
+    and the full frontier residual census. Idempotent: already-ingested
+    authorities are skipped, re-crawling creates zero duplicate documents.
+    """
+    from opencontractserver.enrichment.services.crawl_authorities_service import (
+        CrawlAuthoritiesService,
+    )
+
+    return CrawlAuthoritiesService.crawl(
+        creator_id=creator_id,
+        corpus_id=corpus_id,
+        max_depth=max_depth,
+        min_demand=min_demand,
+        max_authorities=max_authorities,
+    )
+
+
+async def acrawl_authorities(
+    *,
+    creator_id: int,
+    corpus_id: int | None = None,
+    max_depth: int = 2,
+    min_demand: int = 2,
+    max_authorities: int = 50,
+) -> dict:
+    return await _db_sync_to_async(crawl_authorities)(
+        creator_id=creator_id,
+        corpus_id=corpus_id,
+        max_depth=max_depth,
+        min_demand=min_demand,
+        max_authorities=max_authorities,
+    )

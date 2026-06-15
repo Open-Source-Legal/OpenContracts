@@ -413,3 +413,41 @@ class DiscoverAuthoritiesToolTests(TestCase):
         assert td.requires_corpus is True
         assert td.requires_approval is False
         assert td.requires_write_permission is False
+
+
+class CrawlAuthoritiesToolRegistryTests(TestCase):
+    """crawl_authorities is registered at all four sites with the correct flags."""
+
+    def test_crawl_authorities_in_available_tools(self):
+        names = {t.name for t in AVAILABLE_TOOLS}
+        assert "crawl_authorities" in names
+
+    def test_crawl_authorities_flags(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "crawl_authorities")
+        assert td.requires_corpus is True
+        assert td.requires_approval is True
+        assert td.requires_write_permission is True
+
+    def test_crawl_authorities_has_expected_parameters(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "crawl_authorities")
+        param_names = {p[0] for p in td.parameters}
+        assert "max_depth" in param_names
+        assert "min_demand" in param_names
+        assert "max_authorities" in param_names
+
+    def test_crawl_authorities_importable_from_core_tools(self):
+        from opencontractserver.llms.tools.core_tools import (  # noqa: F401
+            acrawl_authorities,
+            crawl_authorities,
+        )
+
+    def test_crawl_authorities_in_function_registry(self):
+        from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
+
+        ToolFunctionRegistry.reset()
+        reg = ToolFunctionRegistry.get()
+        entry = reg.resolve("crawl_authorities")
+        assert entry is not None
+        assert entry.definition.requires_approval is True
+        assert entry.definition.requires_corpus is True
+        assert entry.definition.requires_write_permission is True
