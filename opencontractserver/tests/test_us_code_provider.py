@@ -249,3 +249,101 @@ class TestUSCodeRegistryDiscovery(SimpleTestCase):
     def test_registry_not_empty(self):
         all_providers = get_all_authority_source_providers_cached()
         self.assertGreater(len(all_providers), 0)
+
+
+class TestUSCodeValidation(SimpleTestCase):
+    """_validate_usc_components rejects invalid citation components."""
+
+    def setUp(self):
+        self.provider = USCodeAuthoritySourceProvider()
+
+    def test_valid_simple_section(self):
+        """Single-digit section like '2' must not raise."""
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _validate_usc_components,
+        )
+
+        _validate_usc_components("15", "2")  # must not raise
+
+    def test_valid_alphanum_section(self):
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _validate_usc_components,
+        )
+
+        _validate_usc_components("15", "78j")  # must not raise
+
+    def test_valid_hyphenated_section(self):
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _validate_usc_components,
+        )
+
+        _validate_usc_components("15", "80a-1")  # must not raise
+
+    def test_invalid_title_alpha(self):
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _validate_usc_components,
+        )
+
+        with self.assertRaises(ValueError):
+            _validate_usc_components("abc", "78j")
+
+    def test_invalid_section_with_slash(self):
+        """Slash in section component must be rejected (injection guard)."""
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _validate_usc_components,
+        )
+
+        with self.assertRaises(ValueError):
+            _validate_usc_components("15", "78j/../../etc/passwd")
+
+    def test_invalid_section_with_quote(self):
+        """Single quote in section component must be rejected (XPath guard)."""
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _validate_usc_components,
+        )
+
+        with self.assertRaises(ValueError):
+            _validate_usc_components("15", "78j' or '1'='1")
+
+    def test_locate_rejects_invalid_section(self):
+        """locate() must raise ValueError for a bad section component."""
+        with self.assertRaises(ValueError):
+            self.provider.locate("usc-15:78j/../../etc")
+
+    def test_size_cap_raises_on_oversized_download(self):
+        """_load_title_xml must raise ValueError when download exceeds cap."""
+        import io
+        import zipfile
+        from unittest.mock import patch
+
+        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+            _MAX_DOWNLOAD_BYTES,
+        )
+
+        # Build a minimal ZIP in memory containing a file larger than the cap.
+        oversized_content = b"x" * (_MAX_DOWNLOAD_BYTES + 1)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+            zf.writestr("usc15.xml", oversized_content)
+        zip_bytes = buf.getvalue()
+
+        # Patch urlopen to stream back the oversized zip.
+        class _FakeResp:
+            def __init__(self, data):
+                self._buf = io.BytesIO(data)
+
+            def read(self, n=-1):
+                return self._buf.read(n)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        req = self.provider.locate("usc-15:2")
+        with patch("urllib.request.urlopen", return_value=_FakeResp(zip_bytes)):
+            with self.assertRaises(
+                ValueError, msg="Expected ValueError for oversized download"
+            ):
+                self.provider._load_title_xml(req)

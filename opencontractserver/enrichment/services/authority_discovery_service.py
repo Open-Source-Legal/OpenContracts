@@ -78,6 +78,11 @@ class AuthorityDiscoveryService(BaseService):
             A dict with at least a ``"status"`` key (``"ingested"``,
             ``"unsupported"``, or ``"failed"``).
         """
+        import xml.etree.ElementTree as ET
+        import zipfile
+
+        import requests
+
         from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.enrichment.authorities import bootstrap_authority_corpus
         from opencontractserver.enrichment.services.authority_frontier_service import (
@@ -103,7 +108,14 @@ class AuthorityDiscoveryService(BaseService):
         try:
             request = provider.locate(canonical_key)
             sections = provider.fetch(request)
-        except Exception as exc:
+        except (
+            requests.RequestException,
+            OSError,
+            ValueError,
+            KeyError,
+            ET.ParseError,
+            zipfile.BadZipFile,
+        ) as exc:
             logger.exception(
                 "AuthorityDiscoveryService: provider %s failed for %s",
                 name,
@@ -113,6 +125,22 @@ class AuthorityDiscoveryService(BaseService):
             return {
                 "status": "failed",
                 "error": str(exc),
+                "canonical_key": canonical_key,
+            }
+
+        # --- guard: empty fetch is a failure, not a silent no-op ------------
+        if not sections:
+            logger.warning(
+                "AuthorityDiscoveryService: provider %s returned no sections for %s",
+                name,
+                canonical_key,
+            )
+            AuthorityFrontierService.mark(
+                frontier_row, "failed", error="provider returned no sections"
+            )
+            return {
+                "status": "failed",
+                "error": "provider returned no sections",
                 "canonical_key": canonical_key,
             }
 
@@ -128,23 +156,33 @@ class AuthorityDiscoveryService(BaseService):
             relink=False,
         )
 
-        # --- equivalence-aware relink seam -----------------------------------
-        # ``relink_corpora_for_keys`` filters candidate refs by authority
-        # prefix, so passing only the USC section keys (e.g. ``usc-15:78j``)
-        # would miss filings that cite the popular-name act section
-        # (``exchange-act:10``).  We extend the key set with the
-        # ``from_key`` side of any AuthorityKeyEquivalence rows that point
-        # at one of the bootstrapped USC keys — that way the relink sweep
-        # also covers refs with ``exchange-act:`` prefixes.
-        section_keys = [sec.key for sec in sections]
-        equiv_from_keys: list[str] = list(
-            AuthorityKeyEquivalence.objects.filter(
-                Q(to_key__in=section_keys) | Q(from_key__in=section_keys)
-            ).values_list("from_key", flat=True)
+        # --- locate the ingested document to record on the frontier row ------
+        from opencontractserver.documents.models import Document
+
+        ingested_doc = (
+            Document.objects.filter(
+                custom_meta__canonical_key=sections[0].key,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+            )
+            .order_by("id")
+            .first()
         )
-        relink_keys = section_keys + [
-            k for k in equiv_from_keys if k not in section_keys
-        ]
+
+        # --- equivalence-aware relink seam -----------------------------------
+        # Filings cite act-section keys (e.g. exchange-act:10) while we
+        # bootstrap under USC keys (usc-15:78j). Pull every equivalence
+        # touching an ingested key and collect the OTHER side (the
+        # popular-name key filings actually cite) so relink upgrades those
+        # EXTERNAL refs via find_authority_target's equivalence hop.
+        # Direction-agnostic: we don't assume which column holds the ingested
+        # key.
+        section_keys = [s.key for s in sections]
+        equiv_pairs = AuthorityKeyEquivalence.objects.filter(
+            Q(from_key__in=section_keys) | Q(to_key__in=section_keys)
+        ).values_list("from_key", "to_key")
+        other_keys = {(f if t in section_keys else t) for f, t in equiv_pairs}
+        relink_keys = sorted({*section_keys, *other_keys})
 
         if relink_async:
             from opencontractserver.tasks.corpus_tasks import (
@@ -158,10 +196,14 @@ class AuthorityDiscoveryService(BaseService):
             relink_result = EnrichmentService().relink_corpora_for_keys(relink_keys)
             relinked_count = relink_result.get("law_references_linked", 0)
 
-        result["relink"] = relink_result
+        result["equivalence_relink"] = relink_result
 
         # --- mark ingested ---------------------------------------------------
-        AuthorityFrontierService.mark(frontier_row, "ingested")
+        AuthorityFrontierService.mark(
+            frontier_row,
+            "ingested",
+            document_id=ingested_doc.id if ingested_doc else None,
+        )
 
         return {
             "status": "ingested",

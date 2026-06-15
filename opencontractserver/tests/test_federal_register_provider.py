@@ -304,3 +304,99 @@ class TestFederalRegisterRegistryDiscovery(SimpleTestCase):
             len(fedreg_handlers) >= 1,
             "Expected at least one registered provider to handle 'fedreg:88.1722'",
         )
+
+
+class TestFederalRegisterSecurity(SimpleTestCase):
+    """Security tests for FederalRegisterAuthoritySourceProvider."""
+
+    def setUp(self):
+        self.provider = FederalRegisterAuthoritySourceProvider()
+
+    def test_locate_rejects_non_digit_volume(self):
+        """_locate_impl must raise ValueError for a non-digit volume."""
+        with self.assertRaises(ValueError):
+            self.provider._locate_impl("fedreg:abc.1722")
+
+    def test_locate_rejects_non_digit_page(self):
+        """_locate_impl must raise ValueError for a non-digit page."""
+        with self.assertRaises(ValueError):
+            self.provider._locate_impl("fedreg:88.abc")
+
+    def test_locate_valid_digits_ok(self):
+        """_locate_impl must not raise for valid digit volume and page."""
+        req = self.provider._locate_impl("fedreg:88.2371")  # must not raise
+        self.assertEqual(req.canonical_key, "fedreg:88.2371")
+
+    @patch(
+        "opencontractserver.pipeline.authority_source_providers."
+        "federal_register_provider.requests.get"
+    )
+    def test_raw_text_url_offhost_falls_back_to_abstract(self, mock_get: "MagicMock"):
+        """raw_text_url on a non-federalregister.gov host must NOT be fetched."""
+        import json
+        import pathlib
+
+        fixture_json = json.loads(
+            (
+                pathlib.Path(__file__).parent
+                / "fixtures"
+                / "authority_sources"
+                / "fedreg_2023-00485.json"
+            ).read_text()
+        )
+        # Override raw_text_url to an off-host URL.
+        fixture_json_offhost = dict(fixture_json)
+        fixture_json_offhost["raw_text_url"] = "https://evil.attacker.example.com/steal"
+
+        redirect_mock = _make_redirect_mock()
+        json_mock = MagicMock()
+        json_mock.status_code = 200
+        json_mock.json.return_value = fixture_json_offhost
+        json_mock.raise_for_status = MagicMock()
+
+        # Only 2 calls should be made (redirect + JSON); NOT 3.
+        mock_get.side_effect = [redirect_mock, json_mock]
+
+        req = self.provider._locate_impl("fedreg:88.1722")
+        sections = self.provider._fetch_impl(req)
+
+        # Must have fallen back to abstract (no 3rd request made).
+        self.assertEqual(
+            mock_get.call_count, 2, "should not fetch off-host raw_text_url"
+        )
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].text, fixture_json_offhost["abstract"])
+
+    @patch(
+        "opencontractserver.pipeline.authority_source_providers."
+        "federal_register_provider.requests.get"
+    )
+    def test_malformed_citation_falls_back_to_request_key(self, mock_get: "MagicMock"):
+        """If JSON citation doesn't match FR regex, key falls back to request key."""
+        import json
+        import pathlib
+
+        fixture_json = json.loads(
+            (
+                pathlib.Path(__file__).parent
+                / "fixtures"
+                / "authority_sources"
+                / "fedreg_2023-00485.json"
+            ).read_text()
+        )
+        fixture_json_bad = dict(fixture_json)
+        fixture_json_bad["citation"] = "MALFORMED CITATION"
+
+        redirect_mock = _make_redirect_mock()
+        json_mock = MagicMock()
+        json_mock.status_code = 200
+        json_mock.json.return_value = fixture_json_bad
+        json_mock.raise_for_status = MagicMock()
+        raw_mock = _make_raw_text_mock()
+
+        mock_get.side_effect = [redirect_mock, json_mock, raw_mock]
+
+        req = self.provider._locate_impl("fedreg:88.1722")
+        sections = self.provider._fetch_impl(req)
+
+        self.assertEqual(sections[0].key, "fedreg:88.1722")

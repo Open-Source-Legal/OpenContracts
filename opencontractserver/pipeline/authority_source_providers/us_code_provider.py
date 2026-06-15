@@ -76,6 +76,12 @@ _EXCLUDED_TAGS = {
 # <ref> elements with this class are footnote markers — exclude their text.
 _FOOTNOTE_REF_CLASS = "footnoteRef"
 
+# Regex patterns for validating citation components before URL construction.
+# Section: digits, optional trailing letters, hyphens — e.g. '2', '78j', '80a-1'.
+_USC_SECTION_RE = re.compile(r"^[0-9]+[a-z0-9-]*$", re.IGNORECASE)
+# Title must be purely numeric (e.g. '15', '7', '26').
+_USC_TITLE_RE = re.compile(r"^\d+$")
+
 # Tags whose text content contributes to the section body.
 _TEXT_CONTRIBUTING_TAGS = {
     f"{{{_USLM_NS}}}chapeau",
@@ -88,6 +94,24 @@ _TEXT_CONTRIBUTING_TAGS = {
     f"{{{_USLM_NS}}}item",
     f"{{{_USLM_NS}}}subitem",
 }
+
+# HTTP timeout (seconds) for the OLRC ZIP download.
+_HTTP_TIMEOUT = 30
+
+# Maximum allowed size of the title XML (bytes) — 250 MiB.
+_MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
+
+
+def _validate_usc_components(title: str, section: str) -> None:
+    """Raise ValueError if *title* or *section* contain unexpected characters.
+
+    Rejects values that could be injected into URLs or XPath expressions.
+    Valid examples: title='15', section='78j', section='80a-1', section='2'.
+    """
+    if not _USC_TITLE_RE.match(title):
+        raise ValueError(f"Invalid USC title component: {title!r}")
+    if not _USC_SECTION_RE.match(section):
+        raise ValueError(f"Invalid USC section component: {section!r}")
 
 
 def _padded_title(title: str) -> str:
@@ -192,6 +216,8 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # prefix = "usc-15", extract title digit string "15"
         title = prefix[len("usc-") :]  # e.g. "15"
 
+        _validate_usc_components(title, section)
+
         padded = _padded_title(title)
         flat = _release_point_flat(release_point)
 
@@ -251,7 +277,12 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # Register namespace so XPath with the 'u' prefix works.
         ET.register_namespace("", _USLM_NS)
 
-        section_el = root.find(f".//u:section[@identifier='{identifier}']", _NS)
+        _section_tag = f"{{{_USLM_NS}}}section"
+        section_el: ET.Element | None = None
+        for el in root.iter(_section_tag):
+            if el.get("identifier") == identifier:
+                section_el = el
+                break
         if section_el is None:
             logger.warning(
                 "USCodeProvider: section %s not found in title %s XML",
@@ -324,8 +355,22 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         member_name = _XML_MEMBER_TEMPLATE.format(padded_title=padded)
 
         logger.info("USCodeProvider: downloading %s", request.url)
-        with urllib.request.urlopen(request.url) as resp:  # noqa: S310
-            zip_bytes = resp.read()
+        with urllib.request.urlopen(
+            request.url, timeout=_HTTP_TIMEOUT
+        ) as resp:  # noqa: S310
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_DOWNLOAD_BYTES:
+                    raise ValueError(
+                        f"title XML exceeds max size ({_MAX_DOWNLOAD_BYTES} bytes)"
+                    )
+                chunks.append(chunk)
+            zip_bytes = b"".join(chunks)
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)

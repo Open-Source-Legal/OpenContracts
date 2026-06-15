@@ -53,6 +53,28 @@ _USER_AGENT = (
     "contact: opensource@opencontracts.dev)"
 )
 
+# Regex patterns for validating citation components before URL construction.
+# CFR title: digits only (e.g. '40', '17').
+_CFR_TITLE_RE = re.compile(r"^\d+$")
+# CFR part: digits only (e.g. '261', '240').
+_CFR_PART_RE = re.compile(r"^\d+$")
+# CFR section: digits, dot, digits/letters/hyphens — e.g. '261.4', '240.10b-5'.
+_CFR_SECTION_RE = re.compile(r"^\d+\.[0-9a-z-]+$", re.IGNORECASE)
+
+
+def _validate_cfr_components(title: str, part: str, section: str) -> None:
+    """Raise ValueError if CFR components contain unexpected characters.
+
+    Rejects values that could be injected into URLs or XPath expressions.
+    Valid examples: title='40', part='261', section='261.4', section='240.10b-5'.
+    """
+    if not _CFR_TITLE_RE.match(title):
+        raise ValueError(f"Invalid CFR title component: {title!r}")
+    if not _CFR_PART_RE.match(part):
+        raise ValueError(f"Invalid CFR part component: {part!r}")
+    if not _CFR_SECTION_RE.match(section):
+        raise ValueError(f"Invalid CFR section component: {section!r}")
+
 
 def _extract_part(section: str) -> str:
     """Derive CFR part number from a section string.
@@ -157,6 +179,7 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         title = prefix[len("cfr-") :]
 
         part = _extract_part(section)
+        _validate_cfr_components(title, part, section)
         url = _ECFR_FULL_URL_TEMPLATE.format(date=snapshot_date, title=title)
         source_url = _ECFR_HUMAN_URL_TEMPLATE.format(title=title, section=section)
         citation = f"{title} CFR {section}"
@@ -197,6 +220,7 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
             params=request.params,
             headers={"User-Agent": _USER_AGENT},
             timeout=30,
+            allow_redirects=False,
         )
         response.raise_for_status()
 
@@ -209,7 +233,11 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         if root.get("TYPE") == "SECTION" and root.get("N") == section:
             section_el: ET.Element | None = root
         else:
-            section_el = root.find(f".//*[@TYPE='SECTION'][@N='{section}']")
+            section_el = None
+            for el in root.iter():
+                if el.get("TYPE") == "SECTION" and el.get("N") == section:
+                    section_el = el
+                    break
         if section_el is None:
             logger.warning(
                 "CFRProvider: section %s not found in title XML (url=%s)",

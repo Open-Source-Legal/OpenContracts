@@ -166,9 +166,13 @@ _CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
 def classify_prefix(prefix: str) -> tuple:
     """(jurisdiction, authority_type) for a canonical_key prefix.
 
-    Handles the title-scoped federal families (usc-NN statutes, cfr-NN
-    regulations, fedreg admin rules) by shape, falling back to the static
-    PREFIX_CLASSIFICATION map for the named registry bodies.
+    Handles three title-scoped federal families by shape:
+    - ``usc-NN`` (statute): any US Code title number → (us-federal, statute)
+    - ``cfr-NN`` (regulation): any CFR title number → (us-federal, regulation)
+    - ``fedreg`` (admin-rule): Federal Register → (us-federal, admin-rule)
+
+    Falls back to ``PREFIX_CLASSIFICATION`` for named registry bodies (dgcl,
+    exchange-act, irc, …) and returns ``(None, None)`` for unknown prefixes.
     """
     if _USC_PREFIX_RE.match(prefix):
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)

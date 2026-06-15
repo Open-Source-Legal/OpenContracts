@@ -331,3 +331,133 @@ class UnsupportedKeyTests(TransactionTestCase):
         self.assertEqual(result["status"], "unsupported")
         frontier_row.refresh_from_db()
         self.assertEqual(frontier_row.discovery_state, "unsupported")
+
+
+class FindAuthorityTargetMissingKeyTests(TransactionTestCase):
+    """find_authority_target returns None for unknown keys with no equiv or doc."""
+
+    def test_missing_key_returns_none(self):
+        """A key with no document and no equivalence row must return None."""
+        user = _create_user("missing-key-user")
+        result = find_authority_target("unknown-act:999", user)
+        self.assertIsNone(
+            result, "find_authority_target must return None for an unknown key"
+        )
+
+
+class EquivalenceRelinkInResultTests(TransactionTestCase):
+    """discover_and_bootstrap result includes equivalence_relink info."""
+
+    def test_result_contains_equivalence_relink(self):
+        """After successful ingest, result dict includes 'equivalence_relink' key."""
+        _ensure_exchange_act_10_equiv()
+        user = _create_user("relink-result-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:78j",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_78J_FIXTURE,
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "ingested", result)
+        self.assertIn(
+            "equivalence_relink",
+            result,
+            "result dict must contain 'equivalence_relink' key after ingest",
+        )
+
+
+class EmptyFetchMarksFailedTests(TransactionTestCase):
+    """discover_and_bootstrap marks frontier 'failed' when provider returns no sections."""
+
+    def test_empty_fetch_marks_failed(self):
+        """When provider._load_title_xml returns XML with no matching section, status=failed."""
+        user = _create_user("empty-fetch-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:9999",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        # USC_SECTION_FIXTURE only has section /us/usc/t15/s2 — not s9999.
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_SECTION_FIXTURE,
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "failed", result)
+        self.assertIn("error", result)
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(frontier_row.discovery_state, "failed")
+
+        # No authority document should have been created for the missing section.
+        self.assertFalse(
+            Document.objects.filter(custom_meta__canonical_key="usc-15:9999").exists(),
+            "no authority document should be created when provider returns no sections",
+        )
+
+
+class IngestedDocumentPopulatedTests(TransactionTestCase):
+    """After successful ingest, frontier row's ingested_document is set."""
+
+    def test_ingested_document_populated(self):
+        """frontier_row.ingested_document is set to the created authority Document."""
+        user = _create_user("ingested-doc-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_SECTION_FIXTURE,
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "ingested", result)
+
+        frontier_row.refresh_from_db()
+        # ingested_document must be set.
+        self.assertIsNotNone(
+            frontier_row.ingested_document,
+            "frontier_row.ingested_document must be set after successful ingest",
+        )
+        # It must point to the authority document with the correct canonical key.
+        assert frontier_row.ingested_document is not None  # narrow for mypy
+        key = frontier_row.ingested_document.custom_meta.get("canonical_key")
+        self.assertEqual(key, "usc-15:2")

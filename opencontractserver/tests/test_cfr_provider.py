@@ -261,3 +261,94 @@ class TestCFRRegistryDiscovery(SimpleTestCase):
             len(cfr_handlers) >= 1,
             "Expected at least one registered provider to handle 'cfr-40:261.4'",
         )
+
+
+class TestCFRValidation(SimpleTestCase):
+    """_validate_cfr_components rejects invalid citation components."""
+
+    def setUp(self):
+        self.provider = CFRAuthoritySourceProvider()
+
+    def test_valid_simple(self):
+        from opencontractserver.pipeline.authority_source_providers.cfr_provider import (
+            _validate_cfr_components,
+        )
+
+        _validate_cfr_components("40", "261", "261.4")  # must not raise
+
+    def test_valid_hyphenated_section(self):
+        from opencontractserver.pipeline.authority_source_providers.cfr_provider import (
+            _validate_cfr_components,
+        )
+
+        _validate_cfr_components("17", "240", "240.10b-5")  # must not raise
+
+    def test_invalid_title(self):
+        from opencontractserver.pipeline.authority_source_providers.cfr_provider import (
+            _validate_cfr_components,
+        )
+
+        with self.assertRaises(ValueError):
+            _validate_cfr_components("abc", "261", "261.4")
+
+    def test_invalid_section_with_quote(self):
+        """Single quote in section must be rejected."""
+        from opencontractserver.pipeline.authority_source_providers.cfr_provider import (
+            _validate_cfr_components,
+        )
+
+        with self.assertRaises(ValueError):
+            _validate_cfr_components("40", "261", "261.4' or '1'='1")
+
+    def test_locate_rejects_invalid_section(self):
+        """_locate_impl must raise ValueError for a section with injection chars."""
+        with self.assertRaises(ValueError):
+            self.provider._locate_impl("cfr-40:261.4'/etc")
+
+    def test_fetch_allow_redirects_false(self):
+        """_fetch_impl must pass allow_redirects=False to requests.get."""
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        fixture_xml = (
+            pathlib.Path(__file__).parent
+            / "fixtures"
+            / "authority_sources"
+            / "cfr_title40_261.4.xml"
+        ).read_bytes()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = fixture_xml
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get",
+            return_value=mock_resp,
+        ) as mock_get:
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            provider._fetch_impl(req)
+
+        call_kwargs = mock_get.call_args[1]
+        self.assertFalse(
+            call_kwargs.get("allow_redirects", True),
+            "requests.get must be called with allow_redirects=False",
+        )
+
+    def test_fetch_http_error_propagates(self):
+        """An HTTP error from requests.get must propagate out of _fetch_impl."""
+        from unittest.mock import MagicMock, patch
+
+        import requests as req_lib
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500 Server Error")
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get",
+            return_value=mock_resp,
+        ):
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            with self.assertRaises(req_lib.HTTPError):
+                provider._fetch_impl(req)

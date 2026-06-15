@@ -125,6 +125,9 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
     keys: list[str] = list(candidate_keys(canonical_key))
 
     # Hop across namespaces via the equivalence table (act-section <-> USC).
+    # NOTE: This is a single-pass (non-recursive) hop, sufficient for the
+    # hub-and-spoke seed (act-section → USC). Transitive chains (A→B→C) would
+    # require iterating until the key set stabilises.
     # Query both directions (from_key and to_key) in one round-trip.
     equivs = AuthorityKeyEquivalence.objects.filter(
         Q(from_key__in=keys) | Q(to_key__in=keys)

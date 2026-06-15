@@ -51,21 +51,28 @@ _USER_AGENT = (
     "contact: opensource@opencontracts.dev)"
 )
 
+# Allowed host for the raw-text body URL returned by the FR API.
+_FR_ALLOWED_HOST = "federalregister.gov"
 
-def _citation_to_key(citation: str) -> str:
-    """Convert a Federal Register citation string to a canonical key.
+# Regex for parsing a Federal Register citation to derive volume and page.
+# Matches e.g. "88 FR 2371" and "88 FR 12345".
+_FR_CITATION_RE = re.compile(r"(\d+)\s+FR\s+(\d+)")
 
-    Args:
-        citation: e.g. ``"88 FR 2371"``.
+# Regex patterns for validating citation components before URL construction.
+# Volume and page must be purely numeric.
+_FR_VOLUME_RE = re.compile(r"^\d+$")
+_FR_PAGE_RE = re.compile(r"^\d+$")
 
-    Returns:
-        Canonical key, e.g. ``"fedreg:88.2371"``.
+
+def _validate_fr_components(volume: str, page: str) -> None:
+    """Raise ValueError if Federal Register volume or page contain unexpected characters.
+
+    Valid examples: volume='88', page='2371'.
     """
-    # "88 FR 2371"  →  volume=88, page=2371
-    parts = citation.split()
-    volume = parts[0]
-    page = parts[2]
-    return f"fedreg:{volume}.{page}"
+    if not _FR_VOLUME_RE.match(volume):
+        raise ValueError(f"Invalid Federal Register volume component: {volume!r}")
+    if not _FR_PAGE_RE.match(page):
+        raise ValueError(f"Invalid Federal Register page component: {page!r}")
 
 
 class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
@@ -103,6 +110,8 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # canonical_key = "fedreg:88.1722"  →  volume="88", page="1722"
         _, volume_page = canonical_key.split(":", 1)
         volume, page = volume_page.split(".", 1)
+
+        _validate_fr_components(volume, page)
 
         citation = f"{volume} FR {page}"
         step1_url = _FR_CITATION_URL_TEMPLATE.format(
@@ -179,26 +188,42 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
 
         # Derive canonical key from the JSON citation (authoritative page number).
         json_citation: str = doc.get("citation", "")
-        if json_citation:
-            key = _citation_to_key(json_citation)
+        citation_match = _FR_CITATION_RE.match(json_citation) if json_citation else None
+        if citation_match:
+            key = f"fedreg:{citation_match.group(1)}.{citation_match.group(2)}"
         else:
             key = request.canonical_key
 
         # --- Step 3: fetch full plain-text body (fall back to abstract) -----
         text = abstract
         if raw_text_url:
-            try:
-                raw_resp = requests.get(raw_text_url, headers=headers, timeout=60)
-                raw_resp.raise_for_status()
-                text = raw_resp.text
-            except Exception:  # noqa: BLE001
+            import urllib.parse
+
+            parsed_host = urllib.parse.urlparse(raw_text_url).hostname or ""
+            host_ok = parsed_host == _FR_ALLOWED_HOST or parsed_host.endswith(
+                f".{_FR_ALLOWED_HOST}"
+            )
+            if not host_ok:
                 logger.warning(
-                    "FederalRegisterProvider: raw_text_url GET failed (%s); "
-                    "falling back to abstract for document %s",
-                    raw_text_url,
+                    "FederalRegisterProvider: raw_text_url host %r is not "
+                    "%s — skipping fetch, using abstract for document %s",
+                    parsed_host,
+                    _FR_ALLOWED_HOST,
                     document_number,
                 )
-                text = abstract
+            else:
+                try:
+                    raw_resp = requests.get(raw_text_url, headers=headers, timeout=60)
+                    raw_resp.raise_for_status()
+                    text = raw_resp.text
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "FederalRegisterProvider: raw_text_url GET failed (%s); "
+                        "falling back to abstract for document %s",
+                        raw_text_url,
+                        document_number,
+                    )
+                    text = abstract
 
         return [
             AuthoritySection(
