@@ -82,3 +82,22 @@ class BareActGrammarTests(SimpleTestCase):
     def test_requires_multiple_capitalized_words(self):
         # "the Act" alone must NOT match (too generic).
         assert self._keys("as defined in the Act") == {}
+
+
+class GrammarRobustnessTests(SimpleTestCase):
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key for c in self.ex.extract(text)}
+
+    def test_public_law_short_form_without_no(self):
+        # Bluebook short form "Pub. L. 117-58" (no "No.") is the dominant form.
+        assert "publ:117-58" in self._keys("enacted by Pub. L. 117-58 in 2021")
+
+    def test_state_code_tolerates_ocr_double_space(self):
+        # OCR / line-break wraps insert extra whitespace inside abbreviations;
+        # the \\s+-flexible alternation + normalized lookup must still match.
+        assert "tx-boc:21.401" in self._keys(
+            "governed by Tex. Bus. Orgs.  Code § 21.401"
+        )

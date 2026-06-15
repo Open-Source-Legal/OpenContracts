@@ -76,6 +76,10 @@ class EnrichmentService:
         from opencontractserver.enrichment.reconcile import reconcile
 
         wanted = set(types or C.DEFAULT_REFERENCE_TYPES)
+        # The trusted registry tier is ALWAYS the base; ``tiers`` only chooses
+        # which *additional* layers (e.g. grammar) to merge on top of it. So the
+        # registry extractor runs unconditionally and ``tiers=['grammar']`` means
+        # "registry + grammar", not "grammar only".
         active_tiers = set(tiers or (C.DETECTION_TIER_REGISTRY,))
         resolver = ReferenceResolver(documents)
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
@@ -171,8 +175,6 @@ class EnrichmentService:
         jurisdiction / authority_type, and flags prefixes with no
         AuthorityNamespace row (genuinely new bodies of law).
         """
-        from collections import Counter
-
         from opencontractserver.annotations.models import AuthorityNamespace
 
         user, corpus, documents = self._load(corpus_id, creator_id)
@@ -184,51 +186,72 @@ class EnrichmentService:
             tiers=[C.DETECTION_TIER_REGISTRY, C.DETECTION_TIER_GRAMMAR],
         )
 
+        # Registry-tier candidates carry no jurisdiction/authority_type (the
+        # static extractor predates the taxonomy), so resolve it by prefix from
+        # the AuthorityNamespace registry, falling back to PREFIX_CLASSIFICATION.
+        # Without this, dgcl/irc/etc. would be absent from the rollups below.
+        prefixes = {
+            r.canonical_key.split(":", 1)[0] for r in resolutions if r.canonical_key
+        }
+        ns_rows = list(
+            AuthorityNamespace.objects.filter(prefix__in=prefixes).values_list(
+                "prefix", "jurisdiction", "authority_type"
+            )
+        )
+        known = {prefix for prefix, _j, _t in ns_rows}
+        ns_class = {prefix: (jur, typ) for prefix, jur, typ in ns_rows}
+
+        def _classify(prefix: str, cand) -> tuple:
+            ns_jur, ns_typ = ns_class.get(
+                prefix, C.PREFIX_CLASSIFICATION.get(prefix, (None, None))
+            )
+            return (cand.jurisdiction or ns_jur, cand.authority_type or ns_typ)
+
         by_key: dict[str, dict] = {}
         by_jurisdiction: Counter = Counter()
         by_type: Counter = Counter()
-        prefixes: set[str] = set()
         for r in resolutions:
             key = r.canonical_key
             if not key:
                 continue
             cand = r.candidate
             prefix = key.split(":", 1)[0]
-            prefixes.add(prefix)
+            jur, typ = _classify(prefix, cand)
             entry = by_key.setdefault(
                 key,
                 {
                     "canonical_key": key,
                     "prefix": prefix,
-                    "jurisdiction": cand.jurisdiction,
-                    "authority_type": cand.authority_type,
+                    "jurisdiction": jur,
+                    "authority_type": typ,
                     "detection_tier": cand.detection_tier,
                     "mention_count": 0,
                 },
             )
             entry["mention_count"] += 1
-            if cand.jurisdiction:
-                by_jurisdiction[cand.jurisdiction] += 1
-            if cand.authority_type:
-                by_type[cand.authority_type] += 1
+            # Upgrade a first-writer None once a later mention resolves it.
+            entry["jurisdiction"] = entry["jurisdiction"] or jur
+            entry["authority_type"] = entry["authority_type"] or typ
+            if jur:
+                by_jurisdiction[jur] += 1
+            if typ:
+                by_type[typ] += 1
 
-        known = set(
-            AuthorityNamespace.objects.filter(prefix__in=prefixes).values_list(
-                "prefix", flat=True
-            )
-        )
+        # Prefix-level classification for new namespaces, preferring a non-None
+        # source (all keys under a prefix share one body of law).
+        prefix_class: dict[str, tuple] = {}
+        for e in by_key.values():
+            cur = prefix_class.get(e["prefix"])
+            if cur is None or cur[0] is None:
+                prefix_class[e["prefix"]] = (e["jurisdiction"], e["authority_type"])
         new_namespaces = [
-            {"prefix": p, "jurisdiction": None, "authority_type": None}
+            {
+                "prefix": p,
+                "jurisdiction": prefix_class.get(p, (None, None))[0],
+                "authority_type": prefix_class.get(p, (None, None))[1],
+            }
             for p in sorted(prefixes - known)
         ]
-        prefix_class = {
-            e["prefix"]: (e["jurisdiction"], e["authority_type"])
-            for e in by_key.values()
-        }
-        for n in new_namespaces:
-            n["jurisdiction"], n["authority_type"] = prefix_class.get(
-                n["prefix"], (None, None)
-            )
 
         return {
             "corpus_id": corpus_id,

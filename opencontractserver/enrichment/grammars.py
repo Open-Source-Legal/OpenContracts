@@ -32,14 +32,16 @@ _CFR_RE = re.compile(
     r"(?:[-–]\d+)?(?:\([0-9a-zA-Z]+\))*)"
 )
 _FEDREG_RE = re.compile(r"\b(?P<vol>\d+)\s+Fed\.?\s?Reg\.?\s+(?P<page>\d[\d,]*)")
+# "No." is optional: the Bluebook short form "Pub. L. 117-58" (no "No.") is the
+# dominant form in filings and opinions alongside "Pub. L. No. 117-58".
 _PUBL_RE = re.compile(
-    r"\bPub(?:lic)?\.?\s?L(?:aw)?\.?\s?No\.?\s?(?P<cong>\d+)[-–](?P<num>\d+)",
+    r"\bPub(?:lic)?\.?\s?L(?:aw)?\.?\s?(?:No\.?\s?)?(?P<cong>\d+)[-–](?P<num>\d+)",
     re.IGNORECASE,
 )
 _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
 
 # Bare Act: "the Clean Water Act", "the Bank Holding Company Act of 1956".
-# Require >=2 capitalized words before "Act" so "the Act" never matches.
+# Require >=1 capitalized word before "Act" so bare "the Act" never matches.
 _BARE_ACT_RE = re.compile(
     r"\bthe\s+(?P<name>(?:[A-Z][A-Za-z'&.\-]+\s+){1,6}Act)"
     r"(?:\s+of\s+(?P<year>\d{4}))?"
@@ -57,7 +59,10 @@ def _cand(start, end, raw, key, jur, typ, conf=_CONF_STRUCTURED) -> Candidate:
         end=end,
         raw_text=raw,
         canonical_key=key,
-        normalized_data={"authority": key.split(":", 1)[0], "tier": "grammar"},
+        normalized_data={
+            "authority": key.split(":", 1)[0],
+            "tier": C.DETECTION_TIER_GRAMMAR,
+        },
         jurisdiction=jur,
         authority_type=typ,
         detection_tier=C.DETECTION_TIER_GRAMMAR,
@@ -134,12 +139,9 @@ def _stat(text: str) -> Iterator[Candidate]:
 
 def _bare_acts(text: str) -> Iterator[Candidate]:
     for m in _BARE_ACT_RE.finditer(text):
+        # The regex guarantees >=1 capitalized word before "Act", so ``name``
+        # always has >=2 whitespace tokens and bare "the Act" never reaches here.
         name = m.group("name")
-        # Reject a single capitalized word + Act (e.g. "the Restricted Act"
-        # noise is allowed, but "the Act" cannot reach here — regex requires
-        # >=1 word then "Act", and we additionally require >=2 total tokens).
-        if len(name.split()) < 2:
-            continue
         slug = _slug_act(name)
         year = m.group("year")
         key = f"act:{slug}-{year}" if year else f"act:{slug}"
@@ -162,9 +164,14 @@ class GenericCitationExtractor:
 
     def __init__(self) -> None:
         # State-code alternation, longest-first so "Del. Code Ann. tit. 8" wins
-        # over a hypothetical "Del. Code". Compiled once per instance.
+        # over a hypothetical "Del. Code". Escaped spaces become ``\s+`` so OCR
+        # double-spaces / line-break wraps still match; the captured text is
+        # whitespace-normalized before lookup (``_state_canon``).
         ordered = sorted(STATE_CODE_ABBREVIATIONS, key=len, reverse=True)
-        self._state_alt = "|".join(re.escape(a) for a in ordered)
+        self._state_alt = "|".join(re.escape(a).replace(r"\ ", r"\s+") for a in ordered)
+        self._state_canon = {
+            re.sub(r"\s+", " ", a): v for a, v in STATE_CODE_ABBREVIATIONS.items()
+        }
         self._state_re = (
             re.compile(
                 r"(?P<abbr>" + self._state_alt + r")\s+(?:§+\s*)?(?P<sec>" + _SEC + r")"
@@ -188,6 +195,7 @@ class GenericCitationExtractor:
         if self._state_re is None:
             return
         for m in self._state_re.finditer(text):
-            prefix, jur, typ = STATE_CODE_ABBREVIATIONS[m.group("abbr")]
+            abbr = re.sub(r"\s+", " ", m.group("abbr"))
+            prefix, jur, typ = self._state_canon[abbr]
             key = f"{prefix}:{m.group('sec').lower()}"
             yield _cand(m.start(), m.end(), m.group(0), key, jur, typ)

@@ -1964,7 +1964,7 @@ class CorpusReference(BaseOCModel):
     # trusted registry tier so legacy/registry rows read correctly.
     detection_tier = django.db.models.CharField(
         max_length=16,
-        default="registry",
+        default=enrichment_constants.DETECTION_TIER_REGISTRY,
         db_index=True,
     )
     detection_confidence = django.db.models.FloatField(default=1.0)

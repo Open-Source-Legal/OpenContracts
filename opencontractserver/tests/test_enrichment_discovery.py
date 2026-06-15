@@ -43,3 +43,7 @@ class DiscoveryTests(TestCase):
         assert "tx-boc:21.401" in keys
         assert "us-tx" in out["by_jurisdiction"]
         assert any(n["prefix"] == "tx-boc" for n in out["new_namespaces"])
+        # dgcl is seeded → NOT new. And registry-tier classification is
+        # backfilled, so its jurisdiction appears in the rollup (regression #6).
+        assert not any(n["prefix"] == "dgcl" for n in out["new_namespaces"])
+        assert "us-de" in out["by_jurisdiction"]

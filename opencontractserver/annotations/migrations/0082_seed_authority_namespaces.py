@@ -18,11 +18,14 @@ def seed(apps, schema_editor):
 
     prefixes = set(C.AUTHORITY_PREFIX.values()) | {C.SEC_RULE_PREFIX}
     for prefix in prefixes:
-        jur, typ = C.PREFIX_CLASSIFICATION[prefix]
+        # Graceful fallback so adding a prefix to AUTHORITY_PREFIX without its
+        # classification/display-name entry can never crash ``migrate`` on a
+        # clean schema (the constants test still enforces full coverage in CI).
+        jur, typ = C.PREFIX_CLASSIFICATION.get(prefix, (None, None))
         AuthorityNamespace.objects.update_or_create(
             prefix=prefix,
             defaults={
-                "display_name": C.PREFIX_DISPLAY_NAME[prefix],
+                "display_name": C.PREFIX_DISPLAY_NAME.get(prefix, prefix),
                 "jurisdiction": jur,
                 "authority_type": typ,
                 "aliases": sorted(set(aliases_by_prefix.get(prefix, []))),

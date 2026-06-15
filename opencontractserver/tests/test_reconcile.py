@@ -45,3 +45,19 @@ class ReconcileTests(SimpleTestCase):
         primary = [_c(0, 10, "dgcl:145", C.DETECTION_TIER_REGISTRY)]
         out = reconcile(primary, [])
         assert len(out) == 1
+
+    def test_cross_type_overlap_does_not_suppress(self):
+        # A registry SECTION span overlapping a grammar LAW span must NOT
+        # suppress the law — suppression is scoped to matching reference_type.
+        primary = [
+            Candidate(
+                reference_type=C.REF_SECTION,
+                start=0,
+                end=30,
+                raw_text="see ...",
+                detection_tier=C.DETECTION_TIER_REGISTRY,
+            )
+        ]
+        secondary = [_c(5, 25, "usc-15:78j(b)", C.DETECTION_TIER_GRAMMAR)]
+        out = reconcile(primary, secondary)
+        assert "usc-15:78j(b)" in {c.canonical_key for c in out}
