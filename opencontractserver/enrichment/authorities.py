@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import CorpusDocumentService
@@ -66,11 +67,28 @@ def authority_alias_registry(user=None) -> dict[str, str]:
     static entries on collision. When ``user`` is given, only aliases on
     documents visible to that user are included.
     """
+    from opencontractserver.annotations.models import AuthorityNamespace
+
     mapping: dict[str, str] = dict(C.AUTHORITY_PREFIX)
-    # Fail closed: without a user we contribute only the static defaults rather
-    # than aliases from EVERY document (including private corpora). A future
-    # caller that forgets to thread ``creator`` gets no DB-declared aliases, not
-    # a cross-tenant metadata leak.
+
+    # Namespace registry (Phase 0): global namespaces always; corpus-linked
+    # namespaces only when their corpus is visible to ``user``. Fail closed —
+    # without a user, contribute only global namespaces (no private leak).
+    ns_qs = AuthorityNamespace.objects.all()
+    if user is None:
+        ns_qs = ns_qs.filter(is_global=True)
+    else:
+        ns_qs = ns_qs.filter(
+            Q(is_global=True)
+            | Q(authority_corpus__in=Corpus.objects.visible_to_user(user))
+        )
+    for ns_prefix, aliases in ns_qs.values_list("prefix", "aliases"):
+        for alias in aliases or []:
+            if isinstance(alias, str) and alias.strip():
+                mapping[alias.strip().lower()] = ns_prefix
+
+    # Legacy per-document alias source (authority corpora stamp custom_meta).
+    # Fail closed: without a user contribute only the static + global rows.
     qs = (
         Document.objects.none()
         if user is None

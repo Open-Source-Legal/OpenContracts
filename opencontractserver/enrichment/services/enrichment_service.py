@@ -68,14 +68,27 @@ class EnrichmentService:
             )
         return sections
 
-    def _resolutions(self, corpus, documents, types, user) -> list[Resolution]:
+    def _resolutions(
+        self, corpus, documents, types, user, extra_tiers=None
+    ) -> list[Resolution]:
         from opencontractserver.enrichment.authorities import authority_alias_registry
+        from opencontractserver.enrichment.grammars import GenericCitationExtractor
+        from opencontractserver.enrichment.reconcile import reconcile
 
         wanted = set(types or C.DEFAULT_REFERENCE_TYPES)
+        # The trusted registry tier is ALWAYS the base; ``extra_tiers`` only
+        # selects which *additional* layers (e.g. grammar) to merge on top of
+        # it — it is additive, not exhaustive. So the registry extractor runs
+        # unconditionally and ``extra_tiers=[DETECTION_TIER_GRAMMAR]`` means
+        # "registry + grammar", never "grammar only".
+        active_tiers = set(extra_tiers or ())
         resolver = ReferenceResolver(documents)
-        # The alias registry is corpus-data-driven (authority corpora declare
-        # their own aliases) and visibility-scoped to the run user.
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
+        generic = (
+            GenericCitationExtractor()
+            if C.DETECTION_TIER_GRAMMAR in active_tiers
+            else None
+        )
         sections_by_doc = self._sections_by_doc(documents)
         resolutions: list[Resolution] = []
         for doc in documents:
@@ -89,12 +102,16 @@ class EnrichmentService:
             if not text:
                 continue
             sections = sections_by_doc.get(doc.id, [])
-            # Authority documents know their own body of law — that context
-            # keys relative citations ("§ 251 of this title") in statute text.
             meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
-            for cand in extractor.extract(
-                text, default_authority=meta.get("authority")
-            ):
+            primary = list(
+                extractor.extract(text, default_authority=meta.get("authority"))
+            )
+            if generic is not None:
+                # Registry wins on overlap; generic adds the open-vocabulary tail.
+                cands = reconcile(primary, generic.extract(text))
+            else:
+                cands = primary
+            for cand in cands:
                 if cand.reference_type not in wanted:
                     continue
                 resolutions.append(resolver.resolve(cand, doc.id, text, sections))
@@ -109,9 +126,12 @@ class EnrichmentService:
         creator_id: int,
         types: list[str] | None = None,
         sample_n: int = C.DEFAULT_SAMPLE_N,
+        extra_tiers: list[str] | None = None,
     ) -> dict:
         user, corpus, documents = self._load(corpus_id, creator_id)
-        resolutions = self._resolutions(corpus, documents, types, user)
+        resolutions = self._resolutions(
+            corpus, documents, types, user, extra_tiers=extra_tiers
+        )
 
         by_type = Counter(r.reference_type for r in resolutions)
         by_status = Counter(r.resolution_status for r in resolutions)
@@ -144,6 +164,126 @@ class EnrichmentService:
             "counts_by_status": dict(by_status),
             "samples": samples,
             "unresolved_samples": unresolved,
+        }
+
+    def discover(
+        self,
+        *,
+        corpus_id: int,
+        creator_id: int,
+        max_documents: int | None = None,
+    ) -> dict:
+        """Read-only open-vocabulary inventory (registry + grammar tiers).
+
+        Surfaces authorities the registry alone would miss, grouped by
+        jurisdiction / authority_type, and flags prefixes with no
+        AuthorityNamespace row (genuinely new bodies of law).
+
+        Runs registry + grammar extraction over the *full text* of every corpus
+        document, so cost scales with corpus size. ``max_documents`` caps the
+        document set when set (the result reports ``documents_truncated`` so the
+        cap is never silent); ``None`` (default) scans the whole corpus.
+        """
+        from opencontractserver.annotations.models import AuthorityNamespace
+
+        user, corpus, documents = self._load(corpus_id, creator_id)
+        documents_total = len(documents)
+        documents_truncated = (
+            max_documents is not None and documents_total > max_documents
+        )
+        if documents_truncated:
+            documents = documents[:max_documents]
+        resolutions = self._resolutions(
+            corpus,
+            documents,
+            [C.REF_LAW],
+            user,
+            extra_tiers=[C.DETECTION_TIER_GRAMMAR],
+        )
+
+        # Registry-tier candidates carry no jurisdiction/authority_type (the
+        # static extractor predates the taxonomy), so resolve it by prefix from
+        # the AuthorityNamespace registry, falling back to PREFIX_CLASSIFICATION.
+        # Without this, dgcl/irc/etc. would be absent from the rollups below.
+        # Resolver-generated canonical keys are always ``"<prefix>:<locator>"``
+        # (see ReferenceResolver), so the prefix is the segment before the first
+        # ``:``. A hypothetical bare key with no ``:`` would yield itself here and
+        # could be misflagged as a new namespace — guard against that drift.
+        prefixes = {
+            r.canonical_key.split(":", 1)[0]
+            for r in resolutions
+            if r.canonical_key and ":" in r.canonical_key
+        }
+        ns_rows = list(
+            AuthorityNamespace.objects.filter(prefix__in=prefixes).values_list(
+                "prefix", "jurisdiction", "authority_type"
+            )
+        )
+        known = {prefix for prefix, _j, _t in ns_rows}
+        ns_class = {prefix: (jur, typ) for prefix, jur, typ in ns_rows}
+
+        def _classify(prefix: str, cand) -> tuple:
+            ns_jur, ns_typ = ns_class.get(
+                prefix, C.PREFIX_CLASSIFICATION.get(prefix, (None, None))
+            )
+            return (cand.jurisdiction or ns_jur, cand.authority_type or ns_typ)
+
+        by_key: dict[str, dict] = {}
+        by_jurisdiction: Counter = Counter()
+        by_type: Counter = Counter()
+        for r in resolutions:
+            key = r.canonical_key
+            if not key:
+                continue
+            cand = r.candidate
+            prefix = key.split(":", 1)[0]
+            jur, typ = _classify(prefix, cand)
+            entry = by_key.setdefault(
+                key,
+                {
+                    "canonical_key": key,
+                    "prefix": prefix,
+                    "jurisdiction": jur,
+                    "authority_type": typ,
+                    "detection_tier": cand.detection_tier,
+                    "mention_count": 0,
+                },
+            )
+            entry["mention_count"] += 1
+            # Upgrade a first-writer None once a later mention resolves it.
+            entry["jurisdiction"] = entry["jurisdiction"] or jur
+            entry["authority_type"] = entry["authority_type"] or typ
+            if jur:
+                by_jurisdiction[jur] += 1
+            if typ:
+                by_type[typ] += 1
+
+        # Prefix-level classification for new namespaces, preferring a non-None
+        # source (all keys under a prefix share one body of law).
+        prefix_class: dict[str, tuple] = {}
+        for e in by_key.values():
+            cur = prefix_class.get(e["prefix"])
+            if cur is None or cur[0] is None:
+                prefix_class[e["prefix"]] = (e["jurisdiction"], e["authority_type"])
+        new_namespaces = [
+            {
+                "prefix": p,
+                "jurisdiction": prefix_class.get(p, (None, None))[0],
+                "authority_type": prefix_class.get(p, (None, None))[1],
+            }
+            for p in sorted(prefixes - known)
+        ]
+
+        return {
+            "corpus_id": corpus_id,
+            "documents_scanned": len(documents),
+            "documents_total": documents_total,
+            "documents_truncated": documents_truncated,
+            "total_candidates": len(resolutions),
+            "by_key": by_key,
+            "by_jurisdiction": dict(by_jurisdiction),
+            "by_authority_type": dict(by_type),
+            "new_namespaces": new_namespaces,
         }
 
     @staticmethod
@@ -203,6 +343,7 @@ class EnrichmentService:
         creator_id: int,
         types: list[str] | None = None,
         analysis: Analysis | None = None,
+        extra_tiers: list[str] | None = None,
     ) -> dict:
         """Persist the corpus's reference web.
 
@@ -211,7 +352,9 @@ class EnrichmentService:
         service call) a provenance ``Analysis`` is created here.
         """
         user, corpus, documents = self._load(corpus_id, creator_id)
-        resolutions = self._resolutions(corpus, documents, types, user)
+        resolutions = self._resolutions(
+            corpus, documents, types, user, extra_tiers=extra_tiers
+        )
         if analysis is None:
             analysis = self._get_analysis(corpus, creator_id)
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)

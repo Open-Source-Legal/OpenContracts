@@ -1949,6 +1949,30 @@ class CorpusReference(BaseOCModel):
     )
     normalized_data = django.db.models.JSONField(null=True, blank=True)
     confidence = django.db.models.FloatField(default=1.0)
+    # Phase 0 classification — jurisdiction is a hierarchical code ("us-federal",
+    # "us-de", "us-ca-san-francisco"); authority_type is the controlled vocab in
+    # constants.ALL_AUTHORITY_TYPES. Nullable: legacy rows and non-law refs have
+    # neither. Indexed for frontier/regime filtering.
+    jurisdiction = django.db.models.CharField(
+        max_length=64, null=True, blank=True, db_index=True
+    )
+    authority_type = django.db.models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_AUTHORITY_TYPES],
+    )
+    # Phase 1 detection provenance — which layer found the mention and how
+    # confident. detection_tier in constants.DETECTION_TIER_*; defaults to the
+    # trusted registry tier so legacy/registry rows read correctly.
+    detection_tier = django.db.models.CharField(
+        max_length=16,
+        default=enrichment_constants.DETECTION_TIER_REGISTRY,
+        db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_DETECTION_TIERS],
+    )
+    detection_confidence = django.db.models.FloatField(default=1.0)
     resolution_status = django.db.models.CharField(
         max_length=16, choices=RESOLUTION_STATUS_CHOICES, default="RESOLVED"
     )
@@ -2014,3 +2038,67 @@ class CorpusReference(BaseOCModel):
     def __str__(self) -> str:
         target = self.canonical_key or self.target_document_id
         return f"CorpusReference({self.reference_type} -> {target})"
+
+
+class AuthorityNamespace(django.db.models.Model):
+    """Registry of legal-authority bodies (one row per canonical_key prefix).
+
+    Reference data, not user-owned content — so a plain ``Model``: a global
+    registry wants neither a required ``creator`` nor guardian permission rows.
+    Seeded from ``constants.AUTHORITY_PREFIX`` (Phase 0) and extended as new
+    bodies of law are discovered. ``authority_alias_registry`` reads this table
+    to drive Tier-1 extraction without a code change.
+    """
+
+    prefix = django.db.models.CharField(max_length=64, unique=True, db_index=True)
+    display_name = django.db.models.CharField(max_length=255)
+    jurisdiction = django.db.models.CharField(
+        max_length=64, null=True, blank=True, db_index=True
+    )
+    authority_type = django.db.models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_AUTHORITY_TYPES],
+    )
+    # Surface forms seen in text (lowercased), fed into the extractor alias map.
+    aliases = django.db.models.JSONField(default=list, blank=True)
+    # Routing / provenance (populated by later phases; nullable now).
+    provider = django.db.models.CharField(max_length=64, null=True, blank=True)
+    source_root_url = django.db.models.URLField(max_length=500, null=True, blank=True)
+    license = django.db.models.CharField(max_length=64, null=True, blank=True)
+    # Global namespaces always contribute aliases; corpus-linked ones only when
+    # the corpus is visible (wired in authority_alias_registry).
+    is_global = django.db.models.BooleanField(default=True, db_index=True)
+    authority_corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authority_namespaces",
+    )
+    created = django.db.models.DateTimeField(auto_now_add=True)
+    modified = django.db.models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["jurisdiction", "authority_type"]),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # A corpus-linked namespace is by definition NOT global: marking it
+        # ``is_global`` would leak its aliases into every user's extraction
+        # regardless of corpus visibility (authority_alias_registry gates
+        # corpus-linked rows behind ``visible_to_user``). Refuse the incoherent
+        # combination rather than silently mis-scope it.
+        if self.authority_corpus_id and self.is_global:
+            raise ValidationError(
+                "AuthorityNamespace cannot be both is_global=True and "
+                "corpus-linked (authority_corpus set); a corpus-scoped "
+                "namespace must set is_global=False."
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"AuthorityNamespace({self.prefix}: {self.display_name})"

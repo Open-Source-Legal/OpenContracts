@@ -386,3 +386,30 @@ class BackfillToolFunctionTests(TestCase):
             bootstrap_authority_corpus(
                 creator_id=self.user.id, corpus_title="Empty", sections=[]
             )
+
+
+class DiscoverAuthoritiesToolTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="dt", password="p")
+        self.corpus = Corpus.objects.create(title="C", creator=self.user)
+        doc = Document.objects.create(title="D", creator=self.user)
+        doc.txt_extract_file.save(
+            "d.txt",
+            ContentFile(b"Liable under 15 U.S.C. 78j(b) and 40 C.F.R. 261.4."),
+        )
+        self.corpus.add_document(document=doc, user=self.user)
+
+    def test_discover_returns_open_vocab_keys(self):
+        from opencontractserver.llms.tools.core_tools.corpus_references import (
+            discover_authorities,
+        )
+
+        out = discover_authorities(corpus_id=self.corpus.id, creator_id=self.user.id)
+        assert "usc-15:78j(b)" in out["by_key"]
+        assert out["new_namespaces"]  # usc/cfr prefixes not registered
+
+    def test_discover_tool_is_corpus_scoped_read_only(self):
+        td = next(t for t in AVAILABLE_TOOLS if t.name == "discover_authorities")
+        assert td.requires_corpus is True
+        assert td.requires_approval is False
+        assert td.requires_write_permission is False
