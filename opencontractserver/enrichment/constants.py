@@ -3,6 +3,8 @@
 No magic numbers / strings in the engine modules — they import from here.
 """
 
+import re as _re
+
 # Mention annotation labels (one per reference type).
 LABEL_REF_LAW = "OC_REF_LAW"
 LABEL_REF_DOC = "OC_REF_DOC"
@@ -155,3 +157,23 @@ LLM_CHUNK_WINDOW = 2000
 LLM_CHUNK_OVERLAP = 400
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
+
+# --- Phase 3: prefix classifier ---------------------------------------- #
+_USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
+_CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
+
+
+def classify_prefix(prefix: str) -> tuple:
+    """(jurisdiction, authority_type) for a canonical_key prefix.
+
+    Handles the title-scoped federal families (usc-NN statutes, cfr-NN
+    regulations, fedreg admin rules) by shape, falling back to the static
+    PREFIX_CLASSIFICATION map for the named registry bodies.
+    """
+    if _USC_PREFIX_RE.match(prefix):
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
+    if _CFR_PREFIX_RE.match(prefix):
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION)
+    if prefix == "fedreg":
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)
+    return PREFIX_CLASSIFICATION.get(prefix, (None, None))

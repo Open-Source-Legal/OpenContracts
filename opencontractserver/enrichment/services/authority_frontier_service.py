@@ -1,0 +1,100 @@
+"""Manage the durable authority discovery queue (AuthorityFrontier).
+
+Follows the repo-wide ``opencontractserver/<app>/services/`` convention:
+user-context callers reach enrichment data through these services, never via
+inline Tier-0 ORM fusions.
+"""
+
+from __future__ import annotations
+
+from django.utils import timezone
+
+from opencontractserver.annotations.models import AuthorityFrontier
+from opencontractserver.enrichment import constants as C
+from opencontractserver.enrichment.services.corpus_reference_service import (
+    CorpusReferenceService,
+)
+from opencontractserver.shared.services.base import BaseService
+
+
+class AuthorityFrontierService(BaseService):
+    """Manage the durable authority discovery queue."""
+
+    @classmethod
+    def seed_from_wanted_authorities(cls, user, corpus_id: int | None = None) -> dict:
+        """Upsert one AuthorityFrontier row per wanted section-root key.
+
+        Reuses the exact aggregation users already see in the Wanted Authorities
+        panel — so the queue can never diverge from the GraphQL surface.
+        Idempotent: re-running refreshes mention_count / distinct_corpus_count /
+        candidate_sources and leaves discovery_state untouched for in-flight rows.
+        """
+        wanted = CorpusReferenceService.wanted_authorities(user, corpus_id=corpus_id)
+        created = updated = 0
+        for auth in wanted:
+            authority = auth["authority"]
+            juris, atype = C.classify_prefix(authority)
+            for key_entry in auth["top_keys"]:
+                root = key_entry["canonical_key"]
+                row, was_created = AuthorityFrontier.objects.get_or_create(
+                    canonical_key=root,
+                    defaults={
+                        "authority": authority,
+                        "jurisdiction": juris,
+                        "authority_type": atype,
+                    },
+                )
+                row.mention_count = key_entry["mention_count"]
+                row.distinct_corpus_count = key_entry["corpus_count"]
+                # jurisdiction/authority_type may have been unknown at create
+                row.jurisdiction = row.jurisdiction or juris
+                row.authority_type = row.authority_type or atype
+                row.save(
+                    update_fields=[
+                        "mention_count",
+                        "distinct_corpus_count",
+                        "jurisdiction",
+                        "authority_type",
+                        "modified",
+                    ]
+                )
+                created += int(was_created)
+                updated += int(not was_created)
+        return {"frontier_created": created, "frontier_updated": updated}
+
+    @classmethod
+    def dequeue_for_provider(
+        cls, provider: str, limit: int = 10
+    ) -> list[AuthorityFrontier]:
+        """Return up to ``limit`` queued rows assigned to ``provider``."""
+        return list(
+            AuthorityFrontier.objects.filter(
+                provider=provider, discovery_state="queued"
+            ).order_by("-mention_count")[:limit]
+        )
+
+    @classmethod
+    def mark(
+        cls,
+        row: AuthorityFrontier,
+        state: str,
+        *,
+        document_id: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Transition ``row`` to ``state``, optionally recording a document or error."""
+        row.discovery_state = state
+        row.last_attempt = timezone.now()
+        if document_id is not None:
+            row.ingested_document_id = document_id
+        if error is not None:
+            row.last_error = error
+        row.save(
+            update_fields=[
+                "discovery_state",
+                "last_attempt",
+                "ingested_document",
+                "last_error",
+                "modified",
+            ]
+        )
