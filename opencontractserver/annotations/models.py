@@ -2024,3 +2024,49 @@ class CorpusReference(BaseOCModel):
     def __str__(self) -> str:
         target = self.canonical_key or self.target_document_id
         return f"CorpusReference({self.reference_type} -> {target})"
+
+
+class AuthorityNamespace(django.db.models.Model):
+    """Registry of legal-authority bodies (one row per canonical_key prefix).
+
+    Reference data, not user-owned content — so a plain ``Model``: a global
+    registry wants neither a required ``creator`` nor guardian permission rows.
+    Seeded from ``constants.AUTHORITY_PREFIX`` (Phase 0) and extended as new
+    bodies of law are discovered. ``authority_alias_registry`` reads this table
+    to drive Tier-1 extraction without a code change.
+    """
+
+    prefix = django.db.models.CharField(max_length=64, unique=True, db_index=True)
+    display_name = django.db.models.CharField(max_length=255)
+    jurisdiction = django.db.models.CharField(
+        max_length=64, null=True, blank=True, db_index=True
+    )
+    authority_type = django.db.models.CharField(
+        max_length=32, null=True, blank=True, db_index=True
+    )
+    # Surface forms seen in text (lowercased), fed into the extractor alias map.
+    aliases = django.db.models.JSONField(default=list, blank=True)
+    # Routing / provenance (populated by later phases; nullable now).
+    provider = django.db.models.CharField(max_length=64, null=True, blank=True)
+    source_root_url = django.db.models.URLField(max_length=500, null=True, blank=True)
+    license = django.db.models.CharField(max_length=64, null=True, blank=True)
+    # Global namespaces always contribute aliases; corpus-linked ones only when
+    # the corpus is visible (wired in authority_alias_registry).
+    is_global = django.db.models.BooleanField(default=True, db_index=True)
+    authority_corpus = django.db.models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authority_namespaces",
+    )
+    created = django.db.models.DateTimeField(auto_now_add=True)
+    modified = django.db.models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["jurisdiction", "authority_type"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"AuthorityNamespace({self.prefix}: {self.display_name})"
