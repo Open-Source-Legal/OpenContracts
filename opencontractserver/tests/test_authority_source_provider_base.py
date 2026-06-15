@@ -125,9 +125,15 @@ class TestAuthoritySourceProviderRegistry(SimpleTestCase):
         # Must be iterable and not raise.
         self.assertIsInstance(result, (list, tuple))
 
-    def test_get_all_authority_source_providers_cached_is_empty_without_providers(
-        self,
-    ):
-        """With no concrete providers in the package, the result is empty."""
-        result = get_all_authority_source_providers_cached()
-        self.assertEqual(len(result), 0)
+    def test_get_all_authority_source_providers_cached_discovers_providers(self):
+        """Concrete providers register via the auto-discovery package, so once
+        they ship the registry returns a non-empty list and a usc-handler."""
+        providers = get_all_authority_source_providers_cached()
+        self.assertIsInstance(providers, list)
+        self.assertTrue(
+            any(
+                d.component_class is not None
+                and d.component_class().can_handle("usc-15:1")
+                for d in providers
+            )
+        )
