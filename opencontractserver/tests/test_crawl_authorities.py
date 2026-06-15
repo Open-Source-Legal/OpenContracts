@@ -220,3 +220,302 @@ class IdempotencyTests(TransactionTestCase):
             AuthorityFrontier.objects.filter(authority="usc-15").count(),
             2,  # parent + one child only
         )
+
+
+def _make_empty_corpus_ref_mock():
+    """Return a chainable MagicMock that returns [] for values_list (no outbound cites)."""
+    mock_qs = MagicMock()
+    mock_qs.filter.return_value = mock_qs
+    mock_qs.exclude.return_value = mock_qs
+    mock_qs.values_list.return_value.distinct.return_value = []
+    return mock_qs
+
+
+class BoundsTerminationTests(TransactionTestCase):
+    """Each bound must set the matching stop_reason and the loop must terminate."""
+
+    def _make_queued_rows(
+        self,
+        n,
+        jurisdiction="us-federal",
+        authority="usc-15",
+        mention_count=5,
+        depth=0,
+    ):
+        """Create n queued frontier rows with distinct keys."""
+        rows = []
+        for i in range(n):
+            row = AuthorityFrontier.objects.create(
+                canonical_key=f"{authority}:{100 + i}",
+                authority=authority,
+                jurisdiction=jurisdiction,
+                authority_type=C.AUTHORITY_TYPE_STATUTE,
+                mention_count=mention_count,
+                depth=depth,
+                discovery_state="queued",
+            )
+            rows.append(row)
+        return rows
+
+    def _ingest_mock(self, corpus_id_start=2000):
+        """Return a mock that marks rows ingested and returns an incrementing corpus_id."""
+        call_count = [0]
+
+        def _side_effect(
+            *, creator_id, frontier_row, make_public=True, relink_async=True
+        ):
+            from opencontractserver.enrichment.services import AuthorityFrontierService
+
+            AuthorityFrontierService.mark(frontier_row, "ingested")
+            cid = corpus_id_start + call_count[0]
+            call_count[0] += 1
+            return {
+                "status": "ingested",
+                "corpus_id": cid,
+                "documents_created": 1,
+                "documents_updated": 0,
+                "documents_skipped": 0,
+                "documents_restamped": 0,
+                "canonical_key": frontier_row.canonical_key,
+            }
+
+        return _side_effect
+
+    def test_max_authorities_caps_run(self):
+        """Queuing 10 rows with max_authorities=3 → ingested==3, stop_reason='max_authorities'."""
+        user = _make_user("max-auth-user")
+        self._make_queued_rows(10)
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=self._ingest_mock(),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 0},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=_make_empty_corpus_ref_mock(),
+        ), patch(
+            # seed_from_wanted_authorities is called first; patch to no-op
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=0,
+                min_demand=1,
+                max_authorities=3,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        self.assertEqual(summary["stop_reason"], "max_authorities")
+        self.assertEqual(summary["authorities_ingested"], 3)
+
+    def test_min_demand_floor(self):
+        """Rows with mention_count=1 and min_demand=2 → nothing ingested, stop='frontier_drained'."""
+        user = _make_user("min-demand-user")
+        self._make_queued_rows(5, mention_count=1)  # below the floor
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=0,
+                min_demand=2,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        self.assertEqual(summary["stop_reason"], "frontier_drained")
+        self.assertEqual(summary["authorities_ingested"], 0)
+        # blocked_by_bound must be non-empty — non-silent accounting
+        self.assertGreater(
+            summary["blocked_by_bound"].get("min_demand_or_depth", 0),
+            0,
+            "blocked_by_bound must report rows left below the min_demand floor",
+        )
+
+    def test_max_depth_halts_recursion(self):
+        """Re-extraction always yields a fresh child key; max_depth=1 → no depth>1 rows."""
+        user = _make_user("max-depth-user")
+        # One seed row at depth=0.
+        AuthorityFrontier.objects.create(
+            canonical_key="usc-15:200",
+            authority="usc-15",
+            jurisdiction="us-federal",
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            mention_count=5,
+            depth=0,
+            discovery_state="queued",
+        )
+
+        child_key = "usc-15:201"
+        # After ingesting the depth-0 row, for_corpus returns one new key.
+        mock_refs = MagicMock()
+        mock_refs.filter.return_value = mock_refs
+        mock_refs.exclude.return_value = mock_refs
+        mock_refs.values_list.return_value.distinct.return_value = [child_key]
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=self._ingest_mock(corpus_id_start=3000),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 1},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=mock_refs,
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=1,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        # The depth=0 row was ingested and seeded a depth=1 child.
+        # The depth=1 child was also ingested (max_depth=1 means depth<=1 is ok).
+        # No depth=2 rows should exist because row.depth < max_depth is False at depth=1.
+        self.assertFalse(
+            AuthorityFrontier.objects.filter(depth__gt=1).exists(),
+            "no frontier rows should be created at depth > max_depth",
+        )
+
+    def test_per_jurisdiction_cap(self):
+        """5 ingestable us-de rows with cap=2 → 2 ingested, 3 parked at deferred_cap."""
+        user = _make_user("juris-cap-user")
+        self._make_queued_rows(
+            5, jurisdiction="us-de", authority="dgcl", mention_count=10
+        )
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=self._ingest_mock(corpus_id_start=4000),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 0},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=_make_empty_corpus_ref_mock(),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=0,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=2,
+                token_budget=0,
+            )
+
+        self.assertEqual(summary["per_jurisdiction"].get("us-de", 0), 2)
+        self.assertEqual(
+            summary["blocked_by_bound"].get("jurisdiction_cap:us-de", 0),
+            3,
+        )
+        # Parked rows must be at deferred_cap (not queued, not ingested).
+        parked = AuthorityFrontier.objects.filter(
+            discovery_state="deferred_cap"
+        ).count()
+        self.assertEqual(parked, 3)
+
+    def test_token_budget_halts(self):
+        """token_budget set below one authority's estimate → stop_reason='token_budget'."""
+        user = _make_user("token-budget-user")
+        self._make_queued_rows(5, mention_count=5)
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=self._ingest_mock(corpus_id_start=5000),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 0},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=_make_empty_corpus_ref_mock(),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ), patch(
+            # Each authority "costs" 1000 tokens; budget is 500 → stop after first.
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CrawlAuthoritiesService._estimate_tokens",
+            return_value=1000,
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=1,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=500,  # less than one authority's 1000-token cost
+            )
+
+        self.assertEqual(summary["stop_reason"], "token_budget")
+        # At most 1 authority ingested before budget exhausted.
+        self.assertLessEqual(summary["authorities_ingested"], 1)
+
+    def test_summary_has_no_silent_truncation(self):
+        """Summary always has required keys; frontier_residual sums to total row count."""
+        user = _make_user("no-truncation-user")
+        self._make_queued_rows(3, mention_count=1)  # below min_demand
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=0,
+                min_demand=5,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        required_keys = {
+            "stop_reason",
+            "outcomes",
+            "blocked_by_bound",
+            "per_jurisdiction",
+            "frontier_residual",
+        }
+        for key in required_keys:
+            self.assertIn(key, summary, f"summary missing required key: {key}")
+
+        total_in_census = sum(summary["frontier_residual"].values())
+        total_in_db = AuthorityFrontier.objects.count()
+        self.assertEqual(
+            total_in_census,
+            total_in_db,
+            f"frontier_residual sums to {total_in_census} but DB has {total_in_db} rows",
+        )
