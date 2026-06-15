@@ -23,6 +23,7 @@ Design constraints
 from __future__ import annotations
 
 import logging
+import re
 from typing import ClassVar
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -124,6 +125,14 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
             PydanticAIToolFactory,
         )
         from opencontractserver.llms.tools.tool_factory import CoreTool
+
+        # Sanitize inputs before embedding in instructions: strip non-printable
+        # characters and collapse whitespace to prevent prompt injection via
+        # malformed citation or jurisdiction strings.
+        citation = re.sub(r"[^\x20-\x7E]", " ", citation)
+        citation = re.sub(r"\s+", " ", citation).strip()
+        jurisdiction = re.sub(r"[^\x20-\x7E]", " ", jurisdiction)
+        jurisdiction = re.sub(r"\s+", " ", jurisdiction).strip()
 
         # Resolve the deployment-configured model spec (no explicit override).
         spec = resolve_model_spec(explicit=None)

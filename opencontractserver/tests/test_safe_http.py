@@ -316,3 +316,78 @@ class TestSafeFetchBytesHappyPath:
                 text, _ = safe_fetch_text(ALLOWED_URL)
         assert "good" in text
         assert "�" in text  # replacement character for \xff
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Multi-A-record: ALL addresses are checked, not just the first
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestMultiARecord:
+    def test_private_second_record_rejected(self):
+        """If one A-record is public but another is private, validation must fail.
+
+        This proves that ``_assert_public_ip`` iterates ALL resolved addresses
+        rather than stopping at the first public one — closing the multi-A-record
+        / partial-rebind window.
+        """
+
+        def _mixed_getaddrinfo(host, port, *args, **kwargs):
+            # First address: public (1.1.1.1), second: private (10.0.0.1)
+            return [
+                (2, 1, 6, "", ("1.1.1.1", 0)),
+                (2, 1, 6, "", ("10.0.0.1", 0)),
+            ]
+
+        with patch("socket.getaddrinfo", side_effect=_mixed_getaddrinfo):
+            with pytest.raises(SSRFValidationError, match="non-public"):
+                _assert_public_ip(ALLOWED_HOST)
+
+    def test_all_public_records_pass(self):
+        """Multiple public A-records must all pass validation."""
+
+        def _all_public(host, port, *args, **kwargs):
+            return [
+                (2, 1, 6, "", ("1.1.1.1", 0)),
+                (2, 1, 6, "", ("8.8.8.8", 0)),
+            ]
+
+        with patch("socket.getaddrinfo", side_effect=_all_public):
+            _assert_public_ip(ALLOWED_HOST)  # must not raise
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Malformed Content-Length: non-integer value raises SSRFValidationError
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestMalformedContentLength:
+    def test_non_integer_content_length_raises(self):
+        """A Content-Length header with a non-integer value must raise SSRFValidationError.
+
+        Protects against servers returning Content-Length: "chunked" or other
+        malformed values that would previously cause a ValueError crash at ``int(cl)``.
+        """
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            return _mock_stream(200, b"hello", {"content-length": "not-a-number"})
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                with pytest.raises(
+                    SSRFValidationError, match="malformed content-length"
+                ):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+    def test_none_content_length_not_checked(self):
+        """Absent Content-Length header must not raise; the streamed-bytes cap applies."""
+        body = b"short body"
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            # No content-length header
+            return _mock_stream(200, body)
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                result, _ = safe_fetch_bytes(ALLOWED_URL)
+        assert result == body

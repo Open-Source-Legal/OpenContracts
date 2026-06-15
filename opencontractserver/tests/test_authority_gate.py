@@ -133,3 +133,56 @@ class GatePendingApprovalTests(TestCase):
         )
         self.assertEqual(decision.verdict, GATE_PENDING_APPROVAL)
         self.assertEqual(decision.verify, "match")
+
+
+class GateHeadingFalsePositiveTests(TestCase):
+    """Check that heading fallback uses word-boundary matching, not substring.
+
+    Regression for the case where section_id "1" would falsely match headings
+    containing "15", "1722", or other numbers that contain "1" as a substring.
+    """
+
+    def test_heading_substring_does_not_match(self):
+        """Section id '1' must NOT match heading 'Title 15 — Commerce'.
+
+        'Title 15 — Commerce' contains '1' and '15' as substrings, but the
+        section id '1' does not appear as a whole token.
+        """
+        # requested key: usc-15:1, section key: usc-15:99 (no exact match)
+        decision = AuthorityGateService.evaluate(
+            canonical_key="usc-15:1",
+            sections=[_section(key="usc-15:99", heading="Title 15 — Commerce")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")
+
+    def test_heading_whole_token_matches(self):
+        """Section id '1' DOES match heading 'Section 1 of Title 15' (whole token)."""
+        decision = AuthorityGateService.evaluate(
+            canonical_key="usc-15:1",
+            sections=[_section(key="usc-15:99", heading="Section 1 of Title 15")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_OK)
+        self.assertEqual(decision.verify, "match")
+
+    def test_heading_section_id_at_start(self):
+        """Section id '78j' at the very start of heading is matched."""
+        decision = AuthorityGateService.evaluate(
+            canonical_key="usc-15:78j",
+            sections=[_section(key="usc-15:99z", heading="78j. Manipulative devices")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_OK)
+        self.assertEqual(decision.verify, "match")
+
+    def test_section_id_embedded_in_longer_token_not_matched(self):
+        """Section id '15' must NOT match heading 'Title 150' (different token)."""
+        decision = AuthorityGateService.evaluate(
+            canonical_key="usc-1:15",
+            sections=[_section(key="usc-1:99", heading="Title 150 provisions")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")

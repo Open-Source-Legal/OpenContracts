@@ -7,6 +7,7 @@ frontier via AuthorityFrontierService.mark(candidate_record=...).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -89,6 +90,9 @@ class AuthorityGateService:
         domain = urlparse(effective_url).hostname or None
 
         # 3) Source-domain allowlist --------------------------------------------
+        # GATE_BLOCKED_LICENSE covers BOTH a non-public-domain license (check 1)
+        # AND an off-allowlist source domain (here) — both are "untrusted source"
+        # outcomes, so a single state is intentional.
         if domain and not host_on_allowlist(
             domain, allowlist=PUBLIC_DOMAIN_SOURCE_HOSTS
         ):
@@ -132,6 +136,13 @@ class AuthorityGateService:
         """
         if any(s.key == canonical_key for s in sections):
             return True
-        # Fallback: section id (part after ':') surfaces in a heading.
+        # Fallback: section id (part after ':') surfaces as a whole token in a
+        # heading.  Word-boundary match prevents false positives where the
+        # section_id is a substring of a longer token (e.g. "1" inside "15").
         section_id = canonical_key.split(":", 1)[-1]
-        return any(section_id and section_id in (s.heading or "") for s in sections)
+        if not section_id:
+            return False
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])" + re.escape(section_id) + r"(?![A-Za-z0-9])"
+        )
+        return any(bool(pattern.search(s.heading)) for s in sections if s.heading)

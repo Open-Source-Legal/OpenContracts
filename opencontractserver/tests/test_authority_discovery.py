@@ -617,3 +617,124 @@ class GateHappyPathIntegrationTests(TransactionTestCase):
         last = frontier_row.candidate_sources[-1]
         self.assertEqual(last["outcome"], "ingested")
         self.assertEqual(last["verify"], "match")
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 hardening tests
+# ---------------------------------------------------------------------------
+
+
+class FetchFailureAuditTests(TransactionTestCase):
+    """Fetch errors are recorded in candidate_sources with outcome='failed'."""
+
+    def test_httpx_error_records_audit_trail(self):
+        """When provider.fetch raises an httpx error, frontier state=failed and
+        candidate_sources[-1]['outcome']=='failed'."""
+        import httpx
+
+        user = _create_user("fetch-fail-audit-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            side_effect=httpx.ConnectError("connection refused"),
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "failed", result)
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(frontier_row.discovery_state, "failed")
+        self.assertGreater(
+            len(frontier_row.candidate_sources or []),
+            0,
+            "candidate_sources must record the failed attempt",
+        )
+        last = frontier_row.candidate_sources[-1]
+        self.assertEqual(last["outcome"], "failed")
+        self.assertIn("error", last)
+        self.assertTrue(last["error"])
+
+
+class DisabledAgenticUnsupportedTests(TransactionTestCase):
+    """When agentic provider is disabled (default) and no deterministic provider
+    can handle a key, discovery returns 'unsupported'."""
+
+    def test_disabled_agentic_does_not_handle_unknown_key(self):
+        """act:obscure-thing:1 is not handled by USC/CFR/FR providers, and the
+        agentic provider is disabled by default — so result is unsupported."""
+        user = _create_user("disabled-agentic-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="act:obscure-thing:1",
+            authority="act",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        result = AuthorityDiscoveryService.discover_and_bootstrap(
+            creator_id=user.id,
+            frontier_row=frontier_row,
+            make_public=True,
+            relink_async=False,
+        )
+
+        self.assertEqual(result["status"], "unsupported", result)
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(frontier_row.discovery_state, "unsupported")
+
+
+class IngestedCandidateRecordAuditTests(TransactionTestCase):
+    """After successful ingest, candidate_sources[-1]['outcome'] == 'ingested'."""
+
+    def test_ingested_outcome_in_candidate_sources(self):
+        """Happy-path ingest sets candidate_sources[-1]['outcome']=='ingested'."""
+        user = _create_user("ingested-audit-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_SECTION_FIXTURE,
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], "ingested", result)
+
+        frontier_row.refresh_from_db()
+        self.assertGreater(
+            len(frontier_row.candidate_sources or []),
+            0,
+            "candidate_sources must be populated after ingest",
+        )
+        last = frontier_row.candidate_sources[-1]
+        self.assertEqual(last["outcome"], "ingested")
+        self.assertIn("attempted_at", last)
+        self.assertIsNotNone(last.get("license"))

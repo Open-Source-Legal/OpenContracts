@@ -23,7 +23,7 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
-from opencontractserver.utils.safe_http import safe_fetch_text
+from opencontractserver.utils.safe_http import safe_fetch_text, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,7 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         headers = {"User-Agent": _USER_AGENT}
 
         # --- Step 1: citation redirect → document_number --------------------
+        validate_url(request.url)
         step1_resp = requests.get(
             request.url,
             allow_redirects=False,
@@ -175,6 +176,7 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             base=_FR_API_BASE,
             document_number=document_number,
         )
+        validate_url(doc_json_url)
         doc_resp = requests.get(doc_json_url, headers=headers, timeout=30)
         doc_resp.raise_for_status()
         doc = doc_resp.json()

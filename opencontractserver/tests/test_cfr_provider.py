@@ -309,3 +309,16 @@ class TestCFRValidation(SimpleTestCase):
             req = provider._locate_impl("cfr-40:261.4")
             with self.assertRaises(httpx.HTTPStatusError):
                 provider._fetch_impl(req)
+
+    def test_fetch_uses_safe_fetch_bytes(self):
+        """safe_fetch_bytes must be invoked during _fetch_impl (not raw requests/httpx)."""
+        with patch(
+            _SAFE_FETCH_PATH, return_value=(_FIXTURE_XML, "www.ecfr.gov")
+        ) as mock_safe:
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            provider._fetch_impl(req)
+        self.assertTrue(
+            mock_safe.called,
+            "safe_fetch_bytes must be called by _fetch_impl; raw HTTP must not be used",
+        )

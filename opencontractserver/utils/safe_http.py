@@ -13,6 +13,16 @@ or ``safe_fetch_text``.  They enforce:
 
 ``SSRFValidationError`` (subclasses ``ValueError``) is raised for every safety
 violation so callers can distinguish "blocked for safety" from "network error".
+
+DNS-rebind TOCTOU note
+----------------------
+This helper validates DNS at check time but httpx re-resolves at connect time,
+so a DNS-rebind time-of-check/time-of-use window technically exists.  In
+practice it is not exploitable here because the allowlist is a fixed set of
+public-domain ``.gov`` hosts whose DNS the attacker cannot control, and
+``_assert_public_ip`` rejects if ANY resolved address is non-public.
+Full DNS-pinning (resolve once, connect to the pinned IP with the hostname as
+SNI) is a documented follow-up improvement for defence-in-depth.
 """
 
 from __future__ import annotations
@@ -128,10 +138,15 @@ def safe_fetch_bytes(
                     continue
                 r.raise_for_status()
                 cl = r.headers.get("content-length")
-                if cl and int(cl) > max_bytes:
-                    raise SSRFValidationError(
-                        f"content-length {cl} exceeds cap of {max_bytes} bytes"
-                    )
+                if cl:
+                    try:
+                        cl_int = int(cl)
+                    except (ValueError, TypeError):
+                        raise SSRFValidationError(f"malformed content-length {cl!r}")
+                    if cl_int > max_bytes:
+                        raise SSRFValidationError(
+                            f"content-length {cl} exceeds cap of {max_bytes} bytes"
+                        )
                 chunks: list[bytes] = []
                 total = 0
                 for chunk in r.iter_bytes():

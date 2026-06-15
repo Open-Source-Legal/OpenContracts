@@ -327,3 +327,31 @@ class TestUSCodeValidation(SimpleTestCase):
                 msg="Expected SSRFValidationError for oversized download",
             ):
                 self.provider._load_title_xml(req)
+
+    def test_load_title_xml_uses_safe_fetch_bytes(self):
+        """safe_fetch_bytes must be invoked during _load_title_xml (not raw HTTP)."""
+        import io
+        import zipfile
+        from unittest.mock import patch
+
+        # Build a minimal ZIP in-memory containing the expected XML member.
+        padded = "15"
+        member_name = f"usc{padded}.xml"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(member_name, b"<root/>")
+        zip_bytes = buf.getvalue()
+
+        req = self.provider.locate("usc-15:2")
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers."
+            "us_code_provider.safe_fetch_bytes",
+            return_value=(zip_bytes, "uscode.house.gov"),
+        ) as mock_safe:
+            self.provider._load_title_xml(req)
+
+        self.assertTrue(
+            mock_safe.called,
+            "safe_fetch_bytes must be called by _load_title_xml; raw HTTP must not be used",
+        )

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 from django.db.models import Q
 
 from opencontractserver.annotations.models import AuthorityFrontier
@@ -47,6 +48,8 @@ class AuthorityDiscoveryService(BaseService):
         )
         for defn in defns:
             if defn.component_class is None:
+                continue
+            if not getattr(defn.component_class, "enabled", True):
                 continue
             provider = defn.component_class()
             if provider.can_handle(canonical_key):
@@ -113,18 +116,36 @@ class AuthorityDiscoveryService(BaseService):
             sections = provider.fetch(request)
         except (
             requests.RequestException,
+            httpx.HTTPError,
             OSError,
             ValueError,
             KeyError,
             ET.ParseError,
             zipfile.BadZipFile,
         ) as exc:
+            from django.utils import timezone
+
             logger.exception(
                 "AuthorityDiscoveryService: provider %s failed for %s",
                 name,
                 canonical_key,
             )
-            AuthorityFrontierService.mark(frontier_row, "failed", error=str(exc))
+            candidate_record = {
+                "provider": name,
+                "can_handle": True,
+                "license": provider.license,
+                "source_domain": None,
+                "verify": "skipped",
+                "outcome": "failed",
+                "error": str(exc),
+                "attempted_at": timezone.now().isoformat(),
+            }
+            AuthorityFrontierService.mark(
+                frontier_row,
+                "failed",
+                error=str(exc),
+                candidate_record=candidate_record,
+            )
             return {
                 "status": "failed",
                 "error": str(exc),
