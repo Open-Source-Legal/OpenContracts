@@ -1949,6 +1949,16 @@ class CorpusReference(BaseOCModel):
     )
     normalized_data = django.db.models.JSONField(null=True, blank=True)
     confidence = django.db.models.FloatField(default=1.0)
+    # Phase 0 classification — jurisdiction is a hierarchical code ("us-federal",
+    # "us-de", "us-ca-san-francisco"); authority_type is the controlled vocab in
+    # constants.ALL_AUTHORITY_TYPES. Nullable: legacy rows and non-law refs have
+    # neither. Indexed for frontier/regime filtering.
+    jurisdiction = django.db.models.CharField(
+        max_length=64, null=True, blank=True, db_index=True
+    )
+    authority_type = django.db.models.CharField(
+        max_length=32, null=True, blank=True, db_index=True
+    )
     resolution_status = django.db.models.CharField(
         max_length=16, choices=RESOLUTION_STATUS_CHOICES, default="RESOLVED"
     )
