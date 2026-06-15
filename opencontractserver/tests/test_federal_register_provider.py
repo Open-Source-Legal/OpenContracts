@@ -331,7 +331,7 @@ class TestFederalRegisterSecurity(SimpleTestCase):
         "opencontractserver.pipeline.authority_source_providers."
         "federal_register_provider.requests.get"
     )
-    def test_raw_text_url_offhost_falls_back_to_abstract(self, mock_get: "MagicMock"):
+    def test_raw_text_url_offhost_falls_back_to_abstract(self, mock_get: MagicMock):
         """raw_text_url on a non-federalregister.gov host must NOT be fetched."""
         import json
         import pathlib
@@ -371,7 +371,7 @@ class TestFederalRegisterSecurity(SimpleTestCase):
         "opencontractserver.pipeline.authority_source_providers."
         "federal_register_provider.requests.get"
     )
-    def test_malformed_citation_falls_back_to_request_key(self, mock_get: "MagicMock"):
+    def test_malformed_citation_falls_back_to_request_key(self, mock_get: MagicMock):
         """If JSON citation doesn't match FR regex, key falls back to request key."""
         import json
         import pathlib
