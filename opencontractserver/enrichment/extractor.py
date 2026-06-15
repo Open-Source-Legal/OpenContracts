@@ -25,6 +25,13 @@ class Candidate:
     raw_text: str
     canonical_key: str | None = None
     normalized_data: dict = field(default_factory=dict)
+    # Phase 1 classification + detection provenance. Registry-tier candidates
+    # leave jurisdiction/authority_type None (filled later from the namespace
+    # table); generic-grammar candidates set them at detection time.
+    jurisdiction: str | None = None
+    authority_type: str | None = None
+    detection_tier: str = C.DETECTION_TIER_REGISTRY
+    detection_confidence: float = 1.0
 
 
 # "Section 145", "Section 4(a)(2)", "Section 7(a)(2)(B)" followed by authority.

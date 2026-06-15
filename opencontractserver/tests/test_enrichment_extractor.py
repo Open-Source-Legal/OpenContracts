@@ -182,3 +182,24 @@ class ReferenceExtractorTests(SimpleTestCase):
     def test_no_false_positive_on_plain_text(self):
         text = "The company sells software to enterprise customers worldwide."
         assert self.extractor.extract(text) == []
+
+
+class CandidateClassificationTests(SimpleTestCase):
+    def test_candidate_has_classification_defaults(self):
+        from opencontractserver.enrichment.extractor import Candidate
+        from opencontractserver.enrichment import constants as C
+
+        c = Candidate(reference_type=C.REF_LAW, start=0, end=3, raw_text="x")
+        assert c.jurisdiction is None
+        assert c.authority_type is None
+        assert c.detection_tier == C.DETECTION_TIER_REGISTRY
+        assert c.detection_confidence == 1.0
+
+    def test_registry_extractor_marks_tier(self):
+        from opencontractserver.enrichment.extractor import ReferenceExtractor
+
+        cands = ReferenceExtractor().extract(
+            "Section 145 of the Delaware General Corporation Law"
+        )
+        assert cands
+        assert all(c.detection_tier == "registry" for c in cands)
