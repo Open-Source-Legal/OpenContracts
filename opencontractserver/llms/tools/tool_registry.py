@@ -420,6 +420,14 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         ),
         category=ToolCategory.CORPUS,
         requires_corpus=True,
+        parameters=(
+            (
+                "use_llm",
+                "Run an extra LLM detection pass for prose/obscure citations "
+                "(slower, costs tokens)",
+                False,
+            ),
+        ),
     ),
     ToolDefinition(
         name="bootstrap_authority_corpus",
