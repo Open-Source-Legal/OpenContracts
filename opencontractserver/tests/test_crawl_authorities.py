@@ -382,7 +382,7 @@ class BoundsTerminationTests(TransactionTestCase):
             ".AuthorityFrontierService.seed_from_wanted_authorities",
             return_value={"frontier_created": 0, "frontier_updated": 0},
         ):
-            summary = CrawlAuthoritiesService.crawl(
+            CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
                 max_depth=1,
                 min_demand=1,

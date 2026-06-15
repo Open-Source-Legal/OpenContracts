@@ -112,9 +112,7 @@ class CrawlAuthoritiesService(BaseService):
                 # Count how many queued rows remain (below the floor / past
                 # max_depth) so the summary is non-silent about what was left.
                 blocked_by_bound["min_demand_or_depth"] = (
-                    AuthorityFrontier.objects.filter(
-                        discovery_state="queued"
-                    ).count()
+                    AuthorityFrontier.objects.filter(discovery_state="queued").count()
                 )
                 stop_reason = "frontier_drained"
                 break
@@ -256,7 +254,7 @@ class CrawlAuthoritiesService(BaseService):
 
         return {
             row["discovery_state"]: row["n"]
-            for row in AuthorityFrontier.objects.values(
-                "discovery_state"
-            ).annotate(n=Count("id"))
+            for row in AuthorityFrontier.objects.values("discovery_state").annotate(
+                n=Count("id")
+            )
         }
