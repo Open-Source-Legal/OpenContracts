@@ -96,6 +96,28 @@ class TestVerifyAndPlace:
         # "Section 1" is not in "Short." so hallucination → None
         assert result is None
 
+    def test_verify_and_place_picks_nearest_occurrence(self):
+        """When raw_text appears multiple times, pick the occurrence nearest cand.start."""
+        citation = "42 U.S.C. § 1983"
+        # Build a string where the citation appears near offset 10 and again near offset 200.
+        # Pad with filler so the second occurrence lands around 200.
+        padding = "x" * 180
+        chunk_text = f"See {citation} for relief. {padding} Also {citation} applies."
+        first_occ = chunk_text.index(citation)  # ~4
+        second_occ = chunk_text.index(citation, first_occ + 1)  # ~200+
+
+        # cand.start is near the SECOND occurrence (does not exactly match)
+        cand = self._make_cand(citation, second_occ + 3, second_occ + 3 + len(citation))
+
+        # The exact fast-path will miss because start + 3 shifts the check.
+        # Recovery should pick the SECOND occurrence, not the first.
+        result = verify_and_place(chunk_text, 0, chunk_text, cand)
+        assert result is not None
+        # Result should land at the second occurrence, not the first
+        assert result["start"] == second_occ
+        assert result["end"] == second_occ + len(citation)
+        assert result["raw_text"] == citation
+
 
 # ---------------------------------------------------------------------------
 # _normalize_jurisdiction
@@ -349,3 +371,279 @@ class TestLLMCitationExtractorAsync(TransactionTestCase):
             mod.abuild_agent_model = original
 
         assert results == []
+
+    async def test_aextract_same_span_two_keys_dedups_to_one(self):
+        """Same span appearing in two overlapping chunks deduplicates to one Candidate.
+
+        The TestModel returns the same raw_text at the same absolute position
+        from both chunk 0 and chunk 1, but with different normalized_citation
+        strings. After dedup on (start, end) only one Candidate must survive.
+        """
+        from pydantic_ai.models.test import TestModel
+
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        citation_text = "42 U.S.C. § 1983"
+        # Place citation near the start so it falls in the overlap of chunk 0 and 1.
+        # Window=60, overlap=20 → step=40. The citation at offset 5 is in both chunks.
+        prefix = "See "
+        text = prefix + citation_text + " " + ("A" * 200)
+
+        citation_start = len(prefix)  # 4
+        citation_end = citation_start + len(citation_text)
+
+        call_count = 0
+
+        # Alternate normalized_citation between calls to prove key doesn't matter.
+        def _make_model(nc: str):
+            return TestModel(
+                custom_output_args={
+                    "citations": [
+                        {
+                            "raw_text": citation_text,
+                            "start": citation_start,
+                            "end": citation_end,
+                            "jurisdiction": "Federal",
+                            "authority_type": "statute",
+                            "normalized_citation": nc,
+                            "confidence": 0.9,
+                        }
+                    ]
+                }
+            )
+
+        models = [_make_model("usc:42-1983"), _make_model("act:civil-rights-42-1983")]
+        original_build = mod.abuild_agent_model
+        original_one_shot = mod._one_shot_structured
+
+        async def fake_build(spec):
+            return None  # model value unused; we patch _one_shot_structured
+
+        async def fake_one_shot(*, chunk_text, model):
+            nonlocal call_count
+            m = models[min(call_count, len(models) - 1)]
+            call_count += 1
+            # Only return the citation if it actually appears in this chunk.
+            if citation_text in chunk_text:
+                from opencontractserver.enrichment.llm_citation_extractor import (
+                    ChunkCitationExtraction,
+                    CitationCandidate,
+                )
+
+                # Adjust offsets to be chunk-relative.
+                chunk_start_offset = text.index(chunk_text[:20])
+                local_start = citation_start - chunk_start_offset
+                local_end = citation_end - chunk_start_offset
+                if local_start >= 0 and local_end <= len(chunk_text):
+                    return ChunkCitationExtraction(
+                        citations=[
+                            CitationCandidate(
+                                raw_text=citation_text,
+                                start=local_start,
+                                end=local_end,
+                                jurisdiction="Federal",
+                                authority_type="statute",
+                                normalized_citation=m.custom_output_args["citations"][
+                                    0
+                                ]["normalized_citation"],
+                                confidence=0.9,
+                            )
+                        ]
+                    )
+            from opencontractserver.enrichment.llm_citation_extractor import (
+                ChunkCitationExtraction,
+            )
+
+            return ChunkCitationExtraction(citations=[])
+
+        mod.abuild_agent_model = fake_build
+        mod._one_shot_structured = fake_one_shot
+        try:
+            extractor = LLMCitationExtractor(window=60, overlap=20)
+            results = await extractor.aextract(text)
+        finally:
+            mod.abuild_agent_model = original_build
+            mod._one_shot_structured = original_one_shot
+
+        # Exactly one Candidate for the span, regardless of differing keys.
+        span_results = [
+            r for r in results if r.start == citation_start and r.end == citation_end
+        ]
+        assert len(span_results) == 1, (
+            f"Expected 1 Candidate for the span, got {len(span_results)}: "
+            f"{[(r.start, r.end, r.canonical_key) for r in span_results]}"
+        )
+
+    async def test_aextract_multi_chunk(self):
+        """Text longer than window → chunked; Candidate offsets are absolute."""
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        citation_text = "Section 5 of the Securities Act"
+        # Place the citation in the second chunk (past the first window).
+        window = 60
+        overlap = 10
+        # First chunk covers [0, 60); second covers [50, 110).
+        # Put the citation at offset 55 so it falls into chunk 1 only.
+        prefix = "A" * 55
+        full_text = prefix + citation_text + " and more text here."
+
+        citation_start = 55
+
+        original_build = mod.abuild_agent_model
+        original_one_shot = mod._one_shot_structured
+
+        async def fake_build(spec):
+            return None
+
+        async def fake_one_shot(*, chunk_text, model):
+            from opencontractserver.enrichment.llm_citation_extractor import (
+                ChunkCitationExtraction,
+                CitationCandidate,
+            )
+
+            if citation_text not in chunk_text:
+                return ChunkCitationExtraction(citations=[])
+            local_start = chunk_text.index(citation_text)
+            local_end = local_start + len(citation_text)
+            return ChunkCitationExtraction(
+                citations=[
+                    CitationCandidate(
+                        raw_text=citation_text,
+                        start=local_start,
+                        end=local_end,
+                        jurisdiction="Federal",
+                        authority_type="statute",
+                        normalized_citation="securities-act:5",
+                        confidence=0.85,
+                    )
+                ]
+            )
+
+        mod.abuild_agent_model = fake_build
+        mod._one_shot_structured = fake_one_shot
+        try:
+            extractor = LLMCitationExtractor(window=window, overlap=overlap)
+            results = await extractor.aextract(full_text)
+        finally:
+            mod.abuild_agent_model = original_build
+            mod._one_shot_structured = original_one_shot
+
+        assert len(results) == 1
+        c = results[0]
+        assert c.start == citation_start
+        assert c.end == citation_start + len(citation_text)
+        assert full_text[c.start : c.end] == citation_text
+
+    async def test_aextract_confidence_boundary(self):
+        """Confidence exactly at LLM_CONFIDENCE_FLOOR → not needs_review; just below → needs_review."""
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        text = "The Clean Air Act § 112 governs air quality standards."
+        citation_text = "Clean Air Act § 112"
+
+        original_build = mod.abuild_agent_model
+        original_one_shot = mod._one_shot_structured
+
+        async def fake_build(spec):
+            return None
+
+        async def _run_with_confidence(confidence: float):
+            from opencontractserver.enrichment.llm_citation_extractor import (
+                ChunkCitationExtraction,
+                CitationCandidate,
+            )
+
+            async def fake_one_shot(*, chunk_text, model):
+                if citation_text not in chunk_text:
+                    return ChunkCitationExtraction(citations=[])
+                local_start = chunk_text.index(citation_text)
+                local_end = local_start + len(citation_text)
+                return ChunkCitationExtraction(
+                    citations=[
+                        CitationCandidate(
+                            raw_text=citation_text,
+                            start=local_start,
+                            end=local_end,
+                            jurisdiction="Federal",
+                            authority_type="statute",
+                            normalized_citation="",
+                            confidence=confidence,
+                        )
+                    ]
+                )
+
+            mod.abuild_agent_model = fake_build
+            mod._one_shot_structured = fake_one_shot
+            try:
+                extractor = LLMCitationExtractor(window=len(text) + 50)
+                return await extractor.aextract(text)
+            finally:
+                mod.abuild_agent_model = original_build
+                mod._one_shot_structured = original_one_shot
+
+        # Exactly at floor (0.7) → needs_review is False (code uses < FLOOR)
+        results_at_floor = await _run_with_confidence(C.LLM_CONFIDENCE_FLOOR)
+        assert len(results_at_floor) == 1
+        assert results_at_floor[0].normalized_data.get("needs_review") is False
+
+        # Just below floor (0.69) → needs_review is True
+        results_below = await _run_with_confidence(0.69)
+        assert len(results_below) == 1
+        assert results_below[0].normalized_data.get("needs_review") is True
+
+    async def test_aextract_unknown_jurisdiction_type(self):
+        """Unknown jurisdiction and authority_type produce a Candidate with None for both."""
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        text = "As per the Mars Planetary Code § 7, all colonies must comply."
+        citation_text = "Mars Planetary Code § 7"
+
+        original_build = mod.abuild_agent_model
+        original_one_shot = mod._one_shot_structured
+
+        async def fake_build(spec):
+            return None
+
+        async def fake_one_shot(*, chunk_text, model):
+            from opencontractserver.enrichment.llm_citation_extractor import (
+                ChunkCitationExtraction,
+                CitationCandidate,
+            )
+
+            if citation_text not in chunk_text:
+                return ChunkCitationExtraction(citations=[])
+            local_start = chunk_text.index(citation_text)
+            local_end = local_start + len(citation_text)
+            return ChunkCitationExtraction(
+                citations=[
+                    CitationCandidate(
+                        raw_text=citation_text,
+                        start=local_start,
+                        end=local_end,
+                        jurisdiction="Mars",
+                        authority_type="poem",
+                        normalized_citation="",
+                        confidence=0.8,
+                    )
+                ]
+            )
+
+        mod.abuild_agent_model = fake_build
+        mod._one_shot_structured = fake_one_shot
+        try:
+            extractor = LLMCitationExtractor(window=len(text) + 50)
+            results = await extractor.aextract(text)
+        finally:
+            mod.abuild_agent_model = original_build
+            mod._one_shot_structured = original_one_shot
+
+        # Candidate IS produced — unknown fields don't drop the result.
+        assert len(results) == 1
+        c = results[0]
+        assert (
+            c.jurisdiction is None
+        ), f"Expected None jurisdiction, got {c.jurisdiction!r}"
+        assert (
+            c.authority_type is None
+        ), f"Expected None authority_type, got {c.authority_type!r}"
+        assert c.raw_text == citation_text
