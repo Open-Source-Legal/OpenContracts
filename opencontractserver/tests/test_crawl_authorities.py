@@ -44,3 +44,13 @@ class ImportTest(TransactionTestCase):
     def test_import(self):
         """CrawlAuthoritiesService is importable."""
         self.assertIsNotNone(CrawlAuthoritiesService)
+
+
+class CeleryTaskImportTest(TransactionTestCase):
+    def test_crawl_authorities_task_importable(self):
+        from opencontractserver.tasks.corpus_analysis_tasks import crawl_authorities
+
+        self.assertTrue(
+            getattr(crawl_authorities, "is_corpus_analyzer_task", False),
+            "crawl_authorities must be decorated with @corpus_analyzer_task",
+        )
