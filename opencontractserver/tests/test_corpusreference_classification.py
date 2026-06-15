@@ -60,3 +60,29 @@ class CorpusReferenceClassificationTests(TestCase):
         )
         assert ref.jurisdiction is None
         assert ref.authority_type is None
+
+    def test_detection_provenance_persists(self):
+        ref = CorpusReference.objects.create(
+            corpus=self.corpus,
+            reference_type=C.REF_LAW,
+            source_annotation=self.mention,
+            canonical_key="usc-15:78j(b)",
+            resolution_status=C.STATUS_EXTERNAL,
+            detection_tier=C.DETECTION_TIER_GRAMMAR,
+            detection_confidence=0.9,
+            creator=self.user,
+        )
+        ref.refresh_from_db()
+        assert ref.detection_tier == "grammar"
+        assert ref.detection_confidence == 0.9
+
+    def test_detection_tier_defaults_registry(self):
+        ref = CorpusReference.objects.create(
+            corpus=self.corpus,
+            reference_type=C.REF_LAW,
+            source_annotation=self.mention,
+            canonical_key="z:1",
+            resolution_status=C.STATUS_EXTERNAL,
+            creator=self.user,
+        )
+        assert ref.detection_tier == C.DETECTION_TIER_REGISTRY

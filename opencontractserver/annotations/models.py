@@ -1959,6 +1959,15 @@ class CorpusReference(BaseOCModel):
     authority_type = django.db.models.CharField(
         max_length=32, null=True, blank=True, db_index=True
     )
+    # Phase 1 detection provenance — which layer found the mention and how
+    # confident. detection_tier in constants.DETECTION_TIER_*; defaults to the
+    # trusted registry tier so legacy/registry rows read correctly.
+    detection_tier = django.db.models.CharField(
+        max_length=16,
+        default="registry",
+        db_index=True,
+    )
+    detection_confidence = django.db.models.FloatField(default=1.0)
     resolution_status = django.db.models.CharField(
         max_length=16, choices=RESOLUTION_STATUS_CHOICES, default="RESOLVED"
     )
