@@ -85,3 +85,58 @@ TRAILING_PUNCT = ",.;:"
 ALL_REFERENCE_TYPES = (REF_LAW, REF_DOCUMENT, REF_SECTION, REF_DEFINED_TERM)
 # Defined-terms are opt-in (precision risk); not scanned/applied by default.
 DEFAULT_REFERENCE_TYPES = (REF_LAW, REF_DOCUMENT, REF_SECTION)
+
+# --- Phase 0: jurisdiction + authority-type taxonomy ----------------------- #
+# Jurisdiction codes are hierarchical, '-' separated: "us-ca" is an ancestor of
+# "us-ca-san-francisco". Stored on CorpusReference / AuthorityNamespace.
+JURISDICTION_US_FEDERAL = "us-federal"
+
+# Authority types — controlled vocabulary (CorpusReference.authority_type).
+AUTHORITY_TYPE_STATUTE = "statute"
+AUTHORITY_TYPE_REGULATION = "regulation"
+AUTHORITY_TYPE_ADMIN_RULE = "admin-rule"
+AUTHORITY_TYPE_MUNICIPAL = "municipal-ordinance"
+AUTHORITY_TYPE_CASE = "case"
+AUTHORITY_TYPE_CONSTITUTION = "constitution"
+AUTHORITY_TYPE_COURT_RULE = "court-rule"
+AUTHORITY_TYPE_GUIDANCE = "guidance"
+AUTHORITY_TYPE_TREATY = "treaty"
+ALL_AUTHORITY_TYPES = (
+    AUTHORITY_TYPE_STATUTE,
+    AUTHORITY_TYPE_REGULATION,
+    AUTHORITY_TYPE_ADMIN_RULE,
+    AUTHORITY_TYPE_MUNICIPAL,
+    AUTHORITY_TYPE_CASE,
+    AUTHORITY_TYPE_CONSTITUTION,
+    AUTHORITY_TYPE_COURT_RULE,
+    AUTHORITY_TYPE_GUIDANCE,
+    AUTHORITY_TYPE_TREATY,
+)
+
+# Classification for every prefix the engine ships (drives the namespace seed
+# and the CorpusReference backfill). prefix -> (jurisdiction, authority_type).
+PREFIX_CLASSIFICATION = {
+    "dgcl": ("us-de", AUTHORITY_TYPE_STATUTE),
+    "securities-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
+    "exchange-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
+    "irc": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
+    "ica": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
+    "iaa": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
+    SEC_RULE_PREFIX: (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION),
+}
+
+# Human-readable body-of-law names for the namespace seed.
+PREFIX_DISPLAY_NAME = {
+    "dgcl": "Delaware General Corporation Law",
+    "securities-act": "Securities Act of 1933",
+    "exchange-act": "Securities Exchange Act of 1934",
+    "irc": "Internal Revenue Code",
+    "ica": "Investment Company Act of 1940",
+    "iaa": "Investment Advisers Act of 1940",
+    SEC_RULE_PREFIX: "SEC Rules (17 C.F.R.)",
+}
+
+# Detection provenance — which layer found a mention (CorpusReference.detection_tier).
+DETECTION_TIER_REGISTRY = "registry"  # Tier 1: static/DB alias grammars (trusted)
+DETECTION_TIER_GRAMMAR = "grammar"  # Tier 2a: generic citation-shape grammars
+DETECTION_TIER_LLM = "llm"  # Tier 2b: LLM extraction (future phase)
