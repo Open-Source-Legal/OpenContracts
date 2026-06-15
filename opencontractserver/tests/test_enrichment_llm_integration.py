@@ -138,7 +138,8 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         assert out["review_candidates"] == []
 
     def test_apply_skips_review_bucket(self):
-        """apply() with DETECTION_TIER_LLM extra tier and low-confidence citation writes no CorpusReference for that key."""
+        """apply() never writes a CorpusReference for a low-confidence (review-
+        bucket) LLM citation even with the LLM tier enabled."""
         from pydantic_ai.models.test import TestModel
 
         import opencontractserver.enrichment.llm_citation_extractor as mod
