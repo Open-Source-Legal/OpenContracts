@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<uscDoc xmlns="http://xml.house.gov/schemas/uslm/1.0"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        identifier="/us/usc/t15">
+  <main>
+    <title identifier="/us/usc/t15"><num value="15">Title 15—</num><heading>COMMERCE AND TRADE</heading>
+      <section id="id77ae0b5a" identifier="/us/usc/t15/s2"><num value="2">§ 2.</num><heading> Monopolizing trade a felony; penalty</heading><content>
+        <p class="indent0">Every person who shall monopolize, or attempt to monopolize, ... shall be deemed guilty of a felony, ... or by imprisonment not exceeding 10 years, or by both said punishments, in the discretion of the court.</p>
+        </content><sourceCredit>(<ref href="/us/act/1890-07-02/ch647/s2">July 2, 1890, ch. 647, § 2</ref>, <ref href="/us/stat/26/209">26 Stat. 209</ref>; <ref href="/us/pl/108/237/tII/s215/b">Pub. L. 108–237, title II, § 215(b)</ref>, <date date="2004-06-22">June 22, 2004</date>, <ref href="/us/stat/118/668">118 Stat. 668</ref>.)</sourceCredit>
+        <notes type="uscNote"><note topic="amendments"><heading>Amendments</heading><p>2004—<ref href="/us/pl/108/237">Pub. L. 108–237</ref> substituted "$100,000,000" for "$10,000,000".</p></note></notes>
+      </section>
+    </title>
+  </main>
+</uscDoc>
