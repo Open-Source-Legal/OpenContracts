@@ -81,6 +81,7 @@ def discover_authorities(
     corpus_id: int,
     creator_id: int,
     max_documents: int | None = None,
+    use_llm: bool = False,
 ) -> dict:
     """Open-vocabulary authority inventory (read-only).
 
@@ -94,11 +95,17 @@ def discover_authorities(
     Cost scales with corpus size (every document's full text is scanned). On a
     large corpus pass ``max_documents`` to cap the scan; the result then reports
     ``documents_total`` and ``documents_truncated`` so the cap is explicit.
+
+    Set ``use_llm=True`` to run an additional LLM detection pass for
+    prose/obscure citations (slower, costs tokens). Defaults to ``False``.
     """
     from opencontractserver.enrichment.services import EnrichmentService
 
     return EnrichmentService().discover(
-        corpus_id=corpus_id, creator_id=creator_id, max_documents=max_documents
+        corpus_id=corpus_id,
+        creator_id=creator_id,
+        max_documents=max_documents,
+        use_llm=use_llm,
     )
 
 
@@ -218,7 +225,11 @@ async def adiscover_authorities(
     corpus_id: int,
     creator_id: int,
     max_documents: int | None = None,
+    use_llm: bool = False,
 ) -> dict:
     return await _db_sync_to_async(discover_authorities)(
-        corpus_id=corpus_id, creator_id=creator_id, max_documents=max_documents
+        corpus_id=corpus_id,
+        creator_id=creator_id,
+        max_documents=max_documents,
+        use_llm=use_llm,
     )
