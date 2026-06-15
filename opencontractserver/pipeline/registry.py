@@ -21,6 +21,9 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any, Optional, TypedDict
 
+from opencontractserver.pipeline.base.base_authority_source_provider import (
+    BaseAuthoritySourceProvider,
+)
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.enricher import BaseEnricher
 from opencontractserver.pipeline.base.file_types import (
@@ -50,6 +53,7 @@ class ComponentType(str, Enum):
     ENRICHER = "enricher"
     RERANKER = "reranker"
     LLM_PROVIDER = "llm_provider"
+    AUTHORITY_SOURCE_PROVIDER = "authority_source_provider"
 
 
 @dataclass(frozen=True)
@@ -162,6 +166,7 @@ class PipelineComponentRegistry:
         self._enrichers: tuple[PipelineComponentDefinition, ...] = ()
         self._rerankers: tuple[PipelineComponentDefinition, ...] = ()
         self._llm_providers: tuple[PipelineComponentDefinition, ...] = ()
+        self._authority_source_providers: tuple[PipelineComponentDefinition, ...] = ()
 
         # Name -> Definition lookup for fast access
         self._by_name: dict[str, PipelineComponentDefinition] = {}
@@ -461,6 +466,19 @@ class PipelineComponentRegistry:
                 )
         self._llm_providers = tuple(llm_providers)
 
+        # Discover authority source providers
+        authority_source_provider_classes = self._discover_subclasses(
+            "opencontractserver.pipeline.authority_source_providers",
+            BaseAuthoritySourceProvider,
+        )
+        authority_source_providers = []
+        for cls in authority_source_provider_classes:
+            defn = self._create_definition(cls, ComponentType.AUTHORITY_SOURCE_PROVIDER)
+            authority_source_providers.append(defn)
+            self._by_name[defn.name] = defn
+            self._by_class_name[defn.class_name] = defn
+        self._authority_source_providers = tuple(authority_source_providers)
+
         logger.info(
             f"Pipeline registry initialized: "
             f"{len(self._parsers)} parsers, "
@@ -469,7 +487,8 @@ class PipelineComponentRegistry:
             f"{len(self._post_processors)} post-processors, "
             f"{len(self._enrichers)} enrichers, "
             f"{len(self._rerankers)} rerankers, "
-            f"{len(self._llm_providers)} llm-providers"
+            f"{len(self._llm_providers)} llm-providers, "
+            f"{len(self._authority_source_providers)} authority-source-providers"
         )
 
     # -------------------------------------------------------------------------
@@ -510,6 +529,11 @@ class PipelineComponentRegistry:
     def llm_providers(self) -> tuple[PipelineComponentDefinition, ...]:
         """Get all registered LLM providers."""
         return self._llm_providers
+
+    @property
+    def authority_source_providers(self) -> tuple[PipelineComponentDefinition, ...]:
+        """Get all registered authority source providers."""
+        return self._authority_source_providers
 
     def get_llm_provider_by_key(
         self, provider_key: str
@@ -610,6 +634,13 @@ def get_all_llm_providers_cached() -> tuple[PipelineComponentDefinition, ...]:
     return get_registry().llm_providers
 
 
+def get_all_authority_source_providers_cached() -> (
+    tuple[PipelineComponentDefinition, ...]
+):
+    """Get all registered authority source providers (cached)."""
+    return get_registry().authority_source_providers
+
+
 def get_llm_provider_by_key_cached(
     provider_key: str,
 ) -> Optional[PipelineComponentDefinition]:
@@ -674,6 +705,7 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "enrichers": registry.enrichers,
         "rerankers": registry.rerankers,
         "llm_providers": registry.llm_providers,
+        "authority_source_providers": registry.authority_source_providers,
     }
 
 
