@@ -196,6 +196,20 @@ class FindAuthorityTargetTests(TestCase):
         ]
         assert candidate_keys("dgcl:145") == ["dgcl:145"]
 
+    def test_candidate_keys_preserve_dotted_and_hyphenated_sections(self):
+        # Dotted/hyphenated SECTION numbers are whole sections, NOT subsections:
+        # only parenthetical groups roll up. (Regression: the old root regex
+        # truncated cfr-40:261.4 -> cfr-40:261 and usc-15:80a-1 -> usc-15:80a.)
+        assert candidate_keys("cfr-40:261.4") == ["cfr-40:261.4"]
+        assert candidate_keys("cfr-17:240.10b-5") == ["cfr-17:240.10b-5"]
+        assert candidate_keys("usc-15:80a-1") == ["usc-15:80a-1"]
+        assert candidate_keys("sec-rule:10b-5") == ["sec-rule:10b-5"]
+        # A subsection of a dotted section rolls up to the dotted section root.
+        assert candidate_keys("cfr-40:261.4(a)") == [
+            "cfr-40:261.4(a)",
+            "cfr-40:261.4",
+        ]
+
     def test_exact_and_subsection_keys_resolve(self):
         exact = find_authority_target("dgcl:122", self.user)
         sub = find_authority_target("dgcl:122(17)", self.user)

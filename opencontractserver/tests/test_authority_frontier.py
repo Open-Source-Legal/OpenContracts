@@ -522,8 +522,9 @@ class SeedChildKeysTests(TestCase):
 
         Parent is exchange-act:10 (no conflict with seeded keys).
         Seeds:
-          "usc-15:78j(b)" → root "usc-15:78j"   (new row)
-          "cfr-40:261.4"  → root "cfr-40:261"    (new row; .4 subsection stripped)
+          "usc-15:78j(b)" → root "usc-15:78j"   (new row; (b) subsection stripped)
+          "cfr-40:261.4"  → root "cfr-40:261.4"  (new row; ".4" is a WHOLE section,
+                                                  NOT a subsection — preserved intact)
         Both are new → child_created=2.
         """
         parent = self._make_parent("exchange-act:10", depth=0)
@@ -534,8 +535,9 @@ class SeedChildKeysTests(TestCase):
         self.assertEqual(result["child_skipped"], 0)
 
         usc_row = AuthorityFrontier.objects.get(canonical_key="usc-15:78j")
-        # cfr-40:261.4 rolls to cfr-40:261 (ROOT_KEY_RE strips ".4")
-        cfr_row = AuthorityFrontier.objects.get(canonical_key="cfr-40:261")
+        # cfr-40:261.4 is a whole section (part 261, section .4) — the dotted
+        # section number is preserved; only parenthetical subsections roll up.
+        cfr_row = AuthorityFrontier.objects.get(canonical_key="cfr-40:261.4")
 
         # Both should be at depth 1 and in queued state
         self.assertEqual(usc_row.depth, 1)
@@ -565,13 +567,13 @@ class SeedChildKeysTests(TestCase):
     def test_idempotent_second_call(self):
         """Calling seed_child_keys again with the same keys must skip all.
 
-        "cfr-17:240.10b-5" rolls to root "cfr-17:240"; "usc-15:77b" stays as-is.
-        First call creates 2 rows; second call skips both (idempotent).
+        "cfr-17:240.10b-5" is a whole section (preserved); "usc-15:77b" stays
+        as-is. First call creates 2 rows; second call skips both (idempotent).
         """
         parent = self._make_parent("exchange-act:10", depth=0)
         raw_keys = ["cfr-17:240.10b-5", "usc-15:77b"]
-        # After rolling: cfr-17:240 and usc-15:77b
-        rolled_roots = ["cfr-17:240", "usc-15:77b"]
+        # Both are whole sections (no parenthetical subsection to strip).
+        rolled_roots = ["cfr-17:240.10b-5", "usc-15:77b"]
 
         first = AuthorityFrontierService.seed_child_keys(parent, raw_keys)
         self.assertEqual(first["child_created"], 2)

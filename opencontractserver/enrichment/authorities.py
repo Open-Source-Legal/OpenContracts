@@ -32,10 +32,14 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 # Subsection canonical keys fall back to their root section: the authority
-# corpus stores one document per *section* (dgcl:122), while citations may be
-# subsection-precise (dgcl:122(17)). Root = authority prefix + section number
-# (with optional trailing letter), i.e. everything before the first "(".
-_ROOT_KEY_RE = re.compile(r"^(?P<root>[a-z0-9-]+:\d+[a-z]?)", re.IGNORECASE)
+# corpus stores one document per *section* (dgcl:122, cfr-40:261.4), while
+# citations may be subsection-precise (dgcl:122(17), cfr-40:261.4(a)). The root
+# is the key with trailing parenthetical SUBSECTION groups stripped. Dotted /
+# hyphenated SECTION numbers (cfr-40:261.4, usc-15:80a-1, cfr-17:240.10b-5,
+# sec-rule:10b-5) are WHOLE sections and must be preserved intact — the old
+# "digits + optional letter" root pattern wrongly truncated them at the first
+# "." or "-".
+_SUBSECTION_SUFFIX_RE = re.compile(r"(?:\([0-9a-zA-Z]+\))+$")
 
 
 @dataclass
@@ -51,9 +55,9 @@ class AuthoritySection:
 def candidate_keys(canonical_key: str) -> list[str]:
     """Keys to try when resolving a citation: exact first, then section root."""
     keys = [canonical_key]
-    m = _ROOT_KEY_RE.match(canonical_key)
-    if m and m.group("root") != canonical_key:
-        keys.append(m.group("root"))
+    root = _SUBSECTION_SUFFIX_RE.sub("", canonical_key)
+    if root and root != canonical_key:
+        keys.append(root)
     return keys
 
 
