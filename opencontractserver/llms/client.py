@@ -19,6 +19,7 @@ class Provider(Enum):
     """Supported LLM providers."""
 
     OPENAI = "openai"
+    LITELLM = "litellm"
     ANTHROPIC = "anthropic"  # Future support
     GOOGLE = "google"  # Future support
 
@@ -78,6 +79,8 @@ class SimpleLLMClient:
         # Initialize provider-specific client
         if provider == Provider.OPENAI:
             self._init_openai(api_key)
+        elif provider == Provider.LITELLM:
+            self._init_litellm(api_key)
         else:
             raise ValueError(f"Provider {provider} not yet supported")
 
@@ -93,6 +96,15 @@ class SimpleLLMClient:
             raise ValueError("OpenAI API key not found in settings")
 
         self.client = OpenAI(api_key=api_key)
+
+    def _init_litellm(self, api_key: Optional[str] = None) -> None:
+        """Initialize LiteLLM client."""
+        try:
+            import litellm  # noqa: F401
+        except ImportError:
+            raise ImportError("LiteLLM library not installed. Run: pip install litellm")
+
+        self._litellm_api_key = api_key or getattr(settings, "LITELLM_API_KEY", None)
 
     def chat(
         self,
@@ -128,6 +140,8 @@ class SimpleLLMClient:
 
         if self.provider == Provider.OPENAI:
             return self._chat_openai(messages, model, temperature, max_tokens)
+        elif self.provider == Provider.LITELLM:
+            return self._chat_litellm(messages, model, temperature, max_tokens)
         else:
             raise ValueError(f"Provider {self.provider} not yet supported")
 
@@ -178,6 +192,56 @@ class SimpleLLMClient:
 
         except Exception as e:
             logger.error(f"OpenAI chat completion failed: {e}")
+            raise
+
+    def _chat_litellm(
+        self,
+        messages: list[ChatMessage],
+        model: str,
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> ChatResponse:
+        """Execute LiteLLM chat completion."""
+        try:
+            import litellm
+
+            litellm_messages = [
+                {"role": msg.role, "content": msg.content} for msg in messages
+            ]
+
+            params: dict[str, Any] = {
+                "model": model,
+                "messages": litellm_messages,
+                "temperature": temperature,
+                "drop_params": True,
+            }
+            if max_tokens:
+                params["max_tokens"] = max_tokens
+            if self._litellm_api_key:
+                params["api_key"] = self._litellm_api_key
+
+            response = litellm.completion(**params)
+
+            content = response.choices[0].message.content
+            usage = (
+                {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
+                if response.usage
+                else None
+            )
+
+            return ChatResponse(
+                content=content,
+                model=response.model,
+                usage=usage,
+                raw_response=response,
+            )
+
+        except Exception as e:
+            logger.error(f"LiteLLM chat completion failed: {e}")
             raise
 
     async def achat(
