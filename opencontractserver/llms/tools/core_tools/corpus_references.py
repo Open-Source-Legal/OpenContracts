@@ -76,6 +76,25 @@ def list_wanted_authorities(
     }
 
 
+def discover_authorities(
+    *,
+    corpus_id: int,
+    creator_id: int,
+) -> dict:
+    """Open-vocabulary authority inventory (read-only).
+
+    Runs registry + generic citation-shape grammars over the corpus and reports
+    every detected legal authority — including ones outside the built-in
+    registry (US Code, CFR, Federal Register, state/municipal codes, named
+    Acts) — grouped by jurisdiction and authority type. ``new_namespaces`` lists
+    prefixes with no registry entry yet: the candidates worth bootstrapping or
+    locating. Writes nothing.
+    """
+    from opencontractserver.enrichment.services import EnrichmentService
+
+    return EnrichmentService().discover(corpus_id=corpus_id, creator_id=creator_id)
+
+
 def bootstrap_authority_corpus(
     *,
     creator_id: int,
@@ -184,4 +203,13 @@ async def abootstrap_authority_corpus(
         aliases=aliases,
         make_public=make_public,
         relink_async=True,
+    )
+
+async def adiscover_authorities(
+    *,
+    corpus_id: int,
+    creator_id: int,
+) -> dict:
+    return await _db_sync_to_async(discover_authorities)(
+        corpus_id=corpus_id, creator_id=creator_id
     )

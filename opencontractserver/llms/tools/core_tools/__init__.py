@@ -40,10 +40,12 @@ from .corpus_branding import aregenerate_corpus_icon  # noqa: F401
 from .corpus_references import (  # noqa: F401
     aapply_corpus_reference_enrichment,
     abootstrap_authority_corpus,
+    adiscover_authorities,
     alist_wanted_authorities,
     apply_corpus_reference_enrichment,
     ascan_corpus_references,
     bootstrap_authority_corpus,
+    discover_authorities,
     list_wanted_authorities,
     scan_corpus_references,
 )
@@ -208,7 +210,9 @@ __all__ = [
     "alist_wanted_authorities",
     "list_wanted_authorities",
     "abootstrap_authority_corpus",
+    "adiscover_authorities",
     "bootstrap_authority_corpus",
+    "discover_authorities",
     "aduplicate_annotations_with_label",
     "duplicate_annotations_with_label",
     # CAML article review (Readme.CAML)

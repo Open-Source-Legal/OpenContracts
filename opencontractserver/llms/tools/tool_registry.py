@@ -408,6 +408,20 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         requires_corpus=True,
     ),
     ToolDefinition(
+        name="discover_authorities",
+        description=(
+            "Open-vocabulary authority inventory (read-only). Runs the registry "
+            "plus generic citation-shape grammars over the corpus and reports "
+            "every detected legal authority — including ones outside the built-in "
+            "registry (US Code, CFR, Federal Register, state/municipal codes, "
+            "named Acts) — grouped by jurisdiction and authority type. "
+            "'new_namespaces' lists prefixes not yet in the registry: the "
+            "candidates worth bootstrapping or locating. Writes nothing."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+    ),
+    ToolDefinition(
         name="bootstrap_authority_corpus",
         description=(
             "Create or refresh an 'authority corpus' (one text document per "
@@ -1385,6 +1399,7 @@ class ToolFunctionRegistry:
             aapply_caml_article_edit,
             aapply_corpus_reference_enrichment,
             abootstrap_authority_corpus,
+            adiscover_authorities,
             acreate_document_index,
             acreate_markdown_link,
             acreate_or_update_text_document,
@@ -1490,6 +1505,7 @@ class ToolFunctionRegistry:
                 (),
             ),
             "list_wanted_authorities": (alist_wanted_authorities, ()),
+            "discover_authorities": (adiscover_authorities, ()),
             "bootstrap_authority_corpus": (abootstrap_authority_corpus, ()),
             "create_document_index": (acreate_document_index, ()),
             # Corpus tools
