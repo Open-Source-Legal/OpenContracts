@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 from opencontractserver.enrichment.authorities import AuthoritySection
@@ -18,9 +18,10 @@ class AuthorityRequest:
 
     canonical_key: str  # "usc-15:78j"
     url: str  # fully-formed endpoint
-    params: dict | None = None  # query params (eCFR: part/section)
+    # Always-dict (never None) so callers index them without guards.
+    params: dict = field(default_factory=dict)  # query params (eCFR: part/section)
     citation: str | None = None  # human cite, "15 U.S.C. § 78j"
-    extra: dict | None = None  # provider scratch (title no., volume, etc.)
+    extra: dict = field(default_factory=dict)  # provider scratch (title, volume)
 
 
 class BaseAuthoritySourceProvider(PipelineComponentBase, ABC):

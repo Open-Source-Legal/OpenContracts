@@ -145,8 +145,8 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
     titles work without code changes.
     """
 
-    title: ClassVar[str] = "United States Code"
-    description: ClassVar[str] = (
+    title = "United States Code"
+    description = (
         "Fetches US Code sections from OLRC USLM 1.0 release-point XML "
         "(public domain, no API key required)."
     )

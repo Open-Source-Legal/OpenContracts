@@ -236,7 +236,9 @@ class TestUSCodeRegistryDiscovery(SimpleTestCase):
     def test_registry_includes_usc_provider(self):
         all_providers = get_all_authority_source_providers_cached()
         can_handle_usc = any(
-            defn.component_class().can_handle("usc-15:1") for defn in all_providers
+            defn.component_class is not None
+            and defn.component_class().can_handle("usc-15:1")
+            for defn in all_providers
         )
         self.assertTrue(
             can_handle_usc,
