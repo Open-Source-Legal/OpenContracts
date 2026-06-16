@@ -154,6 +154,12 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         """
         headers = {"User-Agent": _USER_AGENT}
 
+        # Steps 1+2 are SSRF-guarded by validate_url() (scheme/allowlist/DNS) but
+        # use raw requests rather than safe_fetch_*: step 1 needs the 302 Location
+        # header (no body) and step 2 is the FR-API metadata JSON, which is
+        # practically bounded. Only the large full-text body (step 3) goes through
+        # safe_fetch_text's size cap.
+
         # --- Step 1: citation redirect → document_number --------------------
         validate_url(request.url)
         step1_resp = requests.get(
@@ -162,6 +168,10 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             headers=headers,
             timeout=15,
         )
+        # A successful citation lookup is a 302 redirect (not an error status, so
+        # raise_for_status() passes it through). Surface a 4xx/5xx as a clear
+        # HTTPError instead of the confusing "could not parse … from ''" below.
+        step1_resp.raise_for_status()
         location = step1_resp.headers.get("Location", "")
         match = _LOCATION_DOC_NUMBER_RE.search(location)
         if match is None:

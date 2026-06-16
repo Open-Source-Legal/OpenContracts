@@ -201,7 +201,7 @@ class ToolFetchAllowlistedTests(TestCase):
     """_tool_fetch_allowlisted survives SSRFValidationError without raising."""
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_ssrf_error_returns_blocked_string(self):
         from opencontractserver.utils.safe_http import SSRFValidationError
@@ -276,7 +276,7 @@ class ToolFetchAllowlistedTests(TestCase):
                     "https://evil.example.com/law.txt"
                 )
 
-        result = asyncio.get_event_loop().run_until_complete(_inner())
+        result = asyncio.run(_inner())
         self.assertIsInstance(result, str)
         self.assertIn("blocked", result)
 
@@ -448,42 +448,7 @@ class RunAgentSanitizationTests(TestCase):
     """
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
-
-    def test_nonprintable_chars_stripped_from_citation(self):
-        """Control characters in citation are stripped before building instructions."""
-        provider = AgenticWebLocatorProvider()
-        captured: dict = {}
-
-        found_output = _LocatorOutput(
-            found=True,
-            source_url="https://uscode.house.gov/x",
-            heading="H",
-            text="T",
-            confidence=0.9,
-        )
-
-        async def fake_run_agent(citation, jurisdiction):
-            captured["citation"] = citation
-            captured["jurisdiction"] = jurisdiction
-            return found_output
-
-        with patch.object(provider, "_run_agent", side_effect=fake_run_agent):
-            from opencontractserver.pipeline.base.base_authority_source_provider import (
-                AuthorityRequest,
-            )
-
-            req = AuthorityRequest(
-                canonical_key="act:test",
-                url="",
-                citation="15 U.S.C. \x00§\x01 78j",
-                extra={"jurisdiction": "us-federal\x02"},
-            )
-            provider._fetch_impl(req)
-
-        # The captured values are what _run_agent received — but here we are
-        # testing the sanitization that happens INSIDE _run_agent, so we need
-        # to call _run_agent directly with tainted input.
+        return asyncio.run(coro)
 
     def test_run_agent_sanitizes_citation_in_place(self):
         """_run_agent strips non-printable chars from citation before building instructions.

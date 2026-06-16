@@ -27,7 +27,7 @@ import re
 from typing import ClassVar
 
 from asgiref.sync import async_to_sync, sync_to_async
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.pipeline.base.base_authority_source_provider import (
@@ -48,7 +48,8 @@ class _LocatorOutput(BaseModel):
     source_url: str
     heading: str
     text: str
-    confidence: float
+    # Bounded so a stray LLM value (e.g. -0.5 or 999) can't slip through.
+    confidence: float = Field(ge=0.0, le=1.0)
 
 
 class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
@@ -207,10 +208,13 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     async def _tool_fetch_allowlisted(self, url: str) -> str:
         """Fetch text from a gov-domain URL.
 
-        Non-allowlisted or private hosts return a '[blocked: ...]' string
-        rather than raising, so the agent loop is never interrupted by SSRF
-        safety failures.
+        Non-allowlisted or private hosts return a '[blocked: ...]' string and
+        transient network errors return an '[error: ...]' string rather than
+        raising, so the agent loop is never interrupted — by an SSRF safety
+        failure or by a plain HTTP/connection error on a .gov host.
         """
+        import httpx
+
         from opencontractserver.utils.safe_http import (
             SSRFValidationError,
             safe_fetch_text,
@@ -221,3 +225,5 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
             return text[:_MAX_FETCH_CHARS]
         except SSRFValidationError as exc:
             return f"[blocked: {exc}]"
+        except (httpx.HTTPError, OSError) as exc:
+            return f"[error: {exc}]"
