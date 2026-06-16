@@ -155,3 +155,6 @@ LLM_CHUNK_WINDOW = 2000
 LLM_CHUNK_OVERLAP = 400
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
+# Max chars of a candidate's raw_text echoed into the review-candidate
+# serialisation (a preview, not the full span — keeps payloads bounded).
+REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN = 120
