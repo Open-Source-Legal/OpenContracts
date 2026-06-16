@@ -361,6 +361,70 @@ export interface StartExportCorpusOutputs {
   };
 }
 
+export interface RunCorpusEnrichmentInputs {
+  corpusId: string;
+  runEnrichment?: boolean;
+  runCrawl?: boolean;
+  options?: {
+    referenceTypes?: string[];
+    useLlmTier?: boolean;
+    maxDepth?: number;
+    minDemand?: number;
+    maxAuthorities?: number;
+    perJurisdictionCap?: number;
+    tokenBudget?: number;
+  };
+}
+
+export interface EnrichmentAnalysisRow {
+  id: string;
+  status: string;
+  analysisStarted?: string | null;
+  analysisCompleted?: string | null;
+  errorMessage?: string | null;
+  resultMessage?: string | null;
+  analyzer: { id: string; taskName: string };
+}
+
+export interface RunCorpusEnrichmentOutputs {
+  runCorpusEnrichment: {
+    ok: boolean;
+    message?: string | null;
+    analyses: EnrichmentAnalysisRow[];
+  };
+}
+
+export const RUN_CORPUS_ENRICHMENT = gql`
+  mutation RunCorpusEnrichment(
+    $corpusId: ID!
+    $runEnrichment: Boolean
+    $runCrawl: Boolean
+    $options: RunEnrichmentOptionsInput
+  ) {
+    runCorpusEnrichment(
+      corpusId: $corpusId
+      runEnrichment: $runEnrichment
+      runCrawl: $runCrawl
+      options: $options
+    ) {
+      ok
+      message
+      analyses {
+        id
+        status
+        analysisStarted
+        analysisCompleted
+        errorMessage
+        resultMessage
+        analyzer {
+          id
+          taskName
+        }
+      }
+    }
+  }
+`;
+
 export const START_EXPORT_CORPUS = gql`
   mutation (
     $corpusId: String!

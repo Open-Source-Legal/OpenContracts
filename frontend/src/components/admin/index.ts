@@ -3,4 +3,5 @@ export { GlobalAgentManagement } from "./GlobalAgentManagement";
 export { SystemSettings } from "./SystemSettings";
 export { WorkerAccountManagement } from "./WorkerAccountManagement";
 export { IngestionMonitor } from "./IngestionMonitor";
+export { AdminEnrichment } from "./AdminEnrichment";
 export { CorpusCategoryManagement } from "./corpus_categories/CorpusCategoryManagement";

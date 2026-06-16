@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { useQuery } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import styled, { keyframes } from "styled-components";
-import { ArrowDownLeft, ArrowUpRight, Link2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Check, Clock, Link2 } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
@@ -150,10 +150,57 @@ const RefSnippet = styled.span`
   -webkit-box-orient: vertical;
 `;
 
-const GhostNote = styled.span`
+// Right-aligned status column: a "Linked" / "Awaiting source" chip makes a
+// reference's resolution state scannable at a glance, instead of relying on a
+// faint italic note + cursor change to tell a live link from a pending one.
+const RefStatus = styled.div`
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: auto;
+  padding-left: 0.4rem;
+`;
+
+const StatusChip = styled.span<{ $variant: "linked" | "awaiting" }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem 0.12rem 0.4rem;
+  border-radius: 999px;
   font-size: 0.6875rem;
-  font-style: italic;
-  color: ${GOVERNANCE_GRAPH_COLORS.EXTERNAL};
+  font-weight: 600;
+  white-space: nowrap;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  ${(p) =>
+    p.$variant === "linked"
+      ? `color: ${OS_LEGAL_COLORS.accent}; background: #f0fdfa;`
+      : `color: #b45309; background: #fffbeb;`}
+`;
+
+// Compact linked/awaiting breakdown for the "Cites" section header.
+const SummaryCounts = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  font-size: 0.6875rem;
+
+  .linked {
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+  .awaiting {
+    color: #b45309;
+  }
+  .dot {
+    color: ${OS_LEGAL_COLORS.textMuted};
+  }
 `;
 
 const EmptyState = styled.div`
@@ -285,6 +332,13 @@ export const DocumentReferencesPanel: React.FC<
     return [...groups.values()].sort((a, b) => b.mentions - a.mentions);
   }, [inbound]);
 
+  // A row is "linked" when it carries a navigable link_url; a LAW row with no
+  // resolved target is "awaiting" ingestion. Drives the header summary.
+  const linkedCount = outboundGroups.filter((g) => Boolean(g.linkUrl)).length;
+  const awaitingCount = outboundGroups.filter(
+    (g) => !g.resolved && g.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW
+  ).length;
+
   if (!corpusId) {
     return (
       <EmptyState data-testid="references-panel-no-corpus">
@@ -335,6 +389,13 @@ export const DocumentReferencesPanel: React.FC<
             <ArrowUpRight />
             Cites
             <span className="count">{outboundGroups.length}</span>
+            {awaitingCount > 0 && (
+              <SummaryCounts data-testid="references-panel-summary">
+                <span className="linked">{linkedCount} linked</span>
+                <span className="dot">·</span>
+                <span className="awaiting">{awaitingCount} awaiting</span>
+              </SummaryCounts>
+            )}
           </SectionTitle>
           <RefList>
             {outboundGroups.map((group) => {
@@ -342,6 +403,10 @@ export const DocumentReferencesPanel: React.FC<
                 REFERENCE_TYPE_META[group.referenceType] ||
                 REFERENCE_TYPE_META.SECTION;
               const clickable = Boolean(group.linkUrl);
+              const awaiting =
+                !clickable &&
+                !group.resolved &&
+                group.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW;
               return (
                 <RefRow
                   key={group.key}
@@ -362,12 +427,31 @@ export const DocumentReferencesPanel: React.FC<
                       )}
                     </RefHead>
                     {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
-                    {!group.resolved &&
-                      group.referenceType ===
-                        GOVERNANCE_GRAPH_EDGE_TYPES.LAW && (
-                        <GhostNote>cited, not yet ingested</GhostNote>
-                      )}
                   </RefContent>
+                  {clickable && (
+                    <RefStatus>
+                      <StatusChip
+                        $variant="linked"
+                        title="Resolved — opens the cited authority"
+                        data-testid="references-panel-status-linked"
+                      >
+                        <Check />
+                        Linked
+                      </StatusChip>
+                    </RefStatus>
+                  )}
+                  {awaiting && (
+                    <RefStatus>
+                      <StatusChip
+                        $variant="awaiting"
+                        title="Citation detected, but the source authority is not ingested yet. Run the authority crawl to resolve it."
+                        data-testid="references-panel-status-awaiting"
+                      >
+                        <Clock />
+                        Awaiting source
+                      </StatusChip>
+                    </RefStatus>
+                  )}
                 </RefRow>
               );
             })}

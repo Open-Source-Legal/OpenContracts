@@ -50,6 +50,7 @@ export type NotificationType =
   // Job/processing related (Issue #624)
   | "DOCUMENT_PROCESSED"
   | "EXTRACT_COMPLETE"
+  | "ANALYSIS_RUNNING"
   | "ANALYSIS_COMPLETE"
   | "ANALYSIS_FAILED"
   | "EXPORT_COMPLETE"

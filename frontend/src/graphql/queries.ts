@@ -1043,6 +1043,58 @@ export const GET_ANALYSES_FOR_CORPUS_ENRICHMENT = gql`
   }
 `;
 
+export interface GetCorpusAnalysesInputs {
+  corpusId: string;
+  statusExact?: string | null;
+  taskNames: string[];
+}
+
+export interface GetCorpusAnalysesOutputs {
+  analyses: {
+    edges: {
+      node: {
+        id: string;
+        status: string;
+        analysisStarted?: string | null;
+        analysisCompleted?: string | null;
+        errorMessage?: string | null;
+        resultMessage?: string | null;
+        analyzer: { id: string; taskName: string };
+      };
+    }[];
+  };
+}
+
+export const GET_CORPUS_ANALYSES = gql`
+  query GetCorpusAnalyses(
+    $corpusId: ID!
+    $statusExact: String
+    $taskNames: [String!]
+  ) {
+    analyses(
+      corpusId: $corpusId
+      status_Exact: $statusExact
+      analyzer_TaskName_In: $taskNames
+      first: 50
+    ) {
+      edges {
+        node {
+          id
+          status
+          analysisStarted
+          analysisCompleted
+          errorMessage
+          resultMessage
+          analyzer {
+            id
+            taskName
+          }
+        }
+      }
+    }
+  }
+`;
+
 // Lean analyzer listing used to discover the corpus-reference-enrichment
 // analyzer (matched client-side on taskName) for the "Map the reference web"
 // bootstrap CTA. The analyzer table is small; no server-side filter needed.
