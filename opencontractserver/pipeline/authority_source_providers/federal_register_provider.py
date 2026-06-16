@@ -163,6 +163,10 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             headers=headers,
             timeout=15,
         )
+        # A successful citation lookup is a 302 redirect (not an error status, so
+        # raise_for_status() passes it through). Surface a 4xx/5xx as a clear
+        # HTTPError instead of the confusing "could not parse … from ''" below.
+        step1_resp.raise_for_status()
         location = step1_resp.headers.get("Location", "")
         match = _LOCATION_DOC_NUMBER_RE.search(location)
         if match is None:

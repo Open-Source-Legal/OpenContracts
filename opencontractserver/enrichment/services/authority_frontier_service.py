@@ -85,16 +85,14 @@ class AuthorityFrontierService(BaseService):
         """Transition ``row`` to ``state``, optionally recording a document or error."""
         row.discovery_state = state
         row.last_attempt = timezone.now()
+        # Only touch ingested_document / last_error when the caller actually
+        # supplies them, so e.g. marking a previously-ingested row "failed"
+        # (document_id=None) neither rewrites nor clears its existing document.
+        update_fields = ["discovery_state", "last_attempt", "modified"]
         if document_id is not None:
             row.ingested_document_id = document_id
+            update_fields.append("ingested_document")
         if error is not None:
             row.last_error = error
-        row.save(
-            update_fields=[
-                "discovery_state",
-                "last_attempt",
-                "ingested_document",
-                "last_error",
-                "modified",
-            ]
-        )
+            update_fields.append("last_error")
+        row.save(update_fields=update_fields)

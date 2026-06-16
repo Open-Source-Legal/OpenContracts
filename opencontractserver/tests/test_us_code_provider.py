@@ -327,22 +327,24 @@ class TestUSCodeValidation(SimpleTestCase):
             zf.writestr("usc15.xml", oversized_content)
         zip_bytes = buf.getvalue()
 
-        # Patch urlopen to stream back the oversized zip.
+        # Patch requests.get to stream back the oversized zip in chunks.
         class _FakeResp:
             def __init__(self, data):
-                self._buf = io.BytesIO(data)
+                self._data = data
 
-            def read(self, n=-1):
-                return self._buf.read(n)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
+            def raise_for_status(self):
                 pass
 
+            def iter_content(self, chunk_size):
+                for i in range(0, len(self._data), chunk_size):
+                    yield self._data[i : i + chunk_size]
+
         req = self.provider.locate("usc-15:2")
-        with patch("urllib.request.urlopen", return_value=_FakeResp(zip_bytes)):
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers."
+            "us_code_provider.requests.get",
+            return_value=_FakeResp(zip_bytes),
+        ):
             with self.assertRaises(
                 ValueError, msg="Expected ValueError for oversized download"
             ):

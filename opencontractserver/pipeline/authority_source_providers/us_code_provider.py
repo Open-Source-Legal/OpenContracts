@@ -22,7 +22,10 @@ import xml.etree.ElementTree as ET
 import zipfile
 from typing import ClassVar
 
+import requests
+
 from opencontractserver.enrichment.authorities import AuthoritySection
+from opencontractserver.enrichment.constants import _USC_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
@@ -42,8 +45,8 @@ _DEFAULT_RELEASE_POINT = "119/95"
 _USLM_NS = "http://xml.house.gov/schemas/uslm/1.0"
 _NS = {"u": _USLM_NS}
 
-# Canonical-key prefix pattern for the can_handle override.
-_USC_PREFIX_RE = re.compile(r"^usc-\d+$")
+# Canonical-key prefix pattern for the can_handle override is imported from
+# enrichment.constants (single source of truth shared with classify_prefix).
 
 # OLRC ZIP download URL template.  The ``{padded_title}`` segment is a
 # zero-padded two-digit title number (``01``, ``15``, ``26``, …).
@@ -81,19 +84,6 @@ _FOOTNOTE_REF_CLASS = "footnoteRef"
 _USC_SECTION_RE = re.compile(r"^[0-9]+[a-z0-9-]*$", re.IGNORECASE)
 # Title must be purely numeric (e.g. '15', '7', '26').
 _USC_TITLE_RE = re.compile(r"^\d+$")
-
-# Tags whose text content contributes to the section body.
-_TEXT_CONTRIBUTING_TAGS = {
-    f"{{{_USLM_NS}}}chapeau",
-    f"{{{_USLM_NS}}}content",
-    f"{{{_USLM_NS}}}p",
-    f"{{{_USLM_NS}}}subsection",
-    f"{{{_USLM_NS}}}paragraph",
-    f"{{{_USLM_NS}}}clause",
-    f"{{{_USLM_NS}}}subclause",
-    f"{{{_USLM_NS}}}item",
-    f"{{{_USLM_NS}}}subitem",
-}
 
 # HTTP timeout (seconds) for the OLRC ZIP download.
 _HTTP_TIMEOUT = 30
@@ -306,19 +296,15 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # --- text body (excluding sourceCredit / notes) ----------------------
         text_parts: list[str] = []
 
-        # Iterate direct children in document order, collecting contributing text.
+        # Iterate direct children in document order, collecting contributing
+        # text. _is_excluded() already drops sourceCredit/notes/footnote refs
+        # (and everything in _EXCLUDED_TAGS), so every remaining child — named
+        # contributing tags (chapeau/content) and other structural elements
+        # alike — contributes its collected text.
         for child in section_el:
             if _is_excluded(child):
                 continue
-            child_tag = child.tag
-            if child_tag in _TEXT_CONTRIBUTING_TAGS or child_tag in {
-                f"{{{_USLM_NS}}}chapeau",
-                f"{{{_USLM_NS}}}content",
-            }:
-                text_parts.extend(_collect_text(child))
-            elif child_tag not in _EXCLUDED_TAGS:
-                # Catch any other structural elements (e.g. subsection at top)
-                text_parts.extend(_collect_text(child))
+            text_parts.extend(_collect_text(child))
 
         text = " ".join(text_parts).strip()
         # Collapse runs of whitespace to a single space.
@@ -348,29 +334,27 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         Returns:
             Raw UTF-8 bytes of the unzipped title XML.
         """
-        import urllib.request
-
         extra = request.extra or {}
         padded = extra.get("padded_title", "")
         member_name = _XML_MEMBER_TEMPLATE.format(padded_title=padded)
 
         logger.info("USCodeProvider: downloading %s", request.url)
-        with urllib.request.urlopen(
-            request.url, timeout=_HTTP_TIMEOUT
-        ) as resp:  # noqa: S310
-            chunks: list[bytes] = []
-            total = 0
-            while True:
-                chunk = resp.read(65536)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > _MAX_DOWNLOAD_BYTES:
-                    raise ValueError(
-                        f"title XML exceeds max size ({_MAX_DOWNLOAD_BYTES} bytes)"
-                    )
-                chunks.append(chunk)
-            zip_bytes = b"".join(chunks)
+        # Use requests (consistent with the other providers in this package) and
+        # stream the body so the size cap is enforced as chunks arrive.
+        response = requests.get(request.url, stream=True, timeout=_HTTP_TIMEOUT)
+        response.raise_for_status()
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_content(65536):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > _MAX_DOWNLOAD_BYTES:
+                raise ValueError(
+                    f"title XML exceeds max size ({_MAX_DOWNLOAD_BYTES} bytes)"
+                )
+            chunks.append(chunk)
+        zip_bytes = b"".join(chunks)
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)
