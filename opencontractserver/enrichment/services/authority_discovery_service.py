@@ -21,6 +21,7 @@ import zipfile
 import httpx
 import requests
 from django.db.models import Q
+from django.utils import timezone
 
 from opencontractserver.annotations.models import AuthorityFrontier
 from opencontractserver.shared.services.base import BaseService
@@ -121,8 +122,6 @@ class AuthorityDiscoveryService(BaseService):
             ET.ParseError,
             zipfile.BadZipFile,
         ) as exc:
-            from django.utils import timezone
-
             logger.exception(
                 "AuthorityDiscoveryService: provider %s failed for %s",
                 name,
@@ -151,8 +150,6 @@ class AuthorityDiscoveryService(BaseService):
             }
 
         # --- gate (verify + license + domain) --------------------------------
-        from django.utils import timezone
-
         from opencontractserver.enrichment.services.authority_gate_service import (
             GATE_OK,
             AuthorityGateService,
