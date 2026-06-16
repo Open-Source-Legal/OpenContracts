@@ -130,6 +130,7 @@ class AnalysisFilter(django_filters.FilterSet):
             "analysis_started": ["gte", "lte"],
             "analysis_completed": ["gte", "lte"],
             "status": ["exact"],
+            "analyzer__task_name": ["in"],
         }
 
 

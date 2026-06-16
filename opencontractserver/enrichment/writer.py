@@ -27,6 +27,10 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.enrichment import constants as C
+from opencontractserver.enrichment.authorities import (
+    classify_canonical_key,
+    namespace_classification_cache,
+)
 from opencontractserver.enrichment.resolver import Resolution
 from opencontractserver.utils.frontend_paths import document_in_corpus_path
 from opencontractserver.utils.span_projection import (
@@ -69,6 +73,10 @@ class EnrichmentWriter:
         # Source text (txt_extract_file) per document — only read when a
         # drifted offset needs the ordinal-occurrence remap below.
         self._src_texts: dict[int, str | None] = {}
+        # prefix -> (jurisdiction, authority_type) for the batch being written,
+        # so persist-time classification resolves the AuthorityNamespace tier
+        # once instead of per CorpusReference row. Populated in write().
+        self._ns_class: dict[str, tuple] = {}
 
     def _label(self, text: str, label_type: str):
         key = (text, label_type)
@@ -310,6 +318,14 @@ class EnrichmentWriter:
         self._doc_slugs = dict(
             Document.objects.filter(id__in=target_ids).values_list("id", "slug")
         )
+        # Prefetch the AuthorityNamespace classification for every law-ref prefix
+        # in one query so persist-time backfill (_ensure_corpus_reference) never
+        # hits the DB per row.
+        self._ns_class = namespace_classification_cache(
+            r.canonical_key.split(":", 1)[0]
+            for r in resolutions
+            if r.reference_type == C.REF_LAW and r.canonical_key
+        )
 
         with transaction.atomic():
             for res in resolutions:
@@ -439,6 +455,17 @@ class EnrichmentWriter:
         normalized = dict(res.normalized_data)
         if res.target_offset is not None:
             normalized["target_offset"] = res.target_offset
+        # Classify at PERSIST time so the durable row carries the same taxonomy
+        # discover() reports: the candidate's values win, else the
+        # AuthorityNamespace registry, else the static shape rules. Registry-tier
+        # candidates carry no jurisdiction/authority_type, so without this they
+        # would be stored as (None, None) — see gap-4.
+        jurisdiction, authority_type = classify_canonical_key(
+            res.canonical_key,
+            res.candidate.jurisdiction,
+            res.candidate.authority_type,
+            namespace_cache=self._ns_class,
+        )
         ref, created = CorpusReference.objects.get_or_create(
             source_annotation=mention,
             reference_type=res.reference_type,
@@ -452,11 +479,10 @@ class EnrichmentWriter:
                 "normalized_data": normalized or None,
                 "created_by_analysis": self.analysis,
                 "creator_id": self.creator_id,
-                # Phase 1: carry the candidate's classification + detection
-                # provenance onto the durable row (read from the original
-                # Candidate, which Resolution preserves).
-                "jurisdiction": res.candidate.jurisdiction,
-                "authority_type": res.candidate.authority_type,
+                # Phase 1: carry the classification + detection provenance onto
+                # the durable row (candidate values, backfilled above).
+                "jurisdiction": jurisdiction,
+                "authority_type": authority_type,
                 "detection_tier": res.candidate.detection_tier,
                 "detection_confidence": res.candidate.detection_confidence,
             },
@@ -464,3 +490,12 @@ class EnrichmentWriter:
         if created:
             result.references_created += 1
             result.reference_ids.append(ref.pk)
+        elif (ref.jurisdiction is None or ref.authority_type is None) and (
+            jurisdiction is not None or authority_type is not None
+        ):
+            # Heal a row persisted before classification existed (or by an
+            # earlier registry-only pass): converge on re-apply so the
+            # governance graph + frontier never read a stale (None, None).
+            ref.jurisdiction = ref.jurisdiction or jurisdiction
+            ref.authority_type = ref.authority_type or authority_type
+            ref.save(update_fields=["jurisdiction", "authority_type", "modified"])

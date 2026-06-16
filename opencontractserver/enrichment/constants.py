@@ -63,6 +63,11 @@ ENRICHMENT_ANALYZER_TASK = (
 ENRICHMENT_ANALYZER_ID = "corpus-reference-enrichment"
 ENRICHMENT_ANALYZER_TITLE = "Corpus Reference Enrichment"
 
+# --- Phase 5: crawl analyzer identity (dispatchable via the analyzer framework) ---
+CRAWL_ANALYZER_TASK = "opencontractserver.tasks.corpus_analysis_tasks.crawl_authorities"
+CRAWL_ANALYZER_ID = "bounded-authority-crawl"
+CRAWL_ANALYZER_TITLE = "Bounded Authority Crawl"
+
 # Governance-graph vocabulary (node kinds / edge types / corpus roles) — the
 # contract between GovernanceGraphService, the GraphQL types, and the frontend
 # panel. Mirrors demo/export_governance_graph.py.
@@ -172,6 +177,17 @@ LLM_STRUCTURED_RETRIES = 3
 _USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
 _CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
 
+# Grammar-emitted federal-statute meta-prefixes. Unlike the named registry
+# bodies in PREFIX_CLASSIFICATION, these are catch-alls — ``act`` for an
+# unrecognised named Act, ``publ`` for a Public Law (e.g. publ:107-56), ``stat``
+# for Statutes at Large (e.g. stat:135.429). The bare-Act grammar already
+# assumes us-federal for these (state-act disambiguation is a documented
+# follow-up), so classifying them here keeps the frontier queue and
+# governance-graph ghost nodes from being stranded at (None, None). They are
+# kept OUT of PREFIX_CLASSIFICATION so the AuthorityNamespace seed (migration
+# 0082) never materialises a spurious "act"/"publ"/"stat" body of law.
+GRAMMAR_STATUTE_META_PREFIXES = frozenset({"act", "publ", "stat"})
+
 
 def classify_prefix(prefix: str) -> tuple:
     """(jurisdiction, authority_type) for a canonical_key prefix.
@@ -190,4 +206,6 @@ def classify_prefix(prefix: str) -> tuple:
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION)
     if prefix == "fedreg":
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)
+    if prefix in GRAMMAR_STATUTE_META_PREFIXES:
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
     return PREFIX_CLASSIFICATION.get(prefix, (None, None))

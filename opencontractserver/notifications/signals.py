@@ -17,16 +17,19 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from opencontractserver.analyzer.models import Analysis
 from opencontractserver.badges.models import UserBadge
 from opencontractserver.conversations.models import (
     ChatMessage,
     ModerationAction,
     ModerationActionType,
 )
+from opencontractserver.enrichment import constants as _EC
 from opencontractserver.notifications.models import (
     Notification,
     NotificationTypeChoices,
 )
+from opencontractserver.types.enums import JobStatus
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -102,6 +105,77 @@ def broadcast_notification_via_websocket(notification: Notification) -> None:
         logger.error(
             f"Failed to broadcast notification {notification.id} via WebSocket: "
             f"{type(e).__name__}: {e}",
+            exc_info=True,
+        )
+
+
+_ANALYSIS_STATUS_NOTIFICATION: dict[str, NotificationTypeChoices] = {
+    JobStatus.RUNNING.value: NotificationTypeChoices.ANALYSIS_RUNNING,
+    JobStatus.COMPLETED.value: NotificationTypeChoices.ANALYSIS_COMPLETE,
+    JobStatus.FAILED.value: NotificationTypeChoices.ANALYSIS_FAILED,
+}
+
+
+@receiver(post_save, sender=Analysis)
+def emit_analysis_status_notification(
+    sender: type[Analysis],
+    instance: Analysis,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """
+    Create a notification when an Analysis transitions to RUNNING, COMPLETED,
+    or FAILED.  Idempotent: at most one notification per (analysis, status)
+    pair is ever created, so redundant .save() calls do not double-notify.
+
+    WebSocket delivery is handled automatically: a post_save on Notification
+    itself calls broadcast_notification_via_websocket (see this module's
+    implicit handler path — the Notification creation triggers the broadcast).
+    """
+    if getattr(instance, "_skip_signals", False):
+        return
+
+    ntype = _ANALYSIS_STATUS_NOTIFICATION.get(instance.status)
+    if ntype is None or instance.creator_id is None:
+        return
+
+    # Only emit notifications for enrichment/crawl analyzers; other analyzers
+    # (doc analysis, extracts, etc.) should not generate analysis notifications.
+    _ENRICHMENT_TASK_NAMES = (
+        _EC.ENRICHMENT_ANALYZER_TASK,
+        _EC.CRAWL_ANALYZER_TASK,
+    )
+    if (
+        instance.analyzer_id is None
+        or instance.analyzer.task_name not in _ENRICHMENT_TASK_NAMES
+    ):
+        return
+
+    # Idempotent guard: skip if this (analysis, notification_type) already exists.
+    if Notification.objects.filter(analysis=instance, notification_type=ntype).exists():
+        return
+
+    try:
+        notification = Notification.objects.create(
+            recipient_id=instance.creator_id,
+            notification_type=ntype,
+            analysis=instance,
+            data={
+                "analysis_id": instance.id,
+                "corpus_id": instance.analyzed_corpus_id,
+                "analyzer_task": getattr(instance.analyzer, "task_name", None),
+                "status": instance.status,
+            },
+        )
+        logger.debug(
+            f"Created {ntype} notification for analysis {instance.id} "
+            f"(recipient_id={instance.creator_id})"
+        )
+        broadcast_notification_via_websocket(notification)
+    except Exception as e:
+        logger.error(
+            f"Failed to create analysis status notification for analysis "
+            f"{instance.id}: {type(e).__name__}: {e}",
             exc_info=True,
         )
 

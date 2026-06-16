@@ -142,6 +142,40 @@ class RelinkForKeysTests(TestCase):
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.resolution_status == C.STATUS_RESOLVED
 
+    def test_relink_upgrades_colon_less_whole_act_key(self):
+        # Regression: a bare whole-act citation ("the Exchange Act") is stored
+        # under a colon-LESS key (``exchange-act``). The relink pre-filter must
+        # match it by exact key, not only by an ``exchange-act:`` startswith —
+        # otherwise the citing corpus is silently never relinked.
+        librarian = User.objects.create_user(username="ea-librarian", password="p")
+        filing = Corpus.objects.create(title="EA Filing", creator=self.owner)
+        doc = Document.objects.create(title="EA primary", creator=self.owner)
+        doc.txt_extract_file.save(
+            "ea.txt",
+            ContentFile(b"We are subject to the Exchange Act in all respects."),
+        )
+        filing.add_document(document=doc, user=self.owner)
+        EnrichmentService().apply(corpus_id=filing.id, creator_id=self.owner.id)
+        ref = CorpusReference.objects.get(corpus=filing, canonical_key="exchange-act")
+        assert ref.resolution_status == C.STATUS_EXTERNAL  # no authority yet
+
+        bootstrap_authority_corpus(
+            creator_id=librarian.id,
+            corpus_title="Securities Exchange Act of 1934",
+            sections=[
+                AuthoritySection(
+                    key="exchange-act:10", heading="Exchange Act § 10", text="..10.."
+                )
+            ],
+            make_public=True,
+            relink=False,
+        )
+
+        out = EnrichmentService().relink_corpora_for_keys(["exchange-act"])
+        assert out["law_references_linked"] >= 1
+        ref.refresh_from_db()
+        assert ref.resolution_status == C.STATUS_RESOLVED
+
     def test_relink_runs_as_each_corpus_creator_no_private_leak(self):
         """A PRIVATE authority must not resolve other users' corpora: the
         relink runs under each filing corpus creator's visibility."""
@@ -399,3 +433,115 @@ class WantedAuthoritiesGraphQLTests(TestCase):
         result = self._execute(stranger)
         assert "errors" not in result
         assert result["data"]["wantedAuthorities"] == []
+
+
+class AudienceScopedLinkingTests(TestCase):
+    """A corpus never renders a link its audience cannot follow (no 404s).
+
+    The link pass resolves against the citing corpus's *audience floor*:
+    anonymous for a public corpus (only public authorities may link), the
+    creator otherwise. The pass is bidirectional — it demotes a resolved link
+    whose authority is no longer audience-visible.
+    """
+
+    def _public_filing_citing_dgcl(self, owner):
+        filing = Corpus.objects.create(
+            title="Public Filing", creator=owner, is_public=True
+        )
+        doc = Document.objects.create(title="pf primary", creator=owner)
+        doc.txt_extract_file.save(
+            "pf.txt",
+            ContentFile(
+                b"Indemnification per Section 145 of the Delaware General "
+                b"Corporation Law."
+            ),
+        )
+        filing.add_document(document=doc, user=owner)
+        EnrichmentService().apply(corpus_id=filing.id, creator_id=owner.id)
+        return filing
+
+    def test_public_corpus_does_not_link_to_private_authority(self):
+        owner = User.objects.create_user(username="pub-owner", password="p")
+        filing = self._public_filing_citing_dgcl(owner)
+        # Bootstrap DGCL PRIVATE — a public corpus must NOT link to it (the link
+        # would 404 for the public).
+        bootstrap_authority_corpus(
+            creator_id=owner.id,
+            corpus_title="DGCL",
+            sections=DGCL_SECTIONS,
+            make_public=False,
+            relink=False,
+        )
+        EnrichmentService().link_external_references(
+            corpus_id=filing.id, creator_id=owner.id
+        )
+        ref = CorpusReference.objects.get(corpus=filing, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_EXTERNAL
+        ref.source_annotation.refresh_from_db()
+        assert ref.source_annotation.link_url is None
+
+        # Publish DGCL → the public corpus may now link to it.
+        dgcl = Corpus.objects.get(title="DGCL")
+        dgcl.is_public = True
+        dgcl.save(update_fields=["is_public", "modified"])
+        EnrichmentService().link_external_references(
+            corpus_id=filing.id, creator_id=owner.id
+        )
+        ref.refresh_from_db()
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        ref.source_annotation.refresh_from_db()
+        assert ref.source_annotation.link_url
+
+    def test_relink_demotes_link_when_authority_goes_private(self):
+        owner = User.objects.create_user(username="dem-owner", password="p")
+        filing = self._public_filing_citing_dgcl(owner)
+        bootstrap_authority_corpus(
+            creator_id=owner.id,
+            corpus_title="DGCL",
+            sections=DGCL_SECTIONS,
+            make_public=True,
+            relink=False,
+        )
+        EnrichmentService().link_external_references(
+            corpus_id=filing.id, creator_id=owner.id
+        )
+        ref = CorpusReference.objects.get(corpus=filing, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED
+
+        # Authority goes private → the link would 404 for the public → demote.
+        dgcl = Corpus.objects.get(title="DGCL")
+        dgcl.is_public = False
+        dgcl.save(update_fields=["is_public", "modified"])
+        out = EnrichmentService().link_external_references(
+            corpus_id=filing.id, creator_id=owner.id
+        )
+        assert out["links_demoted"] >= 1
+        ref.refresh_from_db()
+        assert ref.resolution_status == C.STATUS_EXTERNAL
+        ref.source_annotation.refresh_from_db()
+        assert ref.source_annotation.link_url is None
+
+    def test_private_corpus_still_links_to_creator_visible_authority(self):
+        # A PRIVATE corpus's audience floor is its creator (unchanged behavior):
+        # a private authority the creator owns still resolves.
+        owner = User.objects.create_user(username="priv-owner", password="p")
+        filing = Corpus.objects.create(title="Private Filing", creator=owner)
+        doc = Document.objects.create(title="prf primary", creator=owner)
+        doc.txt_extract_file.save(
+            "prf.txt",
+            ContentFile(b"per Section 145 of the Delaware General Corporation Law."),
+        )
+        filing.add_document(document=doc, user=owner)
+        EnrichmentService().apply(corpus_id=filing.id, creator_id=owner.id)
+        bootstrap_authority_corpus(
+            creator_id=owner.id,
+            corpus_title="DGCL",
+            sections=DGCL_SECTIONS,
+            make_public=False,
+            relink=False,
+        )
+        EnrichmentService().link_external_references(
+            corpus_id=filing.id, creator_id=owner.id
+        )
+        ref = CorpusReference.objects.get(corpus=filing, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED

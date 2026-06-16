@@ -41,6 +41,7 @@ class NotificationTypeChoices(models.TextChoices):
         "Document Processing Failed",
     )
     EXTRACT_COMPLETE = "EXTRACT_COMPLETE", "Extract Complete"
+    ANALYSIS_RUNNING = "ANALYSIS_RUNNING", "Analysis Running"
     ANALYSIS_COMPLETE = "ANALYSIS_COMPLETE", "Analysis Complete"
     ANALYSIS_FAILED = "ANALYSIS_FAILED", "Analysis Failed"
     EXPORT_COMPLETE = "EXPORT_COMPLETE", "Export Complete"
@@ -98,6 +99,15 @@ class Notification(models.Model):
         blank=True,
         related_name="notifications",
         help_text="Related conversation/thread if applicable",
+    )
+
+    analysis = models.ForeignKey(
+        "analyzer.Analysis",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="notifications",
+        help_text="Related analysis job, if applicable.",
     )
 
     actor = models.ForeignKey(

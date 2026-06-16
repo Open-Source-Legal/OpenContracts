@@ -128,6 +128,9 @@ from config.graphql.document_relationship_mutations import (
     UpdateDocumentRelationship,
 )
 
+# Import enrichment mutations
+from config.graphql.enrichment_mutations import RunCorpusEnrichmentMutation
+
 # Import extract mutations
 from config.graphql.extract_mutations import (
     AddDocumentsToExtract,
@@ -375,6 +378,7 @@ class Mutation(graphene.ObjectType):
     start_analysis_on_doc = StartDocumentAnalysisMutation.Field()
     delete_analysis = DeleteAnalysisMutation.Field()
     make_analysis_public = MakeAnalysisPublic.Field()
+    run_corpus_enrichment = RunCorpusEnrichmentMutation.Field()
 
     # EXTRACT MUTATIONS ##########################################################
     create_fieldset = CreateFieldset.Field()

@@ -268,11 +268,10 @@ class EnrichmentService:
             if not (r.candidate.normalized_data or {}).get("needs_review")
         ]
 
-        def _classify(prefix: str, cand) -> tuple:
-            ns_jur, ns_typ = ns_class.get(
-                prefix, C.PREFIX_CLASSIFICATION.get(prefix, (None, None))
-            )
-            return (cand.jurisdiction or ns_jur, cand.authority_type or ns_typ)
+        # Read-time classification uses the SAME ladder the writer stamps at
+        # persist time (candidate -> AuthorityNamespace -> classify_prefix), so
+        # the inventory and the durable rows never disagree.
+        from opencontractserver.enrichment.authorities import classify_canonical_key
 
         by_key: dict[str, dict] = {}
         by_jurisdiction: Counter = Counter()
@@ -283,7 +282,12 @@ class EnrichmentService:
                 continue
             cand = r.candidate
             prefix = key.split(":", 1)[0]
-            jur, typ = _classify(prefix, cand)
+            jur, typ = classify_canonical_key(
+                key,
+                cand.jurisdiction,
+                cand.authority_type,
+                namespace_cache=ns_class,
+            )
             entry = by_key.setdefault(
                 key,
                 {
@@ -405,8 +409,17 @@ class EnrichmentService:
         ``analysis`` lets the analyzer-framework adapter attach the run to the
         framework-created ``Analysis``; when omitted (agent tool / direct
         service call) a provenance ``Analysis`` is created here.
+
+        Detection tiers mirror :meth:`discover`: ``extra_tiers=None`` runs
+        registry **plus** the open-vocabulary grammar so the persisted web
+        matches the inventory ``discover`` surfaces (gap-5 — previously apply
+        defaulted to registry-only, so grammar-discovered authorities never
+        reached the frontier / governance graph). Pass ``extra_tiers=[]`` for a
+        registry-only pass; the LLM tier stays opt-in (cost).
         """
         user, corpus, documents = self._load(corpus_id, creator_id)
+        if extra_tiers is None:
+            extra_tiers = [C.DETECTION_TIER_GRAMMAR]
         resolutions = self._resolutions(
             corpus, documents, types, user, extra_tiers=extra_tiers
         )
@@ -439,6 +452,7 @@ class EnrichmentService:
             "document_relationships_created": res.document_relationships_created,
             "document_relationships_pruned": res.document_relationships_pruned,
             "law_references_linked": link["law_references_linked"],
+            "links_demoted": link.get("links_demoted", 0),
             "links_restamped": link["links_restamped"],
         }
 
@@ -478,6 +492,7 @@ class EnrichmentService:
             "corpora_relinked": 0,
             "corpora_failed": 0,
             "law_references_linked": 0,
+            "links_demoted": 0,
             "links_restamped": 0,
         }
         if not wanted:
@@ -493,7 +508,11 @@ class EnrichmentService:
         # does the exact root match SQL can't express.
         from django.db.models import Q
 
-        prefix_filter = Q()
+        # Match the exact wanted keys (covers colon-less WHOLE-ACT keys like
+        # ``exchange-act``, which no ``prefix:`` startswith can reach) PLUS any
+        # subsection ref that rolls up to a wanted section root. Superset of the
+        # Python candidate_keys matcher below, which does the exact root match.
+        prefix_filter = Q(canonical_key__in=wanted)
         for prefix in {k.split(":", 1)[0] for k in wanted}:
             prefix_filter |= Q(canonical_key__startswith=f"{prefix}:")
 
@@ -532,42 +551,51 @@ class EnrichmentService:
                 summary["corpora_failed"] += 1
                 continue
             summary["law_references_linked"] += out["law_references_linked"]
+            summary["links_demoted"] += out.get("links_demoted", 0)
             summary["links_restamped"] += out["links_restamped"]
-            if out["law_references_linked"]:
+            if out["law_references_linked"] or out.get("links_demoted", 0):
                 summary["corpora_relinked"] += 1
         return summary
 
     def _link_external(self, user, corpus) -> dict:
-        """Resolve still-external law refs, then repair all mention links.
+        """Reconcile this corpus's law-reference links against its audience.
 
-        Pass 1 assigns targets; pass 2 (``_restamp_mention_links``) recomputes
-        ``link_url`` for *every* resolved reference from the current slugs, so
-        each linking run also repairs slug drift on previously-stamped
-        mentions — ``CorpusReference.target_document`` is the durable truth
-        and ``link_url`` only a cached projection of it.
+        A link must be navigable by EVERYONE who can read the citing corpus, or
+        it 404s for some viewer (e.g. a public corpus linking into a private
+        authority — issue surfaced on the S-1 demo). So resolution is scoped to
+        the corpus's *audience floor*: anonymous for a public corpus (only
+        public authorities may link), the creator otherwise.
+
+        The pass is bidirectional:
+
+        * **promote** — an EXTERNAL ref whose target is audience-visible becomes
+          RESOLVED;
+        * **demote** — a RESOLVED ref whose target is no longer audience-visible
+          (authority went private, was deleted, …) reverts to EXTERNAL,
+
+        so a public corpus can never render a broken link. Pass 2
+        (``_restamp_mention_links``) then mirrors each mention's ``link_url``
+        onto its ref's resolution state — set when resolved, cleared when not —
+        which also repairs slug drift on still-resolved mentions.
         """
         from opencontractserver.documents.models import Document, DocumentPath
         from opencontractserver.enrichment.authorities import find_authority_target
 
+        # Audience floor: a public corpus's links must resolve for anonymous, so
+        # only public authorities may link; a private corpus uses its creator.
+        audience = None if corpus.is_public else user
+
         refs = (
-            CorpusReference.objects.filter(
-                corpus=corpus,
-                reference_type=C.REF_LAW,
-                target_document__isnull=True,
-            )
+            CorpusReference.objects.filter(corpus=corpus, reference_type=C.REF_LAW)
             .exclude(canonical_key=None)
             .select_related("source_annotation")
         )
+        # Resolve each distinct key once under the audience floor.
         target_cache: dict[str, Document | None] = {}
-        now = timezone.now()
-        updated_refs: list[CorpusReference] = []
-        # First pass: build target_cache (deduped by canonical key).
         for ref in refs:
             key = ref.canonical_key
-            if not key:
-                continue
-            if key not in target_cache:
-                target_cache[key] = find_authority_target(key, user)
+            if key and key not in target_cache:
+                target_cache[key] = find_authority_target(key, audience)
         # Batch-fetch corpus membership for all resolved targets in one query
         # instead of one per target (avoids N+1 on large corpora).
         resolved_target_ids = {t.id for t in target_cache.values() if t is not None}
@@ -578,47 +606,66 @@ class EnrichmentService:
                 is_deleted=False,
             ).values_list("document_id", "corpus_id")
         )
+        now = timezone.now()
+        promoted: list[CorpusReference] = []
+        demoted: list[CorpusReference] = []
         for ref in refs:
             key = ref.canonical_key
             if not key:  # queryset excludes None; guard for type-narrowing
                 continue
             target = target_cache.get(key)
-            if target is None:
-                continue
-            ref.target_document = target
-            ref.target_corpus_id = path_corpus_cache.get(target.id)
-            ref.resolution_status = C.STATUS_RESOLVED
-            # bulk_update bypasses auto_now — stamp ``modified`` explicitly.
-            ref.modified = now
-            updated_refs.append(ref)
+            if target is not None:
+                if (
+                    ref.target_document_id != target.id
+                    or ref.resolution_status != C.STATUS_RESOLVED
+                ):
+                    ref.target_document = target
+                    ref.target_corpus_id = path_corpus_cache.get(target.id)
+                    ref.resolution_status = C.STATUS_RESOLVED
+                    # bulk_update bypasses auto_now — stamp ``modified``.
+                    ref.modified = now
+                    promoted.append(ref)
+            elif (
+                ref.target_document_id is not None
+                or ref.resolution_status == C.STATUS_RESOLVED
+            ):
+                # Target no longer visible to the corpus's audience — degrade so
+                # the corpus never renders a broken link.
+                ref.target_document_id = None
+                ref.target_corpus_id = None
+                ref.resolution_status = C.STATUS_EXTERNAL
+                ref.modified = now
+                demoted.append(ref)
 
         # One query instead of O(N) row-by-row saves (corpora carry
         # hundreds-to-thousands of law references at demo scale).
-        if updated_refs:
+        if promoted or demoted:
             CorpusReference.objects.bulk_update(
-                updated_refs,
+                promoted + demoted,
                 ["target_document", "target_corpus", "resolution_status", "modified"],
             )
         restamped = self._restamp_mention_links(corpus)
         return {
             "corpus_id": corpus.id,
-            "law_references_linked": len(updated_refs),
+            "law_references_linked": len(promoted),
+            "links_demoted": len(demoted),
             "links_restamped": restamped,
         }
 
     def _restamp_mention_links(self, corpus) -> int:
-        """Recompute ``link_url`` for every resolved reference mention.
+        """Mirror each law/document mention's ``link_url`` onto its ref's state.
 
         The canonical slug path is the only shape the frontend router serves
-        (anything else 404s). LAW refs link into the target (authority)
-        corpus; DOCUMENT refs target a sibling document of the source corpus
-        (``target_corpus`` is null for them). Only mentions whose stored link
-        differs are written back.
+        (anything else 404s). A RESOLVED ref's mention gets the link into the
+        target (authority) corpus; an EXTERNAL ref's mention gets ``None`` — so a
+        demoted reference (its authority no longer audience-visible) stops
+        rendering as a clickable link instead of pointing at a 404. LAW refs
+        link into ``target_corpus``; DOCUMENT refs target a sibling document of
+        the source corpus (``target_corpus`` is null). Only mentions whose
+        stored link differs are written back.
         """
         refs = CorpusReference.objects.filter(
             corpus=corpus,
-            resolution_status=C.STATUS_RESOLVED,
-            target_document__isnull=False,
             reference_type__in=(C.REF_LAW, C.REF_DOCUMENT),
         ).select_related(
             "source_annotation", "target_document", "target_corpus__creator"
@@ -626,17 +673,24 @@ class EnrichmentService:
         now = timezone.now()
         changed: dict[int, Annotation] = {}
         for ref in refs:
-            target_document = ref.target_document
-            if target_document is None:  # queryset excludes; narrows the type
-                continue
-            target_corpus = ref.target_corpus or corpus
-            link_url = document_in_corpus_path(
-                corpus_creator_slug=target_corpus.creator.slug,
-                corpus_slug=target_corpus.slug,
-                document_slug=target_document.slug,
-            )
             mention = ref.source_annotation
-            if link_url and mention.link_url != link_url:
+            if mention is None:
+                continue
+            target_document = ref.target_document
+            if (
+                ref.resolution_status == C.STATUS_RESOLVED
+                and target_document is not None
+            ):
+                target_corpus = ref.target_corpus or corpus
+                link_url = document_in_corpus_path(
+                    corpus_creator_slug=target_corpus.creator.slug,
+                    corpus_slug=target_corpus.slug,
+                    document_slug=target_document.slug,
+                )
+            else:
+                # Unresolved / demoted — no clickable link.
+                link_url = None
+            if mention.link_url != link_url:
                 mention.link_url = link_url
                 # bulk_update bypasses auto_now — stamp ``modified`` explicitly.
                 mention.modified = now
