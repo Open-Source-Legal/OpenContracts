@@ -480,8 +480,9 @@ class BoundsTerminationTests(TransactionTestCase):
             )
 
         self.assertEqual(summary["stop_reason"], "token_budget")
-        # At most 1 authority ingested before budget exhausted.
-        self.assertLessEqual(summary["authorities_ingested"], 1)
+        # Exactly 1: the first authority ingests (cost 1000), then the budget
+        # check (1000 >= 500) halts the loop before a second dequeue.
+        self.assertEqual(summary["authorities_ingested"], 1)
 
     def test_summary_has_no_silent_truncation(self):
         """Summary always has required keys; frontier_residual sums to total row count."""

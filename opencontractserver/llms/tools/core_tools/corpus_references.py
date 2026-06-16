@@ -7,6 +7,8 @@ from the agent context and hidden from the LLM.
 
 from __future__ import annotations
 
+from opencontractserver.enrichment import constants as C
+
 from ._helpers import _db_sync_to_async
 
 
@@ -242,9 +244,9 @@ def crawl_authorities(
     *,
     creator_id: int,
     corpus_id: int | None = None,
-    max_depth: int = 2,
-    min_demand: int = 2,
-    max_authorities: int = 50,
+    max_depth: int = C.CRAWL_DEFAULT_MAX_DEPTH,
+    min_demand: int = C.CRAWL_DEFAULT_MIN_DEMAND,
+    max_authorities: int = C.CRAWL_DEFAULT_MAX_AUTHORITIES,
     per_jurisdiction_cap: int | None = None,
     token_budget: int | None = None,
 ) -> dict:
@@ -254,7 +256,6 @@ def crawl_authorities(
     and the full frontier residual census. Idempotent: already-ingested
     authorities are skipped, re-crawling creates zero duplicate documents.
     """
-    from opencontractserver.enrichment import constants as C
     from opencontractserver.enrichment.services.crawl_authorities_service import (
         CrawlAuthoritiesService,
     )
@@ -280,9 +281,9 @@ async def acrawl_authorities(
     *,
     creator_id: int,
     corpus_id: int | None = None,
-    max_depth: int = 2,
-    min_demand: int = 2,
-    max_authorities: int = 50,
+    max_depth: int = C.CRAWL_DEFAULT_MAX_DEPTH,
+    min_demand: int = C.CRAWL_DEFAULT_MIN_DEMAND,
+    max_authorities: int = C.CRAWL_DEFAULT_MAX_AUTHORITIES,
     per_jurisdiction_cap: int | None = None,
     token_budget: int | None = None,
 ) -> dict:

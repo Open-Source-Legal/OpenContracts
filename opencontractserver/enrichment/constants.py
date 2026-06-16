@@ -90,7 +90,6 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
-CRAWL_DEFAULT_DOLLAR_BUDGET = 0.0  # 0 == unbounded; LLM-tier extraction is opt-in
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"
