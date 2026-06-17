@@ -1,5 +1,10 @@
 from django.apps import AppConfig
-from django.db.models.signals import m2m_changed, post_delete, post_save
+from django.db.models.signals import (
+    m2m_changed,
+    post_delete,
+    post_migrate,
+    post_save,
+)
 from django.utils.translation import gettext_lazy as _
 
 
@@ -61,6 +66,21 @@ class AnnotationsConfig(AppConfig):
                 process_relationship_m2m_changed,
                 sender=Relationship.target_annotations.through,
                 dispatch_uid=REL_M2M_TARGETS_UID,
+            )
+
+            # Converge the shipped AuthorityNamespace rows on every migrate.
+            # The one-shot seed/reseed data migrations (0082/0085) cannot
+            # repopulate a persistent test-database volume reused across runs
+            # (``pytest --reuse-db``) once they are recorded applied; this
+            # idempotent post_migrate receiver does. See ``ensure_seeded``.
+            from opencontractserver.enrichment._namespace_seed import (
+                ensure_seeded,
+            )
+
+            post_migrate.connect(
+                ensure_seeded,
+                sender=self,
+                dispatch_uid="annotations_seed_authority_namespaces",
             )
         except ImportError:
             pass

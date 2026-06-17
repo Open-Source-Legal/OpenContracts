@@ -47,3 +47,26 @@ def unseed(apps, schema_editor):
     AuthorityNamespace = apps.get_model("annotations", "AuthorityNamespace")
     prefixes = set(C.AUTHORITY_PREFIX.values()) | {C.SEC_RULE_PREFIX}
     AuthorityNamespace.objects.filter(prefix__in=prefixes).delete()
+
+
+def ensure_seeded(sender=None, *, apps=None, using=None, **kwargs):
+    """``post_migrate`` receiver that converges the shipped namespace rows.
+
+    A one-shot ``RunPython`` seed (0082) only ever runs once per migration
+    ledger, so a persistent test-database volume reused across runs
+    (``pytest --reuse-db`` on the self-hosted CI runner) keeps an empty
+    ``AuthorityNamespace`` table forever once the seed migration is recorded
+    applied — and a follow-up reseed migration (0085) cannot help, because it
+    too is recorded applied on that same volume after its first run. Django
+    emits ``post_migrate`` on *every* ``migrate`` invocation (including the
+    keepdb path pytest-django uses for ``--reuse-db``), so seeding here
+    converges any reused/poisoned database. ``seed`` is idempotent
+    (``update_or_create``), so this is a no-op on freshly-seeded and
+    production databases.
+
+    Connected with ``sender=AnnotationsConfig`` so it fires exactly once, after
+    the ``annotations`` app's tables exist.
+    """
+    if apps is None:
+        return
+    seed(apps, None)
