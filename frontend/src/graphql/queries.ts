@@ -928,6 +928,9 @@ export interface CorpusReferenceRow {
   referenceType: string;
   canonicalKey?: string | null;
   resolutionStatus: string;
+  // True while an enrichment run is still in flight (written provisionally,
+  // not yet finalized). The References panel badges these "In progress".
+  isProvisional?: boolean | null;
   sourceAnnotation?: {
     id: string;
     rawText?: string | null;
@@ -957,6 +960,7 @@ export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
           referenceType
           canonicalKey
           resolutionStatus
+          isProvisional
           sourceAnnotation {
             id
             rawText

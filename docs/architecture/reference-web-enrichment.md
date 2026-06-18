@@ -111,6 +111,11 @@ row is already finalized):
 > half-finished run can never trigger an authority ingest. `isProvisional` is
 > exposed on `CorpusReferenceType` for the frontend.
 
+The document References panel badges in-flight references **In progress** (taking
+precedence over their preliminary Linked / Awaiting state) until the run finalizes:
+
+![References panel — an in-flight reference badged In progress](../assets/images/screenshots/auto/annotations--references-panel--in-progress.png)
+
 ---
 
 ## Cross-document LLM concurrency
