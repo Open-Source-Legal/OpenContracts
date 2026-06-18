@@ -167,9 +167,18 @@ ALL_DETECTION_TIERS = (
 # Verified spans below this self-rated confidence go to the review bucket
 # (surfaced, never auto-promoted to mentions).
 LLM_CONFIDENCE_FLOOR = 0.7
-# Offset-preserving sliding-window chunking for the LLM pass (chars).
-LLM_CHUNK_WINDOW = 2000
+# Offset-preserving sliding-window chunking for the LLM pass (chars). The window
+# is sized large (vs the old 2000) so a document yields FAR fewer chunks: a
+# modern model handles ~2K-token windows comfortably, the LLM returns
+# chunk-relative offsets (and verify_and_place recovers by raw-text search when
+# they drift), and a 400-char overlap is only ~5% redundant at this width.
+LLM_CHUNK_WINDOW = 8000
 LLM_CHUNK_OVERLAP = 400
+# Max concurrent per-chunk LLM calls within a single document's extraction.
+# Chunks are independent, so they run via asyncio.gather behind a Semaphore —
+# bounded so we never exceed the provider's rate limits or cost-spike. This is
+# the dominant speedup over the old strictly-sequential await loop.
+LLM_MAX_CONCURRENCY = 8
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
 

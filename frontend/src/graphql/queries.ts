@@ -843,6 +843,17 @@ export interface GovernanceGraphNode {
   corpusId?: string | null;
   /** Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes. */
   authority?: string | null;
+  /** Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown). */
+  jurisdiction?: string | null;
+  /** Authority type: "statute", "regulation", etc. (null if unknown). */
+  authorityType?: string | null;
+  /**
+   * Authority-frontier crawl status for ghost nodes — "queued",
+   * "in_progress", "discovered", "ingested", "resolved", "failed",
+   * "unsupported", "blocked_license", "unlocated", "pending_approval",
+   * "deferred_cap" — or null when not tracked (all document nodes).
+   */
+  discoveryState?: string | null;
   degree: number;
 }
 
@@ -889,6 +900,9 @@ export const GET_GOVERNANCE_GRAPH = gql`
         kind
         corpusId
         authority
+        jurisdiction
+        authorityType
+        discoveryState
         degree
       }
       edges {
@@ -1009,6 +1023,142 @@ export const GET_WANTED_AUTHORITIES = gql`
   }
 `;
 
+// --- Global authority-sources monitor (superuser-only) ---------------------
+// The AuthorityFrontier is the instance-wide discovery queue: one row per
+// wanted section-root canonical key, tracking crawl/ingestion state across all
+// corpora. See /admin/authorities. Args are plain Strings (the backend filter
+// uses Char filters, not the model's choices enum) so the summary chips' raw
+// discovery_state values feed straight back as the filter.
+
+export interface AuthorityFrontierRow {
+  id: string;
+  canonicalKey: string;
+  authority?: string | null;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  /** queued | in_progress | discovered | ingested | resolved | failed |
+   * unsupported | blocked_license | unlocated | pending_approval | deferred_cap */
+  discoveryState: string;
+  /** Source-provider registry class name (e.g. "USCodeAuthoritySourceProvider"). */
+  provider?: string | null;
+  mentionCount: number;
+  distinctCorpusCount: number;
+  depth: number;
+  lastError?: string | null;
+  lastAttempt?: string | null;
+  ingestedDocument?: {
+    id: string;
+    title?: string | null;
+    slug?: string | null;
+  } | null;
+}
+
+export interface GetAuthorityFrontierInputs {
+  discoveryState?: string | null;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  provider?: string | null;
+  search?: string | null;
+  first?: number;
+  after?: string | null;
+}
+
+export interface GetAuthorityFrontierOutputs {
+  authorityFrontier: {
+    pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+    edges: { node: AuthorityFrontierRow }[];
+  };
+}
+
+export const GET_AUTHORITY_FRONTIER = gql`
+  query AuthorityFrontier(
+    $discoveryState: String
+    $jurisdiction: String
+    $authorityType: String
+    $provider: String
+    $search: String
+    $first: Int
+    $after: String
+  ) {
+    authorityFrontier(
+      discoveryState: $discoveryState
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      provider: $provider
+      search: $search
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          canonicalKey
+          authority
+          jurisdiction
+          authorityType
+          discoveryState
+          provider
+          mentionCount
+          distinctCorpusCount
+          depth
+          lastError
+          lastAttempt
+          ingestedDocument {
+            id
+            title
+            slug
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface AuthorityFrontierStateCount {
+  state: string;
+  count: number;
+}
+
+export interface GetAuthorityFrontierStatsInputs {
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  provider?: string | null;
+  search?: string | null;
+}
+
+export interface GetAuthorityFrontierStatsOutputs {
+  authorityFrontierStats: {
+    totalCount: number;
+    byState: AuthorityFrontierStateCount[];
+  };
+}
+
+export const GET_AUTHORITY_FRONTIER_STATS = gql`
+  query AuthorityFrontierStats(
+    $jurisdiction: String
+    $authorityType: String
+    $provider: String
+    $search: String
+  ) {
+    authorityFrontierStats(
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      provider: $provider
+      search: $search
+    ) {
+      totalCount
+      byState {
+        state
+        count
+      }
+    }
+  }
+`;
+
 // Lean analysis listing used to discover a corpus's reference-enrichment
 // Analysis (matched client-side on analyzer.taskName) so the document viewer
 // can auto-merge its reference-mention annotations into the annotation layer.
@@ -1067,13 +1217,13 @@ export interface GetCorpusAnalysesOutputs {
 
 export const GET_CORPUS_ANALYSES = gql`
   query GetCorpusAnalyses(
-    $corpusId: ID!
-    $statusExact: String
+    $corpusId: String!
+    $statusExact: AnalyzerAnalysisStatusChoices
     $taskNames: [String!]
   ) {
     analyses(
-      corpusId: $corpusId
-      status_Exact: $statusExact
+      analyzedCorpusId: $corpusId
+      status: $statusExact
       analyzer_TaskName_In: $taskNames
       first: 50
     ) {

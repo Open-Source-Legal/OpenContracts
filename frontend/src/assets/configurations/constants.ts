@@ -1111,6 +1111,40 @@ export const GOVERNANCE_GRAPH_AUTHORITY_CAPTIONS_SHORT: Record<string, string> =
     irc: "IRC",
   };
 
+/**
+ * Presentation tuning for the full-screen governance graph explorer
+ * (``GovernanceGraphExplorer``). The explorer reuses the glimpse's deterministic
+ * bipartite layout (``computeGovernanceLayout``) but adds zoom/pan, search,
+ * authority/kind filtering, and node selection — these knobs govern that
+ * interaction layer only (the geometry lives in ``GOVERNANCE_GRAPH_LAYOUT``).
+ */
+export const GOVERNANCE_GRAPH_EXPLORER = {
+  /** d3-zoom scale extent for the canvas. */
+  ZOOM_MIN: 0.45,
+  ZOOM_MAX: 6,
+  /** Multiplicative step for the +/- zoom buttons. */
+  ZOOM_STEP: 1.4,
+  /** Opacity for nodes/edges hidden by the control-rail filters. */
+  FILTERED_ALPHA: 0.05,
+  /** Opacity for elements outside the focused neighbourhood (hover/selection). */
+  UNFOCUSED_ALPHA: 0.16,
+  /** Opacity for non-matching elements while a text search is active. */
+  UNMATCHED_ALPHA: 0.2,
+  /**
+   * Baseline shelf-degree fraction above which statute/ghost labels show at
+   * 1× zoom; divided by the zoom scale so zooming in progressively reveals
+   * more labels (clamped so a deep zoom doesn't try to render every label).
+   */
+  LABEL_DEGREE_FRACTION: 0.32,
+  LABEL_DEGREE_FRACTION_MIN: 0.04,
+  /** Max neighbours listed in a selected node's detail drawer. */
+  NEIGHBOR_LIST_CAP: 40,
+} as const;
+
+/** Page size for the global authority-sources monitor (/admin/authorities)
+ * relay connection; "Load more" fetches the next page of this size. */
+export const AUTHORITY_FRONTIER_PAGE_SIZE = 50;
+
 // Celery task name of the corpus reference enrichment analyzer — used to
 // discover the Analyzer row that powers the "Map the reference web" CTA.
 // Must match opencontractserver/enrichment/constants.py ENRICHMENT_ANALYZER_TASK.

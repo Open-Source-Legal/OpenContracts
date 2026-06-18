@@ -3,5 +3,6 @@ export { GlobalAgentManagement } from "./GlobalAgentManagement";
 export { SystemSettings } from "./SystemSettings";
 export { WorkerAccountManagement } from "./WorkerAccountManagement";
 export { IngestionMonitor } from "./IngestionMonitor";
+export { AuthoritySourcesMonitor } from "./AuthoritySourcesMonitor";
 export { AdminEnrichment } from "./AdminEnrichment";
 export { CorpusCategoryManagement } from "./corpus_categories/CorpusCategoryManagement";

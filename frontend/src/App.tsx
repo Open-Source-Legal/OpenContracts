@@ -71,6 +71,7 @@ import {
   SystemSettings,
   WorkerAccountManagement,
   IngestionMonitor,
+  AuthoritySourcesMonitor,
   CorpusCategoryManagement,
   AdminEnrichment,
 } from "./components/admin";
@@ -418,6 +419,10 @@ export const App = () => {
             element={<WorkerAccountManagement />}
           />
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
+          <Route
+            path="/admin/authorities"
+            element={<AuthoritySourcesMonitor />}
+          />
           <Route path="/admin/enrichment" element={<AdminEnrichment />} />
           <Route
             path="/admin/corpus-categories"

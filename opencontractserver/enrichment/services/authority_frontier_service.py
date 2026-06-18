@@ -7,6 +7,7 @@ inline Tier-0 ORM fusions.
 
 from __future__ import annotations
 
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from opencontractserver.annotations.models import AuthorityFrontier
@@ -24,12 +25,18 @@ class AuthorityFrontierService(BaseService):
     def seed_from_wanted_authorities(cls, user, corpus_id: int | None = None) -> dict:
         """Upsert one AuthorityFrontier row per wanted section-root key.
 
-        Reuses the exact aggregation users already see in the Wanted Authorities
-        panel — so the queue can never diverge from the GraphQL surface.
-        Idempotent: re-running refreshes mention_count / distinct_corpus_count /
-        candidate_sources and leaves discovery_state untouched for in-flight rows.
+        Reuses the same aggregation users see in the Wanted Authorities panel,
+        but with ``finalized_only=True``: the crawl ingests authorities, an
+        irreversible action, so it must seed only from FINALIZED references —
+        never from the partial output of a still-running enrichment pass. The
+        panel itself shows in-flight rows (so the queue is a finalized subset of
+        the display, by design). Idempotent: re-running refreshes mention_count /
+        distinct_corpus_count / candidate_sources and leaves discovery_state
+        untouched for in-flight rows.
         """
-        wanted = CorpusReferenceService.wanted_authorities(user, corpus_id=corpus_id)
+        wanted = CorpusReferenceService.wanted_authorities(
+            user, corpus_id=corpus_id, finalized_only=True
+        )
         created = updated = 0
         for auth in wanted:
             authority = auth["authority"]
@@ -61,6 +68,57 @@ class AuthorityFrontierService(BaseService):
                 created += int(was_created)
                 updated += int(not was_created)
         return {"frontier_created": created, "frontier_updated": updated}
+
+    @classmethod
+    def admin_state_counts(
+        cls,
+        user,
+        *,
+        jurisdiction: str | None = None,
+        authority_type: str | None = None,
+        provider: str | None = None,
+        authority: str | None = None,
+        search: str | None = None,
+    ) -> dict:
+        """Per-``discovery_state`` row counts for the global authority-sources
+        monitor's summary chips (**superuser-only**).
+
+        Honours the non-state facets (jurisdiction / authority_type / provider /
+        authority / search) but NOT a state filter, so the chips always show the
+        full state breakdown for the current facet selection. Returns
+        ``{"total_count": int, "by_state": [{"state", "count"}, ...]}`` and is
+        empty for non-superusers (the frontier is a system-managed global queue
+        with no per-object permissions).
+        """
+        if not (
+            user and getattr(user, "is_authenticated", False) and user.is_superuser
+        ):
+            return {"total_count": 0, "by_state": []}
+
+        qs = AuthorityFrontier.objects.all()
+        if jurisdiction:
+            qs = qs.filter(jurisdiction=jurisdiction)
+        if authority_type:
+            qs = qs.filter(authority_type=authority_type)
+        if provider:
+            qs = qs.filter(provider=provider)
+        if authority:
+            qs = qs.filter(authority=authority)
+        if search:
+            qs = qs.filter(
+                Q(canonical_key__icontains=search) | Q(authority__icontains=search)
+            )
+
+        by_state = [
+            {"state": r["discovery_state"], "count": r["count"]}
+            for r in qs.values("discovery_state")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        ]
+        return {
+            "total_count": sum(r["count"] for r in by_state),
+            "by_state": by_state,
+        }
 
     @classmethod
     def dequeue_queued(

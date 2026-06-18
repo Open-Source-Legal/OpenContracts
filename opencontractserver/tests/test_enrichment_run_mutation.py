@@ -222,6 +222,64 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         assert data["ok"] is False
 
     # ------------------------------------------------------------------
+    # Superuser exemption: may trigger WITHOUT UPDATE on a readable corpus
+    # (retained admin privilege for the superuser-gated runner). Direct
+    # contrast with test_rejects_read_only_user.
+    # ------------------------------------------------------------------
+
+    def test_superuser_triggers_without_corpus_update(self):
+        """A superuser who is NOT the owner and holds no UPDATE may still
+        trigger enrichment on a corpus they can READ — the enrichment/crawl
+        runner is a retained superuser admin privilege (see
+        docs/permissioning/consolidated_permissioning_guide.md). A
+        non-superuser with the same access is rejected (test_rejects_read_only_user)."""
+        from opencontractserver.analyzer.models import Analysis
+
+        su = User.objects.create_user(
+            username="su-run", password="p", is_superuser=True
+        )
+        # Public corpus owned by someone else → READ-visible to the superuser,
+        # but they hold no UPDATE grant on it.
+        public_corpus = Corpus.objects.create(
+            title="Public Corpus", creator=self.owner, is_public=True
+        )
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", public_corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            },
+            user=su,
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is True, data
+        assert Analysis.objects.filter(
+            analyzed_corpus=public_corpus,
+            analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
+        ).exists()
+
+    def test_superuser_exemption_is_scoped_to_update_not_read(self):
+        """The exemption widens write-trigger only — a superuser is still NOT
+        exempt from READ visibility, so a PRIVATE corpus they cannot see stays
+        unreachable (no blanket bypass)."""
+        su = User.objects.create_user(
+            username="su-run2", password="p", is_superuser=True
+        )
+        # self.corpus is private + owned by self.owner; su has no grants on it.
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            },
+            user=su,
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False, data
+
+    # ------------------------------------------------------------------
     # Validation: invalid reference_types are silently dropped
     # ------------------------------------------------------------------
 

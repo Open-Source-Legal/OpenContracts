@@ -30,14 +30,27 @@ class AuthorityDiscoveryService(BaseService):
 
     @classmethod
     def _provider_for(cls, canonical_key: str):
-        """Return the highest-priority provider that can handle *canonical_key*.
+        """Return ``(name, provider, fetch_key)`` for *canonical_key*.
+
+        ``fetch_key`` is the key the chosen provider should ``locate``/``fetch``:
+        the original key when a provider handles it directly, or a
+        provider-supported ``AuthorityKeyEquivalence`` counterpart when the
+        original is a *domain* key that no provider handles directly.
+
+        Providers only ``can_handle`` statutory/regulatory canonical keys
+        (``usc-*``, ``cfr-*``, ``fedreg``), but filings cite *popular-name*
+        domain keys (e.g. ``exchange-act:10``, ``securities-act:2``). Those have
+        curated equivalences to positive-law USC keys (``usc-15:78j``); rather
+        than mark them ``unsupported``, we fetch the equivalent statutory key —
+        and the post-ingest equivalence relink (below) upgrades the original
+        domain-key EXTERNAL references. Direction-agnostic.
 
         Sorts the registry by ascending ``priority`` ClassVar so lower numbers
         are preferred. License enforcement is delegated to ``AuthorityGateService``
-        — this method intentionally does NOT filter by license.
-        Returns a ``(name, provider_instance)`` tuple on success, or
-        ``(None, None)`` when no provider matches.
+        — this method intentionally does NOT filter by license. Returns
+        ``(None, None, None)`` when nothing matches even after the equivalence hop.
         """
+        from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.pipeline.registry import (
             get_all_authority_source_providers_cached,
         )
@@ -46,15 +59,38 @@ class AuthorityDiscoveryService(BaseService):
             get_all_authority_source_providers_cached(),
             key=lambda d: getattr(d.component_class, "priority", 100),
         )
-        for defn in defns:
-            if defn.component_class is None:
-                continue
-            if not getattr(defn.component_class, "enabled", True):
-                continue
-            provider = defn.component_class()
-            if provider.can_handle(canonical_key):
-                return defn.name, provider
-        return None, None
+
+        def _match(key: str):
+            for defn in defns:
+                if defn.component_class is None:
+                    continue
+                if not getattr(defn.component_class, "enabled", True):
+                    continue
+                provider = defn.component_class()
+                if provider.can_handle(key):
+                    return defn.name, provider
+            return None
+
+        direct = _match(canonical_key)
+        if direct is not None:
+            return direct[0], direct[1], canonical_key
+
+        # Namespace bridge: no provider handles the domain key directly — resolve
+        # to a provider-supported equivalent (e.g. exchange-act:10 -> usc-15:78j).
+        for from_key, to_key in AuthorityKeyEquivalence.objects.filter(
+            Q(from_key=canonical_key) | Q(to_key=canonical_key)
+        ).values_list("from_key", "to_key"):
+            alt = to_key if from_key == canonical_key else from_key
+            matched = _match(alt)
+            if matched is not None:
+                logger.info(
+                    "AuthorityDiscoveryService: bridged %s -> %s via equivalence",
+                    canonical_key,
+                    alt,
+                )
+                return matched[0], matched[1], alt
+
+        return None, None, None
 
     @classmethod
     def discover_and_bootstrap(
@@ -99,7 +135,11 @@ class AuthorityDiscoveryService(BaseService):
         )
 
         canonical_key = frontier_row.canonical_key
-        name, provider = cls._provider_for(canonical_key)
+        # ``fetch_key`` may differ from the frontier's domain key when a
+        # popular-name citation (exchange-act:10) is bridged to its statutory
+        # equivalent (usc-15:78j) for fetching; the frontier row keeps its own
+        # ``canonical_key`` identity and the relink seam reconciles citations.
+        name, provider, fetch_key = cls._provider_for(canonical_key)
 
         if provider is None:
             AuthorityFrontierService.mark(frontier_row, "unsupported")
@@ -112,7 +152,7 @@ class AuthorityDiscoveryService(BaseService):
 
         # --- fetch -----------------------------------------------------------
         try:
-            request = provider.locate(canonical_key)
+            request = provider.locate(fetch_key)
             sections = provider.fetch(request)
         except (
             requests.RequestException,
@@ -161,8 +201,11 @@ class AuthorityDiscoveryService(BaseService):
             GateDecision,
         )
 
+        # Verify against the key we actually fetched (``fetch_key``) — for a
+        # bridged domain key the located text is the statutory section
+        # (usc-15:78j), not the popular-name key.
         decision: GateDecision = AuthorityGateService.evaluate(
-            canonical_key=canonical_key,
+            canonical_key=fetch_key,
             sections=sections,
             provider_license=provider.license,
             require_approval_for_agentic=getattr(provider, "requires_approval", False),

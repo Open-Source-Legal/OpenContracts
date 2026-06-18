@@ -19,6 +19,7 @@ from config.graphql.permissioning.permission_annotator.mixins import (
 from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
+    AuthorityFrontier,
     CorpusReference,
     LabelSet,
     Note,
@@ -197,6 +198,88 @@ class WantedAuthorityType(graphene.ObjectType):
         graphene.NonNull(WantedAuthorityKeyType),
         required=True,
         description="Most-cited missing keys (capped server-side).",
+    )
+
+
+class AuthorityFrontierNode(DjangoObjectType):
+    """One ``AuthorityFrontier`` row: the discovery/ingestion state of a wanted
+    section-root canonical key (e.g. ``usc-15:78j``), aggregated instance-wide
+    across all corpora.
+
+    ``AuthorityFrontier`` is a system-managed global queue with no per-object
+    permissions, so the connection is **superuser-only**: ``get_queryset``
+    returns nothing for everyone else and sets the backlog-first default order
+    (``-mention_count``, matching the model's index).
+    """
+
+    candidate_sources = GenericScalar(  # noqa
+        description=(
+            "Per-corpus demand breakdown: "
+            "[{corpus_id, mention_count, top_detection_tier}]."
+        )
+    )
+    ingested_document = graphene.Field(
+        _get_document_type,
+        description="The Document imported for this key once ingested (else null).",
+    )
+
+    class Meta:
+        model = AuthorityFrontier
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        # Scalar model fields only; ``candidate_sources`` and
+        # ``ingested_document`` are declared explicitly above.
+        fields = (
+            "id",
+            "canonical_key",
+            "authority",
+            "jurisdiction",
+            "authority_type",
+            "discovery_state",
+            "provider",
+            "mention_count",
+            "distinct_corpus_count",
+            "depth",
+            "last_error",
+            "last_attempt",
+            "created",
+            "modified",
+        )
+
+    @classmethod
+    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
+        user = getattr(info.context, "user", None)
+        if not (user and user.is_authenticated and user.is_superuser):
+            return queryset.none()
+        # Backlog-first by default (most-cited wanted authorities lead); the
+        # ``-mention_count, discovery_state`` index backs this ordering.
+        return queryset.select_related("ingested_document").order_by(
+            "-mention_count", "discovery_state"
+        )
+
+
+class AuthorityFrontierStateCountType(graphene.ObjectType):
+    """One ``discovery_state`` and how many frontier rows are in it."""
+
+    state = graphene.String(required=True, description="discovery_state value.")
+    count = graphene.Int(required=True)
+
+
+class AuthorityFrontierStatsType(graphene.ObjectType):
+    """Facet-aware summary counts for the authority-sources monitor's chips.
+
+    Counts honour the non-state facets (jurisdiction / authority_type /
+    provider / search) but NOT the state filter, so the chips always show the
+    full state breakdown for the current facet selection.
+    """
+
+    total_count = graphene.Int(
+        required=True, description="Total frontier rows matching the non-state facets."
+    )
+    by_state = graphene.List(
+        graphene.NonNull(AuthorityFrontierStateCountType),
+        required=True,
+        description="Row count per discovery_state (only non-empty states).",
     )
 
 

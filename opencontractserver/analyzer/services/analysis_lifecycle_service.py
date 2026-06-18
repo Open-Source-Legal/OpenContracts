@@ -103,6 +103,12 @@ class AnalysisLifecycleService(BaseService):
         the caller must also hold UPDATE on the corpus — required for
         mutations that write references or publish authority documents into
         the corpus (e.g. enrichment and authority-crawl analyzers).
+        **Superusers are exempt from this UPDATE requirement** (a retained
+        admin privilege for the superuser-gated enrichment/crawl runner — see
+        docs/permissioning/consolidated_permissioning_guide.md), but are NOT
+        exempt from the READ visibility check above: a superuser still cannot
+        reach a corpus they cannot see (visibility is computed like a normal
+        user).
 
         At least one of ``document_pk`` or ``corpus_pk`` MUST be provided —
         ``process_analyzer`` itself enforces this, but the service surfaces
@@ -133,7 +139,13 @@ class AnalysisLifecycleService(BaseService):
             corpus_qs = Corpus.objects.visible_to_user(user).filter(pk=corpus_pk)
             if not corpus_qs.exists():
                 return ServiceResult.failure(not_found_msg)
-            if require_corpus_update:
+            # Superusers operating the superuser-gated enrichment/crawl runner
+            # may trigger across any corpus they can SEE without holding UPDATE
+            # (a retained admin privilege). The READ visibility check above
+            # still applies — superusers do not bypass visibility — so this
+            # only widens write-trigger access for corpora already visible to
+            # them. Non-superusers must hold UPDATE.
+            if require_corpus_update and not getattr(user, "is_superuser", False):
                 corpus_obj = corpus_qs.get()
                 if not corpus_obj.user_can(user, PermissionTypes.UPDATE):
                     return ServiceResult.failure(not_found_msg)

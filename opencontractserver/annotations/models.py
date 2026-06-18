@@ -1983,6 +1983,16 @@ class CorpusReference(BaseOCModel):
         blank=True,
         related_name="created_references",
     )
+    # In-flight enrichment lifecycle. ``True`` means this row was written by a
+    # still-running enrichment pass and is NOT yet finalized: surface it (the
+    # References panel / governance graph render it with a badge) but do NOT act
+    # on it (the crawl seeds the frontier from finalized rows only). The
+    # producing run flips its own rows to ``False`` in one atomic update on
+    # success (keyed on ``created_by_analysis``); a failed run leaves them
+    # provisional, to be reclaimed + finalized by a later successful run.
+    # ``default=False`` so every pre-existing row and every fast-tier/direct
+    # write is already finalized — the migration is schema-only.
+    is_provisional = django.db.models.BooleanField(default=False, db_index=True)
 
     class Meta:
         indexes = [

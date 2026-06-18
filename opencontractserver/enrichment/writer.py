@@ -310,7 +310,30 @@ class EnrichmentWriter:
         ann.save()
         return ann, True
 
-    def write(self, resolutions: list[Resolution]) -> WriteResult:
+    def write(
+        self,
+        resolutions: list[Resolution],
+        *,
+        provisional: bool = False,
+        reconcile_graph: bool = True,
+    ) -> WriteResult:
+        """Persist one batch of resolutions in a single transaction.
+
+        ``provisional`` stamps newly-created ``CorpusReference`` rows as
+        in-flight (see :attr:`CorpusReference.is_provisional`) — set by the
+        per-document streaming path in :meth:`EnrichmentService.apply` so
+        references become visible mid-run, then finalized atomically on
+        completion.
+
+        ``reconcile_graph`` controls the corpus-wide ``DocumentRelationship``
+        rollup. It is a projection of ALL the corpus's resolved doc->doc
+        references, so it must run once over the full set — NOT per document
+        (a per-doc reconcile would prune edges whose backing references the
+        later documents have not yet written). The streaming path passes
+        ``reconcile_graph=False`` here and calls :meth:`reconcile_document_graph`
+        once after the last document. The default ``True`` preserves the
+        single-shot behaviour for any non-streaming caller.
+        """
         result = WriteResult()
         rel_label = self._label(C.LABEL_RELATIONSHIP, RELATIONSHIP_LABEL)
 
@@ -353,13 +376,28 @@ class EnrichmentWriter:
                 # Everything else with a cross-boundary/external nature ->
                 # CorpusReference. (Offset-only section refs also land here so
                 # the resolved target offset is recorded.)
-                self._ensure_corpus_reference(mention, res, result)
+                self._ensure_corpus_reference(mention, res, result, provisional)
 
             # Resolved doc->doc refs roll up to document-level edges:
             # DocumentRelationship is what the corpus document graph renders
             # (documents = nodes, relationships = edges).
-            self._reconcile_document_graph(rel_label, result)
+            if reconcile_graph:
+                self._reconcile_document_graph(rel_label, result)
 
+        return result
+
+    def reconcile_document_graph(self) -> WriteResult:
+        """Run the corpus-wide doc-graph projection once, in its own transaction.
+
+        The streaming path in :meth:`EnrichmentService.apply` writes each
+        document's references with ``reconcile_graph=False`` and then calls this
+        after the last document, so the ``DocumentRelationship`` rollup sees the
+        complete set of resolved doc->doc references exactly once.
+        """
+        result = WriteResult()
+        rel_label = self._label(C.LABEL_RELATIONSHIP, RELATIONSHIP_LABEL)
+        with transaction.atomic():
+            self._reconcile_document_graph(rel_label, result)
         return result
 
     def _reconcile_document_graph(self, rel_label, result):
@@ -451,7 +489,7 @@ class EnrichmentWriter:
         rel.target_annotations.set([res.target_annotation_id])
         result.relationships_created += 1
 
-    def _ensure_corpus_reference(self, mention, res, result):
+    def _ensure_corpus_reference(self, mention, res, result, provisional=False):
         normalized = dict(res.normalized_data)
         if res.target_offset is not None:
             normalized["target_offset"] = res.target_offset
@@ -485,12 +523,19 @@ class EnrichmentWriter:
                 "authority_type": authority_type,
                 "detection_tier": res.candidate.detection_tier,
                 "detection_confidence": res.candidate.detection_confidence,
+                # In-flight runs mark new rows provisional; finalized on the
+                # producing run's success (EnrichmentService.apply).
+                "is_provisional": provisional,
             },
         )
         if created:
             result.references_created += 1
             result.reference_ids.append(ref.pk)
-        elif (ref.jurisdiction is None or ref.authority_type is None) and (
+            return
+
+        # --- existing row ---------------------------------------------------
+        update_fields: list[str] = []
+        if (ref.jurisdiction is None or ref.authority_type is None) and (
             jurisdiction is not None or authority_type is not None
         ):
             # Heal a row persisted before classification existed (or by an
@@ -498,4 +543,35 @@ class EnrichmentWriter:
             # governance graph + frontier never read a stale (None, None).
             ref.jurisdiction = ref.jurisdiction or jurisdiction
             ref.authority_type = ref.authority_type or authority_type
-            ref.save(update_fields=["jurisdiction", "authority_type", "modified"])
+            update_fields += ["jurisdiction", "authority_type"]
+
+        # Claim rule: a still-provisional row owned by a DIFFERENT analysis is
+        # re-attributed to the current analysis so the completion flip — which
+        # keys on ``created_by_analysis=self.analysis`` — finalizes it. We claim
+        # regardless of the prior owner's state (FAILED or still RUNNING) ON
+        # PURPOSE: the lifecycle is then resilient to a run that died without
+        # marking itself FAILED (e.g. a Celery worker warm-shutdown orphaning an
+        # Analysis at RUNNING) — the NEXT successful run reclaims and finalizes
+        # its provisional rows with no reaper required.
+        #
+        # A FINALIZED row (is_provisional=False) is NEVER touched here: re-running
+        # enrichment must never downgrade an already-finalized reference back to
+        # provisional, even mid-run. That guard is what keeps the semantics safe
+        # under (currently un-prevented) concurrent same-corpus runs: two runs
+        # may claim each other's *provisional* rows, but the outcome is
+        # well-defined — no finalized row is ever corrupted, whichever run
+        # finalizes a given row last owns it, and if both succeed it ends
+        # finalized. The only quirk (eventual owner later fails → row lingers
+        # provisional until the next successful run) is identical to the accepted
+        # failed-run behavior, and the crawl's finalized-only guard is downstream
+        # so no half-correct ingest can result.
+        if (
+            ref.is_provisional
+            and self.analysis is not None
+            and ref.created_by_analysis_id != self.analysis.id
+        ):
+            ref.created_by_analysis = self.analysis
+            update_fields.append("created_by_analysis")
+
+        if update_fields:
+            ref.save(update_fields=[*update_fields, "modified"])

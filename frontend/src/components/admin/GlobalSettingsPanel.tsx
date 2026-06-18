@@ -9,6 +9,7 @@ import {
   Upload,
   Tag,
   Activity,
+  Scale,
   LucideIcon,
 } from "lucide-react";
 
@@ -256,6 +257,15 @@ const settingsItems: SettingItem[] = [
     icon: Activity,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.danger} 0%, ${OS_LEGAL_COLORS.folderIcon} 100%)`,
     route: "/admin/ingestion",
+  },
+  {
+    id: "authority-sources",
+    title: "Authority Sources",
+    description:
+      "Track the crawl & ingestion status of cited law (statutes, regulations) across all corpora — the global authority discovery queue.",
+    icon: Scale,
+    gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.folderIcon} 0%, ${OS_LEGAL_COLORS.accent} 100%)`,
+    route: "/admin/authorities",
   },
   {
     id: "corpus-categories",

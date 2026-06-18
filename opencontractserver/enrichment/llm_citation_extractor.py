@@ -13,6 +13,7 @@ containing sensitive or confidential content without appropriate consent.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, cast
@@ -288,21 +289,24 @@ class LLMCitationExtractor:
         model: str | None = None,
         window: int = C.LLM_CHUNK_WINDOW,
         overlap: int = C.LLM_CHUNK_OVERLAP,
+        max_concurrency: int = C.LLM_MAX_CONCURRENCY,
     ) -> None:
         self._model_spec = model
         self._window = window
         self._overlap = overlap
+        self._max_concurrency = max(1, max_concurrency)
 
-    async def aextract(self, text: str) -> list[Candidate]:
-        """Extract law citation candidates from ``text`` using the LLM.
+    async def _abuild_model(self) -> Any:
+        """Resolve the configured model spec and build the agent model.
 
-        Returns an empty list immediately for blank/whitespace-only input
-        without building an LLM model.
+        The single model-build seam: ``aextract`` uses it when no model is
+        passed, and the multi-document orchestrator
+        (``EnrichmentService._aresolve_documents``) calls it once to build a
+        shared model. Centralising it here means tests that patch
+        ``abuild_agent_model`` in this module cover BOTH call paths (the
+        orchestrator no longer builds via a separate import, which silently
+        bypassed the patch and issued real provider calls).
         """
-        if not text or not text.strip():
-            return []
-
-        # Resolve the model spec once.
         from opencontractserver.llms.llm_registry import resolve_model_spec
 
         spec = resolve_model_spec(
@@ -311,11 +315,81 @@ class LLMCitationExtractor:
             corpus_preferred=None,
             settings_default=None,
         )
-        model = await abuild_agent_model(spec)
+        return await abuild_agent_model(spec)
+
+    async def aextract(
+        self,
+        text: str,
+        *,
+        model: Any = None,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[Candidate]:
+        """Extract law citation candidates from ``text`` using the LLM.
+
+        Returns an empty list immediately for blank/whitespace-only input
+        without building an LLM model.
+
+        ``model`` and ``semaphore`` let a multi-document orchestrator share one
+        built model and one GLOBAL chunk-concurrency semaphore across every
+        document, so the total in-flight provider load stays bounded even while
+        many documents extract at once (cross-document concurrency). When
+        omitted (the single-document callers), each call builds its own model
+        and a private semaphore — identical to the prior behaviour.
+        """
+        if not text or not text.strip():
+            return []
+
+        if model is None:
+            model = await self._abuild_model()
 
         step = self._window - self._overlap
         if step <= 0:
             step = self._window
+
+        # Enumerate the sliding-window chunks up front so they can run
+        # concurrently — each (chunk_start, chunk_text) extraction is fully
+        # independent.
+        chunks: list[tuple[int, str]] = []
+        pos = 0
+        while pos < len(text):
+            chunks.append((pos, text[pos : pos + self._window]))
+            pos += step
+
+        # Run the per-chunk structured calls CONCURRENTLY, bounded by a semaphore
+        # so we never exceed the provider's rate limits or cost-spike. This
+        # replaces the old strictly-sequential ``await`` loop — the single
+        # biggest cost of the LLM tier (e.g. ~2,900 serial calls on a large
+        # corpus). A failed chunk yields ``None`` and is skipped, exactly as the
+        # old per-chunk try/except did. A shared ``semaphore`` (passed by the
+        # multi-document orchestrator) caps load ACROSS documents; otherwise a
+        # private one caps this document alone.
+        sem = (
+            semaphore
+            if semaphore is not None
+            else asyncio.Semaphore(self._max_concurrency)
+        )
+
+        async def _run(
+            chunk_start: int, chunk_text: str
+        ) -> tuple[int, str, ChunkCitationExtraction | None]:
+            async with sem:
+                try:
+                    extraction = await _one_shot_structured(
+                        chunk_text=chunk_text,
+                        model=model,
+                    )
+                except Exception:
+                    logger.exception(
+                        "LLM citation extraction failed for chunk at offset %d",
+                        chunk_start,
+                    )
+                    return chunk_start, chunk_text, None
+                return chunk_start, chunk_text, extraction
+
+        # ``gather`` preserves input order, so processing below stays in
+        # ascending-offset order — the dedup ("first chunk wins") is therefore
+        # deterministic, identical to the old sequential loop.
+        results = await asyncio.gather(*(_run(cs, ct) for cs, ct in chunks))
 
         # Dedup on (start, end) only. An identical span IS the same citation;
         # LLM nondeterminism must not let two different derived keys for the
@@ -323,23 +397,9 @@ class LLMCitationExtractor:
         seen: set[tuple[int, int]] = set()
         candidates: list[Candidate] = []
 
-        pos = 0
-        while pos < len(text):
-            chunk_start = pos
-            chunk_text = text[pos : pos + self._window]
-
-            try:
-                extraction = await _one_shot_structured(
-                    chunk_text=chunk_text,
-                    model=model,
-                )
-            except Exception:
-                logger.exception(
-                    "LLM citation extraction failed for chunk at offset %d", pos
-                )
-                pos += step
+        for chunk_start, chunk_text, extraction in results:
+            if extraction is None:
                 continue
-
             for llm_cand in extraction.citations:
                 placement = verify_and_place(text, chunk_start, chunk_text, llm_cand)
                 if placement is None:
@@ -386,7 +446,5 @@ class LLMCitationExtractor:
                         },
                     )
                 )
-
-            pos += step
 
         return candidates
