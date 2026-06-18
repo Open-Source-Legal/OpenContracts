@@ -68,11 +68,12 @@ class AnnotationsConfig(AppConfig):
                 dispatch_uid=REL_M2M_TARGETS_UID,
             )
 
-            # Converge the shipped AuthorityNamespace rows on every migrate.
-            # The one-shot seed/reseed data migrations (0082/0085) cannot
-            # repopulate a persistent test-database volume reused across runs
-            # (``pytest --reuse-db``) once they are recorded applied; this
-            # idempotent post_migrate receiver does. See ``ensure_seeded``.
+            # Converge the shipped AuthorityNamespace rows on every
+            # post_migrate. The one-shot seed migrations (0082/0085) commit
+            # rows outside any test transaction, so a ``TransactionTestCase``
+            # flush truncates them mid-suite; this idempotent receiver
+            # re-seeds after each flush (and on reused CI volumes at DB
+            # setup). See ``ensure_seeded``.
             from opencontractserver.enrichment._namespace_seed import (
                 ensure_seeded,
             )

@@ -52,21 +52,31 @@ def unseed(apps, schema_editor):
 def ensure_seeded(sender=None, *, apps=None, using=None, **kwargs):
     """``post_migrate`` receiver that converges the shipped namespace rows.
 
-    A one-shot ``RunPython`` seed (0082) only ever runs once per migration
-    ledger, so a persistent test-database volume reused across runs
-    (``pytest --reuse-db`` on the self-hosted CI runner) keeps an empty
-    ``AuthorityNamespace`` table forever once the seed migration is recorded
-    applied — and a follow-up reseed migration (0085) cannot help, because it
-    too is recorded applied on that same volume after its first run. Django
-    emits ``post_migrate`` on *every* ``migrate`` invocation (including the
-    keepdb path pytest-django uses for ``--reuse-db``), so seeding here
-    converges any reused/poisoned database. ``seed`` is idempotent
-    (``update_or_create``), so this is a no-op on freshly-seeded and
-    production databases.
+    The one-shot ``RunPython`` seed (0082) only runs once per migration ledger,
+    so the rows it commits live *outside* any test transaction. Django's
+    ``flush`` — run on every ``TransactionTestCase`` teardown — truncates
+    ``annotations_authoritynamespace`` along with every other table, and with
+    ``serialized_rollback`` disabled (the default) nothing restores it. Under
+    ``pytest -n auto --dist loadscope`` any ``TransactionTestCase`` that runs
+    before the seed/discovery tests on the same worker therefore leaves them
+    reading an empty registry. Re-running the idempotent ``update_or_create``
+    seed on every ``post_migrate`` converges the table again after each flush
+    (and re-seeds reused/poisoned CI volumes at DB setup). It stays a no-op on
+    freshly-seeded and production databases.
 
-    Connected with ``sender=AnnotationsConfig`` so it fires exactly once, after
-    the ``annotations`` app's tables exist.
+    ``migrate`` emits ``post_migrate`` with an ``apps`` kwarg (the historical
+    project state); ``flush`` emits it *without* one
+    (``django/core/management/commands/flush.py`` vs ``migrate.py``). The
+    flush-path emission is precisely the one that has to re-seed, so — exactly
+    like Django's own ``create_contenttypes`` / ``create_permissions``
+    receivers — fall back to the global app registry when ``apps`` is absent
+    rather than bailing.
+
+    Connected with ``sender=AnnotationsConfig`` so it fires exactly once per
+    emission, after the ``annotations`` app's tables exist.
     """
     if apps is None:
-        return
+        from django.apps import apps as global_apps  # flush path: no apps kwarg
+
+        apps = global_apps
     seed(apps, None)
