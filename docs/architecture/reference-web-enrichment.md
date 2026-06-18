@@ -140,8 +140,10 @@ and keeps the simple synchronous streaming loop for the fast tiers.
 **Measured** on a 75-document / 4.5 MB S-1 corpus: ~72 min (and the run died) →
 **~4 min**, completing with all references finalized.
 
-> **Tuning.** `LLM_MAX_CONCURRENCY` is a conservative global cap; raising it pushes
-> toward ~2–3 min at the cost of higher provider rate-limit / cost exposure.
+> **Tuning.** The global cap defaults to a conservative `LLM_MAX_CONCURRENCY` (8);
+> raise it via the `ENRICHMENT_LLM_MAX_CONCURRENCY` env var / Django setting (no
+> code change) to push toward ~2–3 min, at the cost of higher provider rate-limit
+> / cost exposure.
 
 ---
 

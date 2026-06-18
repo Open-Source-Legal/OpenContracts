@@ -217,6 +217,25 @@ class TestDeriveCanonicalKey:
         assert result is None
 
 
+class TestLLMMaxConcurrencyResolver:
+    """The global concurrency cap is the code constant unless a deployment
+    overrides it via ENRICHMENT_LLM_MAX_CONCURRENCY. Pure-function — no DB."""
+
+    def test_default_is_the_constant(self, settings):
+        settings.ENRICHMENT_LLM_MAX_CONCURRENCY = None
+        assert C.llm_max_concurrency() == C.LLM_MAX_CONCURRENCY
+
+    def test_setting_overrides_the_constant(self, settings):
+        settings.ENRICHMENT_LLM_MAX_CONCURRENCY = 3
+        assert C.llm_max_concurrency() == 3
+
+    def test_extractor_resolves_when_unset_and_explicit_wins(self, settings):
+        settings.ENRICHMENT_LLM_MAX_CONCURRENCY = 5
+        assert LLMCitationExtractor()._max_concurrency == 5
+        # An explicit constructor arg overrides the global cap.
+        assert LLMCitationExtractor(max_concurrency=2)._max_concurrency == 2
+
+
 # ---------------------------------------------------------------------------
 # aextract — async integration tests with TestModel
 # ---------------------------------------------------------------------------

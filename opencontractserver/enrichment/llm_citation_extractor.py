@@ -289,12 +289,16 @@ class LLMCitationExtractor:
         model: str | None = None,
         window: int = C.LLM_CHUNK_WINDOW,
         overlap: int = C.LLM_CHUNK_OVERLAP,
-        max_concurrency: int = C.LLM_MAX_CONCURRENCY,
+        max_concurrency: int | None = None,
     ) -> None:
         self._model_spec = model
         self._window = window
         self._overlap = overlap
-        self._max_concurrency = max(1, max_concurrency)
+        # None => the settings-overridable global cap (C.llm_max_concurrency()).
+        self._max_concurrency = max(
+            1,
+            max_concurrency if max_concurrency is not None else C.llm_max_concurrency(),
+        )
 
     async def _abuild_model(self) -> Any:
         """Resolve the configured model spec and build the agent model.

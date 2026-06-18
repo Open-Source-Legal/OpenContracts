@@ -182,6 +182,21 @@ LLM_MAX_CONCURRENCY = 8
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
 
+
+def llm_max_concurrency() -> int:
+    """Effective global cap on concurrent LLM extraction calls.
+
+    ``LLM_MAX_CONCURRENCY`` is the conservative code default; a deployment can
+    raise it (more provider throughput, but higher rate-limit / cost exposure)
+    via the ``ENRICHMENT_LLM_MAX_CONCURRENCY`` env var / Django setting without a
+    code change. Read lazily so importing this module never requires configured
+    settings, and so the constant stays the single numeric source of truth.
+    """
+    from django.conf import settings
+
+    override = getattr(settings, "ENRICHMENT_LLM_MAX_CONCURRENCY", None)
+    return override if override else LLM_MAX_CONCURRENCY
+
 # --- Phase 3: prefix classifier ---------------------------------------- #
 _USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
 _CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")

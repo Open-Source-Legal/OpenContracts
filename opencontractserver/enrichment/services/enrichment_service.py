@@ -206,8 +206,9 @@ class EnrichmentService:
 
         Runs the LLM extraction for ALL documents concurrently under one shared
         chunk-level semaphore (so total in-flight provider load stays bounded to
-        ``LLM_MAX_CONCURRENCY`` no matter how many documents are in flight), and
-        writes each document's references the moment its detection completes.
+        ``C.llm_max_concurrency()`` — the settings-overridable global cap — no
+        matter how many documents are in flight), and writes each document's
+        references the moment its detection completes.
         This keeps the per-document path's incremental visibility while filling
         the concurrency lanes ACROSS documents — the per-document path serialised
         them, so a corpus with a few large documents (an S-1's prospectus)
@@ -236,7 +237,7 @@ class EnrichmentService:
         model = None
         if llm_extractor is not None:
             model = await llm_extractor._abuild_model()
-        chunk_sem = asyncio.Semaphore(C.LLM_MAX_CONCURRENCY)
+        chunk_sem = asyncio.Semaphore(C.llm_max_concurrency())
 
         agg = WriteResult()
         documents_total = len(documents)
