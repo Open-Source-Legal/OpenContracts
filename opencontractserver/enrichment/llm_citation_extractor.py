@@ -127,8 +127,10 @@ def _derive_canonical_key(normalized_citation: str, raw_text: str) -> str | None
     rt = raw_text.strip()
 
     if nc and ":" in nc:
-        # Already in canonical key form ("dgcl:145")
-        return nc
+        # Already in canonical key form ("dgcl:145"); canonicalise the locator
+        # separator so e.g. "eu:2017/1129" and "eu:2017-1129" — the same EU
+        # regulation cited two ways — collapse to one key.
+        return _normalize_locator_sep(nc)
 
     source = nc or rt
     if not source:
@@ -138,6 +140,41 @@ def _derive_canonical_key(normalized_citation: str, raw_text: str) -> str | None
     if not slug:
         return None
     return f"act:{slug}"
+
+
+def _normalize_locator_sep(key: str) -> str:
+    """Canonicalise the locator's separators so trivially-different LLM keys for
+    the SAME authority collapse.
+
+    Only the locator (the part after the first ``:``) is touched, and only ``/``
+    is rewritten to ``-`` — our canonical keys carry subsection structure with
+    ``.`` / ``(`` / ``)`` (e.g. ``usc-15:78j(b)``, ``cfr-17:240.10b``), none of
+    which use ``/``, so this is a no-op for them and a fold only for free-form
+    LLM keys like ``eu:2017/1129``.
+    """
+    prefix, sep, locator = key.partition(":")
+    if not sep:
+        return key
+    return f"{prefix}:{locator.replace('/', '-')}"
+
+
+def _is_concept_key(canonical_key: str | None) -> bool:
+    """True when the key is a generic ``act:*`` *concept* rather than a precise
+    citation — i.e. the catch-all ``act:`` prefix with NO section locator (no
+    digit anywhere in the slug).
+
+    A real citation carries a number (``act:asc-606``, ``irc:163``); a bare body
+    of law or loose phrase does not (``act:gaap``, ``act:applicable-law``,
+    ``act:dgcl``, ``act:certificate-of-incorporation``). Those are flagged
+    ``needs_review`` so they surface for triage but never auto-promote into the
+    persisted reference web / crawl frontier. Direction: keep, don't drop.
+    """
+    if not canonical_key:
+        return False
+    prefix, sep, locator = canonical_key.partition(":")
+    if not sep or prefix != "act":
+        return False
+    return not any(ch.isdigit() for ch in locator)
 
 
 def verify_and_place(
@@ -421,7 +458,12 @@ class LLMCitationExtractor:
                 seen.add(dedup_key)
 
                 conf = placement["confidence"]
-                needs_review = conf < C.LLM_CONFIDENCE_FLOOR
+                # Low confidence OR a generic act:* concept (no section locator)
+                # → review bucket: surfaced for triage, not auto-promoted into the
+                # persisted reference web / crawl frontier.
+                needs_review = conf < C.LLM_CONFIDENCE_FLOOR or _is_concept_key(
+                    canonical_key
+                )
 
                 # Extract the authority prefix (part before ':') when available.
                 authority: str | None = None

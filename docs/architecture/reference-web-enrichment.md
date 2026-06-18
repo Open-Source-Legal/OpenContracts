@@ -238,10 +238,14 @@ queries are superuser-gated at the node level.
 
 ## Known limitations & follow-ups
 
-- **Open-vocabulary noise.** The LLM tier's `act:*` catch-all and key-format
-  duplicates (e.g. `eu:2017/1129` vs `eu:2017-1129`) want a normalization /
-  equivalence pass. The grammar/registry tiers are precise; the LLM tier trades
-  some precision for recall.
+- **Open-vocabulary noise.** The LLM tier trades some precision for recall. A
+  normalization pass in `_derive_canonical_key` / `aextract` folds separator
+  variants (`eu:2017/1129` → `eu:2017-1129`) and flags locator-less `act:*`
+  references — bodies of law / loose phrases with no section number
+  (`act:gaap`, `act:applicable-law`, `act:guam-administrative-adjudication-law`)
+  — as `needs_review`, so they surface for triage but never auto-promote into the
+  persisted reference web or crawl frontier. A future pass could fold known-body
+  references into curated `AuthorityKeyEquivalence` rows.
 - **Re-run churn.** Re-running the LLM tier produces ~10–15% new mention rows from
   span nondeterminism even at temperature 0 (idempotent on `canonical_key`, but
   distinct spans yield distinct mention annotations).

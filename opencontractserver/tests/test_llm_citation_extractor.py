@@ -10,8 +10,10 @@ from opencontractserver.enrichment.llm_citation_extractor import (
     CitationCandidate,
     LLMCitationExtractor,
     _derive_canonical_key,
+    _is_concept_key,
     _normalize_authority_type,
     _normalize_jurisdiction,
+    _normalize_locator_sep,
     verify_and_place,
 )
 
@@ -215,6 +217,35 @@ class TestDeriveCanonicalKey:
     def test_whitespace_only_returns_none(self):
         result = _derive_canonical_key("   ", "   ")
         assert result is None
+
+
+class TestKeyNormalization:
+    """Pure-function — separator dedupe + the act:* concept-flag heuristic."""
+
+    def test_derive_canonical_key_folds_slash_separator(self):
+        # eu:2017/1129 and eu:2017-1129 are the same regulation cited two ways.
+        assert _derive_canonical_key("eu:2017/1129", "") == "eu:2017-1129"
+        assert _derive_canonical_key("eu:2017-1129", "") == "eu:2017-1129"
+
+    def test_normalize_locator_sep_preserves_subsection_punctuation(self):
+        # Subsection structure (. ( )) must survive untouched; only / folds to -.
+        assert _normalize_locator_sep("usc-15:78j(b)") == "usc-15:78j(b)"
+        assert _normalize_locator_sep("cfr-17:240.10b") == "cfr-17:240.10b"
+        assert _normalize_locator_sep("dgcl:145") == "dgcl:145"
+        assert _normalize_locator_sep("nokey") == "nokey"  # no ':' → unchanged
+
+    def test_is_concept_key_flags_locatorless_act(self):
+        assert _is_concept_key("act:gaap") is True
+        assert _is_concept_key("act:applicable-law") is True
+        assert _is_concept_key("act:certificate-of-incorporation") is True
+        assert _is_concept_key("act:delaware-law") is True
+
+    def test_is_concept_key_keeps_numbered_keys_and_real_prefixes(self):
+        assert _is_concept_key("act:asc-606") is False  # carries a locator number
+        assert _is_concept_key("irc:163") is False  # real prefix, not act:
+        assert _is_concept_key("dgcl:145") is False
+        assert _is_concept_key(None) is False
+        assert _is_concept_key("") is False
 
 
 class TestLLMMaxConcurrencyResolver:
