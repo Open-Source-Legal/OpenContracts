@@ -93,6 +93,7 @@ nav:
       - Asynchronous Processing: architecture/asynchronous-processing.md
       - Bulk Import: architecture/bulk-import.md
       - Document Analyzers: architecture/analyzers.md
+      - Reference-Web Enrichment & Authority Discovery: architecture/reference-web-enrichment.md
       - Discovery System (llms.txt, MCP, robots.txt): architecture/discovery_system.md
       - Corpus Actions: architecture/opencontract-corpus-actions.md
       - Agent Corpus Actions: architecture/agent_corpus_actions_design.md

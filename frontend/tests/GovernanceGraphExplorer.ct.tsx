@@ -247,6 +247,11 @@ test.describe("GovernanceGraphExplorer", () => {
       page.locator(`[data-testid="${TID}-detail-status"]`)
     ).toContainText("Queued for discovery");
 
+    // Doc shot: the node-detail drawer on a cited-but-not-ingested authority —
+    // jurisdiction, authority type, and the frontier crawl state the glimpse
+    // can't surface.
+    await docScreenshot(page, "graph--governance-explorer--node-detail");
+
     // Escape dismisses the drawer again.
     await page.keyboard.press("Escape");
     await expect(drawer).toBeHidden();
