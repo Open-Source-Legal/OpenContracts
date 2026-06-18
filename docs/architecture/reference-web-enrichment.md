@@ -256,3 +256,11 @@ queries are superuser-gated at the node level.
   distinct spans yield distinct mention annotations).
 - **Versioning.** Amendments do not yet re-point already-`RESOLVED` references to
   the new section version — see `docs/architecture/reference-web-versioning.md`.
+- **Live per-document progress counter (deferred).** Progress during a run is
+  conveyed today by the RUNNING job status, the incrementally-appearing refs, and
+  the "In progress" badge. A live per-document counter on the enrichment runner
+  (e.g. "12 / 75 documents · 31 references") would need a transient
+  `ENRICHMENT_PROGRESS` WebSocket message emitted from both `apply` paths and a
+  new handler in `useNotificationWebSocket` → `useEnrichmentJobs` →
+  `EnrichmentJobList`. Deferred as its own change (the WS path is not
+  component-test-exercisable, so it needs a live verification pass).
