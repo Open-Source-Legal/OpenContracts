@@ -64,6 +64,21 @@ class AuthorityGateService:
 
         Returns:
             A frozen GateDecision with verdict, reason, verify, source_domain.
+
+        Notes:
+            - ``GATE_BLOCKED_LICENSE`` is intentionally overloaded: it is the
+              verdict for BOTH a non-public-domain provider license (check 1)
+              AND an off-allowlist source domain (check 3). Both mean "untrusted
+              source", so a single state is used; the ``reason`` string
+              disambiguates which check fired. Operators querying by state alone
+              cannot tell the two apart — match on ``reason`` if needed.
+            - A missing source URL (``source_url`` None/"" AND no
+              ``sections[0].source_url``) yields ``domain=None``, which
+              **intentionally skips the domain allowlist check (check 3)**. The
+              license check (check 1) and the key/heading verify (check 4) still
+              run, so this is not an open bypass — a provider with a public-domain
+              license but no URL is trusted on its license alone. See
+              ``test_none_source_url_skips_allowlist_check``.
         """
         # 1) License gate -------------------------------------------------------
         if provider_license != "public-domain":

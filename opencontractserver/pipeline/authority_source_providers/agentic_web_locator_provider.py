@@ -40,6 +40,11 @@ logger = logging.getLogger(__name__)
 # Maximum characters to return from a fetched page — keeps agent context bounded.
 _MAX_FETCH_CHARS = 50_000
 
+# Hard ceiling on model requests per agent run. discover_and_bootstrap runs from
+# a Celery task, so a misbehaving model or a provider that never converges must
+# not loop indefinitely — pydantic-ai raises UsageLimitExceeded past this bound.
+_MAX_AGENT_REQUESTS = 10
+
 
 class _LocatorOutput(BaseModel):
     """Structured output the agent must produce."""
@@ -116,6 +121,8 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         enforces the structured output schema on every model response.
         ``result.output`` is the validated ``_LocatorOutput`` instance.
         """
+        from pydantic_ai.usage import UsageLimits
+
         from opencontractserver.llms.agents.pydantic_ai_factory import (
             make_pydantic_ai_agent,
         )
@@ -194,6 +201,7 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         result = await agent.run(
             f"Locate the official text of: {citation}",
             deps=PydanticAIDependencies(),
+            usage_limits=UsageLimits(request_limit=_MAX_AGENT_REQUESTS),
         )
         return result.output  # type: ignore[return-value]
 
