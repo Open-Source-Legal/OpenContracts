@@ -63,7 +63,8 @@ def host_on_allowlist(
     host = host.lower().rstrip(".")
     if host in allowlist:
         return True
-    return any(host.endswith("." + a) or host == a for a in allowlist)
+    # Exact matches are handled above, so only the dotted-suffix check remains.
+    return any(host.endswith("." + a) for a in allowlist)
 
 
 def _assert_public_ip(host: str) -> None:
@@ -124,7 +125,15 @@ def safe_fetch_bytes(
     - Streams the body and aborts past *max_bytes* (Content-Length AND actual bytes).
     - Enforces connect + read timeouts via ``httpx.Timeout``.
     """
-    timeout = httpx.Timeout(READ_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
+    # httpx requires either a single default or all four phases set explicitly;
+    # spell them out so READ_TIMEOUT_SECONDS clearly applies to read/write/pool
+    # and CONNECT_TIMEOUT_SECONDS only to connect.
+    timeout = httpx.Timeout(
+        connect=CONNECT_TIMEOUT_SECONDS,
+        read=READ_TIMEOUT_SECONDS,
+        write=READ_TIMEOUT_SECONDS,
+        pool=READ_TIMEOUT_SECONDS,
+    )
     current = url
     with httpx.Client(follow_redirects=False, timeout=timeout) as client:
         for _ in range(MAX_REDIRECTS + 1):

@@ -92,7 +92,6 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
-CRAWL_DEFAULT_DOLLAR_BUDGET = 0.0  # 0 == unbounded; LLM-tier extraction is opt-in
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"
@@ -165,6 +164,9 @@ LLM_CHUNK_OVERLAP = 400
 LLM_MAX_CONCURRENCY = 8
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
+# Max chars of a candidate's raw_text echoed into the review-candidate
+# serialisation (a preview, not the full span — keeps payloads bounded).
+REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN = 120
 
 
 def llm_max_concurrency() -> int:

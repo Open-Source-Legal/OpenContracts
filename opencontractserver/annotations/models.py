@@ -2125,9 +2125,8 @@ class AuthorityFrontier(django.db.models.Model):
     """
 
     # Identity — the section root the bootstrapper materialises (one doc/section)
-    canonical_key = django.db.models.CharField(
-        max_length=255, unique=True, db_index=True
-    )
+    # unique=True already creates the B-tree index; no separate db_index needed.
+    canonical_key = django.db.models.CharField(max_length=255, unique=True)
     authority = django.db.models.CharField(max_length=64, db_index=True)  # "usc-15"
 
     # Denormalised taxonomy (from AuthorityNamespace / PREFIX_CLASSIFICATION)
@@ -2145,8 +2144,10 @@ class AuthorityFrontier(django.db.models.Model):
     # Demand aggregation (refreshed each seed run)
     mention_count = django.db.models.IntegerField(default=0, db_index=True)
     distinct_corpus_count = django.db.models.IntegerField(default=0)
+    # List of per-corpus demand records; each entry is:
+    #   {"corpus_id": int, "mention_count": int, "top_detection_tier": str}
+    # ("top_detection_tier" is one of enrichment_constants.ALL_DETECTION_TIERS).
     candidate_sources = django.db.models.JSONField(default=list, blank=True)
-    # e.g. [{"corpus_id": 3, "mention_count": 5, "top_detection_tier": "grammar"}]
 
     # Discovery state machine
     DISCOVERY_STATE_CHOICES = [
@@ -2221,12 +2222,10 @@ class AuthorityKeyEquivalence(django.db.models.Model):
     @identifier + <sourceCredit> <ref>s), never user content.
     """
 
-    from_key = django.db.models.CharField(
-        max_length=255, db_index=True
-    )  # "exchange-act:10(b)"
-    to_key = django.db.models.CharField(
-        max_length=255, db_index=True
-    )  # "usc-15:78j(b)"
+    # Single-column indexes are declared once in Meta.indexes below (a bare
+    # db_index=True here would create a second, redundant B-tree per column).
+    from_key = django.db.models.CharField(max_length=255)  # "exchange-act:10(b)"
+    to_key = django.db.models.CharField(max_length=255)  # "usc-15:78j(b)"
 
     SOURCE_CHOICES = [
         ("uslm", "OLRC USLM sourceCredit"),  # parsed from <ref href="/us/act/...">

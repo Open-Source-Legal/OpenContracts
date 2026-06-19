@@ -144,10 +144,34 @@ class TestNormalizeJurisdiction:
         assert _normalize_jurisdiction("Washington") == "us-wa"
         assert _normalize_jurisdiction("Illinois") == "us-il"
 
+    def test_district_of_columbia_disambiguated(self):
+        # "Washington" alone is the state; D.C. variants map to us-dc so they
+        # don't silently collapse into Washington State.
+        assert _normalize_jurisdiction("Washington DC") == "us-dc"
+        assert _normalize_jurisdiction("Washington, DC") == "us-dc"
+        assert _normalize_jurisdiction("District of Columbia") == "us-dc"
+
     def test_unknown_returns_none(self):
         assert _normalize_jurisdiction("Mars") is None
         assert _normalize_jurisdiction("") is None
         assert _normalize_jurisdiction("   ") is None
+
+
+class TestLLMCitationExtractorConstructor:
+    """Chunking parameters are validated up front (a non-positive window would
+    make the sliding-window loop in aextract() spin forever)."""
+
+    def test_zero_window_rejected(self):
+        with pytest.raises(ValueError, match="window must be positive"):
+            LLMCitationExtractor(window=0)
+
+    def test_negative_window_rejected(self):
+        with pytest.raises(ValueError, match="window must be positive"):
+            LLMCitationExtractor(window=-1)
+
+    def test_negative_overlap_rejected(self):
+        with pytest.raises(ValueError, match="overlap must be non-negative"):
+            LLMCitationExtractor(window=100, overlap=-5)
 
 
 # ---------------------------------------------------------------------------
@@ -636,8 +660,9 @@ class TestLLMCitationExtractorAsync(TransactionTestCase):
         assert len(results_at_floor) == 1
         assert results_at_floor[0].normalized_data.get("needs_review") is False
 
-        # Just below floor (0.69) → needs_review is True
-        results_below = await _run_with_confidence(0.69)
+        # Just below floor → needs_review is True (derive from the constant so
+        # the test stays correct if the floor is ever tuned).
+        results_below = await _run_with_confidence(C.LLM_CONFIDENCE_FLOOR - 0.01)
         assert len(results_below) == 1
         assert results_below[0].normalized_data.get("needs_review") is True
 

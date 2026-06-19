@@ -115,7 +115,9 @@ export const CorpusEnrichmentCard: React.FC<CorpusEnrichmentCardProps> = ({
         compact
         runningJobExists={running}
         onRan={(rows) => {
-          setOptimistic(rows);
+          // Prepend (don't replace) so a rapid second run doesn't discard the
+          // earlier optimistic rows before a refetch confirms them.
+          setOptimistic((prev) => [...rows, ...prev]);
           refetch();
         }}
       />

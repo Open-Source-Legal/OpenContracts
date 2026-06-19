@@ -328,7 +328,7 @@ class EnrichmentService:
         samples = [
             {
                 "reference_type": r.reference_type,
-                "raw_text": r.candidate.raw_text[:120],
+                "raw_text": r.candidate.raw_text[: C.REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN],
                 "canonical_key": r.canonical_key,
                 "resolution_status": r.resolution_status,
                 "target_document_id": r.target_document_id,
@@ -339,7 +339,7 @@ class EnrichmentService:
         unresolved = [
             {
                 "reference_type": r.reference_type,
-                "raw_text": r.candidate.raw_text[:120],
+                "raw_text": r.candidate.raw_text[: C.REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN],
                 "source_document_id": r.source_document_id,
             }
             for r in resolutions
@@ -496,7 +496,9 @@ class EnrichmentService:
             "review_candidates": [
                 {
                     "canonical_key": r.canonical_key,
-                    "raw_text": r.candidate.raw_text[:120],
+                    "raw_text": r.candidate.raw_text[
+                        : C.REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN
+                    ],
                     "detection_tier": r.candidate.detection_tier,
                     "detection_confidence": r.candidate.detection_confidence,
                 }
@@ -575,6 +577,11 @@ class EnrichmentService:
         defaulted to registry-only, so grammar-discovered authorities never
         reached the frontier / governance graph). Pass ``extra_tiers=[]`` for a
         registry-only pass; the LLM tier stays opt-in (cost).
+
+        Unlike ``discover()``'s ``use_llm`` flag, the write path takes an
+        explicit ``extra_tiers`` list (e.g.
+        ``[C.DETECTION_TIER_GRAMMAR, C.DETECTION_TIER_LLM]``) so what gets
+        persisted is always spelled out at the call site.
         """
         user, corpus, documents = self._load(corpus_id, creator_id)
         if extra_tiers is None:
@@ -893,11 +900,26 @@ class EnrichmentService:
         the source corpus (``target_corpus`` is null). Only mentions whose
         stored link differs are written back.
         """
-        refs = CorpusReference.objects.filter(
-            corpus=corpus,
-            reference_type__in=(C.REF_LAW, C.REF_DOCUMENT),
-        ).select_related(
-            "source_annotation", "target_document", "target_corpus__creator"
+        from django.db.models import Q
+
+        # Bound the scan to refs that can actually change: either RESOLVED (need
+        # a link computed/refreshed) or carrying a non-null mention link_url
+        # (formerly resolved, now demoted → needs clearing). Every other ref is
+        # unresolved with an already-null link, so the loop below would compute
+        # link_url=None and skip the write — loading them only inflates memory
+        # (tens of thousands of unresolved refs on a large corpus).
+        refs = (
+            CorpusReference.objects.filter(
+                corpus=corpus,
+                reference_type__in=(C.REF_LAW, C.REF_DOCUMENT),
+            )
+            .filter(
+                Q(resolution_status=C.STATUS_RESOLVED)
+                | Q(source_annotation__link_url__isnull=False)
+            )
+            .select_related(
+                "source_annotation", "target_document", "target_corpus__creator"
+            )
         )
         now = timezone.now()
         changed: dict[int, Annotation] = {}

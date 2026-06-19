@@ -24,8 +24,8 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
-                ("from_key", models.CharField(db_index=True, max_length=255)),
-                ("to_key", models.CharField(db_index=True, max_length=255)),
+                ("from_key", models.CharField(max_length=255)),
+                ("to_key", models.CharField(max_length=255)),
                 (
                     "source",
                     models.CharField(
@@ -74,7 +74,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "canonical_key",
-                    models.CharField(db_index=True, max_length=255, unique=True),
+                    models.CharField(max_length=255, unique=True),
                 ),
                 ("authority", models.CharField(db_index=True, max_length=64)),
                 (

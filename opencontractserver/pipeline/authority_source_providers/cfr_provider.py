@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from typing import ClassVar
 
 from opencontractserver.enrichment.authorities import AuthoritySection
+from opencontractserver.enrichment.constants import _CFR_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
@@ -32,8 +33,8 @@ logger = logging.getLogger(__name__)
 # is needed.
 _SNAPSHOT_DATE = "2024-01-01"
 
-# Canonical-key prefix pattern for the can_handle override.
-_CFR_PREFIX_RE = re.compile(r"^cfr-\d+$")
+# Canonical-key prefix pattern for the can_handle override is imported from
+# enrichment.constants (single source of truth shared with classify_prefix).
 
 # eCFR Versioner full-text XML endpoint template.
 _ECFR_FULL_URL_TEMPLATE = (

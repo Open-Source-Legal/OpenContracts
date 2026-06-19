@@ -253,6 +253,24 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
     const parsedTokenBudget =
       tokenBudget !== "" ? Number(tokenBudget) : undefined;
 
+    // Reject non-numeric input: Number("abc") is NaN (not undefined), and the
+    // native type="number" guard is browser-level only. Surface an inline error
+    // instead of letting a NaN reach Graphene as an opaque type error.
+    const numericFields: [number | undefined, string][] = [
+      [parsedMaxDepth, "Max depth"],
+      [parsedMinDemand, "Min demand"],
+      [parsedMaxAuthorities, "Max authorities"],
+      [parsedPerJurisdictionCap, "Per-jurisdiction cap"],
+      [parsedTokenBudget, "Token budget"],
+    ];
+    const invalidField = numericFields.find(
+      ([value]) => value !== undefined && !Number.isFinite(value)
+    );
+    if (invalidField) {
+      toast.error(`${invalidField[1]} must be a number`);
+      return;
+    }
+
     const hasOptions =
       referenceTypes.length > 1 ||
       useLlmTier ||

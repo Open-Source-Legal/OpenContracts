@@ -15,9 +15,13 @@ discovery pipeline.  Given an ``AuthorityFrontier`` row it:
 from __future__ import annotations
 
 import logging
+import xml.etree.ElementTree as ET
+import zipfile
 
 import httpx
+import requests
 from django.db.models import Q
+from django.utils import timezone
 
 from opencontractserver.annotations.models import AuthorityFrontier
 from opencontractserver.shared.services.base import BaseService
@@ -150,11 +154,6 @@ class AuthorityDiscoveryService(BaseService):
             A dict with at least a ``"status"`` key (``"ingested"``,
             ``"unsupported"``, or ``"failed"``).
         """
-        import xml.etree.ElementTree as ET
-        import zipfile
-
-        import requests
-
         from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.enrichment.authorities import bootstrap_authority_corpus
         from opencontractserver.enrichment.services.authority_frontier_service import (
@@ -193,8 +192,6 @@ class AuthorityDiscoveryService(BaseService):
             ET.ParseError,
             zipfile.BadZipFile,
         ) as exc:
-            from django.utils import timezone
-
             logger.exception(
                 "AuthorityDiscoveryService: provider %s failed for %s",
                 name,
@@ -223,8 +220,6 @@ class AuthorityDiscoveryService(BaseService):
             }
 
         # --- gate (verify + license + domain) --------------------------------
-        from django.utils import timezone
-
         from opencontractserver.enrichment.services.authority_gate_service import (
             GATE_OK,
             AuthorityGateService,
@@ -263,67 +258,100 @@ class AuthorityDiscoveryService(BaseService):
                 "canonical_key": canonical_key,
             }
 
-        # --- bootstrap -------------------------------------------------------
-        # Pass relink=False here; we do a wider relink below that includes the
-        # equivalence from_keys so act-section refs also upgrade.
-        result = bootstrap_authority_corpus(
-            creator_id=creator_id,
-            corpus_title=provider.title,
-            sections=sections,
-            aliases=list(provider.supported_prefixes),
-            make_public=make_public,
-            relink=False,
-        )
-
-        # --- locate the ingested document to record on the frontier row ------
-        from opencontractserver.documents.models import Document
-
-        ingested_doc = (
-            Document.objects.filter(
-                custom_meta__canonical_key=sections[0].key,
-                path_records__is_current=True,
-                path_records__is_deleted=False,
-            )
-            .order_by("id")
-            .first()
-        )
-
-        # --- equivalence-aware relink seam -----------------------------------
-        # Filings cite act-section keys (e.g. exchange-act:10) while we
-        # bootstrap under USC keys (usc-15:78j). Pull every equivalence
-        # touching an ingested key and collect the OTHER side (the
-        # popular-name key filings actually cite) so relink upgrades those
-        # EXTERNAL refs via find_authority_target's equivalence hop.
-        # Direction-agnostic: we don't assume which column holds the ingested
-        # key.
-        section_keys = [s.key for s in sections]
-        equiv_pairs = AuthorityKeyEquivalence.objects.filter(
-            Q(from_key__in=section_keys) | Q(to_key__in=section_keys)
-        ).values_list("from_key", "to_key")
-        other_keys = {(f if t in section_keys else t) for f, t in equiv_pairs}
-        relink_keys = sorted({*section_keys, *other_keys})
-
-        if relink_async:
-            from opencontractserver.tasks.corpus_tasks import (
-                relink_corpora_for_keys_task,
+        # --- bootstrap + relink ---------------------------------------------
+        # Everything from bootstrap through the ingested-mark runs under one
+        # fault handler: a failure here (DB/migration issue, signal handler,
+        # relink error) must not strand the row in "in_progress" — it is marked
+        # "failed" just like a provider fetch failure above.
+        try:
+            # Pass relink=False here; we do a wider relink below that includes
+            # the equivalence from_keys so act-section refs also upgrade.
+            result = bootstrap_authority_corpus(
+                creator_id=creator_id,
+                corpus_title=provider.title,
+                sections=sections,
+                aliases=list(provider.supported_prefixes),
+                make_public=make_public,
+                relink=False,
             )
 
-            async_result = relink_corpora_for_keys_task.delay(relink_keys)
-            relink_result: dict = {"queued": True, "task_id": async_result.id}
-            relinked_count = 0
-        else:
-            relink_result = EnrichmentService().relink_corpora_for_keys(relink_keys)
-            relinked_count = relink_result.get("law_references_linked", 0)
+            # --- locate the ingested document to record on the frontier row --
+            from opencontractserver.documents.models import Document
 
-        result["equivalence_relink"] = relink_result
+            ingested_doc = (
+                Document.objects.filter(
+                    custom_meta__canonical_key=sections[0].key,
+                    path_records__is_current=True,
+                    path_records__is_deleted=False,
+                )
+                .order_by("id")
+                .first()
+            )
 
-        # --- mark ingested ---------------------------------------------------
-        AuthorityFrontierService.mark(
-            frontier_row,
-            "ingested",
-            document_id=ingested_doc.id if ingested_doc else None,
-            candidate_record=candidate_record,
-        )
+            # --- equivalence-aware relink seam -------------------------------
+            # Filings cite act-section keys (e.g. exchange-act:10) while we
+            # bootstrap under USC keys (usc-15:78j). Pull every equivalence
+            # touching an ingested key and collect the OTHER side (the
+            # popular-name key filings actually cite) so relink upgrades those
+            # EXTERNAL refs via find_authority_target's equivalence hop.
+            # Direction-agnostic: we don't assume which column holds the
+            # ingested key.
+            section_keys = [s.key for s in sections]
+            equiv_pairs = AuthorityKeyEquivalence.objects.filter(
+                Q(from_key__in=section_keys) | Q(to_key__in=section_keys)
+            ).values_list("from_key", "to_key")
+            other_keys = {(f if t in section_keys else t) for f, t in equiv_pairs}
+            relink_keys = sorted({*section_keys, *other_keys})
+
+            if relink_async:
+                from opencontractserver.tasks.corpus_tasks import (
+                    relink_corpora_for_keys_task,
+                )
+
+                async_result = relink_corpora_for_keys_task.delay(relink_keys)
+                relink_result: dict = {"queued": True, "task_id": async_result.id}
+                relinked_count = 0
+            else:
+                relink_result = EnrichmentService().relink_corpora_for_keys(relink_keys)
+                relinked_count = relink_result.get("law_references_linked", 0)
+
+            result["equivalence_relink"] = relink_result
+
+            # --- mark ingested -----------------------------------------------
+            AuthorityFrontierService.mark(
+                frontier_row,
+                "ingested",
+                document_id=ingested_doc.id if ingested_doc else None,
+                candidate_record=candidate_record,
+            )
+        except Exception as exc:
+            # The gate already passed, so a failure here is bootstrap/relink — it
+            # must not strand the row in "in_progress". Record a failure audit
+            # entry (the gate's candidate_record reflected an expected ingest).
+            logger.exception(
+                "AuthorityDiscoveryService: bootstrap/relink failed for %s",
+                canonical_key,
+            )
+            AuthorityFrontierService.mark(
+                frontier_row,
+                "failed",
+                error=str(exc),
+                candidate_record={
+                    "provider": name,
+                    "can_handle": True,
+                    "license": provider.license,
+                    "source_domain": decision.source_domain,
+                    "verify": decision.verify,
+                    "outcome": "failed",
+                    "error": str(exc),
+                    "attempted_at": timezone.now().isoformat(),
+                },
+            )
+            return {
+                "status": "failed",
+                "error": str(exc),
+                "canonical_key": canonical_key,
+            }
 
         return {
             "status": "ingested",

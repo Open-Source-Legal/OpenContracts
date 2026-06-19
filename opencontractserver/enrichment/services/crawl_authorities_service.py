@@ -137,7 +137,8 @@ class CrawlAuthoritiesService(BaseService):
             if ingested >= max_authorities:
                 stop_reason = "max_authorities"
                 break
-            if token_budget and tokens_spent >= token_budget:
+            # token_budget <= 0 means "unbounded" (the check is skipped entirely).
+            if token_budget > 0 and tokens_spent >= token_budget:
                 stop_reason = "token_budget"
                 break
 
@@ -145,8 +146,10 @@ class CrawlAuthoritiesService(BaseService):
                 limit=1, max_depth=max_depth, min_demand=min_demand
             )
             if not rows:
-                # Count how many queued rows remain (below the floor / past
-                # max_depth) so the summary is non-silent about what was left.
+                # Count how many queued rows remain so the summary is non-silent
+                # about what was left. This is the UNION of rows excluded by the
+                # min_demand floor and/or the max_depth bound — the single key
+                # does not attribute each row to one cause or the other.
                 blocked_by_bound["min_demand_or_depth"] = (
                     AuthorityFrontier.objects.filter(discovery_state="queued").count()
                 )
@@ -161,7 +164,10 @@ class CrawlAuthoritiesService(BaseService):
             jkey = row.jurisdiction or "unknown"
             if per_juris[jkey] >= per_jurisdiction_cap:
                 blocked_by_bound[f"jurisdiction_cap:{jkey}"] += 1
-                cls._park_for_cap(row)
+                # Park at "deferred_cap" so dequeue_queued (which filters on
+                # discovery_state="queued") cannot re-return this row this run —
+                # the structural guarantee that the cap branch terminates.
+                AuthorityFrontierService.mark(row, "deferred_cap")
                 continue
 
             result = AuthorityDiscoveryService.discover_and_bootstrap(

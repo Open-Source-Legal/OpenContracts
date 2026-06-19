@@ -209,17 +209,16 @@ class AuthorityFrontierService(BaseService):
         """
         row.discovery_state = state
         row.last_attempt = timezone.now()
+        # Only touch ingested_document / last_error when the caller actually
+        # supplies them, so e.g. marking a previously-ingested row "failed"
+        # (document_id=None) neither rewrites nor clears its existing document.
+        update_fields = ["discovery_state", "last_attempt", "modified"]
         if document_id is not None:
             row.ingested_document_id = document_id
+            update_fields.append("ingested_document")
         if error is not None:
             row.last_error = error
-        update_fields = [
-            "discovery_state",
-            "last_attempt",
-            "ingested_document",
-            "last_error",
-            "modified",
-        ]
+            update_fields.append("last_error")
         if candidate_record is not None:
             # Append-only audit trail; never overwrite prior attempts.
             row.candidate_sources = list(row.candidate_sources or []) + [
