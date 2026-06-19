@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -216,7 +217,13 @@ class TestSafeFetchBytesRedirect:
         """Redirect to a non-allowlisted public host must also be rejected."""
 
         def _stream_dispatch(self_client, method, url, **kwargs):
-            if "house.gov" in url:
+            # Match the host EXACTLY rather than `"house.gov" in url`: a
+            # substring test is not airtight — it would also match URLs like
+            # https://evil.com/?ref=house.gov or https://house.gov.evil.com/ and
+            # misroute the mock. Parsing the host mirrors how the production
+            # allowlist (validate_url -> urlparse().hostname) actually decides,
+            # so the dispatcher only fires for the genuine first hop.
+            if urlparse(str(url)).hostname == ALLOWED_HOST:
                 return _mock_stream(302, b"", {"location": "https://evil.com/x"})
             return _mock_stream(200, b"ok")
 
