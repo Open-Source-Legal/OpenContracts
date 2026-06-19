@@ -17,7 +17,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from opencontractserver.analyzer.models import Analysis
+from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.badges.models import UserBadge
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -115,6 +115,14 @@ _ANALYSIS_STATUS_NOTIFICATION: dict[str, NotificationTypeChoices] = {
     JobStatus.FAILED.value: NotificationTypeChoices.ANALYSIS_FAILED,
 }
 
+# Only enrichment/crawl analyzers emit analysis notifications; other analyzers
+# (doc analysis, extracts, etc.) must not. Hoisted to module level so the tuple
+# is built once at import time rather than on every Analysis.save().
+_ENRICHMENT_TASK_NAMES = (
+    _EC.ENRICHMENT_ANALYZER_TASK,
+    _EC.CRAWL_ANALYZER_TASK,
+)
+
 
 @receiver(post_save, sender=Analysis)
 def emit_analysis_status_notification(
@@ -139,16 +147,16 @@ def emit_analysis_status_notification(
     if ntype is None or instance.creator_id is None:
         return
 
-    # Only emit notifications for enrichment/crawl analyzers; other analyzers
-    # (doc analysis, extracts, etc.) should not generate analysis notifications.
-    _ENRICHMENT_TASK_NAMES = (
-        _EC.ENRICHMENT_ANALYZER_TASK,
-        _EC.CRAWL_ANALYZER_TASK,
-    )
-    if (
-        instance.analyzer_id is None
-        or instance.analyzer.task_name not in _ENRICHMENT_TASK_NAMES
-    ):
+    # Only emit notifications for enrichment/crawl analyzers. Guard on
+    # analyzer_id FIRST (cheap, no I/O) and then use a targeted existence query
+    # instead of ``instance.analyzer.task_name`` — the latter hydrates the full
+    # Analyzer row via a deferred FK load on EVERY Analysis.save() across the
+    # system (doc analysis, extracts, …), not just enrichment runs.
+    if instance.analyzer_id is None:
+        return
+    if not Analyzer.objects.filter(
+        pk=instance.analyzer_id, task_name__in=_ENRICHMENT_TASK_NAMES
+    ).exists():
         return
 
     # Idempotent guard: skip if this (analysis, notification_type) already exists.
@@ -168,8 +176,10 @@ def emit_analysis_status_notification(
             },
         )
         logger.debug(
-            f"Created {ntype} notification for analysis {instance.id} "
-            f"(recipient_id={instance.creator_id})"
+            "Created %s notification for analysis %s (recipient_id=%s)",
+            ntype,
+            instance.id,
+            instance.creator_id,
         )
         broadcast_notification_via_websocket(notification)
     except Exception as e:

@@ -557,11 +557,17 @@ class TestAnalysisStatusNotificationSignal(TestCase):
         )
 
         # Use the enrichment task name so the scoped signal guard passes.
-        self.analyzer = Analyzer.objects.create(
-            id="test-signal-analyzer",
-            description="Analyzer for signal tests",
-            creator=self.user,
+        # ``task_name`` is unique and the enrichment analyzer is already seeded
+        # on a fresh DB by migration 0012 (auto_sync_doc_analyzers), exactly as
+        # production's get_or_create_analyzer expects — so get_or_create here
+        # instead of create() to reuse that row rather than collide on it.
+        self.analyzer, _ = Analyzer.objects.get_or_create(
             task_name=EC.ENRICHMENT_ANALYZER_TASK,
+            defaults={
+                "id": "test-signal-analyzer",
+                "description": "Analyzer for signal tests",
+                "creator": self.user,
+            },
         )
 
         # Create analysis without _skip_signals so the signal fires normally.
@@ -674,12 +680,16 @@ class TestAnalysisNotificationScopedToEnrichment(TestCase):
             task_name="some.other.task",
         )
 
-        # Enrichment analyzer — must still trigger notifications.
-        self.enrichment_analyzer = Analyzer.objects.create(
-            id="enrichment-scope-analyzer",
-            description="Enrichment analyzer for scope tests",
-            creator=self.user,
+        # Enrichment analyzer — must still trigger notifications. Reuse the
+        # migration-seeded row (unique task_name) rather than colliding on it;
+        # see TestAnalysisStatusNotificationSignal.setUp for the rationale.
+        self.enrichment_analyzer, _ = Analyzer.objects.get_or_create(
             task_name=EC.ENRICHMENT_ANALYZER_TASK,
+            defaults={
+                "id": "enrichment-scope-analyzer",
+                "description": "Enrichment analyzer for scope tests",
+                "creator": self.user,
+            },
         )
 
     def test_non_enrichment_analysis_emits_no_notification(self):

@@ -134,7 +134,9 @@ const EnrichmentPanel: React.FC<EnrichmentPanelProps> = ({ corpusId }) => {
   );
 
   const handleRan = (rows: EnrichmentAnalysisRow[]) => {
-    setOptimistic(rows);
+    // Prepend (don't replace) so firing a second mutation before the first
+    // optimistic rows are confirmed by a refetch doesn't discard them.
+    setOptimistic((prev) => [...rows, ...prev]);
     refetch();
   };
 

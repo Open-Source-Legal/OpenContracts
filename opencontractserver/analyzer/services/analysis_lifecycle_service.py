@@ -130,13 +130,17 @@ class AnalysisLifecycleService(BaseService):
                 return ServiceResult.failure(not_found_msg)
 
         if corpus_pk is not None:
-            corpus_qs = Corpus.objects.visible_to_user(user).filter(pk=corpus_pk)
-            if not corpus_qs.exists():
+            # Single fetch: reuse the row for the UPDATE permission test instead
+            # of an .exists() probe followed by a second .get() for the same pk.
+            corpus_obj = (
+                Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).first()
+            )
+            if corpus_obj is None:
                 return ServiceResult.failure(not_found_msg)
-            if require_corpus_update:
-                corpus_obj = corpus_qs.get()
-                if not corpus_obj.user_can(user, PermissionTypes.UPDATE):
-                    return ServiceResult.failure(not_found_msg)
+            if require_corpus_update and not corpus_obj.user_can(
+                user, PermissionTypes.UPDATE
+            ):
+                return ServiceResult.failure(not_found_msg)
 
         try:
             analyzer = Analyzer.objects.get(pk=analyzer_pk)

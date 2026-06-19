@@ -12,7 +12,10 @@ import { MemoryRouter } from "react-router-dom";
 
 import { EnrichmentRunner } from "../src/components/admin/enrichment/EnrichmentRunner";
 import { EnrichmentJobList } from "../src/components/admin/enrichment/EnrichmentJobList";
-import { useEnrichmentJobs } from "../src/components/admin/enrichment/useEnrichmentJobs";
+import {
+  useEnrichmentJobs,
+  ACTIVE_STATUSES,
+} from "../src/components/admin/enrichment/useEnrichmentJobs";
 
 import type { EnrichmentAnalysisRow } from "../src/graphql/mutations";
 
@@ -39,8 +42,8 @@ const Panel: React.FC<{ corpusId: string }> = ({ corpusId }) => {
     }
   }, [jobs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fix-B: check both fetched and optimistic rows against ACTIVE_STATUSES.
-  const ACTIVE_STATUSES = ["CREATED", "QUEUED", "RUNNING"];
+  // Fix-B: check both fetched and optimistic rows against ACTIVE_STATUSES
+  // (imported from the hook so the wrapper can't drift from production).
   const runningJobExists = [...jobs, ...extraJobs].some((j) =>
     ACTIVE_STATUSES.includes(j.status ?? "")
   );
