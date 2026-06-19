@@ -3,6 +3,8 @@
 No magic numbers / strings in the engine modules — they import from here.
 """
 
+import re as _re
+
 # Mention annotation labels (one per reference type).
 LABEL_REF_LAW = "OC_REF_LAW"
 LABEL_REF_DOC = "OC_REF_DOC"
@@ -158,3 +160,27 @@ LLM_STRUCTURED_RETRIES = 3
 # Max chars of a candidate's raw_text echoed into the review-candidate
 # serialisation (a preview, not the full span — keeps payloads bounded).
 REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN = 120
+
+# --- Phase 3: prefix classifier ---------------------------------------- #
+_USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
+_CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
+
+
+def classify_prefix(prefix: str) -> tuple:
+    """(jurisdiction, authority_type) for a canonical_key prefix.
+
+    Handles three title-scoped federal families by shape:
+    - ``usc-NN`` (statute): any US Code title number → (us-federal, statute)
+    - ``cfr-NN`` (regulation): any CFR title number → (us-federal, regulation)
+    - ``fedreg`` (admin-rule): Federal Register → (us-federal, admin-rule)
+
+    Falls back to ``PREFIX_CLASSIFICATION`` for named registry bodies (dgcl,
+    exchange-act, irc, …) and returns ``(None, None)`` for unknown prefixes.
+    """
+    if _USC_PREFIX_RE.match(prefix):
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
+    if _CFR_PREFIX_RE.match(prefix):
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION)
+    if prefix == "fedreg":
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)
+    return PREFIX_CLASSIFICATION.get(prefix, (None, None))

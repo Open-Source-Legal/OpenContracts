@@ -112,10 +112,46 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
     """Find the authority document for a canonical key, visible to ``user``.
 
     Falls back from subsection keys (``dgcl:122(17)``) to the root section
-    (``dgcl:122``). Returns ``None`` when no visible authority document
-    carries the key.
+    (``dgcl:122``).  Also follows ``AuthorityKeyEquivalence`` rows so that
+    an act-section citation (``exchange-act:10(b)``) resolves to the USC
+    document materialised under the equivalent USC key (``usc-15:78j``).
+
+    Returns ``None`` when no visible authority document carries any of the
+    candidate keys.
     """
-    for key in candidate_keys(canonical_key):
+    from opencontractserver.annotations.models import AuthorityKeyEquivalence
+
+    # Start with direct candidates (exact + section root).
+    keys: list[str] = list(candidate_keys(canonical_key))
+
+    # Hop across namespaces via the equivalence table (act-section <-> USC).
+    # NOTE: This is a single-pass (non-recursive) hop, sufficient for the
+    # hub-and-spoke seed (act-section → USC). Transitive chains (A→B→C) would
+    # require iterating until the key set stabilises.
+    # Query both directions (from_key and to_key) in one round-trip. Membership
+    # is tested against the *original* candidate set (snapshot here) so that the
+    # "other" side is unambiguous even when both ends of an equivalence row
+    # happen to be present, and we skip re-adding a side already covered.
+    original_keys: set[str] = set(keys)
+    equivs = AuthorityKeyEquivalence.objects.filter(
+        Q(from_key__in=keys) | Q(to_key__in=keys)
+    )
+    for equiv in equivs:
+        # Follow whichever side is NOT already among the original keys.
+        other = equiv.to_key if equiv.from_key in original_keys else equiv.from_key
+        if other in original_keys:
+            continue
+        keys.extend(candidate_keys(other))
+
+    # Deduplicate preserving insertion order.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            deduped.append(k)
+
+    for key in deduped:
         doc = (
             Document.objects.visible_to_user(user)
             .filter(
