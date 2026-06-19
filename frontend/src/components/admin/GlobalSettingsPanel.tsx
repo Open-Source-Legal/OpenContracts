@@ -10,6 +10,7 @@ import {
   Tag,
   Activity,
   Scale,
+  Zap,
   LucideIcon,
 } from "lucide-react";
 
@@ -257,6 +258,15 @@ const settingsItems: SettingItem[] = [
     icon: Activity,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.danger} 0%, ${OS_LEGAL_COLORS.folderIcon} 100%)`,
     route: "/admin/ingestion",
+  },
+  {
+    id: "enrichment-runner",
+    title: "Enrichment Runner",
+    description:
+      "Run reference enrichment and authority discovery on a corpus, then review the status of past and in-flight jobs.",
+    icon: Zap,
+    gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.accent} 0%, ${OS_LEGAL_COLORS.chartPurple} 100%)`,
+    route: "/admin/enrichment",
   },
   {
     id: "authority-sources",
