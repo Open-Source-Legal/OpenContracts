@@ -28,10 +28,13 @@ no-ops, so the convergence edge is order-independent and safe.
 
 from django.db import migrations
 
-from opencontractserver.enrichment._namespace_seed import seed
-
 
 def reseed(apps, schema_editor):
+    # Import inside the function body (not at module load time) so a future
+    # move/rename of _namespace_seed cannot break every makemigrations/migrate
+    # invocation that merely loads this historical migration file.
+    from opencontractserver.enrichment._namespace_seed import seed
+
     seed(apps, schema_editor)
 
 

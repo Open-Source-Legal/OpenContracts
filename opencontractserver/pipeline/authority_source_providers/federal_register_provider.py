@@ -54,6 +54,12 @@ _USER_AGENT = (
 # Allowed host for the raw-text body URL returned by the FR API.
 _FR_ALLOWED_HOST = "federalregister.gov"
 
+# Maximum allowed size of the raw-text body (bytes) — 64 MiB. FR rules are
+# plain text and rarely exceed a few MB; this cap mirrors the streaming
+# size-guard the US Code provider applies to its title-XML download so a
+# pathologically large (or malicious) response can't exhaust memory.
+_MAX_BODY_BYTES = 64 * 1024 * 1024
+
 # Regex for parsing a Federal Register citation to derive volume and page.
 # Matches e.g. "88 FR 2371" and "88 FR 12345".
 _FR_CITATION_RE = re.compile(r"(\d+)\s+FR\s+(\d+)")
@@ -217,9 +223,28 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
                 )
             else:
                 try:
-                    raw_resp = requests.get(raw_text_url, headers=headers, timeout=60)
+                    # Stream the body so the size cap is enforced as chunks
+                    # arrive — a single unbounded .text read could otherwise
+                    # buffer an arbitrarily large response into memory.
+                    raw_resp = requests.get(
+                        raw_text_url, headers=headers, timeout=60, stream=True
+                    )
                     raw_resp.raise_for_status()
-                    text = raw_resp.text
+                    chunks: list[bytes] = []
+                    total = 0
+                    for chunk in raw_resp.iter_content(65536):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > _MAX_BODY_BYTES:
+                            raise ValueError(
+                                "raw_text body exceeds max size "
+                                f"({_MAX_BODY_BYTES} bytes)"
+                            )
+                        chunks.append(chunk)
+                    text = b"".join(chunks).decode(
+                        raw_resp.encoding or "utf-8", errors="replace"
+                    )
                 except Exception:  # noqa: BLE001
                     logger.warning(
                         "FederalRegisterProvider: raw_text_url GET failed (%s); "

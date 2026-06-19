@@ -79,7 +79,11 @@ class AuthorityDiscoveryService(BaseService):
 
         Returns:
             A dict with at least a ``"status"`` key (``"ingested"``,
-            ``"unsupported"``, or ``"failed"``).
+            ``"unsupported"``, or ``"failed"``). On the ``"ingested"`` path the
+            dict also carries ``"equivalence_relink"`` (the relink result, or
+            ``{"queued": True, "task_id": ...}`` when ``relink_async=True``) and
+            ``"relinked_count"`` (the number of law references upgraded, or
+            ``None`` when the relink was queued asynchronously and hasn't run).
         """
         from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.enrichment.authorities import bootstrap_authority_corpus
@@ -194,7 +198,11 @@ class AuthorityDiscoveryService(BaseService):
 
                 async_result = relink_corpora_for_keys_task.delay(relink_keys)
                 relink_result: dict = {"queued": True, "task_id": async_result.id}
-                relinked_count = 0
+                # The relink runs in a Celery task that hasn't executed yet, so
+                # the count is unknown — use None (not 0) so callers can tell
+                # "pending" apart from "ran and linked nothing". The queued task
+                # id lives in result["equivalence_relink"].
+                relinked_count = None
             else:
                 relink_result = EnrichmentService().relink_corpora_for_keys(relink_keys)
                 relinked_count = relink_result.get("law_references_linked", 0)

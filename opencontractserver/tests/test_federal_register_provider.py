@@ -68,10 +68,16 @@ def _make_json_mock() -> MagicMock:
 
 
 def _make_raw_text_mock() -> MagicMock:
-    """Return a mock simulating the raw plain-text body response."""
+    """Return a mock simulating the raw plain-text body response.
+
+    The provider streams the body via ``iter_content`` (so a size cap can be
+    enforced as chunks arrive), so the mock exposes a chunked iterator and an
+    ``encoding`` rather than a single ``.text`` read.
+    """
     m = MagicMock()
     m.status_code = 200
-    m.text = _FIXTURE_BODY
+    m.encoding = "utf-8"
+    m.iter_content.return_value = iter([_FIXTURE_BODY.encode("utf-8")])
     m.raise_for_status = MagicMock()
     return m
 
@@ -258,6 +264,36 @@ class TestFederalRegisterFetchImpl(SimpleTestCase):
             _make_redirect_mock(),
             _make_json_mock(),
             Exception("connection error"),
+        ]
+        provider = FederalRegisterAuthoritySourceProvider()
+        req = provider._locate_impl("fedreg:88.1722")
+        sections = provider._fetch_impl(req)
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].text, _FIXTURE_JSON["abstract"])
+
+    @patch(
+        "opencontractserver.pipeline.authority_source_providers."
+        "federal_register_provider._MAX_BODY_BYTES",
+        8,
+    )
+    @patch(
+        "opencontractserver.pipeline.authority_source_providers."
+        "federal_register_provider.requests.get"
+    )
+    def test_fetch_oversize_raw_text_falls_back_to_abstract(self, mock_get: MagicMock):
+        """A raw-text body exceeding the size cap aborts streaming and falls
+        back to the abstract rather than buffering the whole response."""
+        oversize_mock = MagicMock()
+        oversize_mock.status_code = 200
+        oversize_mock.encoding = "utf-8"
+        # Two 8-byte chunks → 16 bytes, over the patched 8-byte cap.
+        oversize_mock.iter_content.return_value = iter([b"AAAAAAAA", b"BBBBBBBB"])
+        oversize_mock.raise_for_status = MagicMock()
+
+        mock_get.side_effect = [
+            _make_redirect_mock(),
+            _make_json_mock(),
+            oversize_mock,
         ]
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
