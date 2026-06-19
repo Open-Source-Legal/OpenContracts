@@ -5,6 +5,8 @@ No magic numbers / strings in the engine modules — they import from here.
 
 import re as _re
 
+from opencontractserver.enrichment.data import mappings as _mappings
+
 # Mention annotation labels (one per reference type).
 LABEL_REF_LAW = "OC_REF_LAW"
 LABEL_REF_DOC = "OC_REF_DOC"
@@ -34,16 +36,11 @@ LABEL_FOR_TYPE = {
 }
 
 # Authority name (as it appears in text, lowercased) -> canonical_key prefix.
-AUTHORITY_PREFIX = {
-    "delaware general corporation law": "dgcl",
-    "dgcl": "dgcl",
-    "securities act": "securities-act",
-    "securities exchange act": "exchange-act",
-    "exchange act": "exchange-act",
-    "internal revenue code": "irc",
-    "investment company act": "ica",
-    "investment advisers act": "iaa",
-}
+# Derived from the ``prefixes:`` section of authority_mappings.yaml (the single
+# editable source); the literal dict that used to live here is gone. Built once
+# at import — a malformed prefix entry fails fast here rather than silently
+# mis-resolving downstream.
+AUTHORITY_PREFIX = _mappings.authority_prefix_map()
 
 # Canonical-key prefix for bare SEC rule citations ("Rule 506(b)") — these are
 # 17 CFR rules cited without a named authority.
@@ -132,26 +129,13 @@ ALL_AUTHORITY_TYPES = (
 
 # Classification for every prefix the engine ships (drives the namespace seed
 # and the CorpusReference backfill). prefix -> (jurisdiction, authority_type).
-PREFIX_CLASSIFICATION = {
-    "dgcl": ("us-de", AUTHORITY_TYPE_STATUTE),
-    "securities-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "exchange-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "irc": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "ica": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "iaa": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    SEC_RULE_PREFIX: (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION),
-}
+# Derived from authority_mappings.yaml ``prefixes:`` — the completeness test
+# (tests/test_authority_mappings_file.py) pins every authority_type into
+# ALL_AUTHORITY_TYPES and every prefix to a jurisdiction + display name.
+PREFIX_CLASSIFICATION = _mappings.prefix_classification()
 
 # Human-readable body-of-law names for the namespace seed.
-PREFIX_DISPLAY_NAME = {
-    "dgcl": "Delaware General Corporation Law",
-    "securities-act": "Securities Act of 1933",
-    "exchange-act": "Securities Exchange Act of 1934",
-    "irc": "Internal Revenue Code",
-    "ica": "Investment Company Act of 1940",
-    "iaa": "Investment Advisers Act of 1940",
-    SEC_RULE_PREFIX: "SEC Rules (17 C.F.R.)",
-}
+PREFIX_DISPLAY_NAME = _mappings.prefix_display_name()
 
 # Detection provenance — which layer found a mention (CorpusReference.detection_tier).
 DETECTION_TIER_REGISTRY = "registry"  # Tier 1: static/DB alias grammars (trusted)
@@ -196,6 +180,7 @@ def llm_max_concurrency() -> int:
 
     override = getattr(settings, "ENRICHMENT_LLM_MAX_CONCURRENCY", None)
     return override if override else LLM_MAX_CONCURRENCY
+
 
 # --- Phase 3: prefix classifier ---------------------------------------- #
 _USC_PREFIX_RE = _re.compile(r"^usc-\d+$")

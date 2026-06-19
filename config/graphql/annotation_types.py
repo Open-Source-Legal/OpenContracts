@@ -20,11 +20,15 @@ from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
     AuthorityFrontier,
+    AuthorityKeyEquivalence,
     CorpusReference,
     LabelSet,
     Note,
     NoteRevision,
     Relationship,
+)
+from opencontractserver.enrichment.services.authority_mapping_service import (
+    MANUAL as MANUAL_SOURCE,
 )
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.utils.permissioning import get_users_permissions_for_obj
@@ -319,6 +323,77 @@ class AuthorityFrontierStatsType(graphene.ObjectType):
         graphene.NonNull(AuthorityFrontierStateCountType),
         required=True,
         description="Row count per discovery_state (only non-empty states).",
+    )
+
+
+class AuthorityKeyEquivalenceNode(DjangoObjectType):
+    """One ``AuthorityKeyEquivalence`` row (canonical-key synonym) for the
+    runtime authority-mappings admin panel.
+
+    Global system data with no per-object permissions, so the connection is
+    **superuser-only**: ``get_queryset`` returns nothing for everyone else and
+    sets the default order (most-recently-modified first). ``editable`` is True
+    only for ``source="manual"`` rows — loader/importer-owned rows
+    (``baseline`` / ``popular_name`` / ``uslm``) are read-only.
+    """
+
+    editable = graphene.Boolean(
+        description="True iff this is a manual row the curator may edit/delete."
+    )
+    created_by_username = graphene.String(
+        description="Username of the curator who created this manual row (else null)."
+    )
+
+    class Meta:
+        model = AuthorityKeyEquivalence
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        fields = (
+            "id",
+            "from_key",
+            "to_key",
+            "source",
+            "confidence",
+            "note",
+            "created",
+            "modified",
+        )
+
+    @classmethod
+    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
+        user = getattr(info.context, "user", None)
+        if not (user and user.is_authenticated and user.is_superuser):
+            return queryset.none()
+        return queryset.select_related("created_by").order_by("-modified")
+
+    def resolve_editable(self, info) -> bool:
+        return self.source == MANUAL_SOURCE
+
+    def resolve_created_by_username(self, info):
+        return self.created_by.username if self.created_by_id else None
+
+
+class AuthorityMappingSourceCountType(graphene.ObjectType):
+    """One ``source`` value and how many equivalence rows carry it."""
+
+    source = graphene.String(required=True, description="source value.")
+    count = graphene.Int(required=True)
+
+
+class AuthorityMappingStatsType(graphene.ObjectType):
+    """Per-``source`` summary counts for the authority-mappings panel chips.
+
+    Honours the ``search`` facet but NOT a source filter, so the chips always
+    show the full source breakdown for the current search.
+    """
+
+    total_count = graphene.Int(
+        required=True, description="Total equivalence rows matching the search."
+    )
+    by_source = graphene.List(
+        graphene.NonNull(AuthorityMappingSourceCountType),
+        required=True,
+        description="Row count per source (only non-empty sources).",
     )
 
 

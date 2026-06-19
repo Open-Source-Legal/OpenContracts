@@ -196,6 +196,16 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
         other = equiv.to_key if equiv.from_key in keys else equiv.from_key
         keys.extend(candidate_keys(other))
 
+    # Prefix rewrite-rule fallback (Phase 4): extend the candidate set with
+    # mechanical rewrites (e.g. irc:N -> usc-26:N), tried AFTER explicit
+    # equivalence hops so a per-key row always wins. Snapshot ``keys`` first so
+    # we rewrite the originals, not keys we just appended.
+    from opencontractserver.enrichment.data import mappings as _enrichment_mappings
+
+    for key in list(keys):
+        for rewritten in _enrichment_mappings.apply_rewrite_rules(key):
+            keys.extend(candidate_keys(rewritten))
+
     # Deduplicate preserving insertion order.
     seen: set[str] = set()
     deduped: list[str] = []

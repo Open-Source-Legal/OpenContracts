@@ -71,24 +71,54 @@ class AuthorityDiscoveryService(BaseService):
                     return defn.name, provider
             return None
 
-        direct = _match(canonical_key)
-        if direct is not None:
-            return direct[0], direct[1], canonical_key
+        from opencontractserver.enrichment.data import mappings as _mappings
 
-        # Namespace bridge: no provider handles the domain key directly — resolve
-        # to a provider-supported equivalent (e.g. exchange-act:10 -> usc-15:78j).
-        for from_key, to_key in AuthorityKeyEquivalence.objects.filter(
-            Q(from_key=canonical_key) | Q(to_key=canonical_key)
-        ).values_list("from_key", "to_key"):
-            alt = to_key if from_key == canonical_key else from_key
-            matched = _match(alt)
+        # Candidate fetch-keys, in precedence order — the first one a provider
+        # can_handle wins:
+        #   1. the original key (direct provider support);
+        #   2. AuthorityKeyEquivalence counterparts (exchange-act:10 -> usc-15:78j);
+        #   3. prefix rewrite rules over the original (irc:N -> usc-26:N);
+        #   4. rewrite rules over the equivalence counterparts.
+        # Per-key equivalences therefore always beat a mechanical rule, and the
+        # two stages compose (an equivalence INTO a rewriteable key resolves) —
+        # symmetric with ``find_authority_target``. The equivalence query is
+        # ``order_by``-ed so the counterpart chosen for a one-to-many key is
+        # deterministic (no Meta.ordering on AuthorityKeyEquivalence).
+        equiv_alts: list[str] = [
+            (to_key if from_key == canonical_key else from_key)
+            for from_key, to_key in AuthorityKeyEquivalence.objects.filter(
+                Q(from_key=canonical_key) | Q(to_key=canonical_key)
+            )
+            .order_by("to_key", "from_key")
+            .values_list("from_key", "to_key")
+        ]
+
+        candidates: list[tuple[str, str]] = [(canonical_key, "direct")]
+        candidates += [(alt, "equivalence") for alt in equiv_alts]
+        candidates += [
+            (rw, "rewrite rule") for rw in _mappings.apply_rewrite_rules(canonical_key)
+        ]
+        for alt in equiv_alts:
+            candidates += [
+                (rw, "equivalence+rewrite rule")
+                for rw in _mappings.apply_rewrite_rules(alt)
+            ]
+
+        seen: set[str] = set()
+        for key, how in candidates:
+            if key in seen:
+                continue
+            seen.add(key)
+            matched = _match(key)
             if matched is not None:
-                logger.info(
-                    "AuthorityDiscoveryService: bridged %s -> %s via equivalence",
-                    canonical_key,
-                    alt,
-                )
-                return matched[0], matched[1], alt
+                if key != canonical_key:
+                    logger.info(
+                        "AuthorityDiscoveryService: bridged %s -> %s via %s",
+                        canonical_key,
+                        key,
+                        how,
+                    )
+                return matched[0], matched[1], key
 
         return None, None, None
 

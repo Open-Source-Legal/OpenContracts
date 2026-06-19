@@ -1,7 +1,58 @@
-# Authority mappings — canonical source of truth (Phase 1a: equivalences).
-# Loaded idempotently by AuthorityMappingLoader (manage.py load_authority_mappings).
-# `prefixes:` and `rewrite_rules:` sections arrive in later phases.
+# Authority mappings — canonical source of truth.
+# Loaded idempotently by AuthorityMappingLoader (manage.py load_authority_mappings):
+#   prefixes:     -> AuthorityNamespace registry rows (global) + the in-memory
+#                    AUTHORITY_PREFIX / PREFIX_CLASSIFICATION / PREFIX_DISPLAY_NAME
+#                    maps in enrichment.constants (derived at import).
+#   equivalences: -> AuthorityKeyEquivalence rows tagged source="baseline".
+#   rewrite_rules:-> sparing, reviewed prefix transforms evaluated as a FALLBACK
+#                    after explicit per-key equivalences (preview before going live:
+#                    manage.py preview_rewrite_rule).
 #
+# Editing this file then re-running the loader is the supported way to add an
+# authority body / equivalence — no code, migration, or deploy required.
+
+# --- Authority bodies (namespace registry + classification) -------------------
+# prefix -> {display_name, jurisdiction, authority_type, aliases}. Shape-scoped
+# families (usc-NN, cfr-NN, fedreg, act/publ/stat) are classified dynamically by
+# constants.classify_prefix and intentionally NOT listed here.
+prefixes:
+  dgcl:
+    display_name: "Delaware General Corporation Law"
+    jurisdiction: "us-de"
+    authority_type: "statute"
+    aliases: ["delaware general corporation law", "dgcl"]
+  securities-act:
+    display_name: "Securities Act of 1933"
+    jurisdiction: "us-federal"
+    authority_type: "statute"
+    aliases: ["securities act"]
+  exchange-act:
+    display_name: "Securities Exchange Act of 1934"
+    jurisdiction: "us-federal"
+    authority_type: "statute"
+    aliases: ["securities exchange act", "exchange act"]
+  irc:
+    display_name: "Internal Revenue Code"
+    jurisdiction: "us-federal"
+    authority_type: "statute"
+    aliases: ["internal revenue code"]
+  ica:
+    display_name: "Investment Company Act of 1940"
+    jurisdiction: "us-federal"
+    authority_type: "statute"
+    aliases: ["investment company act"]
+  iaa:
+    display_name: "Investment Advisers Act of 1940"
+    jurisdiction: "us-federal"
+    authority_type: "statute"
+    aliases: ["investment advisers act"]
+  sec-rule:
+    display_name: "SEC Rules (17 C.F.R.)"
+    jurisdiction: "us-federal"
+    authority_type: "regulation"
+    aliases: []
+
+# --- Key equivalences (act-section <-> USC/CFR codification) ------------------
 # from_key = popular-name act citation filings use; to_key = USC/CFR codification
 # the provider materialises. find_authority_target queries both columns.
 equivalences:
@@ -39,3 +90,18 @@ equivalences:
   - { from_key: "sec-rule:10a-3", to_key: "cfr-17:240.10a-3" }
   - { from_key: "sec-rule:16b-3", to_key: "cfr-17:240.16b-3" }
   - { from_key: "sec-rule:14a-19", to_key: "cfr-17:240.14a-19" }
+
+# --- Prefix rewrite rules (sparing, reviewed mechanical transforms) -----------
+# Regex pattern -> replacement, evaluated as a FALLBACK in _provider_for and
+# find_authority_target AFTER explicit per-key equivalences (an explicit row
+# always wins). Use only for genuinely mechanical 1:1 codifications, and verify
+# coverage first: `manage.py preview_rewrite_rule`.
+# NOTE: `sec-rule` is deliberately EXCLUDED — its sections split across 17 CFR
+# 240/230 and FINRA (a taxonomy follow-up, not a mechanical rewrite).
+rewrite_rules:
+  # The Internal Revenue Code IS Title 26 U.S.C.: section numbers align 1:1, so
+  # any irc:N resolves to usc-26:N. The explicit irc:401/irc:414 baseline rows
+  # above still win for those keys; this generalises to every other IRC section.
+  - pattern: '^irc:(?P<n>.+)$'
+    replacement: 'usc-26:\g<n>'
+    note: "Internal Revenue Code is Title 26 U.S.C. (sections align 1:1)"

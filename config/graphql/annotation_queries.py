@@ -17,6 +17,7 @@ from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.filters import (
     AuthorityFrontierFilter,
+    AuthorityKeyEquivalenceFilter,
     LabelFilter,
     LabelsetFilter,
     RelationshipFilter,
@@ -26,6 +27,8 @@ from config.graphql.graphene_types import (
     AnnotationType,
     AuthorityFrontierNode,
     AuthorityFrontierStatsType,
+    AuthorityKeyEquivalenceNode,
+    AuthorityMappingStatsType,
     CorpusReferenceType,
     GovernanceGraphCorpusType,
     GovernanceGraphEdgeType,
@@ -325,6 +328,39 @@ class AnnotationQueryMixin:
             authority=authority,
             search=search,
         )
+
+    # AUTHORITY MAPPINGS (global, superuser-only) ##############
+    authority_key_equivalences = DjangoFilterConnectionField(
+        AuthorityKeyEquivalenceNode,
+        filterset_class=AuthorityKeyEquivalenceFilter,
+        description=(
+            "Runtime authority key-equivalence registry (AuthorityKeyEquivalence): "
+            "act-section ↔ USC/CFR codification synonyms used to bridge citations "
+            "across namespaces. SUPERUSER-ONLY (empty otherwise) — gating + "
+            "default order live on the node's get_queryset."
+        ),
+    )
+
+    authority_mapping_stats = graphene.Field(
+        AuthorityMappingStatsType,
+        search=graphene.String(required=False),
+        required=True,
+        description=(
+            "Facet-aware per-source row counts for the authority-mappings panel's "
+            "summary chips. Honours the search facet but not a source filter. "
+            "SUPERUSER-ONLY (empty otherwise)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_authority_mapping_stats(self, info, search=None) -> Any:
+        """Delegate the (superuser-gated) aggregation to the service; graphene's
+        default resolver maps the returned dict onto ``AuthorityMappingStatsType``."""
+        from opencontractserver.enrichment.services import (
+            AuthorityKeyEquivalenceService,
+        )
+
+        return AuthorityKeyEquivalenceService.stats(info.context.user, search=search)
 
     # ANNOTATION RESOLVERS #####################################
     annotations = DjangoConnectionField(

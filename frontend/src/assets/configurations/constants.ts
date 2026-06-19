@@ -1145,6 +1145,11 @@ export const GOVERNANCE_GRAPH_EXPLORER = {
  * relay connection; "Load more" fetches the next page of this size. */
 export const AUTHORITY_FRONTIER_PAGE_SIZE = 50;
 
+/** Page size for the global authority-mappings panel (/admin/authority-mappings)
+ * relay connection over the act-section ↔ USC/CFR key equivalences; "Load more"
+ * fetches the next page of this size. */
+export const AUTHORITY_MAPPINGS_PAGE_SIZE = 50;
+
 /** Poll interval (ms) for live frontier/state updates while a subset
  * authority-discovery run is settling (/admin/authorities "Run discovery"). */
 export const AUTHORITY_DISCOVERY_POLL_MS = 3000;

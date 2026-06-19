@@ -5,7 +5,10 @@ from pathlib import Path
 from django.core.management import call_command
 from django.test import TestCase
 
-from opencontractserver.annotations.models import AuthorityKeyEquivalence
+from opencontractserver.annotations.models import (
+    AuthorityKeyEquivalence,
+    AuthorityNamespace,
+)
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
@@ -85,12 +88,35 @@ class AuthorityMappingLoaderTests(TestCase):
             f'  - {{from_key: "{_FIXTURE_FROM}", to_key: "{_FIXTURE_TO}"}}\n'
         )
         summary = AuthorityMappingLoader.load(path=path)
-        assert summary["skipped_manual"] == 1
+        assert summary["skipped_owned"] == 1
         row = AuthorityKeyEquivalence.objects.get(
             from_key=_FIXTURE_FROM, to_key=_FIXTURE_TO
         )
         assert row.source == "manual"
         assert row.note == "curator"
+
+    def test_skips_importer_owned_rows(self):
+        # Source-ownership partition: the loader owns only "baseline"; an
+        # importer-owned uslm/popular_name row must survive a reload untouched.
+        AuthorityKeyEquivalence.objects.create(
+            from_key=_FIXTURE_FROM,
+            to_key=_FIXTURE_TO,
+            source="popular_name",
+            confidence=0.85,
+            note="OLRC table",
+        )
+        path = _write_yaml(
+            "equivalences:\n"
+            f'  - {{from_key: "{_FIXTURE_FROM}", to_key: "{_FIXTURE_TO}"}}\n'
+        )
+        summary = AuthorityMappingLoader.load(path=path)
+        assert summary["skipped_owned"] == 1
+        row = AuthorityKeyEquivalence.objects.get(
+            from_key=_FIXTURE_FROM, to_key=_FIXTURE_TO
+        )
+        assert row.source == "popular_name"
+        assert row.confidence == 0.85
+        assert row.note == "OLRC table"
 
     def test_rejects_malformed_key(self):
         path = _write_yaml(
@@ -133,7 +159,7 @@ class AuthorityMappingLoaderTests(TestCase):
         assert summary == {
             "created": 0,
             "updated": 0,
-            "skipped_manual": 0,
+            "skipped_owned": 0,
             "total": 0,
         }
 
@@ -149,12 +175,80 @@ class AuthorityMappingLoaderTests(TestCase):
         ).update(source="manual", note="curator override")
 
         summary = AuthorityMappingLoader.load(path=path)
-        assert summary["skipped_manual"] == 1
+        assert summary["skipped_owned"] == 1
         row = AuthorityKeyEquivalence.objects.get(
             from_key="test-act:2", to_key="usc-99:2"
         )
         assert row.source == "manual"
         assert row.note == "curator override"
+
+
+class AuthorityNamespaceLoaderTests(TestCase):
+    _NS_YAML = (
+        "prefixes:\n"
+        "  test-body:\n"
+        '    display_name: "Test Body of Law"\n'
+        '    jurisdiction: "us-federal"\n'
+        '    authority_type: "statute"\n'
+        '    aliases: ["the test act", "test body"]\n'
+    )
+
+    def test_load_namespaces_creates_global_row(self):
+        path = _write_yaml(self._NS_YAML)
+        summary = AuthorityMappingLoader.load_namespaces(path=path)
+        assert summary["created"] == 1
+        ns = AuthorityNamespace.objects.get(prefix="test-body")
+        assert ns.display_name == "Test Body of Law"
+        assert ns.jurisdiction == "us-federal"
+        assert ns.authority_type == "statute"
+        assert ns.is_global is True
+        assert ns.aliases == ["test body", "the test act"]  # sorted, deduped
+
+    def test_load_namespaces_idempotent(self):
+        path = _write_yaml(self._NS_YAML)
+        AuthorityMappingLoader.load_namespaces(path=path)
+        summary = AuthorityMappingLoader.load_namespaces(path=path)
+        assert summary["created"] == 0
+        assert summary["updated"] == 1
+        assert AuthorityNamespace.objects.filter(prefix="test-body").count() == 1
+
+    def test_load_namespaces_skips_corpus_linked_row(self):
+        # A corpus-scoped namespace owning the same prefix must NOT be flipped
+        # to global by a baseline reload.
+        from django.contrib.auth import get_user_model
+
+        from opencontractserver.corpuses.models import Corpus
+
+        User = get_user_model()
+        user = User.objects.create_user(username="ns-owner", password="x")
+        corpus = Corpus.objects.create(title="Authority Corpus", creator=user)
+        AuthorityNamespace.objects.create(
+            prefix="test-body",
+            display_name="Corpus-owned",
+            is_global=False,
+            authority_corpus=corpus,
+        )
+        path = _write_yaml(self._NS_YAML)
+        summary = AuthorityMappingLoader.load_namespaces(path=path)
+        assert summary["skipped_corpus_linked"] == 1
+        ns = AuthorityNamespace.objects.get(prefix="test-body")
+        assert ns.is_global is False
+        assert ns.display_name == "Corpus-owned"
+
+    def test_load_all_returns_both_summaries(self):
+        summary = AuthorityMappingLoader.load_all()
+        assert set(summary) == {"namespaces", "equivalences"}
+        assert summary["equivalences"]["total"] >= 19
+        # The shipped sec-rule body of law is upserted as a global namespace.
+        assert AuthorityNamespace.objects.filter(
+            prefix="sec-rule", is_global=True
+        ).exists()
+
+    def test_default_yaml_seeds_known_bodies(self):
+        AuthorityMappingLoader.load_namespaces()
+        ns = AuthorityNamespace.objects.get(prefix="exchange-act")
+        assert ns.display_name == "Securities Exchange Act of 1934"
+        assert "exchange act" in ns.aliases
 
 
 class LoadAuthorityMappingsCommandTests(TestCase):
@@ -164,6 +258,7 @@ class LoadAuthorityMappingsCommandTests(TestCase):
         assert AuthorityKeyEquivalence.objects.filter(
             from_key="irc:401", to_key="usc-26:401"
         ).exists()
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
         assert "created" in out.getvalue().lower()
 
 

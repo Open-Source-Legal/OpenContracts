@@ -2239,6 +2239,17 @@ class AuthorityKeyEquivalence(django.db.models.Model):
     )
     confidence = django.db.models.FloatField(default=1.0)
     note = django.db.models.CharField(max_length=255, null=True, blank=True)
+    # Provenance "who": set on runtime (source="manual") rows created through the
+    # CRUD surface. Null for loader/importer-owned rows (baseline/popular_name/
+    # uslm). SET_NULL so deleting the curator keeps the mapping. (AuthorityNamespace
+    # created_by is deferred — namespaces are overwhelmingly baseline/auto.)
+    created_by = django.db.models.ForeignKey(
+        get_user_model(),
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authored_authority_equivalences",
+    )
     created = django.db.models.DateTimeField(auto_now_add=True)
     modified = django.db.models.DateTimeField(auto_now=True)
 

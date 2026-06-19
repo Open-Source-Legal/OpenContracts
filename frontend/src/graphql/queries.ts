@@ -1169,6 +1169,105 @@ export const GET_AUTHORITY_FRONTIER_STATS = gql`
   }
 `;
 
+// --- Global authority key-equivalences (superuser-only) --------------------
+// The authority key-equivalence table bridges citations across namespaces: it
+// maps an act-section style key (e.g. a popular-name act § N) to the canonical
+// USC/CFR key the reference web resolves against. Rows carry a ``source``
+// (baseline | popular_name | uslm | manual); only ``manual`` rows are editable
+// or deletable. See /admin/authority-mappings.
+
+export interface AuthorityKeyEquivalenceRow {
+  id: string;
+  fromKey: string;
+  toKey: string;
+  /** baseline | popular_name | uslm | manual */
+  source: string;
+  confidence?: number | null;
+  note?: string | null;
+  created?: string | null;
+  modified?: string | null;
+  /** True only for ``source = "manual"`` rows — gates the edit/delete controls. */
+  editable: boolean;
+  createdByUsername?: string | null;
+}
+
+export interface GetAuthorityKeyEquivalencesInputs {
+  source?: string | null;
+  search?: string | null;
+  first?: number;
+  after?: string | null;
+}
+
+export interface GetAuthorityKeyEquivalencesOutputs {
+  authorityKeyEquivalences: {
+    pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+    edges: { node: AuthorityKeyEquivalenceRow }[];
+  };
+}
+
+export const GET_AUTHORITY_KEY_EQUIVALENCES = gql`
+  query AuthorityKeyEquivalences(
+    $source: String
+    $search: String
+    $first: Int
+    $after: String
+  ) {
+    authorityKeyEquivalences(
+      source: $source
+      search: $search
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          fromKey
+          toKey
+          source
+          confidence
+          note
+          created
+          modified
+          editable
+          createdByUsername
+        }
+      }
+    }
+  }
+`;
+
+export interface AuthorityMappingSourceCount {
+  source: string;
+  count: number;
+}
+
+export interface GetAuthorityMappingStatsInputs {
+  search?: string | null;
+}
+
+export interface GetAuthorityMappingStatsOutputs {
+  authorityMappingStats: {
+    totalCount: number;
+    bySource: AuthorityMappingSourceCount[];
+  };
+}
+
+export const GET_AUTHORITY_MAPPING_STATS = gql`
+  query AuthorityMappingStats($search: String) {
+    authorityMappingStats(search: $search) {
+      totalCount
+      bySource {
+        source
+        count
+      }
+    }
+  }
+`;
+
 // Lean analysis listing used to discover a corpus's reference-enrichment
 // Analysis (matched client-side on analyzer.taskName) so the document viewer
 // can auto-merge its reference-mention annotations into the annotation layer.

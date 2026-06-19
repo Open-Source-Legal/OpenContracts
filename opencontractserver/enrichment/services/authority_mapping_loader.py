@@ -1,50 +1,57 @@
 """Idempotent, source-scoped loader for the declarative authority-mappings baseline.
 
 ``opencontractserver/enrichment/data/authority_mappings.yaml`` is the single
-source of truth for shipped (``source="baseline"``) authority key equivalences.
-This loader upserts it into the DB and NEVER overwrites a ``source="manual"``
-(runtime curator) row, so a re-load can't clobber an operator override.
+source of truth. This loader upserts it into the database:
+
+- ``prefixes:``     → ``AuthorityNamespace`` registry rows (global, baseline)
+- ``equivalences:`` → ``AuthorityKeyEquivalence`` rows tagged ``source="baseline"``
+
+It NEVER overwrites a ``source="manual"`` equivalence (runtime curator override)
+nor a corpus-linked ``AuthorityNamespace`` (``is_global=False``, bootstrap-owned),
+so a re-load can't clobber operator/runtime state. Parsing + validation are
+delegated to the pure ``enrichment.data.mappings`` reader (no Django models), so
+the YAML grammar has exactly one definition shared with ``enrichment.constants``.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
-import yaml
-
-from opencontractserver.annotations.models import AuthorityKeyEquivalence
-
-DEFAULT_MAPPINGS_PATH = (
-    Path(__file__).resolve().parents[1] / "data" / "authority_mappings.yaml"
+from opencontractserver.annotations.models import (
+    AuthorityKeyEquivalence,
+    AuthorityNamespace,
 )
-
-# canonical_key shape: "<prefix>:<section>" — lowercase-alnum/hyphen prefix.
-_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]*:.+$")
+from opencontractserver.enrichment.data import mappings as _mappings
 
 
 class AuthorityMappingLoader:
-    """Load the baseline authority mappings YAML into the database."""
+    """Load the declarative authority-mappings YAML into the database."""
 
     BASELINE = "baseline"
     MANUAL = "manual"
 
     @classmethod
     def load(cls, *, path: Path | str | None = None) -> dict:
-        data = cls._read(path)
-        equivalences = data.get("equivalences") or []
+        """Upsert equivalences as ``source="baseline"``; never clobber another source.
 
-        created = updated = skipped_manual = 0
+        Source-ownership partition (the loader owns only ``baseline``): any
+        pre-existing row whose source is NOT ``baseline`` — a ``manual`` curator
+        override or an importer-owned ``uslm`` / ``popular_name`` row — is left
+        untouched and counted under ``skipped_owned``. Mirrors
+        ``authority_equivalence_ingest.upsert_equivalence``'s symmetric guard so
+        no writer ever overwrites a row another source owns.
+
+        Returns ``{created, updated, skipped_owned, total}`` where ``total`` is
+        the count of distinct validated ``(from_key, to_key)`` pairs in the file.
+        Raises ``ValueError`` on a malformed/missing key (fail fast).
+        """
+        equivalences = _mappings.iter_equivalences(path)
+
+        created = updated = skipped_owned = 0
         seen: set[tuple[str, str]] = set()
         for entry in equivalences:
-            try:
-                from_key = str(entry["from_key"]).strip()
-                to_key = str(entry["to_key"]).strip()
-            except (KeyError, TypeError) as exc:
-                raise ValueError(
-                    f"authority_mappings entry missing from_key/to_key: {entry!r}"
-                ) from exc
-            cls._validate(from_key, to_key)
+            from_key = entry["from_key"]
+            to_key = entry["to_key"]
             pair = (from_key, to_key)
             if pair in seen:
                 continue
@@ -53,46 +60,79 @@ class AuthorityMappingLoader:
             existing = AuthorityKeyEquivalence.objects.filter(
                 from_key=from_key, to_key=to_key
             ).first()
-            if existing is not None and existing.source == cls.MANUAL:
-                skipped_manual += 1
+            if existing is not None and existing.source != cls.BASELINE:
+                skipped_owned += 1
                 continue
 
-            # YAML is authoritative for baseline rows: an omitted `note:` resets the
-            # stored note. (Manual rows are never reached here — skipped above.)
-            note = (entry.get("note") or "").strip()
+            # YAML is authoritative for baseline rows: an omitted `note:` resets
+            # the stored note. (Non-baseline rows are never reached here.)
             _, was_created = AuthorityKeyEquivalence.objects.update_or_create(
                 from_key=from_key,
                 to_key=to_key,
                 defaults={
                     "source": cls.BASELINE,
                     "confidence": 1.0,
-                    "note": note or None,
+                    "note": entry.get("note") or None,
                 },
             )
             created += int(was_created)
             updated += int(not was_created)
 
-        # total = distinct validated pairs seen = created + updated + skipped_manual.
+        # total = distinct validated pairs seen = created + updated + skipped_owned.
         return {
             "created": created,
             "updated": updated,
-            "skipped_manual": skipped_manual,
+            "skipped_owned": skipped_owned,
             "total": len(seen),
         }
 
-    @staticmethod
-    def _read(path: Path | str | None) -> dict:
-        p = Path(path) if path is not None else DEFAULT_MAPPINGS_PATH
-        with open(p, encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
-        if not isinstance(data, dict):
-            raise ValueError(f"authority_mappings YAML root must be a mapping: {p}")
-        return data
+    @classmethod
+    def load_namespaces(cls, *, path: Path | str | None = None) -> dict:
+        """Upsert global ``AuthorityNamespace`` registry rows from ``prefixes:``.
+
+        Skips corpus-linked rows (``is_global=False``, bootstrap-owned) so a
+        re-load never flips a corpus namespace to global. Returns
+        ``{created, updated, skipped_corpus_linked, total}``.
+        """
+        prefixes = _mappings.iter_prefixes(path)
+
+        created = updated = skipped_corpus_linked = 0
+        for prefix, spec in prefixes.items():
+            existing = AuthorityNamespace.objects.filter(prefix=prefix).first()
+            if existing is not None and existing.authority_corpus_id:
+                # A corpus-scoped namespace owns this prefix; never overwrite it
+                # (it must stay is_global=False — see AuthorityNamespace.save()).
+                skipped_corpus_linked += 1
+                continue
+
+            _, was_created = AuthorityNamespace.objects.update_or_create(
+                prefix=prefix,
+                defaults={
+                    "display_name": spec["display_name"],
+                    "jurisdiction": spec["jurisdiction"],
+                    "authority_type": spec["authority_type"],
+                    "aliases": sorted(set(spec["aliases"])),
+                    "is_global": True,
+                },
+            )
+            created += int(was_created)
+            updated += int(not was_created)
+
+        return {
+            "created": created,
+            "updated": updated,
+            "skipped_corpus_linked": skipped_corpus_linked,
+            "total": len(prefixes),
+        }
 
     @classmethod
-    def _validate(cls, from_key: str, to_key: str) -> None:
-        for key in (from_key, to_key):
-            if not _KEY_RE.match(key):
-                raise ValueError(
-                    f"Invalid canonical key {key!r}: expected '<prefix>:<section>'"
-                )
+    def load_all(cls, *, path: Path | str | None = None) -> dict:
+        """Upsert both namespaces and equivalences from the YAML.
+
+        Returns ``{"namespaces": {...}, "equivalences": {...}}``. Namespaces are
+        loaded first so an equivalence's prefix always has a registry row.
+        """
+        return {
+            "namespaces": cls.load_namespaces(path=path),
+            "equivalences": cls.load(path=path),
+        }

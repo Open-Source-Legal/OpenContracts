@@ -2,11 +2,10 @@ from django.db import migrations
 
 
 def load_mappings(apps, schema_editor):
+    # Pure YAML reader (no Django models) — safe to import at any migration state.
+    from opencontractserver.enrichment.data import mappings as _mappings
     from opencontractserver.enrichment.data.authority_key_equivalence_seed import (
         CURATED_EQUIVALENCES,
-    )
-    from opencontractserver.enrichment.services.authority_mapping_loader import (
-        AuthorityMappingLoader,
     )
 
     AuthorityKeyEquivalence = apps.get_model("annotations", "AuthorityKeyEquivalence")
@@ -21,11 +20,34 @@ def load_mappings(apps, schema_editor):
             from_key=from_key, to_key=to_key, source="manual"
         ).update(source="baseline")
 
-    # NOTE: calls the LIVE-model loader (imports the current AuthorityKeyEquivalence),
-    # not apps.get_model. Safe only while this model's schema is frozen; if a later
-    # migration alters AuthorityKeyEquivalence, snapshot the loader's upsert logic
-    # into this migration instead of importing the live service.
-    AuthorityMappingLoader.load()
+    # SNAPSHOT of AuthorityMappingLoader.load()'s equivalence upsert, run against
+    # the HISTORICAL model (apps.get_model) rather than the live service. This was
+    # made explicit by 0092's original note: a later migration (0094) added
+    # ``created_by`` to AuthorityKeyEquivalence, so calling the live loader here
+    # would emit a SELECT for ``created_by_id`` before that column exists on a
+    # fresh DB. The logic below mirrors the loader exactly (validate, dedupe,
+    # skip source="manual", upsert source="baseline") so the end state is identical
+    # and the loader remains the runtime source of truth.
+    seen = set()
+    for entry in _mappings.iter_equivalences():
+        pair = (entry["from_key"], entry["to_key"])
+        if pair in seen:
+            continue
+        seen.add(pair)
+        existing = AuthorityKeyEquivalence.objects.filter(
+            from_key=pair[0], to_key=pair[1]
+        ).first()
+        if existing is not None and existing.source == "manual":
+            continue
+        AuthorityKeyEquivalence.objects.update_or_create(
+            from_key=pair[0],
+            to_key=pair[1],
+            defaults={
+                "source": "baseline",
+                "confidence": 1.0,
+                "note": entry.get("note") or None,
+            },
+        )
 
 
 def unload_baseline(apps, schema_editor):

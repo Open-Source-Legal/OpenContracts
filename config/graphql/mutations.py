@@ -44,6 +44,13 @@ from config.graphql.annotation_mutations import (
     UpdateRelationship,
 )
 
+# Import enrichment mutations
+from config.graphql.authority_mapping_mutations import (
+    CreateAuthorityKeyEquivalenceMutation,
+    DeleteAuthorityKeyEquivalenceMutation,
+    UpdateAuthorityKeyEquivalenceMutation,
+)
+
 # Import badge mutations
 from config.graphql.badge_mutations import (
     AwardBadgeMutation,
@@ -127,8 +134,6 @@ from config.graphql.document_relationship_mutations import (
     DeleteDocumentRelationships,
     UpdateDocumentRelationship,
 )
-
-# Import enrichment mutations
 from config.graphql.enrichment_mutations import (
     RunAuthorityDiscoveryMutation,
     RunCorpusEnrichmentMutation,
@@ -383,6 +388,9 @@ class Mutation(graphene.ObjectType):
     make_analysis_public = MakeAnalysisPublic.Field()
     run_corpus_enrichment = RunCorpusEnrichmentMutation.Field()
     run_authority_discovery = RunAuthorityDiscoveryMutation.Field()
+    create_authority_key_equivalence = CreateAuthorityKeyEquivalenceMutation.Field()
+    update_authority_key_equivalence = UpdateAuthorityKeyEquivalenceMutation.Field()
+    delete_authority_key_equivalence = DeleteAuthorityKeyEquivalenceMutation.Field()
 
     # EXTRACT MUTATIONS ##########################################################
     create_fieldset = CreateFieldset.Field()
