@@ -129,7 +129,10 @@ from config.graphql.document_relationship_mutations import (
 )
 
 # Import enrichment mutations
-from config.graphql.enrichment_mutations import RunCorpusEnrichmentMutation
+from config.graphql.enrichment_mutations import (
+    RunAuthorityDiscoveryMutation,
+    RunCorpusEnrichmentMutation,
+)
 
 # Import extract mutations
 from config.graphql.extract_mutations import (
@@ -379,6 +382,7 @@ class Mutation(graphene.ObjectType):
     delete_analysis = DeleteAnalysisMutation.Field()
     make_analysis_public = MakeAnalysisPublic.Field()
     run_corpus_enrichment = RunCorpusEnrichmentMutation.Field()
+    run_authority_discovery = RunAuthorityDiscoveryMutation.Field()
 
     # EXTRACT MUTATIONS ##########################################################
     create_fieldset = CreateFieldset.Field()

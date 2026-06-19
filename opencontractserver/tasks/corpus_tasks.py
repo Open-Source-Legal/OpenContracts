@@ -1170,3 +1170,26 @@ def relink_corpora_for_keys_task(canonical_keys: list[str]) -> dict:
     from opencontractserver.enrichment.services import EnrichmentService
 
     return EnrichmentService().relink_corpora_for_keys(canonical_keys)
+
+
+@shared_task
+def discover_selected_authorities(
+    *, frontier_ids: list[int], creator_id: int, make_public: bool = True
+) -> dict:
+    """Run authority discovery on a SPECIFIC set of AuthorityFrontier rows.
+
+    Fire-and-forget companion to the bounded crawl: it ingests exactly the rows
+    whose ids are passed (depth 0, no recursion), so the global Authority Sources
+    monitor can trigger discovery on a hand-picked subset of the queue without a
+    corpus-scoped Analysis. Returns the outcome census from
+    ``CrawlAuthoritiesService.discover_selected``.
+    """
+    from opencontractserver.enrichment.services.crawl_authorities_service import (
+        CrawlAuthoritiesService,
+    )
+
+    return CrawlAuthoritiesService.discover_selected(
+        creator_id=creator_id,
+        frontier_ids=frontier_ids,
+        make_public=make_public,
+    )

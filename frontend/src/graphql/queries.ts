@@ -1045,6 +1045,10 @@ export interface AuthorityFrontierRow {
   discoveryState: string;
   /** Source-provider registry class name (e.g. "USCodeAuthoritySourceProvider"). */
   provider?: string | null;
+  /** True if a provider can_handle this key (directly or via equivalence bridge). */
+  ingestable?: boolean | null;
+  /** Class name of the provider that WOULD handle this key (else null). */
+  predictedProvider?: string | null;
   mentionCount: number;
   distinctCorpusCount: number;
   depth: number;
@@ -1106,6 +1110,8 @@ export const GET_AUTHORITY_FRONTIER = gql`
           authorityType
           discoveryState
           provider
+          ingestable
+          predictedProvider
           mentionCount
           distinctCorpusCount
           depth

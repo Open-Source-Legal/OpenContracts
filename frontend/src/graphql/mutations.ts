@@ -425,6 +425,34 @@ export const RUN_CORPUS_ENRICHMENT = gql`
   }
 `;
 
+export interface RunAuthorityDiscoveryInputs {
+  /** Global IDs of the AuthorityFrontier rows to run discovery on. */
+  frontierIds: string[];
+}
+
+export interface RunAuthorityDiscoveryOutputs {
+  runAuthorityDiscovery: {
+    ok: boolean;
+    message?: string | null;
+    count: number;
+  };
+}
+
+/**
+ * Run authority discovery on a hand-picked subset of AuthorityFrontier rows
+ * (superuser-only; fire-and-forget). Depth 0 — ingests exactly the selected
+ * rows. The monitor reflects each row's discovery_state as it transitions.
+ */
+export const RUN_AUTHORITY_DISCOVERY = gql`
+  mutation RunAuthorityDiscovery($frontierIds: [ID!]!) {
+    runAuthorityDiscovery(frontierIds: $frontierIds) {
+      ok
+      message
+      count
+    }
+  }
+`;
+
 export const START_EXPORT_CORPUS = gql`
   mutation (
     $corpusId: String!

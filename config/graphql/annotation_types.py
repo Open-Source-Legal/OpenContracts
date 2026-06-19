@@ -201,6 +201,26 @@ class WantedAuthorityType(graphene.ObjectType):
     )
 
 
+def _frontier_predicted_provider(row):
+    """Provider class-name that would handle ``row.canonical_key`` (or ``None``).
+
+    Memoized on the row instance so the ``ingestable`` and ``predicted_provider``
+    resolvers share a single registry+equivalence lookup per node. ``row`` is the
+    ``AuthorityFrontier`` MODEL instance graphene passes as the resolver root
+    (NOT an ``AuthorityFrontierNode``), so this MUST be a free function — a method
+    defined on the type is invisible on the model-instance root.
+    """
+    if not hasattr(row, "_predicted_provider_cache"):
+        from opencontractserver.enrichment.services.authority_discovery_service import (  # noqa: E501
+            AuthorityDiscoveryService,
+        )
+
+        row._predicted_provider_cache = AuthorityDiscoveryService._provider_for(
+            row.canonical_key
+        )[0]
+    return row._predicted_provider_cache
+
+
 class AuthorityFrontierNode(DjangoObjectType):
     """One ``AuthorityFrontier`` row: the discovery/ingestion state of a wanted
     section-root canonical key (e.g. ``usc-15:78j``), aggregated instance-wide
@@ -221,6 +241,19 @@ class AuthorityFrontierNode(DjangoObjectType):
     ingested_document = graphene.Field(
         _get_document_type,
         description="The Document imported for this key once ingested (else null).",
+    )
+    ingestable = graphene.Boolean(
+        description=(
+            "True if a source provider can_handle this key directly or via an "
+            "AuthorityKeyEquivalence bridge (i.e. discovery could ingest it). "
+            "False keys would record 'unsupported' if run."
+        )
+    )
+    predicted_provider = graphene.String(
+        description=(
+            "Registry class name of the provider that would handle this key, or "
+            "null when none can."
+        )
     )
 
     class Meta:
@@ -256,6 +289,12 @@ class AuthorityFrontierNode(DjangoObjectType):
         return queryset.select_related("ingested_document").order_by(
             "-mention_count", "discovery_state"
         )
+
+    def resolve_ingestable(self, info) -> bool:
+        return _frontier_predicted_provider(self) is not None
+
+    def resolve_predicted_provider(self, info):
+        return _frontier_predicted_provider(self)
 
 
 class AuthorityFrontierStateCountType(graphene.ObjectType):

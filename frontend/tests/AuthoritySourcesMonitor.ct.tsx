@@ -14,6 +14,7 @@ import {
   GET_AUTHORITY_FRONTIER_STATS,
 } from "../src/graphql/queries";
 import { AUTHORITY_FRONTIER_PAGE_SIZE } from "../src/assets/configurations/constants";
+import { RUN_AUTHORITY_DISCOVERY } from "../src/graphql/mutations";
 import { docScreenshot } from "./utils/docScreenshot";
 
 const FACETS = {
@@ -41,6 +42,8 @@ const node = (over: Record<string, unknown>) => ({
     authorityType: null,
     discoveryState: "queued",
     provider: null,
+    ingestable: true,
+    predictedProvider: null,
     mentionCount: 0,
     distinctCorpusCount: 0,
     depth: 0,
@@ -95,6 +98,93 @@ const ALL_ROWS = [
     discoveryState: "queued",
     mentionCount: 30,
     distinctCorpusCount: 3,
+  }),
+];
+
+// Fixtures for the "unsupported" doc screenshot: cited bodies of law that no
+// public-domain provider can_handle (no .gov source), so they park at
+// `unsupported` — the backlog that motivates writing a new provider.
+const UNSUPPORTED_ROWS = [
+  node({
+    canonicalKey: "nyse:303a",
+    authority: "nyse",
+    jurisdiction: "us-federal",
+    authorityType: "rule",
+    discoveryState: "unsupported",
+    ingestable: false,
+    mentionCount: 47,
+    distinctCorpusCount: 5,
+    lastError: "No provider can_handle nyse:303a",
+  }),
+  node({
+    canonicalKey: "ifrs:9",
+    authority: "ifrs",
+    jurisdiction: null,
+    authorityType: "standard",
+    discoveryState: "unsupported",
+    ingestable: false,
+    mentionCount: 21,
+    distinctCorpusCount: 3,
+    lastError: "No provider can_handle ifrs:9",
+  }),
+  node({
+    canonicalKey: "iso-iec:27001",
+    authority: "iso-iec",
+    jurisdiction: null,
+    authorityType: "standard",
+    discoveryState: "unsupported",
+    ingestable: false,
+    mentionCount: 12,
+    distinctCorpusCount: 2,
+    lastError: "No provider can_handle iso-iec:27001",
+  }),
+];
+
+const STATS_WITH_UNSUPPORTED = {
+  totalCount: 6,
+  byState: [
+    { state: "ingested", count: 1 },
+    { state: "unsupported", count: 3 },
+    { state: "queued", count: 2 },
+  ],
+};
+
+// All rows for the unfiltered view: one ingested + the three unsupported + the
+// two queued DGCL rows reused from ALL_ROWS.
+const ALL_UNSUPPORTED_VIEW_ROWS = [
+  ALL_ROWS[0],
+  ...UNSUPPORTED_ROWS,
+  ALL_ROWS[2],
+  ALL_ROWS[3],
+];
+
+// Fixtures for the subset-discovery selection tests: two queued rows, one
+// ingestable (a provider can handle it) and one not (drives the warning).
+const SELECT_STATS = {
+  totalCount: 2,
+  byState: [{ state: "queued", count: 2 }],
+};
+const SELECT_ROWS = [
+  node({
+    canonicalKey: "usc-15:78j",
+    authority: "usc-15",
+    jurisdiction: "us-federal",
+    authorityType: "statute",
+    discoveryState: "queued",
+    ingestable: true,
+    predictedProvider: "USCodeAuthoritySourceProvider",
+    mentionCount: 142,
+    distinctCorpusCount: 9,
+  }),
+  node({
+    canonicalKey: "nyse:303a",
+    authority: "nyse",
+    jurisdiction: "us-federal",
+    authorityType: "rule",
+    discoveryState: "queued",
+    ingestable: false,
+    mentionCount: 47,
+    distinctCorpusCount: 5,
   }),
 ];
 
@@ -241,6 +331,150 @@ test.describe("AuthoritySourcesMonitor", () => {
     await expect(page.locator('[data-testid="authorities-row"]')).toHaveCount(
       0
     );
+
+    await component.unmount();
+  });
+
+  // -------------------------------------------------------------------------
+  // Doc screenshot: filtering to the `unsupported` chip surfaces the cited
+  // authorities no provider can_handle — the candidates for a new provider.
+  // Referenced from docs/guides/ingesting-authorities.md.
+  // -------------------------------------------------------------------------
+
+  test("filtering to the unsupported chip — doc screenshot", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mountMonitor(mount, [
+      statsMock(STATS_WITH_UNSUPPORTED),
+      statsMock(STATS_WITH_UNSUPPORTED),
+      frontierMock(ALL_UNSUPPORTED_VIEW_ROWS),
+      frontierMock(ALL_UNSUPPORTED_VIEW_ROWS),
+      frontierMock(UNSUPPORTED_ROWS, "unsupported"),
+    ]);
+
+    // Unfiltered view renders all six rows and an Unsupported chip.
+    await expect(page.locator('[data-testid="authorities-row"]')).toHaveCount(
+      6,
+      { timeout: 10000 }
+    );
+    await expect(
+      page.locator('[data-testid="authorities-chip-unsupported"]')
+    ).toContainText("Unsupported");
+
+    // Click the chip → server-side refetch with discoveryState=unsupported.
+    await page.locator('[data-testid="authorities-chip-unsupported"]').click();
+
+    await expect(page.locator('[data-testid="authorities-row"]')).toHaveCount(
+      3
+    );
+    await expect(
+      page
+        .locator('[data-testid="authorities-table-scroll"]')
+        .getByText("nyse:303a", { exact: true })
+    ).toBeVisible();
+
+    await docScreenshot(page, "authorities--sources-monitor--unsupported");
+
+    await component.unmount();
+  });
+
+  // -------------------------------------------------------------------------
+  // Subset discovery: select rows + run discovery on the chosen subset.
+  // -------------------------------------------------------------------------
+
+  test("select-all + run discovery — action bar, provider warning, mutation, doc screenshot", async ({
+    mount,
+    page,
+  }) => {
+    const runMock = {
+      request: {
+        query: RUN_AUTHORITY_DISCOVERY,
+        // select-all adds rows in loaded order: usc-15:78j, then nyse:303a.
+        variables: { frontierIds: ["AF:usc-15:78j", "AF:nyse:303a"] },
+      },
+      result: {
+        data: {
+          runAuthorityDiscovery: {
+            ok: true,
+            message: "Discovery started for 2 authorities.",
+            count: 2,
+          },
+        },
+      },
+    };
+
+    // maxUsageCount guards against the post-run poll refetch exhausting mocks.
+    const component = await mountMonitor(mount, [
+      { ...statsMock(SELECT_STATS), maxUsageCount: 20 },
+      { ...statsMock(SELECT_STATS), maxUsageCount: 20 },
+      { ...frontierMock(SELECT_ROWS), maxUsageCount: 20 },
+      { ...frontierMock(SELECT_ROWS), maxUsageCount: 20 },
+      runMock,
+    ]);
+
+    await expect(page.locator('[data-testid="authorities-row"]')).toHaveCount(
+      2,
+      { timeout: 10000 }
+    );
+
+    // No action bar until something is selected.
+    await expect(
+      page.locator('[data-testid="authorities-action-bar"]')
+    ).toHaveCount(0);
+
+    // Header checkbox selects all loaded rows.
+    await page.locator('[data-testid="authorities-select-all"]').check();
+
+    const bar = page.locator('[data-testid="authorities-action-bar"]');
+    await expect(bar).toBeVisible();
+    await expect(
+      page.locator('[data-testid="authorities-selected-count"]')
+    ).toContainText("2 selected");
+    // One of the two selected rows has no provider → the warning surfaces.
+    await expect(
+      page.locator('[data-testid="authorities-noprovider-warning"]')
+    ).toContainText("1 of 2");
+
+    await docScreenshot(page, "authorities--sources-monitor--selection");
+
+    // Run discovery on the selection.
+    await page.locator('[data-testid="authorities-run-selected"]').click();
+
+    // Success toast appears and the selection clears (action bar gone).
+    await expect(
+      page.getByText("Discovery started for 2 authorities.")
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('[data-testid="authorities-action-bar"]')
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  test("individual row checkbox toggles selection", async ({ mount, page }) => {
+    const component = await mountMonitor(mount, [
+      statsMock(SELECT_STATS),
+      statsMock(SELECT_STATS),
+      frontierMock(SELECT_ROWS),
+      frontierMock(SELECT_ROWS),
+    ]);
+
+    await expect(page.locator('[data-testid="authorities-row"]')).toHaveCount(
+      2,
+      { timeout: 10000 }
+    );
+
+    const check = page.getByRole("checkbox", { name: "Select nyse:303a" });
+    await check.check();
+    await expect(
+      page.locator('[data-testid="authorities-selected-count"]')
+    ).toContainText("1 selected");
+
+    await check.uncheck();
+    await expect(
+      page.locator('[data-testid="authorities-action-bar"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });

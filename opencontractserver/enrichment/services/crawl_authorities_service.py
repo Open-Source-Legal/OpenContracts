@@ -245,6 +245,73 @@ class CrawlAuthoritiesService(BaseService):
         return summary
 
     @classmethod
+    def discover_selected(
+        cls,
+        *,
+        creator_id: int,
+        frontier_ids: list[int],
+        make_public: bool = True,
+        log=logger.info,
+    ) -> dict:
+        """Run discovery on a SPECIFIC set of frontier rows — depth 0, no recursion.
+
+        Unlike :meth:`crawl`, this does NOT seed from the Wanted Authorities
+        aggregation and does NOT seed children: it ingests exactly the rows whose
+        ids are passed, in demand order, by looping
+        :meth:`AuthorityDiscoveryService.discover_and_bootstrap` over them. This is
+        the corpus-agnostic driver behind the global Authority Sources monitor's
+        "run discovery on selected" action.
+
+        Re-running a terminal row (``failed`` / ``unsupported`` / ``ingested``) is
+        allowed and is the supported way to retry after a provider or
+        ``AuthorityKeyEquivalence`` is added — ``discover_and_bootstrap`` is
+        idempotent.
+
+        Args:
+            creator_id: PK of the user who will own discovered authority corpora.
+            frontier_ids: ``AuthorityFrontier`` PKs to process.
+            make_public: Publish discovered authority corpora (default True).
+            log: Progress callable.
+
+        Returns:
+            Summary dict with keys ``requested``, ``processed``, ``not_found``,
+            ``outcomes`` (a ``{status: count}`` census) and ``ingested``.
+        """
+        # De-dupe while preserving caller order; row fetch re-orders by demand.
+        requested_ids = list(dict.fromkeys(frontier_ids))
+        rows = list(
+            AuthorityFrontier.objects.filter(id__in=requested_ids).order_by(
+                "-mention_count", "canonical_key"
+            )
+        )
+        found_ids = {r.id for r in rows}
+        not_found = [i for i in requested_ids if i not in found_ids]
+        if not_found:
+            log("discover_selected: %s requested ids not found", len(not_found))
+
+        outcomes: Counter = Counter()
+        for row in rows:
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=creator_id,
+                frontier_row=row,
+                make_public=make_public,
+                relink_async=True,
+            )
+            status = result["status"]
+            outcomes[status] += 1
+            log("discover_selected %s -> %s", row.canonical_key, status)
+
+        summary = {
+            "requested": len(requested_ids),
+            "processed": len(rows),
+            "not_found": len(not_found),
+            "outcomes": dict(outcomes),
+            "ingested": outcomes.get("ingested", 0),
+        }
+        log("discover_selected complete: %s", summary)
+        return summary
+
+    @classmethod
     def _park_for_cap(cls, row: AuthorityFrontier) -> None:
         """Park a jurisdiction-cap-blocked row at ``deferred_cap``.
 

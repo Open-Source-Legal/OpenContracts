@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from "react";
-import { useQuery, useReactiveVar } from "@apollo/client";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { Button, Table } from "@os-legal/ui";
 import styled from "styled-components";
-import { ArrowLeft, RefreshCw, Scale, Search, X } from "lucide-react";
+import { ArrowLeft, Play, RefreshCw, Scale, Search, X } from "lucide-react";
+import { toast } from "react-toastify";
 
 import {
   ErrorMessage,
@@ -12,7 +13,11 @@ import {
   WarningMessage,
 } from "../widgets/feedback";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { AUTHORITY_FRONTIER_PAGE_SIZE } from "../../assets/configurations/constants";
+import {
+  AUTHORITY_DISCOVERY_POLL_MS,
+  AUTHORITY_DISCOVERY_POLL_WINDOW_MS,
+  AUTHORITY_FRONTIER_PAGE_SIZE,
+} from "../../assets/configurations/constants";
 import { ScrollableTableWrapper } from "../layout/SharedSegments";
 import { CORPUS_RADII } from "../corpuses/styles/corpusDesignTokens";
 import { formatDateTime } from "../../utils/formatters";
@@ -26,6 +31,11 @@ import {
   GetAuthorityFrontierStatsOutputs,
   AuthorityFrontierRow,
 } from "../../graphql/queries";
+import {
+  RUN_AUTHORITY_DISCOVERY,
+  RunAuthorityDiscoveryInputs,
+  RunAuthorityDiscoveryOutputs,
+} from "../../graphql/mutations";
 
 /**
  * AuthoritySourcesMonitor — global, read-only view of the AuthorityFrontier:
@@ -312,7 +322,60 @@ const LoadMoreRow = styled.div`
   padding: 1rem 0 0;
 `;
 
-const FRONTIER_TABLE_MIN_WIDTH_PX = 920;
+const RowCheck = styled.input`
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  accent-color: ${OS_LEGAL_COLORS.primaryBlue};
+`;
+
+const NoProviderTag = styled.span`
+  font-size: 0.71875rem;
+  color: ${OS_LEGAL_COLORS.dangerText};
+`;
+
+/** Sticky action bar shown when ≥1 frontier row is selected. */
+const ActionBar = styled.div`
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 10px;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+`;
+
+const ActionInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+`;
+
+const ActionCount = styled.span`
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+`;
+
+const ActionWarn = styled.span`
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.warningText};
+`;
+
+const ActionSpacer = styled.div`
+  flex: 1;
+`;
+
+/** Trim the long registry suffix for compact display of a predicted provider. */
+const shortProvider = (name: string): string =>
+  name.replace(/AuthoritySourceProvider$/, "");
+
+const FRONTIER_TABLE_MIN_WIDTH_PX = 980;
 
 /** Distinct, sorted non-empty values of a row field — for the facet selects. */
 function distinctValues(
@@ -339,6 +402,7 @@ export const AuthoritySourcesMonitor: React.FC = () => {
   const [authorityType, setAuthorityType] = useState<string | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // The non-state facets shared by both queries (chips reflect these but NOT
   // the state filter, so they always show the full breakdown within facets).
@@ -438,6 +502,85 @@ export const AuthoritySourcesMonitor: React.FC = () => {
     });
   };
 
+  // --- subset discovery: selection + fire-and-forget trigger ---------------
+  const [runDiscovery, { loading: running }] = useMutation<
+    RunAuthorityDiscoveryOutputs,
+    RunAuthorityDiscoveryInputs
+  >(RUN_AUTHORITY_DISCOVERY);
+
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stop polling + clear the pause-timeout on unmount.
+  useEffect(
+    () => () => {
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+      frontierQuery.stopPolling();
+      statsQuery.stopPolling();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const toggleRow = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const allLoadedSelected =
+    rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+
+  const toggleAll = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allLoadedSelected) rows.forEach((r) => next.delete(r.id));
+      else rows.forEach((r) => next.add(r.id));
+      return next;
+    });
+
+  // No-provider count among the loaded selected rows (drives the warning).
+  const noProviderSelected = rows.filter(
+    (r) => selectedIds.has(r.id) && r.ingestable === false
+  ).length;
+
+  // Poll both queries so rows + chips reflect state live while the run settles,
+  // then pause after a bounded window (the background task keeps running).
+  const startLiveUpdates = () => {
+    frontierQuery.startPolling(AUTHORITY_DISCOVERY_POLL_MS);
+    statsQuery.startPolling(AUTHORITY_DISCOVERY_POLL_MS);
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    pollTimeoutRef.current = setTimeout(() => {
+      frontierQuery.stopPolling();
+      statsQuery.stopPolling();
+      pollTimeoutRef.current = null;
+      toast.info("Live updates paused — hit Refresh for the latest state.");
+    }, AUTHORITY_DISCOVERY_POLL_WINDOW_MS);
+  };
+
+  const handleRunSelected = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    try {
+      const { data } = await runDiscovery({ variables: { frontierIds: ids } });
+      const res = data?.runAuthorityDiscovery;
+      if (res?.ok) {
+        toast.success(
+          res.message ?? `Discovery started for ${ids.length} authorities.`
+        );
+        setSelectedIds(new Set());
+        startLiveUpdates();
+      } else {
+        toast.error(res?.message ?? "Could not start discovery.");
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not start discovery."
+      );
+    }
+  };
+
   // Null while the reactive var is still loading AND for anonymous users; wait
   // so the "Access Denied" warning never flashes for an admin mid-load (mirrors
   // IngestionMonitor).
@@ -475,8 +618,8 @@ export const AuthoritySourcesMonitor: React.FC = () => {
           <PageSubtitle>
             The global discovery queue for cited law: the crawl / ingestion
             state of every wanted statute &amp; regulation across all corpora,
-            ranked by citation demand. Read-only — run discovery from a
-            corpus&rsquo;s enrichment runner.
+            ranked by citation demand. Select rows and run discovery on them
+            here, or trigger a full corpus crawl from the enrichment runner.
           </PageSubtitle>
         </div>
         <Button variant="secondary" onClick={handleRefresh}>
@@ -596,6 +739,15 @@ export const AuthoritySourcesMonitor: React.FC = () => {
             <Table variant="minimal">
               <Table.Head>
                 <Table.Row>
+                  <Table.HeadCell>
+                    <RowCheck
+                      type="checkbox"
+                      checked={allLoadedSelected}
+                      onChange={toggleAll}
+                      aria-label="Select all loaded rows"
+                      data-testid="authorities-select-all"
+                    />
+                  </Table.HeadCell>
                   <Table.HeadCell>Key</Table.HeadCell>
                   <Table.HeadCell>State</Table.HeadCell>
                   <Table.HeadCell>Jurisdiction</Table.HeadCell>
@@ -611,6 +763,15 @@ export const AuthoritySourcesMonitor: React.FC = () => {
                 {rows.map((r) => (
                   <Table.Row key={r.id} data-testid="authorities-row">
                     <Table.Cell>
+                      <RowCheck
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleRow(r.id)}
+                        aria-label={`Select ${r.canonicalKey}`}
+                        data-testid="authorities-row-check"
+                      />
+                    </Table.Cell>
+                    <Table.Cell>
                       <KeyCell>{r.canonicalKey}</KeyCell>
                     </Table.Cell>
                     <Table.Cell>
@@ -622,7 +783,21 @@ export const AuthoritySourcesMonitor: React.FC = () => {
                       {formatJurisdiction(r.jurisdiction)}
                     </Table.Cell>
                     <Table.Cell>{titleCase(r.authorityType)}</Table.Cell>
-                    <Table.Cell>{r.provider || <Muted>—</Muted>}</Table.Cell>
+                    <Table.Cell>
+                      {r.provider ? (
+                        r.provider
+                      ) : r.ingestable === false ? (
+                        <NoProviderTag title="No source provider can handle this key">
+                          no provider
+                        </NoProviderTag>
+                      ) : r.predictedProvider ? (
+                        <Muted title={r.predictedProvider}>
+                          {shortProvider(r.predictedProvider)}
+                        </Muted>
+                      ) : (
+                        <Muted>—</Muted>
+                      )}
+                    </Table.Cell>
                     <Table.Cell>{r.mentionCount}</Table.Cell>
                     <Table.Cell>{r.distinctCorpusCount}</Table.Cell>
                     <Table.Cell>
@@ -659,6 +834,39 @@ export const AuthoritySourcesMonitor: React.FC = () => {
                 {frontierQuery.loading ? "Loading…" : "Load more"}
               </Button>
             </LoadMoreRow>
+          )}
+
+          {selectedIds.size > 0 && (
+            <ActionBar data-testid="authorities-action-bar">
+              <ActionInfo>
+                <ActionCount data-testid="authorities-selected-count">
+                  {selectedIds.size} selected
+                </ActionCount>
+                {noProviderSelected > 0 && (
+                  <ActionWarn data-testid="authorities-noprovider-warning">
+                    {noProviderSelected} of {selectedIds.size} have no provider
+                    and will be recorded Unsupported.
+                  </ActionWarn>
+                )}
+              </ActionInfo>
+              <ActionSpacer />
+              <Button
+                variant="secondary"
+                onClick={() => setSelectedIds(new Set())}
+                data-testid="authorities-clear-selection"
+              >
+                Clear
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleRunSelected}
+                disabled={running}
+                data-testid="authorities-run-selected"
+              >
+                <Play size={14} style={{ marginRight: 6 }} />
+                {running ? "Starting…" : "Run discovery"}
+              </Button>
+            </ActionBar>
           )}
         </>
       )}

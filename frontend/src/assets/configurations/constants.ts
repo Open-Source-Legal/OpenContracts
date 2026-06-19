@@ -1145,6 +1145,13 @@ export const GOVERNANCE_GRAPH_EXPLORER = {
  * relay connection; "Load more" fetches the next page of this size. */
 export const AUTHORITY_FRONTIER_PAGE_SIZE = 50;
 
+/** Poll interval (ms) for live frontier/state updates while a subset
+ * authority-discovery run is settling (/admin/authorities "Run discovery"). */
+export const AUTHORITY_DISCOVERY_POLL_MS = 3000;
+/** Max duration (ms) to keep polling after triggering subset discovery before
+ * pausing live updates (the rows continue in the background regardless). */
+export const AUTHORITY_DISCOVERY_POLL_WINDOW_MS = 90000;
+
 // Celery task name of the corpus reference enrichment analyzer — used to
 // discover the Analyzer row that powers the "Map the reference web" CTA.
 // Must match opencontractserver/enrichment/constants.py ENRICHMENT_ANALYZER_TASK.
