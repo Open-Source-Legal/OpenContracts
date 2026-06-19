@@ -69,10 +69,16 @@ def _make_json_mock() -> MagicMock:
 
 
 def _make_raw_text_mock() -> MagicMock:
-    """Return a mock simulating the raw plain-text body response."""
+    """Return a mock simulating the raw plain-text body response.
+
+    The provider streams the body via ``iter_content`` (so a size cap can be
+    enforced as chunks arrive), so the mock exposes a chunked iterator and an
+    ``encoding`` rather than a single ``.text`` read.
+    """
     m = MagicMock()
     m.status_code = 200
-    m.text = _FIXTURE_BODY
+    m.encoding = "utf-8"
+    m.iter_content.return_value = iter([_FIXTURE_BODY.encode("utf-8")])
     m.raise_for_status = MagicMock()
     return m
 

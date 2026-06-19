@@ -14,39 +14,21 @@ Re-running the same idempotent ``update_or_create`` seed from a brand-new
 migration forces convergence everywhere without re-touching the recorded state
 of 0082/0085. Idempotent on an already-seeded DB, so it is a no-op in production
 where the table is already populated.
-
-Chained on top of the Phase 3/4 frontier/gate migrations so the whole
-authority-discovery stack keeps a single linear migration leaf; the re-seed only
-touches ``AuthorityNamespace`` and is order-independent of those migrations.
-
-It also depends on ``0086_reseed_authority_namespaces_v2`` (the equivalent
-re-seed that reached ``main`` independently) so that merging ``main`` into this
-branch collapses the two parallel re-seed leaves into this single one instead of
-leaving a multi-leaf migration graph. Both re-seeds are idempotent ``seed()``
-no-ops, so the convergence edge is order-independent and safe.
 """
 
 from django.db import migrations
 
+from opencontractserver.enrichment._namespace_seed import seed
+
 
 def reseed(apps, schema_editor):
-    # Import inside the function body (not at module load time) so a future
-    # move/rename of _namespace_seed cannot break every makemigrations/migrate
-    # invocation that merely loads this historical migration file.
-    from opencontractserver.enrichment._namespace_seed import seed
-
     seed(apps, schema_editor)
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        # 0088_authorityfrontier_gate_states is the Phase 4 leaf; it transitively
-        # pulls in 0087_seed_authority_key_equivalence (and below). 0086_reseed is
-        # the parallel re-seed leaf that reached main independently. Depending on
-        # both collapses the two leaves into this single one after merging main.
-        ("annotations", "0088_authorityfrontier_gate_states"),
-        ("annotations", "0086_reseed_authority_namespaces_v2"),
+        ("annotations", "0085_reseed_authority_namespaces"),
     ]
 
     # Reverse is a no-op: 0082 owns the unseed path, and re-applying this
