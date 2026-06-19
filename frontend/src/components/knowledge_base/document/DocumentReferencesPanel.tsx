@@ -291,7 +291,8 @@ export const DocumentReferencesPanel: React.FC<
       if (existing) {
         existing.mentions += 1;
         existing.linkUrl = existing.linkUrl || row.sourceAnnotation?.linkUrl;
-        existing.provisional = existing.provisional || Boolean(row.isProvisional);
+        existing.provisional =
+          existing.provisional || Boolean(row.isProvisional);
         return;
       }
       const head =
