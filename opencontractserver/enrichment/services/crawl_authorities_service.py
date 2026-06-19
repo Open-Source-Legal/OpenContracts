@@ -96,6 +96,10 @@ class CrawlAuthoritiesService(BaseService):
         blocked_by_bound: Counter = Counter()
         stop_reason = "frontier_drained"
 
+        # EnrichmentService is stateless; build one instance and reuse it across
+        # iterations rather than constructing a fresh object on every BFS hop.
+        enrichment = EnrichmentService()
+
         while True:
             # Hard cap checks before dequeue so the summary is honest.
             if ingested >= max_authorities:
@@ -157,18 +161,23 @@ class CrawlAuthoritiesService(BaseService):
             per_juris[jkey] += 1
             authority_corpus_id = result["corpus_id"]
 
+            # Account for every ingested authority's tokens, regardless of depth.
+            # Keeping this inside the `row.depth < max_depth` guard below would
+            # let token_budget silently no-op for a max_depth=0 crawl (the guard
+            # never runs, so tokens_spent stays 0 and the budget never fires).
+            tokens_spent += cls._estimate_tokens(authority_corpus_id, user)
+
             # Re-extract the authority's OWN outbound citations and seed the
             # frontier at depth+1 — only when we haven't reached max_depth.
             if row.depth < max_depth:
                 # Authority corpora hold one small document per statute section,
                 # so this apply scan is bounded (not a large-corpus scan).
-                apply_res = EnrichmentService().apply(
+                apply_res = enrichment.apply(
                     corpus_id=authority_corpus_id,
                     creator_id=creator_id,
                     types=[C.REF_LAW],
                     extra_tiers=[C.DETECTION_TIER_GRAMMAR],
                 )
-                tokens_spent += cls._estimate_tokens(authority_corpus_id, user)
 
                 outbound = list(
                     CorpusReferenceService.for_corpus(user, authority_corpus_id)

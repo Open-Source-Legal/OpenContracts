@@ -120,14 +120,15 @@ def crawl_authorities(
     Bound parameters fall back to the module constants when not supplied so
     every call site can override selectively.
     """
-    import logging as _logging
-
     from opencontractserver.analyzer.models import Analysis
     from opencontractserver.enrichment.services.crawl_authorities_service import (
         CrawlAuthoritiesService,
     )
 
-    task_log = _logging.getLogger(
+    # Module-level `logging` is already imported at the top of the file; no need
+    # to re-import. `logger` is a Logger instance, not the module, so there is
+    # no name conflict here.
+    task_log = logging.getLogger(
         "opencontractserver.tasks.corpus_analysis_tasks.crawl_authorities"
     ).info
 
