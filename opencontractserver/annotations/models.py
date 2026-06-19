@@ -2149,7 +2149,8 @@ class AuthorityFrontier(django.db.models.Model):
         ("failed", "No source found"),
         ("unsupported", "No provider can_handle"),
         # Phase 4: visible, non-silent gate outcomes
-        ("blocked_license", "Source found but license not on public-domain allowlist"),
+        ("blocked_license", "Provider license is not public-domain"),
+        ("blocked_domain", "Source domain not on the public-domain allowlist"),
         ("unlocated", "Located text did not verify against the requested key"),
         ("pending_approval", "Found, awaiting human approval before ingest"),
     ]

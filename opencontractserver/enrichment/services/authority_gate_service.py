@@ -18,6 +18,7 @@ from opencontractserver.utils.safe_http import host_on_allowlist
 # Gate verdicts map 1:1 onto the discovery_state strings.
 GATE_OK = "ok"
 GATE_BLOCKED_LICENSE = "blocked_license"
+GATE_BLOCKED_DOMAIN = "blocked_domain"
 GATE_UNLOCATED = "unlocated"
 GATE_PENDING_APPROVAL = "pending_approval"
 
@@ -34,9 +35,10 @@ class AuthorityGateService:
     """Verify fetched text against the requested key + enforce license/domain.
 
     All checks are ordered from cheapest to most specific:
-    1. Provider license must be "public-domain".
-    2. Provider must have returned at least one section.
-    3. Source URL host must be on the public-domain allowlist (if provided).
+    1. Provider license must be "public-domain" (else GATE_BLOCKED_LICENSE).
+    2. Provider must have returned at least one section (else GATE_UNLOCATED).
+    3. Source URL must be present (else GATE_UNLOCATED) and its host on the
+       public-domain allowlist (else GATE_BLOCKED_DOMAIN).
     4. At least one section key or heading must match the canonical_key.
     5. If require_approval_for_agentic, park at pending_approval.
     """
@@ -66,19 +68,17 @@ class AuthorityGateService:
             A frozen GateDecision with verdict, reason, verify, source_domain.
 
         Notes:
-            - ``GATE_BLOCKED_LICENSE`` is intentionally overloaded: it is the
-              verdict for BOTH a non-public-domain provider license (check 1)
-              AND an off-allowlist source domain (check 3). Both mean "untrusted
-              source", so a single state is used; the ``reason`` string
-              disambiguates which check fired. Operators querying by state alone
-              cannot tell the two apart — match on ``reason`` if needed.
+            - License blocks (check 1) and source-domain blocks (check 3) are
+              distinct verdicts: ``GATE_BLOCKED_LICENSE`` vs
+              ``GATE_BLOCKED_DOMAIN``. They mean operationally different things
+              (fix the provider's license metadata vs. an allowlist/security
+              review), so operators can filter on state alone without parsing
+              ``reason``.
             - A missing source URL (``source_url`` None/"" AND no
-              ``sections[0].source_url``) yields ``domain=None``, which
-              **intentionally skips the domain allowlist check (check 3)**. The
-              license check (check 1) and the key/heading verify (check 4) still
-              run, so this is not an open bypass — a provider with a public-domain
-              license but no URL is trusted on its license alone. See
-              ``test_none_source_url_skips_allowlist_check``.
+              ``sections[0].source_url``) is treated as ``GATE_UNLOCATED`` when
+              sections are present: a result we cannot attribute to an
+              allowlisted domain must NOT bypass the domain gate on its license
+              alone. See ``test_none_source_url_is_unlocated``.
         """
         # 1) License gate -------------------------------------------------------
         if provider_license != "public-domain":
@@ -105,14 +105,21 @@ class AuthorityGateService:
         domain = urlparse(effective_url).hostname or None
 
         # 3) Source-domain allowlist --------------------------------------------
-        # GATE_BLOCKED_LICENSE covers BOTH a non-public-domain license (check 1)
-        # AND an off-allowlist source domain (here) — both are "untrusted source"
-        # outcomes, so a single state is intentional.
-        if domain and not host_on_allowlist(
-            domain, allowlist=PUBLIC_DOMAIN_SOURCE_HOSTS
-        ):
+        # A missing/un-parseable source URL means we cannot attribute the result
+        # to an allowlisted domain. Rather than trust it on its license alone
+        # (an unexpected bypass of the domain gate), treat it as UNLOCATED.
+        if domain is None:
             return GateDecision(
-                GATE_BLOCKED_LICENSE,
+                GATE_UNLOCATED,
+                "no source URL to verify against the public-domain allowlist",
+                "skipped",
+                None,
+            )
+        # An off-allowlist domain is a security block, distinct from a license
+        # block — operators filter the two states differently.
+        if not host_on_allowlist(domain, allowlist=PUBLIC_DOMAIN_SOURCE_HOSTS):
+            return GateDecision(
+                GATE_BLOCKED_DOMAIN,
                 f"source domain {domain!r} not on public-domain allowlist",
                 "skipped",
                 domain,

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 import zipfile
+from typing import TypedDict
 
 import httpx
 import requests
@@ -27,6 +28,24 @@ from opencontractserver.annotations.models import AuthorityFrontier
 from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
+
+
+class _AuditRecord(TypedDict):
+    """Schema of one append-only ``candidate_sources`` audit entry.
+
+    Declaring the shape here (rather than building a bare dict in three places)
+    means a field rename/addition is caught at type-check time instead of
+    drifting silently across the fetch-failure, gate-decision, and
+    bootstrap-failure paths.
+    """
+
+    provider: str | None
+    license: str
+    source_domain: str | None
+    verify: str
+    outcome: str
+    error: str | None
+    attempted_at: str
 
 
 class AuthorityDiscoveryService(BaseService):
@@ -63,28 +82,29 @@ class AuthorityDiscoveryService(BaseService):
     @staticmethod
     def _audit_record(
         *,
-        provider_name: str,
+        provider_name: str | None,
         provider_license: str,
         outcome: str,
         source_domain: str | None = None,
         verify: str = "skipped",
         error: str | None = None,
-    ) -> dict:
+    ) -> _AuditRecord:
         """Build a frontier ``candidate_record`` audit entry.
 
         Centralises the schema shared by the fetch-failure, gate-decision, and
         bootstrap-failure paths in :meth:`discover_and_bootstrap` so a new field
-        is added in exactly one place instead of three.
+        is added in exactly one place instead of three. The ``_AuditRecord``
+        TypedDict makes that schema explicit and type-checked.
         """
-        return {
-            "provider": provider_name,
-            "license": provider_license,
-            "source_domain": source_domain,
-            "verify": verify,
-            "outcome": outcome,
-            "error": error,
-            "attempted_at": timezone.now().isoformat(),
-        }
+        return _AuditRecord(
+            provider=provider_name,
+            license=provider_license,
+            source_domain=source_domain,
+            verify=verify,
+            outcome=outcome,
+            error=error,
+            attempted_at=timezone.now().isoformat(),
+        )
 
     @classmethod
     def discover_and_bootstrap(

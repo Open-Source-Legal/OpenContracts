@@ -412,6 +412,11 @@ class AuthorityFrontierGateStateTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.discovery_state, "blocked_license")
 
+    def test_blocked_domain_state_accepted(self):
+        row = self._make_row("usc-15:78j-blocked-domain", "blocked_domain")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "blocked_domain")
+
     def test_unlocated_state_accepted(self):
         row = self._make_row("usc-15:78j-unlocated", "unlocated")
         row.refresh_from_db()
