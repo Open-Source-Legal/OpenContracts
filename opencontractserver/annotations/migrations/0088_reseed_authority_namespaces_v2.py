@@ -18,6 +18,12 @@ where the table is already populated.
 Chained on top of the Phase 3 frontier/key-equivalence migrations so the whole
 authority-discovery stack keeps a single linear migration leaf; the re-seed only
 touches ``AuthorityNamespace`` and is order-independent of those migrations.
+
+It also depends on ``0086_reseed_authority_namespaces_v2`` (the equivalent
+re-seed that reached ``main`` independently) so that merging ``main`` into this
+branch collapses the two parallel re-seed leaves into this single one instead of
+leaving a multi-leaf migration graph. Both re-seeds are idempotent ``seed()``
+no-ops, so the convergence edge is order-independent and safe.
 """
 
 from django.db import migrations
@@ -33,6 +39,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("annotations", "0087_seed_authority_key_equivalence"),
+        ("annotations", "0086_reseed_authority_namespaces_v2"),
     ]
 
     # Reverse is a no-op: 0082 owns the unseed path, and re-applying this
