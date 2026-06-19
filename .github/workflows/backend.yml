@@ -250,7 +250,17 @@ jobs:
           # and need to be resolved before worksteal can be re-attempted.
           #
           # pytest-cov + pytest-xdist handle per-worker coverage merging.
-          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope
+          #
+          # ``--timeout=600 --timeout-method=thread``: a per-test hang guard.
+          # Without it a single test that blocks on a starved service (the
+          # 2-core runner runs ``-n auto`` workers alongside the docling/embedder
+          # ML containers) hangs its worker until the 100-min step ceiling, with
+          # no traceback. 600s is ~10x the slowest legitimate test (~57s) so it
+          # never false-positives, while turning an 83-min silent hang into a
+          # fast failure that dumps the offending test's stack. The ``thread``
+          # method is required: it interrupts blocking C calls (sockets) that the
+          # default ``signal`` method cannot, and works inside xdist workers.
+          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope --timeout=600 --timeout-method=thread
 
       - name: Verify Coverage File Exists
         run: |
