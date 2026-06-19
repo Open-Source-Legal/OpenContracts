@@ -183,6 +183,11 @@ Two pieces worth calling out:
 
 ## Operating it
 
+> **Step-by-step how-to:** for runnable procedures — ingesting a supported
+> source (shell, crawl, or the runner UI) and adding a new provider to flip an
+> authority from `unsupported` to supported — see
+> [Ingesting Authorities & Adding Providers](../guides/ingesting-authorities.md).
+
 ### Trigger — the enrichment runner
 
 `/admin/enrichment` (and a per-corpus card) drives runs via the

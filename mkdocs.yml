@@ -83,6 +83,9 @@ nav:
       - Corpus Export / Import: upload_methods/corpus_export_import.md
       - Annotation Side Effects: upload_methods/annotation_side_effects.md
       - Worker Uploads Walkthrough: worker_uploads/walkthrough.md
+  - Guides:
+      - Building Document Imports with CAML: guides/building-document-imports-with-caml.md
+      - Ingesting Authorities & Adding Providers: guides/ingesting-authorities.md
   - Architecture:
       - System Data Flow: architecture/components/Data-flow-diagram.md
       - PDF Data Layer (PAWLs): architecture/PDF-data-layer.md
