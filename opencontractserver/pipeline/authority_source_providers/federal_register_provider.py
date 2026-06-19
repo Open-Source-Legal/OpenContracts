@@ -159,6 +159,15 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # header (no body) and step 2 is the FR-API metadata JSON, which is
         # practically bounded. Only the large full-text body (step 3) goes through
         # safe_fetch_text's size cap.
+        #
+        # Conscious trade-off: validate_url() resolves DNS for its public-IP
+        # check, then requests re-resolves at connect time — the same DNS TOCTOU
+        # window documented in safe_http. It is low-risk here because both URLs
+        # are template-constructed from a validated citation (not attacker-
+        # supplied) and constrained to the federalregister.gov allowlist; the
+        # defence-in-depth story for these two hops is therefore slightly weaker
+        # than step 3's. The proper fix (shared DNS pinning) is tracked for
+        # safe_http and would subsume this path too.
 
         # --- Step 1: citation redirect → document_number --------------------
         validate_url(request.url)

@@ -208,52 +208,16 @@ class ToolFetchAllowlistedTests(TestCase):
 
         provider = AgenticWebLocatorProvider()
 
-        with patch(
-            "opencontractserver.pipeline.authority_source_providers"
-            ".agentic_web_locator_provider.sync_to_async",
-            return_value=lambda url: (_ for _ in ()).throw(
-                SSRFValidationError("blocked")
-            ),
-        ):
-            # Patch safe_fetch_text inside sync_to_async to raise SSRF.
+        async def _direct():
             with patch(
                 "opencontractserver.utils.safe_http.safe_fetch_text",
                 side_effect=SSRFValidationError("blocked"),
             ):
-                # We need to call the tool via a real async path.
-                async def _inner():
-                    # Temporarily wrap safe_fetch_text to raise synchronously
-                    # through sync_to_async's boundary.
-                    from opencontractserver.utils.safe_http import SSRFValidationError
+                return await provider._tool_fetch_allowlisted(
+                    "http://evil.internal/secret"
+                )
 
-                    async def fake_sync_to_async(fn):
-                        raise SSRFValidationError("blocked")
-
-                    with patch(
-                        "opencontractserver.pipeline.authority_source_providers"
-                        ".agentic_web_locator_provider.sync_to_async",
-                        side_effect=lambda fn: (_ for _ in ()).throw(
-                            SSRFValidationError("blocked")
-                        ),
-                    ):
-                        pass  # handled below
-
-                    return await provider._tool_fetch_allowlisted(
-                        "http://evil.internal/secret"
-                    )
-
-                # Use a simpler patch approach: patch safe_fetch_text directly
-                # so sync_to_async calls it and gets the exception.
-                async def _direct():
-                    with patch(
-                        "opencontractserver.utils.safe_http.safe_fetch_text",
-                        side_effect=SSRFValidationError("blocked"),
-                    ):
-                        return await provider._tool_fetch_allowlisted(
-                            "http://evil.internal/secret"
-                        )
-
-                result = self._run(_direct())
+        result = self._run(_direct())
 
         self.assertTrue(
             result.startswith("[blocked:"),
@@ -481,6 +445,9 @@ class RunAgentSanitizationTests(TestCase):
 
         async def _inner():
             with patch(
+                "opencontractserver.llms.llm_registry.resolve_model_spec",
+                return_value=unittest.mock.MagicMock(),
+            ), patch(
                 "opencontractserver.llms.model_factory.abuild_agent_model",
                 new=AsyncMock(return_value=unittest.mock.MagicMock()),
             ), patch(
@@ -505,10 +472,11 @@ class RunAgentSanitizationTests(TestCase):
     def test_run_agent_construction_does_not_raise(self):
         """_run_agent can be constructed without raising even with unusual inputs.
 
-        We patch both abuild_agent_model (to avoid real LLM config) and the
-        agent's run() call (to avoid a real inference call).  The test verifies
-        that the sanitization, tool wiring, and agent construction code path
-        completes without error.
+        We patch resolve_model_spec (so the test does not depend on a deployment
+        model being configured), abuild_agent_model (to avoid real LLM config),
+        and the agent's run() call (to avoid a real inference call).  The test
+        verifies that the sanitization, tool wiring, and agent construction code
+        path completes without error.
         """
         import unittest.mock
 
@@ -531,6 +499,9 @@ class RunAgentSanitizationTests(TestCase):
 
         async def _inner():
             with patch(
+                "opencontractserver.llms.llm_registry.resolve_model_spec",
+                return_value=unittest.mock.MagicMock(),
+            ), patch(
                 "opencontractserver.llms.model_factory.abuild_agent_model",
                 new=AsyncMock(return_value=unittest.mock.MagicMock()),
             ), patch(

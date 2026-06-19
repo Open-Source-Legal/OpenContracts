@@ -47,3 +47,36 @@ def unseed(apps, schema_editor):
     AuthorityNamespace = apps.get_model("annotations", "AuthorityNamespace")
     prefixes = set(C.AUTHORITY_PREFIX.values()) | {C.SEC_RULE_PREFIX}
     AuthorityNamespace.objects.filter(prefix__in=prefixes).delete()
+
+
+def ensure_seeded(sender=None, *, apps=None, using=None, **kwargs):
+    """``post_migrate`` receiver that converges the shipped namespace rows.
+
+    The one-shot ``RunPython`` seed (0082) only runs once per migration ledger,
+    so the rows it commits live *outside* any test transaction. Django's
+    ``flush`` — run on every ``TransactionTestCase`` teardown — truncates
+    ``annotations_authoritynamespace`` along with every other table, and with
+    ``serialized_rollback`` disabled (the default) nothing restores it. Under
+    ``pytest -n auto --dist loadscope`` any ``TransactionTestCase`` that runs
+    before the seed/discovery tests on the same worker therefore leaves them
+    reading an empty registry. Re-running the idempotent ``update_or_create``
+    seed on every ``post_migrate`` converges the table again after each flush
+    (and re-seeds reused/poisoned CI volumes at DB setup). It stays a no-op on
+    freshly-seeded and production databases.
+
+    ``migrate`` emits ``post_migrate`` with an ``apps`` kwarg (the historical
+    project state); ``flush`` emits it *without* one
+    (``django/core/management/commands/flush.py`` vs ``migrate.py``). The
+    flush-path emission is precisely the one that has to re-seed, so — exactly
+    like Django's own ``create_contenttypes`` / ``create_permissions``
+    receivers — fall back to the global app registry when ``apps`` is absent
+    rather than bailing.
+
+    Connected with ``sender=AnnotationsConfig`` so it fires exactly once per
+    emission, after the ``annotations`` app's tables exist.
+    """
+    if apps is None:
+        from django.apps import apps as global_apps  # flush path: no apps kwarg
+
+        apps = global_apps
+    seed(apps, None)
