@@ -58,7 +58,7 @@ openai>=2.41.1,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x re
 # breaks the entire install chain. Narrow extras = stable resolves.
 pydantic-ai-slim[openai,anthropic,google,mcp]>=1.107.0,<2  # see issue #1451 before bumping the upper bound
 spacy
-pdfplumber>=0.11.9  # https://github.com/jsvine/pdfplumber - PDF token extraction
+pdfplumber>=0.11.10  # https://github.com/jsvine/pdfplumber - PDF token extraction
 shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bbox intersection
 
 # Data Processing Tools
