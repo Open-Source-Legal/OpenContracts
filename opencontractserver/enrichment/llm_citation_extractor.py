@@ -163,6 +163,15 @@ def _normalize_locator_sep(key: str) -> str:
     ``.`` / ``(`` / ``)`` (e.g. ``usc-15:78j(b)``, ``cfr-17:240.10b``), none of
     which use ``/``, so this is a no-op for them and a fold only for free-form
     LLM keys like ``eu:2017/1129``.
+
+    POST-UPGRADE NOTE: ``CorpusReference`` upserts on (corpus, canonical_key,
+    source_document_in_corpus, reference_type). Any *finalized* rows persisted by
+    a prior release under the un-normalized form (``eu:2017/1129``) will NOT be
+    matched by re-enrichment under the normalized form (``eu:2017-1129``), so a
+    second row is created and the old one lingers (the provisional/claim
+    mechanism never downgrades finalized rows). If a deployment ran the LLM tier
+    before this normalization shipped, normalize existing ``/``-bearing
+    ``canonical_key`` locators in a one-time data migration / cleanup pass.
     """
     prefix, sep, locator = key.partition(":")
     if not sep:

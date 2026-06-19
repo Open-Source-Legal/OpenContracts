@@ -9,12 +9,15 @@ def load_namespaces(apps, schema_editor):
     # adding/editing a body of law is a YAML edit + a release migration calling
     # the loader (or `manage.py load_authority_mappings`), not a code change.
     #
-    # NOTE: calls the LIVE-model loader (imports the current AuthorityNamespace),
-    # not apps.get_model. Safe only while AuthorityNamespace's schema is frozen;
-    # if a later migration alters it, snapshot the upsert logic into this
-    # migration instead of importing the live service. The loader skips
-    # corpus-linked rows (is_global=False), so a bootstrap-owned namespace is
-    # never flipped to global.
+    # TODO(authority-namespace-schema): this calls the LIVE-model loader
+    # (imports the current AuthorityNamespace), not apps.get_model, so a fresh-DB
+    # migrate runs it against the *current* schema rather than the schema as of
+    # this migration. Safe only while AuthorityNamespace's fields are frozen; the
+    # FIRST migration that alters AuthorityNamespace MUST snapshot the upsert
+    # logic into this migration (or guard it) instead of importing the live
+    # service, or fresh-DB migrate / CI / onboarding will break here. The loader
+    # skips corpus-linked rows (is_global=False), so a bootstrap-owned namespace
+    # is never flipped to global.
     from opencontractserver.enrichment.services.authority_mapping_loader import (
         AuthorityMappingLoader,
     )

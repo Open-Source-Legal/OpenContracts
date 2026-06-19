@@ -162,6 +162,17 @@ LLM_CHUNK_OVERLAP = 400
 # bounded so we never exceed the provider's rate limits or cost-spike. This is
 # the dominant speedup over the old strictly-sequential await loop.
 LLM_MAX_CONCURRENCY = 8
+# Max document coroutines kept live at once in the concurrent apply path. The
+# chunk-level LLM cap above bounds provider load, but every in-flight document
+# coroutine also pins its full text + candidate list in memory, so a large
+# corpus (hundreds/thousands of docs) launched all at once via asyncio.gather
+# would spike memory. This caps how many documents are simultaneously resolving.
+DOC_MAX_CONCURRENCY = 32
+# Max AuthorityFrontier rows a single RunAuthorityDiscovery mutation may queue.
+# discover_selected processes rows sequentially in one Celery task, so an
+# unbounded batch could run a worker for an unbounded time; cap it (superuser
+# can re-issue for the remainder).
+AUTHORITY_DISCOVERY_MAX_BATCH = 500
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
 # Max chars of a candidate's raw_text echoed into the review-candidate
@@ -182,6 +193,20 @@ def llm_max_concurrency() -> int:
 
     override = getattr(settings, "ENRICHMENT_LLM_MAX_CONCURRENCY", None)
     return override if override else LLM_MAX_CONCURRENCY
+
+
+def doc_max_concurrency() -> int:
+    """Effective cap on how many document coroutines resolve at once.
+
+    Bounds peak memory in the concurrent apply path (each live document
+    coroutine pins its text + candidates). ``DOC_MAX_CONCURRENCY`` is the code
+    default; override via the ``ENRICHMENT_DOC_MAX_CONCURRENCY`` Django setting.
+    Read lazily so importing this module never requires configured settings.
+    """
+    from django.conf import settings
+
+    override = getattr(settings, "ENRICHMENT_DOC_MAX_CONCURRENCY", None)
+    return override if override else DOC_MAX_CONCURRENCY
 
 
 # --- Phase 3: prefix classifier ---------------------------------------- #

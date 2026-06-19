@@ -238,6 +238,12 @@ class EnrichmentService:
         if llm_extractor is not None:
             model = await llm_extractor._abuild_model()
         chunk_sem = asyncio.Semaphore(C.llm_max_concurrency())
+        # Cap how many document coroutines are LIVE at once. The chunk semaphore
+        # bounds concurrent LLM calls, but every in-flight _process holds its
+        # document text + candidate list, so launching all of them at once via
+        # asyncio.gather would pin the whole corpus in memory. This bounds peak
+        # memory independently of the chunk-level LLM cap.
+        doc_sem = asyncio.Semaphore(C.doc_max_concurrency())
 
         agg = WriteResult()
         documents_total = len(documents)
@@ -247,45 +253,47 @@ class EnrichmentService:
             text = doc_texts.get(doc.id)
             if not text:
                 return
-            llm_cands = (
-                await llm_extractor.aextract(text, model=model, semaphore=chunk_sem)
-                if llm_extractor is not None
-                else []
-            )
-
-            def _detect_and_write():
-                doc_res = self._resolve_doc(
-                    doc,
-                    text,
-                    wanted=wanted,
-                    resolver=resolver,
-                    extractor=extractor,
-                    generic=generic,
-                    sections_by_doc=sections_by_doc,
-                    llm_cands=llm_cands,
-                )
-                doc_res = [
-                    r
-                    for r in doc_res
-                    if not (r.candidate.normalized_data or {}).get("needs_review")
-                ]
-                return (
-                    writer.write(doc_res, provisional=True, reconcile_graph=False),
-                    len(doc_res),
+            async with doc_sem:
+                llm_cands = (
+                    await llm_extractor.aextract(text, model=model, semaphore=chunk_sem)
+                    if llm_extractor is not None
+                    else []
                 )
 
-            res, n = await sync_to_async(_detect_and_write)()
-            # Back in the single-threaded event loop: accumulation is race-free.
-            self._accumulate(agg, res)
-            counters["total"] += n
-            counters["done"] += 1
-            logger.info(
-                "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
-                counters["done"],
-                documents_total,
-                corpus.id,
-                agg.references_created,
-            )
+                def _detect_and_write():
+                    doc_res = self._resolve_doc(
+                        doc,
+                        text,
+                        wanted=wanted,
+                        resolver=resolver,
+                        extractor=extractor,
+                        generic=generic,
+                        sections_by_doc=sections_by_doc,
+                        llm_cands=llm_cands,
+                    )
+                    doc_res = [
+                        r
+                        for r in doc_res
+                        if not (r.candidate.normalized_data or {}).get("needs_review")
+                    ]
+                    return (
+                        writer.write(doc_res, provisional=True, reconcile_graph=False),
+                        len(doc_res),
+                    )
+
+                res, n = await sync_to_async(_detect_and_write)()
+                # Back in the single-threaded event loop: accumulation is
+                # race-free.
+                self._accumulate(agg, res)
+                counters["total"] += n
+                counters["done"] += 1
+                logger.info(
+                    "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
+                    counters["done"],
+                    documents_total,
+                    corpus.id,
+                    agg.references_created,
+                )
 
         await asyncio.gather(*(_process(doc) for doc in documents))
         return agg, counters["total"]

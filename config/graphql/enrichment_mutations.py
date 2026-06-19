@@ -251,6 +251,20 @@ class RunAuthorityDiscoveryMutation(graphene.Mutation):
                 count=0,
             )
 
+        # Bound the batch: discover_selected runs rows sequentially in one
+        # Celery task, so an unbounded list could run a worker for an unbounded
+        # time. Reject oversize batches instead of silently truncating; the
+        # superuser can re-issue for the remainder.
+        if len(pks) > C.AUTHORITY_DISCOVERY_MAX_BATCH:
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message=(
+                    "Too many authorities selected "
+                    f"(max {C.AUTHORITY_DISCOVERY_MAX_BATCH} per run)."
+                ),
+                count=0,
+            )
+
         from opencontractserver.tasks.corpus_tasks import (
             discover_selected_authorities,
         )
