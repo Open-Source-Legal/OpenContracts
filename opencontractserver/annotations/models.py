@@ -2231,7 +2231,8 @@ class AuthorityKeyEquivalence(django.db.models.Model):
     SOURCE_CHOICES = [
         ("uslm", "OLRC USLM sourceCredit"),  # parsed from <ref href="/us/act/...">
         ("popular_name", "USC popular-name table"),
-        ("manual", "Hand-curated"),
+        ("baseline", "Shipped baseline (loader-managed)"),
+        ("manual", "Hand-curated (runtime override)"),
     ]
     source = django.db.models.CharField(
         max_length=32, choices=SOURCE_CHOICES, default="uslm"

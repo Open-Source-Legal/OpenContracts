@@ -1,0 +1,41 @@
+# Authority mappings — canonical source of truth (Phase 1a: equivalences).
+# Loaded idempotently by AuthorityMappingLoader (manage.py load_authority_mappings).
+# `prefixes:` and `rewrite_rules:` sections arrive in later phases.
+#
+# from_key = popular-name act citation filings use; to_key = USC/CFR codification
+# the provider materialises. find_authority_target queries both columns.
+equivalences:
+  # Securities Exchange Act of 1934 (15 U.S.C. Chapter 2B)
+  - { from_key: "exchange-act:9", to_key: "usc-15:78i" }
+  - { from_key: "exchange-act:10", to_key: "usc-15:78j" }
+  - { from_key: "exchange-act:12", to_key: "usc-15:78l" }
+  - { from_key: "exchange-act:13", to_key: "usc-15:78m" }
+  - { from_key: "exchange-act:14", to_key: "usc-15:78n" }
+  - { from_key: "exchange-act:14a", to_key: "usc-15:78n" }
+  - { from_key: "exchange-act:16", to_key: "usc-15:78p" }
+  - { from_key: "exchange-act:17", to_key: "usc-15:78q" }
+  - { from_key: "exchange-act:20", to_key: "usc-15:78t" }
+  - { from_key: "exchange-act:21", to_key: "usc-15:78u" }
+  # Securities Act of 1933 (15 U.S.C. Chapter 2A)
+  - { from_key: "securities-act:2", to_key: "usc-15:77b" }
+  - { from_key: "securities-act:3", to_key: "usc-15:77c" }
+  - { from_key: "securities-act:4", to_key: "usc-15:77d" }
+  - { from_key: "securities-act:5", to_key: "usc-15:77e" }
+  - { from_key: "securities-act:7", to_key: "usc-15:77g" }
+  - { from_key: "securities-act:10", to_key: "usc-15:77j" }
+  - { from_key: "securities-act:11", to_key: "usc-15:77k" }
+  - { from_key: "securities-act:12", to_key: "usc-15:77l" }
+  - { from_key: "securities-act:15", to_key: "usc-15:77o" }
+  # Internal Revenue Code = Title 26 U.S.C. (mechanical: irc:N -> usc-26:N)
+  - { from_key: "irc:401", to_key: "usc-26:401", note: "IRC is Title 26 USC" }
+  - { from_key: "irc:414", to_key: "usc-26:414", note: "IRC is Title 26 USC" }
+  # Exchange Act extras
+  - { from_key: "exchange-act:15", to_key: "usc-15:78o" }
+  - { from_key: "exchange-act:10d", to_key: "usc-15:78j-4", note: "Dodd-Frank clawback" }
+  # SEC Exchange-Act rules live in 17 CFR 240. DO NOT add sec-rule:5121 (FINRA) or
+  # sec-rule:457 (17 CFR 230) — they are NOT in 17 CFR 240.
+  - { from_key: "sec-rule:13d-3", to_key: "cfr-17:240.13d-3" }
+  - { from_key: "sec-rule:13d-5", to_key: "cfr-17:240.13d-5" }
+  - { from_key: "sec-rule:10a-3", to_key: "cfr-17:240.10a-3" }
+  - { from_key: "sec-rule:16b-3", to_key: "cfr-17:240.16b-3" }
+  - { from_key: "sec-rule:14a-19", to_key: "cfr-17:240.14a-19" }
