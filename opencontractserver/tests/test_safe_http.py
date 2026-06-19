@@ -188,19 +188,6 @@ class TestSafeFetchBytesRedirect:
 
         call_count = 0
 
-        @contextmanager
-        def _stream_side_effect(method, url, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First hop: 302 redirect to a private IP URL
-                yield from [
-                    _mock_stream(302, b"", {"location": redirect_target})
-                ].__iter__()
-            else:
-                # Should never reach a second network call
-                yield from [_mock_stream(200, b"ok")].__iter__()
-
         def _stream_dispatch(self_client, method, url, **kwargs):
             nonlocal call_count
             call_count += 1

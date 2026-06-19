@@ -229,7 +229,12 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         )
 
         try:
-            text, _ = await sync_to_async(safe_fetch_text)(url)
+            # Cap the download at the character budget (UTF-8 worst case is 4
+            # bytes/char) so safe_fetch_text aborts streaming at the cap instead
+            # of buffering an entire multi-hundred-MB body before truncating.
+            text, _ = await sync_to_async(safe_fetch_text)(
+                url, max_bytes=_MAX_FETCH_CHARS * 4
+            )
             return text[:_MAX_FETCH_CHARS]
         except SSRFValidationError as exc:
             return f"[blocked: {exc}]"

@@ -331,7 +331,6 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         )
         record = {
             "provider": "TestProv",
-            "can_handle": True,
             "license": "proprietary",
             "source_domain": "evil.example.com",
             "verify": "skipped",

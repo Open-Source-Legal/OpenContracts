@@ -23,7 +23,11 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
-from opencontractserver.utils.safe_http import safe_fetch_text, validate_url
+from opencontractserver.utils.safe_http import (
+    SSRFValidationError,
+    safe_fetch_text,
+    validate_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +225,19 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         if raw_text_url:
             try:
                 text, _ = safe_fetch_text(raw_text_url, headers=headers)
+            except SSRFValidationError:
+                # An SSRF block (off-allowlist/private host) is a SECURITY signal,
+                # not a transient network error — log it distinctly so it is not
+                # buried among ordinary fetch failures. We still degrade to the
+                # abstract (rather than re-raising) so an FR doc whose raw_text_url
+                # points off-host still yields its summary; see
+                # test_raw_text_url_offhost_falls_back_to_abstract.
+                logger.warning(
+                    "FederalRegisterProvider: raw_text_url %s blocked by SSRF "
+                    "guard for document %s; falling back to abstract",
+                    raw_text_url,
+                    document_number,
+                )
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "FederalRegisterProvider: raw_text_url fetch failed (%s); "

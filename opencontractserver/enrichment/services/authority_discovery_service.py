@@ -78,7 +78,6 @@ class AuthorityDiscoveryService(BaseService):
         """
         return {
             "provider": provider_name,
-            "can_handle": True,
             "license": provider_license,
             "source_domain": source_domain,
             "verify": verify,
@@ -177,6 +176,11 @@ class AuthorityDiscoveryService(BaseService):
             }
 
         # --- gate (verify + license + domain) --------------------------------
+        # Deferred import (like the bootstrap/frontier/enrichment imports at the
+        # top of this method): enrichment/services/__init__ eagerly imports this
+        # module, and the gate transitively pulls enrichment.authorities, which
+        # re-enters the enrichment.services package — a module-level import here
+        # would form an import cycle during app/registry loading.
         from opencontractserver.enrichment.services.authority_gate_service import (
             GATE_OK,
             AuthorityGateService,
