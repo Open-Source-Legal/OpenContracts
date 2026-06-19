@@ -1,4 +1,4 @@
-FROM pgvector/pgvector:0.8.2-pg15
+FROM pgvector/pgvector:0.8.3-pg15
 
 # init.sql enables the pgvector extension and configures HNSW iterative scan
 # settings on fresh databases. Existing databases get these via migration 0063.
