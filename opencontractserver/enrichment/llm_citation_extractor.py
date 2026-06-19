@@ -70,7 +70,13 @@ _JURISDICTION_MAP: dict[str, str] = {
     "texas": "us-tx",
     "florida": "us-fl",
     "massachusetts": "us-ma",
+    # "washington" is Washington *State* only. The LLM occasionally emits
+    # "Washington" for Washington, D.C. (a distinct jurisdiction); those are
+    # mapped explicitly below so they don't silently collapse into us-wa.
     "washington": "us-wa",
+    "washington dc": "us-dc",
+    "washington, dc": "us-dc",
+    "district of columbia": "us-dc",
     "illinois": "us-il",
 }
 
@@ -96,7 +102,13 @@ def _normalize_jurisdiction(s: str) -> str | None:
     key = s.strip().lower()
     if not key:
         return None
-    return _JURISDICTION_MAP.get(key)
+    result = _JURISDICTION_MAP.get(key)
+    if result is None:
+        # The map intentionally covers only a subset of US states (Phase 2);
+        # unknown jurisdictions fall through to None. Log so the miss is visible
+        # when validating against real documents.
+        logger.debug("Unknown jurisdiction %r — no canonical code", s)
+    return result
 
 
 def _normalize_authority_type(s: str) -> str | None:
@@ -289,6 +301,13 @@ class LLMCitationExtractor:
         window: int = C.LLM_CHUNK_WINDOW,
         overlap: int = C.LLM_CHUNK_OVERLAP,
     ) -> None:
+        # Guard the chunking parameters up front: a non-positive window makes
+        # ``step`` zero (window - overlap <= 0 falls back to window) and the
+        # ``while pos < len(text)`` loop in aextract() would never advance.
+        if window <= 0:
+            raise ValueError(f"window must be positive, got {window!r}")
+        if overlap < 0:
+            raise ValueError(f"overlap must be non-negative, got {overlap!r}")
         self._model_spec = model
         self._window = window
         self._overlap = overlap

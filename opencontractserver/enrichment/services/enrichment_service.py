@@ -112,7 +112,11 @@ class EnrichmentService:
             if text:
                 doc_texts[doc.id] = text
 
-        # Batch the LLM tier in ONE event loop (avoids per-document loop churn).
+        # Run every document's LLM tier inside a SINGLE async_to_sync bridge
+        # rather than one bridge per document. The documents are still processed
+        # sequentially inside _extract_all (intentional: avoids LLM-provider
+        # rate-limit bursts and keeps per-document error isolation simple) — the
+        # win is consolidating the sync/async boundary crossing, not concurrency.
         # Safe under both sync and _db_sync_to_async-wrapped async callers.
         llm_by_doc: dict[int, list] = {}
         if llm_extractor is not None and doc_texts:
@@ -169,7 +173,7 @@ class EnrichmentService:
         samples = [
             {
                 "reference_type": r.reference_type,
-                "raw_text": r.candidate.raw_text[:120],
+                "raw_text": r.candidate.raw_text[: C.REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN],
                 "canonical_key": r.canonical_key,
                 "resolution_status": r.resolution_status,
                 "target_document_id": r.target_document_id,
@@ -180,7 +184,7 @@ class EnrichmentService:
         unresolved = [
             {
                 "reference_type": r.reference_type,
-                "raw_text": r.candidate.raw_text[:120],
+                "raw_text": r.candidate.raw_text[: C.REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN],
                 "source_document_id": r.source_document_id,
             }
             for r in resolutions
@@ -337,7 +341,9 @@ class EnrichmentService:
             "review_candidates": [
                 {
                     "canonical_key": r.canonical_key,
-                    "raw_text": r.candidate.raw_text[:120],
+                    "raw_text": r.candidate.raw_text[
+                        : C.REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN
+                    ],
                     "detection_tier": r.candidate.detection_tier,
                     "detection_confidence": r.candidate.detection_confidence,
                 }
@@ -416,6 +422,11 @@ class EnrichmentService:
         defaulted to registry-only, so grammar-discovered authorities never
         reached the frontier / governance graph). Pass ``extra_tiers=[]`` for a
         registry-only pass; the LLM tier stays opt-in (cost).
+
+        Unlike ``discover()``'s ``use_llm`` flag, the write path takes an
+        explicit ``extra_tiers`` list (e.g.
+        ``[C.DETECTION_TIER_GRAMMAR, C.DETECTION_TIER_LLM]``) so what gets
+        persisted is always spelled out at the call site.
         """
         user, corpus, documents = self._load(corpus_id, creator_id)
         if extra_tiers is None:
