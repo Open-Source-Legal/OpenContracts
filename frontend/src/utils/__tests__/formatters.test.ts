@@ -292,5 +292,9 @@ describe("formatters", () => {
       expect(formatElapsedSeconds(3661)).toBe("1h 1m");
       expect(formatElapsedSeconds(7325)).toBe("2h 2m");
     });
+
+    it("clamps negative input to 0s (clock skew)", () => {
+      expect(formatElapsedSeconds(-5)).toBe("0s");
+    });
   });
 });

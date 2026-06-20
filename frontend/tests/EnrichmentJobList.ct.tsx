@@ -319,4 +319,26 @@ test.describe("EnrichmentJobList", () => {
     ).toHaveCount(0);
     await component.unmount();
   });
+
+  test("truncation count includes optimistic rows so it matches rendered rows", async ({
+    mount,
+    page,
+  }) => {
+    // 1 fetched + 1 distinct optimistic row → 2 rows rendered. The note must
+    // count the rendered rows (2), not just the fetched ones (1), so "N most
+    // recent" matches what the user sees on screen.
+    const component = await mount(
+      <EnrichmentJobListWrapper
+        jobs={[completedEnrichment]}
+        extraJobs={[runningCrawl]}
+        totalCount={73}
+      />
+    );
+    await expect(
+      page.locator('[data-testid="enrichment-job-row"]')
+    ).toHaveCount(2, { timeout: 10000 });
+    const note = page.locator('[data-testid="enrichment-job-truncation"]');
+    await expect(note).toContainText("Showing the 2 most recent of 73 runs");
+    await component.unmount();
+  });
 });

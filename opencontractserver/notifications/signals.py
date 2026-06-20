@@ -181,6 +181,12 @@ def emit_analysis_status_notification(
         notification, created = Notification.objects.get_or_create(
             analysis=instance,
             notification_type=ntype,
+            # NOTE: ``data`` (incl. ``status``) is captured at first-create only.
+            # Under a concurrent race the losing writer gets the winner's row with
+            # created=False and returns below, so ``data`` reflects the winner's
+            # snapshot. This is fine because notification_type is one-per-status —
+            # each status value already maps to its own row, so a given row's
+            # status never needs to change after creation.
             defaults={
                 "recipient_id": instance.creator_id,
                 "data": {

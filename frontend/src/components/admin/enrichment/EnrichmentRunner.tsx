@@ -253,9 +253,12 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
     const parsedTokenBudget =
       tokenBudget !== "" ? Number(tokenBudget) : undefined;
 
-    // Reject non-numeric input: Number("abc") is NaN (not undefined), and the
-    // native type="number" guard is browser-level only. Surface an inline error
-    // instead of letting a NaN reach Graphene as an opaque type error.
+    // Reject non-integer input before it reaches the graphene.Int schema.
+    // `step={1}` only governs the spinner buttons and validity styling — a user
+    // can still TYPE "abc" (→ NaN) or "1.5" (a valid finite float) and submit,
+    // since the Run button is a plain onClick, not a native <form> submit that
+    // would trigger the browser's validity gate. Surface a clear inline error
+    // rather than letting a NaN/float reach Graphene as an opaque type error.
     const numericFields: [number | undefined, string][] = [
       [parsedMaxDepth, "Max depth"],
       [parsedMinDemand, "Min demand"],
@@ -264,10 +267,10 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
       [parsedTokenBudget, "Token budget"],
     ];
     const invalidField = numericFields.find(
-      ([value]) => value !== undefined && !Number.isFinite(value)
+      ([value]) => value !== undefined && !Number.isInteger(value)
     );
     if (invalidField) {
-      toast.error(`${invalidField[1]} must be a number`);
+      toast.error(`${invalidField[1]} must be a whole number`);
       return;
     }
 

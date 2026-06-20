@@ -305,10 +305,13 @@ export const EnrichmentJobList: React.FC<EnrichmentJobListProps> = ({
                 </Table.Body>
               </Table>
             </ScrollableTableWrapper>
-            {totalCount != null && totalCount > fetchedJobs.length && (
+            {/* Count against `sorted.length` (the rows actually rendered,
+                incl. optimistic) rather than `fetchedJobs.length`, so the "N
+                most recent" matches what the user sees on screen. Gating on the
+                same value keeps N strictly below the server total. */}
+            {totalCount != null && totalCount > sorted.length && (
               <TruncationNote data-testid="enrichment-job-truncation">
-                Showing the {fetchedJobs.length} most recent of {totalCount}{" "}
-                runs.
+                Showing the {sorted.length} most recent of {totalCount} runs.
               </TruncationNote>
             )}
           </>
