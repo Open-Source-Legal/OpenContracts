@@ -54,6 +54,7 @@ import {
   makeEdgeStroke,
   GovSimNode,
 } from "../../../../utils/governanceGraphLayout";
+import { formatJurisdiction, titleCase } from "../../../../utils/formatters";
 import { useNavigateToDocumentById } from "../../../../hooks/useNavigateToDocumentById";
 import {
   BackButton,
@@ -132,18 +133,6 @@ const DISCOVERY_STATE_LABEL: Record<string, string> = {
   pending_approval: "Pending approval",
   deferred_cap: "Deferred (crawl cap reached)",
 };
-
-/** "us-de" → "U.S. — DE"; "us-federal" → "U.S. Federal". */
-function formatJurisdiction(j?: string | null): string | null {
-  if (!j) return null;
-  if (j === "us-federal") return "U.S. Federal";
-  const m = j.match(/^us-([a-z]{2})$/);
-  if (m) return `U.S. — ${m[1].toUpperCase()}`;
-  return j.toUpperCase();
-}
-
-const titleCase = (s: string): string =>
-  s.charAt(0).toUpperCase() + s.slice(1).replace(/[_-]/g, " ");
 
 /** The display label a node shows on the canvas / in lists. */
 function nodeLabel(n: GovernanceGraphNode): string {
@@ -380,7 +369,7 @@ const CanvasWrap = styled.div`
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background-color: #fbfaf7;
+  background-color: ${OS_LEGAL_COLORS.canvasPaper};
   background-image: radial-gradient(
     ${OS_LEGAL_COLORS.border} 0.8px,
     transparent 0.8px
@@ -865,6 +854,10 @@ export const GovernanceGraphExplorer: React.FC<
     selection.on("dblclick.zoom", null);
     zoomRef.current = zoom;
     return () => {
+      // Cancel any in-flight zoom transition (zoomBy / resetView run 200–260ms
+      // d3 transitions) before detaching, so a tween can't fire setTransform on
+      // an unmounted component if the user navigates away mid-transition.
+      d3.interrupt(svgEl);
       selection.on(".zoom", null);
     };
   }, []);
@@ -1202,9 +1195,18 @@ export const GovernanceGraphExplorer: React.FC<
                     </feMerge>
                   </filter>
                   <linearGradient id="explorer-bg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ffffff" />
-                    <stop offset="62%" stopColor="#fdfdfb" />
-                    <stop offset="100%" stopColor="#faf6ee" />
+                    <stop
+                      offset="0%"
+                      stopColor={OS_LEGAL_COLORS.canvasVignetteInner}
+                    />
+                    <stop
+                      offset="62%"
+                      stopColor={OS_LEGAL_COLORS.canvasVignetteMid}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={OS_LEGAL_COLORS.canvasVignetteOuter}
+                    />
                   </linearGradient>
                 </defs>
 

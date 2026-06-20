@@ -186,10 +186,10 @@ const StatusChip = styled.span<{
 
   ${(p) =>
     p.$variant === "linked"
-      ? `color: ${OS_LEGAL_COLORS.accent}; background: #f0fdfa;`
+      ? `color: ${OS_LEGAL_COLORS.accent}; background: ${OS_LEGAL_COLORS.accentSurface};`
       : p.$variant === "provisional"
-      ? `color: #4338ca; background: #eef2ff;`
-      : `color: #b45309; background: #fffbeb;`}
+      ? `color: ${OS_LEGAL_COLORS.provisionalText}; background: ${OS_LEGAL_COLORS.provisionalSurface};`
+      : `color: ${OS_LEGAL_COLORS.awaitingText}; background: ${OS_LEGAL_COLORS.awaitingSurface};`}
 `;
 
 // Compact linked/awaiting breakdown for the "Cites" section header.
@@ -207,10 +207,10 @@ const SummaryCounts = styled.span`
     color: ${OS_LEGAL_COLORS.accent};
   }
   .provisional {
-    color: #4338ca;
+    color: ${OS_LEGAL_COLORS.provisionalText};
   }
   .awaiting {
-    color: #b45309;
+    color: ${OS_LEGAL_COLORS.awaitingText};
   }
   .dot {
     color: ${OS_LEGAL_COLORS.textMuted};

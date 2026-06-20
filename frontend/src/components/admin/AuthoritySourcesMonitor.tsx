@@ -20,7 +20,11 @@ import {
 } from "../../assets/configurations/constants";
 import { ScrollableTableWrapper } from "../layout/SharedSegments";
 import { CORPUS_RADII } from "../corpuses/styles/corpusDesignTokens";
-import { formatDateTime } from "../../utils/formatters";
+import {
+  formatDateTime,
+  formatJurisdiction,
+  titleCase,
+} from "../../utils/formatters";
 import { backendUserObj } from "../../graphql/cache";
 import {
   GET_AUTHORITY_FRONTIER,
@@ -101,18 +105,6 @@ const TONE_COLORS: Record<Tone, { fg: string; bg: string; border: string }> = {
     border: OS_LEGAL_COLORS.dangerBorder,
   },
 };
-
-/** "us-de" → "U.S. — DE"; "us-federal" → "U.S. Federal". */
-function formatJurisdiction(j?: string | null): string {
-  if (!j) return "—";
-  if (j === "us-federal") return "U.S. Federal";
-  const m = j.match(/^us-([a-z]{2})$/);
-  if (m) return `U.S. — ${m[1].toUpperCase()}`;
-  return j.toUpperCase();
-}
-
-const titleCase = (s?: string | null): string =>
-  s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/[_-]/g, " ") : "—";
 
 // ---- styled shell (mirrors the Ingestion Monitor admin page) --------------
 const Container = styled.div`
@@ -511,6 +503,10 @@ export const AuthoritySourcesMonitor: React.FC = () => {
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stop polling + clear the pause-timeout on unmount.
+  // Intentionally an unmount-only cleanup ([] deps): the Apollo query refs are
+  // stable across renders, so listing them as deps would make this effect
+  // re-run (firing stopPolling) on every render instead of only on unmount —
+  // do NOT "fix" the exhaustive-deps suppression by adding the query objects.
   useEffect(
     () => () => {
       if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
@@ -686,7 +682,7 @@ export const AuthoritySourcesMonitor: React.FC = () => {
           <option value="">All jurisdictions</option>
           {jurisdictionOptions.map((j) => (
             <option key={j} value={j}>
-              {formatJurisdiction(j)}
+              {formatJurisdiction(j) ?? "—"}
             </option>
           ))}
         </Select>
@@ -699,7 +695,7 @@ export const AuthoritySourcesMonitor: React.FC = () => {
           <option value="">All types</option>
           {typeOptions.map((t) => (
             <option key={t} value={t}>
-              {titleCase(t)}
+              {titleCase(t) ?? "—"}
             </option>
           ))}
         </Select>
@@ -780,9 +776,9 @@ export const AuthoritySourcesMonitor: React.FC = () => {
                       </StateBadge>
                     </Table.Cell>
                     <Table.Cell>
-                      {formatJurisdiction(r.jurisdiction)}
+                      {formatJurisdiction(r.jurisdiction) ?? "—"}
                     </Table.Cell>
-                    <Table.Cell>{titleCase(r.authorityType)}</Table.Cell>
+                    <Table.Cell>{titleCase(r.authorityType) ?? "—"}</Table.Cell>
                     <Table.Cell>
                       {r.provider ? (
                         r.provider

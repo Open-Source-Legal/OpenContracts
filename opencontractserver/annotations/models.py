@@ -1998,6 +1998,14 @@ class CorpusReference(BaseOCModel):
         indexes = [
             django.db.models.Index(fields=["corpus", "reference_type"]),
             django.db.models.Index(fields=["canonical_key"]),
+            # Composite index for the in-flight finalize UPDATE
+            # (``filter(created_by_analysis=..., is_provisional=True)`` in
+            # EnrichmentService.apply()): a single covering index beats merging
+            # the two single-column indexes / a seq-scan on large corpora.
+            django.db.models.Index(
+                fields=["created_by_analysis", "is_provisional"],
+                name="idx_corpusref_analysis_provis",
+            ),
         ]
         constraints = [
             # Idempotency guard: one reference per (source span, type, key).
