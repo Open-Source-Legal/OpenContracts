@@ -105,7 +105,29 @@ _MUNI_ORDINANCE_RE = re.compile(
 # reaches here as "city": the lowercase "of" breaks the capitalised run, so regex
 # backtracking starts the match at the real city ("City of Portland ..." captures
 # "Portland", keying ``muni-portland``).
-_CITY_STOPWORDS = frozenset({"the", "this", "said", "a", "an", "city", "county"})
+# The trailing entries are common Bluebook citation signals / sentence-lead words:
+# a capitalised signal directly before the city ("See Oakland Municipal Code § 5")
+# would otherwise be absorbed into the slug as ``muni-see-oakland``. This is a
+# pragmatic denylist of the frequent leads, NOT exhaustive — the open-vocab city
+# capture stays heuristic/provisional (0.6 confidence) for the long tail.
+_CITY_STOPWORDS = frozenset(
+    {
+        "the",
+        "this",
+        "said",
+        "a",
+        "an",
+        "city",
+        "county",
+        "see",
+        "under",
+        "per",
+        "accord",
+        "cf",
+        "compare",
+        "contra",
+    }
+)
 
 
 def _slugify(name: str) -> str:

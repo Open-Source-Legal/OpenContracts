@@ -298,6 +298,20 @@ class MunicipalGenericGrammarTests(SimpleTestCase):
             "Marin County Code of Ordinances § 7"
         )
 
+    def test_citation_signal_lead_word_not_absorbed_into_city(self):
+        # A capitalised Bluebook signal / sentence-lead directly before the city
+        # ("See Oakland …") must not be absorbed into the slug (muni-see-oakland);
+        # the leading signal is stripped so the real city authority is preserved.
+        see = self._keys("See Oakland Municipal Code § 5")
+        assert "muni-oakland:5" in see
+        assert "muni-see-oakland:5" not in see
+        assert "muni-portland:1" in self._keys("Under Portland Municipal Code § 1")
+
+    def test_open_vocab_tolerates_ocr_double_space(self):
+        # The open-vocab path (not only the table path) tolerates OCR double-space
+        # within and around the code phrase.
+        assert "muni-oakland:5" in self._keys("Oakland  Municipal  Code § 5")
+
     def test_open_vocab_prefix_classifies_to_municipal(self):
         # An open-vocab city prefix must classify (never strand at None type).
         jur, typ = C.classify_prefix("muni-oakland")
