@@ -1,18 +1,22 @@
 """Tests for the cross-corpus resolution pass (EXTERNAL law refs -> RESOLVED)."""
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
 
+from opencontractserver.analyzer.models import Analysis
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import (
     AuthorityCorpusBootstrapper,
     AuthoritySection,
 )
 from opencontractserver.enrichment.services import EnrichmentService
+from opencontractserver.types.enums import JobStatus
 
 User = get_user_model()
 
@@ -240,3 +244,110 @@ class CrossCorpusLinkingTests(TestCase):
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.resolution_status == C.STATUS_RESOLVED
         assert ref.target_document is not None
+
+    # -- #1996 regressions -------------------------------------------------- #
+
+    @staticmethod
+    def _mirror_path(document, corpus, user, path):
+        """Give ``document`` an additional current path in ``corpus``.
+
+        Authority documents can have current paths in more than one corpus;
+        ``add_document`` makes corpus-isolated copies, so the multi-corpus state
+        is materialised directly via the path record (the shape #1996 hits).
+        """
+        return DocumentPath.objects.create(
+            document=document,
+            corpus=corpus,
+            path=path,
+            version_number=1,
+            parent=None,
+            is_current=True,
+            is_deleted=False,
+            creator=user,
+        )
+
+    def test_apply_marks_analysis_failed_when_linking_raises(self):
+        """Provenance integrity (#1996): when ``_link_external`` raises, the
+        Analysis must end FAILED — not stranded COMPLETED with
+        ``law_references_linked=0``. Linking now runs inside ``apply()``'s
+        try/except, after ``writer.write`` and before the COMPLETED stamp.
+        """
+        with mock.patch.object(
+            EnrichmentService, "_link_external", side_effect=RuntimeError("boom")
+        ):
+            with self.assertRaises(RuntimeError):
+                EnrichmentService().apply(
+                    corpus_id=self.corpus.id, creator_id=self.user.id
+                )
+
+        analysis = (
+            Analysis.objects.filter(analyzed_corpus=self.corpus).order_by("-id").first()
+        )
+        assert analysis is not None
+        assert analysis.status == JobStatus.FAILED.value
+
+    def test_link_target_corpus_is_deterministic_for_multi_corpus_authority(self):
+        """A target reachable from >1 corpus must yield a STABLE
+        ``target_corpus_id`` — the lowest corpus_id — not whatever row Postgres
+        returned last from a bare ``dict(values_list(...))`` (#1996).
+        """
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        auth = self._bootstrap_dgcl()
+        auth_doc = Document.objects.get(custom_meta__canonical_key="dgcl:145")
+
+        # Same authority document, second current path in another visible corpus.
+        second = Corpus.objects.create(title="Mirror DGCL", creator=self.user)
+        self._mirror_path(auth_doc, second, self.user, "/documents/dgcl-145-mirror")
+
+        EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        # Deterministic tie-break: lowest corpus_id among the target's corpora.
+        assert ref.target_corpus_id == min(auth["corpus_id"], second.id)
+
+    def test_link_target_corpus_prefers_audience_visible_corpus(self):
+        """Navigability (#1996): a target reachable from several corpora links
+        into one the citing corpus's audience can actually open. For a public
+        citing corpus the audience floor is anonymous, so a private mirror is
+        skipped in favour of the public authority corpus — even when the private
+        mirror has the LOWER corpus_id (so the choice is driven by visibility,
+        not merely the lowest id).
+        """
+        # Private mirror created FIRST -> it gets the lower corpus_id.
+        private_mirror = Corpus.objects.create(
+            title="Private mirror", creator=self.user
+        )
+
+        # Public citing corpus -> audience floor is anonymous.
+        self.corpus.is_public = True
+        self.corpus.save()
+
+        auth = self._bootstrap_dgcl()  # auth corpus gets the HIGHER id
+        auth_corpus = Corpus.objects.select_related("creator").get(pk=auth["corpus_id"])
+        # Publish the authority the production way (propagates is_public to its
+        # documents) so the target is visible to the anonymous floor.
+        auth_corpus.is_public = True
+        auth_corpus.save(update_fields=["is_public", "modified"])
+        auth_doc = Document.objects.get(custom_meta__canonical_key="dgcl:145")
+
+        self._mirror_path(
+            auth_doc, private_mirror, self.user, "/documents/dgcl-145-private"
+        )
+        assert private_mirror.id < auth_corpus.id  # guards the test's premise
+
+        out = EnrichmentService().apply(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        assert out["law_references_linked"] >= 1
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        # The navigable (public) corpus wins over the lower-id private mirror.
+        assert ref.target_corpus_id == auth_corpus.id
+        assert ref.target_corpus_id != private_mirror.id
+        # …and the rendered mention link points into the public authority corpus.
+        assert ref.source_annotation.link_url == (
+            f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
+            f"/{ref.target_document.slug}"
+        )
