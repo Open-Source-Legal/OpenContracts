@@ -6,6 +6,7 @@ from unittest import TestCase
 
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.services.authority_gate_service import (
+    GATE_BLOCKED_DOMAIN,
     GATE_BLOCKED_LICENSE,
     GATE_OK,
     GATE_PENDING_APPROVAL,
@@ -60,7 +61,7 @@ class GateEmptySectionsTests(TestCase):
 
 
 class GateDomainAllowlistTests(TestCase):
-    """Check 3: source_url with off-allowlist host → BLOCKED_LICENSE."""
+    """Check 3: source_url with off-allowlist host → BLOCKED_DOMAIN."""
 
     def test_off_allowlist_host_blocked(self):
         decision = AuthorityGateService.evaluate(
@@ -68,19 +69,29 @@ class GateDomainAllowlistTests(TestCase):
             sections=[_section(source_url="https://evil.com/statute.html")],
             provider_license="public-domain",
         )
-        self.assertEqual(decision.verdict, GATE_BLOCKED_LICENSE)
+        # A bad domain is a security block, distinct from a license block.
+        self.assertEqual(decision.verdict, GATE_BLOCKED_DOMAIN)
         self.assertEqual(decision.verify, "skipped")
         self.assertEqual(decision.source_domain, "evil.com")
 
-    def test_none_source_url_skips_allowlist_check(self):
-        """If source_url is None, skip the allowlist check and proceed to verify."""
-        # With a matching key, this should get to GATE_OK.
+    def test_blocked_domain_distinct_from_blocked_license(self):
+        """The two block verdicts must not be the same string (operator filtering)."""
+        self.assertNotEqual(GATE_BLOCKED_DOMAIN, GATE_BLOCKED_LICENSE)
+
+    def test_none_source_url_is_unlocated(self):
+        """A section with no source_url must NOT bypass the domain gate.
+
+        Previously a missing source_url skipped check 3 and (with a matching key)
+        reached GATE_OK on license alone. It now resolves to GATE_UNLOCATED: a
+        result we cannot attribute to an allowlisted domain is not ingestible.
+        """
         decision = AuthorityGateService.evaluate(
             canonical_key="usc-15:78j",
             sections=[_section(source_url=None)],
             provider_license="public-domain",
         )
-        self.assertEqual(decision.verdict, GATE_OK)
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertIsNone(decision.source_domain)
 
 
 class GateVerifyMismatchTests(TestCase):

@@ -37,8 +37,21 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
 
 logger = logging.getLogger(__name__)
 
-# Maximum characters to return from a fetched page — keeps agent context bounded.
-_MAX_FETCH_CHARS = 50_000
+
+def _sanitize_for_prompt(value: str) -> str:
+    """Reduce *value* to a single line of printable ASCII for safe prompt embedding.
+
+    ``[^\\x20-\\x7E]`` drops EVERYTHING outside printable ASCII, then whitespace
+    is collapsed. This is deliberately ASCII-only: every Unicode prompt-injection
+    / homoglyph vector worth guarding against — RIGHT-TO-LEFT OVERRIDE (U+202E),
+    bidi/zero-width format chars (category Cf), non-breaking and other Unicode
+    spaces (category Zs), look-alike letters — lies above U+007E and is therefore
+    already removed. Control chars and newlines (below U+0020) go too, so a
+    tainted citation cannot inject extra instruction lines. Legal citations are
+    plain ASCII, so this is loss-free in practice.
+    """
+    cleaned = re.sub(r"[^\x20-\x7E]", " ", value)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 class _LocatorOutput(BaseModel):
@@ -73,6 +86,15 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     enabled: ClassVar[bool] = False  # opt-in per deployment/settings
     supported_prefixes: ClassVar[tuple[str, ...]] = ()
 
+    # Operator-tunable bounds (subclass to override, like ``priority``/``enabled``).
+    # max_agent_requests: hard ceiling on model requests per run. discover runs
+    #   from a Celery task, so a non-converging model must not loop forever —
+    #   pydantic-ai raises UsageLimitExceeded past this bound.
+    # max_fetch_chars: cap on characters returned from a fetched page, keeping
+    #   the agent context bounded.
+    max_agent_requests: ClassVar[int] = 10
+    max_fetch_chars: ClassVar[int] = 50_000
+
     def can_handle(self, canonical_key: str) -> bool:
         """Claims every key when enabled; disabled → never selected."""
         return bool(self.enabled)
@@ -92,7 +114,10 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
             citation=request.citation or request.canonical_key,
             jurisdiction=(request.extra or {}).get("jurisdiction", ""),
         )
-        if not out.found or not out.source_url:
+        # Require found + a source URL + non-empty body: an agent can return
+        # found=True with a URL but blank/whitespace text, which would otherwise
+        # create an empty section that still passes the gate's key check.
+        if not out.found or not out.source_url or not out.text.strip():
             return []  # gate records GATE_UNLOCATED
         return [
             AuthoritySection(
@@ -116,6 +141,8 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         enforces the structured output schema on every model response.
         ``result.output`` is the validated ``_LocatorOutput`` instance.
         """
+        from pydantic_ai.usage import UsageLimits
+
         from opencontractserver.llms.agents.pydantic_ai_factory import (
             make_pydantic_ai_agent,
         )
@@ -127,13 +154,13 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         )
         from opencontractserver.llms.tools.tool_factory import CoreTool
 
-        # Sanitize inputs before embedding in instructions: strip non-printable
-        # characters and collapse whitespace to prevent prompt injection via
-        # malformed citation or jurisdiction strings.
-        citation = re.sub(r"[^\x20-\x7E]", " ", citation)
-        citation = re.sub(r"\s+", " ", citation).strip()
-        jurisdiction = re.sub(r"[^\x20-\x7E]", " ", jurisdiction)
-        jurisdiction = re.sub(r"\s+", " ", jurisdiction).strip()
+        # Sanitize inputs before embedding in instructions: reduce to printable
+        # ASCII and collapse whitespace to prevent prompt injection (control
+        # chars, bidi/zero-width Unicode, homoglyphs) via a malformed citation
+        # or jurisdiction string. See _sanitize_for_prompt for why ASCII-only
+        # already covers the Unicode attack classes.
+        citation = _sanitize_for_prompt(citation)
+        jurisdiction = _sanitize_for_prompt(jurisdiction)
 
         # Resolve the deployment-configured model spec (no explicit override).
         spec = resolve_model_spec(explicit=None)
@@ -194,6 +221,7 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         result = await agent.run(
             f"Locate the official text of: {citation}",
             deps=PydanticAIDependencies(),
+            usage_limits=UsageLimits(request_limit=self.max_agent_requests),
         )
         return result.output  # type: ignore[return-value]
 
@@ -221,8 +249,13 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         )
 
         try:
-            text, _ = await sync_to_async(safe_fetch_text)(url)
-            return text[:_MAX_FETCH_CHARS]
+            # Cap the download at the character budget (UTF-8 worst case is 4
+            # bytes/char) so safe_fetch_text aborts streaming at the cap instead
+            # of buffering an entire multi-hundred-MB body before truncating.
+            text, _ = await sync_to_async(safe_fetch_text)(
+                url, max_bytes=self.max_fetch_chars * 4
+            )
+            return text[: self.max_fetch_chars]
         except SSRFValidationError as exc:
             return f"[blocked: {exc}]"
         except (httpx.HTTPError, OSError) as exc:

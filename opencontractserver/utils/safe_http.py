@@ -63,7 +63,9 @@ def host_on_allowlist(
     host = host.lower().rstrip(".")
     if host in allowlist:
         return True
-    # Exact matches are handled above, so only the dotted-suffix check remains.
+    # Exact matches are handled above; this is the subdomain check — host must be
+    # a dotted child of an allowlisted domain (e.g. "api.ecfr.gov" of "ecfr.gov"),
+    # NOT merely share a suffix ("notecfr.gov" must not match).
     return any(host.endswith("." + a) for a in allowlist)
 
 

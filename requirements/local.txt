@@ -11,6 +11,7 @@ django-stubs==6.0.5  # https://github.com/typeddjango/django-stubs
 pytest==9.1.0  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
+pytest-timeout==2.4.0  # https://github.com/pytest-dev/pytest-timeout (per-test hang guard in CI)
 djangorestframework-stubs==3.17.0  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.26.1  # https://github.com/getsentry/responses
 # vcrpy 8.1.1 is the latest release and is NOT yet compatible with aiohttp

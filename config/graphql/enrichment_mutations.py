@@ -99,9 +99,13 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
         user = info.context.user
 
         try:
-            corpus_pk = from_global_id(corpus_id)[1]
-            if not corpus_pk:
-                raise ValueError("empty pk")
+            type_name, corpus_pk = from_global_id(corpus_id)
+            # Validate the relay type prefix: ``from_global_id`` happily decodes
+            # ``DocumentType:42`` and we must not let a non-Corpus pk flow into
+            # ``start_document_analysis(corpus_pk=...)`` and rely solely on the
+            # downstream visibility filter as a safety net.
+            if type_name != "CorpusType" or not corpus_pk:
+                raise ValueError("invalid corpus ID")
         except Exception:
             return RunCorpusEnrichmentMutation(
                 ok=False,

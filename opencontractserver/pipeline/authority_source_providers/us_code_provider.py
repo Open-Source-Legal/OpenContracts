@@ -22,6 +22,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from typing import ClassVar
 
+from opencontractserver.constants.safe_http import OLRC_TITLE_ZIP_MAX_BYTES
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.constants import _USC_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
@@ -405,7 +406,9 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         logger.info("USCodeProvider: downloading %s", request.url)
         # SSRF-safe fetch (Phase 4): validates the URL and enforces the size cap
         # inside safe_http, superseding the earlier raw requests/urlopen path.
-        zip_bytes, _ = safe_fetch_bytes(request.url)
+        # OLRC title ZIPs are the one fetch that legitimately exceeds the 50 MB
+        # default body cap, so pass the dedicated larger override.
+        zip_bytes, _ = safe_fetch_bytes(request.url, max_bytes=OLRC_TITLE_ZIP_MAX_BYTES)
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)

@@ -331,7 +331,6 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         )
         record = {
             "provider": "TestProv",
-            "can_handle": True,
             "license": "proprietary",
             "source_domain": "evil.example.com",
             "verify": "skipped",
@@ -412,6 +411,11 @@ class AuthorityFrontierGateStateTests(TestCase):
         row = self._make_row("usc-15:78j-blocked", "blocked_license")
         row.refresh_from_db()
         self.assertEqual(row.discovery_state, "blocked_license")
+
+    def test_blocked_domain_state_accepted(self):
+        row = self._make_row("usc-15:78j-blocked-domain", "blocked_domain")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "blocked_domain")
 
     def test_unlocated_state_accepted(self):
         row = self._make_row("usc-15:78j-unlocated", "unlocated")

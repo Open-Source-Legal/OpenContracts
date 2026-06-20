@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 import zipfile
+from typing import TypedDict
 
 import httpx
 import requests
@@ -27,6 +28,24 @@ from opencontractserver.annotations.models import AuthorityFrontier
 from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
+
+
+class _AuditRecord(TypedDict):
+    """Schema of one append-only ``candidate_sources`` audit entry.
+
+    Declaring the shape here (rather than building a bare dict in three places)
+    means a field rename/addition is caught at type-check time instead of
+    drifting silently across the fetch-failure, gate-decision, and
+    bootstrap-failure paths.
+    """
+
+    provider: str | None
+    license: str
+    source_domain: str | None
+    verify: str
+    outcome: str
+    error: str | None
+    attempted_at: str
 
 
 class AuthorityDiscoveryService(BaseService):
@@ -126,6 +145,33 @@ class AuthorityDiscoveryService(BaseService):
 
         return None, None, None
 
+    @staticmethod
+    def _audit_record(
+        *,
+        provider_name: str | None,
+        provider_license: str,
+        outcome: str,
+        source_domain: str | None = None,
+        verify: str = "skipped",
+        error: str | None = None,
+    ) -> _AuditRecord:
+        """Build a frontier ``candidate_record`` audit entry.
+
+        Centralises the schema shared by the fetch-failure, gate-decision, and
+        bootstrap-failure paths in :meth:`discover_and_bootstrap` so a new field
+        is added in exactly one place instead of three. The ``_AuditRecord``
+        TypedDict makes that schema explicit and type-checked.
+        """
+        return _AuditRecord(
+            provider=provider_name,
+            license=provider_license,
+            source_domain=source_domain,
+            verify=verify,
+            outcome=outcome,
+            error=error,
+            attempted_at=timezone.now().isoformat(),
+        )
+
     @classmethod
     def discover_and_bootstrap(
         cls,
@@ -152,7 +198,11 @@ class AuthorityDiscoveryService(BaseService):
 
         Returns:
             A dict with at least a ``"status"`` key (``"ingested"``,
-            ``"unsupported"``, or ``"failed"``).
+            ``"unsupported"``, or ``"failed"``). On the ``"ingested"`` path the
+            dict also carries ``"equivalence_relink"`` (the relink result, or
+            ``{"queued": True, "task_id": ...}`` when ``relink_async=True``) and
+            ``"relinked_count"`` (the number of law references upgraded, or
+            ``None`` when the relink was queued asynchronously and hasn't run).
         """
         from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.enrichment.authorities import bootstrap_authority_corpus
@@ -197,16 +247,12 @@ class AuthorityDiscoveryService(BaseService):
                 name,
                 canonical_key,
             )
-            candidate_record = {
-                "provider": name,
-                "can_handle": True,
-                "license": provider.license,
-                "source_domain": None,
-                "verify": "skipped",
-                "outcome": "failed",
-                "error": str(exc),
-                "attempted_at": timezone.now().isoformat(),
-            }
+            candidate_record = cls._audit_record(
+                provider_name=name,
+                provider_license=provider.license,
+                outcome="failed",
+                error=str(exc),
+            )
             AuthorityFrontierService.mark(
                 frontier_row,
                 "failed",
@@ -220,6 +266,11 @@ class AuthorityDiscoveryService(BaseService):
             }
 
         # --- gate (verify + license + domain) --------------------------------
+        # Deferred import (like the bootstrap/frontier/enrichment imports at the
+        # top of this method): enrichment/services/__init__ eagerly imports this
+        # module, and the gate transitively pulls enrichment.authorities, which
+        # re-enters the enrichment.services package — a module-level import here
+        # would form an import cycle during app/registry loading.
         from opencontractserver.enrichment.services.authority_gate_service import (
             GATE_OK,
             AuthorityGateService,
@@ -235,16 +286,14 @@ class AuthorityDiscoveryService(BaseService):
             provider_license=provider.license,
             require_approval_for_agentic=getattr(provider, "requires_approval", False),
         )
-        candidate_record = {
-            "provider": name,
-            "can_handle": True,
-            "license": provider.license,
-            "source_domain": decision.source_domain,
-            "verify": decision.verify,
-            "outcome": decision.verdict if decision.verdict != GATE_OK else "ingested",
-            "error": None if decision.verdict == GATE_OK else decision.reason,
-            "attempted_at": timezone.now().isoformat(),
-        }
+        candidate_record = cls._audit_record(
+            provider_name=name,
+            provider_license=provider.license,
+            source_domain=decision.source_domain,
+            verify=decision.verify,
+            outcome=decision.verdict if decision.verdict != GATE_OK else "ingested",
+            error=None if decision.verdict == GATE_OK else decision.reason,
+        )
         if decision.verdict != GATE_OK:
             AuthorityFrontierService.mark(
                 frontier_row,
@@ -310,7 +359,11 @@ class AuthorityDiscoveryService(BaseService):
 
                 async_result = relink_corpora_for_keys_task.delay(relink_keys)
                 relink_result: dict = {"queued": True, "task_id": async_result.id}
-                relinked_count = 0
+                # The relink runs in a Celery task that hasn't executed yet, so
+                # the count is unknown — use None (not 0) so callers can tell
+                # "pending" apart from "ran and linked nothing". The queued task
+                # id lives in result["equivalence_relink"].
+                relinked_count = None
             else:
                 relink_result = EnrichmentService().relink_corpora_for_keys(relink_keys)
                 relinked_count = relink_result.get("law_references_linked", 0)
@@ -336,16 +389,14 @@ class AuthorityDiscoveryService(BaseService):
                 frontier_row,
                 "failed",
                 error=str(exc),
-                candidate_record={
-                    "provider": name,
-                    "can_handle": True,
-                    "license": provider.license,
-                    "source_domain": decision.source_domain,
-                    "verify": decision.verify,
-                    "outcome": "failed",
-                    "error": str(exc),
-                    "attempted_at": timezone.now().isoformat(),
-                },
+                candidate_record=cls._audit_record(
+                    provider_name=name,
+                    provider_license=provider.license,
+                    source_domain=decision.source_domain,
+                    verify=decision.verify,
+                    outcome="failed",
+                    error=str(exc),
+                ),
             )
             return {
                 "status": "failed",

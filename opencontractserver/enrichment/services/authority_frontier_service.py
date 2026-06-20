@@ -7,6 +7,8 @@ inline Tier-0 ORM fusions.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -195,7 +197,7 @@ class AuthorityFrontierService(BaseService):
         *,
         document_id: int | None = None,
         error: str | None = None,
-        candidate_record: dict | None = None,
+        candidate_record: Mapping[str, object] | None = None,
     ) -> None:
         """Transition ``row`` to ``state``, optionally recording a document or error.
 

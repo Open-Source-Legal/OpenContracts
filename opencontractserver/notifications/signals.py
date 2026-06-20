@@ -136,9 +136,12 @@ def emit_analysis_status_notification(
     or FAILED.  Idempotent: at most one notification per (analysis, status)
     pair is ever created, so redundant .save() calls do not double-notify.
 
-    WebSocket delivery is handled automatically: a post_save on Notification
-    itself calls broadcast_notification_via_websocket (see this module's
-    implicit handler path — the Notification creation triggers the broadcast).
+    WebSocket delivery is explicit: after the Notification row is created we
+    call ``broadcast_notification_via_websocket(notification)`` directly, the
+    same pattern every other notification producer uses (there is no
+    ``post_save`` receiver on ``Notification`` itself, so the broadcast is NOT
+    automatic — dropping the explicit call would silently stop real-time
+    delivery for analysis status updates).
     """
     if getattr(instance, "_skip_signals", False):
         return
@@ -148,15 +151,22 @@ def emit_analysis_status_notification(
         return
 
     # Only emit notifications for enrichment/crawl analyzers. Guard on
-    # analyzer_id FIRST (cheap, no I/O) and then use a targeted existence query
-    # instead of ``instance.analyzer.task_name`` — the latter hydrates the full
-    # Analyzer row via a deferred FK load on EVERY Analysis.save() across the
-    # system (doc analysis, extracts, …), not just enrichment runs.
+    # analyzer_id FIRST (cheap, no I/O) and then run a single targeted query
+    # that BOTH gates and captures the task name. This avoids
+    # ``instance.analyzer.task_name`` — which hydrates the full Analyzer row via
+    # a deferred FK load on EVERY Analysis.save() across the system (doc
+    # analysis, extracts, …), not just enrichment runs — and lets the ``data``
+    # dict below reuse ``analyzer_task`` instead of triggering that FK load.
     if instance.analyzer_id is None:
         return
-    if not Analyzer.objects.filter(
-        pk=instance.analyzer_id, task_name__in=_ENRICHMENT_TASK_NAMES
-    ).exists():
+    analyzer_task = (
+        Analyzer.objects.filter(
+            pk=instance.analyzer_id, task_name__in=_ENRICHMENT_TASK_NAMES
+        )
+        .values_list("task_name", flat=True)
+        .first()
+    )
+    if analyzer_task is None:
         return
 
     # Idempotent guard: skip if this (analysis, notification_type) already exists.
@@ -171,7 +181,7 @@ def emit_analysis_status_notification(
             data={
                 "analysis_id": instance.id,
                 "corpus_id": instance.analyzed_corpus_id,
-                "analyzer_task": getattr(instance.analyzer, "task_name", None),
+                "analyzer_task": analyzer_task,
                 "status": instance.status,
             },
         )

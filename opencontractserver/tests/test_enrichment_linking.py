@@ -188,3 +188,55 @@ class CrossCorpusLinkingTests(TestCase):
         assert out["law_references_linked"] == 0
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.resolution_status == C.STATUS_EXTERNAL
+
+    def test_public_corpus_demotes_owner_only_visible_authority(self):
+        """Audience floor: a public source corpus resolves under the ANONYMOUS
+        audience (``audience = None``), so a private authority the *owner* can
+        see must NOT stay linked — anonymous visitors would hit a broken link.
+
+        Exercises the ``audience = None if corpus.is_public else user`` branch
+        and confirms ``find_authority_target(key, None)`` runs through
+        ``visible_to_user(None)`` without raising.
+        """
+        # Private source corpus + private authority owned by the same user: the
+        # owner is the audience, so the citation resolves.
+        self._bootstrap_dgcl()  # make_public defaults to False
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED
+
+        # Publish the source corpus -> audience floor drops to anonymous -> the
+        # private authority is no longer audience-visible -> the ref demotes so
+        # the public corpus never renders a broken link.
+        self.corpus.is_public = True
+        self.corpus.save()
+        out = EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        assert out["links_demoted"] >= 1
+        ref.refresh_from_db()
+        assert ref.resolution_status == C.STATUS_EXTERNAL
+        assert ref.target_document_id is None
+        # The mention stops rendering as a clickable link (restamp clears it).
+        assert ref.source_annotation.link_url is None
+
+    def test_public_corpus_links_public_authority(self):
+        """The flip side of the audience floor: a *public* authority IS visible
+        to the anonymous audience, so a public source corpus resolves its
+        citation against it."""
+        self.corpus.is_public = True
+        self.corpus.save()
+        auth = self._bootstrap_dgcl()
+        # Publish the authority the production way (``Corpus.save`` propagates
+        # is_public to its documents) so it is visible to the anonymous floor.
+        auth_corpus = Corpus.objects.get(pk=auth["corpus_id"])
+        auth_corpus.is_public = True
+        auth_corpus.save(update_fields=["is_public", "modified"])
+
+        out = EnrichmentService().apply(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        assert out["law_references_linked"] == 2
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        assert ref.target_document is not None

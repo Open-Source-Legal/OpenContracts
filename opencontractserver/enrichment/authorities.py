@@ -187,13 +187,19 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
     # NOTE: This is a single-pass (non-recursive) hop, sufficient for the
     # hub-and-spoke seed (act-section → USC). Transitive chains (A→B→C) would
     # require iterating until the key set stabilises.
-    # Query both directions (from_key and to_key) in one round-trip.
+    # Query both directions (from_key and to_key) in one round-trip. Membership
+    # is tested against the *original* candidate set (snapshot here) so that the
+    # "other" side is unambiguous even when both ends of an equivalence row
+    # happen to be present, and we skip re-adding a side already covered.
+    original_keys: set[str] = set(keys)
     equivs = AuthorityKeyEquivalence.objects.filter(
         Q(from_key__in=keys) | Q(to_key__in=keys)
     )
     for equiv in equivs:
-        # Follow whichever side is NOT already in our key set.
-        other = equiv.to_key if equiv.from_key in keys else equiv.from_key
+        # Follow whichever side is NOT already among the original keys.
+        other = equiv.to_key if equiv.from_key in original_keys else equiv.from_key
+        if other in original_keys:
+            continue
         keys.extend(candidate_keys(other))
 
     # Prefix rewrite-rule fallback (Phase 4): extend the candidate set with
