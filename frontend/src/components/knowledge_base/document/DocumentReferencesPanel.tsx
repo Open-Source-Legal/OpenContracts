@@ -177,8 +177,8 @@ const StatusChip = styled.span<{ $variant: "linked" | "awaiting" }>`
 
   ${(p) =>
     p.$variant === "linked"
-      ? `color: ${OS_LEGAL_COLORS.accent}; background: #f0fdfa;`
-      : `color: #b45309; background: #fffbeb;`}
+      ? `color: ${OS_LEGAL_COLORS.accent}; background: ${OS_LEGAL_COLORS.accentSurface};`
+      : `color: ${OS_LEGAL_COLORS.pendingText}; background: ${OS_LEGAL_COLORS.pendingSurface};`}
 `;
 
 // Compact linked/awaiting breakdown for the "Cites" section header.
@@ -196,7 +196,7 @@ const SummaryCounts = styled.span`
     color: ${OS_LEGAL_COLORS.accent};
   }
   .awaiting {
-    color: #b45309;
+    color: ${OS_LEGAL_COLORS.pendingText};
   }
   .dot {
     color: ${OS_LEGAL_COLORS.textMuted};
