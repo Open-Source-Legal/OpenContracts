@@ -296,5 +296,10 @@ describe("formatters", () => {
     it("clamps negative input to 0s (clock skew)", () => {
       expect(formatElapsedSeconds(-5)).toBe("0s");
     });
+
+    it("floors fractional input to whole seconds", () => {
+      expect(formatElapsedSeconds(47.9)).toBe("47s");
+      expect(formatElapsedSeconds(127.5)).toBe("2m 7s");
+    });
   });
 });

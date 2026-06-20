@@ -486,4 +486,53 @@ test.describe("EnrichmentRunner", () => {
 
     await component.unmount();
   });
+
+  test("surfaces a backend ok=false response as an error toast", async ({
+    mount,
+    page,
+  }) => {
+    // ok=false (e.g. lost permission between load and dispatch) → the Runner
+    // shows the backend message as an error toast and does NOT record a job.
+    const FAILURE_MESSAGE = "Resource not found or you do not have permission.";
+    const FAILURE_MUTATION_MOCK = {
+      request: {
+        query: RUN_CORPUS_ENRICHMENT,
+        variables: {
+          corpusId: CORPUS_ID,
+          runEnrichment: true,
+          runCrawl: false,
+        },
+      },
+      result: {
+        data: {
+          runCorpusEnrichment: {
+            ok: false,
+            partial: false,
+            message: FAILURE_MESSAGE,
+            analyses: [],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <EnrichmentRunnerWrapperFull
+        corpusId={CORPUS_ID}
+        mocks={[EMPTY_QUERY_MOCK, FAILURE_MUTATION_MOCK]}
+      />
+    );
+    const runBtn = page.locator('[data-testid="enrichment-run-button"]');
+    await expect(runBtn).toBeEnabled({ timeout: 10000 });
+    await runBtn.click();
+
+    await expect(page.getByText(FAILURE_MESSAGE)).toBeVisible({
+      timeout: 5000,
+    });
+    // No optimistic row recorded on failure.
+    await expect(
+      page.locator('[data-testid="enrichment-job-row"]')
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
 });

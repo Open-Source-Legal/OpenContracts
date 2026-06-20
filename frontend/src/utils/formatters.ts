@@ -41,9 +41,10 @@ export function formatDuration(seconds?: number | null): string {
  * @param secs - Whole-second elapsed duration (non-negative).
  */
 export function formatElapsedSeconds(secs: number): string {
-  // Clamp negatives (clock skew / out-of-order timestamps) so we never render
-  // e.g. "-5s".
-  const total = Math.max(0, secs);
+  // Floor to whole seconds and clamp negatives (clock skew / out-of-order
+  // timestamps) so a fractional or negative input never renders e.g. "2m 7.5s"
+  // or "-5s". Callers pass whole seconds today, but this keeps the util safe.
+  const total = Math.max(0, Math.floor(secs));
   if (total < 60) return `${total}s`;
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;

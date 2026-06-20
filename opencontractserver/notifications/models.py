@@ -158,6 +158,11 @@ class Notification(models.Model):
             # don't reference an analysis. This lets the analysis-status signal
             # handler use an atomic ``get_or_create`` instead of a race-prone
             # check-then-create (see notifications/signals.py).
+            #
+            # The key is intentionally global (no ``recipient``): analysis-status
+            # notifications always target the single analysis creator. If a
+            # future use-case fans the same status out to multiple recipients,
+            # ``recipient`` must join the key.
             models.UniqueConstraint(
                 fields=["analysis", "notification_type"],
                 condition=models.Q(analysis__isnull=False),
