@@ -81,6 +81,15 @@ DEFAULT_SAMPLE_N = 10
 MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
+
+# --- Phase 5: bounded recursive authority crawl --------------------------------
+CRAWL_DEFAULT_MAX_DEPTH = 2  # authority-to-authority hops past depth-0 seeds
+CRAWL_DEFAULT_MIN_DEMAND = 2  # skip frontier rows with mention_count below this
+CRAWL_DEFAULT_MAX_AUTHORITIES = 50  # hard cap on discover_and_bootstrap calls per run
+CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per run
+CRAWL_DEFAULT_TOKEN_BUDGET = (
+    2_000_000  # cumulative est. tokens (text len / 4) before stop
+)
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"

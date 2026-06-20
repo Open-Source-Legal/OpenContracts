@@ -459,6 +459,45 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         ),
     ),
     ToolDefinition(
+        name="crawl_authorities",
+        description=(
+            "Recursively discover and ingest the public-domain legal authorities a "
+            "corpus cites, then the authorities those cite, up to a depth bound. "
+            "Network + ingestion side effects: requires approval."
+        ),
+        category=ToolCategory.CORPUS,
+        requires_corpus=True,
+        requires_approval=True,
+        requires_write_permission=True,
+        parameters=(
+            (
+                "max_depth",
+                "Authority-to-authority hops past the cited seeds (default 2)",
+                False,
+            ),
+            (
+                "min_demand",
+                "Skip authorities cited fewer than N times (default 2)",
+                False,
+            ),
+            (
+                "max_authorities",
+                "Hard cap on authorities ingested this run (default 50)",
+                False,
+            ),
+            (
+                "per_jurisdiction_cap",
+                "Max authorities ingested per jurisdiction per run",
+                False,
+            ),
+            (
+                "token_budget",
+                "Approx token budget before the crawl stops",
+                False,
+            ),
+        ),
+    ),
+    ToolDefinition(
         name="get_corpus_description",
         description="Retrieve the latest markdown description for this corpus.",
         category=ToolCategory.CORPUS,
@@ -1407,6 +1446,7 @@ class ToolFunctionRegistry:
             aapply_caml_article_edit,
             aapply_corpus_reference_enrichment,
             abootstrap_authority_corpus,
+            acrawl_authorities,
             acreate_document_index,
             acreate_markdown_link,
             acreate_or_update_text_document,
@@ -1515,6 +1555,7 @@ class ToolFunctionRegistry:
             "list_wanted_authorities": (alist_wanted_authorities, ()),
             "discover_authorities": (adiscover_authorities, ()),
             "bootstrap_authority_corpus": (abootstrap_authority_corpus, ()),
+            "crawl_authorities": (acrawl_authorities, ()),
             "create_document_index": (acreate_document_index, ()),
             # Corpus tools
             "get_corpus_description": (aget_corpus_description, ()),

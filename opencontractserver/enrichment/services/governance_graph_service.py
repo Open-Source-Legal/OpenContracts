@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from opencontractserver.annotations.models import AuthorityFrontier
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.documents.services import DocumentRelationshipService
@@ -173,6 +174,7 @@ class GovernanceGraphService:
             for c in listed_corpora.values()
         ]
 
+        # Doc nodes represent ingested documents, not frontier entries — discovery_state is None.
         doc_nodes = []
         for doc_pk in node_doc_ids:
             doc = docs.get(doc_pk)
@@ -187,24 +189,42 @@ class GovernanceGraphService:
             else:
                 kind = C.GRAPH_NODE_PRIMARY
             node_corpus = doc_corpus.get(doc_pk)
+            authority = meta.get("authority")
+            juris, atype = C.classify_prefix(authority) if authority else (None, None)
             doc_nodes.append(
                 {
                     "doc_pk": doc_pk,
                     "title": title,
                     "kind": kind,
                     "corpus_pk": node_corpus if node_corpus in listed_corpora else None,
-                    "authority": meta.get("authority"),
+                    "authority": authority,
+                    "jurisdiction": juris,
+                    "authority_type": atype,
                     "degree": degree[("doc", doc_pk)],
                 }
             )
-        ghost_nodes = [
-            {
-                "key": key,
-                "authority": key.split(":", 1)[0],
-                "degree": degree[("key", key)],
-            }
-            for key in sorted(ghost_keys)
-        ]
+
+        frontier_by_key = {
+            f.canonical_key: f
+            for f in AuthorityFrontier.objects.filter(
+                canonical_key__in=ghost_keys
+            ).only("canonical_key", "jurisdiction", "authority_type", "discovery_state")
+        }
+        ghost_nodes = []
+        for key in sorted(ghost_keys):
+            authority = key.split(":", 1)[0]
+            juris, atype = C.classify_prefix(authority)
+            f = frontier_by_key.get(key)
+            ghost_nodes.append(
+                {
+                    "key": key,
+                    "authority": authority,
+                    "jurisdiction": (f.jurisdiction if f else juris),
+                    "authority_type": (f.authority_type if f else atype),
+                    "discovery_state": (f.discovery_state if f else None),
+                    "degree": degree[("key", key)],
+                }
+            )
 
         # Full-graph stats, then degree-ranked truncation for the payload.
         document_count = len(doc_nodes)

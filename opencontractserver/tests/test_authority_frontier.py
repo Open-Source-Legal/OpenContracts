@@ -421,3 +421,244 @@ class AuthorityFrontierGateStateTests(TestCase):
         row = self._make_row("usc-15:78j-unlocated", "unlocated")
         row.refresh_from_db()
         self.assertEqual(row.discovery_state, "unlocated")
+
+    def test_deferred_cap_state_accepted(self):
+        """Phase-5: deferred_cap is a valid discovery_state value."""
+        row = self._make_row("usc-15:78j-deferred", "deferred_cap")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "deferred_cap")
+
+
+class DequeueQueuedTests(TestCase):
+    """Tests for AuthorityFrontierService.dequeue_queued (Phase-5 provider-agnostic dequeue)."""
+
+    def _make_row(self, key, state="queued", mention_count=5, depth=0):
+        return AuthorityFrontier.objects.create(
+            canonical_key=key,
+            authority=key.split(":")[0],
+            discovery_state=state,
+            mention_count=mention_count,
+            depth=depth,
+        )
+
+    def test_returns_only_queued_rows(self):
+        """Non-queued rows must never be returned."""
+        self._make_row("usc-15:1a", state="queued", mention_count=10)
+        self._make_row("usc-15:1b", state="ingested", mention_count=20)
+        self._make_row("usc-15:1c", state="failed", mention_count=30)
+        rows = AuthorityFrontierService.dequeue_queued(limit=10)
+        keys = [r.canonical_key for r in rows]
+        self.assertIn("usc-15:1a", keys)
+        self.assertNotIn("usc-15:1b", keys)
+        self.assertNotIn("usc-15:1c", keys)
+
+    def test_ordered_by_mention_count_desc(self):
+        """Highest-demand row must come first."""
+        self._make_row("usc-15:2a", mention_count=3)
+        self._make_row("usc-15:2b", mention_count=20)
+        self._make_row("usc-15:2c", mention_count=10)
+        rows = AuthorityFrontierService.dequeue_queued(limit=10)
+        counts = [r.mention_count for r in rows]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+
+    def test_max_depth_filter(self):
+        """Rows with depth > max_depth must be excluded."""
+        self._make_row("usc-15:3a", depth=0, mention_count=10)
+        self._make_row("usc-15:3b", depth=2, mention_count=8)
+        self._make_row("usc-15:3c", depth=3, mention_count=6)  # excluded by max_depth=2
+        rows = AuthorityFrontierService.dequeue_queued(limit=10, max_depth=2)
+        keys = [r.canonical_key for r in rows]
+        self.assertIn("usc-15:3a", keys)
+        self.assertIn("usc-15:3b", keys)
+        self.assertNotIn("usc-15:3c", keys)
+
+    def test_min_demand_filter(self):
+        """Rows with mention_count below min_demand must be excluded."""
+        self._make_row("usc-15:4a", mention_count=5)
+        self._make_row("usc-15:4b", mention_count=1)  # excluded by min_demand=2
+        rows = AuthorityFrontierService.dequeue_queued(limit=10, min_demand=2)
+        keys = [r.canonical_key for r in rows]
+        self.assertIn("usc-15:4a", keys)
+        self.assertNotIn("usc-15:4b", keys)
+
+    def test_limit_respected(self):
+        """No more than ``limit`` rows should be returned."""
+        for i in range(5):
+            self._make_row(f"usc-15:5{i}", mention_count=10 - i)
+        rows = AuthorityFrontierService.dequeue_queued(limit=3)
+        self.assertEqual(len(rows), 3)
+
+    def test_no_provider_filter(self):
+        """dequeue_queued must return rows even when provider is None (seed rows)."""
+        row = self._make_row("usc-15:6a", mention_count=5)
+        self.assertIsNone(row.provider)
+        rows = AuthorityFrontierService.dequeue_queued(limit=10)
+        keys = [r.canonical_key for r in rows]
+        self.assertIn("usc-15:6a", keys)
+
+    def test_combined_max_depth_and_min_demand(self):
+        """Both filters apply simultaneously."""
+        self._make_row("usc-15:7a", depth=0, mention_count=5)  # passes both
+        self._make_row("usc-15:7b", depth=3, mention_count=5)  # fails max_depth=2
+        self._make_row("usc-15:7c", depth=0, mention_count=1)  # fails min_demand=2
+        rows = AuthorityFrontierService.dequeue_queued(
+            limit=10, max_depth=2, min_demand=2
+        )
+        keys = [r.canonical_key for r in rows]
+        self.assertIn("usc-15:7a", keys)
+        self.assertNotIn("usc-15:7b", keys)
+        self.assertNotIn("usc-15:7c", keys)
+
+
+class SeedChildKeysTests(TestCase):
+    """Tests for AuthorityFrontierService.seed_child_keys (Phase-5 idempotent seeding)."""
+
+    def _make_parent(self, key="usc-15:78j", depth=0):
+        return AuthorityFrontier.objects.create(
+            canonical_key=key,
+            authority=key.split(":")[0],
+            discovery_state="ingested",
+            depth=depth,
+        )
+
+    def test_creates_child_rows_at_depth_plus_one(self):
+        """New rows should be created at parent.depth + 1.
+
+        Parent is exchange-act:10 (no conflict with seeded keys).
+        Seeds:
+          "usc-15:78j(b)" → root "usc-15:78j"   (new row; (b) subsection stripped)
+          "cfr-40:261.4"  → root "cfr-40:261.4"  (new row; ".4" is a WHOLE section,
+                                                  NOT a subsection — preserved intact)
+        Both are new → child_created=2.
+        """
+        parent = self._make_parent("exchange-act:10", depth=0)
+        result = AuthorityFrontierService.seed_child_keys(
+            parent, ["usc-15:78j(b)", "cfr-40:261.4"]
+        )
+        self.assertEqual(result["child_created"], 2)
+        self.assertEqual(result["child_skipped"], 0)
+
+        usc_row = AuthorityFrontier.objects.get(canonical_key="usc-15:78j")
+        # cfr-40:261.4 is a whole section (part 261, section .4) — the dotted
+        # section number is preserved; only parenthetical subsections roll up.
+        cfr_row = AuthorityFrontier.objects.get(canonical_key="cfr-40:261.4")
+
+        # Both should be at depth 1 and in queued state
+        self.assertEqual(usc_row.depth, 1)
+        self.assertEqual(usc_row.discovery_state, "queued")
+        self.assertEqual(usc_row.jurisdiction, C.JURISDICTION_US_FEDERAL)
+        self.assertEqual(usc_row.authority_type, C.AUTHORITY_TYPE_STATUTE)
+
+        self.assertEqual(cfr_row.depth, 1)
+        self.assertEqual(cfr_row.discovery_state, "queued")
+        self.assertEqual(cfr_row.authority, "cfr-40")
+        self.assertEqual(cfr_row.jurisdiction, C.JURISDICTION_US_FEDERAL)
+        self.assertEqual(cfr_row.authority_type, C.AUTHORITY_TYPE_REGULATION)
+
+    def test_section_root_rollup(self):
+        """Subsection keys like usc-15:78j(b) must roll up to usc-15:78j."""
+        parent = self._make_parent("dgcl:102", depth=0)
+        result = AuthorityFrontierService.seed_child_keys(
+            parent, ["usc-15:78j(b)", "usc-15:78j(c)"]
+        )
+        # Both roll to same root usc-15:78j — only one row created
+        self.assertEqual(result["child_created"], 1)
+        self.assertEqual(result["child_skipped"], 1)
+        self.assertEqual(
+            AuthorityFrontier.objects.filter(canonical_key="usc-15:78j").count(), 1
+        )
+
+    def test_idempotent_second_call(self):
+        """Calling seed_child_keys again with the same keys must skip all.
+
+        "cfr-17:240.10b-5" is a whole section (preserved); "usc-15:77b" stays
+        as-is. First call creates 2 rows; second call skips both (idempotent).
+        """
+        parent = self._make_parent("exchange-act:10", depth=0)
+        raw_keys = ["cfr-17:240.10b-5", "usc-15:77b"]
+        # Both are whole sections (no parenthetical subsection to strip).
+        rolled_roots = ["cfr-17:240.10b-5", "usc-15:77b"]
+
+        first = AuthorityFrontierService.seed_child_keys(parent, raw_keys)
+        self.assertEqual(first["child_created"], 2)
+
+        second = AuthorityFrontierService.seed_child_keys(parent, raw_keys)
+        self.assertEqual(second["child_created"], 0)
+        self.assertEqual(second["child_skipped"], 2)
+
+        # No duplicates in DB — rows keyed by rolled roots
+        self.assertEqual(
+            AuthorityFrontier.objects.filter(canonical_key__in=rolled_roots).count(),
+            2,
+        )
+
+    def test_partial_overlap_creates_only_new(self):
+        """Overlapping keys are skipped; new keys are created."""
+        parent = self._make_parent("irc:1", depth=0)
+        first = AuthorityFrontierService.seed_child_keys(parent, ["usc-26:61"])
+        self.assertEqual(first["child_created"], 1)
+
+        # Add the same key plus a new one
+        second = AuthorityFrontierService.seed_child_keys(
+            parent, ["usc-26:61", "usc-26:162"]
+        )
+        self.assertEqual(second["child_created"], 1)
+        self.assertEqual(second["child_skipped"], 1)
+
+    def test_depth_is_parent_depth_plus_one(self):
+        """Depth of child rows must always be parent.depth + 1."""
+        parent = self._make_parent("dgcl:141", depth=1)
+        AuthorityFrontierService.seed_child_keys(parent, ["dgcl:242"])
+        child = AuthorityFrontier.objects.get(canonical_key="dgcl:242")
+        self.assertEqual(child.depth, 2)
+
+    def test_no_duplicate_canonical_key_rows(self):
+        """Multiple calls must never produce duplicate canonical_key rows."""
+        parent = self._make_parent("usc-15:78j", depth=0)
+        # The parent key itself is "usc-15:78j"; seeding a child that rolls to
+        # the same root must detect the pre-existing row.
+        AuthorityFrontierService.seed_child_keys(parent, ["cfr-40:261"])
+        AuthorityFrontierService.seed_child_keys(parent, ["cfr-40:261"])
+        AuthorityFrontierService.seed_child_keys(parent, ["cfr-40:261"])
+        self.assertEqual(
+            AuthorityFrontier.objects.filter(canonical_key="cfr-40:261").count(), 1
+        )
+
+    def test_empty_keys_list_returns_zero_counts(self):
+        """Passing an empty list must return created=0, skipped=0."""
+        parent = self._make_parent()
+        result = AuthorityFrontierService.seed_child_keys(parent, [])
+        self.assertEqual(result["child_created"], 0)
+        self.assertEqual(result["child_skipped"], 0)
+
+    def test_jurisdiction_and_authority_type_populated(self):
+        """Newly created child rows must have correct jurisdiction + authority_type."""
+        parent = self._make_parent("exchange-act:10", depth=0)
+        AuthorityFrontierService.seed_child_keys(parent, ["usc-15:78b"])
+        child = AuthorityFrontier.objects.get(canonical_key="usc-15:78b")
+        self.assertEqual(child.jurisdiction, C.JURISDICTION_US_FEDERAL)
+        self.assertEqual(child.authority_type, C.AUTHORITY_TYPE_STATUTE)
+
+    def test_discovery_state_is_queued(self):
+        """Newly seeded child rows must always start as queued."""
+        parent = self._make_parent("exchange-act:10", depth=0)
+        AuthorityFrontierService.seed_child_keys(parent, ["dgcl:141"])
+        child = AuthorityFrontier.objects.get(canonical_key="dgcl:141")
+        self.assertEqual(child.discovery_state, "queued")
+
+    def test_existing_row_at_any_state_is_skipped(self):
+        """A row already at 'ingested' must be skipped (never reset to queued)."""
+        # Pre-create at ingested state
+        AuthorityFrontier.objects.create(
+            canonical_key="usc-15:78l",
+            authority="usc-15",
+            discovery_state="ingested",
+            depth=0,
+        )
+        parent = self._make_parent("exchange-act:12", depth=0)
+        result = AuthorityFrontierService.seed_child_keys(parent, ["usc-15:78l"])
+        self.assertEqual(result["child_created"], 0)
+        self.assertEqual(result["child_skipped"], 1)
+        # State must still be ingested, not reset to queued
+        row = AuthorityFrontier.objects.get(canonical_key="usc-15:78l")
+        self.assertEqual(row.discovery_state, "ingested")

@@ -14,6 +14,9 @@ from opencontractserver.enrichment.services.authority_frontier_service import (
 from opencontractserver.enrichment.services.corpus_reference_service import (
     CorpusReferenceService,
 )
+from opencontractserver.enrichment.services.crawl_authorities_service import (
+    CrawlAuthoritiesService,
+)
 from opencontractserver.enrichment.services.enrichment_service import EnrichmentService
 from opencontractserver.enrichment.services.governance_graph_service import (
     GovernanceGraphService,
@@ -22,6 +25,7 @@ from opencontractserver.enrichment.services.governance_graph_service import (
 __all__ = [
     "AuthorityDiscoveryService",
     "AuthorityFrontierService",
+    "CrawlAuthoritiesService",
     "CorpusReferenceService",
     "EnrichmentService",
     "GovernanceGraphService",

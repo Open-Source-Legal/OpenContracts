@@ -190,6 +190,9 @@ class AnnotationQueryMixin:
                     else None
                 ),
                 authority=n["authority"],
+                jurisdiction=n.get("jurisdiction"),
+                authority_type=n.get("authority_type"),
+                discovery_state=None,
                 degree=n["degree"],
             )
             for n in data["doc_nodes"]
@@ -201,6 +204,9 @@ class AnnotationQueryMixin:
                 kind=enrichment_constants.GRAPH_NODE_EXTERNAL,
                 corpus_id=None,
                 authority=g["authority"],
+                jurisdiction=g.get("jurisdiction"),
+                authority_type=g.get("authority_type"),
+                discovery_state=g.get("discovery_state"),
                 degree=g["degree"],
             )
             for g in data["ghost_nodes"]

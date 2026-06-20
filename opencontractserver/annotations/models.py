@@ -2153,6 +2153,8 @@ class AuthorityFrontier(django.db.models.Model):
         ("blocked_domain", "Source domain not on the public-domain allowlist"),
         ("unlocated", "Located text did not verify against the requested key"),
         ("pending_approval", "Found, awaiting human approval before ingest"),
+        # Phase 5: per-jurisdiction cap reached; row parked so dequeue can skip it
+        ("deferred_cap", "Deferred: per-jurisdiction cap reached"),
     ]
     discovery_state = django.db.models.CharField(
         max_length=32,
